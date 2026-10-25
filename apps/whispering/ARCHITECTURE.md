@@ -3,7 +3,7 @@
 Whispering is a page. On the desktop it is an app bundled with Epicenter
 (ADR-0493, ADR-0552), and Epicenter's shell and host do what a page cannot;
 in a browser tab it keeps its folder in browser storage. Exactly one thing
-opens the data folder: the page's own folder engine.
+opens the data folder: the page's own folder mirror.
 
 ```text
 src/                        the page      the UI; opens the folder bound to its window
@@ -19,7 +19,7 @@ src/                        the page      the UI; opens the folder bound to its 
 └──────────────────────▲─────────────────┬───────────┘
                        │ invoke          │ reads, changes, audio
              ┌─────────┴── page ───┐     ▼
-             │ the folder engine   │   the data folder
+             │ the folder mirror   │   the data folder
              └─────────┬───────────┘
                        │ invoke ai_send
 ┌──────────────────────▼─────────────────────────────┐
@@ -29,14 +29,14 @@ src/                        the page      the UI; opens the folder bound to its 
 └────────────────────────────────────────────────────┘
 ```
 
-The page opens the folder with `@epicenter/folder/tauri` and names no folder:
-Epicenter binds one directory to each Whispering window before the window
-exists, and the shared Rust plugin (`tauri-plugin-epicenter-folder`), in
-Epicenter's process, answers every command in the calling window's
-directory. The page's own folder engine, the native
-`Folder`, then makes every read (`read_folder_file` and the rest) and every
-change (`put_folder_file`) through the folder plugin, one command per storage
-method. It reads only inside the window's directory and never through a link;
+The page opens the folder with `@epicenter/folder/next/tauri` and names no
+folder: Epicenter binds one directory to each Whispering window before the
+window exists, and the shared Rust plugin (`tauri-plugin-epicenter-folder`),
+in Epicenter's process, answers every command in the calling window's
+directory. The page's own folder mirror then makes every read
+(`read_folder_file` and the rest) and every change (`put_folder_file`)
+through the folder plugin, one command per storage method, and the plugin's
+watcher names the paths that changed. It reads only inside the window's directory and never through a link;
 the plugin checks each change against the shared path rule, keeps it out of
 Git's private state, and lands it only while the path still holds the bytes
 the save read. This app has no folder code of its own on the desktop: no copy
@@ -48,8 +48,8 @@ the recorder, local transcription with Epicenter's active model, and the AI
 commands. The two connections are rows of Epicenter's own folder
 `so.epicenter`, which Epicenter reads and saves for the page by operation;
 their endpoints and keys stay in this computer's keychain, and a request goes
-through the `epicenter` CLI, which adds the key. The page runs the Folder
-engine over its recording directory. The native folder plugin performs its
+through the `epicenter` CLI, which adds the key. The page runs the folder
+mirror over its recording directory. The native folder plugin performs its
 rooted file operations; the connection commands separately read and save the
 two rows in Epicenter's own directory through the CLI.
 
@@ -61,22 +61,29 @@ was out.
 
 `src/lib/definition.ts` names five tables and the schema each row's
 frontmatter reads through (`whisperingTables`), built from the shared field
-vocabulary (`@epicenter/definition`). The local `Folder` from
-`@epicenter/folder` reads them as Markdown rows at `<table>/<id>.md`. A
-schema only interprets (ADR-0632): a row that does not fit comes back with its
-exact source and its issues, and a save never validates, so a field another
+vocabulary (`@epicenter/definition`). The folder mirror from
+`@epicenter/folder/next` reads them as Markdown rows at `<table>/<id>.md`. A
+schema only interprets (ADR-0632): a row that does not fit comes back as a
+`Row` with its issues (`not-text`, `frontmatter`, `schema`, or `unreadable`
+for a read that failed), and a save never validates, so a field another
 program added survives every edit. A table owns exactly one Markdown file per
-row; any other file is an ordinary file reached through `folder.files`.
-Folder owns one working text per path; `TextDocument` exposes its cached exact
-text, and each table's `parse(text)` interprets fields, body, and issues.
-`liveSnapshot(handle)` from
-`@epicenter/svelte/snapshot` exposes a tracked `.current` snapshot for Svelte; input uses
-commands through function bindings. Views hold no copy
-of the document. Acquired text survives unmount, deletion, binary replacement,
-and failed reads, including clean source read before an outside deletion.
-Only accepted local input initiates autosave. All file and
-table publications share the folder's per-path lane and the last publication
-wins. The package's [README](../../packages/folder/README.md) is the contract.
+row; any other file is an ordinary file, a `FileValue` from `folder.file(path)`
+or `folder.files`.
+
+Opening lists the folder and reads every text file (Markdown, the common text
+extensions, and names with no extension such as `.gitignore`), so reads are
+synchronous and complete; there is no loading or missing state, and a row
+that is not there is `row(id) === undefined`. Audio and other files are listed
+with `data: undefined` and fetched with `folder.read(path)`. The mirror never
+runs ahead of the disk: it changes when a write lands or a read sees another
+writer's change, so a failed write needs no rollback. Every write answers
+`Saved` once it landed and the mirror shows it. Writes wait per path and land
+in order over the file as it is then; an `update` sets the fields and body it
+names and writes canonical frontmatter (declared keys in schema order, then
+others sorted, comments dropped), and a patch that changes no value writes
+nothing. `readRow(text, schema)` reads typed text exactly as the mirror reads a
+saved row, which is how a repair view checks Source before it saves. The
+package's `src/next/folder.ts` is the contract.
 
 `definition.ts` builds the table schemas with `@epicenter/definition` and
 TypeBox. Schemas interpret the files; they do not own their persistence.
@@ -122,29 +129,35 @@ What Whispering adds on top:
   every app from its one origin, so it lasts between launches.
 
 Every file action, including settings saves, file creation, rename, and
-deletion, checks `context.closing` before starting. Late provider, recording,
-and read answers check the same state before changing product state or saving.
-Folder close releases
-synchronously without submitting held input or waiting for writes; it does not
-keep a multi-step action alive across later reads or writes. Product teardown itself waits for nothing.
+deletion, checks `whispering.closing` before starting. Late provider and
+recording answers check the same state before changing product state or
+saving. Product teardown itself waits for nothing; `<OpenFolder>` then closes
+the folder, which refuses new writes, sends what waits, and releases storage.
 A request to
 an endpoint is not waited for: its result row is in the folder before it goes
 out (ADR-0542), and an answer that has not arrived when the app quits is lost.
 
 ## Folder and platform capabilities
 
-The layout supplies FolderApp an inline opener:
+The layout gives `<OpenFolder>` (`@epicenter/svelte/open-folder`) an inline
+opener:
 
 ```svelte
-<FolderApp open={() => openFolder({ tables: whisperingTables })}>
-	{#snippet children(context)}
-		<WhisperingApp {context}>{@render props.children?.()}</WhisperingApp>
+<OpenFolder open={() => openFolder({ tables: whisperingTables })}>
+	{#snippet children(folder)}
+		<WhisperingApp {folder}>{@render props.children?.()}</WhisperingApp>
 	{/snippet}
-</FolderApp>
+</OpenFolder>
 ```
 
-WhisperingApp installs the exact context and constructs its product state with
-`createWhispering(context)`. That constructor assembles the app's capture,
+OpenFolder opens the folder, wraps it with `svelteFolder` so every read is a
+tracked getter or lookup, toasts every write that does not land with the text
+to copy, looks at storage again on focus, visibility, coming online, and page
+hide, asks on browser unload only while a write is out, and closes the folder
+when it unmounts. WhisperingApp puts that folder in Whispering's own context
+(`setFolder` in `src/lib/folder.ts`, typed `SvelteFolder<WhisperingTables>`)
+and constructs its product state with `createWhispering(folder)`. That
+constructor assembles the app's capture,
 inference, connections, and preferences through `#platform/services`. The
 layout and route pages do not construct or receive a separate workspace.
 
@@ -154,7 +167,7 @@ those app capabilities. They neither open nor close storage:
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
-| Folder | The directory Epicenter bound to this window, opened with Whispering's tables (`openFolder({ tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
+| Folder | The directory Epicenter bound to this window, opened with Whispering's tables (`openFolder({ tables })` from `@epicenter/folder/next/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/next/browser`); earlier OPFS folders are not read or changed |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
 | Connections and keys | Rows of `so.epicenter`'s `connections` table, read and saved by Epicenter by operation; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
@@ -170,17 +183,17 @@ refusal (a window with no folder, a folder that is gone, a missing
 permission) remains the folder opener's own error, as does a folder
 the engine cannot open.
 
-Everything above the seam (`whispering.svelte.ts`, its query cache, the components)
-is the same code for both. Opening returns a `Result`, and a refusal is shown
-on the "Could not open storage" screen as it is. The two
-storages are never substitutes: nothing that is missing or refuses inside a
-desktop app is replaced by browser storage, and the browser opener itself
-refuses there (`InsideTauri`).
+Everything above the seam (`whispering.svelte.ts`, the components) is the
+same code for both. Opening returns a `Result`, and OpenFolder shows a
+refusal on its "Could not open storage" screen as it is. The two storages are
+never substitutes: nothing that is missing or refuses inside a desktop app is
+replaced by browser storage, and the host build carries none.
 
-Page code names types and helpers from `@epicenter/folder`.
-`hostAppViteConfig` (from `@epicenter/vite-config`, which `vite.config.ts`
-builds on) aliases that exact specifier to `@epicenter/folder/tauri` in the
-host build and to `@epicenter/folder/browser` otherwise, so a browser build carries no
+Page code names types and `readRow` from `@epicenter/folder/next`, and the
+layout its `openFolder`. `hostAppViteConfig` (from `@epicenter/vite-config`,
+which `vite.config.ts` builds on) aliases that exact specifier to
+`@epicenter/folder/next/tauri` in the host build and to
+`@epicenter/folder/next/browser` otherwise, so a browser build carries no
 desktop adapter or Epicenter's generated bindings, and the host build no
 browser storage or isomorphic-git. `src/lib/platform-selection.test.ts`
 bundles both builds and reads what each pulls in.
@@ -282,24 +295,25 @@ to choose transcription on this computer.
 ## The product root and the pages
 
 ```text
-routes/+layout.svelte      mounts one shared FolderApp
-└── FolderApp              opens, guards, and closes the folder context
+routes/+layout.svelte      mounts one shared OpenFolder
+└── OpenFolder             opens, wraps, watches, and closes the folder
     └── WhisperingApp      creates product state; header, navigation, Files
         ├── /             recorder and latest recording
         ├── /recordings   list, details, raw files
         └── /transformations
 ```
 
-`FolderApp` owns opening, the folder context, and closing. `WhisperingApp`
-receives only that context, constructs product state
-with `createWhispering(context)`, and provides `getWhispering()`
-and `getFolder()` to descendants. Pages build no product state and open no folder.
-There is no module-level mutable state.
+`OpenFolder` owns opening, failed-write toasts, and closing. `WhisperingApp`
+receives only the folder it hands on, constructs product state with
+`createWhispering(folder)`, and provides `getWhispering()` and `getFolder()`
+to descendants. Pages build no product state and open no folder. There is no
+module-level mutable state.
 
-Unmount closes an existing context synchronously. If opening finishes after
-unmount, FolderApp closes that context without registering a native guard. A
-native guard closes the same context after destruction is dispatched
-successfully; Cancel or a failed destroy leaves it open and editable.
+Unmount closes the folder: new writes are refused, waiting writes are sent,
+and storage is released once they answer. If opening finishes after unmount,
+OpenFolder closes that folder without registering a window guard. In a
+desktop window, OpenFolder holds the window's close: it never asks, waits for
+the writes in flight, then lets the window go.
 
 Product construction is synchronous and reads nothing. Its `start()` first
 calls `maintainExclusions` (`src/lib/exclusions.ts`), before any product read.
@@ -307,23 +321,23 @@ It reads the root `.gitignore` and inserts the four Markdown-only defaults befor
 existing text, after any BOM, if that ordered block is missing. An existing block
 stays where it is. Authored rules after it and nested `.gitignore` files can
 override the defaults; Git alone determines commit eligibility. The exact bytes
-read are preserved in an ordinary whole-file `files.write` publication.
+read (`folder.read('.gitignore')`) are preserved in an ordinary whole-file
+`folder.write`.
 A write is followed by a read to check that the root block remains present.
 A refusal becomes `exclusionNotice`, shown by
 the shell while Files and other work remain available. Reload checks a repair.
 No Git or provider request is made.
 
-The same startup attempt then calls `services.recoverRecordings()` before reading
-the folder and device settings. A thrown startup error disposes Whispering and
-shows its original message under "Whispering could not start". Disposal
-starts the folder context’s close immediately.
+The same startup attempt then calls `services.recoverRecordings()`, then
+reads the connections and the saved microphone choice. It reads no folder
+file: the mirror already holds them. A thrown startup error disposes
+Whispering and shows its original message under "Whispering could not start".
 
 On destruction, WhisperingApp calls `whispering.dispose()`, which returns at once.
-Admission and late answers already follow `context.closing`; disposal separately
-owns cleanup idempotence. It closes the context, releases a microphone test,
-and stops observers and listeners even when the native guard closed the context
-first. It finishes no recording and waits for no write; a recording under way
-ends with the page (ADR-0663).
+It refuses new work and late answers, releases a microphone test, and stops
+the effect that unticks recordings that left the folder. It finishes no
+recording and waits for no write; a recording under way ends with the page
+(ADR-0663). OpenFolder then closes the folder.
 
 Settings keep one replace-only draft of explicit input, separate from saved
 connection values. Untouched fields follow saved values and defaults; a
@@ -331,16 +345,16 @@ completed Save releases only what it submitted. Endpoint, model, key choice,
 and key typed during that save remain for the next explicit Save.
 
 Route changes render inside the same product root. The recording, selections,
-running requests, pasted text, settings draft, and query cache survive them.
-Only page-local presentation state resets. Reload mounts a fresh root and
-repeats startup.
+running requests, pasted text, and settings draft survive them. Only
+page-local presentation state, drafts in a view included, resets. Reload
+mounts a fresh root and repeats startup.
 
-FolderApp guards document departure from the Folder's own save status. Its
-`beforeunload` handler raises the browser's leave warning for accepted edits
-that have not saved. Internal route changes keep the mounted app and need no
-guard. Inside Epicenter, each page confirms window Close only for unfinished
-Folder saves. The host always confirms application Quit and adds its native
-recording warning; see "Closing".
+OpenFolder's `beforeunload` handler looks at the folder, sending what waits,
+and raises the browser's leave warning only while a write is out. Internal
+route changes keep the mounted app and need no guard. Inside Epicenter a
+window's Close waits for writes in flight and never asks. The host always
+confirms application Quit and adds its native recording warning; see
+"Closing".
 
 Every page is prerendered in Epicenter's build, and Epicenter serves the app's
 document for any other path below it; a browser build serves a fallback page.
@@ -492,12 +506,16 @@ exposes it as `whispering.resolve`, and the Run check, the post-processing
 choice, a transcript's Transform menu, the recipe's page, and both run entry
 points call it, so they cannot disagree.
 
-`whispering.transform` captures the current held recipe and transcript, both
-named by path. Unacquired input is read once; acquired input remains usable
-through later storage failures or deletion. Invalid or empty input and a missing
-related recording refuse the request. Preparation publishes neither input.
-`whispering.transformText` captures a recipe and pasted text without a recording.
-The result records the exact prompt and input before its backend request.
+`whispering.transform(transcript, recipe, shown?)` sends what the person sees:
+`shown.recipe` is the recipe as TransformationDetail's fields show it
+(`{ fields: { title, model }, body }` from its drafts), and `shown.input` the
+transcript text TranscriptCard shows. Whatever is not shown is read from its
+row in the mirror; in Source, Run sends the mirror's row, so it is blocked
+while that row has issues. Invalid or empty input and a missing related
+recording refuse the request. Preparation writes neither input.
+`whispering.transformText` takes a recipe, as shown or as its row, and pasted
+text without a recording. The result records the exact prompt and input
+before its backend request.
 
 Both fix a run before anything is sent: the result's stem, and every field the
 result row will hold, including the instructions, input, model, and the text
@@ -505,16 +523,17 @@ connection's base URL. A transcription fixes its row the same way: the
 recording, the time, the model, and the transcription connection's base URL.
 Every run then follows one lifecycle (ADR-0542, `src/lib/runs.svelte.ts`):
 
-1. Its result row is saved with those fields and an empty body
-   (`folder.tables.recordings.write(id, document)`) before the request goes out. A row that cannot
-   be saved refuses, and nothing is sent.
+1. Its recording is checked to still be in the folder, then its result row is
+   created with those fields and an empty body
+   (`folder.tables.<table>.create(id, { fields, body: '' })`) before the
+   request goes out. A row that cannot be created refuses, and nothing is sent.
 2. The request goes out. While it is out the row shows as running.
-3. The answer is saved into the acquired current document with
-   `document.patch({ body })` and then `document.save()`, after an explicit refresh that preserves local
-   input. A row already absent when checked is left absent. The read and publication
-   are separate operations; a deletion racing a later admitted answer may be
-   followed by that publication. A failed publication is retried after a wait
-   that doubles from half a second to thirty seconds while the window is open.
+3. The answer is set as the row's body with `update(id, { body })`, over the
+   file as it is when the save runs. A row deleted meanwhile answers
+   `NothingToUpdate`, which counts as left absent: nothing is written. A
+   write that fails keeps the answer in this window, with why, until the
+   person presses **Save again** (one more `update`) or copies it; nothing
+   writes it again on its own and nothing sends the request again.
 
 Nothing that says what is happening is written. What a row shows is derived
 from its body and this window's live state:
@@ -524,7 +543,7 @@ from its body and this window's live state:
 | Has a body | The answer. An empty answer is written as one newline, so only a row nothing was written to has an empty body. |
 | No body, request out | Running. |
 | No body, request failed (refused, unreachable, answered wrongly, the transport threw, or the connection moved) | Why, with Run again and Delete. |
-| No body, answer received and its write failing | The text, with Copy, and why the write failed. The header counts these. |
+| No body, answer received and its write failed | "Answer not written" with why, the text, Save again, and Copy. The header counts these. |
 | No body, nothing in this window | Unfinished: the window that sent it closed first. Run again and Delete. |
 
 Run again (`whispering.runAgain`) reads the row now and sends the request its
@@ -538,15 +557,15 @@ send one request.
 
 A transformation only ever creates rows in `transformation_runs/` and
 `text_runs/`. No code path writes a transcription row from a transformation.
-A listing of `text_runs/` that fails keeps the last list and reports why; a
-file there that does not read is listed apart.
+A file in `text_runs/` that does not read is listed apart.
 
 Deleting a recording (`src/lib/deletion.ts`) deletes its row, its
 transcripts, and the results made from them, each as it is when the deletion
 runs, and keeps its audio: an ordinary file the table
-does not own, which Files can delete. What goes is read from
-the folder then, never taken from a listing; a result file that does not read
-refuses the deletion, since it might be this recording's. It must not race
+does not own, which Files can delete. What goes is read from the mirror when
+the person is asked, and read from it again when the deletion runs; a result
+file that does not read refuses the deletion, since it might be this
+recording's. It must not race
 the work that writes those rows. `deletionFor` and `delete`
 both refuse while a transcription or transformation of that recording is
 running or one of its rows is being written, and `delete` also refuses when
@@ -555,95 +574,90 @@ starts for that recording. A failed run holds nothing; it is dropped with the
 recording. Results on pasted text name no recording, so they are neither
 deleted with one nor in the way of deleting one, readable or not.
 
-The confirmation reads current row metadata and result membership. It does not
-save pending input. A malformed recording or transformation is deleted alone,
-so its results remain. Each `files.delete(path)`
-publishes removal in that path's command lane. Successful deletion consumes only
-its captured unsubmitted input; input accepted later remains pending. A partial
-cascade failure reports the result files that could not be removed.
+The confirmation reads current row metadata and result membership from the
+mirror. A malformed recording or transformation is deleted alone, so its
+results remain. Each `folder.delete(path)` waits in that path's lane behind
+the writes asked for before it. A partial cascade failure reports the result
+files that could not be removed.
 
-## Editing through Folder
+## Editing through drafts
 
-Folder owns accepted file edits and their persistence ([ADR 0656](../../docs/adr/0656-a-folder-owns-typed-input-from-open-to-close.md)). `FolderApp` opens it
-and creates the UI context; `WhisperingApp` installs that same context for
-`getFolder()`. Its TanStack Query cache holds saved rows and file reads
-(ADR-0528). Folder also owns each editable document and its retained input;
-the Svelte document adapters expose tracked properties over its read methods.
-A read never replaces unfinished input.
+The mirror shows only what landed, so an input bound straight to it would
+lose keystrokes typed while a save is out. Every text input bound to folder
+data therefore uses a draft (`draft(source, save)` from
+`@epicenter/svelte/folder-next`): it shows what was typed until that text's
+save answers, then follows `source` again, which by then is the landed text,
+or the disk's when the save failed. Checkboxes, selects, and buttons write
+directly.
 
-- **Reads** use the context's generated queries. One Folder change listener
-  invalidates affected representations. Browser broadcasts and directory
-  watches report outside changes; visibility reconciliation covers missed hints.
-  Save completion and closing do not wait for display refresh.
-- **One working document** is observed through
-  `folder.tables.recordings.document(id)` or `folder.files.document(path)`. Its
-  cached `getSnapshot()` contains `text`,
-  `loadError`, `isDirty`, `isSaving`, and `saveError`. Each table's `parse(text)`
-  interprets fields, body, and issues when needed. `subscribe` emits immediately and
-  requests acquisition when source is unknown or invalidated.
-  `liveSnapshot(handle)` exposes this same snapshot through its tracked `.current` getter.
-  Function bindings call `patch({ fields?, body? })` or `replace(text)`.
-  `save()` publishes the text captured at the call and returns success or an
-  error. `patch` and `replace` accept input synchronously before observers run.
-  Switching views requires no save or reread. Each observation view owns
-  its subscription; the Folder retains source, autosave, and failures after
-  unmount. Only Folder close releases them, without flushing or draining work.
-- **A failed save** keeps its accepted input and error. Aggregate status carries
-  immutable `{ path, error }` metadata only. Whispering obtains that path's
-  passive document handle for the notice. Copy samples its current dirty text
-  with `getSnapshot()` at the click, without acquiring source; after success or
-  discard there is nothing to copy. The status offers
-  **Try again** and **Discard**. New typing may autosave; only a successful
-  publication or explicit discard clears the save failure. A run captures held input
-  without publishing it. Discard drops unsubmitted intent and returns
-  its source to copy; it does not cancel admitted publications or restore an
-  earlier storage version. Shared failure toasts read the live editor rather
-  than storing another copy of its source.
-- **Acquired source** remains available after clean deletion, binary replacement,
-  failed refresh, and unmount. A retained source stays editable and new input
-  can recreate a deleted file. Storage observations never initiate a write.
+```ts
+const row = $derived(folder.tables.recordings.row(id));
+const file = $derived(folder.file(path));
+const title = draft(
+	() => (row?.issues === null ? row.fields.title : ''),
+	(title) => folder.tables.recordings.update(id, { fields: { title } }),
+);
+const source = draft(
+	() => (typeof file?.data === 'string' ? file.data : ''),
+	(text) => folder.write(path, text),
+);
+```
+
+- **One draft per editor component.** RecordingDetail has title, notes, and
+  source drafts; TransformationDetail title, model (empty saves `null`),
+  instructions, and source; TranscriptCard and FileView a transcript body;
+  FileView a text file's source. A draft is never shared between components.
+  Switching between the fields and Source of one file first calls
+  `folder.checkpoint()` and awaits the last save here, so the other editor
+  shows it.
+- **Source** keeps the file's own newlines (`withFileNewlines`). Whether a
+  row shows as text is `showsText(path)`: the person chose Source
+  (`asText`, a `SvelteSet` of view state), or the row has issues. Repair
+  reads the typed Source text with `readRow(source.text, schema)`, so the
+  issue list, the Details tab, and `useForm`'s refusal follow what is typed,
+  before it saves.
 - **A value the schema does not accept** is saved as written, and the row is
-  listed for repair. A field change leaves the rest of the file's bytes as
-  they were; text typed into a body saves with LF line endings (ADR-0572).
-- **A recording's initial row save** stays on its active capture. Stop awaits
-  that attempt before writing its length, even if another capture has since
-  started.
-- **Audio settling** follows capture state and the first successful file-listing
-  update after Stop. Saving notes, transcripts or results does not change audio
-  availability. Runs coordinate request preparation with deletion and block
-  deletion during active requests and publications; retry backoff does not hold
-  that guard. An answer's write, each
-  retry, and a Stop's length write check the app's closing state before saving.
-  Folder releases synchronously without waiting for writes or workflows.
+  listed for repair. An `update` writes canonical frontmatter; text typed
+  into a body saves with LF line endings (ADR-0572).
+- **A recording's initial row create** stays on its active capture. Stop
+  awaits that create before setting its length, even if another capture has
+  since started, and a `NothingToUpdate` answer (the row was deleted) is
+  ignored.
+- **Just-finished audio**: while a recording is captured or stopping, and
+  after Stop until the listing has an audio sibling for its stem, its audio
+  is the path the capture wrote (a `Map` of just-finished recordings, cleared
+  inside `audioOf`), so it is never reported absent while the folder catches
+  up. Stop calls `folder.checkpoint()` so it does soon.
+- **Playback** reads audio bytes with `folder.read(path)` each time the
+  file's `FileValue` changes, and owns the object URL it made until the next
+  read or unmount.
+- **FileView** shows a file by its `FileValue`: string data is editable text;
+  `Uint8Array` data is not UTF-8 and is not opened; `undefined` data with no
+  read error is a file the mirror does not keep (audio plays, others show
+  their kind); a read error shows its message with Try again
+  (`checkpoint()`); no file says it is no longer in the folder.
 
 Whispering retains view selection, connection forms, pasted text, capture
-state, and answers whose files are not written. Folder retains accepted
-file edits. Rename copies held source or current bytes to the new name, then
-deletes the source. If current held text differs from the copied source, the
-source stays and the app reports both paths. Closing after the copy also keeps
-the source, because no new deletion starts once close begins. Identical text is
-already preserved at the destination. Otherwise the selection follows the new
-name. Recording and transformation files keep their names. When
-`context.closing` becomes true, Whispering refuses new app work and late
-answers. Disposal starts `context.close()` synchronously if needed and still
-performs product cleanup when the context was closed first. Editor handles
-refuse new input. Disposal
-returns immediately. The folder releases storage and listeners synchronously,
-without submitting held input or waiting for admitted writes. Page hide calls
-best-effort `flush()`. Confirmed departure accepts losing unfinished work;
-callers needing durable bytes await the write or save they started.
+state, and answers whose files are not written; it holds no typed text.
+Rename copies the file as the mirror shows it, or its bytes via `read` for a
+file the mirror does not keep, to the new name, then deletes the source. It
+refuses while `folder.saving`. If the file's value changed or a save began
+during the copy, the source stays and the app reports both paths; closing
+after the copy also keeps the source. Otherwise the selection follows the
+new name. Recording and transformation files keep their names. When
+`whispering.closing` becomes true, Whispering refuses new app work and late
+answers. Disposal returns immediately; OpenFolder's close then sends what
+waits before releasing storage.
 
 ## Closing
 
-Closing a desktop window prompts only while its Folder is saving or holds
-unsaved input. A recording alone closes silently; Rust still finalizes and
-keeps its audio. Cancel keeps the window, its input, and its recording; Close
-Anyway dispatches destruction without waiting for page workflows, then closes
-the page context so no work is admitted while destruction completes. Epicenter
-always confirms application Quit and mentions active capture from its native
-recorder, without querying pages
+Closing a desktop window never asks: OpenFolder's guard closes the folder,
+which refuses new writes and waits for those in flight, then the window is
+destroyed. A recording alone closes silently; Rust still finalizes and keeps
+its audio. Epicenter always confirms application Quit and mentions active
+capture from its native recorder, without querying pages
 ([ADR-0663](../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md)).
-Unsubmitted settings and pasted text do not cause a window-close prompt.
+Unsubmitted settings and pasted text do not hold a window.
 Recorded audio and started requests have their own lifetimes:
 
 - A recording is in the folder from its start
@@ -655,9 +669,8 @@ Recorded audio and started requests have their own lifetimes:
 - A transcription or recipe run writes its result row before the request goes
   out. An answer that has not arrived when the app quits is lost, and the row
   stays unfinished, to run again.
-- File edits autosave while the window is open. Failed edits remain available
-  to retry, copy, or discard while the page stays open; confirming departure
-  can lose them.
+- File edits save as they are typed. A write that did not land is a toast
+  with its text to copy; nothing keeps it to save later.
 
 A save is staged and then renamed over its path by the shell, so one cut off
 between them leaves the path as it was and a staged copy, which a later
@@ -666,25 +679,28 @@ opening sweeps.
 A window whose folder could not be opened closes the same way: nothing is
 open in it.
 
-In a browser tab, FolderApp's `beforeunload` handler warns for accepted edits
-that have not saved. Recording adds no warning. Browser audio stays in the page
+In a browser tab, OpenFolder's `beforeunload` handler warns only while a
+write is out. Recording adds no warning. Browser audio stays in the page
 until Stop saves it, so reloading or closing the tab loses an unfinished take.
 
 ## Saving and status
 
 Whispering keeps no versions and does not sync its folder: Save version,
-Connect, and Sync were removed with the move to the local `Folder`.
-`src/lib/status.ts` words the header's one line from what Whispering knows
-about saving: an answer whose file is not written yet, typing that did not
-save, a save running, or the last save storage refused (the folder's
-`status.storageFailure`), and otherwise "All changes saved on this device".
+Connect, and Sync were removed with the move to the local folder.
+`src/lib/status.ts` words the header's one line with
+`filesLine({ saving: folder.saving, unwrittenAnswers })`: answers whose file
+could not be written, then "Saving…" while a write waits or is being saved,
+and otherwise "All changes saved on this device". A write that does not land
+is OpenFolder's toast, with the text to copy; Whispering adds no second toast
+and no per-file save line.
 
 ## Noticing outside changes
 
-The context listens to `folder.onChange` once to refresh affected queries
-after saves, including another browser tab's saves. Visible queries poll for
-edits from other programs; returning to a visible page refreshes active reads
-(ADR-0654). Storage saves and closing never wait for those display reads.
+The mirror looks at storage again when OpenFolder sees focus, a visibility
+change, coming online, or page hide, and at once when the desktop watcher or
+another browser tab names a changed path. A listing compares each file's
+change token (its size on the desktop, its content in a browser) and rereads
+the text files that changed. Saves and closing never wait for it.
 
 ## Debug builds
 
@@ -692,12 +708,13 @@ A development browser build opened with `?fixture=tone` records a generated
 tone instead of the microphone (`src/lib/capture.ts`); a production build and
 Epicenter never do.
 
-No build offers failure injection. Tests fail a save by wrapping a table
-in `src/lib/services.test-support.ts`: `withObstructedCreates` puts a real
-obstacle where a new row's file goes, so the folder itself fails the save,
-and `withResultFailures` refuses a result save before it reaches the folder.
-Tests open a directory with the folder package's Bun and Tauri openers by
-their modules until public entries export them.
+No build offers failure injection. Tests open a real directory with
+`@epicenter/folder/next/bun`, or a folder over memory with
+`@epicenter/folder/next/testing` whose host a test can hold (`putGate`), make
+refuse a save (`failPut`, `beforePut`), or change behind the folder
+(`outside`), so the folder itself answers as it would on a real disk
+(`src/lib/services.test-support.ts`). Desktop tests open
+`@epicenter/folder/next/tauri` over a scripted shell.
 
 ## Where things are
 
@@ -706,7 +723,7 @@ their modules until public entries export them.
 | `src/lib/definition.ts` | The tables, each row's schema, and row paths. |
 | `src/lib/platform/` | The service contract, browser implementation, and native adapters grouped under `desktop/`. |
 | `src/lib/whispering.svelte.ts` | One mounted app owner: startup, capture and inference workflows, lists, selections, settings drafts, file actions, and synchronous disposal. |
-| `src/lib/folder.ts` | Whispering's typed folder context, provided by WhisperingApp. |
+| `src/lib/folder.ts` | `WhisperingFolder` (`SvelteFolder<WhisperingTables>`) and its context, provided by WhisperingApp. |
 | `src/lib/settings-draft.svelte.ts` | The one draft of the two connections, shown by the header's Settings and (transcription only) by the control on Home. |
 | `src/lib/connections.ts` | The connection rules both storages apply: canonical base URLs, key keep/replace/remove. Pure; stores nothing. |
 | `src/lib/recipe.ts` | The one decision about whether a recipe runs and with what. |
@@ -715,10 +732,9 @@ their modules until public entries export them.
 | `src/lib/deletion.ts` | What a deletion deletes, read fresh for the person to confirm, and running it. |
 | `src/lib/capture.ts`, `microphone.ts`, `webview-microphone.ts`, `audio-format.ts`, `transcription.ts`, `transformation.ts` | The capture contract and fixture device, the real microphone over `@epicenter/recorder` and the browser's inputs, extension-to-MIME mapping and WAV length, the transcription and transformation requests. |
 | `src/lib/microphone-input.svelte.ts` | The chosen microphone and the test of it, for one mounted app. |
-| `src/lib/file-reads.ts` | Text and audio query representations; unchanged audio bytes retain the player's Blob. |
 | `src/lib/microphone-preference.ts` | The device's saved microphone choice, shared by both platforms. |
 | `src/lib/status.ts`, `files.ts` | The header's status line; file messages, the listing, and reading a file's bytes. |
-| `src/routes/` | The layout that mounts FolderApp, the product root, and the three pages. |
+| `src/routes/` | The layout that mounts OpenFolder, the product root, and the three pages. |
 | `src/routes/components/` | The shell, navigation, header, recorder, recording and transformation lists and details, file browser and view. |
 | `src/lib/assets/` | The microphone mark from the earlier Whispering. |
 | `src/lib/tauri/bindings.gen.ts` | Epicenter's typed commands, generated by its Rust tests. Only the desktop adapter imports it. |
