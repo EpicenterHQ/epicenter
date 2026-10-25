@@ -23,26 +23,12 @@ import { hostStorage } from '../boundary.js';
 import { saveDelay } from '../document-owner.js';
 import { OpenFolderError } from '../errors.js';
 import type { DefaultFolderOptions, Folder } from '../folder.js';
+import { invalidTable } from '../paths.js';
 import { tauriHostFiles } from '../tauri-files.js';
-import { commands, events, type WindowError } from './bindings.gen.js';
-import { createNativeFolder, invalidTable } from './engine.js';
+import { commands, events } from './bindings.gen.js';
+import { createNativeFolder } from './engine.js';
+import { openRefusal } from './open-refusal.js';
 import type { FolderObservation } from './watch.js';
-
-/** What a refused open tells the page. */
-export function openRefusal(refusal: WindowError) {
-	switch (refusal.name) {
-		case 'NotBound':
-			return OpenFolderError.NotBound();
-		case 'Missing':
-			return OpenFolderError.Missing();
-		case 'Unavailable':
-			return OpenFolderError.Unavailable({ cause: refusal.message });
-		case 'ShuttingDown':
-			return OpenFolderError.ShuttingDown();
-		default:
-			return OpenFolderError.Unavailable({ cause: refusal });
-	}
-}
 
 /**
  * Open this window's folder. Refusals are returned, not thrown: a table name

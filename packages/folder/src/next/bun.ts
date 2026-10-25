@@ -7,9 +7,9 @@
 import { sweepStaleScratch } from '../directory-store.js';
 import { OpenFolderError } from '../errors.js';
 import { localRoot, scratchDirectory } from '../native/directory.js';
-import { invalidTable } from '../native/engine.js';
 import { nativeStorage, savingPrimitives } from '../native/storage.js';
 import { watchDirectory } from '../native/watch.js';
+import { invalidTable } from '../paths.js';
 import {
 	createFolder,
 	type Opened,
