@@ -82,7 +82,7 @@ function matches(
 async function storageAgrees(folder: MessagesFolder, path: string) {
 	const fresh = await folder.read(path);
 	if (fresh.error !== null) {
-		folder.checkpoint();
+		void folder.refresh();
 		return DraftError.Refused({
 			message: 'Could not check storage; try again.',
 		});
@@ -96,11 +96,11 @@ async function storageAgrees(folder: MessagesFolder, path: string) {
 						fresh.data,
 					);
 	} catch {
-		folder.checkpoint();
+		void folder.refresh();
 		return changedAttempt();
 	}
 	if (text !== folder.file(path)?.data) {
-		folder.checkpoint();
+		void folder.refresh();
 		return changedAttempt();
 	}
 	return null;
