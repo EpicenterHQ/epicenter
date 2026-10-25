@@ -67,7 +67,7 @@ schema only interprets (ADR-0632): a row that does not fit comes back as a
 `Row` with its issues (`not-text`, `frontmatter`, `schema`, or `unreadable`
 for a read that failed), and a save never validates, so a field another
 program added survives every edit. A table owns exactly one Markdown file per
-row; any other file is an ordinary file, a `FileValue` from `folder.file(path)`
+row; any other file is an ordinary file, a `FolderFile` from `folder.file(path)`
 or `folder.files`.
 
 Opening lists the folder and reads every text file (Markdown, the common text
@@ -151,9 +151,8 @@ opener:
 ```
 
 OpenFolder opens the folder, wraps it with `svelteFolder` so every read is a
-tracked getter or lookup, toasts every write that does not land with the text
-to copy, looks at storage again on focus, visibility, coming online, and page
-hide, asks on browser unload only while a write is out, and closes the folder
+tracked getter or lookup, looks at storage again on focus, visibility, and
+coming online, asks on browser unload only while a write is out, and closes the folder
 when it unmounts. WhisperingApp puts that folder in Whispering's own context
 (`setFolder` in `src/lib/folder.ts`, typed `SvelteFolder<WhisperingTables>`)
 and constructs its product state with `createWhispering(folder)`. That
@@ -303,7 +302,7 @@ routes/+layout.svelte      mounts one shared OpenFolder
         └── /transformations
 ```
 
-`OpenFolder` owns opening, failed-write toasts, and closing. `WhisperingApp`
+`OpenFolder` owns opening, refreshing, and closing. `WhisperingApp`
 receives only the folder it hands on, constructs product state with
 `createWhispering(folder)`, and provides `getWhispering()` and `getFolder()`
 to descendants. Pages build no product state and open no folder. There is no
@@ -588,8 +587,10 @@ data therefore uses a draft (`draft(source, save)` from
 `@epicenter/svelte/folder-next`): it shows what was typed until that text's
 save succeeds, then follows `source` again, which by then is the landed text.
 A failed save keeps the typed value and exposes its error. Typing again or
-**Save again** retries; **Discard** follows the disk. Folder-backed checkboxes
-and selects also use drafts; action buttons write directly.
+**Save again** retries; **Discard** follows the disk. Drafts debounce for one
+second, and flush their newest value when the editor unmounts or the page
+leaves. Folder-backed checkboxes and selects also use drafts; action buttons
+write directly.
 
 ```ts
 const row = $derived(folder.tables.recordings.row(id));
@@ -608,9 +609,9 @@ const source = draft(
   source drafts; TransformationDetail title, model (empty saves `null`),
   instructions, and source; TranscriptCard and FileView a transcript body;
   FileView a text file's source. A draft is never shared between components.
-  Switching between the fields and Source of one file first calls
-  `folder.checkpoint()` and awaits `folder.settled(path)`, so the other editor
-  shows what landed. A failed draft keeps the current editor open.
+  Opening Source changes editors immediately; it follows the folder as pending
+  field saves land. Returning to fields explicitly writes the shown Source
+  text and waits for that write before switching. A brief stale view is possible.
 - **Source** keeps the file's own newlines (`withFileNewlines`). Whether a
   row shows as text is `showsText(path)`: the person chose Source
   (`asText`, a `SvelteSet` of view state), or the row has issues. Repair
@@ -628,22 +629,23 @@ const source = draft(
   after Stop until the listing has an audio sibling for its stem, its audio
   is the path the capture wrote (a `Map` of just-finished recordings, cleared
   inside `audioOf`), so it is never reported absent while the folder catches
-  up. Stop calls `folder.checkpoint()` so it does soon.
+  up. Stop calls `folder.refresh()` and clears the entry if no sibling is listed.
 - **Playback** reads audio bytes with `folder.read(path)` each time the
-  file's `FileValue` changes, and owns the object URL it made until the next
+  file's `FolderFile` changes, and owns the object URL it made until the next
   read or unmount.
-- **FileView** shows a file by its `FileValue`: string data is editable text;
+- **FileView** shows a file by its `FolderFile`: string data is editable text;
   `Uint8Array` data is not UTF-8 and is not opened; `undefined` data with no
   read error is a file the mirror does not keep (audio plays, others show
   their kind); a read error shows its message with Try again
-  (`checkpoint()`); no file says it is no longer in the folder.
+  (`refresh()`); no file says it is no longer in the folder. A read error
+  alongside known text leaves that text editable.
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written; it holds no typed text.
-Rename copies the file as the mirror shows it, or its bytes via `read` for a
-file the mirror does not keep, to the new name, then deletes the source. It
-refuses while `folder.saving`. If the file's value changed or a save began
-during the copy, the source stays and the app reports both paths; closing
+Rename explicitly saves any text pending in the mounted editor, copies the
+file as the mirror shows it (or its bytes via `read` for a file the mirror does
+not keep) to the new name, then deletes the source. If the file's value
+changed during the copy, the source stays and the app reports both paths; closing
 after the copy also keeps the source. Otherwise the selection follows the
 new name. Recording and transformation files keep their names. When
 `whispering.closing` becomes true, Whispering refuses new app work and late
@@ -670,8 +672,8 @@ Recorded audio and started requests have their own lifetimes:
 - A transcription or recipe run writes its result row before the request goes
   out. An answer that has not arrived when the app quits is lost, and the row
   stays unfinished, to run again.
-- File edits save as they are typed. A write that did not land is a toast
-  with its text to copy; the editor keeps the typed value with Save again,
+- File edits save after a short pause in typing. The editor keeps a failed
+  value with Save again,
   Discard, and Copy.
 
 A save is staged and then renamed over its path by the shell, so one cut off
@@ -692,10 +694,9 @@ Connect, and Sync were removed with the move to the local folder.
 `src/lib/status.ts` words the header's one line with
 `filesLine({ saving: folder.saving, unwrittenAnswers })`: answers whose file
 could not be written, then "Saving…" while a write waits or is being saved,
-and otherwise "All changes saved on this device". A write that does not land
-is OpenFolder's toast, with the text to copy; the failed editor draft also
-offers Save again, Discard, and Copy. Whispering adds no second toast and no
-per-file save line.
+and otherwise "All changes saved on this device". A command awaiting `Saved`
+shows its own failure once; a failed editor draft offers Save again, Discard,
+and Copy. There is no per-file save line.
 
 ## Noticing outside changes
 

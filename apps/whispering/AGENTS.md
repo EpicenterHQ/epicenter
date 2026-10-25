@@ -74,10 +74,9 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   add alternate path readers or migrations. Deleting a row keeps its audio.
 - **A saved status follows the folder.** The header says Saving… from
   `folder.saving` and Saved once nothing waits, beside the count of answers
-  not written. A write that does not land is `<OpenFolder>`'s toast, with
-  the text to copy; each failed editor draft also shows Save again, Discard,
-  and Copy beside its input. The app adds no second toast and no per-file
-  save line.
+  not written. The caller holding a command's `Saved` presents its failure
+  once. A failed editor draft keeps the typed value and shows Save again,
+  Discard, and Copy beside its input. The app has no per-file save line.
 - **A recording is in the folder from its start, and its row holds facts
   only** (ADR-0543). The row is created when recording starts; explicit Stop
   writes its length while the page lives. Native departure preserves the WAV
