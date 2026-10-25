@@ -93,6 +93,57 @@ async function setup({ folderDir = true } = {}) {
 	return { scratch, epicenter, settings, rowFile, run, write };
 }
 
+async function runWithFolderMock(
+	location: Awaited<ReturnType<typeof setup>>,
+	factory: string,
+	action: 'read' | 'set',
+	input?: unknown,
+) {
+	const folderModule = Bun.resolveSync(
+		'@epicenter/folder/next/bun',
+		import.meta.dir,
+	);
+	const script = join(location.scratch, 'mock-folder.mjs');
+	await writeFile(
+		script,
+		`import { mock } from 'bun:test';
+mock.module(${JSON.stringify(folderModule)}, ${factory});
+await import(${JSON.stringify(resolve(import.meta.dir, 'bin.ts'))});
+`,
+	);
+	const child = Bun.spawn(
+		[
+			process.execPath,
+			'--no-install',
+			script,
+			'whispering-connection',
+			action,
+			'text',
+			'--json',
+		],
+		{
+			env: {
+				PATH: process.env.PATH,
+				EPICENTER_FOLDER_DIR: location.epicenter,
+				EPICENTER_DATA_DIR: join(location.scratch, 'data'),
+			},
+			stdin:
+				input === undefined
+					? 'ignore'
+					: new TextEncoder().encode(JSON.stringify(input)),
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	);
+	const [code, out, err] = await Promise.all([
+		child.exited,
+		new Response(child.stdout).text(),
+		new Response(child.stderr).text(),
+	]);
+	if (out.trim() === '') throw new Error(err);
+	return { code, reply: JSON.parse(out), err };
+}
+
 test('reading a row that is not there answers none and creates nothing', async () => {
 	const { epicenter, run } = await setup();
 	expect(await run(['read', 'text'])).toMatchObject({
@@ -236,18 +287,10 @@ test('a missing row needs all three fields and writes nothing when they are inco
 	expect(existsSync(rowFile())).toBe(false);
 });
 
-test('an unreadable row answers ReadFailed', async () => {
-	const { scratch, epicenter, settings } = await setup();
-	await mkdir(settings);
-	const folderModule = Bun.resolveSync(
-		'@epicenter/folder/next/bun',
-		import.meta.dir,
-	);
-	const script = join(scratch, 'unreadable.mjs');
-	await writeFile(
-		script,
-		`import { mock } from 'bun:test';
-mock.module(${JSON.stringify(folderModule)}, () => ({
+test('an unreadable row answers ReadFailed before a save attempts a write', async () => {
+	const location = await setup();
+	await mkdir(location.settings);
+	const factory = `() => ({
 	openFolder: async () => ({
 		error: null,
 		data: {
@@ -262,36 +305,58 @@ mock.module(${JSON.stringify(folderModule)}, () => ({
 			close: async () => {},
 		},
 	}),
-}));
-await import(${JSON.stringify(resolve(import.meta.dir, 'bin.ts'))});
-`,
-	);
-	const child = Bun.spawn(
-		[
-			process.execPath,
-			'--no-install',
-			script,
-			'whispering-connection',
-			'read',
-			'text',
-			'--json',
-		],
+})`;
+	for (const action of ['read', 'set'] as const) {
+		const result = await runWithFolderMock(location, factory, action, {
+			fields: { model: 'new-model' },
+		});
+		expect(result.code).toBe(2);
+		expect(result.reply.name).toBe('ReadFailed');
+	}
+});
+
+test('a create that finds a Settings row retries once as an update', async () => {
+	const location = await setup();
+	const result = await runWithFolderMock(
+		location,
+		`() => {
+		let created = false;
+		let updated = false;
+		return {
+			openFolder: async () => ({
+				error: null,
+				data: {
+					tables: { connections: {
+						row: () => created ? {
+							id: 'whispering-text', path: 'connections/whispering-text.md',
+							fields: { kind: 'openai-compatible', title: 'From Settings', model: updated ? 'new-model' : 'old-model' },
+							issues: null, body: '',
+						} : undefined,
+						create: async () => { created = true; return { error: { name: 'Exists', message: 'already exists' } }; },
+						update: async () => { updated = true; return { error: null }; },
+					} },
+					file: () => ({ data: '---\\nkind: openai-compatible\\ntitle: From Settings\\nmodel: new-model\\nnote: keep\\n---\\n' }),
+					close: async () => {},
+				},
+			}),
+		};
+	}`,
+		'set',
 		{
-			env: {
-				PATH: process.env.PATH,
-				EPICENTER_FOLDER_DIR: epicenter,
-				EPICENTER_DATA_DIR: join(scratch, 'data'),
+			fields: {
+				kind: 'openai-compatible',
+				title: 'Initial title',
+				model: 'new-model',
 			},
-			stdout: 'pipe',
-			stderr: 'pipe',
 		},
 	);
-	const [code, out] = await Promise.all([
-		child.exited,
-		new Response(child.stdout).text(),
-	]);
-	expect(code).toBe(2);
-	expect(JSON.parse(out).name).toBe('ReadFailed');
+	expect(result.code).toBe(0);
+	expect(result.reply.row.fields).toEqual({
+		kind: 'openai-compatible',
+		title: 'From Settings',
+		model: 'new-model',
+	});
+	expect(result.reply.row.text).toContain('note: keep');
 });
 
 test('only the two operations and the closed field assignments are taken, and a refusal writes nothing', async () => {

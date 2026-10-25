@@ -186,7 +186,11 @@ export async function setConnectionRow(
 			saved = await folder.tables.connections.create(id, {
 				fields: { kind, title, model },
 			});
+			if (saved.error?.name === 'Exists')
+				saved = await folder.tables.connections.update(id, { fields });
 		} else {
+			const readable = answerOf(folder, id, path);
+			if (readable.error !== null) return Err(readable.error);
 			saved = await folder.tables.connections.update(id, { fields });
 		}
 		if (saved.error !== null)
