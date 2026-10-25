@@ -8,11 +8,10 @@ import type {
 	Patch,
 	Row,
 	Saved,
+	SaveFailure,
 	Table,
 	Tables,
-	WriteError,
 } from '@epicenter/folder/next';
-import { typedText } from '@epicenter/folder/next';
 import {
 	createContext,
 	createElement,
@@ -27,12 +26,8 @@ import {
 } from 'react';
 import type { TSchema as Schema, Static } from 'typebox';
 import { extractErrorMessage } from 'wellcrafted/error';
+import type { Result } from 'wellcrafted/result';
 
-export type SaveFailure = {
-	path: string;
-	error: WriteError;
-	text: string | undefined;
-};
 export type ReactTable<S extends Schema = Schema> = {
 	readonly rows: readonly Row<S>[];
 	row(id: string): Row<S> | undefined;
@@ -50,11 +45,11 @@ export type ReactFolder<T extends Tables = Tables> = {
 	delete(path: string): Saved;
 	readonly tables: { readonly [K in keyof T]: ReactTable<T[K]> };
 	checkpoint(): void;
+	settled(path: string): Promise<void>;
 };
 
 type Provided<T extends Tables> = {
 	folder: Folder<T>;
-	onFailed: ((failure: SaveFailure) => void) | undefined;
 };
 type OpenState<T extends Tables> =
 	| { kind: 'opening' }
@@ -80,9 +75,12 @@ export function createFolderContext<const T extends Tables>() {
 		}) {
 			const [state, setState] = useState<OpenState<T>>({ kind: 'opening' });
 			const openRef = useRef(open);
+			const onFailedRef = useRef(onFailed);
+			onFailedRef.current = onFailed;
 			useEffect(() => {
 				let active = true;
 				let folder: Folder<T> | undefined;
+				let stopFailed: (() => void) | undefined;
 				const checkpoint = () => folder?.checkpoint();
 				const visibility = () => folder?.checkpoint();
 				const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -103,6 +101,9 @@ export function createFolderContext<const T extends Tables>() {
 							return;
 						}
 						folder = result.data;
+						stopFailed = folder.onFailed((failure) =>
+							onFailedRef.current?.(failure),
+						);
 						window.addEventListener('focus', checkpoint);
 						window.addEventListener('online', checkpoint);
 						window.addEventListener('pagehide', checkpoint);
@@ -126,6 +127,7 @@ export function createFolderContext<const T extends Tables>() {
 					window.removeEventListener('pagehide', checkpoint);
 					window.removeEventListener('beforeunload', beforeUnload);
 					document.removeEventListener('visibilitychange', visibility);
+					stopFailed?.();
 					if (folder !== undefined) void folder.close();
 				};
 			}, []);
@@ -133,7 +135,7 @@ export function createFolderContext<const T extends Tables>() {
 			if (state.kind === 'refused') return refused?.(state.error);
 			return createElement(
 				Context.Provider,
-				{ value: { folder: state.folder, onFailed } },
+				{ value: { folder: state.folder } },
 				children,
 			);
 		},
@@ -141,7 +143,7 @@ export function createFolderContext<const T extends Tables>() {
 			const provided = useContext(Context);
 			if (provided === null)
 				throw new Error('useFolder is used outside OpenFolder');
-			return useSnapshot(provided.folder, provided.onFailed);
+			return useSnapshot(provided.folder);
 		},
 	};
 }
@@ -152,13 +154,9 @@ type Reads = Map<
 >;
 type Read = <V>(key: string, get: () => V) => V;
 
-function useSnapshot<T extends Tables>(
-	folder: Folder<T>,
-	onFailed: ((failure: SaveFailure) => void) | undefined,
-): ReactFolder<T> {
+function useSnapshot<T extends Tables>(folder: Folder<T>): ReactFolder<T> {
 	const current = useRef<{
 		folder: Folder<T>;
-		onFailed: typeof onFailed;
 		view: ReactFolder<T>;
 		reads: Reads;
 	} | null>(null);
@@ -171,13 +169,12 @@ function useSnapshot<T extends Tables>(
 		if (
 			known !== null &&
 			known.folder === folder &&
-			known.onFailed === onFailed &&
 			[...known.reads.values()].every(({ get, value }) => get() === value)
 		)
 			return known.view;
 		const reads: Reads = new Map();
-		const view = snapshot(folder, onFailed, reads);
-		current.current = { folder, onFailed, view, reads };
+		const view = snapshot(folder, reads);
+		current.current = { folder, view, reads };
 		return view;
 	};
 	return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
@@ -185,7 +182,6 @@ function useSnapshot<T extends Tables>(
 
 function snapshot<T extends Tables>(
 	folder: Folder<T>,
-	onFailed: ((failure: SaveFailure) => void) | undefined,
 	reads: Reads,
 ): ReactFolder<T> {
 	const read: Read = (key, get) => {
@@ -198,24 +194,11 @@ function snapshot<T extends Tables>(
 		reads.set(key, { get, value });
 		return value;
 	};
-	/** Tell `onFailed` once about a write that did not land, except a refusal the caller handles. */
-	const report = (
-		path: string,
-		text: string | undefined,
-		saved: Saved,
-		handled?: WriteError['name'],
-	): Saved => {
-		void saved.then(({ error }) => {
-			if (error !== null && error.name !== handled)
-				onFailed?.({ path, error, text });
-		});
-		return saved;
-	};
 	// Each snapshot has new table objects because React Compiler memoizes calls on their receiver.
 	const tables = Object.fromEntries(
 		Object.entries(folder.tables).map(([name, table]) => [
 			name,
-			tableSnapshot(name, table, read, report),
+			tableSnapshot(name, table, read),
 		]),
 	);
 	return {
@@ -229,16 +212,11 @@ function snapshot<T extends Tables>(
 		// SAFETY: each table key has one snapshot of its original schema.
 		tables: tables as ReactFolder<T>['tables'],
 		read: folder.read,
-		write: (path, data) =>
-			report(
-				path,
-				typeof data === 'string' ? data : undefined,
-				folder.write(path, data),
-			),
-		update: (path, patch, options) =>
-			report(path, typedText(patch), folder.update(path, patch, options)),
-		delete: (path) => report(path, undefined, folder.delete(path)),
+		write: folder.write,
+		update: folder.update,
+		delete: folder.delete,
 		checkpoint: folder.checkpoint,
+		settled: folder.settled,
 	};
 }
 
@@ -246,51 +224,59 @@ function tableSnapshot<S extends Schema>(
 	name: string,
 	table: Table<S>,
 	read: Read,
-	report: (
-		path: string,
-		text: string | undefined,
-		saved: Saved,
-		handled?: WriteError['name'],
-	) => Saved,
 ): ReactTable<S> {
-	const pathOf = (id: string) => `${name}/${id}.md`;
 	return {
 		get rows() {
 			return read(`rows:${name}`, table.rows);
 		},
 		row: (id) => read(`row:${name}/${id}`, () => table.row(id)),
-		create: (id, init) =>
-			report(
-				pathOf(id),
-				typedText(init),
-				table.create(id, init),
-				// A create that finds the file there answers the caller, who decides what it means.
-				'Exists',
-			),
-		update: (id, patch) =>
-			report(pathOf(id), typedText(patch), table.update(id, patch)),
-		delete: (id) => report(pathOf(id), undefined, table.delete(id)),
+		create: table.create,
+		update: table.update,
+		delete: table.delete,
 	};
 }
 
-/** Text ahead of its save, until that save answers. */
-export type Draft = { readonly text: string; set(text: string): void };
-export function useDraft(
-	value: string,
-	save: (text: string) => Promise<unknown>,
-): Draft {
-	const [typed, setTyped] = useState<string | null>(null);
+/** Editor-owned input ahead of its save; failed input remains visible. */
+export function useDraft<T, E>(
+	value: T,
+	save: (value: T) => Promise<Result<unknown, E>>,
+) {
+	const [typed, setTyped] = useState<{ value: T } | null>(null);
+	const [error, setError] = useState<E | null>(null);
 	const latest = useRef(0);
 	const saveRef = useRef(save);
+	const typedRef = useRef<{ value: T } | null>(null);
 	useLayoutEffect(() => {
 		saveRef.current = save;
 	});
-	const [set] = useState(() => (text: string) => {
-		setTyped(text);
+	const [set] = useState(() => (next: T) => {
+		const draft = { value: next };
+		typedRef.current = draft;
+		setTyped(draft);
+		setError(null);
 		const mine = ++latest.current;
-		void saveRef.current(text).finally(() => {
-			if (mine === latest.current) setTyped(null);
+		void saveRef.current(next).then((answer) => {
+			if (mine !== latest.current) return;
+			if (answer.error === null) {
+				typedRef.current = null;
+				setTyped(null);
+			} else setError(answer.error);
 		});
 	});
-	return { text: typed ?? value, set };
+	const [retry] = useState(() => () => {
+		if (typedRef.current !== null) set(typedRef.current.value);
+	});
+	const [discard] = useState(() => () => {
+		latest.current++;
+		typedRef.current = null;
+		setTyped(null);
+		setError(null);
+	});
+	return {
+		value: typed === null ? value : typed.value,
+		set,
+		error,
+		retry,
+		discard,
+	};
 }

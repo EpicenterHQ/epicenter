@@ -9,7 +9,7 @@
  * - A draft shows typing until its save answers, then the landed text
  */
 import { afterEach, expect, test } from 'bun:test';
-import type { Folder, Opened } from '@epicenter/folder/next';
+import type { Folder, Opened, SaveFailure } from '@epicenter/folder/next';
 import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
 import { Window } from 'happy-dom';
 import { act, memo, type ReactNode } from 'react';
@@ -56,7 +56,7 @@ async function setup() {
 async function mount(
 	folder: Folder<typeof tables>,
 	children: ReactNode,
-	onFailed?: (failure: import('./folder.js').SaveFailure) => void,
+	onFailed?: (failure: SaveFailure) => void,
 ) {
 	const host = document.createElement('div');
 	document.body.append(host);
@@ -154,6 +154,23 @@ test('a detail view re-renders only when its own row changes', async () => {
 	expect(renders).toBe(2);
 });
 
+test('useFolder passes settled through to the opened folder', async () => {
+	const { folder, memory } = await setup();
+	let settlePath: () => Promise<void> = async () => {};
+	function Writer() {
+		const view = useFolder();
+		settlePath = () => view.settled('todos/milk.md');
+		return null;
+	}
+	await mount(folder, <Writer />);
+	const saved = folder.tables.todos.update('milk', {
+		fields: { title: 'Now' },
+	});
+	await settlePath();
+	expect((await saved).error).toBeNull();
+	expect(memory.text('todos/milk.md')).toContain('title: Now');
+});
+
 test('a draft shows typing until its save answers, then the landed text', async () => {
 	const { folder } = await setup();
 	let setTitle: (text: string) => void = () => {};
@@ -167,7 +184,7 @@ test('a draft shows typing until its save answers, then the landed text', async 
 		setTitle = title.set;
 		return (
 			<input
-				value={title.text}
+				value={title.value}
 				onChange={(event) => title.set(event.target.value)}
 			/>
 		);
@@ -182,9 +199,114 @@ test('a draft shows typing until its save answers, then the landed text', async 
 	expect(input()?.value).toBe('Oat');
 });
 
+test('a failed draft keeps its value and retries on a later edit', async () => {
+	const { folder, memory } = await setup();
+	memory.control.failPut.set('todos/milk.md', {
+		name: 'StorageFailed',
+		message: 'disk full',
+		cause: null,
+	});
+	let title!: ReturnType<
+		typeof useDraft<string, import('@epicenter/folder/next').WriteError>
+	>;
+	function Editor() {
+		const view = useFolder();
+		const row = view.tables.todos.row('milk');
+		title = useDraft(row?.issues === null ? row.fields.title : '', (value) =>
+			view.tables.todos.update('milk', { fields: { title: value } }),
+		);
+		return (
+			<p>
+				{title.value}:{title.error?.message}
+			</p>
+		);
+	}
+	const host = await mount(folder, <Editor />);
+	act(() => title.set('Oat'));
+	await settle();
+	expect(host.textContent).toContain('Oat:disk full');
+	memory.control.failPut.clear();
+	act(() => title.set('Soy'));
+	await settle();
+	expect(host.textContent).toBe('Soy:');
+	expect(folder.tables.todos.row('milk')?.fields?.title).toBe('Soy');
+});
+
+test('retry saves failed input and discard ignores an older answer', async () => {
+	const { folder, memory } = await setup();
+	memory.control.failPut.set('todos/milk.md', {
+		name: 'StorageFailed',
+		message: 'disk full',
+		cause: null,
+	});
+	let title!: ReturnType<
+		typeof useDraft<string, import('@epicenter/folder/next').WriteError>
+	>;
+	function Editor() {
+		const view = useFolder();
+		const row = view.tables.todos.row('milk');
+		title = useDraft(row?.issues === null ? row.fields.title : '', (value) =>
+			view.tables.todos.update('milk', { fields: { title: value } }),
+		);
+		return (
+			<p>
+				{title.value}:{title.error?.message}
+			</p>
+		);
+	}
+	const host = await mount(folder, <Editor />);
+	act(() => title.set('Oat'));
+	await settle();
+	expect(title.error?.message).toBe('disk full');
+	memory.control.failPut.clear();
+	act(() => title.retry());
+	await settle();
+	expect(host.textContent).toBe('Oat:');
+	memory.control.failPut.set('todos/milk.md', {
+		name: 'StorageFailed',
+		message: 'disk full',
+		cause: null,
+	});
+	act(() => {
+		title.set('Discard');
+		title.discard();
+	});
+	await settle();
+	expect(host.textContent).toBe('Oat:');
+});
+
+test('an older save answer cannot clear newer draft input', async () => {
+	const { folder } = await setup();
+	const first = Promise.withResolvers<{ data: null; error: null }>();
+	const second = Promise.withResolvers<{ data: null; error: null }>();
+	let calls = 0;
+	let title!: ReturnType<typeof useDraft<string, never>>;
+	function Editor() {
+		title = useDraft('Disk', () =>
+			++calls === 1 ? first.promise : second.promise,
+		);
+		return <p>{title.value}</p>;
+	}
+	const host = await mount(folder, <Editor />);
+	act(() => {
+		title.set('First');
+		title.set('Second');
+	});
+	await act(async () => {
+		first.resolve({ data: null, error: null });
+		await first.promise;
+	});
+	expect(host.textContent).toBe('Second');
+	await act(async () => {
+		second.resolve({ data: null, error: null });
+		await second.promise;
+	});
+	expect(host.textContent).toBe('Disk');
+});
+
 test('onFailed receives the body of a failed update', async () => {
 	const { folder, memory } = await setup();
-	const failures: import('./folder.js').SaveFailure[] = [];
+	const failures: SaveFailure[] = [];
 	let update: () => void = () => {};
 	function Writer() {
 		const view = useFolder();
@@ -259,7 +381,7 @@ test('OpenFolder renders a refusal when opening rejects', async () => {
 
 test('folder update reports typed text on failure', async () => {
 	const { folder, memory } = await setup();
-	const failures: import('./folder.js').SaveFailure[] = [];
+	const failures: SaveFailure[] = [];
 	let update: () => void = () => {};
 	function Writer() {
 		const view = useFolder();
