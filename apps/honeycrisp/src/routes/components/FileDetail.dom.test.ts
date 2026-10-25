@@ -108,9 +108,9 @@ test('repair list follows typed file text before its save lands', async () => {
 });
 
 test('rich editor keeps typing and Undo while an IndexedDB put is gated', async () => {
-    const { target, render, folder } = await view(noteText({ body: 'x\n' }));
-    const line = target.querySelector('[aria-label="Note text"] p')?.firstChild;
-    if (!(line instanceof Text)) throw new Error('Missing paragraph');
+    const { target, render, folder } = await view(noteText({ body: '' }));
+    const paragraph = () => target.querySelector<HTMLElement>('[aria-label="Note text"] p');
+    if (!paragraph()) throw new Error('Missing paragraph');
     const put = IDBObjectStore.prototype.put;
     let started = false;
     let release: (() => void) | undefined;
@@ -125,19 +125,20 @@ test('rich editor keeps typing and Undo while an IndexedDB put is gated', async 
         return request;
     };
     cleanups.push(() => { IDBObjectStore.prototype.put = put; release?.(); });
-    line.data += 'a';
+    paragraph()!.textContent = 'a';
     await Bun.sleep(0); render();
     await until(() => started && release !== undefined, 'gated IndexedDB put');
-    line.data += 'b';
+    expect(target.querySelector('[aria-label="Note text"]')?.textContent).toContain('a');
+    paragraph()!.textContent = 'ab';
     await Bun.sleep(0); render();
-    expect(target.querySelector('[aria-label="Note text"]')?.textContent).toContain('xab');
+    expect(target.querySelector('[aria-label="Note text"]')?.textContent).toContain('ab');
     release?.();
-    await until(() => folder.tables.notes.row('a')?.body === 'xab\n', 'second save');
+    await until(() => folder.tables.notes.row('a')?.body === 'ab\n', 'second save');
+    expect(folder.file('notes/a.md')?.data).toContain('ab');
     render();
-    expect(target.querySelector('[aria-label="Note text"]')?.textContent).toContain('xab');
+    expect(target.querySelector('[aria-label="Note text"]')?.textContent).toContain('ab');
     expect(target.querySelector<HTMLButtonElement>('button[aria-label="Undo"]')?.disabled).toBe(false);
     target.querySelector<HTMLButtonElement>('button[aria-label="Undo"]')?.click();
     render();
-    expect(target.querySelector('[aria-label="Note text"]')?.textContent).toContain('x');
-    expect(target.querySelector('[aria-label="Note text"]')?.textContent).not.toContain('xab');
+    expect(target.querySelector('[aria-label="Note text"]')?.textContent).not.toContain('ab');
 });
