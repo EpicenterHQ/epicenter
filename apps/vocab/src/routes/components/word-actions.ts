@@ -1,6 +1,13 @@
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
-import type { Entry } from '$lib/data.js';
+import { toast } from '@epicenter/ui/sonner';
+import type { Entry, Stage } from '$lib/data.js';
 import type { Entries } from '$lib/entries.svelte.js';
+
+export async function changeStage(entries: Entries, id: string, stage: Stage) {
+	const { error } = await entries.setStage(id, stage);
+	if (error !== null)
+		toast.error('The stage was not saved', { description: error.message });
+}
 
 export function confirmDelete(entries: Entries, entry: Entry) {
 	confirmationDialog.open({
@@ -8,7 +15,9 @@ export function confirmDelete(entries: Entries, entry: Entry) {
 		description: 'Its note and stage are deleted with it.',
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			await entries.delete(entry.id);
+			const { error } = await entries.delete(entry.id);
+			if (error !== null)
+				toast.error('The word was not deleted', { description: error.message });
 		},
 	});
 }

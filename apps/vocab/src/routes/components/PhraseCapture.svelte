@@ -120,7 +120,7 @@
 		// happened to this one when it is selected again.
 		if (current !== ticket) return;
 		if (error !== null) {
-			problem = error.name === 'NotSaved' ? '' : error.message;
+			problem = error.message;
 			return;
 		}
 		if (outcome === 'added') added = submitted;

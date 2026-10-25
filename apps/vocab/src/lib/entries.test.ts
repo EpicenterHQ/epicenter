@@ -67,8 +67,7 @@ test('note and stage updates set only named fields over the current file', async
 			'note: outside\nextra: kept',
 		),
 	);
-	folder.checkpoint();
-	await new Promise((resolve) => setTimeout(resolve, 0));
+	await folder.refresh();
 	expectOk(await entries.setStage(id, 'usable'));
 	expect(host.text(path)).toContain('extra: kept');
 	expect(host.text(path)).toContain('Body');
@@ -88,8 +87,7 @@ test('repair as text writes a valid row before returning to the word card', asyn
 	expect(entries.repairs[0]?.id).toBe('broken');
 	entries.repair.start('broken');
 	const repaired = raw('lucid', 'clear');
-	void folder.write('entries/broken.md', repaired);
-	await folder.settled('entries/broken.md');
+	expectOk(await folder.write('entries/broken.md', repaired));
 	expect(entries.repair.close(repaired)).toBe(true);
 	expect(entries.repair.open).toBeUndefined();
 	expect(entries.words[0]?.note).toBe('clear');
@@ -108,12 +106,11 @@ test('repair stays open until its valid text has landed', async () => {
 	const gate = Promise.withResolvers<void>();
 	host.control.putGate = gate.promise;
 	const repaired = raw('lucid', 'clear');
-	void folder.write('entries/broken.md', repaired);
-	const closing = folder.settled('entries/broken.md');
+	const saving = folder.write('entries/broken.md', repaired);
 	await Bun.sleep(0);
 	expect(entries.repair.open).toBe('broken');
 	gate.resolve();
-	await closing;
+	expectOk(await saving);
 	expect(entries.repair.close(repaired)).toBe(true);
 	expect(entries.repair.open).toBeUndefined();
 	await core.close();
@@ -128,7 +125,7 @@ test('an outside invalid edit keeps repair open after a valid draft', async () =
 	const repaired = raw('lucid', 'clear');
 	expectOk(await folder.write('entries/broken.md', repaired));
 	host.outside('entries/broken.md', 'invalid again', { hint: true });
-	folder.checkpoint();
+	await folder.refresh();
 	await until(() => {
 		const row = folder.tables.entries.row('broken');
 		return row !== undefined && row.issues !== null;

@@ -61,7 +61,7 @@
 		const { data: chat, error } = await chats.start(focus);
 		starting = false;
 		if (error !== null) {
-			if (error.name === 'InvalidFocus') toast.error('The chat was not started', { description: error.message });
+			toast.error('The chat was not started', { description: error.message });
 			return false;
 		}
 		selectedChatId = chat.id;
