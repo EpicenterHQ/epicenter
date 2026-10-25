@@ -16,10 +16,10 @@ import { mock } from 'bun:test';
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Folder } from '@epicenter/folder/next';
+import type { Folder, SaveFailure } from '@epicenter/folder/next';
 import { openFolder } from '@epicenter/folder/next/bun';
 import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
-import { type SaveFailure, svelteFolder } from '@epicenter/svelte/folder-next';
+import { svelteFolder } from '@epicenter/svelte/folder-next';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';
@@ -149,8 +149,9 @@ const TEST_THROTTLE_MS = 0;
 
 function wrap(opened: Folder<WhisperingTables>): TestFolder {
 	const failed: SaveFailure[] = [];
+	opened.onFailed((failure) => failed.push(failure));
 	return {
-		folder: svelteFolder(opened, { onFailed: (failure) => failed.push(failure) }),
+		folder: svelteFolder(opened),
 		opened,
 		failed,
 	};

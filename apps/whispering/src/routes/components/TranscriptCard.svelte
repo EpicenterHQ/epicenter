@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast } from '@epicenter/ui/sonner';
@@ -40,7 +41,7 @@
 		() => result.row.body,
 		(body) => folder.tables.transcriptions.update(stem, { body }),
 	);
-	const text = $derived(body.text);
+	const text = $derived(body.value);
 	const progress = $derived(whispering.resultState(result.path, text));
 
 	const outputs = $derived(whispering.outputsFor(result.stem));
@@ -80,11 +81,12 @@
 	{:else if !asText}
 		<Textarea
 			class="min-h-32 resize-y font-sans"
-			bind:value={body.text}
+			bind:value={body.value}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"
 		/>
+		<UnsavedEdit draft={body} />
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
 	{/if}
