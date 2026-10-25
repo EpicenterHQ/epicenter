@@ -1,7 +1,7 @@
 import '../../../../packages/svelte/node_modules/fake-indexeddb/auto/index.mjs';
 import { openFolder } from '@epicenter/folder/next/browser';
 import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
-import type { SaveFailure } from '@epicenter/svelte/folder-next';
+import type { SaveFailure } from '@epicenter/folder/next';
 import { expectOk } from 'wellcrafted/testing';
 import { type VocabFolder, type VocabTables, vocabTables } from './data.js';
 
@@ -51,7 +51,8 @@ export async function createMemory(
 	const core = expectOk(
 		await createFolder(host.storage, { tables: vocabTables, throttleMs: 0 }),
 	);
-	return { folder: svelteFolder(core, { onFailed }), core, host };
+	if (onFailed) core.onFailed(onFailed);
+	return { folder: svelteFolder(core), core, host };
 }
 
 export function fileText(
