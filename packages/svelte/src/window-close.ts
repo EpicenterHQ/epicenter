@@ -65,9 +65,12 @@ async function notifyCloseFailure(current: Window, guard: symbol) {
 export async function holdWindowClose(
 	pendingSave: () => boolean,
 	onDestroyed: () => void,
+	/** Work to finish before the window is destroyed, such as saves in flight. */
+	beforeDestroy?: () => Promise<void>,
 ): Promise<() => void> {
 	if (!isTauri()) return () => {};
-	if (activeGuard) throw new Error('This window already has a Folder close guard');
+	if (activeGuard)
+		throw new Error('This window already has a Folder close guard');
 	const guard = Symbol('window close');
 	activeGuard = guard;
 	let closing = false;
@@ -102,6 +105,7 @@ export async function holdWindowClose(
 				}
 				if (activeGuard !== guard) return;
 				page.inert = true;
+				await beforeDestroy?.();
 				await current.destroy();
 			} catch (cause) {
 				if (activeGuard !== guard) return;
