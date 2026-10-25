@@ -224,7 +224,7 @@ const noCommands: LocalTranscriptionCommands = {
 /** The desktop services over the scripted shell. */
 async function openDesktop(options: Parameters<typeof createServices>[1] = {}) {
 	const folder = expectOk(
-		await openFolder({ tables: whisperingTables, throttleMs: 0 }),
+		await openFolder({ tables: whisperingTables }),
 	);
 	cleanups.push(() => folder.close());
 	return {
@@ -396,7 +396,6 @@ async function epicenter() {
 			openBunFolder({
 				directory: root,
 				tables: connectionsTables,
-				throttleMs: 0,
 			}),
 		lose(next: boolean) {
 			losing = next;
@@ -548,7 +547,7 @@ test('a row save whose reply the shell never sent is not reported saved, and the
 	expect(table.row('clean')?.body).toBe('Tidy.\n');
 
 	// Looking again reads what the shell did write.
-	openedFolder.checkpoint();
+	openedFolder.refresh();
 	await eventually(() => table.row('clean')?.body === 'Tidy it.\n');
 	expect(await granting.text(PATH)).toContain('Tidy it.');
 	await openedFolder.close();

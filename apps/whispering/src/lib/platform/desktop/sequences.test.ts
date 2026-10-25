@@ -29,6 +29,7 @@ import {
 	grantedDirectory,
 } from '../../../../../../packages/folder/src/granted-shell.test-support.js';
 import { whisperingTables } from '../../definition.js';
+import { WRITE_FAILED } from '../../files.js';
 import {
 	deferred,
 	eventually,
@@ -74,7 +75,7 @@ async function open(files: Record<string, string>) {
 		await shell.write(path, text);
 	const stubs = await openTestServices();
 	const opened = expectOk(
-		await openFolder({ tables: whisperingTables, throttleMs: 0 }),
+		await openFolder({ tables: whisperingTables }),
 	);
 	const folder = svelteFolder(opened);
 	const { whispering } = await createTestWhispering({
@@ -132,12 +133,10 @@ test('a deletion whose reply was lost is reported, and the folder shows the file
 	shell.control.loseReplies = 1;
 
 	// Nothing said the removal landed, so it is not reported done.
-	expect(await whispering.delete(deletion)).toContain(
-		'could not confirm this change',
-	);
+	expect(await whispering.delete(deletion)).toBe(WRITE_FAILED);
 	expect(shell.kinds).toEqual(['remove']);
 	expect(await shell.text(PATH)).toBeUndefined();
-	folder.checkpoint();
+	folder.refresh();
 	await eventually(() => folder.file(PATH) === undefined);
 	expect(whispering.selectedTransformation).toBeUndefined();
 });

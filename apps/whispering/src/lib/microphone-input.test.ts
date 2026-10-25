@@ -151,10 +151,10 @@ function scriptedMicrophone(
 			const { error: openError } = await opening(options.input, options.signal);
 			if (openError !== null) return Err(openError);
 			open.captures += 1;
-			let settled = false;
+			let stopped = false;
 			const release = () => {
-				if (!settled) open.captures -= 1;
-				settled = true;
+				if (!stopped) open.captures -= 1;
+				stopped = true;
 			};
 			const audioPath = `${options.path}.wav`;
 			return Ok({

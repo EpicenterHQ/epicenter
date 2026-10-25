@@ -18,6 +18,7 @@
 	import { tick } from 'svelte';
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
+	import { WRITE_FAILED } from '$lib/files.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
@@ -160,7 +161,8 @@
 				: await whispering.createFile(directory, name);
 		committing = false;
 		if (problem) {
-			toast.error(`Could not ${current.kind === 'rename' ? 'rename' : 'create the file'}`, { description: problem });
+			if (problem !== WRITE_FAILED)
+				toast.error(`Could not ${current.kind === 'rename' ? 'rename' : 'create the file'}`, { description: problem });
 			return;
 		}
 		editing = undefined;

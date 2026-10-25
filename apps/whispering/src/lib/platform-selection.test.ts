@@ -67,7 +67,7 @@ describe('#platform/services', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/lib\/platform\/browser\.ts$|lib\/webview-microphone\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|packages\/recorder\/src\/(browser|microphone|vad-recorder)\.ts$|@ricky0123|isomorphic-git/.test(
+						/lib\/platform\/browser\.ts$|lib\/webview-microphone\.ts$|packages\/folder\/src\/next\/browser\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|packages\/recorder\/src\/(browser|microphone|vad-recorder)\.ts$|@ricky0123|isomorphic-git/.test(
 							path,
 						),
 				),
@@ -91,7 +91,7 @@ describe('#platform/services', () => {
 				modules.filter(
 					(path) =>
 						SHARED_FORBIDDEN.test(path) ||
-						/lib\/platform\/desktop\/|lib\/tauri\/bindings\.gen\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|tauri-handed-folder)\.ts$|packages\/(folder|recorder)\/src\/native\/|packages\/recorder\/src\/tauri\.ts$/.test(
+						/lib\/platform\/desktop\/|lib\/tauri\/bindings\.gen\.ts$|packages\/folder\/src\/next\/tauri\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|tauri-handed-folder)\.ts$|packages\/(folder|recorder)\/src\/native\/|packages\/recorder\/src\/tauri\.ts$/.test(
 							path,
 						),
 				),
@@ -99,4 +99,17 @@ describe('#platform/services', () => {
 		},
 		BUNDLE_TIMEOUT,
 	);
+});
+
+test('the browser folder refuses to open inside the desktop app', async () => {
+	const { openFolder } = await import('@epicenter/folder/next/browser');
+	// SAFETY: Tauri marks its pages with this flag; the test restores the global.
+	const scope = globalThis as { isTauri?: boolean };
+	scope.isTauri = true;
+	try {
+		const opened = await openFolder({ tables: {} });
+		expect(opened.error?.name).toBe('InsideTauri');
+	} finally {
+		delete scope.isTauri;
+	}
 });

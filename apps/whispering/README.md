@@ -588,23 +588,23 @@ the tab loses a browser recording in progress.
 
 ### Editing
 
-Every change is written to its file as you type: a recording's title and
+Text changes are written after a short pause in typing: a recording's title and
 notes, a transcript, a transformation's fields, and any text file opened from
 Files. There is no save button during ordinary editing. Each text field is a
 draft: it shows what you typed until that text's save succeeds, then shows the
 file again, which by then holds what landed. A failed save keeps the draft
 visible until you retry or discard it. The lists show a row once it is saved.
 
-- Each file is written one save at a time. Changes typed while one save runs
-  go together in the next, so fast typing writes what you typed last.
+- Folder writes take turns. A draft waits for its previous timed save before
+  sending a newer one, and sends its latest value when its editor closes.
 - A field, a body, or a title sets only what it names over the file as it is
   when the save runs, so another program's change to the rest of the file is
   kept. Source writes the whole text as typed.
 - A save that does not land keeps the typed value in its editor with **Save
   again**, **Discard**, and **Copy**. Nothing is retried on its own.
-- Changing between the fields and Source first sends all waiting writes for
-  that file and waits for their answers. A failed draft stays in its editor;
-  after a successful save, the other editor shows what landed.
+- Opening Source switches editors immediately; it follows the folder as saves
+  land, so it can briefly show older text. Returning to fields writes the shown
+  Source text first and stays in Source if that write fails.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.
@@ -642,8 +642,8 @@ which recording it belongs to. Repair or remove those files first.
 Files lists files. Directories appear while files are in them, so Files creates
 files rather than empty folders. Rename copies the file as the folder shows it,
 or its bytes for a file the folder does not keep, to the new name and then
-deletes the old path. It is refused while a save is running: rename again in a
-moment. If the original changes while the copy is out, both files are kept
+deletes the old path. Text pending in an open editor is written and awaited
+before the copy. If the original changes while the copy is out, both files are kept
 and the notice names them.
 
 ## Fixture audio

@@ -24,7 +24,7 @@ import {
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
 } from './definition.js';
-import { describeError } from './files.js';
+import { type PresentWriteFailure, WRITE_FAILED } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import type { RecordingAudio } from './recording-audio.js';
 
@@ -195,13 +195,17 @@ async function deleteFile(
 	path: string,
 ): Promise<string | undefined> {
 	const { error } = await context.folder.delete(path);
-	if (error !== null) return describeError(error);
+	if (error !== null) {
+		context.presentWriteFailure(`Could not delete ${basename(path)}`, error);
+		return WRITE_FAILED;
+	}
 	context.deleted(path);
 	return undefined;
 }
 
 type RunContext = {
 	readonly folder: WhisperingFolder;
+	readonly presentWriteFailure: PresentWriteFailure;
 	dropFailed(recordingId: string): void;
 	/** The view state lets a deleted file go. */
 	deleted(path: string): void;
@@ -231,9 +235,7 @@ export async function runDeletion(
 		const problem = await deleteFile(context, result);
 		if (problem !== undefined) leftovers.push(result);
 	}
-	return leftovers.length > 0
-		? `The recording was deleted, but these files were not: ${leftovers.join(', ')}`
-		: undefined;
+	return leftovers.length > 0 ? WRITE_FAILED : undefined;
 }
 
 const count = (n: number, one: string, many: string) =>

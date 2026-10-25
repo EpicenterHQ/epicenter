@@ -5,6 +5,11 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { WhisperingFolder } from './folder.js';
 
+/** A command's write failed and its caller already presented that failure. */
+export const WRITE_FAILED = 'The folder write failure was already shown.';
+
+export type PresentWriteFailure = (action: string, error: WriteError) => void;
+
 export function nameProblem(
 	directory: string,
 	name: string,

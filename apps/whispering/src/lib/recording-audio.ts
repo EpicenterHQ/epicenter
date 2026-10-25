@@ -25,7 +25,7 @@ export type RecordingAudio =
  * still capturing the recording or writing its row, when its audio may be on
  * disk before a listing shows it. Neither an unread listing nor a settling
  * recording is reported absent: only a listing read once the recording
- * settled can say the audio is not here.
+ * finished can say the audio is not here.
  */
 export function recordingAudio(
 	stem: string,

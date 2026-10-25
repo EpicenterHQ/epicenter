@@ -16,7 +16,7 @@ import { mock } from 'bun:test';
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Folder, SaveFailure } from '@epicenter/folder/next';
+import type { Folder } from '@epicenter/folder/next';
 import { openFolder } from '@epicenter/folder/next/bun';
 import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
 import { svelteFolder } from '@epicenter/svelte/folder-next';
@@ -137,37 +137,24 @@ export type TestFolder = {
 	readonly folder: WhisperingFolder;
 	/** The folder under it: what `<OpenFolder>` opens and closes. */
 	readonly opened: Folder<WhisperingTables>;
-	/** Every write that did not land, as `<OpenFolder>` would toast it, in order. */
-	readonly failed: SaveFailure[];
 };
 
-/**
- * Tests save each path as soon as it is written, so no test waits out the
- * folder's throttle; a test of the throttle passes its own.
- */
-const TEST_THROTTLE_MS = 0;
-
 function wrap(opened: Folder<WhisperingTables>): TestFolder {
-	const failed: SaveFailure[] = [];
-	opened.onFailed((failure) => failed.push(failure));
 	return {
 		folder: svelteFolder(opened),
 		opened,
-		failed,
 	};
 }
 
 /** A real directory opened with Whispering's tables, by this test process. */
 export async function openTestFolder(
 	root: string,
-	{ throttleMs = TEST_THROTTLE_MS }: { throttleMs?: number } = {},
 ): Promise<TestFolder> {
 	return wrap(
 		expectOk(
 			await openFolder({
 				directory: root,
 				tables: whisperingTables,
-				throttleMs,
 			}),
 		),
 	);
@@ -180,11 +167,10 @@ export async function openTestFolder(
  */
 export async function openMemoryTestFolder(
 	initial: Record<string, string | Uint8Array> = {},
-	{ throttleMs = TEST_THROTTLE_MS }: { throttleMs?: number } = {},
 ) {
 	const host = memoryHost(initial);
 	const opened = expectOk(
-		await createFolder(host.storage, { tables: whisperingTables, throttleMs }),
+		await createFolder(host.storage, { tables: whisperingTables }),
 	);
 	return { ...wrap(opened), host };
 }
@@ -207,7 +193,7 @@ export async function openTestServices({
 	folder: given,
 }: TestServicesOptions = {}) {
 	const root = await whisperingDirectory('whispering-services-');
-	const { folder, opened, failed } = given ?? (await openTestFolder(root));
+	const { folder, opened } = given ?? (await openTestFolder(root));
 	const device = testConnections({ connections });
 
 	const transformed: TransformRequest[] = [];
@@ -283,7 +269,6 @@ export async function openTestServices({
 		/** The folder under it, which `<OpenFolder>` opens and closes. */
 		opened,
 		/** Every write that did not land, in order. */
-		failed,
 		services,
 		/** What `<OpenFolder>` is given: it counts how many times a folder was opened. */
 		open: async () => {
@@ -311,7 +296,7 @@ export async function openTestServices({
 }
 
 /** Wait until the folder sends nothing more: every write landed or answered. */
-export async function settled(folder: WhisperingFolder) {
+export async function waitForSaves(folder: WhisperingFolder) {
 	await eventually(() => !folder.saving);
 	// The answers resolve right after the last save leaves the queue.
 	await new Promise((resolve) => setTimeout(resolve, 0));

@@ -6,12 +6,14 @@
 	import * as Sheet from '@epicenter/ui/sheet';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { extractErrorMessage } from 'wellcrafted/error';
+	import { toast } from '@epicenter/ui/sonner';
 	import { onDestroy, type Snippet } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { setFolder, type WhisperingFolder } from '$lib/folder.js';
 	import { createWhispering, setWhispering } from '$lib/whispering.svelte.js';
+	import { describeError } from '$lib/files.js';
 	import AppHeader from './AppHeader.svelte';
 	import BottomNav from './BottomNav.svelte';
 	import FileBrowser from './FileBrowser.svelte';
@@ -27,7 +29,9 @@
 	// svelte-ignore state_referenced_locally
 	setFolder(folder);
 	// svelte-ignore state_referenced_locally
-	const whispering = createWhispering(folder);
+	const whispering = createWhispering(folder, (action, error) => {
+		toast.error(action, { description: describeError(error) });
+	});
 	setWhispering(whispering);
 	const { view } = whispering;
 	const starting = whispering.start();

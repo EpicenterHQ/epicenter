@@ -25,7 +25,7 @@ import {
 	eventually,
 	openMemoryTestFolder,
 	openTestServices,
-	settled,
+	waitForSaves,
 	type TestServicesOptions,
 } from './services.test-support.js';
 import { TranscriptionError } from './transcription.js';
@@ -51,7 +51,7 @@ async function open({
 	});
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	await settled(services.folder);
+	await waitForSaves(services.folder);
 	return {
 		...services,
 		host: inMemory?.host,
@@ -206,7 +206,7 @@ test('an answer whose result row was deleted meanwhile writes nothing and is not
 	expectOk(await folder.tables.transcriptions.delete(row!.id));
 	answer.resolve(Ok({ text: 'arrived after the row went' }));
 	await transcribing;
-	await settled(folder);
+	await waitForSaves(folder);
 	expect(folder.file(row!.path)).toBeUndefined();
 	expect(whispering.unwrittenAnswers).toBe(0);
 	expect(whispering.resultState(row!.path, '')).toEqual({ kind: 'unfinished' });

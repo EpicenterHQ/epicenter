@@ -23,6 +23,7 @@
 	import PlayIcon from '@lucide/svelte/icons/play';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { getFolder } from '$lib/folder.js';
+	import { WRITE_FAILED } from '$lib/files.js';
 	import { tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS, whisperingTables } from '$lib/definition.js';
 	import type { RecipeRow } from '$lib/recipe.js';
@@ -174,7 +175,7 @@
 			view.applySource === 'pasted'
 				? await whispering.transformText(own, view.pastedText, inputs)
 				: chosen && (await whispering.transform(chosen.result.path, own, inputs));
-		if (problem) toast.error('The transformation did not run', { description: problem });
+		if (problem && problem !== WRITE_FAILED) toast.error('The transformation did not run', { description: problem });
 	}
 
 	/**
@@ -221,13 +222,18 @@
 	}
 
 	/**
-	 * Show the fields or the whole text, once this file's saves answer so
-	 * the other editor shows it. Answers whether it switched.
+	 * Show the fields or the whole text. Returning to fields first writes the
+	 * shown Source text. Answers whether it switched.
 	 */
 	async function show(asSource: boolean) {
-		folder.checkpoint();
-		await folder.settled(own);
-		if (asSource ? title.error || modelText.error || prompt.error : source.error) return false;
+		if (!asSource && source.value !== text) {
+			const saved = await folder.write(own, source.value);
+			if (saved.error !== null) {
+				toast.error('The fields were not opened', { description: saved.error.message });
+				return false;
+			}
+			source.discard();
+		}
 		const problem = asSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 		return problem === undefined;
@@ -275,7 +281,7 @@
 	{#if file?.readError}
 		<div class="flex flex-col items-start gap-2 border-b px-4 py-2 text-sm" role="alert" data-testid="row-unopened">
 			<p class="text-destructive">This file could not be read: {file.readError.message}</p>
-			<Button size="sm" variant="outline" onclick={() => folder.checkpoint()}>Try again</Button>
+			<Button size="sm" variant="outline" onclick={() => folder.refresh()}>Try again</Button>
 		</div>
 	{/if}
 

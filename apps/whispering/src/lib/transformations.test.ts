@@ -55,7 +55,7 @@ import {
 	eventually,
 	openMemoryTestFolder,
 	openTestServices,
-	settled,
+	waitForSaves,
 	type TestServicesOptions,
 } from './services.test-support.js';
 import { TransformationError } from './transformation.js';
@@ -100,10 +100,10 @@ function textOf(folder: WhisperingFolder, path: string) {
 async function transcribed(whispering: Whispering, folder: WhisperingFolder) {
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const recording = whispering.entries[0]!;
 	await whispering.transcribe(recording);
-	await settled(folder);
+	await waitForSaves(folder);
 	const transcript = whispering.resultsFor(recording.stem)[0]!;
 	return {
 		recording,
@@ -349,7 +349,7 @@ test('an outside transcript edit the folder shows is sent without rewriting its 
 		.replace('---\n', '---\nreviewedBy: someone\n')
 		.replace(transcript.row.body, 'A steady tone, corrected by hand.\n');
 	await writeFile(join(root, transcript.path), outside);
-	folder.checkpoint();
+	folder.refresh();
 	await eventually(
 		() =>
 			whispering.resultsFor(transcript.row.fields.recordingId)[0]?.row.body ===
@@ -421,7 +421,7 @@ async function newestResult(
 	folder: WhisperingFolder,
 	transcriptionId: string,
 ) {
-	await settled(folder);
+	await waitForSaves(folder);
 	const output = whispering.outputsFor(transcriptionId)[0]!;
 	return {
 		output,
@@ -752,7 +752,7 @@ test('an answer replaces the current body, and an answer for an already deleted 
 
 	const second = whispering.transform(transcript.path, editor.path);
 	await eventually(() => transformed.length === 2);
-	await settled(folder);
+	await waitForSaves(folder);
 	const discarded = whispering
 		.outputsFor(transcript.stem)
 		.find((item) => item.stem !== output.stem)!;
@@ -792,7 +792,7 @@ async function fillRace(typed: string) {
 
 	answer.resolve(Ok({ text: 'from the endpoint' }));
 	await running;
-	await settled(folder);
+	await waitForSaves(folder);
 
 	expect(filled).toBe(true);
 	expect(whispering.unwrittenAnswers).toBe(0);

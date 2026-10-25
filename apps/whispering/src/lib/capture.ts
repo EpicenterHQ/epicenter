@@ -190,14 +190,14 @@ export function createFixtureDevice({
 		async start({ folder, path }) {
 			const startedAt = performance.now();
 			const audioPath = `${path}.${extension}`;
-			let settled = false;
+			let stopped = false;
 			return Ok({
 				audioPath,
 				startedAt,
 				onEnded: () => () => {},
 				async stop() {
-					if (settled) return CaptureError.Empty();
-					settled = true;
+					if (stopped) return CaptureError.Empty();
+					stopped = true;
 					let fixture: FixtureAudio;
 					try {
 						fixture = await load();

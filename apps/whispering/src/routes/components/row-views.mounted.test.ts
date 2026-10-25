@@ -43,7 +43,7 @@ const {
 	openMemoryTestFolder,
 	openTestFolder,
 	openTestServices,
-	settled,
+	waitForSaves,
 	whisperingDirectory,
 	eventually,
 } = await import('../../lib/services.test-support.js');
@@ -105,7 +105,6 @@ async function open(
 		target,
 		root,
 		host: inMemory?.host,
-		failed: stubs.failed,
 	};
 }
 
@@ -122,13 +121,15 @@ async function show(
 
 /** Let writes land and the views follow them. */
 async function settle(folder: WhisperingFolder) {
-	await settled(folder);
+	// Mounted drafts debounce before the folder's saving flag changes.
+	await new Promise((resolve) => setTimeout(resolve, 1050));
+	await waitForSaves(folder);
 	flushSync();
 }
 
 /** Look at the folder again, as focus or another program's change does, and let the views follow. */
 async function lookAgain(folder: WhisperingFolder, until: () => boolean) {
-	folder.checkpoint();
+	folder.refresh();
 	await eventually(() => {
 		flushSync();
 		return until();
@@ -169,7 +170,7 @@ test('new captures play their sibling without audioPath and conflicting formats 
 });
 
 test('a transcript saves to its own path after switching files', async () => {
-	const { folder, whispering, target, root, failed } = await open({
+	const { folder, whispering, target, root } = await open({
 		[A]: transcript('Alpha.\n'),
 		'other.txt': 'Another file',
 	});
@@ -188,7 +189,6 @@ test('a transcript saves to its own path after switching files', async () => {
 	await show(whispering, folder, 'other.txt');
 	await settle(folder);
 
-	expect(failed).toEqual([]);
 	expect(await readFile(join(root, A), 'utf8')).toEndWith(
 		'---\nAlpha, typed.\n',
 	);
@@ -248,7 +248,7 @@ test('a whole-file text draft recreates a file deleted outside the mirror', asyn
 	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]')?.value).toBe('Recreated');
 });
 
-test('switching a recording to Source waits for its title to land', async () => {
+test('switching a recording to Source follows its title when the save lands', async () => {
 	const { folder, whispering, target, host } = await open(
 		{ [RECORDING]: recording('Before', '') },
 		'recordings',
@@ -264,12 +264,12 @@ test('switching a recording to Source waits for its title to land', async () => 
 	);
 	sourceTab?.click();
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).not.toBeNull();
 	host!.control.putGate = undefined;
 	release.resolve();
 	await eventually(() => {
 		flushSync();
-		return target.querySelector('textarea[aria-label="Markdown source"]') !== null;
+		return host!.text(RECORDING)?.includes('title: Latest') === true;
 	});
 	expect(host!.text(RECORDING)).toContain('title: Latest');
 	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]')?.value).toContain('title: Latest');
@@ -348,14 +348,18 @@ test('a transformation opens in Source when invalid, and its issues follow the t
 	expect(target.querySelector('[data-testid="needs-repair"]')).not.toBeNull();
 	type(source(), repaired);
 	flushSync();
+	instructions()?.click();
+	flushSync();
+	expect(host!.text(RECIPE)).toBe(broken);
+	expect(source()).not.toBeNull();
 	host!.control.putGate = undefined;
 	release.resolve();
-	await settle(folder);
+	await eventually(() => {
+		flushSync();
+		return field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]') !== null;
+	});
 	expect(host!.text(RECIPE)).toBe(repaired);
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
-
-	expect(whispering.useForm(RECIPE, repaired)).toBeUndefined();
-	flushSync();
 	expect(
 		field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')
 			?.value,
@@ -401,7 +405,7 @@ test('a transformation’s title, model, and instructions save from their own co
 	);
 	expect(prompt()?.value).toBe('Tidy.\nThen check.\n');
 	expect(model()?.value).toBe('');
-});
+}, 10000);
 
 test('a recording whose audio is not in the folder says it is not on this device, and offers no player, transcription, or run again until the audio arrives', async () => {
 	const { folder, whispering, target } = await open({
@@ -612,6 +616,8 @@ test('a file whose read failed says so and reads again on Try again', async () =
 		{ memory: true },
 	);
 	await show(whispering, folder, path);
+	const editor = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of locked.txt"]');
+	expect(editor?.value).toBe('Readable\n');
 	// Storage refuses reads of the file, and another program changes it.
 	const read = host!.storage.read;
 	host!.storage.read = async (paths) => {
@@ -630,9 +636,10 @@ test('a file whose read failed says so and reads again on Try again', async () =
 	host!.outside(path, 'Changed, and now unreadable\n');
 	await eventually(() => {
 		flushSync();
-		return target.querySelector('[data-testid="file-read-error"]') !== null;
+		return target.querySelector('[role="alert"]')?.textContent?.includes('read refused') === true;
 	});
 	expect(target.textContent).toContain('read refused');
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of locked.txt"]')).toBe(editor);
 	host!.storage.read = read;
 	const tryAgain = [...target.querySelectorAll('button')].find(
 		(button) => button.textContent?.trim() === 'Try again',
@@ -647,6 +654,62 @@ test('a file whose read failed says so and reads again on Try again', async () =
 			)?.value === 'Changed, and now unreadable\n'
 		);
 	});
+});
+
+test('saved file text stays editable when a later read fails', async () => {
+	const path = 'notes/editable.txt';
+	const { folder, host, whispering, target } = await open({ [path]: 'First\n' }, 'recordings', { memory: true });
+	await show(whispering, folder, path);
+	const editor = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of editable.txt"]');
+	const read = host!.storage.read;
+	host!.storage.read = async (paths) => {
+		const answer = new Map(await read(paths));
+		if (paths.includes(path)) answer.set(path, Err({ name: 'StorageFailed', message: 'Read refused', cause: new Error('read refused') }));
+		return answer;
+	};
+	host!.outside(path, 'Outside\n');
+	await eventually(() => {
+		flushSync();
+		return target.textContent?.includes('Read refused') === true;
+	});
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of editable.txt"]')).toBe(editor);
+	type(editor, 'Typed on\n');
+	await settle(folder);
+	expect(host!.text(path)).toBe('Typed on\n');
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of editable.txt"]')).toBe(editor);
+});
+
+test('rename writes the mounted editor draft before copying', async () => {
+	const path = 'notes/draft.txt';
+	const { folder, host, whispering, target } = await open({ [path]: 'Old\n' }, 'recordings', { memory: true });
+	await show(whispering, folder, path);
+	const editor = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of draft.txt"]');
+	type(editor, 'New draft\n');
+	const gate = deferred<void>();
+	host!.control.putGate = gate.promise;
+	const renaming = whispering.rename(path, 'renamed.txt');
+	await eventually(() => host!.log.puts.some((put) => put.path === path));
+	type(editor, 'Newest draft\n');
+	host!.control.putGate = undefined;
+	gate.resolve();
+	expect(await renaming).toBeUndefined();
+	await settle(folder);
+	expect(host!.text('notes/renamed.txt')).toBe('Newest draft\n');
+	expect(host!.text(path)).toBeUndefined();
+});
+
+test('rename writes a transcript draft from the recording card', async () => {
+	const { folder, host, whispering, target } = await open({
+		[RECORDING]: recording('Take', ''),
+		[A]: transcript('Old words\n').replace('recordingId: one', 'recordingId: take'),
+	}, 'recordings', { memory: true });
+	await show(whispering, folder, RECORDING);
+	const editor = field<HTMLTextAreaElement>(target, '[data-testid="transcript-text"]');
+	type(editor, 'New words\n');
+	expect(await whispering.rename(A, 'renamed.md')).toBeUndefined();
+	await settle(folder);
+	expect(host!.text('transcriptions/renamed.md')).toContain('New words\n');
+	expect(host!.text(A)).toBeUndefined();
 });
 
 test('a file that left the folder is no longer shown', async () => {

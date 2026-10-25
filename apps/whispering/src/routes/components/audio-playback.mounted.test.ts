@@ -16,7 +16,7 @@ const { createFixtureDevice, toneWav } = await import('../../lib/capture.js');
 const { createTestWhispering, closeTestWhispering } = await import(
 	'../../lib/whispering.test-support.js'
 );
-const { openTestServices, deferred, eventually, settled } = await import(
+const { openTestServices, deferred, eventually, waitForSaves } = await import(
 	'../../lib/services.test-support.js'
 );
 const Host = (await import('./test-fixtures/AudioPlaybackHost.svelte')).default;
@@ -32,7 +32,7 @@ for (const view of ['home', 'detail', 'file'] as const) {
 		const app = await open(view === 'home');
 		const { whispering, folder } = app;
 		await whispering.startRecording();
-		await settled(folder);
+		await waitForSaves(folder);
 		const entry = whispering.entries[0]!;
 		const path = entry.path.replace(/\.md$/, '.wav');
 		if (view !== 'home') whispering.open(view === 'detail' ? entry.path : path);
@@ -87,7 +87,7 @@ test('a completed recording stays playable while a different recording is active
 	await whispering.startRecording();
 	app.finish.resolve();
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const first = whispering.entries[0]!;
 	whispering.open(first.path);
 	await eventually(() => {
@@ -107,7 +107,7 @@ test('a player reads its audio again when the folder shows the file changed', as
 	await whispering.startRecording();
 	app.finish.resolve();
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const entry = whispering.entries[0]!;
 	const path = entry.path.replace(/\.md$/, '.wav');
 	whispering.open(entry.path);
@@ -138,7 +138,7 @@ test('a player hides a revoked URL while replacement audio is loading', async ()
 	await whispering.startRecording();
 	app.finish.resolve();
 	await whispering.stopRecording();
-	await settled(folder);
+	await waitForSaves(folder);
 	const entry = whispering.entries[0]!;
 	const path = entry.path.replace(/\.md$/, '.wav');
 	whispering.open(entry.path);
