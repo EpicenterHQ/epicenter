@@ -7,6 +7,8 @@ import { Err, Ok } from 'wellcrafted/result';
 import { ReadError, type SaveError } from '../shared/errors.js';
 import type { Expected, Fetched, FolderHost, Listed } from './storage.js';
 
+export { ReadError, SaveError } from '../shared/errors.js';
+export { WriteRefusal } from './errors.js';
 export { createFolder } from './folder.js';
 
 const encoder = new TextEncoder();
