@@ -5,8 +5,7 @@
 	"type": "module",
 	"description": "React views over an opened folder.",
 	"exports": {
-		"./document": "./src/document.ts",
-		"./folder": "./src/folder.ts"
+		"./document": "./src/document.ts"
 	},
 	"dependencies": {
 		"@epicenter/folder": "workspace:*",
