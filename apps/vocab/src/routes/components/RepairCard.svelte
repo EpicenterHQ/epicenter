@@ -15,15 +15,30 @@
 	const file = $derived(folder.file(path));
 	const text = $derived(typeof file?.data === 'string' ? file.data : undefined);
 	let lastSave: Saved | undefined;
+	let closeProblem = $state('');
 	const raw = draft(
 		() => text?.replace(/\r\n?/g, '\n') ?? '',
-		(value) => lastSave = folder.write(path, withFileNewlines(value, text ?? '')),
+		(value) => {
+			closeProblem = '';
+			return lastSave = folder.write(path, withFileNewlines(value, text ?? ''));
+		},
 	);
 	const problems = $derived(readRow(raw.text, vocabTables.entries).issues);
+
+	async function close() {
+		const save = lastSave;
+		if (await entries.repair.close(raw.text, save)) return;
+		if (save && (await save).error !== null) return;
+		const row = folder.tables.entries.row(id);
+		if (row === undefined)
+			closeProblem = 'The file is missing. Type to save it again.';
+		else if (row.issues !== null)
+			closeProblem = 'The saved file still has problems. Review its text and try again.';
+	}
 </script>
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
-	<p><code>{path}</code> {problems ? 'is not a valid word, so its note and stage cannot be shown.' : 'now reads as a word.'} Changes are saved shortly after you type.</p>
+	<p><code>{path}</code> {problems ? 'is not a valid word, so its note and stage cannot be shown.' : 'reads as a word in this editor and appears as one after saving.'} Changes are saved shortly after you type.</p>
 	<Textarea class="min-h-32 font-mono text-xs" aria-label="File text for {path}" bind:value={raw.text} />
 	{#if file?.readError}
 		<div role="alert" class="text-destructive">Could not read <code>{path}</code>: {file.readError.message}
@@ -35,6 +50,7 @@
 			{#each problems as issue, index (index)}<li>{'line' in issue && issue.line !== undefined ? `Line ${issue.line}: ` : ''}{issue.message}</li>{/each}
 		</ul>
 	{:else}
-		<Button size="sm" variant="outline" onclick={() => void entries.repair.close(raw.text, lastSave)}>Show note and stage</Button>
+		<Button size="sm" variant="outline" onclick={() => void close()}>Show note and stage</Button>
 	{/if}
+	{#if closeProblem}<p role="alert" class="text-destructive">{closeProblem}</p>{/if}
 </section>

@@ -6,7 +6,7 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 const { createEntries } = await import('./entries.svelte.js');
 
 import { rowPath, vocabTables } from './data.js';
-import { createMemory } from './folder.test-support.js';
+import { createMemory, until } from './folder.test-support.js';
 
 const raw = (text: string, note = '', stage = 'new') =>
 	`---\ntext: ${text}\nnote: ${note}\nstage: ${stage}\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\nBody`;
@@ -80,14 +80,102 @@ test('note and stage updates set only named fields over the current file', async
 	await core.close();
 });
 
-test('invalid text is available for repair, and delete removes the path', async () => {
-	const { folder, core } = await createMemory({
+test('repair as text writes a valid row before returning to the word card', async () => {
+	const { folder, core, host } = await createMemory({
 		'entries/broken.md': 'broken frontmatter',
 	});
 	const entries = createEntries(folder);
 	expect(entries.repairs[0]?.id).toBe('broken');
+	entries.repair.start('broken');
+	const repaired = raw('lucid', 'clear');
+	const saved = folder.write('entries/broken.md', repaired);
+	expect(await entries.repair.close(repaired, saved)).toBe(true);
+	expect(entries.repair.open).toBeUndefined();
+	expect(entries.words[0]?.note).toBe('clear');
+	expect(host.text('entries/broken.md')).toBe(repaired);
 	expectOk(await entries.delete('broken'));
 	expect(folder.tables.entries.row('broken')).toBeUndefined();
+	await core.close();
+});
+
+test('repair stays open until its valid text has landed', async () => {
+	const { folder, core, host } = await createMemory({
+		'entries/broken.md': 'broken frontmatter',
+	});
+	const entries = createEntries(folder);
+	entries.repair.start('broken');
+	const gate = Promise.withResolvers<void>();
+	host.control.putGate = gate.promise;
+	const repaired = raw('lucid', 'clear');
+	const saved = folder.write('entries/broken.md', repaired);
+	const closing = entries.repair.close(repaired, saved);
+	await Bun.sleep(0);
+	expect(entries.repair.open).toBe('broken');
+	gate.resolve();
+	expect(await closing).toBe(true);
+	expect(entries.repair.open).toBeUndefined();
+	await core.close();
+});
+
+test('failed repair save leaves the card open', async () => {
+	const { folder, core, host } = await createMemory({
+		'entries/broken.md': 'broken frontmatter',
+	});
+	const entries = createEntries(folder);
+	entries.repair.start('broken');
+	host.control.failPut.set('entries/broken.md', {
+		name: 'StorageFailed',
+		message: 'storage refused',
+		cause: 'full',
+	});
+	const repaired = raw('lucid', 'clear');
+	expect(
+		await entries.repair.close(
+			repaired,
+			folder.write('entries/broken.md', repaired),
+		),
+	).toBe(false);
+	expect(entries.repair.open).toBe('broken');
+	await core.close();
+});
+
+test('an outside invalid edit keeps repair open after a valid draft', async () => {
+	const { folder, core, host } = await createMemory({
+		'entries/broken.md': 'broken frontmatter',
+	});
+	const entries = createEntries(folder);
+	entries.repair.start('broken');
+	const repaired = raw('lucid', 'clear');
+	expectOk(await folder.write('entries/broken.md', repaired));
+	host.outside('entries/broken.md', 'invalid again', { hint: true });
+	folder.checkpoint();
+	await until(() => {
+		const row = folder.tables.entries.row('broken');
+		return row !== undefined && row.issues !== null;
+	}, 'outside invalid row');
+	expect(await entries.repair.close(repaired, undefined)).toBe(false);
+	expect(entries.repair.open).toBe('broken');
+	await core.close();
+});
+
+test('closing one repair cannot close another opened while its save waits', async () => {
+	const { folder, core, host } = await createMemory({
+		'entries/a.md': 'broken a',
+		'entries/b.md': raw('opaque', 'clear'),
+	});
+	const entries = createEntries(folder);
+	entries.repair.start('a');
+	const gate = Promise.withResolvers<void>();
+	host.control.putGate = gate.promise;
+	const repaired = raw('lucid', 'clear');
+	const closing = entries.repair.close(
+		repaired,
+		folder.write('entries/a.md', repaired),
+	);
+	entries.repair.start('b');
+	gate.resolve();
+	expect(await closing).toBe(true);
+	expect(entries.repair.open).toBe('b');
 	await core.close();
 });
 

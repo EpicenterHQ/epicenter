@@ -13,13 +13,14 @@ export function createRepair(folder: VocabFolder) {
 			open = id;
 		},
 		async close(text: string, lastSave: Saved | undefined): Promise<boolean> {
+			const id = open;
+			if (id === undefined) return false;
 			if (readRow(text, vocabTables.entries).issues !== null) return false;
 			folder.checkpoint();
 			if (lastSave && (await lastSave).error !== null) return false;
-			if (open === undefined) return false;
-			const row = folder.tables.entries.row(open);
+			const row = folder.tables.entries.row(id);
 			if (row?.issues !== null) return false;
-			open = undefined;
+			if (open === id) open = undefined;
 			return true;
 		},
 	};
