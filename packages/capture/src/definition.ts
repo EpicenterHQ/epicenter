@@ -1,4 +1,4 @@
-import type { Row } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder/next';
 import { type Static, Type } from 'typebox';
 
 /**
@@ -12,8 +12,8 @@ import { type Static, Type } from 'typebox';
  *
  * `capturedAt` is an RFC 3339 datetime, so a file written by hand with an
  * offset (`2026-10-01T10:30:00+08:00`) is as valid as the UTC form the app
- * writes. The schema only interprets: other frontmatter keys survive a save,
- * and a file that does not fit is listed with its source and issues.
+ * writes. The schema only interprets: other frontmatter keys survive an
+ * update in canonical form, and a file that does not fit is listed with issues.
  */
 export const captureTables = {
 	captures: Type.Object({

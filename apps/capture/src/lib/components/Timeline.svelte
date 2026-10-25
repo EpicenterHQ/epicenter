@@ -3,18 +3,17 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
-	import { createQuery } from '@tanstack/svelte-query';
-	import { type Captures, timelineOf } from '$lib/captures.svelte.js';
+	import { type Captures } from '$lib/captures.svelte.js';
+	import { getFolder } from '$lib/folder.js';
 	import NewCapture from './NewCapture.svelte';
-	import TechnicalDetails from './TechnicalDetails.svelte';
 
 	let { captures }: { captures: Captures } = $props();
 
-	const listing = createQuery(() => captures.rowsQuery(timelineOf));
-	const timeline = $derived(listing.data?.rows ?? []);
-	const drafts = $derived(listing.data?.drafts ?? []);
-	const repairs = $derived(listing.data?.repairs ?? []);
-	const unreadable = $derived(listing.data?.unreadable ?? []);
+	const folder = getFolder();
+	const timeline = $derived(captures.timeline.rows);
+	const drafts = $derived(captures.timeline.drafts);
+	const repairs = $derived(captures.timeline.repairs);
+	const unreadable = $derived(captures.timeline.unreadable);
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 </script>
 
@@ -40,31 +39,6 @@
 	</section>
 {/if}
 
-{#if captures.failures.length}
-	<!-- A save that failed keeps its edit; this says where, from wherever the person is. -->
-	<Alert.Root variant="destructive" aria-label="Not saved" class="mb-4">
-		<Alert.Title>Some changes are not saved</Alert.Title>
-		<Alert.Description>Each edit is still here. Open the capture to save it again or copy it.</Alert.Description>
-		<ul class="mt-2 flex flex-col gap-2 text-foreground">
-			{#each captures.failures as failure (failure.path)}
-				<li class="flex flex-wrap items-start gap-2">
-					<p class="min-w-0 flex-1 break-words"><code class="break-all">{failure.path}</code>: {failure.reason}</p>
-					<Button size="sm" variant="outline" aria-label="Open {failure.path}" onclick={() => captures.open(failure.stem, 'capture')}>Open</Button>
-				</li>
-			{/each}
-		</ul>
-	</Alert.Root>
-{/if}
-
-{#if listing.isError}
-	<Alert.Root variant="destructive" class="mb-4">
-		<Alert.Title>Your captures could not be read</Alert.Title>
-		<Alert.Description>What is listed here may be out of date. Text you have typed in this window is still here.</Alert.Description>
-		<div class="mt-2 text-foreground"><Button variant="outline" size="sm" onclick={() => void listing.refetch()}>Check again</Button></div>
-		<TechnicalDetails detail={listing.error.message} />
-	</Alert.Root>
-{/if}
-
 {#if timeline.length}
 	<Item.Group aria-label="Timeline captures" class="gap-1">
 		{#each timeline as row (row.path)}
@@ -83,7 +57,7 @@
 			</Item.Button>
 		{/each}
 	</Item.Group>
-{:else if listing.isSuccess && drafts.length === 0}
+{:else if drafts.length === 0}
 	<Empty.Root>
 		<Empty.Header>
 			<Empty.Title>No captures yet</Empty.Title>
@@ -111,10 +85,10 @@
 {#if unreadable.length}
 	<Alert.Root variant="destructive" aria-label="Unreadable files" class="mt-6">
 		<Alert.Title>{unreadable.length} {unreadable.length === 1 ? 'file' : 'files'} could not be read</Alert.Title>
-		<Alert.Description>They are not text. They are kept as they are, untouched.</Alert.Description>
-		<ul class="mt-1 list-disc pl-5 text-foreground">
+		<Alert.Description>These files are kept as they are, untouched.</Alert.Description>
+		<ul class="mt-1 flex flex-col gap-2 text-foreground">
 			{#each unreadable as file (file.path)}
-				<li class="break-words"><code>{file.path}</code>: {file.message}</li>
+				<li class="flex flex-wrap items-start gap-2 break-words"><span><code>{file.path}</code>: {file.message}</span>{#if file.retry}<Button size="sm" variant="outline" onclick={() => folder.checkpoint()}>Try again</Button>{/if}</li>
 			{/each}
 		</ul>
 	</Alert.Root>

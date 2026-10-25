@@ -3,8 +3,8 @@
  *
  * Bundles the page's root and its store through the app's Vite resolution, as
  * each build resolves them, and reads every module the bundle pulls in.
- * `hostAppViteConfig` resolves `@epicenter/folder`, which
- * `<FolderApp>` opens with, to one entry per build; a dropped alias
+ * `hostAppViteConfig` resolves `@epicenter/folder/next`, which
+ * `<OpenFolder>` opens with, to one entry per build; a dropped alias
  * fails no build.
  *
  * Key behaviors:
@@ -30,22 +30,33 @@ test(
 	'the host build carries the native engine and no browser storage',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'epicenter-host');
-		expect(modules.some(folderModule('native/tauri.ts'))).toBe(true);
-		expect(modules.some(folderModule('browser-adapter.ts'))).toBe(false);
-		expect(modules.some(folderModule('opfs-store.ts'))).toBe(false);
-		expect(modules.some(folderModule('local-folder.ts'))).toBe(false);
+		expect(modules.some(folderModule('next/tauri.ts'))).toBe(true);
+		expect(modules.some(folderModule('next/browser.ts'))).toBe(false);
+		expect(modules.some((path) => path.endsWith('folder-app.svelte'))).toBe(
+			false,
+		);
+		expect(modules.some((path) => path.endsWith('document-owner.ts'))).toBe(
+			false,
+		);
 		expect(modules.filter((path) => /^(node|bun):/.test(path))).toEqual([]);
 	},
 	BUNDLE_TIMEOUT,
 );
 
 test(
-	'the browser build carries the local folder and no native engine',
+	'the browser build carries the mirror browser adapter and no native adapter',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'browser');
-		expect(modules.some(folderModule('browser.ts'))).toBe(true);
-		expect(modules.some(folderModule('local-folder.ts'))).toBe(true);
-		expect(modules.some(folderModule('native/tauri.ts'))).toBe(false);
+		expect(modules.some(folderModule('next/browser.ts'))).toBe(true);
+		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
+		expect(modules.some(folderModule('next/tauri.ts'))).toBe(false);
+		expect(modules.some((path) => path.endsWith('folder-app.svelte'))).toBe(
+			false,
+		);
+		expect(modules.some((path) => path.endsWith('document-owner.ts'))).toBe(
+			false,
+		);
+		expect(modules.filter((path) => /^(node|bun):/.test(path))).toEqual([]);
 	},
 	BUNDLE_TIMEOUT,
 );

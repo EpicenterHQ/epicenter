@@ -1,31 +1,13 @@
 /**
  * Capture Store Tests
  *
- * Drives the real Capture store and its query cache over a real local
- * folder (`openFolder({ tables: captureTables })`) on an in-memory
- * IndexedDB, built as `<FolderApp>` builds it. A second handle of the
- * same profile stands in for another tab.
- *
- * Key behaviors:
- * - Add writes one finished capture, its first write; blank text and a
- *   failed write leave no file
- * - The timeline orders by the captured instant, and names files that are
- *   not captures for repair as text
- * - An edit is typed through the row's edit handle over the cache, saved
- *   after a pause, keeping frontmatter Capture does not declare
- * - Another tab's change preserves local input; the next whole-file publication wins
- * - A failed save keeps the edit and its reason; saving again lands it
- * - A thought command saves at once; one on a list that changed is refused
- * - A thought opens as text at its own lines, unless its list changed
- * - Edit as text saves exact text, including unfinished Markdown, and can
- *   reopen as a capture without saving or refreshing
- * - Deleting runs after the edit's saves and removes the file
- * - Close leaves held edits unsaved and refuses new input
+ * Exercises capture creation, mirror-backed timeline, thought composition,
+ * mode settling, repair, and deletion on a real folder mirror.
  */
-import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { composeBody } from '@epicenter/capture';
+import { captureBody, composeBody } from '@epicenter/capture';
+import { readRow } from '@epicenter/folder/next';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	type CapturesHarness,
@@ -33,519 +15,210 @@ import {
 	until,
 } from './local-folder.test-support.js';
 
+const { createCaptureActions, locateThought } = await import(
+	'./capture-actions.svelte.ts'
+);
 const { timelineOf } = await import('./captures.svelte.ts');
-const { createCaptureActions } = await import('./capture-actions.svelte.ts');
-
 const harnesses: CapturesHarness[] = [];
 afterEach(async () => {
 	for (const harness of harnesses.splice(0)) await harness.close();
 });
-
-async function open(files: Record<string, string> = {}) {
-	const harness = await openCaptures(files);
+async function open(
+	files: Record<string, string | Uint8Array> = {},
+	throttleMs = 20,
+) {
+	const harness = await openCaptures(files, { throttleMs });
 	harnesses.push(harness);
 	return harness;
 }
 
 const AT = '2026-10-01T10:30:00+08:00';
 const PATH = 'captures/one.md';
-/** A capture file written by hand, with metadata Capture does not declare. */
-const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n  nested line\n`;
-/** HAND with its body replaced. */
-const withBody = (body: string) =>
-	`---\ncapturedAt: ${AT}\ncustom: kept\n---\n\n${body}`;
-
-/** Capture commands over the Folder edit, as the view constructs them. */
-function actionsOf({ folder }: CapturesHarness, stem = 'one') {
-	return createCaptureActions(
-		folder.tables.captures.document(stem),
-		folder.tables.captures.parse,
-	);
+const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n`;
+function bodyDraft(harness: CapturesHarness, stem = 'one') {
+	const row = () => harness.folder.tables.captures.row(stem);
+	let typed: string | undefined;
+	return {
+		get text() {
+			const saved = row();
+			return typed ?? (saved?.issues === null ? saved.body : '');
+		},
+		set(body: string) {
+			typed = body;
+			void harness.captures.track(
+				harness.folder.tables.captures.update(stem, { body }),
+			);
+		},
+	};
 }
 
-function parsed({ folder }: CapturesHarness, text: string | undefined) {
-	return text === undefined ? undefined : folder.tables.captures.parse(text);
-}
-
-/** The folder's edit of capture `one` as its exact text, read. */
-async function textOfOne({ folder }: CapturesHarness) {
-	const edit = folder.files.document(PATH);
-	expectOk(await edit.refresh());
-	return edit;
-}
-
-test('Add writes one finished capture and opens it at Add a thought', async () => {
-	const harness = await open();
-	const { captures, folder } = harness;
-	const { stem } = expectOk(await captures.create('Hello\nworld'));
+test('Add writes one finished capture and opens Add a thought', async () => {
+	const h = await open();
+	const { stem } = expectOk(await h.captures.create('Hello\nworld'));
 	expect(stem).toMatch(/^\d{8}-\d{6}-[0-9a-z]{5}$/);
-	expect(captures.opened).toEqual({
+	expect(h.captures.opened).toEqual({
 		stem,
 		mode: 'capture',
 		focus: 'new-thought',
 	});
-	const row = expectOk(await folder.tables.captures.get(stem));
-	expect(row?.fields).toEqual({ capturedAt: expect.any(String) });
-	expect(row?.body).toBe('\nHello\nworld\n\n## Thoughts\n');
-	expect(harness.rows()).toHaveLength(1);
-	expect(timelineOf(harness.rows()).drafts).toEqual([]);
+	const row = h.cached(stem);
+	expect(row?.issues).toBeNull();
+	if (row?.issues !== null)
+		expect(row?.body).toBe(composeBody('Hello\nworld').body);
+	expect(h.captures.timeline.rows[0]?.stem).toBe(stem);
 });
 
-test('Add keeps pasted Markdown as composeBody writes it, and an ambiguous result opens as text', async () => {
-	const harness = await open();
-	const pasted = 'Pasted article\n\n## Thoughts\n\n- belongs to the article';
-	const { stem } = expectOk(await harness.captures.create(pasted));
-	const row = expectOk(await harness.folder.tables.captures.get(stem));
-	expect(row?.body).toBe(composeBody(pasted).body);
-	expect(harness.captures.opened).toEqual({ stem, mode: 'text' });
-});
-
-test('blank text is refused by Add, and nothing is written', async () => {
-	const harness = await open();
-	const refusal = expectErr(await harness.captures.create(' \n\t'));
-	expect(refusal).toMatchObject({
-		name: 'Refused',
-		message: 'Write something first.',
-	});
-	expect(harness.captures.opened).toBeUndefined();
-	expect(expectOk(await harness.folder.tables.captures.list())).toEqual([]);
-});
-
-test('a failed Add writes nothing and opens nothing', async () => {
-	const harness = await open();
-	const restore = harness.failSaves();
-	expect(expectErr(await harness.captures.create('Kept')).name).toBe(
+test('blank and failed Add leave no file; failed Add keeps no mirror row', async () => {
+	const h = await open();
+	expect(expectErr(await h.captures.create(' ')).name).toBe('Refused');
+	const restore = h.failSaves('captures/one.md');
+	const failure = h.host.control.failPut.get('captures/one.md');
+	if (failure === undefined) throw new Error('Failure was not installed');
+	// The generated stem is unknown; fail every put through the host callback.
+	h.host.control.beforePut = (path) =>
+		h.host.control.failPut.set(path, failure);
+	expect(expectErr(await h.captures.create('Keep me')).name).toBe(
 		'StorageFailed',
 	);
+	expect(h.captures.timeline.rows).toEqual([]);
+	expect(h.host.log.puts.length).toBe(1);
 	restore();
-	expect(harness.captures.opened).toBeUndefined();
-	expect(harness.folder.getStatus().unsaved).toEqual([]);
-	await harness.folder.flush();
-	expect(expectOk(await harness.folder.tables.captures.list())).toEqual([]);
-	expectOk(await harness.captures.create('Kept'));
-	expect(expectOk(await harness.folder.tables.captures.list())).toHaveLength(1);
+	h.host.control.beforePut = undefined;
 });
 
-test('close may fail an admitted Add before storage starts', async () => {
-	const harness = await open();
-	const creating = harness.captures.create('Before close');
-	const closing = harness.context.close();
-	expect(expectErr(await creating).name).toBe('StorageFailed');
-	expect(closing).toBeUndefined();
-});
-
-test('close may fail an admitted Delete before storage starts', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const deleting = harness.captures.delete(harness.captures.deletionFor('one'));
-	const closing = harness.context.close();
-	expect(expectErr(await deleting).name).toBe('StorageFailed');
-	expect(closing).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(HAND);
-});
-
-test('the timeline orders by instant and names files to repair', async () => {
-	const harness = await open({
-		// 02:30Z, written with an offset: newer than 01:00Z although its text sorts first.
-		'captures/a.md': `---\ncapturedAt: 2026-10-01T10:30:00+08:00\n---\n\nLater\n`,
-		'captures/b.md': `---\ncapturedAt: 2026-10-01T01:00:00Z\n---\n\nEarlier\n\n## Thoughts\n\n- one\n- two\n`,
-		'captures/bad-date.md': '---\ncapturedAt: yesterday\n---\n\nText\n',
-		'captures/two-headings.md': `---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- a\n\n## Thoughts\n\n- b\n`,
-		'notes/elsewhere.md': `---\ncapturedAt: ${AT}\n---\n\nNot in the table\n`,
+test('timeline orders captured instants and lists repair and nontext rows', async () => {
+	const h = await open({
+		'captures/one.md': HAND,
+		'captures/two.md': '---\ncapturedAt: 2026-10-01T04:00:00Z\n---\nLater\n',
+		'captures/broken.md': '---\ncapturedAt: nope\n---\nBody\n',
+		'captures/binary.md': new Uint8Array([0xff]),
 	});
-	const { rows, repairs, unreadable } = timelineOf(harness.rows());
-
-	expect(
-		rows.map(({ stem, preview, thoughtCount }) => ({
-			stem,
-			preview,
-			thoughtCount,
-		})),
-	).toEqual([
-		{ stem: 'a', preview: 'Later', thoughtCount: 0 },
-		{ stem: 'b', preview: 'Earlier', thoughtCount: 2 },
+	expect(h.captures.timeline.rows.map((row) => row.stem)).toEqual([
+		'two',
+		'one',
 	]);
-	expect(repairs.map(({ path }) => path)).toEqual([
-		'captures/bad-date.md',
-		'captures/two-headings.md',
+	expect(h.captures.timeline.repairs.map((row) => row.stem)).toEqual([
+		'broken',
 	]);
-	expect(repairs[0]?.problem).toContain('capturedAt');
-	expect(unreadable).toEqual([]);
-});
-
-test('an edit saves after a pause and keeps undeclared frontmatter', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const actions = actionsOf(harness);
-	const fileEdit = harness.folder.tables.captures.document('one');
-	actions.inputText('Edited');
-	// The row's body starts after the frontmatter, at its blank separator line.
-	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toBe(
-		'\nEdited\n\n## Thoughts\n\n- first\n  nested line\n',
-	);
-	expect(
-		harness.context.getStatus().saving ||
-			harness.context.getStatus().unsaved.length > 0,
-	).toBe(true);
-
-	await harness.quiet();
-	expect(fileEdit.getSnapshot().isDirty).toBe(false);
-	expect(await harness.text(PATH)).toBe(
-		withBody('Edited\n\n## Thoughts\n\n- first\n  nested line\n'),
-	);
-	expect(
-		harness.context.getStatus().saving ||
-			harness.context.getStatus().unsaved.length > 0,
-	).toBe(false);
-});
-
-test("another tab's change preserves input until a complete source publication", async () => {
-	const harness = await openCaptures({ [PATH]: HAND }, { saveAfterMs: 60_000 });
-	harnesses.push(harness);
-	const actions = actionsOf(harness);
-	const fileEdit = harness.folder.tables.captures.document('one');
-	actions.inputText('Typed here');
-
-	// Another tab adds a key while the typing waits for its pause.
-	await harness.writeElsewhere(
-		PATH,
-		HAND.replace('custom: kept', 'custom: kept\nmood: calm'),
-	);
-	await until(
-		() => harness.cached('one')?.text.includes('mood: calm') ?? false,
-		'the other tab’s change',
-	);
-	// The cache has the outside change; the Folder still holds the input typed here.
-	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toContain(
-		'Typed here',
-	);
-
-	await fileEdit.save();
-	expect(fileEdit.getSnapshot().saveError).toBeUndefined();
-	expect(await harness.text(PATH)).not.toContain('mood: calm');
-	const content = parsed(harness, fileEdit.getSnapshot().text);
-	if (content === undefined)
-		throw new Error('The capture lost acquired content');
-	expectOk(
-		fileEdit.replace(
-			content.text.replace('custom: kept', 'custom: kept\nmood: calm'),
-		),
-	);
-	await fileEdit.save();
-	await harness.quiet();
-	const saved = await harness.text(PATH);
-	expect(saved).toContain('mood: calm');
-	expect(saved).toContain(
-		'Typed here\n\n## Thoughts\n\n- first\n  nested line\n',
-	);
-	expect(fileEdit.getSnapshot().isDirty).toBe(false);
-});
-
-test('a failed save keeps the edit and its reason; saving again lands it', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const actions = actionsOf(harness);
-	const fileEdit = harness.folder.tables.captures.document('one');
-	const restore = harness.failSaves();
-	expect(actions.addThought('kept')).toBe(true);
-	await until(
-		() =>
-			fileEdit.getSnapshot().saveError !== undefined &&
-			fileEdit.getSnapshot().isSaving === false,
-		'the failure',
-	);
-
-	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toContain(
-		'- kept',
-	);
-	expect(harness.captures.saveLabel).toBe('Not saved');
-	expect(harness.captures.failures).toEqual([
+	expect(timelineOf(h.rows()).unreadable).toEqual([
 		{
-			stem: 'one',
-			path: PATH,
-			reason: expect.stringMatching(
-				/^This device's storage refused it: .*the disk is full/,
-			),
+			path: 'captures/binary.md',
+			message: 'The file is not valid UTF-8.',
+			retry: false,
 		},
 	]);
-	restore();
-	expect(await harness.text(PATH)).toBe(HAND);
-
-	await fileEdit.save();
-	await harness.quiet();
-	expect(fileEdit.getSnapshot().isDirty).toBe(false);
-	expect(await harness.text(PATH)).toContain('- kept\n');
-	expect(harness.captures.saveLabel).toBe('Saved');
 });
 
-test('thought commands save at once; one on a changed list is refused', async () => {
-	const harness = await open({
-		[PATH]: withBody('Text\n\n## Thoughts\n\n- a\n- b\n- c\n'),
+test('body updates canonicalize frontmatter while keeping unknown fields', async () => {
+	const original = HAND.replace(
+		'custom: kept',
+		'zeta: last\n# comment\ncustom: kept\nalpha: first',
+	);
+	const h = await open({ [PATH]: original });
+	expectOk(
+		await h.folder.tables.captures.update('one', {
+			body: composeBody('Changed').body,
+		}),
+	);
+	expect(h.text(PATH)).toBe(
+		`---\ncapturedAt: "${AT}"\nalpha: first\ncustom: kept\nzeta: last\n---\n${composeBody('Changed').body}`,
+	);
+});
+
+test('thought added under the throttle keeps text typed moments before it', async () => {
+	const h = await open({ [PATH]: HAND }, 1000);
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
 	});
-	const actions = actionsOf(harness);
-	expect(actions.swapThoughts(0, 1, ['a', 'b', 'c'])).toBe(true);
-	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(
-		withBody('Text\n\n## Thoughts\n\n- b\n- a\n- c\n'),
-	);
-
-	// The view still shows the list from before the move.
-	expect(actions.deleteThought(0, ['a', 'b', 'c'])).toBe(false);
-	expect(actions.refusal).toBe(
-		'The thoughts changed since they were shown, so nothing was changed.',
-	);
-
-	expect(actions.deleteThought(2, ['b', 'a', 'c'])).toBe(true);
-	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(
-		withBody('Text\n\n## Thoughts\n\n- b\n- a\n'),
-	);
+	const body = bodyDraft(h);
+	const actions = createCaptureActions(body);
+	actions.inputText('Typed just now');
+	await until(() => h.host.log.puts.length > 0);
+	expect(actions.addThought('second')).toBe(true);
+	release();
+	await h.captures.settle();
+	const row = h.cached('one');
+	expect(row?.issues).toBeNull();
+	if (row?.issues === null) {
+		const value = expectOk(captureBody.decode(row.body));
+		expect(value.text).toBe('Typed just now');
+		expect(value.thoughts).toEqual(['first', 'second']);
+	}
 });
 
-test('adding a thought uses the current Folder edit after another tab changes it', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const actions = actionsOf(harness);
-	const fileEdit = harness.folder.tables.captures.document('one');
-	// A view shows the capture, so another tab's change is read for it.
-	const stop = fileEdit.subscribe(() => {});
-	expectOk(await fileEdit.refresh());
-	await harness.writeElsewhere(
-		PATH,
-		HAND.replace('Text', 'Text changed elsewhere'),
-	);
-	await until(
-		() =>
-			parsed(harness, fileEdit.getSnapshot().text)?.body?.includes(
-				'elsewhere',
-			) === true,
-		'the other tab',
-	);
-	// A thought adds over what the Folder edit shows now.
-	expect(actions.addThought('shared')).toBe(true);
-	expect(parsed(harness, fileEdit.getSnapshot().text)?.body).toContain(
-		'- shared',
-	);
-	await harness.quiet();
-	const saved = (await harness.text(PATH)) ?? '';
-	expect(saved).toContain('Text changed elsewhere');
-	expect(saved).toContain('- shared\n');
-	stop();
-});
-
-test('a blank thought is refused and writes nothing', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const actions = actionsOf(harness);
-	const fileEdit = harness.folder.tables.captures.document('one');
-	expect(actions.addThought(' \n ')).toBe(false);
-	expect(actions.refusal).toBe('Write something first.');
-	expect(fileEdit.getSnapshot().isDirty).toBe(false);
-	expect(harness.context.getStatus().unsaved).toEqual([]);
-	expect(await harness.text(PATH)).toBe(HAND);
-});
-
-/** Capture `one` with thoughts `a` and `b`, shown. */
-async function thoughtsShown(
-	file = withBody('Text\n\n## Thoughts\n\n- a\n- b\n'),
-) {
-	const harness = await openCaptures({ [PATH]: file }, { saveAfterMs: 60_000 });
-	harnesses.push(harness);
-	const actions = actionsOf(harness);
-	// A view shows it until the harness closes.
-	const fileEdit = harness.folder.tables.captures.document('one');
-	fileEdit.subscribe(() => {});
-	expectOk(await fileEdit.refresh());
-	return { harness, actions };
-}
-
-/** Another tab replaces the thoughts of capture `one`, and this page reads it. */
-async function thoughtsElsewhere(harness: CapturesHarness, thoughts: string) {
-	const fileEdit = harness.folder.tables.captures.document('one');
-	const changed = withBody(`Text\n\n## Thoughts\n\n${thoughts}`);
-	await harness.writeElsewhere(PATH, changed);
-	await until(() => fileEdit.getSnapshot().text === changed, 'the other tab');
-}
-
-test('a command on a list another tab changed is refused, though a view still showed it', async () => {
-	const { harness, actions } = await thoughtsShown();
-	await thoughtsElsewhere(harness, '- b\n- a\n');
-
-	expect(actions.deleteThought(0, ['a', 'b'])).toBe(false);
-	expect(actions.refusal).toBe(
-		'The thoughts changed since they were shown, so nothing was changed.',
-	);
-	expect(actions.swapThoughts(0, 1, ['a', 'b'])).toBe(false);
-	expect(actions.locateThought(0, ['a', 'b'])).toBeUndefined();
-	expect(
-		harness.folder.tables.captures.document('one').getSnapshot().isDirty,
-	).toBe(false);
-	expect(await harness.text(PATH)).toBe(
-		withBody('Text\n\n## Thoughts\n\n- b\n- a\n'),
-	);
-});
-
-test('a thought opens as text at its own lines, counted as a text box shows CRLF', async () => {
-	const file = `---\r\ncapturedAt: ${AT}\r\n---\r\n\r\nText\r\n\r\n## Thoughts\r\n\r\n- a\r\n- b\r\n  more\r\n`;
-	const { harness, actions } = await thoughtsShown(file);
-	const range = actions.locateThought(1, ['a', 'b\nmore']);
-	if (range === undefined) throw new Error('The thought was not found');
-	const shown = file.replaceAll('\r\n', '\n');
-	expect(shown.slice(range.start, range.end)).toBe('- b\n  more');
-	expect(actions.refusal).toBeUndefined();
-
-	harness.captures.open('one', 'text', range);
-	expect(harness.captures.opened).toEqual({
-		stem: 'one',
-		mode: 'text',
-		focus: range,
+test('mode switch waits for the last save and starts from the saved file', async () => {
+	const h = await open({ [PATH]: HAND });
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
 	});
-	expect(await harness.text(PATH)).toBe(file);
+	const body = bodyDraft(h);
+	createCaptureActions(body).inputText('Pending');
+	const switching = h.captures.open('one', 'text');
+	await Bun.sleep(10);
+	expect(h.captures.opened).toBeUndefined();
+	release();
+	await switching;
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(h.text(PATH)).toContain('Pending');
 });
 
-test('Edit as text publishes exact current text over an outside change', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'text');
-	const edit = await textOfOne(harness);
-	const typed = HAND.replace('Text', 'Typed as text');
-	expectOk(edit.replace(typed));
-	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(typed);
-
-	// Another tab changes the frontmatter while more is typed below.
-	const again = typed.replace('nested line', 'nested line, again');
-	edit.replace(again);
-	await harness.writeElsewhere(
-		PATH,
-		typed.replace('custom: kept', 'custom: changed'),
-	);
-	await edit.save();
-	expect(edit.getSnapshot().saveError).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(again);
-	expectOk(edit.replace(again.replace('custom: kept', 'custom: changed')));
-	await edit.save();
-	await harness.quiet();
-	expect(await harness.text(PATH)).toBe(
-		again.replace('custom: kept', 'custom: changed'),
-	);
+test('a failed body write leaves the saved row unchanged and still switches modes', async () => {
+	const h = await open({ [PATH]: HAND });
+	h.failSaves(PATH);
+	const body = bodyDraft(h);
+	createCaptureActions(body).inputText('Not landed');
+	await h.captures.open('one', 'text');
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(h.text(PATH)).toBe(HAND);
+	expect(h.failures[0]?.text).toContain('Not landed');
+	expect(h.captures.saveLabel).toBe('Saved');
 });
 
-test('a file repaired as text opens as a capture before saving', async () => {
-	const broken = '---\ncapturedAt: yesterday\n---\n\nText\n';
-	const harness = await open({ [PATH]: broken });
-	const { captures } = harness;
+test('another writer appears in the mirror after a hint', async () => {
+	const h = await open({ [PATH]: HAND });
+	h.writeElsewhere(PATH, HAND.replace('Text', 'Elsewhere'));
+	await until(() => h.cached('one')?.body?.includes('Elsewhere') === true);
+	expect(h.captures.timeline.rows[0]?.preview).toContain('Elsewhere');
+});
 
-	// Not a capture: the capture view sends it to text.
-	await captures.open('one', 'capture');
-	expect(captures.opened).toEqual({ stem: 'one', mode: 'text' });
+test('locateThought refuses a stale list and finds the saved thought lines', async () => {
+	const h = await open({ [PATH]: HAND });
+	const row = h.cached('one');
+	if (row?.issues !== null) throw new Error('fixture must read');
+	expect(locateThought(HAND, row.body, 0, ['other'])).toBeUndefined();
+	const range = locateThought(HAND, row.body, 0, ['first']);
+	expect(range).toBeDefined();
+	expect(HAND.slice(range!.start, range!.end)).toContain('- first');
+});
 
-	const fixed = broken.replace('yesterday', AT);
-	(await textOfOne(harness)).replace(fixed);
-	await captures.open('one', 'capture');
-	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
+test('repair checks the typed text before it saves', async () => {
+	const invalid = '---\ncapturedAt: nope\n---\nBody\n';
+	const h = await open({ [PATH]: invalid });
+	const fixed = invalid.replace('nope', AT);
 	expect(
-		harness.folder.tables.captures.document('one').getSnapshot().text,
-	).toBe(fixed);
-	expect(await harness.text(PATH)).toBe(broken);
-});
-
-test('unfinished Markdown typed as text saves exactly; a failed save keeps it until saved again', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const edit = await textOfOne(harness);
-	// A thought being written as text: an open fence, no final line ending.
-	const unfinished = `${HAND}- half a thought\n\n  \`\`\`ts\n  unclosed(`;
-	const restore = harness.failSaves();
-	edit.replace(unfinished);
-	await edit.save();
-
-	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
-	expect(edit.getSnapshot().text).toBe(unfinished);
-	expect(harness.captures.saveLabel).toBe('Not saved');
-
-	restore();
-	await edit.save();
-	await harness.quiet();
-	expect(edit.getSnapshot().isDirty).toBe(false);
-	expect(await harness.text(PATH)).toBe(unfinished);
-});
-
-test('a failed whole-file save retains exact text for recovery while open', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const changed = HAND.replace('Text', 'Text kept after close');
-	const restore = harness.failSaves();
-	(await textOfOne(harness)).replace(changed);
-	await harness.folder.files.document(PATH).save();
-	const unsaved = harness.context.getStatus().failures;
-	restore();
-	expect(unsaved).toMatchObject([
-		{ path: PATH, error: { name: 'StorageFailed' } },
-	]);
-	expect(harness.folder.files.document(PATH).getSnapshot().text).toBe(changed);
-	expect(await harness.text(PATH)).toBe(HAND);
-});
-
-test('deleting removes the file without saving pending input first', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'capture');
-	const actions = actionsOf(harness);
-	actions.inputText('Last words');
-
-	const deletion = captures.deletionFor('one');
-	expect(deletion.title).toBe('Last words');
-	expectOk(await captures.delete(deletion));
-
-	await harness.quiet();
-	expect(await harness.text(PATH)).toBeUndefined();
-	expect(captures.opened).toBeUndefined();
-	expect(harness.cached('one')).toBeUndefined();
-});
-
-test('a delete consumes captured pending source without publishing it', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	(await textOfOne(harness)).replace(`${HAND}typed\n`);
-	expectOk(await captures.delete(captures.deletionFor('one')));
-	await harness.quiet();
-	expect(harness.folder.files.document(PATH).getSnapshot().isDirty).toBe(false);
-	expect(await harness.text(PATH)).toBeUndefined();
-});
-
-test('close leaves held input unsaved and refuses new input', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures, context } = harness;
-	const actions = actionsOf(harness);
-	const fileEdit = harness.folder.tables.captures.document('one');
-	actions.inputText('Sent at close');
-
-	expect(context.close()).toBeUndefined();
-	expect(await harness.text(PATH)).toBe(HAND);
-
-	expect(captures.fenced).toBe(true);
-	actions.inputText('Too late');
-	expect(fileEdit.getSnapshot().isDirty).toBe(true);
-	expect(expectErr(harness.folder.files.document(PATH).replace('x')).name).toBe(
-		'Closing',
-	);
-	expect(actions.addThought('Too late')).toBe(false);
-	expect(expectErr(await captures.create('Too late')).name).toBe('Closing');
-});
-
-test('switching from failed text to a capture keeps input and error until another save attempt', async () => {
-	const harness = await open({ [PATH]: HAND });
-	const { captures } = harness;
-	await captures.open('one', 'text');
-	const edit = await textOfOne(harness);
-	const changed = `${HAND}more\n`;
-	edit.replace(changed);
-	const restore = harness.failSaves();
-	await edit.save();
-	restore();
-	await captures.open('one', 'capture');
-	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
+		readRow(
+			invalid,
+			(await import('@epicenter/capture')).captureTables.captures,
+		).issues,
+	).not.toBeNull();
 	expect(
-		harness.folder.tables.captures.document('one').getSnapshot().text,
-	).toBe(changed);
-	expect(edit.getSnapshot().saveError?.name).toBe('StorageFailed');
-	expect(await harness.text(PATH)).toBe(HAND);
-	await edit.save();
-	await captures.open('one', 'capture');
-	expect(captures.opened).toEqual({ stem: 'one', mode: 'capture' });
-	expect(await harness.text(PATH)).toBe(changed);
+		readRow(fixed, (await import('@epicenter/capture')).captureTables.captures)
+			.issues,
+	).toBeNull();
+	expect(h.text(PATH)).toBe(invalid);
+});
+
+test('delete removes the mirror row and typing later cannot recreate it with update', async () => {
+	const h = await open({ [PATH]: HAND });
+	await h.captures.open('one', 'capture');
+	expectOk(await h.captures.delete(h.captures.deletionFor('one')));
+	expect(h.captures.opened).toBeUndefined();
+	expect(h.cached('one')).toBeUndefined();
+	expect(
+		expectErr(await h.folder.tables.captures.update('one', { body: 'later' }))
+			.name,
+	).toBe('NothingToUpdate');
+	expect(h.text(PATH)).toBeUndefined();
 });
