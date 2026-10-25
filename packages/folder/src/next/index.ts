@@ -15,4 +15,4 @@ export type {
 	Table,
 	Tables,
 } from './folder.js';
-export { type RowReading, readRow } from './folder.js';
+export { type RowReading, readRow, typedText } from './folder.js';
