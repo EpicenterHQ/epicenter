@@ -11,30 +11,30 @@ const grid: SavedView = { type: 'grid', title: 'Tasks', table: 'tasks' };
 
 async function setup(
 	source: Record<string, unknown> = { views: { a: grid } },
-	throttleMs = 0,
 ) {
 	const memory = memoryHost({ 'epicenter.json': JSON.stringify(source) });
 	const folder = expectOk(
-		await createFolder(memory.storage, { tables: {}, throttleMs }),
+		await createFolder(memory.storage, { tables: {} }),
 	);
 	const text = () => {
 		const data = folder.file('epicenter.json')?.data;
 		return typeof data === 'string' ? data : undefined;
 	};
+	const removeFailures: string[] = [];
 	const views = createViews({
+		onRemoveFailed: (message) => removeFailures.push(message),
 		declaration: {
 			text: () => text(),
 			write: (value) => folder.write('epicenter.json', value),
 		},
 		saved: () => expectOk(readSavedViews(text() ?? '{}')).views,
 	});
-	return { ...memory, folder, views };
+	return { ...memory, folder, views, removeFailures };
 }
 
 test('two saved view changes compose before either write lands', async () => {
 	const fixture = await setup(
 		{ views: { a: grid, b: grid }, metadata: 'kept' },
-		20,
 	);
 	fixture.views.edit('saved:a', { ...grid, title: 'First' });
 	fixture.views.save('saved:a');
@@ -88,6 +88,16 @@ test('remove preserves unrelated declaration data', async () => {
 		views: { keep: { type: 'calendar' } },
 		title: 'Raw title',
 	});
+	await fixture.folder.close();
+});
+
+test('failed removal reports the error to its caller', async () => {
+	const fixture = await setup();
+	fixture.control.failPut.set('epicenter.json', SaveError.StorageFailed({ cause: 'full' }).error!);
+	expect(fixture.views.remove('saved:a')).toBe(true);
+	await tick(10);
+	expect(fixture.removeFailures).toEqual([expect.stringContaining('View was not deleted:')]);
+	expect(JSON.parse(fixture.text('epicenter.json') ?? '{}').views.a).toEqual(grid);
 	await fixture.folder.close();
 });
 

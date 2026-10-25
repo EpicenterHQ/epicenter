@@ -42,7 +42,10 @@
 				fields: { kind, title: title.trim(), model: model.trim() },
 				body: '',
 			});
-			if (error !== null) return;
+			if (error !== null) {
+				problem = `The connection was not added: ${error.message}`;
+				return;
+			}
 			if (kind === 'openai-compatible') {
 				const { error } = await commands.aiKeySet(id, endpoint, key);
 				if (error !== null) {

@@ -19,9 +19,6 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		'./fixtures/FolderViewHost.svelte'
 	);
 	const { default: FieldCell } = await import('./FieldCell.svelte');
-	const { default: OpenFolderToastHost } = await import(
-		'./fixtures/OpenFolderToastHost.svelte'
-	);
 
 	async function until(check: () => boolean) {
 		for (let turn = 0; turn < 400; turn++) {
@@ -34,7 +31,6 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 
 	async function setup(
 		files: Record<string, string | Uint8Array>,
-		throttleMs = 0,
 		failRead?: string,
 	) {
 		const memory = memoryHost(files);
@@ -54,10 +50,8 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			};
 		}
 		const owner = expectOk(
-			await createFolder(memory.storage, { tables: {}, throttleMs }),
+			await createFolder(memory.storage, { tables: {} }),
 		);
-		const failures: string[] = [];
-		const stopFailed = owner.onFailed((failure) => failures.push(failure.path));
 		const folder = svelteFolder(owner);
 		const target = document.createElement('div');
 		document.body.append(target);
@@ -66,7 +60,6 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			...memory,
 			owner,
 			folder,
-			failures,
 			target,
 			unblock() {
 				blocked = false;
@@ -80,7 +73,6 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			async close() {
 				await unmount(app);
 				await owner.close();
-				stopFailed();
 				target.remove();
 			},
 		};
@@ -140,33 +132,8 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('switching files waits for the edited path to settle', async () => {
-		const fixture = await setup({ 'a.md': 'First\n', 'b.md': 'Second\n' }, 30);
-		let release: (() => void) | undefined;
-		try {
-			await until(() => fixture.file('a.md') !== null);
-			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			await until(() => fixture.box()?.value === 'First\n');
-			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
-			type(fixture.box(), 'Changed\n');
-			fixture.file('b.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			flushSync();
-			expect(fixture.box()?.value).toBe('Changed\n');
-			release?.();
-			fixture.control.putGate = undefined;
-			await until(() => fixture.box()?.value === 'Second\n');
-			expect(fixture.text('a.md')).toBe('Changed\n');
-			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			await until(() => fixture.box()?.value === 'Changed\n');
-		} finally {
-			release?.();
-			fixture.control.putGate = undefined;
-			await fixture.close();
-		}
-	});
-
 	test('typing again during a file save keeps the latest text', async () => {
-		const fixture = await setup({ 'a.md': 'First\n' }, 0);
+		const fixture = await setup({ 'a.md': 'First\n' });
 		let release: (() => void) | undefined;
 		try {
 			await until(() => fixture.file('a.md') !== null);
@@ -179,8 +146,8 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			expect(fixture.box()?.value).toBe('Third\n');
 			release?.();
 			fixture.control.putGate = undefined;
-			await fixture.folder.settled('a.md');
-			await until(() => fixture.box()?.value === 'Third\n');
+			await until(() => fixture.text('a.md') === 'Third\n');
+			expect(fixture.box()?.value).toBe('Third\n');
 			expect(fixture.text('a.md')).toBe('Third\n');
 		} finally {
 			release?.();
@@ -220,13 +187,11 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			await until(() => fixture.box()?.value === 'print(1)\n');
 			const box = fixture.box();
 			box?.focus();
-			const reads = fixture.log.reads.filter((batch) => batch.includes('script.py')).length;
 			type(fixture.box(), 'print(2)\n');
 			await until(() => fixture.text('script.py') === 'print(2)\n');
 			expect(fixture.box()?.value).toBe('print(2)\n');
 			expect(fixture.box()).toBe(box);
 			expect(document.activeElement).toBe(box);
-			expect(fixture.log.reads.filter((batch) => batch.includes('script.py'))).toHaveLength(reads);
 		} finally {
 			await fixture.close();
 		}
@@ -277,7 +242,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 	});
 
 	test('a read error offers a retry and then shows the file', async () => {
-		const fixture = await setup({ 'a.md': 'Restored\n' }, 0, 'a.md');
+		const fixture = await setup({ 'a.md': 'Restored\n' }, 'a.md');
 		try {
 			await until(() => !!fixture.file('a.md'));
 			fixture
@@ -400,8 +365,8 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('two view saves inside one throttle keep both records', async () => {
-		const fixture = await setup({ 'notes/a.md': 'Body\n' }, 30);
+	test('concurrent view saves keep both records', async () => {
+		const fixture = await setup({ 'notes/a.md': 'Body\n' });
 		try {
 			click(fixture.target, 'Tables');
 			await until(
@@ -537,7 +502,6 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				'a.md': '---\ntitle: First\n---\n',
 				'b.md': '---\ntitle: Second\n---\n',
 			},
-			20,
 		);
 		try {
 			click(fixture.target, 'Tables');
@@ -606,7 +570,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a failed board move keeps its choice for retry while the card stays in its lane', async () => {
+	test('a failed board move reports the error while the card stays in its lane', async () => {
 		const fixture = await setup({
 			'a.md': '---\nstatus: todo\n---\n',
 			'b.md': '---\nstatus: done\n---\n',
@@ -626,16 +590,14 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				fixture.target.querySelector('[aria-label="Move a.md"]'),
 				'done',
 			);
-			await until(() => fixture.failures.length === 1);
+			await until(() => fixture.target.textContent?.includes('Move failed:') ?? false);
 			expect(fixture.text('a.md')).toContain('status: todo');
-			expect(fixture.target.querySelector('[aria-label="Move a.md"]')?.textContent).toContain('done');
-			expect(fixture.target.textContent).toContain('Not saved:');
+			expect(fixture.target.querySelector('[aria-label="Move a.md"]')?.textContent).toContain('todo');
 			expect(
 				fixture.target.querySelector('[aria-label="todo"]')?.textContent,
 			).toContain('a.md');
-			expect(fixture.failures).toEqual(['a.md']);
 			fixture.control.failPut.delete('a.md');
-			click(fixture.target, 'Save again');
+			await choose(fixture.target.querySelector('[aria-label="Move a.md"]'), 'done');
 			await until(() => fixture.text('a.md')?.includes('status: done') ?? false);
 		} finally {
 			await fixture.close();
@@ -662,7 +624,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a failed checkbox edit stays checked until discarded', async () => {
+	test('a failed checkbox edit reports the error and can be retried', async () => {
 		const fixture = await setup({ 'a.md': '---\ndone: false\n---\n' });
 		try {
 			click(fixture.target, 'Tables');
@@ -670,12 +632,12 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
 			const checkbox = fixture.target.querySelector('[aria-label="a.md: done"]');
 			checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			await until(() => fixture.failures.length === 1);
-			expect(checkbox?.getAttribute('aria-checked')).toBe('true');
+			await until(() => fixture.target.textContent?.includes('Change failed:') ?? false);
+			expect(checkbox?.getAttribute('aria-checked')).toBe('false');
 			expect(fixture.text('a.md')).toContain('done: false');
-			click(fixture.target, 'Discard');
-			await until(() => checkbox?.getAttribute('aria-checked') === 'false');
-			expect(fixture.target.textContent).not.toContain('Not saved:');
+			fixture.control.failPut.delete('a.md');
+			checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.text('a.md')?.includes('done: true') ?? false);
 		} finally {
 			await fixture.close();
 		}
@@ -710,23 +672,4 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a failed write through OpenFolder shows text to copy', async () => {
-		const memory = memoryHost({ 'a.md': 'Original' });
-		memory.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
-		const target = document.createElement('div');
-		document.body.append(target);
-		const app = mount(OpenFolderToastHost, {
-			target,
-			props: { open: () => createFolder(memory.storage, { tables: {} }) },
-		});
-		try {
-			await until(() => target.textContent?.includes('Change file') ?? false);
-			click(target, 'Change file');
-			await until(() => document.body.textContent?.includes('Copy your text') ?? false);
-			expect(document.body.textContent).toContain('Could not save a.md');
-		} finally {
-			await unmount(app);
-			target.remove();
-		}
-	});
 });

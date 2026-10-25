@@ -3,6 +3,7 @@
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
+	import { toast } from '@epicenter/ui/sonner';
 	import * as Select from '@epicenter/ui/select';
 	import { readSavedViews } from '@epicenter/folder/declaration';
 	import {
@@ -23,18 +24,12 @@
 	const tree = $derived(fileTree(folder.files.map((file) => file.path)));
 	let selected = $state<string | undefined>(undefined);
 	let view = $state('files');
-	let navigation = 0;
-	async function show(next: string, path?: string) {
-		const ticket = ++navigation;
-		if (view === 'files' && selected !== undefined) await folder.settled(selected);
-		if (path !== undefined && (view !== 'files' || path !== selected)) await folder.settled(path);
-		if (ticket !== navigation) return;
-		folder.checkpoint();
+	function show(next: string, path?: string) {
 		if (path !== undefined) selected = path;
 		view = next;
 	}
 	function openSource(path: string) {
-		void show('files', path);
+		show('files', path);
 	}
 	const declaration = $derived(folder.file('epicenter.json'));
 	const source = $derived(declaration?.data);
@@ -42,6 +37,7 @@
 	const saved = $derived(readSavedViews(typeof source === 'string' ? source : '{}'));
 	const views = createViews({
 		saved: () => saved.data?.views ?? {},
+		onRemoveFailed: (message) => toast.error(message),
 		declaration: {
 			text: () => loadProblem ? null : typeof source === 'string' ? source : undefined,
 			write: (text) => folder.write('epicenter.json', text),
@@ -73,24 +69,24 @@
 			<Button
 				variant={view === 'files' ? 'secondary' : 'ghost'}
 				aria-pressed={view === 'files'}
-				onclick={() => void show('files')}>Files</Button
+				onclick={() => show('files')}>Files</Button
 			>
 			<Button
 				variant={view === TABLES ? 'secondary' : 'ghost'}
 				aria-pressed={view === TABLES}
-				onclick={() => void show(TABLES)}>Tables</Button
+				onclick={() => show(TABLES)}>Tables</Button
 			>
 			<Button
 				variant={view === SQL ? 'secondary' : 'ghost'}
 				aria-pressed={view === SQL}
-				onclick={() => void show(SQL)}>SQL</Button
+				onclick={() => show(SQL)}>SQL</Button
 			>
 		</nav>
 		{#if savedEntries.length > 0}<Select.Root
 				type="single"
 				value={savedEntries.some(([key]) => key === view) ? view : ''}
 				onValueChange={(key) => {
-					if (key) void show(key);
+					if (key) show(key);
 				}}
 				><Select.Trigger aria-label="Saved views"
 					>{savedEntries.find(([key]) => key === view)?.[1].title ??
@@ -158,7 +154,7 @@
 					variant="ghost"
 					onclick={() => {
 						views.reload(view);
-						folder.checkpoint();
+						void folder.refresh();
 					}}>Reload settings</Button
 				>
 				<Button
@@ -239,7 +235,7 @@
 											entry.path === selected && 'bg-muted font-medium',
 										]}
 										title={entry.path}
-										onclick={() => void show('files', entry.path)}
+									onclick={() => show('files', entry.path)}
 									>
 										{entry.name}
 									</button>

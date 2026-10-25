@@ -1,16 +1,17 @@
 <script lang="ts">
-	import type { FileValue, ReadError } from '@epicenter/folder/next';
+	import type { FolderFile, ReadError } from '@epicenter/folder/next';
 	import { openedFile, withFileNewlines, type OpenedFile } from '@epicenter/folder/file-browser';
 	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';
+	import { onDestroy } from 'svelte';
 	import { fileText } from './files.js';
 
 	let { folder, path }: { folder: SvelteFolder<Record<never, never>>; path: string } = $props();
 	const file = $derived(folder.file(path));
-	let fetched = $state.raw<{ from: FileValue; opened?: OpenedFile; error?: ReadError }>();
+	let fetched = $state.raw<{ from: FolderFile; opened?: OpenedFile; error?: ReadError }>();
 	$effect(() => {
 		const from = folder.file(path);
 		if (!from || from.data !== undefined || from.readError || fetched?.from === from) return;
@@ -26,13 +27,23 @@
 	});
 	const base = $derived(opened?.kind === 'text' ? opened.text : undefined);
 	const classification = $derived(base === undefined ? undefined : fileText(base));
+	// The parent keys this editor by path, so its identity stays fixed until teardown.
+	// svelte-ignore state_referenced_locally
+	const editedPath = path;
+	let lastBase = '';
+	let active = true;
+	$effect(() => {
+		if (base !== undefined) lastBase = base;
+	});
+	onDestroy(() => { active = false; });
 	const input = draft(
 		() => base?.replaceAll('\r\n', '\n') ?? '',
 		async (value) => {
-			const out = withFileNewlines(value, base ?? '');
-			const result = await folder.write(path, out);
-			const current = folder.file(path);
-			if (result.error === null && current && current.data === undefined)
+			const out = withFileNewlines(value, lastBase);
+			lastBase = out;
+			const result = await folder.write(editedPath, out);
+			const current = folder.file(editedPath);
+			if (active && result.error === null && current && current.data === undefined)
 				fetched = { from: current, opened: { kind: 'text', text: out } };
 			return result;
 		},
@@ -49,7 +60,7 @@
 		{#if file.readError || (fetched?.from === file && fetched.error)}
 			<div class="p-4"><Alert.Root variant="destructive"><Alert.Description>
 				{file.readError?.message ?? fetched?.error?.message}
-				<Button size="xs" variant="outline" onclick={() => { fetched = undefined; folder.checkpoint(); }}>Try again</Button>
+				<Button size="xs" variant="outline" onclick={() => { fetched = undefined; void folder.refresh(); }}>Try again</Button>
 			</Alert.Description></Alert.Root></div>
 		{/if}
 		{#if opened?.kind === 'binary' || opened?.kind === 'tooLarge'}
