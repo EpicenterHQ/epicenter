@@ -30,25 +30,13 @@ import type { DocumentOptions, Folder, FolderChange } from '../folder.js';
 import { type EngineFiles, type EngineTable, folderHandle } from '../handle.js';
 import { hashBytes } from '../hash.js';
 import { callObserver } from '../observer.js';
-import { pathProblem, readablePath } from '../paths.js';
+import { readablePath } from '../paths.js';
 import { ReadError, SaveError } from '../shared/errors.js';
 import type { FileContent } from '../shared/merge.js';
 import { type Row, readRow } from '../shared/row.js';
 import type { FolderWatch } from './watch.js';
 
 const encoder = new TextEncoder();
-
-/**
- * Why `tables` cannot be opened: the first name that is not one top-level
- * directory this folder can address on every disk, or `undefined`.
- */
-export function invalidTable(
-	tables: Record<string, Schema>,
-): string | undefined {
-	return Object.keys(tables).find(
-		(name) => name.includes('/') || pathProblem(name) !== undefined,
-	);
-}
 
 /**
  * Structural admission for existing source. The host checks literal names

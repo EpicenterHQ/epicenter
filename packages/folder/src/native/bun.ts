@@ -25,8 +25,9 @@ import { sweepStaleScratch } from '../directory-store.js';
 import { saveDelay } from '../document-owner.js';
 import { OpenFolderError } from '../errors.js';
 import type { DirectoryFolderOptions, Folder } from '../folder.js';
+import { invalidTable } from '../paths.js';
 import { localRoot, scratchDirectory } from './directory.js';
-import { createNativeFolder, invalidTable } from './engine.js';
+import { createNativeFolder } from './engine.js';
 import { nativeStorage, savingPrimitives } from './storage.js';
 import { watchDirectory } from './watch.js';
 
