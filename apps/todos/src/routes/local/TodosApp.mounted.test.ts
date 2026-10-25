@@ -4,17 +4,14 @@
  * Mounts the real Todos page in jsdom, as the layout mounts it, over an
  * in-memory IndexedDB with no OPFS: the page chooses this browser's local
  * folder, `openFolder({ tables: todosTables })`, and opens it through
- * `<FolderApp>`. A second handle of the same profile stands in for
+ * `<OpenFolder>`. A second handle of the same profile stands in for
  * another tab. jsdom matches no media query, so the view lays out as on a
  * narrow screen.
  *
  * Key behaviors:
- * - Add, edit, complete, and delete persist across close and reopen; close
- *   saves typing that still waited for its pause
- * - Another tab's committed change updates clean controls; unsaved source
- *   stays pinned and later local whole-source publication wins
- * - A failed save keeps the typing and offers Try again; the header says
- *   Saved on this device only once it saved
+ * - Add, edit, complete, and delete persist across close and reopen
+ * - Another tab's committed change updates clean controls; field patches merge
+ * - A failed save offers the typed title to copy and shows the disk value
  * - A row that does not fit is listed with its source and issues, and an
  *   edit keeps fields the schema does not name
  * - A failed storage check opens nothing; Try again checks again
@@ -27,7 +24,7 @@
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
-import { openFolder } from '@epicenter/folder/browser';
+import { openFolder } from '@epicenter/folder/next/browser';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	blur,
@@ -58,7 +55,6 @@ const LIST = '[aria-label="Todo list"]';
 const TITLE = `${DETAIL} input[aria-label="Title"]`;
 const NOTES = `${DETAIL} textarea[aria-label="Notes"]`;
 const DONE = `${DETAIL} button[aria-label="Done"]`;
-const STATUS = '[data-testid="write-status"]';
 const SUMMARY = '[data-testid="status-summary"]';
 
 /** A fresh browser profile: its IndexedDB, as `fake-indexeddb/auto` provides it. */
@@ -129,7 +125,7 @@ const press = (element: Element) =>
 /** The stored row of `id`, read through another handle. */
 async function stored(id: string) {
 	const folder = await otherTab();
-	return expectOk(await folder.tables.todos.get(id));
+	return folder.tables.todos.row(id);
 }
 
 /** Wait until the stored row of `id` satisfies `check`, as another tab reads it. */
@@ -139,7 +135,8 @@ async function untilStored(
 ) {
 	const folder = await otherTab();
 	for (let tries = 0; tries < 400; tries++) {
-		if (check(expectOk(await folder.tables.todos.get(id)))) return;
+		folder.checkpoint();
+		if (check(folder.tables.todos.row(id))) return;
 		await Bun.sleep(5);
 	}
 	throw new Error(`Timed out waiting for ${id} to be stored`);
@@ -150,7 +147,7 @@ async function onMilk() {
 	freshProfile();
 	const folder = await otherTab();
 	expectOk(
-		await folder.tables.todos.write('milk', {
+		await folder.tables.todos.create('milk', {
 			fields: { title: 'Milk', done: false },
 			body: 'Two litres',
 		}),
@@ -187,17 +184,15 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	blur(first.get(NOTES));
 	press(first.get(DONE));
 	await until(
-		() => first.text(STATUS) === 'Saved on this device',
+		() => first.get(SUMMARY).getAttribute('aria-label')?.includes('Saved on this device') ?? false,
 		'the edits to save',
 	);
 	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain(
 		'Saved on this device',
 	);
 
-	// Typed and closed before its pause: close leaves this input unsaved.
-	type(first.get(TITLE), 'Buy oat milk, cold');
+	await untilStored(id, (row) => row?.issues === null && row.fields.title === 'Buy oat milk' && row.fields.done);
 	first.close();
-	await untilStored(id, (row) => row?.fields?.title === 'Buy oat milk');
 
 	const second = await openPage();
 	await until(
@@ -229,13 +224,7 @@ test("another tab's change updates a clean todo without replacing its controls",
 	const title = get(TITLE);
 	const notes = get<HTMLTextAreaElement>(NOTES);
 
-	const from = expectOk(await folder.tables.todos.get('milk'))!;
-	expectOk(
-		await folder.tables.todos.write('milk', {
-			fields: from.fields,
-			body: 'Three litres',
-		}),
-	);
+	expectOk(await folder.tables.todos.update('milk', { body: 'Three litres' }));
 	await until(
 		() => get<HTMLTextAreaElement>(NOTES).value === 'Three litres',
 		'the other tab’s notes',
@@ -250,63 +239,23 @@ test("another tab's change updates a clean todo without replacing its controls",
 	expect(notes.value).toBe('Three litres, unsweetened');
 
 	blur(title);
-	await until(
-		() => get(STATUS).textContent?.trim() === 'Saved on this device',
-		'the save',
-	);
+	await untilStored('milk', (row) => row?.issues === null && row.fields.title === 'Oat milk' && row.body === 'Three litres, unsweetened');
 	const saved = await stored('milk');
 	expect(saved?.fields).toMatchObject({ title: 'Oat milk', done: false });
 	expect(saved?.body).toBe('Three litres, unsweetened');
 });
 
-test('a local whole-source publication wins after another tab changes the file', async () => {
+test('title typed here and done set elsewhere both survive', async () => {
 	const { get, folder } = await onMilk();
 	const title = get(TITLE);
-	const notes = get<HTMLTextAreaElement>(NOTES);
 	type(title, 'Oat milk');
 	flushSync();
-	const outside = expectOk(await folder.tables.todos.get('milk'))!;
-	expectOk(
-		await folder.tables.todos.write('milk', {
-			fields: outside.fields,
-			body: 'Three litres',
-		}),
-	);
+	expectOk(await folder.tables.todos.update('milk', { fields: { done: true } }));
 	expect(title.value).toBe('Oat milk');
-	expect(notes.value).toBe('Two litres');
-	await until(
-		() => get(STATUS).textContent?.trim() === 'Saved on this device',
-		'the local publication',
-	);
-	expect(get(TITLE)).toBe(title);
-	expect(get(NOTES)).toBe(notes);
+	await untilStored('milk', (row) => row?.issues === null && row.fields.title === 'Oat milk' && row.fields.done);
 	const saved = await stored('milk');
-	expect(saved?.fields).toMatchObject({ title: 'Oat milk', done: false });
+	expect(saved?.fields).toMatchObject({ title: 'Oat milk', done: true });
 	expect(saved?.body).toBe('Two litres');
-});
-
-test('the list labels a todo by its saved title while its checkbox shows what is held', async () => {
-	const { get, target } = await onMilk();
-	const put = IDBObjectStore.prototype.put;
-	IDBObjectStore.prototype.put = () => {
-		throw new DOMException('Disk is full', 'QuotaExceededError');
-	};
-	cleanup.push(() => {
-		IDBObjectStore.prototype.put = put;
-	});
-	type(get(TITLE), 'Oat milk');
-	press(get(DONE));
-	await until(
-		() => target.querySelector('[aria-label="Reopen Milk"]') !== null,
-		'the list to show the held done',
-	);
-	expect(target.querySelector('[data-todo="todos/milk.md"]')?.textContent).toBe(
-		'Milk',
-	);
-	expect((await stored('milk'))?.fields).toMatchObject({
-		title: 'Milk',
-		done: false,
-	});
 });
 
 test('a deleted todo shows absence even when its editor was already open', async () => {
@@ -332,8 +281,8 @@ test('a deleted todo shows absence even when its editor was already open', async
 	expect(await stored('milk')).toBeUndefined();
 });
 
-test('a failed save keeps the typing and offers Try again', async () => {
-	const { get, text } = await onMilk();
+test('a failed save toasts with Copy and the title shows the disk value', async () => {
+	const { get } = await onMilk();
 	const put = IDBObjectStore.prototype.put;
 	IDBObjectStore.prototype.put = () => {
 		throw new DOMException('Disk is full', 'QuotaExceededError');
@@ -345,64 +294,13 @@ test('a failed save keeps the typing and offers Try again', async () => {
 	type(get(TITLE), 'Oat milk');
 	blur(get(TITLE));
 	await until(
-		() => text(STATUS)?.startsWith('Not saved') ?? false,
-		'the failure',
+		() => document.body.textContent?.includes('Could not save todos/milk.md') ?? false,
+		'the failed-save toast',
 	);
-	expect(text(STATUS)).toContain('QuotaExceededError');
-	expect(get(TITLE).value).toBe('Oat milk');
-	expect(get(SUMMARY).getAttribute('aria-label')).toContain('Not saved');
-
-	IDBObjectStore.prototype.put = put;
-	click(get(STATUS), 'Try again');
-	await until(() => text(STATUS) === 'Saved on this device', 'the retry');
-	expect(get(SUMMARY).getAttribute('aria-label')).toContain(
-		'Saved on this device',
-	);
-	expect((await stored('milk'))?.fields?.title).toBe('Oat milk');
-});
-
-test('rejected notes explain the refusal without claiming a save failure', async () => {
-	const { get, text } = await onMilk();
-	const before = get<HTMLTextAreaElement>(NOTES).value;
-	type(get(NOTES), 'Rejected\0notes');
-	await until(
-		() => document.body.textContent?.includes('NUL character') ?? false,
-		'the input refusal',
-	);
-	expect(document.body.textContent).toContain('That change was not made');
-	await until(
-		() => get<HTMLTextAreaElement>(NOTES).value === before,
-		'the notes to show accepted content',
-	);
-	expect(get<HTMLTextAreaElement>(NOTES).value).toBe(before);
-	expect(text(STATUS)).toBe('Saved on this device');
-	expect((await stored('milk'))?.body).toBe(before);
-	// The next valid input still enters the ordinary autosave path.
-	type(get(NOTES), 'Accepted notes');
-	await until(() => text(STATUS) === 'Saved on this device', 'the valid save');
-	expect((await stored('milk'))?.body).toBe('Accepted notes');
-});
-
-test('leaving with a failed draft asks before unloading and does not save it on unmount', async () => {
-	const { get, text, close } = await onMilk();
-	const put = IDBObjectStore.prototype.put;
-	IDBObjectStore.prototype.put = () => {
-		throw new DOMException('Disk is full', 'QuotaExceededError');
-	};
-	cleanup.push(() => {
-		IDBObjectStore.prototype.put = put;
-	});
-
-	type(get(TITLE), 'Oat milk');
-	blur(get(TITLE));
-	await until(
-		() => text(STATUS)?.startsWith('Not saved') ?? false,
-		'the failure',
-	);
-	const leaving = new Event('beforeunload', { cancelable: true });
-	expect(window.dispatchEvent(leaving)).toBe(false);
-	close();
+	expect(document.body.textContent).toContain('Copy your text');
+	await until(() => get(TITLE).value === 'Milk', 'the disk title to show');
 	expect((await stored('milk'))?.fields?.title).toBe('Milk');
+	IDBObjectStore.prototype.put = put;
 });
 
 test('a new title not added does not prompt before a browser reload', async () => {
@@ -424,13 +322,13 @@ test('a row that does not fit is listed with its source, and an edit keeps unnam
 	freshProfile();
 	const folder = await otherTab();
 	expectOk(
-		await folder.files.write(
+		await folder.write(
 			'todos/odd.md',
 			'---\ntitle: Odd\ndone: soon\n---\nNotes\n',
 		),
 	);
 	expectOk(
-		await folder.files.write(
+		await folder.write(
 			'todos/extra.md',
 			'---\ntitle: Extra\ndone: false\nowner: sam\n---\n',
 		),
@@ -455,14 +353,14 @@ test('a row that does not fit is listed with its source, and an edit keeps unnam
 	await until(() => opened.get(TITLE).value === 'Extra', 'extra to open');
 	type(opened.get(TITLE), 'Extra, renamed');
 	blur(opened.get(TITLE));
-	await until(() => opened.text(STATUS) === 'Saved on this device', 'the save');
+	await untilStored('extra', (row) => row?.issues === null && row.fields.title === 'Extra, renamed');
 	const saved = await stored('extra');
 	expect(saved?.fields).toEqual({
 		title: 'Extra, renamed',
 		done: false,
 		owner: 'sam',
 	});
-	expect((await stored('odd'))?.text).toBe(
+	expect(folder.file('todos/odd.md')?.data).toBe(
 		'---\ntitle: Odd\ndone: soon\n---\nNotes\n',
 	);
 });

@@ -1,19 +1,14 @@
 <!--
-	One todo in the list. Its checkbox shows the folder's edit of the todo,
-	what is typed over it included, and saves at once, together with any
-	title or notes still waiting for their pause. The title is the one the
-	list read: what is typed shows in the list once it is saved.
+	One todo in the list. Its checkbox and title show the saved row.
 -->
 <script lang="ts">
-	import { liveSnapshot } from '@epicenter/svelte/snapshot';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
-	import { toastOnError } from '@epicenter/ui/sonner';
 
 	import { getFolder } from '$lib/folder.js';
 	import { labelOf, type Todo, todoPath } from '$lib/local-todos.js';
 
-	const { folder } = getFolder();
+	const folder = getFolder();
 
 	let {
 		todo,
@@ -26,11 +21,7 @@
 		onOpen?: (id: string) => void;
 	} = $props();
 
-	// Tracking the checkbox acquires its own editable source; the list stays passive.
-	const fileEdit = $derived(folder.tables.todos.document(todo.id));
-	const snapshot = $derived(liveSnapshot(fileEdit));
-	const content = $derived(snapshot.current.text === undefined ? undefined : folder.tables.todos.parse(snapshot.current.text));
-	const done = $derived(content?.issues === null ? content.fields.done : todo.fields.done);
+	const done = $derived(todo.fields.done);
 	const label = $derived(labelOf(todo));
 </script>
 
@@ -40,15 +31,7 @@
 		: ''}"
 >
 	<Checkbox
-		bind:checked={
-			() => done,
-			(next) => {
-				const changed = toastOnError(fileEdit.patch({ fields: { done: next } }), 'That change was not made');
-				if (changed.error === null) void fileEdit.save();
-			}
-		}
-
-		disabled={content?.issues !== null}
+		bind:checked={() => done, () => void folder.tables.todos.update(todo.id, { fields: { done: !done } })}
 		aria-label="{done ? 'Reopen' : 'Complete'} {label}"
 	/>
 	<Button

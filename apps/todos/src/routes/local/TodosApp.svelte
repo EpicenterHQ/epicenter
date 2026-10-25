@@ -1,5 +1,5 @@
 <!--
-	Todos over this browser's local folder, inside `<FolderApp>`: the
+	Todos over this browser's local folder, inside `<OpenFolder>`: the
 	header, the list, and the open todo, laid out as the folder build lays
 	them out. Which todo is open is the URL's `?todo=<id>`, so it survives a
 	reload and the breakpoint.
@@ -8,33 +8,25 @@
 	the header offers no Save version, Sync, or Connect.
 -->
 <script lang="ts">
-	import { setQueryClientContext } from '@tanstack/svelte-query';
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { type getFolder, setFolder } from '$lib/folder.js';
+	import { setFolder } from '$lib/folder.js';
+	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import type { todosTables } from '$lib/definition.js';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { beforeNavigate, goto } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { todoPath } from '$lib/local-todos.js';
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
-	let { context }: { context: ReturnType<typeof getFolder> } = $props();
+	let { folder }: { folder: SvelteFolder<typeof todosTables> } = $props();
 
 	// The opened context stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	const { queryClient, getStatus } = setFolder(context);
-	setQueryClientContext(queryClient);
-
-	// An accepted Folder change still saving holds navigation; for a reload or a closed tab
-	// ('leave'), SvelteKit turns the cancel into the browser's own leave
-	// confirmation. Opening another todo changes only the query.
-	beforeNavigate(({ type, from, to, cancel }) => {
-		if (!getStatus().saving && getStatus().unsaved.length === 0) return;
-		if (type === 'leave' || to === null || to.url.pathname !== from?.url.pathname) cancel();
-	});
+	setFolder(folder);
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');

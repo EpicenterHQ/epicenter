@@ -3,13 +3,7 @@
  * them, and what a person is told about a save. Pure functions of what the
  * table lists; the views read and write through `getFolder()`.
  */
-import type {
-	FolderStatus,
-	ReadError,
-	Row,
-	SaveError,
-} from '@epicenter/folder';
-import type { ActionError } from '@epicenter/folder/document';
+import type { ReadError, Row, WriteError } from '@epicenter/folder/next';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import { extractErrorMessage } from 'wellcrafted/error';
 import type { todosTables } from './definition.js';
@@ -29,7 +23,7 @@ const byId = (a: { id: string }, b: { id: string }) =>
 	a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
 
 /** The todos as the list shows them: open first, then done, each by file. */
-export function todosOf(rows: TodoRow[]): Todo[] {
+export function todosOf(rows: readonly TodoRow[]): Todo[] {
 	return rows
 		.filter((row): row is Todo => row.issues === null)
 		.sort(
@@ -38,22 +32,26 @@ export function todosOf(rows: TodoRow[]): Todo[] {
 }
 
 /** Rows whose text is not a valid todo; their source is shown as it is. */
-export function repairsOf(rows: TodoRow[]): Problem[] {
+export function repairsOf(rows: readonly TodoRow[]): Problem[] {
 	return rows
 		.filter(
 			(row): row is Problem =>
 				row.issues !== null &&
-				!row.issues.some((issue) => issue.kind === 'not-text'),
+				!row.issues.some(
+					(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
+				),
 		)
 		.sort(byId);
 }
 
 /** Rows that are not text at all. */
-export function unreadableOf(rows: TodoRow[]): Problem[] {
+export function unreadableOf(rows: readonly TodoRow[]): Problem[] {
 	return rows
 		.filter(
 			(row): row is Problem =>
-				row.issues?.some((issue) => issue.kind === 'not-text') ?? false,
+				row.issues?.some(
+					(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
+				) ?? false,
 		)
 		.sort(byId);
 }
@@ -70,46 +68,18 @@ export function labelOf(todo: { id: string; fields: { title: string } }) {
 }
 
 /** What a person is told about a save, read, or delete that failed. */
-export function describeFailure(
-	error: SaveError | ReadError | ActionError,
-): string {
+export function describeFailure(error: WriteError | ReadError): string {
 	switch (error.name) {
 		case 'StorageFailed':
 			return `This device could not save it: ${extractErrorMessage(error.cause)}.`;
-		case 'Closing':
-			return error.message;
-		case 'Unparseable':
-			return `Its file cannot be edited as a todo: ${error.reason}.`;
-		case 'NotText':
-			return 'Its file is not text, so Todos cannot change it.';
 		default:
 			return error.message;
 	}
 }
 
 /** The header's summary of whether everything is saved on this device. */
-export function saveLine({
-	failures,
-	saving,
-	unsaved,
-	storageFailure,
-}: FolderStatus): StatusLine {
-	if (failures.length > 0) {
-		const reasons = failures.flatMap(({ error }) =>
-			error ? [describeFailure(error)] : [],
-		);
-		return {
-			label: 'Not saved',
-			detail: [...new Set(reasons)].join('\n') || undefined,
-			tone: 'error',
-		};
-	}
-	if (saving || unsaved.length > 0) return { label: 'Saving…', tone: 'busy' };
-	if (storageFailure !== null)
-		return {
-			label: 'A save failed',
-			detail: describeFailure(storageFailure),
-			tone: 'error',
-		};
-	return { label: 'Saved on this device', short: 'Saved', tone: 'good' };
+export function saveLine(saving: boolean): StatusLine {
+	return saving
+		? { label: 'Saving…', tone: 'busy' }
+		: { label: 'Saved on this device', short: 'Saved', tone: 'good' };
 }
