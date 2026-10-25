@@ -467,8 +467,7 @@ try {
 	await fileText(earlier).fill(legacyDraft);
 	await saved(earlier);
 
-	// A refused write leaves the editor showing the disk. The toast offers
-	// the attempted text to copy; typing it again after recovery saves it.
+	// A refused write keeps the typed text and offers inline recovery.
 	await fillDisk();
 	const revisedDraft = legacyDraft.replace(
 		'second line',
@@ -477,16 +476,11 @@ try {
 	notices = await earlier.locator('[data-sonner-toast]').count();
 	await fileText(earlier).fill(revisedDraft);
 	await failedSave(earlier, notices);
-	await earlier.waitForFunction(
-		(expected) =>
-			document.querySelector<HTMLTextAreaElement>(
-				'textarea[aria-label^="Contents of"]',
-			)?.value === expected,
-		legacyDraft,
-	);
-	assert.equal(await fileText(earlier).inputValue(), legacyDraft);
+	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
+	await earlier.getByText(/^Not saved:/).waitFor();
 	await restoreDisk();
-	await fileText(earlier).fill(revisedDraft);
+	await earlier.getByRole('button', { name: 'Save again' }).click();
+	await earlier.getByText(/^Not saved:/).waitFor({ state: 'hidden' });
 	await saved(earlier);
 	await fillDisk();
 	notices = await earlier.locator('[data-sonner-toast]').count();
@@ -527,7 +521,7 @@ try {
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, no Save version, full-disk Add recovery with a Copy toast, saved drafts reopened as full files, repaired without replacing the editor, failed writes showing the disk with a Copy toast, Finish retried once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, no Save version, full-disk Add recovery with a Copy toast, saved drafts reopened as full files, repaired without replacing the editor, failed writes retaining typed text with Save again and a Copy toast, Finish retried once, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);

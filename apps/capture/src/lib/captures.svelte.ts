@@ -7,7 +7,7 @@ import {
 	composeBody,
 	excerpt,
 } from '@epicenter/capture';
-import type { Saved, WriteError } from '@epicenter/folder/next';
+import type { WriteError } from '@epicenter/folder/next';
 import type { SvelteFolder } from '@epicenter/svelte/folder-next';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -159,39 +159,15 @@ export function timelineOf(listed: readonly CaptureRow[]) {
 
 export function createCaptures(folder: CaptureFolder) {
 	let opened = $state.raw<Opened | undefined>();
-	const ready: Saved = Promise.resolve(Ok(undefined));
-	let last: Saved = ready;
 	let navigation = 0;
 	const timeline = $derived(timelineOf(folder.tables.captures.rows));
-
-	function track(saved: Saved): Saved {
-		last = saved;
-		return saved;
-	}
-	async function settle(): Saved {
-		folder.checkpoint();
-		let seen = last;
-		let result = await seen;
-		while (seen !== last) {
-			seen = last;
-			result = await seen;
-		}
-		last = ready;
-		return result;
-	}
-	async function own(saved: Saved) {
-		track(saved);
-		const result = await saved;
-		if (last === saved) last = ready;
-		return result;
-	}
 	async function go(
 		requested: number,
 		stem: string,
 		mode: Mode,
 		focus?: Focus,
 	) {
-		await settle();
+		await folder.settled(capturePath(stem));
 		if (requested !== navigation) return;
 		if (mode === 'capture') {
 			const row = folder.tables.captures.row(stem);
@@ -222,8 +198,6 @@ export function createCaptures(folder: CaptureFolder) {
 		get opened() {
 			return opened;
 		},
-		track,
-		settle,
 		open,
 		leave() {
 			++navigation;
@@ -235,20 +209,21 @@ export function createCaptures(folder: CaptureFolder) {
 			const requested = ++navigation;
 			const now = new Date();
 			const stem = newStem(now);
-			const saved = await own(
-				folder.tables.captures.create(stem, {
-					fields: { capturedAt: now.toISOString() },
-					body: composeBody(text.toWellFormed()).body,
-				}),
-			);
+			const saved = await folder.tables.captures.create(stem, {
+				fields: { capturedAt: now.toISOString() },
+				body: composeBody(text.toWellFormed()).body,
+			});
 			if (saved.error !== null) return saved;
 			await go(requested, stem, 'capture', 'new-thought');
 			return Ok({ stem });
 		},
-		async finishDraft(stem: string): Promise<Result<void, Failure>> {
+		async finishDraft(
+			stem: string,
+			edit: { readonly error: unknown },
+		): Promise<Result<void, Failure>> {
 			const requested = ++navigation;
-			const settled = await settle();
-			if (settled.error !== null)
+			await folder.settled(capturePath(stem));
+			if (edit.error !== null)
 				return CaptureError.Refused({
 					message: 'Your last edit did not save; nothing was added.',
 				});
@@ -267,12 +242,10 @@ export function createCaptures(folder: CaptureFolder) {
 			}
 			if (row.body.trim() === '')
 				return CaptureError.Refused({ message: 'Write something first.' });
-			const saved = await own(
-				folder.tables.captures.update(stem, {
-					fields: { draft: undefined, capturedAt: new Date().toISOString() },
-					body: composeBody(row.body).body,
-				}),
-			);
+			const saved = await folder.tables.captures.update(stem, {
+				fields: { draft: undefined, capturedAt: new Date().toISOString() },
+				body: composeBody(row.body).body,
+			});
 			if (saved.error !== null) return saved;
 			await go(requested, stem, 'capture', 'new-thought');
 			return Ok(undefined);
@@ -289,7 +262,7 @@ export function createCaptures(folder: CaptureFolder) {
 			};
 		},
 		async delete(deletion: Deletion): Promise<Result<void, WriteError>> {
-			const deleted = await own(folder.tables.captures.delete(deletion.stem));
+			const deleted = await folder.tables.captures.delete(deletion.stem);
 			if (deleted.error === null && opened?.stem === deletion.stem) {
 				++navigation;
 				opened = undefined;

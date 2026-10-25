@@ -2,6 +2,7 @@
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
 	import { draft } from '@epicenter/svelte/folder-next';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -34,12 +35,12 @@
 	const stored = $derived(row?.issues === null && row.fields.draft !== true ? row : undefined);
 	const body = draft(
 		() => stored?.body ?? '',
-		(next) => captures.track(folder.tables.captures.update(stem, { body: next })),
+		(next) => folder.tables.captures.update(stem, { body: next }),
 	);
 	const actions = createCaptureActions(body);
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const reading = $derived(stored && captureBody.decode(body.text));
+	const reading = $derived(stored && captureBody.decode(body.value));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
 	const capturedAt = $derived(instantOf(stored?.fields.capturedAt));
@@ -88,7 +89,7 @@
 
 	/** Export the saved file after pending edits settle. */
 	async function download() {
-		await captures.settle();
+		await folder.settled(path);
 		const data = folder.file(path)?.data;
 		if (typeof data !== 'string') {
 			toast.error('Could not download this capture', { description: 'Its text is not available.' });
@@ -98,7 +99,8 @@
 	}
 
 	async function editThought(index: number, list: readonly string[]) {
-		await captures.settle();
+		await folder.settled(path);
+		if (body.error !== null) return;
 		const saved = folder.tables.captures.row(stem);
 		const data = folder.file(path)?.data;
 		const range = saved?.issues === null && typeof data === 'string'
@@ -121,6 +123,8 @@
 		});
 	}
 </script>
+
+<UnsavedEdit draft={body} />
 
 {#if reading === undefined}
 	<div class="flex flex-col gap-4">
@@ -274,10 +278,6 @@
 						const submitted = newThought;
 						if (actions.addThought(submitted)) {
 							newThought = '';
-							const saved = captures.settle();
-							void saved.then((result) => {
-								if (result.error !== null && newThought === '') newThought = submitted;
-							});
 						}
 						newThoughtField?.focus();
 					}}

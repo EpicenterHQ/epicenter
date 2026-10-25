@@ -3,7 +3,7 @@ import { type CaptureBody, captureBody } from '@epicenter/capture';
 
 /** A range of a file's text as a text box shows it, with LF lines. */
 export type TextRange = { readonly start: number; readonly end: number };
-export type BodyDraft = { readonly text: string; set(text: string): void };
+export type BodyDraft = { readonly value: string; set(value: string): void };
 
 const CHANGED =
 	'The thoughts changed since they were shown, so nothing was changed.';
@@ -35,9 +35,9 @@ export function locateThought(
 export function createCaptureActions(body: BodyDraft) {
 	let refusal = $state<string | undefined>();
 	const shown = () => {
-		const reading = captureBody.decode(body.text);
+		const reading = captureBody.decode(body.value);
 		return reading.error === null
-			? { body: body.text, ...reading.data }
+			? { body: body.value, ...reading.data }
 			: undefined;
 	};
 	function write(

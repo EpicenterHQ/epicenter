@@ -37,7 +37,7 @@ test('a saved draft stays raw and is listed apart', async () => {
 
 test('Add finishes the same file once and opens its capture view', async () => {
 	const h = await open('Writing');
-	expectOk(await h.captures.finishDraft('one'));
+	expectOk(await h.captures.finishDraft('one', { error: null }));
 	expect(h.captures.opened).toEqual({
 		stem: 'one',
 		mode: 'capture',
@@ -47,26 +47,28 @@ test('Add finishes the same file once and opens its capture view', async () => {
 	if (row?.issues !== null) throw new Error('finished row must read');
 	expect(row.fields.draft).toBeUndefined();
 	expect(row.body).toBe(composeBody('Writing').body);
-	expectOk(await h.captures.finishDraft('one'));
+	expectOk(await h.captures.finishDraft('one', { error: null }));
 	expect(h.cached('one')?.body).toBe(row.body);
 	expect(h.captures.timeline.drafts).toEqual([]);
 });
 
 test('blank draft refuses Add without changing the file', async () => {
 	const h = await open('   ');
-	expect(expectErr(await h.captures.finishDraft('one')).name).toBe('Refused');
+	expect(
+		expectErr(await h.captures.finishDraft('one', { error: null })).name,
+	).toBe('Refused');
 	expect(h.text(PATH)).toBe(draftFile('   '));
 });
 
 test('failed Add keeps draft on disk and a retry composes once', async () => {
 	const h = await open('Writing');
 	const restore = h.failSaves(PATH);
-	expect(expectErr(await h.captures.finishDraft('one')).name).toBe(
-		'StorageFailed',
-	);
+	expect(
+		expectErr(await h.captures.finishDraft('one', { error: null })).name,
+	).toBe('StorageFailed');
 	expect(h.text(PATH)).toBe(draftFile('Writing'));
 	restore();
-	expectOk(await h.captures.finishDraft('one'));
+	expectOk(await h.captures.finishDraft('one', { error: null }));
 	const row = h.cached('one');
 	if (row?.issues !== null) throw new Error('finished row must read');
 	expect(expectOk(captureBody.decode(row.body)).text).toBe('Writing');
@@ -80,7 +82,7 @@ test('leaving during a draft finish keeps the timeline open', async () => {
 	h.host.control.putGate = new Promise<void>((resolve) => {
 		release = resolve;
 	});
-	const finishing = h.captures.finishDraft('one');
+	const finishing = h.captures.finishDraft('one', { error: null });
 	h.captures.leave();
 	release();
 	expectOk(await finishing);
@@ -110,6 +112,6 @@ test('another writer finishing a draft is recognized before a stale Add', async 
 	);
 	h.folder.checkpoint();
 	await Bun.sleep(20);
-	expectOk(await h.captures.finishDraft('one'));
+	expectOk(await h.captures.finishDraft('one', { error: null }));
 	expect(h.cached('one')?.body).toBe(composeBody('Elsewhere').body);
 });
