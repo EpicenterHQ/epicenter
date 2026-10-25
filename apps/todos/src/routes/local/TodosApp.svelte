@@ -24,7 +24,7 @@
 
 	let { folder }: { folder: SvelteFolder<typeof todosTables> } = $props();
 
-	// The opened context stays fixed until this app root unmounts.
+	// The folder instance stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
 	setFolder(folder);
 

@@ -3,9 +3,8 @@
  * them, and what a person is told about a save. Pure functions of what the
  * table lists; the views read and write through `getFolder()`.
  */
-import type { ReadError, Row, WriteError } from '@epicenter/folder/next';
+import type { Row } from '@epicenter/folder/next';
 import type { StatusLine } from '@epicenter/svelte/status-line';
-import { extractErrorMessage } from 'wellcrafted/error';
 import type { todosTables } from './definition.js';
 
 export type TodoRow = Row<(typeof todosTables)['todos']>;
@@ -44,7 +43,7 @@ export function repairsOf(rows: readonly TodoRow[]): Problem[] {
 		.sort(byId);
 }
 
-/** Rows that are not text at all. */
+/** Rows that are not text or could not be read. */
 export function unreadableOf(rows: readonly TodoRow[]): Problem[] {
 	return rows
 		.filter(
@@ -65,16 +64,6 @@ export function reasonOf(row: Problem): string {
 export function labelOf(todo: { id: string; fields: { title: string } }) {
 	if (todo.fields.title.trim() !== '') return todo.fields.title;
 	return todo.id === '' ? todoPath(todo.id) : todo.id;
-}
-
-/** What a person is told about a save, read, or delete that failed. */
-export function describeFailure(error: WriteError | ReadError): string {
-	switch (error.name) {
-		case 'StorageFailed':
-			return `This device could not save it: ${extractErrorMessage(error.cause)}.`;
-		default:
-			return error.message;
-	}
 }
 
 /** The header's summary of whether everything is saved on this device. */
