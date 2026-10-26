@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { SvelteFolder } from '@epicenter/svelte/folder';
+	import { saveLine } from '@epicenter/svelte/status-line';
 	import { setFolder } from './folder.js';
 
 	import { Badge } from '@epicenter/ui/badge';
@@ -80,7 +81,7 @@
 <main class="flex h-dvh min-h-0 flex-col overflow-hidden">
 	<header class="flex flex-wrap items-center gap-3 border-b px-4 py-3">
 		<h1 class="font-semibold">Messages</h1>
-		<span class="text-xs text-muted-foreground">{folder.saving ? 'Saving…' : 'Saved'}</span>
+		<span class="text-xs text-muted-foreground">{saveLine(folder.saving).label}</span>
 		<Badge variant={backend.mode === 'demo' ? 'secondary' : 'default'}>{backend.mode === 'demo' ? 'Demo · fictional conversations' : 'Live Beeper'}</Badge>
 		<div class="ml-auto flex gap-2">
 			<Button variant="ghost" size="sm" disabled={chats.isFetching} onclick={() => void queryClient.invalidateQueries({ queryKey: ['beeper'] })}>Refresh</Button>
