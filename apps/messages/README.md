@@ -69,7 +69,7 @@ recovery commands show their own failures.
 Draft filenames hash the mode, account-set identity, and chat ID; demo and live
 drafts never share a file. The folder closes when the app unmounts. Leaving asks once, only while a
 write is out: a browser tab shows "Leave site?", and a desktop window waits for
-writes, then asks natively only if they are still out.
+writes and closes; closing again while it waits asks whether to close anyway.
 
 These are private personal files, not source files. The app creates no Git
 repository, commit, or remote. If you deliberately put its folder under Git,

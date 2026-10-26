@@ -351,8 +351,8 @@ mounts a fresh root and repeats startup.
 Leaving asks through `beforeunload`: drafts send what waits, and the page is
 unsure while a write is out. A browser tab raises its
 leave warning then. Internal route changes keep the mounted app and need no
-guard. Inside Epicenter a window's Close waits for writes in flight and asks
-natively only if the page is still unsure. The host always
+guard. Inside Epicenter a window's Close waits for writes in flight and
+closes; closing again while it waits asks whether to close anyway. The host always
 confirms application Quit and adds its native recording warning; see
 "Closing".
 

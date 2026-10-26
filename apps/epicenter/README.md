@@ -547,9 +547,9 @@ folder or transferring drafts. Tab membership lives in AppKit, never in
 application data.
 
 Bundled app pages and the Folders editor answer window Close through the
-page's `beforeunload` listeners: drafts send their text, the guard waits up to
-three seconds for queued mirror writes, and it asks one native question only
-if a write is still out. A recording alone does not delay close: native destruction ends
+page's `beforeunload` listeners: drafts send their text, and the guard waits
+for queued mirror writes, then destroys the window without a question. Closing
+again while it waits asks whether to close anyway. A recording alone does not delay close: native destruction ends
 capture and keeps the audio captured so far. Repeated requests for one window
 share its current close; other windows answer independently, including native
 tab-group members. A dispatched destruction keeps the page inert until it is
@@ -638,7 +638,7 @@ without waiting for pending saves. Repeated requests share the current alert.
 Quit queries no page and waits for no status reply or timeout. Its standalone
 native alert has no window parent, so closing a window leaves the Quit question
 in place. Window close remains independent; bundled pages and the Folders editor
-wait for queued Folder writes and ask only while still unsure. Quit owns only ready, prompting, and approved
+wait for queued Folder writes; closing again while they wait asks. Quit owns only ready, prompting, and approved
 state; it needs no attempt ID or window-destruction hook. On macOS, the
 unparented dialog uses the system's standalone alert presentation rather than
 an attached window sheet.
