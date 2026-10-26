@@ -50,7 +50,6 @@
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
-	let switching = $state(false);
 
 	/** Say so when a change was refused. */
 	function refusal(problem: Awaited<ReturnType<Notes['patchNote']>>) {
@@ -64,22 +63,13 @@
 	const optionOf = (id: string | null) => (id === null ? '' : `folder:${id}`);
 	const idOf = (option: string) => (option === '' ? null : option.slice('folder:'.length));
 
-	async function openAsFile() {
-		if (switching) return;
-		switching = true;
-		try {
-			if ((await title.land()).error !== null) return;
-			if ((await folderSelection.land()).error !== null) return;
-			if ((await body.land()).error !== null) return;
-			if (notes.selected?.path !== path) return;
-			notes.open(path, 'text');
-		} finally {
-			switching = false;
-		}
+	function openAsFile() {
+		if (notes.selected?.path !== path) return;
+		notes.open(path, 'text');
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="Note" inert={switching}>
+<section class="flex h-full min-h-0 flex-col" aria-label="Note">
 	{#if shownNote !== undefined}
 		{@const row = shownNote}
 		{@const folderId = folderSelection.value}
@@ -118,7 +108,7 @@
 			>
 				<PinIcon class={pinned ? 'fill-current' : ''} />
 			</Button>
-		<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" onclick={() => void openAsFile()}>Edit as file</Button>
+		<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" onclick={openAsFile}>Edit as file</Button>
 		</div>
 
 		<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">

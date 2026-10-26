@@ -16,9 +16,10 @@ for the current page flow and verify it against the code.
   landed values. Await `Saved` before opening a newly created file or relying
   on a write in an action.
 - Text inputs and selects use one `draft(source, save)` per editor component,
-  including titles and folder selection. It debounces saves and holds typed
-  input until its save lands, then follows the mirror. A failed save keeps the
-  typed value and shows `<UnsavedEdit>` beside its editor with Save again,
+  including titles and folder selection. Every change enters the folder queue
+  immediately. The draft shows typed input until its save lands, then follows
+  the mirror. A failed save keeps the typed value and shows `<UnsavedEdit>`
+  beside its editor with Save again,
   Discard, and Copy. Command callers report their own failed writes.
 - Row patches use `tables.x.update(id, { fields?, body? })`; whole-file edits
   use `folder.write(path, text)`. A patch saves over the file as it is when
@@ -51,8 +52,9 @@ for the current page flow and verify it against the code.
   directions and tests.
 - The rich editor mount effect depends only on its element and `editable`
   boolean. Reading save or row changes there recreates it and loses history.
-- Switching between the note fields and whole-file editor lands the current
-  drafts first. A failed save keeps the current view open.
+- Switching between note fields and the whole-file editor changes the view
+  immediately. Earlier typed input is already in the folder queue. The
+  whole-file editor follows the mirror as those writes land.
 
 ## Lifecycle and boundary
 

@@ -65,24 +65,24 @@ saves exactly what you type.
 ## Editing
 
 A note's title, body, and folder selection save through the folder mirror.
-Their drafts keep what was entered while each save is in flight; the mirror
-shows only what landed. Pinning and list actions await their saved result.
+Every change enters the folder queue immediately. Each draft keeps what was
+entered while its save is in flight; the mirror shows only what landed. Pinning
+and list actions await their saved result.
 A failed draft save keeps the typed value and shows **Not saved** beside the editor
 with **Save again**, **Discard**, and **Copy**. Failed commands report their error
 where the command was used. The header says **Saving…** while writes are pending and
-**On this device** otherwise. An editor may still hold text during its debounce.
+**On this device** otherwise.
 
 A note has **Rich text** and **Source** views of its body. They share one body
 draft in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
-only the title also keeps Undo. **Edit as file** lands the title, folder, and
-body drafts before showing the whole text, including frontmatter. A failed
-save keeps the note view open. **Open as note** lands valid repair text before
-switching. A different body shown in either source view starts a new rich-text
-history.
+only the title also keeps Undo. **Edit as file** and **Open as note** switch
+views immediately. Earlier edits are already queued; the whole-file view
+follows them as they land. A different body shown in either source view starts
+a new rich-text history.
 
 `<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,
-and closes it on unmount. Drafts send their latest text on unmount, pagehide,
-hidden, and beforeunload. Leaving asks once, only while a save is out: a
+and closes it on unmount. Each edit queues a save as it happens. Leaving asks
+once, only while a save is out: a
 browser tab shows "Leave site?", and a desktop window waits for the writes
 and closes; closing again while it waits asks whether to close anyway. Text whose save failed is
 discarded on leaving.

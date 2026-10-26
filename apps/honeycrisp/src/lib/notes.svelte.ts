@@ -9,14 +9,12 @@
  * changes to its fields and body (`table.update`). A file open as its exact
  * text writes the whole file (`folder.write`).
  *
- * The folder keeps no history and has no rename or move, so Honeycrisp
- * offers neither.
+ * The folder keeps no history. Honeycrisp exposes no file renames or moves.
  */
 import { InstantString } from '@epicenter/definition';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
 import { describeIssues, type WriteError } from '@epicenter/folder';
 import { SvelteSet } from 'svelte/reactivity';
-import { tick } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	FOLDERS,
@@ -200,11 +198,7 @@ export function createNotes(folder: NotesFolder) {
 	}
 
 	async function deleteConfirmed({ path }: Deletion): Promise<string | undefined> {
-		if (selected?.path === path) {
-			selected = undefined;
-			await tick();
-			await folder.idle();
-		}
+		if (selected?.path === path) selected = undefined;
 		const problem = failed((await folder.delete(path)).error);
 		if (problem !== undefined) return problem;
 		return undefined;
@@ -243,7 +237,7 @@ export function createNotes(folder: NotesFolder) {
 		// State read reactively
 		// ------------------------------------------------------------------
 
-		/** Folder writes may be idle while an editor still holds debouncing input. */
+		/** Draft input enters the folder queue immediately. */
 		get saves() {
 			return saveLine(folder.saving);
 		},

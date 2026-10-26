@@ -56,13 +56,15 @@ test('title and Source text save and keep the rich editor mounted', async () => 
     expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
 });
 
-test('Edit as file lands title and body drafts before showing source', async () => {
+test('Edit as file switches while queued title and body saves land', async () => {
     const { target, get, render, folder, notes } = await view();
     type(get<HTMLInputElement>('input[aria-label="Title"]'), 'New title');
     click(target, 'Source'); render();
     type(get<HTMLTextAreaElement>('textarea[aria-label="Markdown source"]'), 'New body\n');
     click(target, 'Edit as file');
     await until(() => { render(); return notes.selected?.as === 'text'; }, 'file view');
+    await folder.idle();
+    render();
     const saved = folder.file('notes/a.md')?.data;
     if (typeof saved !== 'string') throw new Error('Missing saved note text');
     expect(saved).toContain('title: New title');
@@ -70,23 +72,25 @@ test('Edit as file lands title and body drafts before showing source', async () 
     expect(get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toBe(saved);
 });
 
-test('Edit as file stays on the note when a draft cannot land', async () => {
-    const { target, get, render, notes, failSaves } = await view();
+test('Edit as file switches while a failed title draft remains available', async () => {
+    const { target, get, render, notes, failSaves, folder } = await view();
     failSaves();
     type(get<HTMLInputElement>('input[aria-label="Title"]'), 'Unsaved title');
     click(target, 'Edit as file');
     await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'failed title save');
-    expect(notes.selected?.as).toBe('note');
-    expect(target.querySelector('section[aria-label="File"]')).toBeNull();
+    expect(notes.selected?.as).toBe('text');
+    expect(target.querySelector('section[aria-label="File"]')).not.toBeNull();
+    expect(folder.tables.notes.row('a')?.fields?.title).toBe('Alpha');
+    click(target, 'Open as note'); render();
+    expect(get<HTMLInputElement>('input[aria-label="Title"]').value).toBe('Unsaved title');
 });
 
-test('Delete discards a pending whole-file draft', async () => {
+test('Delete runs after a queued whole-file edit', async () => {
     const { target, get, folder, notes } = await view(noteText(), 'text');
     type(get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), 'Pending replacement');
     click(target, 'Delete');
     await confirmationDialog.confirm();
     expect(notes.selected).toBeUndefined();
-    await Bun.sleep(1100);
     await folder.idle();
     expect(folder.file('notes/a.md')).toBeUndefined();
 });
@@ -120,25 +124,21 @@ test('rich-text typing stays undoable after its save lands', async () => {
     expect(get<HTMLButtonElement>('button[aria-label="Undo"]').disabled).toBe(false);
 });
 
-test('a source change during a pending draft does not replace history when the draft lands', async () => {
-    const { target, get, render, folder, write } = await view();
+test('an outside body change after a queued edit replaces rich-text history', async () => {
+    const { get, render, folder, write } = await view();
     const rich = get<HTMLElement>('[aria-label="Note text"]');
     const line = rich.querySelector('p')?.firstChild;
     if (!(line instanceof Text)) throw new Error('Missing paragraph');
     line.data += '!';
     await Bun.sleep(0); render();
     expect(rich.textContent).toContain('Body.!');
-    await write('notes/a.md', noteText({ body: 'Theirs.\n' }));
-    render();
-    expect(rich.textContent).toContain('Body.!');
-    expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
-    await until(() => folder.tables.notes.row('a')?.body === 'Body.!\n', 'draft landing');
-    render();
-    expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
+    await folder.idle();
     expect(get<HTMLButtonElement>('button[aria-label="Undo"]').disabled).toBe(false);
-    get<HTMLButtonElement>('button[aria-label="Undo"]').click(); render();
-    expect(rich.textContent).toContain('Body.');
-    expect(rich.textContent).not.toContain('Body.!');
+    await write('notes/a.md', noteText({ body: 'Theirs.\n' }));
+    await until(() => { render(); return rich.textContent?.includes('Theirs.') ?? false; }, 'outside body');
+    expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
+    expect(get<HTMLButtonElement>('button[aria-label="Undo"]').disabled).toBe(true);
+    expect(folder.tables.notes.row('a')?.body).toBe('Theirs.\n');
 });
 
 test('a field draft keeps its value when its file was deleted elsewhere', async () => {

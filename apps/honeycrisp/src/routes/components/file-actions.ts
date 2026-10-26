@@ -6,7 +6,7 @@
 import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
-import { type Deletion, type Notes } from '$lib/notes.svelte.js';
+import type { Deletion, Notes } from '$lib/notes.svelte.js';
 
 export async function copyPath(path: string) {
 	try {
@@ -30,7 +30,7 @@ export function describeDeletion(deletion: Deletion) {
 /**
  * Ask before deleting `path`. The delete joins the mirror's write queue.
  */
-export async function confirmDelete(notes: Notes, path: string, beforeDelete?: () => void) {
+export function confirmDelete(notes: Notes, path: string) {
 	const { data: deletion, error: refusal } = notes.deletionFor(path);
 	if (refusal !== null) {
 		toast.error(`Could not delete ${basename(path)}`, {
@@ -42,7 +42,6 @@ export async function confirmDelete(notes: Notes, path: string, beforeDelete?: (
 		...describeDeletion(deletion),
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
-			beforeDelete?.();
 			const problem = await notes.delete(deletion);
 			if (problem)
 				toast.error(`Could not delete ${basename(path)}`, {
