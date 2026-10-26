@@ -5,7 +5,9 @@ import {
 	mkdtemp,
 	readFile,
 	realpath,
+	rename,
 	rm,
+	utimes,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -25,6 +27,55 @@ afterEach(async () => {
 		await rm(root, { recursive: true, force: true });
 		await rm(scratchDirectory(root), { recursive: true, force: true });
 	}
+});
+
+test('refresh sees a same-size outside replacement without a hint', async () => {
+	const root = await realpath(await mkdtemp(join(tmpdir(), 'folder-stamp-')));
+	roots.push(root);
+	await writeFile(join(root, 'note.txt'), 'old');
+	const fixed = new Date('2024-01-01T00:00:00Z');
+	await utimes(join(root, 'note.txt'), fixed, fixed);
+	const storage = createDirectoryStorage({
+		root,
+		primitives: nodeDirectoryPrimitives,
+		scratch: scratchDirectory(root),
+	});
+	const folder = expectOk(await createFolder(storageHost(storage), { tables: {} }));
+	expect(folder.file('note.txt')?.data).toBe('old');
+	await writeFile(join(root, 'replacement'), 'new');
+	await utimes(join(root, 'replacement'), fixed, fixed);
+	await rename(join(root, 'replacement'), join(root, 'note.txt'));
+	await folder.refresh();
+	expect(folder.file('note.txt')?.data).toBe('new');
+	await writeFile(join(root, 'note.txt'), 'end');
+	await utimes(join(root, 'note.txt'), new Date(fixed.getTime() + 1000), new Date(fixed.getTime() + 1000));
+	await folder.refresh();
+	expect(folder.file('note.txt')?.data).toBe('end');
+	await folder.close();
+});
+
+test('a native save leaves a stamp that refresh can reuse without reading', async () => {
+	const root = await realpath(await mkdtemp(join(tmpdir(), 'folder-stamp-')));
+	roots.push(root);
+	let reads = 0;
+	const primitives = {
+		...nodeDirectoryPrimitives,
+		async readStamped(path: string) {
+			reads++;
+			return nodeDirectoryPrimitives.readStamped(path);
+		},
+	};
+	const storage = createDirectoryStorage({
+		root,
+		primitives,
+		scratch: scratchDirectory(root),
+	});
+	const folder = expectOk(await createFolder(storageHost(storage), { tables: {} }));
+	expectOk(await folder.write('note.txt', 'saved'));
+	const before = reads;
+	await folder.refresh();
+	expect(reads).toBe(before);
+	await folder.close();
 });
 
 test('create, update, an outside edit, and close over a directory', async () => {

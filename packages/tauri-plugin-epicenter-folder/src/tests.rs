@@ -356,7 +356,16 @@ fn read_file(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>,
         InvokeBody::Json(json!({ "path": path })),
         Default::default(),
     )? {
-        InvokeResponseBody::Raw(bytes) => Ok(bytes),
+        InvokeResponseBody::Raw(bytes) => {
+            let separator = bytes
+                .iter()
+                .position(|byte| *byte == 0)
+                .expect("stamped read");
+            assert!(std::str::from_utf8(&bytes[..separator])
+                .unwrap()
+                .starts_with("v1:"));
+            Ok(bytes[separator + 1..].to_vec())
+        }
         InvokeResponseBody::Json(json) => panic!("the bytes came back as JSON: {json}"),
     }
 }
@@ -383,6 +392,7 @@ fn put(
         InvokeBody::Raw(bytes.unwrap_or_default().to_vec()),
         put_headers(path, bytes.is_none(), if_match),
     )
+    .map(|outcome| outcome["kind"].clone())
 }
 
 /// The headers of a put expecting the file whose SHA-256 is `if_match`, or
@@ -474,7 +484,11 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
     .unwrap() else {
         panic!("the bytes came back as JSON");
     };
-    assert_eq!(bytes, b"main's");
+    let separator = bytes.iter().position(|byte| *byte == 0).unwrap();
+    assert!(std::str::from_utf8(&bytes[..separator])
+        .unwrap()
+        .starts_with("v1:"));
+    assert_eq!(&bytes[separator + 1..], b"main's");
     let mut headers = put_headers("mine.md", false, Some(&sha256(b"main's")));
     headers.insert("root", encoded(other_path));
     headers.insert("scope", encoded("other"));
@@ -829,6 +843,11 @@ fn storage_reaches_the_data_paths_of_the_bound_root_and_nothing_else() {
         .as_array_mut()
         .unwrap()
         .sort_by_key(text);
+    assert!(listed["files"][0]["stamp"]
+        .as_str()
+        .unwrap()
+        .starts_with("v1:"));
+    listed["files"][0].as_object_mut().unwrap().remove("stamp");
     assert_eq!(
         listed,
         json!({ "files": [{ "path": "todos/a.md", "size": 6 }], "directories": ["empty", "todos"] })
@@ -1117,7 +1136,10 @@ fn admitted_work_keeps_its_root_after_the_label_is_reused() {
         || admitted.publishing(),
     )
     .unwrap();
-    assert_eq!(landed, epicenter_folder_core::storage::PutOutcome::Landed);
+    assert!(matches!(
+        landed,
+        epicenter_folder_core::storage::PutOutcome::Landed { stamp: Some(_) }
+    ));
     assert_eq!(std::fs::read(fixture.root.join("a.md")).unwrap(), b"first");
     assert!(!other.join("a.md").exists());
 }

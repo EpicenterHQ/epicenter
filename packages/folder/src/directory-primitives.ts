@@ -10,6 +10,11 @@ import type { Expectation } from './boundary.js';
 /** What one entry of a directory is, without following a link. */
 export type EntryKind = 'file' | 'directory' | 'link' | 'other';
 
+export type StampedBytes = {
+	readonly bytes: Uint8Array;
+	readonly stamp: string;
+};
+
 /**
  * The file system calls a directory handle needs. Paths are absolute and use
  * `/`. Every call rejects on failure; `lstat` resolves `undefined` for a
@@ -32,12 +37,15 @@ export type DirectoryPrimitives = {
 		| {
 				readonly kind: EntryKind;
 				readonly size: number;
+				readonly stamp: string;
 				readonly mode?: number;
 				readonly name?: string;
 		  }
 		| undefined
 	>;
 	readFile(path: string): Promise<Uint8Array>;
+	/** Bytes and metadata from the same opened file. */
+	readStamped(path: string): Promise<StampedBytes>;
 	/**
 	 * Write `bytes` to `path`. With `createNew`, reject when anything is
 	 * already there. With `private`, a file this makes is readable only by
@@ -54,7 +62,7 @@ export type DirectoryPrimitives = {
 	 * nothing; `from` stays. A regular file it replaces passes its permission
 	 * bits to `from` first, so it stays private or executable.
 	 */
-	rename(from: string, to: string, expected: Expectation): Promise<void>;
+	rename(from: string, to: string, expected: Expectation): Promise<string>;
 	/**
 	 * Remove a file, an empty directory, or with `recursive` a whole tree. With
 	 * `expected`, only if `path` holds what it says; otherwise reject with

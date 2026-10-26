@@ -37,8 +37,8 @@ export type FolderHost = {
 };
 
 /**
- * Adapt directory storage. Its listing stamp is only the file size, so a
- * same-size outside edit needs a named hint to trigger a read.
+ * Adapt directory storage. Native stamps describe the version each operation
+ * observed, while byte hashes remain the expectation for checked writes.
  */
 export function storageHost(
 	storage: FolderStorage,
@@ -50,7 +50,7 @@ export function storageHost(
 			if (error !== null) return ReadError.StorageFailed({ cause: error });
 			return Ok(
 				new Map(
-					data.files.map(({ path, size }) => [path, { stamp: `${size}` }]),
+					data.files.map(({ path, stamp }) => [path, { stamp }]),
 				),
 			);
 		},
@@ -67,7 +67,7 @@ export function storageHost(
 							path,
 							Ok({
 								bytes: data.bytes,
-								stamp: `${data.bytes.length}`,
+								stamp: data.stamp,
 							}),
 						);
 					else if (error.name === 'NotFound') results.set(path, Ok(null));
@@ -92,9 +92,13 @@ export function storageHost(
 					return SaveError.InvalidPath({ path });
 				return SaveError.StorageFailed({ cause: error });
 			}
-			if (data === 'stale') return SaveError.Changed({ path });
+			if (data.kind === 'stale') return SaveError.Changed({ path });
 			if (bytes === null) return Ok(null);
-			return Ok({ stamp: `${bytes.length}` });
+			if (data.stamp === null)
+				return SaveError.StorageFailed({
+					cause: new Error('A landed file has no stamp'),
+				});
+			return Ok({ stamp: data.stamp });
 		},
 		hints: watch,
 	};

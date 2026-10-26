@@ -16,7 +16,7 @@
  */
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { Expectation, FileRead, FolderStorage } from './boundary.js';
+import type { Expectation, FileRead, FolderStorage, PutOutcome } from './boundary.js';
 import { FileError, PublishError } from './errors.js';
 import { hashBytes } from './hash.js';
 import {
@@ -64,7 +64,7 @@ function logOverwrite(path: string, overridden: readonly Overridden[]) {
 const fileOf = (read: FileRead | null): FileRead | null =>
 	read === null
 		? null
-		: Object.freeze({ bytes: read.bytes, sha256: read.sha256 });
+		: Object.freeze({ bytes: read.bytes, sha256: read.sha256, stamp: read.stamp });
 
 const toBytes = (content: FileContent | null) =>
 	typeof content === 'string' ? encoder.encode(content) : content;
@@ -79,7 +79,7 @@ export async function confirmedPut(
 	bytes: Uint8Array | null,
 	expected: Expectation,
 	sha256: string | null,
-): Promise<Result<'landed' | 'stale', FileError>> {
+): Promise<Result<PutOutcome, FileError>> {
 	const put = await storage.put(path, bytes, expected);
 	if (put.error?.name !== 'Unconfirmed') return put;
 	const read = await storage.read(path);
@@ -87,7 +87,9 @@ export async function confirmedPut(
 		bytes === null
 			? read.error?.name === 'NotFound'
 			: read.error === null && read.data.sha256 === sha256;
-	return landed ? Ok('landed') : put;
+	return landed
+		? Ok({ kind: 'landed', stamp: read.error === null ? read.data.stamp : null })
+		: put;
 }
 
 /** A storage failure as a write reports it. */
@@ -137,13 +139,27 @@ export async function publishFile(
 			sha256,
 		);
 		if (error !== null) return Err(writeFailure(path, error));
-		if (put === 'stale') continue;
+		if (put.kind === 'stale') continue;
+		const stamp = put.stamp;
+		if (bytes !== null && stamp === null)
+			return Err(
+				writeFailure(
+					path,
+					FileError.Io({
+						path,
+						operation: 'write',
+						cause: 'a landed byte put returned no file stamp',
+					}).error,
+				),
+			);
 		logOverwrite(path, overridden);
 		return Ok(
 			Object.freeze({
 				path,
 				file:
-					bytes === null || sha256 === null ? null : fileOf({ bytes, sha256 }),
+					bytes === null || sha256 === null || stamp === null
+						? null
+						: fileOf({ bytes, sha256, stamp }),
 				overridden: Object.freeze(overridden),
 			}),
 		);

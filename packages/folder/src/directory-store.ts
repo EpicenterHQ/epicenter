@@ -40,6 +40,7 @@ import {
 	type LockingStorage,
 	lockingStorage,
 	PRIVATE_DIRECTORY,
+	type PutOutcome,
 	scratchName,
 } from './boundary.js';
 import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
@@ -160,8 +161,8 @@ export function createDirectoryStorage({
 						reason: 'it is not a regular file and is not followed',
 					});
 				if (found.kind !== 'file') return FileError.NotFound({ path });
-				const bytes = await files.readFile(absolute(path));
-				return Ok({ bytes, sha256: await hashBytes(bytes) });
+				const { bytes, stamp } = await files.readStamped(absolute(path));
+				return Ok({ bytes, stamp, sha256: await hashBytes(bytes) });
 			} catch (cause) {
 				if (
 					(await files.lstat(absolute(path)).catch(() => undefined)) ===
@@ -189,24 +190,26 @@ export function createDirectoryStorage({
 			path: string,
 			bytes: Uint8Array | null,
 			expected: Expectation,
-		): Promise<Result<'landed' | 'stale', FileError>> {
+		): Promise<Result<PutOutcome, FileError>> {
 			const { data: found, error } = await landing(path);
 			if (error !== null) return Err(error);
 			if (bytes === null) {
 				if (found.kind !== 'file')
 					return Ok(
-						expected === 'absent' || expected === 'any' ? 'landed' : 'stale',
+						expected === 'absent' || expected === 'any'
+							? { kind: 'landed', stamp: null }
+							: { kind: 'stale' },
 					);
-				if (expected === 'absent') return Ok('stale');
+				if (expected === 'absent') return Ok({ kind: 'stale' });
 				try {
 					await files.remove(absolute(path), { expected });
 				} catch (cause) {
-					if (cause instanceof UnexpectedTarget) return Ok('stale');
+					if (cause instanceof UnexpectedTarget) return Ok({ kind: 'stale' });
 					if (cause instanceof NothingChanged)
 						return FileError.Io({ path, operation: 'remove', cause });
 					return FileError.Unconfirmed({ path, operation: 'remove', cause });
 				}
-				return Ok('landed');
+				return Ok({ kind: 'landed', stamp: null });
 			}
 			if (found.kind === 'underFile')
 				return FileError.NotADirectory({ path: found.ancestor });
@@ -244,21 +247,22 @@ export function createDirectoryStorage({
 				await abandon();
 				return FileError.Io({ path, operation: 'write', cause });
 			}
+			let stamp: string;
 			try {
-				await files.rename(scratch, absolute(path), expected);
+				stamp = await files.rename(scratch, absolute(path), expected);
 			} catch (cause) {
 				await abandon();
-				if (cause instanceof UnexpectedTarget) return Ok('stale');
+				if (cause instanceof UnexpectedTarget) return Ok({ kind: 'stale' });
 				if (cause instanceof NothingChanged)
 					return FileError.Io({ path, operation: 'write', cause });
 				return FileError.Unconfirmed({ path, operation: 'write', cause });
 			}
-			return Ok('landed');
+			return Ok({ kind: 'landed', stamp });
 		}
 
 		return {
 			async list() {
-				const entries: { path: string; size: number }[] = [];
+				const entries: { path: string; size: number; stamp: string }[] = [];
 				const directories: string[] = [];
 				async function visit(directory: string, prefix: string) {
 					for (const entry of await files.readDir(directory)) {
@@ -271,7 +275,8 @@ export function createDirectoryStorage({
 							continue;
 						}
 						const found = await files.lstat(at);
-						if (found !== undefined) entries.push({ path, size: found.size });
+						if (found !== undefined)
+							entries.push({ path, size: found.size, stamp: found.stamp });
 					}
 				}
 				try {

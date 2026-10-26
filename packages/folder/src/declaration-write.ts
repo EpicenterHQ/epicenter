@@ -56,7 +56,7 @@ export async function patchDeclaration(
 			await hashBytes(bytes),
 		);
 		if (put.error !== null) return Err({ reason: put.error.message });
-		if (put.data === 'landed') return Ok({ written: true });
+		if (put.data?.kind === 'landed') return Ok({ written: true });
 	}
 	return Err({
 		reason: `${DEFINITION_PATH} kept changing; no replacement was confirmed. Try again`,

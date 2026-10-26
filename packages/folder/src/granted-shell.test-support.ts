@@ -132,7 +132,7 @@ export function createGrantedShell(root: string) {
 	const lostReplies = new Map<string, unknown>();
 
 	/** One data change, under the test's controls. */
-	async function change(described: DataChange, make: () => Promise<void>) {
+	async function change<T>(described: DataChange, make: () => Promise<T>): Promise<T> {
 		await control.beforeChange?.(described);
 		if (control.refuseNext > 0) {
 			control.refuseNext -= 1;
@@ -140,7 +140,7 @@ export function createGrantedShell(root: string) {
 				`'${described.path}' could not be written: the disk refused the write`,
 			);
 		}
-		await make();
+		const result = await make();
 		changes.push(described);
 		try {
 			control.afterChange?.(described);
@@ -151,6 +151,7 @@ export function createGrantedShell(root: string) {
 			control.loseReplies -= 1;
 			lostReplies.set(described.path, 'the reply never reached the window');
 		}
+		return result;
 	}
 
 	/**
@@ -161,7 +162,7 @@ export function createGrantedShell(root: string) {
 		...nodeDirectoryPrimitives,
 		async rename(from, to, expected) {
 			const text = new TextDecoder().decode(await nodeFs.readFile(from));
-			await change({ kind: 'write', path: relative(to), text }, () =>
+			return change({ kind: 'write', path: relative(to), text }, () =>
 				nodeDirectoryPrimitives.rename(from, to, expected),
 			);
 		},

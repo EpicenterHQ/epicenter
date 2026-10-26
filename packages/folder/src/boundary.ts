@@ -51,7 +51,12 @@ export type Expectation =
 export type FileRead = {
 	readonly bytes: Uint8Array;
 	readonly sha256: string;
+	readonly stamp: string;
 };
+
+export type PutOutcome =
+	| { readonly kind: 'landed'; readonly stamp: string | null }
+	| { readonly kind: 'stale' };
 
 export type FileListing = {
 	/**
@@ -59,7 +64,7 @@ export type FileListing = {
 	 * scope, symbolic links, and special entries, none of them followed. A
 	 * read refuses what is not a regular file.
 	 */
-	readonly files: readonly { readonly path: string; readonly size: number }[];
+	readonly files: readonly { readonly path: string; readonly size: number; readonly stamp: string }[];
 	/** Every directory, including empty ones kept for the shell. */
 	readonly directories: readonly string[];
 };
@@ -90,7 +95,7 @@ export type FolderStorage = {
 		path: string,
 		bytes: Uint8Array | null,
 		expected: Expectation,
-	): Promise<Result<'landed' | 'stale', FileError>>;
+	): Promise<Result<PutOutcome, FileError>>;
 	mkdir(path: string): Promise<Result<undefined, FileError>>;
 	/** Remove the empty directory at `path`. */
 	rmdir(path: string): Promise<Result<undefined, FileError>>;
@@ -129,8 +134,8 @@ export type HostFiles = Pick<
 
 /** Whether a put changed its file, or may have: it landed, or its reply was lost. */
 export const mayHaveChanged = (
-	result: Result<'landed' | 'stale', FileError>,
-): boolean => result.data === 'landed' || result.error?.name === 'Unconfirmed';
+	result: Result<PutOutcome, FileError>,
+): boolean => result.data?.kind === 'landed' || result.error?.name === 'Unconfirmed';
 
 /** The folder's private Git directory, which no portable path names and no listing shows. */
 export const PRIVATE_DIRECTORY = '.git';
@@ -233,14 +238,14 @@ export function hostStorage(
 			const checked =
 				refused && bytes !== null && expected === 'any' ? 'present' : expected;
 			const owned = bytes === null ? null : new Uint8Array(bytes);
-			let result: Result<'landed' | 'stale', FileError>;
+			let result: Result<PutOutcome, FileError>;
 			try {
 				result = await files.change(path, owned, checked);
 			} catch (cause) {
 				result = FileError.Io({ path, operation: 'write', cause });
 			}
 			// The nonportable file went before this write landed, which cannot make it.
-			if (refused && checked !== expected && result.data === 'stale')
+			if (refused && checked !== expected && result.data?.kind === 'stale')
 				return refused;
 			if (mayHaveChanged(result)) relay([path]);
 			return result;

@@ -75,6 +75,10 @@ fn save(root: &Path) -> Result<PutOutcome, storage::StorageError> {
         &storage::Expectation::Absent,
         || directory.publishing(),
     )
+    .map(|outcome| match outcome {
+        PutOutcome::Landed { .. } => PutOutcome::Landed { stamp: None },
+        stale => stale,
+    })
 }
 
 /// The names directly in `directory`, sorted.
@@ -93,7 +97,7 @@ fn names(directory: &Path) -> Vec<String> {
 fn a_directory_with_no_git_is_opened_and_saved_to() {
     let temp = TempDir::new("bind-no-git");
     let root = temp.folder("notes");
-    assert_eq!(save(&root), Ok(PutOutcome::Landed));
+    assert_eq!(save(&root), Ok(PutOutcome::Landed { stamp: None }));
     assert_eq!(std::fs::read(root.join("todos/a.md")).unwrap(), b"milk");
     assert_eq!(names(&root), ["todos"]);
     assert!(names(&storage::scratch_directory(&root).unwrap()).is_empty());
@@ -107,7 +111,7 @@ fn a_git_file_or_link_is_opened_and_saved_to() {
     let worktree = temp.folder("worktree");
     let gitdir = "gitdir: /elsewhere/.git/worktrees/worktree\n";
     std::fs::write(worktree.join(".git"), gitdir).unwrap();
-    assert_eq!(save(&worktree), Ok(PutOutcome::Landed));
+    assert_eq!(save(&worktree), Ok(PutOutcome::Landed { stamp: None }));
     assert_eq!(
         std::fs::read_to_string(worktree.join(".git")).unwrap(),
         gitdir
@@ -118,7 +122,7 @@ fn a_git_file_or_link_is_opened_and_saved_to() {
         let linked = temp.folder("linked");
         let repository = temp.folder("repository");
         std::os::unix::fs::symlink(&repository, linked.join(".git")).unwrap();
-        assert_eq!(save(&linked), Ok(PutOutcome::Landed));
+        assert_eq!(save(&linked), Ok(PutOutcome::Landed { stamp: None }));
         assert!(std::fs::symlink_metadata(linked.join(".git"))
             .unwrap()
             .file_type()
@@ -144,7 +148,11 @@ fn git_state_linked_elsewhere_does_not_block_opening_or_saving() {
         } else {
             std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
         }
-        assert_eq!(save(&root), Ok(PutOutcome::Landed), "{planted}");
+        assert_eq!(
+            save(&root),
+            Ok(PutOutcome::Landed { stamp: None }),
+            "{planted}"
+        );
         assert_eq!(names(&root.join(".git")), [planted], "{planted}");
     }
     assert!(names(&elsewhere).is_empty());
@@ -195,7 +203,7 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
     let outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
     let winners: Vec<_> = outcomes
         .iter()
-        .filter(|(_, landed)| *landed == Ok(PutOutcome::Landed))
+        .filter(|(_, landed)| matches!(landed, Ok(PutOutcome::Landed { .. })))
         .collect();
     assert_eq!(winners.len(), 1, "{outcomes:?}");
     assert_eq!(
@@ -205,7 +213,7 @@ fn saves_racing_on_one_root_with_the_same_expected_hash_land_once() {
     assert!(
         outcomes
             .iter()
-            .filter(|(_, landed)| *landed != Ok(PutOutcome::Landed))
+            .filter(|(_, landed)| !matches!(landed, Ok(PutOutcome::Landed { .. })))
             .all(|(_, landed)| *landed == Ok(PutOutcome::Stale)),
         "{outcomes:?}"
     );

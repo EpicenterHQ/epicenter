@@ -180,10 +180,10 @@ A page's folder storage (`FolderStorage` in `@epicenter/folder`'s
 
 | Method | Command | Answers |
 | --- | --- | --- |
-| `list()` | `list_folder()` | `{ files: { path, size }[], directories: string[] }` |
+| `list()` | `list_folder()` | `{ files: { path, size, stamp }[], directories: string[] }` |
 | `children(directory)` | `read_folder_children(directory)` | `{ files: string[], directories: string[] }`; `""` is the root |
-| `read(path)` | `read_folder_file(path)` | the bytes, raw |
-| `put(path, bytes, expected)` | `put_folder_file`, raw body and headers | `"landed"` or `"stale"` |
+| `read(path)` | `read_folder_file(path)` | the stamp, a zero byte, then the file bytes, raw |
+| `put(path, bytes, expected)` | `put_folder_file`, raw body and headers | `{ kind: "landed", stamp: string \| null }` or `{ kind: "stale" }` |
 | `mkdir(path)` | `make_folder_directory(path)` | `null` |
 | `rmdir(path)` | `remove_folder_directory(path)` | `null` |
 
@@ -239,8 +239,13 @@ A JSON array of bytes, Tauri's `postMessage`
 fallback, is accepted too. The generated bindings cannot type a raw request,
 so the command is left out of them; the plugin dispatches it beside the
 typed commands, under the same permission, and `tauri-files.ts` invokes it
-by name. `read_folder_file` returns its bytes as a raw response, an
-`ArrayBuffer` to the page, for the same reason the same way.
+by name. `read_folder_file` returns a raw `ArrayBuffer` to the page. Its stamp
+is ASCII before the first zero byte; the remaining bytes are the file. The
+stamp is formed from size, modification time in nanoseconds, and device and
+inode on Unix. Reads inspect the opened file handle so a replacement cannot
+pair old bytes with the new file's stamp. A landed put returns the stamp of
+the published file, or `null` for a removal. Stamps detect changes;
+expectations remain byte hashes.
 
 A put of bytes writes the bytes to a new file in
 `.<directory>.epicenter-scratch` beside the root, the directory the Bun host
@@ -278,7 +283,8 @@ the turn; the root itself never is. A put waits up to ten seconds for
 another writer's save; past that it changes nothing and is `Io`, naming the
 lock file. The cost is a read and hash of the destination when `expected`
 names a hash. A path that holds something else changes nothing and answers
-`"stale"`. On every answer but `"landed"` the put leaves nothing behind: not
+`{ kind: "stale" }`. On every answer but `{ kind: "landed", stamp }` the put
+leaves nothing behind: not
 its staged file, and not a directory it made, unless another writer put
 something in it.
 

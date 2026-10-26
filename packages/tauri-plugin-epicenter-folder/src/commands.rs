@@ -120,8 +120,8 @@ pub async fn read_folder_children<R: Runtime>(
     .await
 }
 
-/// Read a file in the window's folder (`storage::read`). The bytes return as
-/// a raw response, an `ArrayBuffer` to the page, rather than as a JSON array
+/// Read a file in the window's folder (`storage::read`). The ASCII stamp,
+/// a zero byte, then the file bytes return in one raw `ArrayBuffer`, rather than as a JSON array
 /// of numbers. tauri-specta cannot type a raw response, so the generated
 /// bindings leave this command out and `tauri-files.ts` invokes it by name;
 /// `init` dispatches it beside the typed commands.
@@ -137,12 +137,17 @@ pub async fn read_folder_file<R: Runtime>(
         |message| Err(failed(&at, "read", message)),
     )
     .await
-    .map(tauri::ipc::Response::new)
+    .map(|read| {
+        let mut response = read.stamp.into_bytes();
+        response.push(0);
+        response.extend_from_slice(&read.bytes);
+        tauri::ipc::Response::new(response)
+    })
 }
 
 /// Publish a file's bytes in the window's folder, or remove it, only while
-/// the path holds what the page expects (`storage::put`): `"landed"`, or
-/// `"stale"` when it did not hold that and nothing changed.
+/// the path holds what the page expects (`storage::put`): a `landed` result
+/// with its stamp, or `stale` when it did not hold that and nothing changed.
 ///
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
@@ -184,8 +189,8 @@ pub async fn put_folder_file<R: Runtime>(
         "false" => false,
         other => return Err(refused(format!("remove is {other:?}, not true or false"))),
     };
-    let expected = storage::Expectation::parse(&required("expected").map_err(refused)?)
-        .map_err(refused)?;
+    let expected =
+        storage::Expectation::parse(&required("expected").map_err(refused)?).map_err(refused)?;
     // The blocking pool needs the bytes to outlive the request.
     let bytes: Option<Vec<u8>> = match (remove, request.body()) {
         (true, _) => None,
@@ -201,13 +206,9 @@ pub async fn put_folder_file<R: Runtime>(
     let at = path.clone();
     blocking(
         move || {
-            storage::put(
-                directory.root(),
-                &path,
-                bytes.as_deref(),
-                &expected,
-                || directory.publishing(),
-            )
+            storage::put(directory.root(), &path, bytes.as_deref(), &expected, || {
+                directory.publishing()
+            })
         },
         |message| Err(failed(&at, operation, message)),
     )

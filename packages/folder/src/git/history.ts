@@ -666,7 +666,7 @@ export async function executeHistoryRequest(
 						const put = await confirmedPut(held, path, null, { sha256 }, null);
 						if (put.error !== null) return failed(path, put.error);
 						// Changed by a program outside the save lock: it stays.
-						if (put.data === 'stale') {
+						if (put.data?.kind === 'stale') {
 							kept = true;
 							continue;
 						}

@@ -27,11 +27,11 @@ test('the caller owns the exact byte limit, and editable text keeps BOM and CRLF
 
 const listing = {
 	files: [
-		{ path: 'todos/b.md', size: 20 },
-		{ path: 'todos/a.md', size: 10 },
-		{ path: 'notes/deep/x.txt', size: 3 },
-		{ path: 'readme.txt', size: 5 },
-		{ path: '.git/HEAD', size: 23 },
+		{ path: 'todos/b.md', size: 20, stamp: 'b' },
+		{ path: 'todos/a.md', size: 10, stamp: 'a' },
+		{ path: 'notes/deep/x.txt', size: 3, stamp: 'x' },
+		{ path: 'readme.txt', size: 5, stamp: 'readme' },
+		{ path: '.git/HEAD', size: 23, stamp: 'git' },
 	],
 	directories: ['empty', 'notes', 'notes/deep', 'todos', '.git'],
 };

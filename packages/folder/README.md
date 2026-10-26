@@ -124,6 +124,11 @@ transaction; the Tauri plugin uses the same boundary. Paths and links are
 checked before writes. A native watcher reports outside changes as hints, and
 `refresh()` rereads the mirror. Watching is best effort, so an application
 also refreshes on return to a visible window.
+Native listings compare opaque stamps made from file size, modification time,
+and file identity where available. A same-size replacement is found by a
+refresh even when no watcher hint arrives. Reads and saves return the stamp
+of the file they observed or published; checked writes still compare content
+hashes.
 
 The CLI's `runHistory` is independent of a Folder's lifetime. It can commit,
 inspect, and synchronize an existing directory. Git history and sync retain

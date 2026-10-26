@@ -38,6 +38,22 @@ import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 
+type StampStats = {
+	readonly size: bigint;
+	readonly mtimeNs: bigint;
+	readonly dev: bigint;
+	readonly ino: bigint;
+};
+
+/** An opaque native change detector. Decimal strings preserve bigint precision. */
+function stampOf(stats: StampStats): string {
+	const identity =
+		process.platform === 'win32' || stats.ino === 0n
+			? ''
+			: `:${stats.dev}:${stats.ino}`;
+	return `v1:${stats.size}:${stats.mtimeNs}${identity}`;
+}
+
 const kindOf = (entry: {
 	isFile(): boolean;
 	isDirectory(): boolean;
@@ -196,7 +212,7 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 	},
 	async lstat(path) {
 		try {
-			const stats = await lstat(path);
+			const stats = await lstat(path, { bigint: true });
 			const kind = kindOf(stats);
 			// `realpath` answers with the stored spelling; a link is not followed.
 			// Racing a rename over the path, Bun's on Linux can answer with
@@ -208,7 +224,13 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 					? basename(await realpath(path))
 					: undefined;
 			const name = stored === asked ? stored : undefined;
-			return { kind, size: stats.size, mode: stats.mode, name };
+			return {
+				kind,
+				size: Number(stats.size),
+				stamp: stampOf(stats),
+				mode: Number(stats.mode),
+				name,
+			};
 		} catch (cause) {
 			if ((cause as { code?: string }).code === 'ENOENT') return undefined;
 			throw cause;
@@ -216,6 +238,17 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 	},
 	async readFile(path) {
 		return new Uint8Array(await readFile(path));
+	},
+	async readStamped(path) {
+		const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+		try {
+			const stats = await file.stat({ bigint: true });
+			if (!stats.isFile()) throw new Error(`'${path}' is not a regular file`);
+			const bytes = new Uint8Array(await file.readFile());
+			return { bytes, stamp: stampOf(stats) };
+		} finally {
+			await file.close();
+		}
 	},
 	async writeFile(path, bytes, options) {
 		const flag = options?.createNew ? 'wx' : 'w';
@@ -239,8 +272,18 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 	},
 	async rename(from, to, expected) {
 		await check(to, expected);
-		await keepMode(to, from);
-		await rename(from, to);
+		const staged = await open(from, constants.O_RDONLY);
+		try {
+			await keepMode(to, from);
+			const published = stampOf(await staged.stat({ bigint: true }));
+			await rename(from, to);
+			const afterRename = await staged
+				.stat({ bigint: true })
+				.then(stampOf, () => undefined);
+			return published === afterRename ? afterRename : published;
+		} finally {
+			await staged.close();
+		}
 	},
 	async remove(path, options) {
 		if (options?.expected !== undefined) await check(path, options.expected);

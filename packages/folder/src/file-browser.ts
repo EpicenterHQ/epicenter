@@ -1,10 +1,13 @@
 /** Pure file-browser mechanics over a folder listing and a file's bytes. */
 
-import type { FileListing } from './boundary.js';
 import { basename, dirname } from './paths.js';
 
 export { ancestors, basename, dirname, pathProblem } from './paths.js';
-export type { FileListing };
+/** The paths and sizes a file tree needs, with or without host stamps. */
+export type FileListing = {
+	readonly files: readonly { readonly path: string; readonly size: number }[];
+	readonly directories: readonly string[];
+};
 
 export type TreeRow = {
 	path: string;

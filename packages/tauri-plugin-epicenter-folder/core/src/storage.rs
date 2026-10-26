@@ -36,10 +36,11 @@
 //! defended against; a page cannot make one.
 
 use std::fs;
-use std::io::{self, ErrorKind, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
+use std::time::UNIX_EPOCH;
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -272,11 +273,36 @@ pub enum StorageError {
 
 /// What a `put` did: changed the file, or found the path holding something
 /// other than what the page expected and changed nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Type)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
+#[serde(tag = "kind", rename_all = "lowercase")]
 pub enum PutOutcome {
-    Landed,
+    Landed { stamp: Option<String> },
     Stale,
+}
+
+/// The bytes and stamp of one opened file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileRead {
+    pub bytes: Vec<u8>,
+    pub stamp: String,
+}
+
+/// Decimal fields retain nanoseconds and file identifiers across JSON IPC.
+fn stamp_of(metadata: &fs::Metadata) -> io::Result<String> {
+    let modified = metadata.modified()?;
+    let nanos = match modified.duration_since(UNIX_EPOCH) {
+        Ok(duration) => duration.as_nanos() as i128,
+        Err(error) => -(error.duration().as_nanos() as i128),
+    };
+    let mut stamp = format!("v1:{}:{nanos}", metadata.len());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.ino() != 0 {
+            stamp.push_str(&format!(":{}:{}", metadata.dev(), metadata.ino()));
+        }
+    }
+    Ok(stamp)
 }
 
 /// What a `put` expects at its path when it lands: `Expectation` in
@@ -323,6 +349,7 @@ pub struct ListedFile {
     /// holds every size below 2^53 exactly; specta refuses a `u64` as such.
     #[specta(type = u32)]
     pub size: u64,
+    pub stamp: String,
 }
 
 /// Every entry below a folder's root, `.git` aside: `FileListing` in
@@ -522,7 +549,9 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
 pub fn list(root: &Path) -> Result<FileListing, StorageError> {
     fn visit(directory: &Path, prefix: &str, listing: &mut FileListing) -> io::Result<()> {
         let entries = match fs::read_dir(directory) {
-            Err(cause) if !prefix.is_empty() && cause.kind() == ErrorKind::NotFound => return Ok(()),
+            Err(cause) if !prefix.is_empty() && cause.kind() == ErrorKind::NotFound => {
+                return Ok(())
+            }
             result => result?,
         };
         for entry in entries {
@@ -544,6 +573,7 @@ pub fn list(root: &Path) -> Result<FileListing, StorageError> {
                 Ok(metadata) => listing.files.push(ListedFile {
                     path,
                     size: metadata.len(),
+                    stamp: stamp_of(&metadata)?,
                 }),
                 Err(cause) if cause.kind() == ErrorKind::NotFound => {}
                 Err(cause) => return Err(cause),
@@ -602,7 +632,7 @@ pub fn children(root: &Path, directory: &str) -> Result<Children, StorageError> 
 }
 
 /// The bytes of the regular file at `path`.
-pub fn read(root: &Path, path: &str) -> Result<Vec<u8>, StorageError> {
+pub fn read(root: &Path, path: &str) -> Result<FileRead, StorageError> {
     if let Some(reason) = readable_path_problem(path) {
         return Err(StorageError::InvalidPath {
             path: path.to_string(),
@@ -610,7 +640,7 @@ pub fn read(root: &Path, path: &str) -> Result<Vec<u8>, StorageError> {
         });
     }
     let target = full(root, path);
-    let read = || -> io::Result<Result<Vec<u8>, StorageError>> {
+    let read = || -> io::Result<Result<FileRead, StorageError>> {
         Ok(match find(root, path)? {
             Found::Link => Err(link_refusal(path)),
             Found::Directory => Err(StorageError::NotAFile {
@@ -620,7 +650,19 @@ pub fn read(root: &Path, path: &str) -> Result<Vec<u8>, StorageError> {
                 path: path.to_string(),
                 reason: "it is not a regular file and is not followed".to_string(),
             }),
-            Found::File { .. } => Ok(fs::read(&target)?),
+            Found::File { .. } => {
+                let mut file = fs::File::open(&target)?;
+                let metadata = file.metadata()?;
+                if !metadata.is_file() {
+                    return Ok(Err(StorageError::NotAFile {
+                        path: path.to_string(),
+                    }));
+                }
+                let stamp = stamp_of(&metadata)?;
+                let mut bytes = Vec::new();
+                file.read_to_end(&mut bytes)?;
+                Ok(FileRead { bytes, stamp })
+            }
             _ => Err(StorageError::NotFound {
                 path: path.to_string(),
             }),
@@ -929,11 +971,13 @@ pub fn put<Turn>(
     let names: Vec<&str> = path.split('/').collect();
 
     let removed_nothing = || -> Result<PutOutcome, StorageError> {
-        Ok(if matches!(expected, Expectation::Absent | Expectation::Any) {
-            PutOutcome::Landed
-        } else {
-            PutOutcome::Stale
-        })
+        Ok(
+            if matches!(expected, Expectation::Absent | Expectation::Any) {
+                PutOutcome::Landed { stamp: None }
+            } else {
+                PutOutcome::Stale
+            },
+        )
     };
     let Some(bytes) = bytes else {
         if !matches!(found, Found::File { .. }) {
@@ -956,7 +1000,7 @@ pub fn put<Turn>(
             return Ok(PutOutcome::Stale);
         }
         fs::remove_file(&target).map_err(|cause| failed(&cause))?;
-        return Ok(PutOutcome::Landed);
+        return Ok(PutOutcome::Landed { stamp: None });
     };
 
     if let Found::UnderFile { ancestor } = found {
@@ -992,11 +1036,19 @@ pub fn put<Turn>(
             ))
         })
         .and_then(|()| file.write_all(bytes).map_err(unstaged));
-    drop(file);
     if let Err(error) = written {
+        drop(file);
         let _ = fs::remove_file(&scratch);
         return Err(error);
     }
+    let staged_stamp = match file.metadata().and_then(|metadata| stamp_of(&metadata)) {
+        Ok(stamp) => stamp,
+        Err(cause) => {
+            drop(file);
+            let _ = fs::remove_file(&scratch);
+            return Err(unstaged(cause));
+        }
+    };
     let published = (|| -> Result<PutOutcome, StorageError> {
         let _held = turn().map_err(|message| failed(&message))?;
         let found = find(root, path).map_err(|cause| failed(&cause))?;
@@ -1020,9 +1072,17 @@ pub fn put<Turn>(
             remove_made(&made);
             return Err(failed(&cause));
         }
-        Ok(PutOutcome::Landed)
+        let after_rename = file
+            .metadata()
+            .ok()
+            .and_then(|metadata| stamp_of(&metadata).ok());
+        let stamp = after_rename
+            .filter(|stamp| *stamp == staged_stamp)
+            .unwrap_or(staged_stamp);
+        Ok(PutOutcome::Landed { stamp: Some(stamp) })
     })();
-    if published != Ok(PutOutcome::Landed) {
+    drop(file);
+    if !matches!(published, Ok(PutOutcome::Landed { .. })) {
         let _ = fs::remove_file(&scratch);
     }
     published

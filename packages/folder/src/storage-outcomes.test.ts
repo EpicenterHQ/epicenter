@@ -123,12 +123,14 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 							? { data: { text: new TextDecoder().decode(read.data.bytes) } }
 							: { error: read.error };
 					}
-					case 'put':
-						return storage.put(
+					case 'put': {
+						const put = await storage.put(
 							path,
 							bytes === null ? null : encode(bytes),
 							expected,
 						);
+						return put.error === null ? { data: put.data.kind } : put;
+					}
 					case 'mkdir':
 						return storage
 							.mkdir(path)
@@ -145,8 +147,17 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 							);
 					case 'children':
 						return storage.children(path);
-					case 'list':
-						return storage.list();
+					case 'list': {
+						const listed = await storage.list();
+						return listed.error === null
+							? {
+								data: {
+									files: listed.data.files.map(({ path, size }) => ({ path, size })),
+									directories: listed.data.directories,
+								},
+							}
+							: listed;
+					}
 				}
 			})();
 

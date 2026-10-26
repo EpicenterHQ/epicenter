@@ -32,7 +32,7 @@ function setup(
 		async read(path) {
 			if (current === null) return FileError.NotFound({ path });
 			const bytes = new TextEncoder().encode(current);
-			return Ok({ bytes, sha256: await hashBytes(bytes) });
+			return Ok({ bytes, sha256: await hashBytes(bytes), stamp: `test:${current}` });
 		},
 		async put(_path, bytes, expected) {
 			puts++;
@@ -45,9 +45,9 @@ function setup(
 				expected === 'absent'
 					? hash === null
 					: typeof expected === 'object' && hash === expected.sha256;
-			if (!holds) return Ok('stale');
+			if (!holds) return Ok({ kind: 'stale' });
 			current = bytes === null ? null : new TextDecoder().decode(bytes);
-			return Ok('landed');
+			return Ok({ kind: 'landed', stamp: current === null ? null : `test:${current}` });
 		},
 	};
 	return { storage, source: () => current, puts: () => puts };
@@ -178,7 +178,7 @@ test('a lost successful publication is confirmed from the written bytes', async 
 	const put = fixture.storage.put;
 	fixture.storage.put = async (...args) => {
 		const result = await put(...args);
-		return result.data === 'landed'
+		return result.data?.kind === 'landed'
 			? FileError.Unconfirmed({
 					path: 'epicenter.json',
 					operation: 'write',

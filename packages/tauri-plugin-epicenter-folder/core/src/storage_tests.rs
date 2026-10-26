@@ -58,6 +58,27 @@ fn free() -> Result<(), String> {
     Ok(())
 }
 
+#[test]
+fn list_read_and_put_report_the_observed_file_stamp() {
+    let (_temp, root) = folder("storage-stamp", &[("note.txt", b"old")]);
+    let initial = list(&root).unwrap().files[0].stamp.clone();
+    assert_eq!(read(&root, "note.txt").unwrap().stamp, initial);
+
+    let landed = super::put(&root, "note.txt", Some(b"new"), &Expectation::Any, free).unwrap();
+    let PutOutcome::Landed {
+        stamp: Some(published),
+    } = landed
+    else {
+        panic!("the put did not report its published file");
+    };
+    assert_ne!(published, initial);
+    assert_eq!(list(&root).unwrap().files[0].stamp, published);
+    assert_eq!(read(&root, "note.txt").unwrap().stamp, published);
+
+    let removed = super::put(&root, "note.txt", None, &Expectation::Any, free).unwrap();
+    assert_eq!(removed, PutOutcome::Landed { stamp: None });
+}
+
 /// What most cases here expect: the file whose SHA-256 is `if_match`, or
 /// nothing for `None`. The expectation vectors cover `Any` and `Present`.
 fn witness(if_match: Option<&str>) -> Expectation {
@@ -74,7 +95,10 @@ fn put<Turn>(
     if_match: Option<&str>,
     turn: impl FnOnce() -> Result<Turn, String>,
 ) -> Result<PutOutcome, StorageError> {
-    super::put(root, path, bytes, &witness(if_match), turn)
+    super::put(root, path, bytes, &witness(if_match), turn).map(|outcome| match outcome {
+        PutOutcome::Landed { .. } => PutOutcome::Landed { stamp: None },
+        stale => stale,
+    })
 }
 
 fn put_now(
@@ -187,7 +211,7 @@ fn children_are_named_by_kind_and_refused_where_no_directory_is() {
 fn a_read_answers_the_bytes_of_a_regular_file_and_nothing_else() {
     let bytes: Vec<u8> = (0..=255).collect();
     let (_temp, root) = folder("storage-read", &[("all.bin", &bytes), ("todos/a.md", b"a")]);
-    assert_eq!(read(&root, "all.bin").unwrap(), bytes);
+    assert_eq!(read(&root, "all.bin").unwrap().bytes, bytes);
     assert_eq!(
         read(&root, "todos"),
         Err(StorageError::NotAFile {
@@ -222,19 +246,19 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
         "storage-read-nonportable",
         &[("notes/.md", b"empty"), ("notes/a: b.md", b"colon")],
     );
-    assert_eq!(read(&root, "notes/.md").unwrap(), b"empty");
-    assert_eq!(read(&root, "notes/a: b.md").unwrap(), b"colon");
+    assert_eq!(read(&root, "notes/.md").unwrap().bytes, b"empty");
+    assert_eq!(read(&root, "notes/a: b.md").unwrap().bytes, b"colon");
     assert!(put_now(&root, "notes/a: b.md", b(b"changed"), None)
         .is_err_and(|error| invalid("notes/a: b.md")(&error)));
     let witness = sha256(b"colon");
     assert_eq!(
         put_now(&root, "notes/a: b.md", b(b"repaired"), Some(&witness)).unwrap(),
-        PutOutcome::Landed
+        PutOutcome::Landed { stamp: None }
     );
-    assert_eq!(read(&root, "notes/a: b.md").unwrap(), b"repaired");
+    assert_eq!(read(&root, "notes/a: b.md").unwrap().bytes, b"repaired");
     assert_eq!(
         put_now(&root, "notes/a: b.md", None, Some(&sha256(b"repaired"))).unwrap(),
-        PutOutcome::Landed
+        PutOutcome::Landed { stamp: None }
     );
     assert_eq!(
         read(&root, "notes/a: b.md"),
@@ -247,7 +271,7 @@ fn existing_nonportable_names_can_be_repaired_with_a_witness() {
 #[test]
 fn an_existing_head_is_readable_but_never_changed() {
     let (_temp, root) = folder("storage-head-private", &[("HEAD", b"notes\n")]);
-    assert_eq!(read(&root, "HEAD").unwrap(), b"notes\n");
+    assert_eq!(read(&root, "HEAD").unwrap().bytes, b"notes\n");
     let witness = sha256(b"notes\n");
     assert!(
         put_now(&root, "HEAD", b(b"ref: refs/heads/main\n"), Some(&witness))
@@ -256,7 +280,7 @@ fn an_existing_head_is_readable_but_never_changed() {
     assert!(
         put_now(&root, "HEAD", None, Some(&witness)).is_err_and(|error| invalid("HEAD")(&error))
     );
-    assert_eq!(read(&root, "HEAD").unwrap(), b"notes\n");
+    assert_eq!(read(&root, "HEAD").unwrap().bytes, b"notes\n");
 }
 
 #[cfg(unix)]
@@ -321,7 +345,7 @@ fn a_name_stored_under_another_spelling_is_another_entry() {
             path: "todos".into()
         })
     );
-    assert_eq!(read(&root, "Todos/A.md").unwrap(), b"theirs");
+    assert_eq!(read(&root, "Todos/A.md").unwrap().bytes, b"theirs");
     assert!(staged(&root).is_empty());
     // Both ways of finding the stored spelling agree.
     for names in [["todos", "A.md"], ["Todos", "a.md"]] {
@@ -354,7 +378,7 @@ fn a_name_stored_in_another_normalization_is_another_entry() {
     assert!(
         put_now(&root, composed, b(b"mine"), None).is_err_and(|error| invalid(composed)(&error))
     );
-    assert_eq!(read(&root, decomposed).unwrap(), b"theirs");
+    assert_eq!(read(&root, decomposed).unwrap().bytes, b"theirs");
 }
 
 #[test]
@@ -364,7 +388,7 @@ fn a_put_lands_only_on_what_the_page_expected() {
     // A new file, and its missing parent, land where nothing was.
     assert_eq!(
         put_now(&root, "todos/a.md", b(b"first"), None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(&a).unwrap(), b"first");
     // A create over the file is stale, and so is another hash.
@@ -380,7 +404,7 @@ fn a_put_lands_only_on_what_the_page_expected() {
     // The hash of what is there lands.
     assert_eq!(
         put_now(&root, "todos/a.md", b(b"second"), Some(&sha256(b"first"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(&a).unwrap(), b"second");
     // A guarded replacement of a missing file is stale.
@@ -401,13 +425,13 @@ fn a_put_lands_only_on_what_the_page_expected() {
     assert!(a.exists());
     assert_eq!(
         put_now(&root, "todos/a.md", None, Some(&sha256(b"second"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert!(!a.exists());
     // Nothing there is what a removal expecting nothing wants.
     assert_eq!(
         put_now(&root, "todos/a.md", None, None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(
         put_now(&root, "todos/a.md", None, Some(&sha256(b"second"))),
@@ -434,7 +458,7 @@ fn a_put_is_refused_where_no_file_can_be() {
     // A removal below a file finds nothing there.
     assert_eq!(
         put_now(&root, "todos/a.md/b.md", None, None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     for refused in [".git/config", "HEAD", "todos/a.md.", ""] {
         assert!(
@@ -473,7 +497,7 @@ fn a_put_whose_turn_is_refused_changes_nothing() {
     drop(held);
     assert_eq!(
         put(&root, "a.md", b(b"new"), Some(&sha256(b"old")), wait),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
 }
 
@@ -495,15 +519,15 @@ fn a_folder_with_no_git_saves_and_stages_beside_the_root() {
     assert_eq!(scratch(&root), temp.path().join(".notes.epicenter-scratch"));
     assert_eq!(
         put_now(&root, "todos/a.md", b(b"milk"), None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(
         put_now(&root, "todos/a.md", b(b"eggs"), Some(&sha256(b"milk"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(
         put_now(&root, "readme.txt", None, Some(&sha256(b"plain\n"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"eggs");
     assert_eq!(names(&root), ["todos"]);
@@ -520,7 +544,7 @@ fn a_git_file_or_link_is_left_as_it_is_and_saves_land() {
     let (_temp, root) = folder("storage-git-file", &[(".git", gitdir)]);
     assert_eq!(
         put_now(&root, "todos/a.md", b(b"milk"), None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(root.join(".git")).unwrap(), gitdir);
     assert_eq!(names(&root), [".git", "todos"]);
@@ -532,7 +556,7 @@ fn a_git_file_or_link_is_left_as_it_is_and_saves_land() {
         std::os::unix::fs::symlink(&repository, root.join(".git")).unwrap();
         assert_eq!(
             put_now(&root, "todos/a.md", b(b"milk"), None),
-            Ok(PutOutcome::Landed)
+            Ok(PutOutcome::Landed { stamp: None })
         );
         assert!(fs::symlink_metadata(root.join(".git"))
             .unwrap()
@@ -558,7 +582,7 @@ fn old_git_scratch_is_left_untouched() {
     );
     assert_eq!(
         put_now(&root, "a.md", b(b"a"), None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     sweep_scratch(&root, now_ms());
     assert_eq!(
@@ -579,7 +603,7 @@ fn a_hard_link_is_replaced_not_written_through() {
     fs::hard_link(&outside, root.join("todos/a.md")).unwrap();
     assert_eq!(
         put_now(&root, "todos/a.md", b(b"mine"), Some(&sha256(b"theirs"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(&outside).unwrap(), b"theirs");
     assert_eq!(fs::read(root.join("todos/a.md")).unwrap(), b"mine");
@@ -619,7 +643,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
     ] {
         assert_eq!(
             put_now(&root, path, b(new), Some(&sha256(old))),
-            Ok(PutOutcome::Landed)
+            Ok(PutOutcome::Landed { stamp: None })
         );
         assert_eq!(fs::read(root.join(path)).unwrap(), new);
         assert_eq!(mode(&root.join(path)), bits, "{path}");
@@ -627,7 +651,7 @@ fn replacing_a_file_keeps_its_permission_bits() {
     // A new file keeps the staged file's mode: its owner's alone.
     assert_eq!(
         put_now(&root, "fresh.md", b(b"new"), None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(mode(&root.join("fresh.md")), 0o600);
     assert!(staged(&root).is_empty());
@@ -673,7 +697,7 @@ fn staged_bytes_are_private_while_a_save_waits() {
 
     assert_eq!(
         put_now(&root, "shared.md", b(b"new"), Some(&sha256(b"old"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
     assert_eq!(mode(&root.join("shared.md")), 0o644);
@@ -688,7 +712,7 @@ fn a_new_scratch_directory_is_private() {
     let (_temp, root) = folder("storage-private-new", &[]);
     assert_eq!(
         put_now(&root, "a.md", b(b"a"), None),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     let made = fs::symlink_metadata(scratch(&root)).unwrap();
     assert_eq!(made.permissions().mode() & 0o777, 0o700);
@@ -779,7 +803,7 @@ fn staged_bytes_keep_no_acl_the_parent_passes_on() {
 
     assert_eq!(
         put_now(&root, "shared.md", b(b"new"), Some(&sha256(b"old"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
     assert!(acl(&scratch(&root)).is_empty());
@@ -918,7 +942,13 @@ fn two_puts_expecting_the_same_bytes_land_once() {
         .collect();
     let mut outcomes: Vec<_> = saves.into_iter().map(|save| save.join().unwrap()).collect();
     outcomes.sort_by_key(|outcome| format!("{outcome:?}"));
-    assert_eq!(outcomes, [Ok(PutOutcome::Landed), Ok(PutOutcome::Stale)]);
+    assert_eq!(
+        outcomes,
+        [
+            Ok(PutOutcome::Landed { stamp: None }),
+            Ok(PutOutcome::Stale)
+        ]
+    );
     assert!(staged(&root).is_empty());
 }
 
@@ -1037,7 +1067,7 @@ fn a_linked_scratch_directory_is_not_swept_or_staged_in() {
     // A removal stages nothing, so it still lands.
     assert_eq!(
         put_now(&root, "a.md", None, Some(&sha256(b"accepted"))),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
 }
 
@@ -1100,7 +1130,7 @@ fn a_parent_pruned_while_a_put_waits_still_lands() {
     let prune = || fs::remove_dir(root.join("notes")).map_err(|cause| cause.to_string());
     assert_eq!(
         put(&root, "notes/a.md", b(b"mine"), None, prune),
-        Ok(PutOutcome::Landed)
+        Ok(PutOutcome::Landed { stamp: None })
     );
     assert_eq!(fs::read(root.join("notes/a.md")).unwrap(), b"mine");
 }
@@ -1213,15 +1243,14 @@ fn storage_follows_the_shared_outcomes() {
         let path = call["path"].as_str().unwrap_or_default();
         let expected = match &call["expected"] {
             Value::String(kind) => Expectation::parse(kind).unwrap(),
-            Value::Object(file) => Expectation::Sha256(sha256(
-                file["sha256Of"].as_str().unwrap().as_bytes(),
-            )),
+            Value::Object(file) => {
+                Expectation::Sha256(sha256(file["sha256Of"].as_str().unwrap().as_bytes()))
+            }
             _ => Expectation::Absent,
         };
         let answer: Result<Value, StorageError> = match call["method"].as_str().unwrap() {
-            "read" => {
-                read(&root, path).map(|bytes| json!({ "text": String::from_utf8(bytes).unwrap() }))
-            }
+            "read" => read(&root, path)
+                .map(|read| json!({ "text": String::from_utf8(read.bytes).unwrap() })),
             "put" => {
                 let bytes = text(&call["bytes"]);
                 super::put(
@@ -1231,7 +1260,12 @@ fn storage_follows_the_shared_outcomes() {
                     &expected,
                     free,
                 )
-                .map(|outcome| json!(outcome))
+                .map(|outcome| {
+                    json!(match outcome {
+                        PutOutcome::Landed { .. } => "landed",
+                        PutOutcome::Stale => "stale",
+                    })
+                })
             }
             "mkdir" => mkdir(&root, path).map(|()| Value::Null),
             "rmdir" => rmdir_now(&root, path).map(|()| Value::Null),
@@ -1243,7 +1277,13 @@ fn storage_follows_the_shared_outcomes() {
             "list" => list(&root).map(|mut listing| {
                 listing.files.sort_by(|a, b| a.path.cmp(&b.path));
                 listing.directories.sort();
-                json!(listing)
+                json!({
+                    "files": listing.files.iter().map(|file| json!({
+                        "path": file.path,
+                        "size": file.size,
+                    })).collect::<Vec<_>>(),
+                    "directories": listing.directories,
+                })
             }),
             other => panic!("{name}: no method {other}"),
         };
@@ -1282,23 +1322,36 @@ fn storage_follows_the_shared_outcomes() {
 
 #[test]
 fn listing_tolerates_subdirectories_removed_during_its_walk_but_not_a_missing_root() {
-    use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
     let (_temp, root) = folder("listing-churn", &[("keep.md", b"kept")]);
-    for n in 0..200 { fs::create_dir(root.join(format!("d{n}"))).unwrap(); }
+    for n in 0..200 {
+        fs::create_dir(root.join(format!("d{n}"))).unwrap();
+    }
     let stopped = Arc::new(AtomicBool::new(false));
     let removing = stopped.clone();
     let changing = root.clone();
     let worker = std::thread::spawn(move || {
         while !removing.load(Ordering::Relaxed) {
             for n in 0..200 {
-                let at=changing.join(format!("d{n}"));
-                fs::remove_dir(&at).unwrap(); fs::create_dir(&at).unwrap();
+                let at = changing.join(format!("d{n}"));
+                fs::remove_dir(&at).unwrap();
+                fs::create_dir(&at).unwrap();
             }
         }
     });
     let results: Vec<_> = (0..100).map(|_| list(&root)).collect();
-    stopped.store(true, Ordering::Relaxed); worker.join().unwrap();
-    for result in results {assert!(result.unwrap().files.iter().any(|file|file.path=="keep.md"));}
+    stopped.store(true, Ordering::Relaxed);
+    worker.join().unwrap();
+    for result in results {
+        assert!(result
+            .unwrap()
+            .files
+            .iter()
+            .any(|file| file.path == "keep.md"));
+    }
     fs::remove_dir_all(&root).unwrap();
     assert!(list(&root).is_err());
 }

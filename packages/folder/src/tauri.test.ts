@@ -6,6 +6,7 @@ let open: () => unknown = () => null;
 let listenError: Error | undefined;
 let stopped = 0;
 let putExpectation: string | undefined;
+let putStamp: string | null = 'v1:1:2:3:4';
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
@@ -17,10 +18,17 @@ mock.module('@tauri-apps/api/core', () => ({
 	) => {
 		if (command === 'plugin:epicenter-folder|open_folder') return open();
 		if (command === 'plugin:epicenter-folder|list_folder')
-			return { files: [], directories: [] };
+			return {
+				files: [{ path: 'note.txt', size: 3, stamp: 'v1:3:1:3:4' }],
+				directories: [],
+			};
+		if (command === 'plugin:epicenter-folder|read_folder_file') {
+			const stamp = new TextEncoder().encode('v1:3:1:3:4');
+			return Uint8Array.from([...stamp, 0, ...new TextEncoder().encode('old')]).buffer;
+		}
 		if (command === 'plugin:epicenter-folder|put_folder_file') {
 			putExpectation = options?.headers?.expected;
-			return 'landed';
+			return { kind: 'landed', stamp: putStamp };
 		}
 		throw new Error(`Unexpected command ${command}`);
 	},
@@ -50,6 +58,24 @@ afterEach(() => {
 	listenError = undefined;
 	stopped = 0;
 	putExpectation = undefined;
+	putStamp = 'v1:1:2:3:4';
+});
+
+test('Tauri list, read and put retain the shell stamps', async () => {
+	const files = tauriHostFiles();
+	expect(expectOk(await files.list()).files[0]?.stamp).toBe('v1:3:1:3:4');
+	const read = expectOk(await files.read('note.txt'));
+	expect(new TextDecoder().decode(read.bytes)).toBe('old');
+	expect(read.stamp).toBe('v1:3:1:3:4');
+	expect(expectOk(await files.change('note.txt', new TextEncoder().encode('new'), 'any'))).toEqual({
+		kind: 'landed',
+		stamp: 'v1:1:2:3:4',
+	});
+	putStamp = null;
+	expect(expectOk(await files.change('note.txt', null, 'any'))).toEqual({
+		kind: 'landed',
+		stamp: null,
+	});
 });
 
 test('a Tauri put sends absent and content expectations to the shell', async () => {

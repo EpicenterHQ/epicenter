@@ -73,13 +73,14 @@ export type ListedFile = {
 	 *  holds every size below 2^53 exactly; specta refuses a `u64` as such.
 	 */
 	size: number,
+	stamp: string,
 };
 
 /**
  *  What a `put` did: changed the file, or found the path holding something
  *  other than what the page expected and changed nothing.
  */
-export type PutOutcome = "landed" | "stale";
+export type PutOutcome = { kind: "landed"; stamp: string | null } | { kind: "stale" };
 
 /**
  *  Why a storage call answered no. The names and fields are the page's

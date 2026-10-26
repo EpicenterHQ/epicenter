@@ -114,11 +114,12 @@ export function tauriHostFiles(): HostFiles {
 			answered(() => commands.readFolderChildren(directory), directory, 'list'),
 		async read(path) {
 			let bytes: Uint8Array;
+			let stamp: string;
 			try {
-				// The bytes come back as a raw response, an `ArrayBuffer`, which
+				// The stamp and bytes come back as one raw `ArrayBuffer`, which
 				// the generated bindings cannot type, so the command is invoked
 				// by name.
-				bytes = new Uint8Array(
+				const response = new Uint8Array(
 					await invoke<ArrayBuffer>(
 						'plugin:epicenter-folder|read_folder_file',
 						{
@@ -126,11 +127,15 @@ export function tauriHostFiles(): HostFiles {
 						},
 					),
 				);
+				const separator = response.indexOf(0);
+				if (separator < 0) throw new Error('The file response has no stamp');
+				stamp = new TextDecoder().decode(response.subarray(0, separator));
+				bytes = response.subarray(separator + 1);
 			} catch (cause) {
 				if (isAnswer(cause)) return fileError(cause);
 				return FileError.Io({ path, operation: 'read', cause });
 			}
-			return Ok({ bytes, sha256: await hashBytes(bytes) });
+			return Ok({ bytes, stamp, sha256: await hashBytes(bytes) });
 		},
 		async change(path, bytes, expected) {
 			const headers = {
