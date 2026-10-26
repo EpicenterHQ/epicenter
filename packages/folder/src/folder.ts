@@ -318,7 +318,10 @@ export async function createFolder<const T extends Tables>(
 
 	function requestLook(path?: string) {
 		if (phase !== 'open') return;
-		if (path === undefined || !landed.has(path)) look.relist = true;
+		// A held text file rereads alone; reading media just to learn it changed
+		// would fetch its bytes, so media and unknown paths relist.
+		if (path === undefined || !landed.has(path) || !holdsText(path))
+			look.relist = true;
 		else look.paths.add(path);
 		if (look.queued) return;
 		look.queued = true;

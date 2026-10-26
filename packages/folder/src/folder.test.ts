@@ -149,6 +149,19 @@ describe('opening and rows', () => {
 		expect(folder.files()).toHaveLength(3);
 	});
 
+	test('a hint for held media relists instead of reading its bytes', async () => {
+		const { hint, log } = await setup({
+			'notes/a.md': note('title: A'),
+			'audio/take.webm': new Uint8Array([1, 2, 3]),
+		});
+		const lists = log.lists;
+		const reads = log.reads.length;
+		hint(['audio/take.webm']);
+		await until(() => log.lists === lists + 1);
+		await tick();
+		expect(log.reads.length).toBe(reads);
+	});
+
 	test('a held file removal applies without relisting', async () => {
 		const { notes, outside, log } = await setup({
 			'notes/a.md': note('title: A'),
