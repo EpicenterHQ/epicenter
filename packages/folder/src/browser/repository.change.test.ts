@@ -4,6 +4,7 @@
  * database in this page or another tab, and ends when its handle closes. A
  * save that cannot commit returns the browser's reason and changes nothing.
  */
+import { captureFile, capturePaths } from './repository.test-support.js';
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -34,7 +35,7 @@ test('a committed save notifies its own handle and every other handle of the dat
 	try {
 		const heardByA = nextChange(a);
 		const heardByB = nextChange(b);
-		expectOk(await a.files.write('notes/one.md', 'first'));
+		expectOk(await a.put('notes/one.md', 'first'));
 		expect(await heardByA).toEqual({
 			origin: 'this-handle',
 			paths: ['notes/one.md'],
@@ -44,7 +45,7 @@ test('a committed save notifies its own handle and every other handle of the dat
 			paths: ['notes/one.md'],
 		});
 		const heardDelete = nextChange(b);
-		expectOk(await a.files.delete('notes/one.md'));
+		expectOk(await a.put('notes/one.md', null));
 		expect(await heardDelete).toEqual({
 			origin: 'other-handle',
 			paths: ['notes/one.md'],
@@ -58,12 +59,12 @@ test('a committed save notifies its own handle and every other handle of the dat
 test('a save that changes nothing or is refused notifies nobody', async () => {
 	const a = await openRepository(crypto.randomUUID());
 	try {
-		expectOk(await a.files.write('notes/one.md', 'first'));
+		expectOk(await a.put('notes/one.md', 'first'));
 		const heard: StorageChange[] = [];
 		a.onChange((change) => heard.push(change));
 		// The same content is no change; a file cannot replace a folder.
-		expectOk(await a.files.write('notes/one.md', 'first'));
-		expect(expectErr(await a.files.write('notes', 'x')).name).toBe('Occupied');
+		expectOk(await a.put('notes/one.md', 'first'));
+		expect(expectErr(await a.put('notes', 'x')).name).toBe('Occupied');
 		await settle();
 		expect(heard).toEqual([]);
 	} finally {
@@ -80,7 +81,7 @@ test('closing a handle releases its listeners and its channel', async () => {
 	b.close();
 	expect(() => b.onChange(() => {})).toThrow('closed');
 	try {
-		expectOk(await a.files.write('notes/one.md', 'first'));
+		expectOk(await a.put('notes/one.md', 'first'));
 		await settle();
 		expect(heard).toBe(0);
 	} finally {
@@ -96,7 +97,7 @@ test('a listener that throws neither fails the save nor silences later listeners
 			throw new Error('listener failure');
 		});
 		a.onChange(() => heard++);
-		expectOk(await a.files.write('notes/one.md', 'first'));
+		expectOk(await a.put('notes/one.md', 'first'));
 		expect(heard).toBe(1);
 	} finally {
 		a.close();
@@ -107,7 +108,7 @@ test('a failed publication returns the browser reason and leaves earlier saves i
 	const id = crypto.randomUUID();
 	const a = await openRepository(id);
 	try {
-		expectOk(await a.files.write('notes/one.md', 'first'));
+		expectOk(await a.put('notes/one.md', 'first'));
 		const heard: StorageChange[] = [];
 		a.onChange((change) => heard.push(change));
 		const put = IDBObjectStore.prototype.put;
@@ -115,24 +116,24 @@ test('a failed publication returns the browser reason and leaves earlier saves i
 			throw new DOMException('Disk is full', 'QuotaExceededError');
 		};
 		try {
-			const failure = expectErr(await a.files.write('notes/one.md', 'second'));
+			const failure = expectErr(await a.put('notes/one.md', 'second'));
 			expect(failure.name).toBe('StorageFailed');
 			expect(failure.message).toContain('QuotaExceededError');
-			expectErr(await a.files.write('notes/two.md', 'other'));
+			expectErr(await a.put('notes/two.md', 'other'));
 		} finally {
 			IDBObjectStore.prototype.put = put;
 		}
 		await settle();
 		expect(heard).toEqual([]);
-		expect(await a.files.list().then(expectOk)).toEqual(['notes/one.md']);
-		const read = expectOk(await a.files.read('notes/one.md'));
+		expect(await capturePaths(a).then(expectOk)).toEqual(['notes/one.md']);
+		const read = expectOk(await captureFile(a, 'notes/one.md'));
 		expect(await read?.content.text()).toBe('first');
 		// The handle still works, and the earlier save survives a reopen.
-		expectOk(await a.files.write('notes/one.md', 'third'));
+		expectOk(await a.put('notes/one.md', 'third'));
 		a.close();
 		const reopened = await openRepository(id);
 		try {
-			const again = expectOk(await reopened.files.read('notes/one.md'));
+			const again = expectOk(await captureFile(reopened, 'notes/one.md'));
 			expect(await again?.content.text()).toBe('third');
 		} finally {
 			reopened.close();

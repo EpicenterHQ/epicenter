@@ -1,8 +1,13 @@
 /** Exercise production storage and sync from actual pages, with one network fault. */
+
 import { unwrap } from 'wellcrafted/result';
 import { selectSource } from '../src/browser/git/publication.js';
 import { emptyTree } from '../src/browser/git/snapshot.js';
 import { openRepository } from '../src/browser/repository.js';
+import {
+	captureFile,
+	captureRow,
+} from '../src/browser/repository.test-support.js';
 import { writeRow } from '../src/browser/row-writes.test-support.js';
 import { createSync } from '../src/browser/sync.js';
 import { readCommit } from '../src/git/raw-objects.js';
@@ -17,9 +22,7 @@ const schema = {
 	},
 	required: ['a', 'b', 'extra'],
 } as const;
-let repository: Awaited<
-	ReturnType<typeof openRepository<{ notes: typeof schema }>>
->;
+let repository: Awaited<ReturnType<typeof openRepository>>;
 let sync: ReturnType<typeof createSync>;
 let draft: Row<typeof schema> | null;
 let loseReply = false;
@@ -52,7 +55,7 @@ async function run() {
 
 export const client = {
 	async open(id: string) {
-		repository = await openRepository(id, { notes: schema });
+		repository = await openRepository(id);
 		sync = createSync(repository, {
 			url: new URL('/repo.git', location.href).href,
 			author,
@@ -76,7 +79,8 @@ export const client = {
 				return response;
 			},
 		});
-		draft = unwrap(await repository.tables.notes.get('one')) ?? null;
+		draft =
+			unwrap(await captureRow(repository, 'notes', 'one', schema)) ?? null;
 	},
 	sync: run,
 	collect: () => repository.storage.collect(),
@@ -88,19 +92,20 @@ export const client = {
 		}
 	},
 	async refresh() {
-		draft = unwrap(await repository.tables.notes.get('one')) ?? null;
+		draft =
+			unwrap(await captureRow(repository, 'notes', 'one', schema)) ?? null;
 	},
 	set,
 	async writeFile(path: string, content: string | number[]) {
 		unwrap(
-			await repository.files.write(
+			await repository.put(
 				path,
 				typeof content === 'string' ? content : new Uint8Array(content),
 			),
 		);
 	},
 	async fileBytes(path: string) {
-		const current = unwrap(await repository.files.read(path));
+		const current = unwrap(await captureFile(repository, path));
 		return current === undefined
 			? null
 			: Array.from(new Uint8Array(await current.content.arrayBuffer()));
@@ -140,7 +145,7 @@ export const client = {
 				head: snapshot.state.pendingCommit ?? snapshot.state.remoteBase ?? null,
 			},
 			unsent: selected.tree !== trackedTree,
-			row: unwrap(await repository.tables.notes.get('one')),
+			row: unwrap(await captureRow(repository, 'notes', 'one', schema)),
 			lostReply,
 			requests,
 		};

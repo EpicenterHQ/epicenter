@@ -3,6 +3,10 @@
 import { unwrap } from 'wellcrafted/result';
 import { changeSnapshot, emptyTree } from '../src/browser/git/snapshot.js';
 import { openRepository } from '../src/browser/repository.js';
+import {
+	captureFile,
+	captureRow,
+} from '../src/browser/repository.test-support.js';
 import { writeRow } from '../src/browser/row-writes.test-support.js';
 import { snapshotObject } from '../src/browser/storage.js';
 import { prepareCommit } from '../src/browser/sync.js';
@@ -19,9 +23,8 @@ const schema = {
 	properties: { a: { type: 'number' }, b: { type: 'number' } },
 	required: ['a', 'b'],
 } as const;
-let repository: Awaited<
-	ReturnType<typeof openRepository<{ notes: typeof schema }>>
->;
+let repository: Awaited<ReturnType<typeof openRepository>>;
+let repositoryId: string;
 let draft: Row<typeof schema> | null = null;
 let failedChecks = 0;
 const latencies: number[] = [];
@@ -47,14 +50,16 @@ async function writeValue(field: 'a' | 'b', value: number) {
 
 export const client = {
 	async open(id: string) {
-		repository = await openRepository(id, { notes: schema });
+		repositoryId = id;
+		repository = await openRepository(id);
 		const publish = repository.storage.publish;
 		repository.storage.publish = async (input) => {
 			const result = await publish(input);
 			if (!result) failedChecks++;
 			return result;
 		};
-		draft = unwrap(await repository.tables.notes.get('one')) ?? null;
+		draft =
+			unwrap(await captureRow(repository, 'notes', 'one', schema)) ?? null;
 	},
 	async seed() {
 		draft = unwrap(
@@ -80,10 +85,10 @@ export const client = {
 			throw new Error('Empty observation raced a save');
 	},
 	async addSharedFile() {
-		unwrap(await repository.files.write('shared.txt', 'shared snapshot'));
+		unwrap(await repository.put('shared.txt', 'shared snapshot'));
 	},
 	async sharedText() {
-		const file = unwrap(await repository.files.read('shared.txt'));
+		const file = unwrap(await captureFile(repository, 'shared.txt'));
 		return file === undefined ? null : file.content.text();
 	},
 	async write(field: 'a' | 'b', count: number) {
@@ -133,7 +138,7 @@ export const client = {
 							)!.bytes,
 						).tree
 					: emptyTree),
-			row: unwrap(await repository.tables.notes.get('one')),
+			row: unwrap(await captureRow(repository, 'notes', 'one', schema)),
 			failedChecks,
 			latencies,
 		};
@@ -188,7 +193,7 @@ export const client = {
 	},
 	collect: () => repository.storage.collect(),
 	async hasStoredObject(oid: string) {
-		const request = indexedDB.open(`epicenter.folder.${repository.id}`);
+		const request = indexedDB.open(`epicenter.folder.${repositoryId}`);
 		const database = await new Promise<IDBDatabase>((resolve, reject) => {
 			request.onsuccess = () => resolve(request.result);
 			request.onerror = () => reject(request.error);
@@ -252,7 +257,7 @@ export const client = {
 			).length;
 		}
 		const start = performance.now();
-		unwrap(await repository.files.write('archive/0/file.txt', 'edited\n'));
+		unwrap(await repository.put('archive/0/file.txt', 'edited\n'));
 		const saveMs = performance.now() - start;
 		// Compare scoped reads before and after a large offline save backlog.
 		const backlog = new Map(

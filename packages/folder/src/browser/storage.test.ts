@@ -4,6 +4,7 @@
  * saves, and failed batches or maintenance cannot misreport durable work.
  * Real-browser transaction and reopening checks live in smoke/local.ts.
  */
+import { captureFile } from './repository.test-support.js';
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -125,10 +126,11 @@ test('a failed object batch rolls back earlier puts and leaves the working root 
 	const f = await fixture();
 	try {
 		const good: GitObject = { type: 'blob', bytes: new Uint8Array([1]) };
-		const unclonable = {
+		const unclonable: GitObject = {
 			type: 'blob',
+			// @ts-expect-error Deliberately give IndexedDB a value it cannot clone.
 			bytes: () => {},
-		} as unknown as GitObject;
+		};
 		await expect(
 			f.first.publish({
 				expected: emptyTree,
@@ -184,7 +186,7 @@ test('checkpoint-only publication and collection do not notify file subscribers'
 	try {
 		let changes = 0;
 		repository.onChange(() => changes++);
-		expectOk(await repository.files.write('one.md', 'one'));
+		expectOk(await repository.put('one.md', 'one'));
 		const snapshot = await repository.storage.capture();
 		await repository.storage.publish({
 			expected: snapshot.state,
@@ -204,13 +206,13 @@ test('failed collection after publication leaves the save successful and its bud
 	let repository = await openRepository(id);
 	try {
 		const original = 'x'.repeat(8 * 1024 * 1024);
-		expectOk(await repository.files.write('large.txt', original));
+		expectOk(await repository.put('large.txt', original));
 		let collections = 0;
 		repository.storage.collect = async () => {
 			collections++;
 			throw new Error('maintenance unavailable');
 		};
-		expectOk(await repository.files.write('large.txt', 'small'));
+		expectOk(await repository.put('large.txt', 'small'));
 		expect(collections).toBe(1);
 		repository.close();
 		repository = await openRepository(id);
@@ -218,9 +220,11 @@ test('failed collection after publication leaves the save successful and its bud
 			(await repository.storage.capture()).state.retiredBytes,
 		).toBeGreaterThanOrEqual(original.length);
 		expect(
-			await expectOk(await repository.files.read('large.txt'))!.content.text(),
+			await expectOk(
+				await captureFile(repository, 'large.txt'),
+			)!.content.text(),
 		).toBe('small');
-		expectOk(await repository.files.write('other.txt', 'next'));
+		expectOk(await repository.put('other.txt', 'next'));
 		expect((await repository.storage.capture()).state.retiredBytes).toBe(0);
 	} finally {
 		repository.close();
@@ -231,7 +235,7 @@ test('quota failure collects once and retries without replacing a root on a seco
 	const repository = await openRepository(crypto.randomUUID());
 	const put = IDBObjectStore.prototype.put;
 	try {
-		expectOk(await repository.files.write('one.md', 'saved'));
+		expectOk(await repository.put('one.md', 'saved'));
 		const before = (await repository.storage.capture()).state.workingTree;
 		let failures = 0;
 		IDBObjectStore.prototype.put = function (...args: Parameters<typeof put>) {
@@ -241,13 +245,13 @@ test('quota failure collects once and retries without replacing a root on a seco
 			}
 			return put.apply(this, args);
 		};
-		expect(
-			expectErr(await repository.files.write('one.md', 'unsaved')).name,
-		).toBe('StorageFailed');
+		expect(expectErr(await repository.put('one.md', 'unsaved')).name).toBe(
+			'StorageFailed',
+		);
 		expect(failures).toBe(2);
 		expect((await repository.storage.capture()).state.workingTree).toBe(before);
 		IDBObjectStore.prototype.put = put;
-		expectOk(await repository.files.write('one.md', 'retried'));
+		expectOk(await repository.put('one.md', 'retried'));
 	} finally {
 		IDBObjectStore.prototype.put = put;
 		repository.close();
@@ -258,11 +262,9 @@ test('preparation reads only ignore blobs and collection reads no blob payloads'
 	const repository = await openRepository(crypto.randomUUID());
 	const get = IDBObjectStore.prototype.get;
 	try {
-		expectOk(await repository.files.write('notes/one.md', 'base'));
-		expectOk(await repository.files.write('.gitignore', '/audio/\n'));
-		expectOk(
-			await repository.files.write('audio/take.wav', Uint8Array.of(0, 255)),
-		);
+		expectOk(await repository.put('notes/one.md', 'base'));
+		expectOk(await repository.put('.gitignore', '/audio/\n'));
+		expectOk(await repository.put('audio/take.wav', Uint8Array.of(0, 255)));
 		const snapshot = await repository.storage.capture();
 		await repository.storage.publish({
 			expected: snapshot.state,
@@ -270,7 +272,7 @@ test('preparation reads only ignore blobs and collection reads no blob payloads'
 		});
 		const base = (await prepareCommit(repository.storage, author))!;
 		await repository.storage.acknowledge(base.base, base.head);
-		expectOk(await repository.files.write('notes/one.md', 'newer'));
+		expectOk(await repository.put('notes/one.md', 'newer'));
 		const saved = await repository.storage.capture('sync');
 		const blobs = new Set(
 			[...saved.objects]

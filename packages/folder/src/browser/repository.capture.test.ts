@@ -5,6 +5,11 @@
  * directory occupancy. Deleting the last child prunes its directory immediately;
  * current files do not require decoding either sync checkpoint.
  */
+import {
+	captureFile,
+	capturePaths,
+	captureRows,
+} from './repository.test-support.js';
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -53,6 +58,7 @@ const trees = (
 test('one file captures its ancestor trees without reading the unrelated archive', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	try {
+		// SAFETY: each generated pair contains a path and its text.
 		await seed(
 			repository,
 			Array.from(
@@ -63,17 +69,17 @@ test('one file captures its ancestor trees without reading the unrelated archive
 		);
 		const capture = await repository.storage.capture(['archive/0/file.txt']);
 		expect(trees(capture)).toBe(3);
-		expectOk(await repository.files.write('archive/0/file.txt', 'changed\n'));
+		expectOk(await repository.put('archive/0/file.txt', 'changed\n'));
 		const after = await repository.storage.capture(['archive/0/file.txt']);
 		expect(trees(after)).toBe(3);
 		expect(
 			await expectOk(
-				await repository.files.read('archive/0/file.txt'),
+				await captureFile(repository, 'archive/0/file.txt'),
 			)!.content.text(),
 		).toBe('changed\n');
 		expect(
 			await expectOk(
-				await repository.files.read('archive/39/file.txt'),
+				await captureFile(repository, 'archive/39/file.txt'),
 			)!.content.text(),
 		).toBe('39\n');
 	} finally {
@@ -82,9 +88,7 @@ test('one file captures its ancestor trees without reading the unrelated archive
 });
 
 test('row lists omit attachment trees while prefix lists retain partial filename matching and pending children', async () => {
-	const repository = await openRepository(crypto.randomUUID(), {
-		notes: { type: 'object' },
-	});
+	const repository = await openRepository(crypto.randomUUID());
 	try {
 		await seed(repository, [
 			['notes/one.md', '---\ntitle: One\n---\nBody\n'],
@@ -94,20 +98,20 @@ test('row lists omit attachment trees while prefix lists retain partial filename
 		]);
 		expect(trees(await repository.storage.capture({ rows: 'notes' }))).toBe(2);
 		expect(
-			expectOk(await repository.tables.notes.list()).map((row) => row.id),
+			expectOk(await captureRows(repository, 'notes')).map((row) => row.id),
 		).toEqual(['one', 'two']);
-		expect(expectOk(await repository.files.list('notes/on'))).toEqual([
+		expect(expectOk(await capturePaths(repository, 'notes/on'))).toEqual([
 			'notes/one.md',
 			'notes/one/deep/file.txt',
 		]);
 		expect(
 			trees(await repository.storage.capture({ prefix: 'notes/tw' })),
 		).toBe(2);
-		expectOk(await repository.files.write('notes/new/extra.txt', 'pending'));
-		expect(expectOk(await repository.files.list('notes/ne'))).toEqual([
+		expectOk(await repository.put('notes/new/extra.txt', 'pending'));
+		expect(expectOk(await capturePaths(repository, 'notes/ne'))).toEqual([
 			'notes/new/extra.txt',
 		]);
-		expect(expectOk(await repository.files.list('notes/one/'))).toEqual([
+		expect(expectOk(await capturePaths(repository, 'notes/one/'))).toEqual([
 			'notes/one/deep/file.txt',
 		]);
 	} finally {
@@ -119,13 +123,13 @@ test('deleting the final child removes directory occupancy and its case twin bef
 	const repository = await openRepository(crypto.randomUUID());
 	try {
 		await seed(repository, [['Notes/folder/file.txt', 'old']]);
-		expect(
-			expectErr(await repository.files.write('notes', 'replacement')).name,
-		).toBe('CaseTwin');
-		expectOk(await repository.files.delete('Notes/folder/file.txt'));
-		expectOk(await repository.files.write('notes', 'replacement'));
+		expect(expectErr(await repository.put('notes', 'replacement')).name).toBe(
+			'CaseTwin',
+		);
+		expectOk(await repository.put('Notes/folder/file.txt', null));
+		expectOk(await repository.put('notes', 'replacement'));
 
-		expect(expectOk(await repository.files.list())).toEqual(['notes']);
+		expect(expectOk(await capturePaths(repository))).toEqual(['notes']);
 	} finally {
 		repository.close();
 	}
@@ -149,10 +153,10 @@ test('working files remain readable and editable without decoding the received c
 		).toBe(true);
 		expect(
 			await expectOk(
-				await repository.files.read('keep/file.txt'),
+				await captureFile(repository, 'keep/file.txt'),
 			)!.content.text(),
 		).toBe('content');
-		expectOk(await repository.files.write('keep/file.txt', 'newer'));
+		expectOk(await repository.put('keep/file.txt', 'newer'));
 	} finally {
 		repository.close();
 	}

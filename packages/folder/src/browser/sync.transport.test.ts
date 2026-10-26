@@ -2,6 +2,7 @@
  * Native wire regressions for shallow negotiation, actual delta packs, recovery
  * of missing ancestry, and a fetched snapshot resumed after another tab advanced.
  */
+import { captureFile } from './repository.test-support.js';
 import 'fake-indexeddb/auto';
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -70,6 +71,7 @@ test('actual incoming deltas inflate and an ordinary shallow push passes native 
 				init?.method === 'POST' &&
 				String(input).endsWith('/git-upload-pack')
 			) {
+				// SAFETY: this Git POST sends a byte request body.
 				requests.push(decoder.decode(init.body as Uint8Array));
 				responses.push(new Uint8Array(await response.clone().arrayBuffer()));
 			}
@@ -99,10 +101,7 @@ test('actual incoming deltas inflate and an ordinary shallow push passes native 
 		const base = (await repository.storage.capture('sync')).state.remoteBase!;
 		expect(requests[0]).toContain('deepen 1');
 		expectOk(
-			await repository.files.write(
-				'files/0.txt',
-				'Edited from shallow client\n',
-			),
+			await repository.put('files/0.txt', 'Edited from shallow client\n'),
 		);
 		expectOk(await sync.run());
 		expect(requests[1]).toContain(`have ${base}`);
@@ -154,9 +153,9 @@ test('a fetched snapshot held while another tab advances cannot rewind its newer
 		release.resolve();
 		expectOk(await old);
 		expect((await a.storage.capture('sync')).state.remoteBase).toBe(newest);
-		expect(await expectOk(await a.files.read('file.txt'))!.content.text()).toBe(
-			'three',
-		);
+		expect(
+			await expectOk(await captureFile(a, 'file.txt'))!.content.text(),
+		).toBe('three');
 	} finally {
 		release.resolve();
 		a.close();
@@ -172,11 +171,9 @@ for (const incompleteRecovery of [false, true])
 		try {
 			await server.commit(new Map([['row.md', '---\ntitle: Base\n---\n']]));
 			expectOk(await createSync(repository, { url: server.url, author }).run());
-			expectOk(
-				await repository.files.write('row.md', '---\ntitle: Local\n---\n'),
-			);
+			expectOk(await repository.put('row.md', '---\ntitle: Local\n---\n'));
 			await prepareCommit(repository.storage, author());
-			expectOk(await repository.files.write('newer.txt', 'newer'));
+			expectOk(await repository.put('newer.txt', 'newer'));
 			await server.commit(new Map([['middle.txt', 'middle']]));
 			await server.commit(new Map([['row.md', '---\ntitle: Remote\n---\n']]));
 			const before = await repository.storage.capture('sync');
@@ -186,6 +183,7 @@ for (const incompleteRecovery of [false, true])
 					init?.method === 'POST' &&
 					String(input).endsWith('/git-upload-pack')
 				) {
+					// SAFETY: this Git POST sends a byte request body.
 					let body = decoder.decode(init.body as Uint8Array);
 					wire.push(body);
 					if (incompleteRecovery || wire.length === 1) {
