@@ -25,47 +25,55 @@ value until the corresponding write answers.
 **A Folder mirrors landed storage, and each editor owns its typed draft.**
 `files()` and table rows show what was last read or landed, never pending
 input. A Svelte text editor uses one `draft(source, save)` per mounted editor.
-The draft debounces its send, flushes on teardown, page hide, and
-`beforeunload`, and keeps failed text with an inline error for retry or
-discard.
+Each typed value enters the Folder's queue immediately. The draft shows that
+value until its save answers. A failed value stays visible with Save again,
+Discard, and Copy while the editor is mounted; leaving discards it. The page
+never holds unsent text. How often the queue touches storage belongs to the
+queue.
 
 **Every local write enters one serial queue and answers after the mirror shows
-its result.** `update` reads the file as storage holds it at its turn, applies
-the patch to those bytes, and writes canonical frontmatter when values change.
-`write`, `create`, and `delete` make one unconditional put at their turn. A
+its result.** Waiting writes for one path merge even when unrelated turns sit
+between them, provided that path has no intervening operation. `update` reads
+the file as storage holds it at its turn, applies the patch, and puts only if
+the file still holds the bytes it read. On a conflict it rereads and reapplies,
+up to three checked attempts, then puts unconditionally. `create` expects an
+absent path and answers `Exists` if another writer created it. Whole-file
+`write` and `delete` remain last-write-wins. `move(from, to)` reads the source
+at its queue turn, creates the destination only if absent, then removes the
+source. If removal fails, both paths remain and the error names both. A
 write's `Saved` promise returns after storage and the mirror agree, or returns
-its `WriteError`. There is no content merge on local writes. An outside writer
-can still land a later whole-file replacement. A watcher hint naming a file
+its `WriteError`. An outside writer can still land a later whole-file
+replacement. A watcher hint naming a file
 already held by the mirror rereads that file without relisting; unknown or
 unnamed hints relist the folder.
 
 **Closing drains admitted writes before releasing storage.** The Folder
-refuses new writes, drains its queue, and releases its host. Unmounting a
-draft sends its text first, so closing a folder needs no signal of its own.
+refuses new writes, drains its queue, and releases its host. `idle()` waits for
+everything queued, including typed values that entered immediately.
 
 **Leaving asks once, only when the page is unsure.** The page speaks the web's
-own `beforeunload` protocol: a draft sends what was typed and is unsure while
-that save is out; `<OpenFolder>` is unsure while a write is out. A browser tab
+own `beforeunload` protocol: `<OpenFolder>` is unsure while a write is out. A browser tab
 shows its "Leave site?" question. A desktop window, whose webview never runs
-`beforeunload`, can wait instead: its one close guard lets the same listeners
-send what they hold, waits for the writes, and closes. The page shows
+`beforeunload`, can wait instead: its one close guard waits for `folder.idle()`
+and closes. The page shows
 "Saving…" meanwhile; closing again while it waits asks whether to close
 anyway, so a save that never answers cannot trap the window. Text whose save failed stays on screen
 with its error while the editor is open; leaving discards it without asking. The shell-owned
 application Quit alert still applies. There is no folder status object, working document,
-`settle`, Folder checkpoint, conditional local save, or global failure toast.
+`settle`, Folder checkpoint, or global failure toast.
 Git synchronization retains its own three-way merge, checkpoints, and
 conditional storage publication.
 
 ## Consequences
 
 A list and an editor can read the same landed row without sharing pending
-input. Switching between mounted editors requires an explicit handoff if the
-first draft is still saving. An app awaiting `Saved` can read the landed value
-immediately. A failed put leaves the last read value in the mirror; a failed
-text draft retains the input in its own component. Crash recovery cannot
-recover a draft that never landed. One serial queue orders unrelated file
-writes too, trading concurrency for a single understandable publication order.
+input. An app awaiting `Saved` can read the landed value immediately. A failed
+put leaves the last read value in the mirror; a failed text draft retains the
+input in its own component until it unmounts. Crash recovery cannot recover a
+draft that never landed. Checked updates preserve outside field changes that
+arrive between read and put; after repeated contention the fourth attempt
+accepts last-write-wins. One serial queue orders unrelated file writes too,
+trading concurrency for a single understandable publication order.
 
 ## Considered alternatives
 
@@ -73,7 +81,6 @@ Keeping a folder-owned working document would retain shared input and status
 machinery after the UI already owns each text control. Per-path queues would
 allow unrelated writes to overlap, but would make the order of a structured
 update and a whole-file write depend on timing across paths. Prompting on
-every window Close would allow the page to discard a draft instead of draining
-its write. A custom close event or a registry of drafts would let the desktop
-learn what is unsure, but both duplicate the question browsers already ask
-through `beforeunload`; the desktop guard runs that question instead.
+every window Close would interrupt a write the queue can drain. A custom
+close event or a registry of drafts would duplicate the queue's knowledge of
+outstanding writes.

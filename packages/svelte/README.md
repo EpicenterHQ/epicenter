@@ -39,9 +39,9 @@ export const [getFolder, setFolder] =
 `<OpenFolder>` refreshes on focus, visibility, and reconnection, and closes
 its Folder when it unmounts. Drafts send each value as it is typed.
 
-Leaving asks once, only when the page is unsure, through the web's own
-`beforeunload`. A draft is unsure while a save is out; `<OpenFolder>` is
-unsure while a write is out. A browser tab shows "Leave site?". A desktop
+Leaving asks once, only while a Folder write is out, through the web's own
+`beforeunload`. `<OpenFolder>` owns that question. A browser tab shows
+"Leave site?". A desktop
 window can wait instead: its one guard (`holdWindowClose`) waits for
 `folder.idle()` and closes while the page shows "Saving…". Closing again while
 it waits asks whether to close anyway. Text whose save failed stays on screen
@@ -55,7 +55,7 @@ and `row(id)` participate in Svelte tracking when read in a template or
 derivation. These values describe the mirror, so a write's returned `Saved`
 promise does not resolve until its new value is visible there. `folder.saving`
 tracks queued and active writes. The adapter passes `read`, `write`, `update`,
-`delete`, `refresh`, and `idle` through to the Folder.
+`move`, `delete`, `refresh`, and `idle` through to the Folder.
 
 ```svelte
 <script lang="ts">
@@ -112,10 +112,10 @@ select, or button can write directly; compute toggles from the value shown.
 `<UnsavedEdit>` shows the failed save inline with Save again, Discard, and
 Copy for text. Direct actions handle their own returned errors near the action.
 
-Call `await editor.land()` before an action needs the typed text on disk. It
-waits for the newest sent save, including typing that arrives while it waits.
-A failure remains on `editor.error` for `<UnsavedEdit>` and is also
-returned to stop the action. After teardown, `land()` succeeds without saving.
+Call `await editor.land()` when an action needs to know the newest typed value
+saved successfully, such as before sending it over a network. A failure
+remains on `editor.error` for `<UnsavedEdit>` and is also returned to stop the
+action. After teardown, `land()` succeeds without saving.
 
 `fileDraft(folder, path)` from `@epicenter/svelte/folder` edits a
 whole text file. It shows LF line endings and, when sending, reads the current
