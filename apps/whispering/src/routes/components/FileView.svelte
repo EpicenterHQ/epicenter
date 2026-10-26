@@ -69,15 +69,18 @@
 			: (readRow(source.value, whisperingTables[table]).issues ?? undefined),
 	);
 
+	/** Typing during the copy would land on the old path after it was read. */
+	let renaming = $state(false);
+
 	async function rename(next: string) {
-		if (transcript) {
-			if ((await body.land()).error) return;
-			if ((await source.land()).error) return;
-		} else {
-			if ((await source.land()).error) return;
-			if ((await body.land()).error) return;
+		renaming = true;
+		try {
+			const drafts = transcript ? [body, source] : [source, body];
+			for (const edit of drafts) if ((await edit.land()).error) return;
+			return await whispering.rename(own, next);
+		} finally {
+			renaming = false;
 		}
-		return whispering.rename(own, next);
 	}
 
 	/** Returning to fields first writes the shown Source text. */
@@ -103,7 +106,7 @@
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="File">
+<section class="flex h-full min-h-0 flex-col" aria-label="File" inert={renaming}>
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
 			<Button variant="ghost" size="icon-sm" aria-label="Back to recordings" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
