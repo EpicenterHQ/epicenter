@@ -1,78 +1,91 @@
 /**
- * Hold a desktop window's close until the page is sure it may leave.
+ * Hold a desktop window's close until the page's writes land.
  *
- * A browser asks a page's `beforeunload` listeners before a tab goes, and
- * shows "Leave site?" when one prevents it. A Tauri window asks nothing: it
- * destroys the webview. This guard asks the same listeners, waits for the
- * writes they started, asks them again, and shows one native question only
- * when the page is still unsure. One guard owns a window, because Tauri runs
- * each close listener on its own. Application Quit remains owned by the shell.
+ * A Tauri window, unlike a browser tab, can wait: the first close request
+ * sends what drafts hold, waits for the writes, then destroys the window. The
+ * page shows "Saving…" meanwhile. Closing again while it waits asks whether to
+ * close anyway, so a save that never answers cannot trap the window. One guard
+ * owns a window, because Tauri runs each close listener on its own.
+ * Application Quit remains owned by the shell.
  */
 import { isTauri } from '@tauri-apps/api/core';
 import { createLogger } from 'wellcrafted/logger';
 
 const log = createLogger('svelte/window-close');
-/** How long a close waits for writes before asking; a hung save cannot trap the window. */
-const DRAIN_MS = 3000;
 // Tauri runs each close listener on its own, so a window holds one at a time.
 let held = false;
 
-/** Ask the page's `beforeunload` listeners, as a browser would before leaving. */
-function unsure() {
-	const event = new Event('beforeunload', { cancelable: true });
-	window.dispatchEvent(event);
-	return event.defaultPrevented;
+/** Let the page's `beforeunload` listeners send what they hold, as a browser would before leaving. */
+function sendPending() {
+	window.dispatchEvent(new Event('beforeunload', { cancelable: true }));
 }
-
-const elapsed = (ms: number) =>
-	new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 async function askToClose() {
 	const { ask } = await import('@tauri-apps/plugin-dialog');
 	return ask('Some changes are still saving. Close the window anyway?', {
 		kind: 'warning',
-		okLabel: 'Close',
-		cancelLabel: 'Keep open',
+		okLabel: 'Close anyway',
+		cancelLabel: 'Keep waiting',
 	});
 }
 
 /**
- * Answer this window's close once `drain` reports the page's writes landed,
- * asking first if the page is still unsure. A window already held answers a
- * release that does nothing. Successful destruction stays occupied and inert
- * until the page is gone: Tauri's destroy promise acknowledges dispatch, not
- * completed destruction.
+ * Close this window once `drain` reports the page's writes landed; closing
+ * again while it waits asks whether to close anyway. A window already held
+ * answers a release that does nothing. Successful destruction stays occupied
+ * and inert until the page is gone: Tauri's destroy promise acknowledges
+ * dispatch, not completed destruction.
  */
 export async function holdWindowClose(
 	drain: () => Promise<void> = async () => {},
 ): Promise<() => void> {
 	if (!isTauri() || held) return () => {};
 	held = true;
-	let closing = false;
+	let phase: 'open' | 'waiting' | 'gone' = 'open';
+	let asking = false;
+	let wasInert = false;
 
 	try {
 		const { getCurrentWindow } = await import('@tauri-apps/api/window');
 		const current = getCurrentWindow();
-		const unlisten = await current.onCloseRequested(async (event) => {
-			event.preventDefault();
-			if (closing) return;
-			closing = true;
-			const page = document.documentElement;
-			const wasInert = page.inert;
-			const stay = () => {
-				page.inert = wasInert;
-				closing = false;
-			};
+
+		async function destroy() {
+			if (phase === 'gone') return;
+			phase = 'gone';
 			try {
-				page.inert = true;
-				unsure(); // Drafts send what was typed.
-				await Promise.race([drain(), elapsed(DRAIN_MS)]);
-				if (unsure() && !(await askToClose())) return stay();
 				await current.destroy();
 			} catch (cause) {
 				log.error(new Error('The window could not close', { cause }));
-				stay();
+				document.documentElement.inert = wasInert;
+				phase = 'open';
 			}
+		}
+
+		const unlisten = await current.onCloseRequested(async (event) => {
+			event.preventDefault();
+			if (phase === 'gone') return;
+			if (phase === 'waiting') {
+				if (asking) return;
+				asking = true;
+				try {
+					if (await askToClose()) await destroy();
+				} finally {
+					asking = false;
+				}
+				return;
+			}
+			phase = 'waiting';
+			wasInert = document.documentElement.inert;
+			document.documentElement.inert = true;
+			sendPending();
+			try {
+				await drain();
+			} catch (cause) {
+				log.error(
+					new Error('The window could not wait for its writes', { cause }),
+				);
+			}
+			if (phase === 'waiting') await destroy();
 		});
 		let holding = true;
 		return () => {

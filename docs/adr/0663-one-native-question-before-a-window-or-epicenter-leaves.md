@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-21
-- **Amended by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md). Window Close drains drafts and writes, then asks one native question only while the page's `beforeunload` listeners are still unsure; the shell-owned application Quit alert remains.
+- **Amended by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md). Window Close drains drafts and writes and asks nothing; closing again while it waits asks whether to close anyway. The shell-owned application Quit alert remains.
 - **Amends:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) at desktop window Close and application Quit, and [ADR-0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) at departure metadata and the removed recorder cancel operation.
 - **Lifecycle:** [ADR-0664's synchronous release amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-close-releases-without-draining) makes close release without submitting input or draining writes; apps refuse new work and late results. The earlier [write-only closure amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removed public workflow admission. [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) and the `run(action)` paragraph below preserve the intermediate lifetime-only model. The native departure policy and its evidence remain unchanged.
 - **Source reconciliation:** 2026-10-22, against `bd78bfb52b` and current callers. The native runs below remain October 21 evidence, not a new acceptance of the latest editor build.

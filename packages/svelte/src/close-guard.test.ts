@@ -1,7 +1,7 @@
 /**
- * The desktop close guard asks the page's beforeunload listeners, waits for
- * writes, and asks once more; one native question answers an unsure page.
- * One window holds one close listener, and it destroys once.
+ * The desktop close guard lets the page send what it holds, waits for its
+ * writes, and destroys once; closing again while it waits asks whether to
+ * close anyway. One window holds one close listener.
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -14,15 +14,6 @@ import {
 let closeAnyway = false;
 const ask = mock(async () => closeAnyway);
 mock.module('@tauri-apps/plugin-dialog', () => ({ ask }));
-
-/** A page listener that is unsure while `unsure()` says so. */
-function unsureWhile(unsure: () => boolean) {
-	const listener = (event: Event) => {
-		if (unsure()) event.preventDefault();
-	};
-	window.addEventListener('beforeunload', listener);
-	cleanup.push(() => window.removeEventListener('beforeunload', listener));
-}
 
 const { holdWindowClose } = await import('./window-close.js');
 const cleanup: (() => void)[] = [];
@@ -61,7 +52,7 @@ test('failed registration releases ownership for a new guard', async () => {
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
-test('repeated close requests wait for one drain', async () => {
+test('closing again while writes are out asks; Keep waiting closes once they land', async () => {
 	desktop(true);
 	const drain = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
@@ -76,6 +67,7 @@ test('repeated close requests wait for one drain', async () => {
 	const first = requestClose();
 	await started.promise;
 	await requestClose();
+	expect(ask).toHaveBeenCalledTimes(1);
 	expect(calls).toBe(1);
 	expect(nativeWindow.destroyed).toBe(0);
 	drain.resolve();
@@ -110,40 +102,32 @@ test('successful destruction drains once and stays inert', async () => {
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
-test('a page sure after its writes land closes without asking', async () => {
+test('a close sends what the page holds, waits for its writes, and asks nothing', async () => {
 	desktop(true);
-	let out = true;
-	unsureWhile(() => out);
+	const sent: string[] = [];
+	const listener = () => sent.push('beforeunload');
+	window.addEventListener('beforeunload', listener);
+	cleanup.push(() => window.removeEventListener('beforeunload', listener));
 	cleanup.push(
 		await holdWindowClose(async () => {
-			out = false;
+			sent.push('drain');
 		}),
 	);
 	await requestClose();
+	expect(sent).toEqual(['beforeunload', 'drain']);
 	expect(ask).not.toHaveBeenCalled();
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
-test('a page still unsure asks once; Keep open keeps the window usable', async () => {
+test('a save that never answers waits until Close anyway', async () => {
 	desktop(true);
-	unsureWhile(() => true);
-	cleanup.push(await holdWindowClose());
-	await requestClose();
-	expect(ask).toHaveBeenCalledTimes(1);
+	cleanup.push(await holdWindowClose(() => new Promise<void>(() => {})));
+	void requestClose();
+	await Bun.sleep(5);
 	expect(nativeWindow.destroyed).toBe(0);
-	expect(document.documentElement.inert).toBe(false);
+	expect(document.documentElement.inert).toBe(true);
 	closeAnyway = true;
 	await requestClose();
-	expect(ask).toHaveBeenCalledTimes(2);
+	expect(ask).toHaveBeenCalledTimes(1);
 	expect(nativeWindow.destroyed).toBe(1);
 });
-
-test('a drain that never answers asks after the wait instead of trapping the window', async () => {
-	desktop(true);
-	unsureWhile(() => true);
-	cleanup.push(await holdWindowClose(() => new Promise<void>(() => {})));
-	closeAnyway = true;
-	await requestClose();
-	expect(ask).toHaveBeenCalledTimes(1);
-	expect(nativeWindow.destroyed).toBe(1);
-}, 10_000);

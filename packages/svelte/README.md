@@ -42,9 +42,10 @@ its Folder when it unmounts; each draft inside sends its text as it unmounts.
 Leaving asks once, only when the page is unsure, through the web's own
 `beforeunload`. A draft sends its latest text and is unsure while that save is
 out; `<OpenFolder>` is unsure while a write is out. A browser tab
-shows "Leave site?". A desktop window has one guard (`holdWindowClose`) that
-asks the same listeners, waits up to three seconds for `folder.idle()`, asks
-again, and asks natively whether to close anyway only if writes are still out.
+shows "Leave site?". A desktop window can wait instead: its one guard
+(`holdWindowClose`) lets the same listeners send what they hold, waits for
+`folder.idle()`, and closes, while the page shows "Saving…". Closing again
+while it waits asks whether to close anyway.
 Text whose save failed is not a reason to ask: it stays on screen while the
 editor is open, and leaving discards it.
 The shell owns application Quit separately.

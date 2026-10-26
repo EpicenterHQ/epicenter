@@ -44,9 +44,10 @@ draft sends its text first, so closing a folder needs no signal of its own.
 own `beforeunload` protocol: a draft sends what was typed and is unsure while
 that save is out; `<OpenFolder>` is unsure while a write is out. A browser tab
 shows its "Leave site?" question. A desktop window, whose webview never runs
-`beforeunload`, has one close guard that asks the same listeners, waits up to
-three seconds for the writes they started, asks again, and shows one native
-question only if writes are still out. Text whose save failed stays on screen
+`beforeunload`, can wait instead: its one close guard lets the same listeners
+send what they hold, waits for the writes, and closes. The page shows
+"Saving…" meanwhile; closing again while it waits asks whether to close
+anyway, so a save that never answers cannot trap the window. Text whose save failed stays on screen
 with its error while the editor is open; leaving discards it without asking. The shell-owned
 application Quit alert still applies. There is no folder status object, working document,
 `settle`, Folder checkpoint, conditional local save, or global failure toast.
