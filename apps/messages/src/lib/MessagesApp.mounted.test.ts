@@ -11,6 +11,7 @@ import {
 	createFolder,
 	memoryHost,
 	SaveError,
+	until,
 } from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
@@ -31,13 +32,18 @@ afterEach(async () => {
 	for (const close of cleanups.splice(0).reverse()) await close();
 });
 
-async function until(check: () => boolean, what: string) {
-	for (let attempt = 0; attempt < 500; attempt++) {
-		flushSync();
-		if (check()) return;
-		await Bun.sleep(4);
+async function untilRendered(check: () => boolean, what: string) {
+	try {
+		await until(
+			() => {
+				flushSync();
+				return check();
+			},
+			{ timeout: 2000 },
+		);
+	} catch {
+		throw new Error(`Timed out waiting for ${what}`);
 	}
-	throw new Error(`Timed out waiting for ${what}`);
 }
 
 async function setup() {
@@ -69,9 +75,9 @@ async function setup() {
 		);
 	async function open(name: string) {
 		conversation(name).click();
-		await until(() => composer() !== null, `${name}'s composer`);
+		await untilRendered(() => composer() !== null, `${name}'s composer`);
 	}
-	await until(
+	await untilRendered(
 		() => target.textContent?.includes('Maya Chen') === true,
 		'conversations',
 	);
@@ -84,7 +90,7 @@ test('a preview follows saved input and disappears when the draft is emptied', a
 	const id = await draftId(createDemoBackend(), 'demo-maya');
 	expect(app.folder.tables.drafts.row(id)).toBeUndefined();
 	type(app.composer(), 'Saturday at ten.\nI will bring the address.');
-	await until(
+	await untilRendered(
 		() =>
 			app
 				.conversation('Maya Chen')
@@ -103,7 +109,7 @@ test('a preview follows saved input and disappears when the draft is emptied', a
 		'Saturday at ten.\nI will bring the address.',
 	);
 	type(app.composer(), ' ');
-	await until(
+	await untilRendered(
 		() => !app.conversation('Maya Chen').textContent?.includes('Draft:'),
 		'the empty preview',
 	);
@@ -115,7 +121,7 @@ test('sending before the first debounce saves the reply and clears the composer'
 	const id = await draftId(createDemoBackend(), 'demo-maya');
 	type(app.composer(), 'Immediate reply');
 	click(app.target, 'Send demo reply');
-	await until(
+	await untilRendered(
 		() => app.target.textContent?.includes('Demo message sent.') === true,
 		'the immediate send',
 	);
@@ -132,13 +138,13 @@ test('sending while the first draft save is in flight uses the landed row', asyn
 		const id = await draftId(createDemoBackend(), 'demo-maya');
 		app.host.control.putGate = gate.promise;
 		type(app.composer(), 'Queued reply');
-		await until(
+		await untilRendered(
 			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
 			'the first draft write',
 		);
 		click(app.target, 'Send demo reply');
 		gate.resolve();
-		await until(
+		await untilRendered(
 			() => app.target.textContent?.includes('Demo message sent.') === true,
 			'the queued send',
 		);
@@ -157,7 +163,7 @@ test('typing after Send survives a queued create retry', async () => {
 		const id = await draftId(createDemoBackend(), 'demo-maya');
 		app.host.control.putGate = gate.promise;
 		type(app.composer(), 'First reply');
-		await until(
+		await untilRendered(
 			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
 			'the first draft write',
 		);
@@ -165,11 +171,11 @@ test('typing after Send survives a queued create retry', async () => {
 		type(app.composer(), 'New reply');
 		await Bun.sleep(1100);
 		gate.resolve();
-		await until(
+		await untilRendered(
 			() => app.target.textContent?.includes('Demo message sent.') === true,
 			'the first reply send',
 		);
-		await until(
+		await untilRendered(
 			() => app.folder.tables.drafts.row(id)?.body === 'New reply',
 			'the newer reply save',
 		);
@@ -185,7 +191,7 @@ test('a failed send command shows its outcome beside the composer', async () => 
 	await app.open('Maya Chen');
 	const id = await draftId(createDemoBackend(), 'demo-maya');
 	type(app.composer(), 'Unsent reply');
-	await until(
+	await untilRendered(
 		() => app.folder.tables.drafts.row(id)?.body === 'Unsent reply',
 		'the saved reply',
 	);
@@ -194,8 +200,11 @@ test('a failed send command shows its outcome beside the composer', async () => 
 		expectErr(SaveError.StorageFailed({ cause: 'no disk' })),
 	);
 	click(app.target, 'Send demo reply');
-	await until(
-		() => app.target.textContent?.includes('Nothing was sent: the attempt could not be saved.') === true,
+	await untilRendered(
+		() =>
+			app.target.textContent?.includes(
+				'Nothing was sent: the attempt could not be saved.',
+			) === true,
 		'the send failure',
 	);
 	expect(app.composer()?.value).toBe('Unsent reply');
@@ -209,7 +218,7 @@ test('reopening a draft does not wait for its previous composer save', async () 
 		const id = await draftId(createDemoBackend(), 'demo-maya');
 		app.host.control.putGate = gate.promise;
 		type(app.composer(), 'Still saving');
-		await until(
+		await untilRendered(
 			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
 			'the draft write',
 		);
@@ -218,7 +227,7 @@ test('reopening a draft does not wait for its previous composer save', async () 
 		flushSync();
 		expect(app.composer()).not.toBeNull();
 		gate.resolve();
-		await until(
+		await untilRendered(
 			() => app.composer()?.value === 'Still saving',
 			'the reopened composer',
 		);
@@ -235,7 +244,7 @@ test('typing during a save keeps the newest reply', async () => {
 		const id = await draftId(createDemoBackend(), 'demo-maya');
 		app.host.control.putGate = gate.promise;
 		type(app.composer(), 'First');
-		await until(
+		await untilRendered(
 			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
 			'the first draft write',
 		);
@@ -243,7 +252,7 @@ test('typing during a save keeps the newest reply', async () => {
 		flushSync();
 		expect(app.composer()?.value).toBe('First and second');
 		gate.resolve();
-		await until(
+		await untilRendered(
 			() => app.folder.tables.drafts.row(id)?.body === 'First and second',
 			'the newest reply',
 		);
@@ -265,7 +274,7 @@ test('failed draft saves retain text for retry or discard', async () => {
 	type(app.composer(), 'Keep this text');
 	flushSync();
 	expect(app.composer()?.value).toBe('Keep this text');
-	await until(
+	await untilRendered(
 		() => app.target.textContent?.includes('Not saved:') === true,
 		'the failed draft notice',
 	);
@@ -273,11 +282,11 @@ test('failed draft saves retain text for retry or discard', async () => {
 	expect(app.folder.tables.drafts.row(id)).toBeUndefined();
 	app.host.control.failPut.delete(path);
 	click(app.target, 'Save again');
-	await until(
+	await untilRendered(
 		() => app.folder.tables.drafts.row(id)?.body === 'Keep this text',
 		'the retried draft',
 	);
-	await until(
+	await untilRendered(
 		() => !app.target.textContent?.includes('Not saved:'),
 		'the cleared error',
 	);
@@ -287,7 +296,7 @@ test('failed draft saves retain text for retry or discard', async () => {
 		expectErr(SaveError.StorageFailed({ cause: 'no disk' })),
 	);
 	type(app.composer(), 'Discard this change');
-	await until(
+	await untilRendered(
 		() => app.target.textContent?.includes('Not saved:') === true,
 		'the second failed save',
 	);
@@ -297,23 +306,62 @@ test('failed draft saves retain text for retry or discard', async () => {
 	expect(app.composer()?.value).toBe('Keep this text');
 });
 
+test('sending a failed draft save waits for an explicit retry', async () => {
+	const app = await setup();
+	await app.open('Maya Chen');
+	const id = await draftId(createDemoBackend(), 'demo-maya');
+	const path = `drafts/${id}.md`;
+	app.host.control.failPut.set(
+		path,
+		expectErr(SaveError.StorageFailed({ cause: 'no disk' })),
+	);
+	type(app.composer(), 'Retry this reply');
+	await untilRendered(
+		() => app.target.textContent?.includes('Not saved:') === true,
+		'the failed draft notice',
+	);
+	click(app.target, 'Send demo reply');
+	await untilRendered(
+		() =>
+			app.target.textContent?.includes(
+				'Nothing was sent: the draft could not be saved.',
+			) === true,
+		'the refused send',
+	);
+	expect(app.folder.tables.attempts.row(id)).toBeUndefined();
+	expect(app.composer()?.value).toBe('Retry this reply');
+	app.host.control.failPut.delete(path);
+	click(app.target, 'Save again');
+	await untilRendered(
+		() => app.folder.tables.drafts.row(id)?.body === 'Retry this reply',
+		'the retried draft',
+	);
+	click(app.target, 'Send demo reply');
+	await untilRendered(
+		() => app.target.textContent?.includes('Demo message sent.') === true,
+		'the accepted send',
+	);
+	expect(app.folder.tables.attempts.row(id)?.body).toBe('Retry this reply');
+	expect(app.composer()?.value).toBe('');
+});
+
 test('typing recreates a draft deleted outside the app', async () => {
 	const app = await setup();
 	await app.open('Maya Chen');
 	const id = await draftId(createDemoBackend(), 'demo-maya');
 	type(app.composer(), 'First reply');
-	await until(
+	await untilRendered(
 		() => app.folder.tables.drafts.row(id)?.body === 'First reply',
 		'the first draft save',
 	);
 	app.host.outside(`drafts/${id}.md`, null);
 	await app.folder.refresh();
-	await until(
+	await untilRendered(
 		() => app.folder.tables.drafts.row(id) === undefined,
 		'the outside deletion',
 	);
 	type(app.composer(), 'Recreated reply');
-	await until(
+	await untilRendered(
 		() => app.folder.tables.drafts.row(id)?.body === 'Recreated reply',
 		'the recreated draft',
 	);
@@ -340,7 +388,7 @@ test('saved previews stay within their mode and profile', async () => {
 	expectOk(
 		await saveDraft(app.folder, other.id, { body: 'Another account draft' }),
 	);
-	await until(
+	await untilRendered(
 		() =>
 			app
 				.conversation('Maya Chen')
@@ -362,7 +410,7 @@ test('saved previews stay within their mode and profile', async () => {
 		),
 	);
 	await app.folder.refresh();
-	await until(
+	await untilRendered(
 		() =>
 			app
 				.conversation('Maya Chen')
@@ -375,7 +423,7 @@ test('an uncertain send shows Check send and checked recovery restores Draft', a
 	const app = await setup();
 	await app.open('Maya Chen');
 	type(app.composer(), 'Keep this reply');
-	await until(
+	await untilRendered(
 		() =>
 			app
 				.conversation('Maya Chen')
@@ -384,7 +432,7 @@ test('an uncertain send shows Check send and checked recovery restores Draft', a
 	);
 	click(app.target, 'Simulate send failure');
 	click(app.target, 'Send demo reply');
-	await until(
+	await untilRendered(
 		() =>
 			app
 				.conversation('Maya Chen')
@@ -393,7 +441,7 @@ test('an uncertain send shows Check send and checked recovery restores Draft', a
 	);
 	expect(app.conversation('Maya Chen').textContent).not.toContain('Draft:');
 	click(app.target, 'I checked: keep as draft');
-	await until(
+	await untilRendered(
 		() =>
 			app
 				.conversation('Maya Chen')
@@ -401,7 +449,7 @@ test('an uncertain send shows Check send and checked recovery restores Draft', a
 		'recovered draft',
 	);
 	click(app.target, 'Send demo reply');
-	await until(
+	await untilRendered(
 		() => app.target.textContent?.includes('Demo message sent.') === true,
 		'accepted send',
 	);
