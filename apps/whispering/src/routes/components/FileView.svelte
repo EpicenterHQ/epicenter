@@ -8,7 +8,7 @@
 -->
 <script lang="ts">
 	import { readRow } from '@epicenter/folder';
-	import { draft, fileDraft } from '@epicenter/svelte/folder';
+	import { edit, fileEdit } from '@epicenter/svelte/folder';
 	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { getWhispering } from '$lib/whispering.svelte.js';
@@ -57,11 +57,11 @@
 	/** A transcript that reads, shown as its body: its fields are kept. */
 	const transcript = $derived(stored?.issues === null && !whispering.showsText(own) ? stored : undefined);
 
-	const body = draft(
+	const body = edit(
 		() => (stored?.issues === null ? stored.body : ''),
 		(body) => folder.tables.transcriptions.update(transcriptId ?? '', { body }),
 	);
-	const source = fileDraft(folder, own);
+	const source = fileEdit(folder, own);
 	/** Why the text shown does not read as a row, as it is typed. */
 	const issues = $derived(
 		table === undefined || text === undefined
@@ -200,8 +200,8 @@
 			</Empty.Description>
 		</Empty.Root>
 	{/if}
-	<UnsavedEdit draft={body} />
-	<UnsavedEdit draft={source} />
+	<UnsavedEdit edit={body} />
+	<UnsavedEdit edit={source} />
 
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}

@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import { readRow } from '@epicenter/folder';
-	import { draft, fileDraft } from '@epicenter/svelte/folder';
+	import { edit, fileEdit } from '@epicenter/svelte/folder';
 	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
@@ -58,15 +58,15 @@
 	const stored = $derived(folder.tables.recordings.row(id));
 	const file = $derived(folder.file(own));
 
-	const title = draft(
+	const title = edit(
 		() => (stored?.issues === null ? stored.fields.title : ''),
 		(title) => folder.tables.recordings.update(id, { fields: { title } }),
 	);
-	const notes = draft(
+	const notes = edit(
 		() => (stored?.issues === null ? stored.body : ''),
 		(body) => folder.tables.recordings.update(id, { body }),
 	);
-	const source = fileDraft(folder, own);
+	const source = fileEdit(folder, own);
 
 	const asText = $derived(whispering.showsText(own));
 	/** The file's text, when the folder holds it as text. */
@@ -125,7 +125,7 @@
 		{/if}
 	</div>
 	{#if title.error}
-		<div class="px-4 pt-2"><UnsavedEdit draft={title} /></div>
+		<div class="px-4 pt-2"><UnsavedEdit edit={title} /></div>
 	{/if}
 
 	{#if issues}
@@ -275,8 +275,8 @@
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}
-	<UnsavedEdit draft={notes} />
-	<UnsavedEdit draft={source} />
+	<UnsavedEdit edit={notes} />
+	<UnsavedEdit edit={source} />
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)}>

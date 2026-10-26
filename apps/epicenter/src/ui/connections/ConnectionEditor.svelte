@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { draft, type SvelteFolder } from '@epicenter/svelte/folder';
+	import { edit, type SvelteFolder } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
@@ -30,8 +30,8 @@
 	// svelte-ignore state_referenced_locally
 	const id = row.id;
 	const fields = $derived(row.fields);
-	const title = draft(() => row.fields.title, (value) => folder.tables.connections.update(id, { fields: { title: value } }));
-	const model = draft(() => row.fields.model, (value) => folder.tables.connections.update(id, { fields: { model: value } }));
+	const title = edit(() => row.fields.title, (value) => folder.tables.connections.update(id, { fields: { title: value } }));
+	const model = edit(() => row.fields.model, (value) => folder.tables.connections.update(id, { fields: { model: value } }));
 
 	const keyState = createQuery(() => ({
 		queryKey: keyStateKey(id),
@@ -97,7 +97,7 @@
 				<span class="text-muted-foreground">Title</span>
 				<Input bind:value={title.value} />
 			</label>
-			<UnsavedEdit draft={title} />
+			<UnsavedEdit edit={title} />
 		</div>
 		<div class="grid gap-1">
 			<label class="grid gap-1">
@@ -107,7 +107,7 @@
 					placeholder={fields.kind === 'local' ? 'The active local model' : 'whisper-large-v3'}
 				/>
 			</label>
-			<UnsavedEdit draft={model} />
+			<UnsavedEdit edit={model} />
 		</div>
 	</div>
 

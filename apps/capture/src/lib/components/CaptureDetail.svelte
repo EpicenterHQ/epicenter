@@ -2,7 +2,7 @@
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
 	import { describeIssues } from '@epicenter/folder';
-	import { draft } from '@epicenter/svelte/folder';
+	import { edit } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -38,7 +38,7 @@
 	});
 	const row = $derived(folder.tables.captures.row(stem));
 	const stored = $derived(row?.issues === null && row.fields.draft !== true ? row : undefined);
-	const body = draft(
+	const body = edit(
 		() => stored?.body ?? '',
 		(next) => folder.tables.captures.update(stem, { body: next }),
 	);
@@ -98,7 +98,7 @@
 
 	/** Export the landed file after the typed body saves. */
 	async function download() {
-		if ((await body.land()).error !== null) return;
+		if ((await body.landed()).error !== null) return;
 		if (!active) return;
 		const data = folder.file(path)?.data;
 		if (typeof data !== 'string') {
@@ -110,7 +110,7 @@
 
 	async function editThought(index: number, list: readonly string[]) {
 		// Selection ranges come from the landed file, so wait for the typed body.
-		if ((await body.land()).error !== null) return;
+		if ((await body.landed()).error !== null) return;
 		if (!active) return;
 		const saved = folder.tables.captures.row(stem);
 		const data = folder.file(path)?.data;
@@ -135,7 +135,7 @@
 	}
 </script>
 
-<UnsavedEdit draft={body} />
+<UnsavedEdit edit={body} />
 
 {#if reading === undefined}
 	<div class="flex flex-col gap-4">

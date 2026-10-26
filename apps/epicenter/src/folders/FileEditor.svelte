@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { FolderFile, ReadError } from '@epicenter/folder';
 	import { openedFile, withFileNewlines, type OpenedFile } from '@epicenter/folder/file-browser';
-	import { draft, fileDraft, type SvelteFolder } from '@epicenter/svelte/folder';
+	import { edit, fileEdit, type SvelteFolder } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -39,7 +39,7 @@
 	});
 	onDestroy(() => { active = false; });
 	// svelte-ignore state_referenced_locally
-	const input = mirrored ? fileDraft(folder, path) : draft(
+	const input = mirrored ? fileEdit(folder, path) : edit(
 		() => base?.replaceAll('\r\n', '\n') ?? '',
 		async (value) => {
 			const out = withFileNewlines(value, lastBase);
@@ -86,5 +86,5 @@
 			<p class="p-4 text-sm text-muted-foreground">Reading…</p>
 		{/if}
 	{/if}
-	<UnsavedEdit draft={input} />
+	<UnsavedEdit edit={input} />
 </section>

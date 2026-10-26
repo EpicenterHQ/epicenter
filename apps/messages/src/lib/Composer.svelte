@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { draft } from '@epicenter/svelte/folder';
+	import { edit } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
@@ -26,12 +26,12 @@
 		}
 		return folder.tables.drafts.update(draftId, { body });
 	}
-	const reply = draft(() => row?.issues === null ? row.body : '', saveReply);
+	const reply = edit(() => row?.issues === null ? row.body : '', saveReply);
 	const pending = $derived(attempt?.issues === null && attempt.fields.state === 'sending');
 	let message = $state('');
 	const send = createMutation(() => ({
 		mutationFn: async ({ text, previousAttemptId }: { text: string; previousAttemptId: string | undefined }) => {
-			const landed = await reply.land();
+			const landed = await reply.landed();
 			if (landed.error !== null) { message = 'Nothing was sent: the draft could not be saved.'; return; }
 			const result = await sendDraft(folder, {
 				id: draftId, chatId, backend, text, previousAttemptId,
@@ -81,6 +81,6 @@
 			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.value.trim()} onclick={() => send.mutate({ text: reply.value, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
-	<UnsavedEdit draft={reply} />
+	<UnsavedEdit edit={reply} />
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 </div>

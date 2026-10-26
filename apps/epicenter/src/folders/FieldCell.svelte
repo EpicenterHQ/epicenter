@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Saved } from '@epicenter/folder';
-	import { draft } from '@epicenter/svelte/folder';
+	import { edit } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Input } from '@epicenter/ui/input';
 
@@ -13,7 +13,7 @@
 	} = $props();
 	const shown = $derived(value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value));
 	let invalid = $state<string | null>(null);
-	const input = draft(() => shown, (text) => save(kind === 'number' || kind === 'integer' ? Number(text) : text));
+	const input = edit(() => shown, (text) => save(kind === 'number' || kind === 'integer' ? Number(text) : text));
 	function set(value: string | number | null) {
 		const text = value === null ? '' : String(value);
 		if ((kind === 'number' || kind === 'integer') && (value === null || text === '' || !Number.isFinite(Number(text)))) {
@@ -32,4 +32,4 @@
 	bind:value={() => invalid ?? input.value, set}
 	onblur={() => invalid = null}
 />
-<UnsavedEdit draft={input} />
+<UnsavedEdit edit={input} />

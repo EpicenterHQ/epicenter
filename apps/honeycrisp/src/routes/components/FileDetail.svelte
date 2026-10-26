@@ -8,7 +8,7 @@
 	import { InstantString } from '@epicenter/definition';
 	import { basename } from '@epicenter/folder/file-browser';
 	import { readRow } from '@epicenter/folder';
-	import { fileDraft } from '@epicenter/svelte/folder';
+	import { fileEdit } from '@epicenter/svelte/folder';
 	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
@@ -54,7 +54,7 @@
 	const noteRow = $derived(noteId === undefined ? undefined : folder.tables.notes.row(noteId));
 	const note = $derived(noteRow?.issues === null ? noteRow : undefined);
 	const text = $derived(typeof file?.data === 'string' && file.data.length <= LARGE ? file.data : undefined);
-	const raw = fileDraft(folder, path);
+	const raw = fileEdit(folder, path);
 	/** Why the text does not read as its row, apart from the file's own state. */
 	const issues = $derived(
 		text === undefined || (noteId === undefined && folderId === undefined)
@@ -159,7 +159,7 @@
 			{/if}
 		</section>
 	{/if}
-	<UnsavedEdit draft={raw} />
+	<UnsavedEdit edit={raw} />
 
 	{#if file !== undefined}
 		<div class="shrink-0 space-y-2 border-t px-4 py-2 text-xs text-muted-foreground">

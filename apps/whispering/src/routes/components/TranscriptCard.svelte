@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { draft } from '@epicenter/svelte/folder';
+	import { edit } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
@@ -37,7 +37,7 @@
 	/** Edited here unless the person opened its file as text in Files. */
 	const asText = $derived(whispering.showsText(result.path));
 	/** The text now: as typed until its save answers, else as the file holds it. */
-	const body = draft(
+	const body = edit(
 		() => result.row.body,
 		(body) => folder.tables.transcriptions.update(stem, { body }),
 	);
@@ -89,7 +89,7 @@
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
 	{/if}
-	<UnsavedEdit draft={body} />
+	<UnsavedEdit edit={body} />
 	{#if asText}
 		<p class="text-xs text-muted-foreground" role="status">
 			This transcript’s file is open as text in Files, so its text is edited there.

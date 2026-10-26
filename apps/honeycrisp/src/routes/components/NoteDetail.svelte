@@ -9,7 +9,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { draft } from '@epicenter/svelte/folder';
+	import { edit } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { describeIssues } from '@epicenter/folder';
 	import { toast } from '@epicenter/ui/sonner';
@@ -42,9 +42,9 @@
 	// Reading the row holds the note's file while this view shows it.
 	const row = $derived(table.row(id));
 	const shownNote = $derived(row?.issues === null ? row : undefined);
-	const title = draft(() => shownNote?.fields.title ?? '', (value) => table.update(id, { fields: { title: value } }));
-	const body = draft(() => noteBody(shownNote) ?? '', (value) => table.update(id, { body: value }));
-	const folderSelection = draft(() => shownNote?.fields.folderId ?? null, (value) => table.update(id, { fields: { folderId: value } }));
+	const title = edit(() => shownNote?.fields.title ?? '', (value) => table.update(id, { fields: { title: value } }));
+	const body = edit(() => noteBody(shownNote) ?? '', (value) => table.update(id, { body: value }));
+	const folderSelection = edit(() => shownNote?.fields.folderId ?? null, (value) => table.update(id, { fields: { folderId: value } }));
 	const unreadable = $derived(row?.issues?.find((issue) => issue.kind === 'unreadable'));
 	const folders = $derived(foldersOf(notes.folder.tables.folders.rows));
 
@@ -169,7 +169,7 @@
 			{/if}
 		</Empty.Root>
 	{/if}
-	<UnsavedEdit draft={title} />
-	<UnsavedEdit draft={folderSelection} />
-	<UnsavedEdit draft={body} />
+	<UnsavedEdit edit={title} />
+	<UnsavedEdit edit={folderSelection} />
+	<UnsavedEdit edit={body} />
 </section>

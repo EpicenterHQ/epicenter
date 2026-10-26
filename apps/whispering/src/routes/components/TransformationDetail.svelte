@@ -6,7 +6,7 @@
 -->
 <script lang="ts">
 	import { readRow } from '@epicenter/folder';
-	import { draft, fileDraft } from '@epicenter/svelte/folder';
+	import { edit, fileEdit } from '@epicenter/svelte/folder';
 	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
@@ -57,11 +57,11 @@
 	const stored = $derived(folder.tables.transformations.row(id));
 	const file = $derived(folder.file(own));
 
-	const title = draft(
+	const title = edit(
 		() => (stored?.issues === null ? stored.fields.title : ''),
 		(title) => folder.tables.transformations.update(id, { fields: { title } }),
 	);
-	const modelText = draft(
+	const modelText = edit(
 		() => (stored?.issues === null ? (stored.fields.model ?? '') : ''),
 		// An empty model uses the text connection's model.
 		(model) =>
@@ -69,11 +69,11 @@
 				fields: { model: model.trim() === '' ? null : model },
 			}),
 	);
-	const prompt = draft(
+	const prompt = edit(
 		() => (stored?.issues === null ? stored.body : ''),
 		(body) => folder.tables.transformations.update(id, { body }),
 	);
-	const source = fileDraft(folder, own);
+	const source = fileEdit(folder, own);
 
 	const asText = $derived(whispering.showsText(own));
 	/** The file's text, when the folder holds it as text. */
@@ -245,7 +245,7 @@
 		{/if}
 	</div>
 	{#if title.error}
-		<div class="px-4 pt-2"><UnsavedEdit draft={title} /></div>
+		<div class="px-4 pt-2"><UnsavedEdit edit={title} /></div>
 	{/if}
 
 	{#if issues}
@@ -497,9 +497,9 @@
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}
-	<UnsavedEdit draft={prompt} />
-	<UnsavedEdit draft={modelText} />
-	<UnsavedEdit draft={source} />
+	<UnsavedEdit edit={prompt} />
+	<UnsavedEdit edit={modelText} />
+	<UnsavedEdit edit={source} />
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">{path}</code></span>

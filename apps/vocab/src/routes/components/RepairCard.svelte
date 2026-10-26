@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { readRow } from '@epicenter/folder';
-	import { fileDraft } from '@epicenter/svelte/folder';
+	import { fileEdit } from '@epicenter/svelte/folder';
 	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
@@ -15,14 +15,14 @@
 	const path = rowPath('entries', id);
 	const file = $derived(folder.file(path));
 	let closeProblem = $state('');
-	const raw = fileDraft(folder, path);
+	const raw = fileEdit(folder, path);
 	const problems = $derived(readRow(raw.value, vocabTables.entries).issues);
 
 	async function close() {
 		closeProblem = '';
 		const value = raw.value;
 		// Closing reads the saved row, so the typed text must have landed.
-		if ((await raw.land()).error || entries.repair.open !== id || raw.value !== value) return;
+		if ((await raw.landed()).error || entries.repair.open !== id || raw.value !== value) return;
 		if (entries.repair.close(value)) return;
 		const row = folder.tables.entries.row(id);
 		if (row === undefined)
@@ -35,7 +35,7 @@
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
 	<p><code>{path}</code> {problems ? 'is not a valid word, so its note and stage cannot be shown.' : 'reads as a word in this editor and appears as one after saving.'} Changes save as you type.</p>
 	<Textarea class="min-h-32 font-mono text-xs" aria-label="File text for {path}" bind:value={raw.value} oninput={() => closeProblem = ''} />
-	<UnsavedEdit draft={raw} />
+	<UnsavedEdit edit={raw} />
 	{#if file?.readError}
 		<div role="alert" class="text-destructive">Could not read <code>{path}</code>: {file.readError.message}
 			<Button size="sm" variant="outline" onclick={() => void folder.refresh()}>Read again</Button>

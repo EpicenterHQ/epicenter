@@ -2,7 +2,7 @@
 <script lang="ts">
 	import { captureTables } from '@epicenter/capture';
 	import { readRow } from '@epicenter/folder';
-	import { fileDraft } from '@epicenter/svelte/folder';
+	import { fileEdit } from '@epicenter/svelte/folder';
 	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
@@ -29,7 +29,7 @@
 		const file = folder.file(path);
 		return file?.readError === null && typeof file.data === 'string' ? file.data : undefined;
 	});
-	const text = fileDraft(folder, path);
+	const text = fileEdit(folder, path);
 	const parsed = $derived(readRow(text.value, captureTables.captures));
 	const isDraft = $derived(parsed.issues === null && parsed.fields.draft === true);
 	const body = $derived(parsed.issues === null ? parsed.body : undefined);
@@ -58,7 +58,7 @@
 	}
 	async function openCapture() {
 		// Navigation checks the landed row before opening the structured view.
-		if ((await text.land()).error !== null) return;
+		if ((await text.landed()).error !== null) return;
 		if (!active) return;
 		captures.open(stem, 'capture');
 	}
@@ -66,7 +66,7 @@
 		if (finishing || !isDraft || !body?.trim()) return;
 		finishing = true;
 		// Finishing composes the landed draft body into a capture.
-		if ((await text.land()).error !== null) {
+		if ((await text.landed()).error !== null) {
 			if (active) finishing = false;
 			return;
 		}
@@ -108,7 +108,7 @@
 			<Alert.Description>{refusal}</Alert.Description>
 		</Alert.Root>
 	{/if}
-	<UnsavedEdit draft={text} />
+	<UnsavedEdit edit={text} />
 
 	{#if source !== undefined || text.value !== '' || text.error !== null}
 		{#if needsRepair}

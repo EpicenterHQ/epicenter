@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { draft } from '@epicenter/svelte/folder';
+	import { edit } from '@epicenter/svelte/folder';
 	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
@@ -31,11 +31,11 @@
 	const path = todoPath(id);
 	const row = $derived(folder.tables.todos.row(id));
 	const todo = $derived(row?.issues === null ? row : undefined);
-	const title = draft(
+	const title = edit(
 		() => todo?.fields.title ?? '',
 		(text) => folder.tables.todos.update(id, { fields: { title: text } }),
 	);
-	const body = draft(
+	const body = edit(
 		() => todo?.body ?? '',
 		(text) => folder.tables.todos.update(id, { body: text }),
 	);
@@ -87,8 +87,8 @@
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
 	{#if title.error !== null || body.error !== null}
 		<div class="space-y-2 px-4 py-2">
-			<UnsavedEdit draft={title} />
-			<UnsavedEdit draft={body} />
+			<UnsavedEdit edit={title} />
+			<UnsavedEdit edit={body} />
 		</div>
 	{/if}
 	{#if todo}

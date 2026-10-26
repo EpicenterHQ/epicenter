@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { draft } from '@epicenter/svelte/folder';
+	import { edit } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -18,7 +18,7 @@
 		onToggle: () => void;
 	} = $props();
 
-	const note = draft(() => entry.note, (text) => entries.setNote(entry.id, text));
+	const note = edit(() => entry.note, (text) => entries.setNote(entry.id, text));
 </script>
 
 <article class={cn('rounded-lg border p-4', chosen && 'border-primary bg-accent/30')}>
@@ -27,7 +27,7 @@
 		<Button size="sm" variant="ghost-destructive" class="shrink-0" onclick={() => confirmDelete(entries, entry)}>Delete</Button>
 	</div>
 	<Textarea class="min-h-20 max-h-48 overflow-y-auto" aria-label="Your note for {entry.text}" placeholder="Your note" bind:value={note.value} />
-	<UnsavedEdit draft={note} />
+	<UnsavedEdit edit={note} />
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
 		{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} onclick={() => void changeStage(entries, entry.id, option)}>{STAGE_LABELS[option]}</Button>{/each}
 	</div>
