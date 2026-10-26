@@ -2,21 +2,31 @@
 	import type { Saved } from '@epicenter/folder';
 	import * as Select from '@epicenter/ui/select';
 	import type { BoardLane } from './view.js';
+	import { onMount } from 'svelte';
 
-	let { path, lane, lanes, disabled, save }: {
+	let { path, lane, lanes, disabled, save, register }: {
 		path: string;
 		lane: BoardLane;
 		lanes: BoardLane[];
 		disabled: boolean;
 		save: (key: string) => Saved | undefined;
+		register?: (landed: () => Promise<boolean>) => () => void;
 	} = $props();
 	let problem = $state<string>();
+	let pending: Promise<void> | undefined;
+	onMount(() => register?.(async () => {
+		await pending;
+		return problem === undefined;
+	}));
 	async function move(key: string) {
 		problem = undefined;
 		const saved = save(key);
 		if (saved === undefined) return;
-		const { error } = await saved;
-		if (error !== null) problem = error.message;
+		pending = (async () => {
+			const { error } = await saved;
+			if (error !== null) problem = error.message;
+		})();
+		await pending;
 	}
 </script>
 

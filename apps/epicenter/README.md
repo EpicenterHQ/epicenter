@@ -408,8 +408,9 @@ when its turn comes, so adjacent cell edits do not overwrite one another.
 A file read failure can be retried with `folder.refresh()`. Failed edits keep
 their value and offer Save again, Discard, and Copy beside the editor.
 Checkboxes and board moves write directly and report failures beside the action.
-Switching file editors mounts the next editor immediately. The previous editor's
-typed text is already queued, so unmounting sends nothing more.
+Opening a row's source from Tables waits for that row's cell saves to answer.
+A failed cell save keeps the row and its recovery controls visible. Other file
+navigation keeps its ordinary behavior.
 
 The folder owner refreshes on focus, visibility, and connectivity. Closing the
 folder drains writes already queued by its editors.

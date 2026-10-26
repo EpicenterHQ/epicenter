@@ -24,11 +24,13 @@
 	const tree = $derived(fileTree(folder.files.map((file) => file.path)));
 	let selected = $state<string | undefined>(undefined);
 	let view = $state('files');
+	let tablesView: TablesView | undefined = $state();
 	function show(next: string, path?: string) {
 		if (path !== undefined) selected = path;
 		view = next;
 	}
-	function openSource(path: string) {
+	async function openSource(path: string) {
+		if (tablesView && !await tablesView.landed(path)) return;
 		show('files', path);
 	}
 	const declaration = $derived(folder.file('epicenter.json'));
@@ -198,6 +200,7 @@
 				{views}
 				viewKey={view}
 			/>{:else}<TablesView
+				bind:this={tablesView}
 				{folder}
 				{openSource}
 				view={recipe}

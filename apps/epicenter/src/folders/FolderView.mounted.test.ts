@@ -547,6 +547,46 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
+	test('opening a row source waits for its cell edit to land', async () => {
+		const fixture = await setup({ 'a.md': '---\ntitle: Before\n---\n' });
+		let release: (() => void) | undefined;
+		try {
+			click(fixture.target, 'Tables');
+			await until(() => fixture.target.querySelector('[aria-label="a.md: title"]') !== null);
+			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+			type(fixture.target.querySelector('[aria-label="a.md: title"]'), 'Landed');
+			await until(() => fixture.log.puts.length === 1);
+			fixture.target.querySelector('[data-row-path="a.md"] button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			flushSync();
+			expect(fixture.box()).toBeNull();
+			expect(fixture.target.querySelector<HTMLElement>('section[aria-label="Tables"]')?.inert).toBe(true);
+			release();
+			fixture.control.putGate = undefined;
+			await until(() => fixture.box()?.value.includes('title: Landed') ?? false);
+		} finally {
+			release?.();
+			fixture.control.putGate = undefined;
+			await fixture.close();
+		}
+	});
+
+	test('a failed cell edit keeps its row and recovery controls visible', async () => {
+		const fixture = await setup({ 'a.md': '---\ntitle: Before\n---\n' });
+		try {
+			click(fixture.target, 'Tables');
+			await until(() => fixture.target.querySelector('[aria-label="a.md: title"]') !== null);
+			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			type(fixture.target.querySelector('[aria-label="a.md: title"]'), 'Unsaved');
+			fixture.target.querySelector('[data-row-path="a.md"] button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			expect(fixture.box()).toBeNull();
+			expect(fixture.target.querySelector<HTMLInputElement>('[aria-label="a.md: title"]')?.value).toBe('Unsaved');
+			expect(fixture.target.textContent).toContain('Save again');
+		} finally {
+			await fixture.close();
+		}
+	});
+
 	test('a focused row remains visible after its edit leaves the filter', async () => {
 		const fixture = await setup({ 'a.md': '---\nstatus: todo\n---\n', 'b.md': '---\nstatus: todo\n---\n' });
 		try {
@@ -615,6 +655,10 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			expect(
 				fixture.target.querySelector('[aria-label="todo"]')?.textContent,
 			).toContain('a.md');
+			fixture.target.querySelector('[data-row-path="a.md"] button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			flushSync();
+			expect(fixture.box()).toBeNull();
+			expect(fixture.target.textContent).toContain('Move failed:');
 			fixture.control.failPut.delete('a.md');
 			await choose(fixture.target.querySelector('[aria-label="Move a.md"]'), 'done');
 			await until(() => fixture.text('a.md')?.includes('status: done') ?? false);
@@ -654,6 +698,10 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			await until(() => fixture.target.textContent?.includes('Change failed:') ?? false);
 			expect(checkbox?.getAttribute('aria-checked')).toBe('false');
 			expect(fixture.text('a.md')).toContain('done: false');
+			fixture.target.querySelector('[data-row-path="a.md"] button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			flushSync();
+			expect(fixture.box()).toBeNull();
+			expect(fixture.target.textContent).toContain('Change failed:');
 			fixture.control.failPut.delete('a.md');
 			checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.text('a.md')?.includes('done: true') ?? false);
