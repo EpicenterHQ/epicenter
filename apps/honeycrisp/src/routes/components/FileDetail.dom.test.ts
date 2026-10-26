@@ -12,6 +12,7 @@ import { click, type } from '../../../../../packages/svelte/src/svelte-dom.test-
 Range.prototype.getClientRects ??= () => [] as unknown as ReturnType<Range['getClientRects']>;
 Range.prototype.getBoundingClientRect ??= () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) as DOMRect;
 const { flushSync, mount, unmount } = await import('svelte');
+const { confirmationDialog } = await import('@epicenter/ui/confirmation-dialog');
 const { openNotes, noteText, until } = await import('../../lib/local.test-support.ts');
 const FileDetail = (await import('./FileDetail.svelte')).default;
 const Host = (await import('../../lib/ui-host.test-support.svelte')).default;
@@ -53,6 +54,41 @@ test('title and Source text save and keep the rich editor mounted', async () => 
     await until(() => folder.tables.notes.row('a')?.body === 'New body\n', 'body save');
     click(target, 'Rich text'); render();
     expect(get<HTMLElement>('[aria-label="Note text"]')).toBe(rich);
+});
+
+test('Edit as file lands title and body drafts before showing source', async () => {
+    const { target, get, render, folder, notes } = await view();
+    type(get<HTMLInputElement>('input[aria-label="Title"]'), 'New title');
+    click(target, 'Source'); render();
+    type(get<HTMLTextAreaElement>('textarea[aria-label="Markdown source"]'), 'New body\n');
+    click(target, 'Edit as file');
+    await until(() => { render(); return notes.selected?.as === 'text'; }, 'file view');
+    const saved = folder.file('notes/a.md')?.data;
+    if (typeof saved !== 'string') throw new Error('Missing saved note text');
+    expect(saved).toContain('title: New title');
+    expect(saved).toContain('New body\n');
+    expect(get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toBe(saved);
+});
+
+test('Edit as file stays on the note when a draft cannot land', async () => {
+    const { target, get, render, notes, failSaves } = await view();
+    failSaves();
+    type(get<HTMLInputElement>('input[aria-label="Title"]'), 'Unsaved title');
+    click(target, 'Edit as file');
+    await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'failed title save');
+    expect(notes.selected?.as).toBe('note');
+    expect(target.querySelector('section[aria-label="File"]')).toBeNull();
+});
+
+test('Delete discards a pending whole-file draft', async () => {
+    const { target, get, folder, notes } = await view(noteText(), 'text');
+    type(get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), 'Pending replacement');
+    click(target, 'Delete');
+    await confirmationDialog.confirm();
+    expect(notes.selected).toBeUndefined();
+    await Bun.sleep(1100);
+    await folder.idle();
+    expect(folder.file('notes/a.md')).toBeUndefined();
 });
 
 test('folder selection stays visible after a failed save and can retry', async () => {
@@ -112,9 +148,10 @@ test('a field draft keeps its value when its file was deleted elsewhere', async 
     await remove('notes/a.md');
     await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'deleted field error');
     expect(folder.tables.notes.row('a')).toBeUndefined();
-    expect(get<HTMLInputElement>('input[aria-label="Title"]').value).toBe('Keep typing');
+    expect(target.querySelector('input[aria-label="Title"]')).toBeNull();
     expect(target.textContent).toContain('There is no readable file at notes/a.md to update');
     expect(target.textContent).toContain('Save again');
+    expect(target.textContent).toContain('Copy');
 });
 
 test('title and Source replace lone surrogates before saving', async () => {

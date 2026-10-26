@@ -11,6 +11,7 @@
 	import { Input } from '@epicenter/ui/input';
 	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
+	import { describeIssues } from '@epicenter/folder';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
 	import * as Tabs from '@epicenter/ui/tabs';
@@ -49,6 +50,7 @@
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
+	let switching = $state(false);
 
 	/** Say so when a change was refused. */
 	function refusal(problem: Awaited<ReturnType<Notes['patchNote']>>) {
@@ -61,16 +63,30 @@
 	/** A folder's option value. No folder is the empty value, so a folder id never is. */
 	const optionOf = (id: string | null) => (id === null ? '' : `folder:${id}`);
 	const idOf = (option: string) => (option === '' ? null : option.slice('folder:'.length));
+
+	async function openAsFile() {
+		if (switching) return;
+		switching = true;
+		try {
+			if ((await title.land()).error !== null) return;
+			if ((await folderSelection.land()).error !== null) return;
+			if ((await body.land()).error !== null) return;
+			if (notes.selected?.path !== path) return;
+			notes.open(path, 'text');
+		} finally {
+			switching = false;
+		}
+	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="Note">
+<section class="flex h-full min-h-0 flex-col" aria-label="Note" inert={switching}>
 	{#if shownNote !== undefined}
 		{@const row = shownNote}
 		{@const folderId = folderSelection.value}
 		{@const pinned = row.fields.pinned}
-		<div class="flex items-center gap-2 border-b px-3 py-2">
+		<div class="flex flex-wrap items-center gap-2 border-b px-3 py-2">
 			<Input
-				class="flex-1 text-base font-medium"
+				class="min-w-40 flex-1 text-base font-medium"
 				bind:value={() => title.value, (typed) => title.set(typed.toWellFormed())}
 
 				placeholder="Title"
@@ -102,9 +118,8 @@
 			>
 				<PinIcon class={pinned ? 'fill-current' : ''} />
 			</Button>
+		<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" onclick={() => void openAsFile()}>Edit as file</Button>
 		</div>
-		<UnsavedEdit draft={title} />
-		<UnsavedEdit draft={folderSelection} />
 
 		<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
 			<Tabs.List class="mx-3">
@@ -133,26 +148,12 @@
 				</div>
 			</Tabs.Content>
 		</Tabs.Root>
-		<UnsavedEdit draft={body} />
-
 	{:else if row === undefined}
 		<div class="flex-1">
 			<Empty.Root>
 				<Empty.Title>This note is no longer in the folder</Empty.Title>
 				<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
 			</Empty.Root>
-			{#if title.error !== null}
-				<div class="px-4 pb-3">
-					<Input aria-label="Title" bind:value={() => title.value, (typed) => title.set(typed.toWellFormed())} />
-					<UnsavedEdit draft={title} />
-				</div>
-			{/if}
-			{#if body.error !== null}
-				<div class="px-4 pb-3">
-					<Textarea aria-label="Markdown source" bind:value={() => body.value, (typed) => body.set(typed.toWellFormed())} />
-					<UnsavedEdit draft={body} />
-				</div>
-			{/if}
 		</div>
 	{:else if unreadable?.kind === 'unreadable'}
 		<Empty.Root class="flex-1">
@@ -172,10 +173,13 @@
 			{:else}
 				<Empty.Title><Badge variant="destructive">Needs repair</Badge> This file does not read as a note</Empty.Title>
 				<Empty.Description>
-					<code class="font-mono">{path}</code>: {issues.map((issue) => issue.message).join(' ')}
+					<code class="font-mono">{path}</code>: {describeIssues(issues)}
 				</Empty.Description>
 				<Button variant="outline" size="sm" onclick={() => void notes.open(path, 'text')}>Repair as text</Button>
 			{/if}
 		</Empty.Root>
 	{/if}
+	<UnsavedEdit draft={title} />
+	<UnsavedEdit draft={folderSelection} />
+	<UnsavedEdit draft={body} />
 </section>

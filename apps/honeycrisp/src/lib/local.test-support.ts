@@ -1,6 +1,7 @@
 /** Honeycrisp's notes over a fresh in-memory browser folder. */
 import { type Folder } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/browser';
+import { until as folderUntil } from '@epicenter/folder/testing';
 import { svelteFolder } from '@epicenter/svelte/folder';
 import { expectOk } from 'wellcrafted/testing';
 import { type HoneycrispTables, honeycrispTables, type NoteRow } from './data.js';
@@ -51,11 +52,11 @@ export async function openNotes() {
 export type NotesFixture = Awaited<ReturnType<typeof openNotes>>;
 
 export async function until(check: () => boolean, what: string) {
-    for (let attempt = 0; attempt < 1000; attempt++) {
-        if (check()) return;
-        await Bun.sleep(2);
+    try {
+        await folderUntil(check, { timeout: 2000 });
+    } catch {
+        throw new Error(`Timed out waiting for ${what}`);
     }
-    throw new Error(`Timed out waiting for ${what}`);
 }
 export async function quiet(notes: Notes) {
     await until(() => !notes.folder.saving, 'writes to settle');

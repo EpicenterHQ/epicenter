@@ -30,7 +30,7 @@ export function describeDeletion(deletion: Deletion) {
 /**
  * Ask before deleting `path`. The delete joins the mirror's write queue.
  */
-export async function confirmDelete(notes: Notes, path: string) {
+export async function confirmDelete(notes: Notes, path: string, beforeDelete?: () => void) {
 	const { data: deletion, error: refusal } = notes.deletionFor(path);
 	if (refusal !== null) {
 		toast.error(`Could not delete ${basename(path)}`, {
@@ -42,6 +42,7 @@ export async function confirmDelete(notes: Notes, path: string) {
 		...describeDeletion(deletion),
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
+			beforeDelete?.();
 			const problem = await notes.delete(deletion);
 			if (problem)
 				toast.error(`Could not delete ${basename(path)}`, {

@@ -37,7 +37,7 @@ test('opening writes nothing; row updates keep unnamed keys', async () => {
     expect(saved).toContain('Edited.');
     expect(saved).toContain('owner:');
     expect(shown(fixture.notes, 'a').fields.title).toBe('Renamed');
-    expect(fixture.notes.saves.short).toBe('Saved');
+    expect(fixture.notes.saves.label).toBe('On this device');
 });
 
 test('outside field change merges beside a body update', async () => {
