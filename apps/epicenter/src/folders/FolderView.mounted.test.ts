@@ -560,7 +560,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			flushSync();
 			expect(fixture.box()).toBeNull();
 			expect(fixture.target.querySelector<HTMLElement>('section[aria-label="Tables"]')?.inert).toBe(true);
-			release();
+			release?.();
 			fixture.control.putGate = undefined;
 			await until(() => fixture.box()?.value.includes('title: Landed') ?? false);
 		} finally {
