@@ -9,10 +9,34 @@ import type {
 	Table,
 	Tables,
 } from '@epicenter/folder';
+import { withFileNewlines } from '@epicenter/folder/file-browser';
 import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema as Schema, Static } from 'typebox';
+import { draft } from './draft.svelte.js';
 
 export { draft } from './draft.svelte.js';
+
+/** A whole-file text draft, edited as LF and sent in the file's current newline style. */
+export function fileDraft<T extends Tables>(
+	folder: SvelteFolder<T>,
+	path: string,
+	options?: { delay?: number },
+) {
+	return draft(
+		() => {
+			const data = folder.file(path)?.data;
+			return typeof data === 'string' ? data.replace(/\r\n?/g, '\n') : '';
+		},
+		(typed) => {
+			const data = folder.file(path)?.data;
+			return folder.write(
+				path,
+				withFileNewlines(typed, typeof data === 'string' ? data : ''),
+			);
+		},
+		options,
+	);
+}
 
 export type SvelteTable<S extends Schema = Schema> = {
 	readonly rows: readonly Row<S>[];
@@ -25,6 +49,7 @@ export type SvelteFolder<T extends Tables = Tables> = {
 	readonly files: readonly FolderFile[];
 	file(path: string): FolderFile | undefined;
 	readonly saving: boolean;
+	idle(): Promise<void>;
 	read: Folder<T>['read'];
 	write(path: string, data: Data): Saved;
 	update: Folder<T>['update'];
@@ -62,6 +87,7 @@ export function svelteFolder<const T extends Tables>(
 		write: folder.write,
 		update: folder.update,
 		delete: folder.delete,
+		idle: folder.idle,
 		refresh: folder.refresh,
 	};
 }

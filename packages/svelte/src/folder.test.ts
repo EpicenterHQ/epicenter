@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test';
 import { createFolder, memoryHost } from '@epicenter/folder/testing';
 import { Type } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
+import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	desktop,
 	nativeWindow,
@@ -19,6 +19,9 @@ const { svelteFolder } = await import('./folder.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: DraftHost } = await import('./fixtures/DraftHost.svelte');
+const { default: FileDraftHost } = await import(
+	'./fixtures/FileDraftHost.svelte'
+);
 const { default: OpenFolderHost } = await import(
 	'./fixtures/OpenFolderHost.svelte'
 );
@@ -148,6 +151,141 @@ test('a burst of typing debounces to one synchronous save call', async () => {
 	await until(() => calls.length === 1);
 	expect(calls).toEqual(['AB']);
 	await mounted.unmount();
+});
+
+test('land sends a pending debounce and waits for its answer', async () => {
+	const pending = Promise.withResolvers<Result<unknown, Failure>>();
+	const calls: string[] = [];
+	const mounted = mountedDraft(
+		() => 'Disk',
+		(value) => {
+			calls.push(value);
+			return pending.promise;
+		},
+		1000,
+	);
+	mounted.editor.value = 'Typed';
+	const landed = mounted.editor.land();
+	expect(calls).toEqual(['Typed']);
+	pending.resolve(Ok(undefined));
+	expectOk(await landed);
+	expect(mounted.editor.value).toBe('Disk');
+	await mounted.unmount();
+});
+
+test('land waits for an out save then sends newer typing', async () => {
+	const first = Promise.withResolvers<Result<unknown, Failure>>();
+	const second = Promise.withResolvers<Result<unknown, Failure>>();
+	const calls: string[] = [];
+	const mounted = mountedDraft(
+		() => 'Disk',
+		(value) => {
+			calls.push(value);
+			return calls.length === 1 ? first.promise : second.promise;
+		},
+	);
+	mounted.editor.value = 'First';
+	await until(() => calls.length === 1);
+	mounted.editor.value = 'Second';
+	const landed = mounted.editor.land();
+	expect(calls).toEqual(['First']);
+	first.resolve(Ok(undefined));
+	await until(() => calls.length === 2);
+	expect(calls).toEqual(['First', 'Second']);
+	second.resolve(Ok(undefined));
+	expectOk(await landed);
+	await mounted.unmount();
+});
+
+test('land returns a failed save and leaves its error visible', async () => {
+	let calls = 0;
+	const mounted = mountedDraft(
+		() => 'Disk',
+		() => {
+			calls++;
+			return Promise.resolve(Err(failure));
+		},
+	);
+	mounted.editor.value = 'Typed';
+	expectErr(await mounted.editor.land());
+	expect(mounted.editor.error).toEqual(failure);
+	expect(mounted.editor.value).toBe('Typed');
+	await mounted.unmount();
+	expect(calls).toBe(1);
+	expectOk(await mounted.editor.land());
+	expect(calls).toBe(1);
+});
+
+test('fileDraft edits LF text and sends with current file newline style', async () => {
+	const memory = memoryHost({ 'note.txt': 'First\r\nSecond\r\n' });
+	const folder = svelteFolder(
+		expectOk(await createFolder(memory.storage, { tables })),
+	);
+	const target = document.createElement('div');
+	document.body.append(target);
+	let editor: ReturnType<typeof import('./folder.js').fileDraft> | undefined;
+	const view = mount(FileDraftHost, {
+		target,
+		props: {
+			folder,
+			path: 'note.txt',
+			expose: (value) => {
+				editor = value;
+			},
+		},
+	});
+	flushSync();
+	if (editor === undefined) throw new Error('File draft did not mount');
+	expect(editor.value).toBe('First\nSecond\n');
+	editor.value = 'Changed\n';
+	expectOk(await editor.land());
+	expect(memory.text('note.txt')).toBe('Changed\r\n');
+	await unmount(view);
+	target.remove();
+});
+
+test('fileDraft keeps a byte order mark and starts empty for non-text data', async () => {
+	const memory = memoryHost({
+		'bom.txt': '\ufeffFirst\r\n',
+		'binary.txt': Uint8Array.of(255),
+	});
+	const folder = svelteFolder(
+		expectOk(await createFolder(memory.storage, { tables })),
+	);
+	for (const [path, shown, typed, stored] of [
+		['bom.txt', '\ufeffFirst\n', '\ufeffChanged\n', '\ufeffChanged\r\n'],
+		['binary.txt', '', 'New\n', 'New\n'],
+	] as const) {
+		const target = document.createElement('div');
+		document.body.append(target);
+		let editor: ReturnType<typeof import('./folder.js').fileDraft> | undefined;
+		const view = mount(FileDraftHost, {
+			target,
+			props: {
+				folder,
+				path,
+				expose: (value) => {
+					editor = value;
+				},
+			},
+		});
+		flushSync();
+		if (editor === undefined) throw new Error('File draft did not mount');
+		expect(editor.value).toBe(shown);
+		editor.value = typed;
+		expectOk(await editor.land());
+		expect(folder.file(path)?.data).toBe(stored);
+		expect(memory.text(path)).toBe(stored.replace(/^\ufeff/, ''));
+		if (path === 'bom.txt') {
+			const result = (await memory.storage.read([path])).get(path);
+			if (result === undefined) throw new Error('Read did not answer');
+			const fetched = expectOk(result);
+			if (fetched === null) throw new Error('File disappeared');
+			expect([...fetched.bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
+		}
+		await unmount(view);
+		target.remove();
+	}
 });
 
 test('a timed send waits for an out save, then sends the newest value', async () => {

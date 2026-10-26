@@ -7,7 +7,7 @@
  * folder's queue. Failed input remains visible for retry or discard.
  */
 import { onDestroy } from 'svelte';
-import { Err, type Result } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export function draft<T, E>(
 	source: () => T,
@@ -20,6 +20,7 @@ export function draft<T, E>(
 	let error = $state<E | null>(null);
 	let lastSent: { value: T } | null = null;
 	let inFlight = 0;
+	const pending = new Map<{ value: T }, Promise<Result<unknown, E>>>();
 	let due = false;
 	let active = true;
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -29,9 +30,12 @@ export function draft<T, E>(
 		timer = undefined;
 	}
 
-	function send(immediate: boolean, retry = false) {
+	function send(
+		immediate: boolean,
+		retry = false,
+	): Promise<Result<unknown, E>> | undefined {
 		const sent = current;
-		if (sent === null || (!retry && sent === lastSent)) return;
+		if (sent === null || (!retry && sent === lastSent)) return undefined;
 		if (!immediate && inFlight > 0) return;
 		lastSent = sent;
 		inFlight++;
@@ -43,8 +47,9 @@ export function draft<T, E>(
 			answer = Promise.resolve(Err(cause as E));
 		}
 		const apply = (result: Result<unknown, E>) => {
+			pending.delete(sent);
 			inFlight--;
-			if (!active) return;
+			if (!active) return result;
 			if (current === sent) {
 				if (result.error === null) {
 					current = null;
@@ -55,11 +60,14 @@ export function draft<T, E>(
 				due = false;
 				send(false);
 			}
+			return result;
 		};
-		void answer.then(apply, (cause: unknown) => {
+		const settled = answer.then(apply, (cause: unknown) => {
 			// SAFETY: a rejected save failure uses the same error channel.
-			apply(Err(cause as E));
+			return apply(Err(cause as E));
 		});
+		pending.set(sent, settled);
+		return settled;
 	}
 
 	function flush() {
@@ -119,6 +127,35 @@ export function draft<T, E>(
 			return error;
 		},
 		set,
+		async land(): Promise<Result<void, E>> {
+			if (!active) return Ok(undefined);
+			clearTimer();
+			due = false;
+			while (active && current !== null) {
+				const sent = current;
+				const ongoing = pending.get(sent);
+				if (ongoing !== undefined) {
+					const result = await ongoing;
+					if (current === sent && result.error !== null)
+						return Err(result.error);
+					continue;
+				}
+				if (sent === lastSent)
+					return error === null ? Ok(undefined) : Err(error);
+				if (pending.size > 0) {
+					await Promise.all(pending.values());
+					continue;
+				}
+				const result = await send(true);
+				if (
+					current === sent &&
+					result?.error !== null &&
+					result?.error !== undefined
+				)
+					return Err(result.error);
+			}
+			return Ok(undefined);
+		},
 		retry() {
 			if (!active || current === null) return;
 			error = null;

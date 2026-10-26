@@ -44,14 +44,7 @@
 
 	async function flushAndWait(folder: Folder<TTables>) {
 		window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
-		if (!folder.saving()) return;
-		await new Promise<void>((resolve) => {
-			const stop = folder.subscribe(() => {
-				if (folder.saving()) return;
-				stop();
-				resolve();
-			});
-		});
+		await folder.idle();
 	}
 
 	async function openAndWrap() {
