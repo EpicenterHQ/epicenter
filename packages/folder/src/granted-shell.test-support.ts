@@ -132,7 +132,10 @@ export function createGrantedShell(root: string) {
 	const lostReplies = new Map<string, unknown>();
 
 	/** One data change, under the test's controls. */
-	async function change<T>(described: DataChange, make: () => Promise<T>): Promise<T> {
+	async function change<T>(
+		described: DataChange,
+		make: () => Promise<T>,
+	): Promise<T> {
 		await control.beforeChange?.(described);
 		if (control.refuseNext > 0) {
 			control.refuseNext -= 1;
@@ -210,12 +213,14 @@ export function createGrantedShell(root: string) {
 					operation: 'read',
 					message: 'the disk could not be read (os error 5)',
 				} satisfies StorageError;
-			const { bytes } = await answered(storage.read(path));
-			// The raw response arrives as an `ArrayBuffer`.
-			return bytes.buffer.slice(
-				bytes.byteOffset,
-				bytes.byteOffset + bytes.byteLength,
-			);
+			const { bytes, stamp } = await answered(storage.read(path));
+			// The raw response arrives as one `ArrayBuffer`: the stamp, a zero
+			// byte, then the file bytes, as the plugin sends it.
+			const header = new TextEncoder().encode(stamp);
+			const response = new Uint8Array(header.length + 1 + bytes.length);
+			response.set(header);
+			response.set(bytes, header.length + 1);
+			return response.buffer;
 		},
 		async put_folder_file(args) {
 			const path = args.path as string;
