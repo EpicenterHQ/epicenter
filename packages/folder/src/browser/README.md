@@ -114,7 +114,7 @@ when B contains it. The selected tree is temporary, not a fourth checkpoint.
 After merging shared contents, sync restores W's ignored local additions. An
 incoming file or directory occupying one of those paths, including a spelling
 that collides on disk, returns `LocalFileInTheWay` and preserves the captured
-state. The files API keeps those bytes accessible for repair. A newer rule does
+state. A Folder read keeps those bytes accessible for repair. A newer rule does
 not rewrite P or cancel a send whose outcome is still unknown.
 
 A proven rejection needs two local generations. First remove entries deleted

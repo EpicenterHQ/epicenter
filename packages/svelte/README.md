@@ -37,10 +37,10 @@ export const [getFolder, setFolder] =
 ```
 
 `<OpenFolder>` refreshes on focus, visibility, and reconnection. On page hide,
-unload, or close, mounted drafts submit their latest text. Browser unload asks
-only while a write is in progress. A desktop window close waits for the draft
-flush and queued folder writes before destroying the window. The shell owns
-application Quit separately.
+unload, or close, mounted drafts submit their latest unsent text. Browser unload
+asks only while a write is in progress. A desktop window close dispatches the
+draft flush, awaits `folder.idle()`, and then destroys the window. The shell
+owns application Quit separately.
 
 ## Read landed values
 
@@ -49,27 +49,38 @@ and `row(id)` participate in Svelte tracking when read in a template or
 derivation. These values describe the mirror, so a write's returned `Saved`
 promise does not resolve until its new value is visible there. `folder.saving`
 tracks queued and active writes. The adapter passes `read`, `write`, `update`,
-`delete`, and `refresh` through to the Folder.
+`delete`, `refresh`, and `idle` through to the Folder.
 
 ```svelte
+<script lang="ts">
+  import { saveLine } from '@epicenter/svelte/status-line';
+</script>
+
 {#each folder.tables.notes.rows as note (note.id)}
   <p>{note.issues === null ? note.fields.title : note.path}</p>
 {/each}
-<p>{folder.saving ? 'Saving…' : 'Saved'}</p>
+<p>{saveLine(folder.saving).label}</p>
 ```
 
 A missing row is `row(id) === undefined`. An invalid row keeps its path and
-issues. A read failure has an `unreadable` issue; call `folder.refresh()` for
-a new attempt. To edit exact source, read `folder.file(row.path)?.data` and
-check that it is a string.
+issues. `<RowIssues issues={row.issues} />` from
+`@epicenter/svelte/row-issues` renders the issue sentences; the core also
+exports `describeIssue` and `describeIssues`. A read failure has an
+`unreadable` issue; call `folder.refresh()` for a new attempt. To edit exact
+source, read `folder.file(row.path)?.data` and check that it is a string.
+`saveLine` from `@epicenter/svelte/status-line` shows “Saving…” while a write
+is queued or active and “On this device” otherwise. An idle folder may still
+have text in a draft's debounce, so the calm line makes no saved claim.
 
 ## Keep typed text in a draft
 
 Create one `draft(source, save)` per mounted editor component. Its `value`
 getter shows what the person typed until that save answers, then follows
 `source()` again. Its setter and `set(value)` schedule a save after one second
-by default. Teardown and page departure flush the latest text. A failed save
-keeps the typed value and its error for retry or discard.
+by default. Teardown, page hide, hidden visibility, beforeunload, and the
+folder close event flush the latest unsent text. A value whose save already
+failed is not resent on teardown. A failed save keeps the typed value and its
+error for retry or discard.
 
 ```svelte
 <script lang="ts">
@@ -97,6 +108,17 @@ body editors. Give distinct editor components distinct drafts. A checkbox,
 select, or button can write directly; compute toggles from the value shown.
 `<UnsavedEdit>` shows the failed save inline with Save again, Discard, and
 Copy for text. Direct actions handle their own returned errors near the action.
+
+Call `await editor.land()` before an action needs the typed text on disk. It
+cancels the debounce, waits for an out save, and sends any newer typing before
+returning. A failure remains on `editor.error` for `<UnsavedEdit>` and is also
+returned to stop the action. After teardown, `land()` succeeds without saving.
+
+`fileDraft(folder, path, options?)` from `@epicenter/svelte/folder` edits a
+whole text file. It shows LF line endings and, when sending, reads the current
+landed file to restore its newline style with `withFileNewlines`. If the file's
+data is not text, the draft starts empty and writes LF text. It has the same
+`value`, `error`, `set`, `retry`, `discard`, and `land` API as `draft`.
 
 The package also exports agent conversation bindings and status display
 helpers. Those are independent of Folder editing.

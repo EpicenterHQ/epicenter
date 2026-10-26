@@ -66,6 +66,8 @@ body. An invalid or unreadable row keeps its path and diagnostics so an editor
 can offer repair. `readRow(text, schema)` interprets a draft with the same row
 rules without writing it. A row's exact saved source is
 `folder.file(row.path)?.data`.
+`describeIssue` and `describeIssues` turn row diagnostics into sentences for a
+repair view.
 
 ## Writes
 
@@ -83,9 +85,11 @@ promise resolves after the write lands and the mirror shows it, or returns a
 writes do not merge with outside writers; the last publication to land wins.
 Git sync retains its separate three-way merge and conditional storage rules.
 
-`close()` refuses new writes, drains admitted work, then releases storage and
-watchers. Await the write's result when subsequent work requires durable
-bytes. A UI draft and its retry or discard controls belong to
+`idle()` waits until no write is queued or out. An action that needs every
+editor's text on disk can dispatch the folder close or flush event and then
+await `idle()`. `close()` refuses new writes, drains admitted work, then
+releases storage and watchers. Await a write's result when subsequent work
+requires durable bytes. A UI draft and its retry or discard controls belong to
 [`@epicenter/svelte`](../svelte/README.md), outside the Folder.
 
 ## Browser storage
@@ -121,7 +125,7 @@ listing, and `withFileNewlines` applies the file's line-ending style.
 saved Markdown at any path for the generic editor and SQL reader. It includes
 schema diagnostics and unreadable paths. The declaration entry owns portable
 schema and saved-view readers; its JSON Schema is generated from the TypeBox
-source. `@epicenter/folder/bun` exports the CLI's `checkFolder`, `readFolder`,
+source. `@epicenter/folder/bun` exports the CLI's `checkFolder`,
 `queryFolder`, `runHistory`, and declaration tools. These tools can read or
 change a directory independently of an opened Folder.
 

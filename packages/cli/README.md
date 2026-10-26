@@ -252,7 +252,8 @@ source, and `fields` is the schema's `kind`, `title`, and `model`, or `null`
 when the row does not read. `set` reads
 `{"fields": {"kind"?, "title"?, "model"?}}` on stdin. The only assignable kind
 is `openai-compatible`. It patches the current row without a source precondition
-and answers the row once its write lands. A new row needs all three fields.
+and answers the row once its write lands. A new row is written with only the
+assigned fields; reads report schema issues until the row is complete.
 Updates keep unnamed keys and the body but write canonical frontmatter, dropping
 comments and ordering declared keys first. Anything else
 on stdin is refused. A refusal is `{"error", "name"}` and exit 2, and the file
