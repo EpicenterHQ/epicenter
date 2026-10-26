@@ -14,11 +14,11 @@ Choose one to three saved expressions to start a chat. Vocab saves the focus bef
 
 Each word card edits its note and stage directly. The note has one local draft per mounted card and saves after a short pause. A stage press saves immediately. Each update sets only its named field over the file as it is when that write takes its turn, so unnamed fields and the Markdown body survive. A lone surrogate in a note becomes U+FFFD. The visible note follows what was typed until that save answers, then follows the file again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
 
-Deleting a word asks first, then removes its path. A failed deletion shows an error toast. The header says Saving… while any write is outstanding and Saved when none is.
+Deleting a word asks first, then removes its path. A failed deletion shows an error toast. The header says Saving… while a write is outstanding and On this device otherwise. A note draft can still be waiting for its short pause when the header says On this device.
 
 ### Repair as text
 
-A word file with invalid frontmatter or fields appears in the repair list. Repair as text opens its exact source in a text draft. The problem list and the Show note and stage control update from the text currently typed, even before a write lands. Pressing that control writes the text explicitly and returns to the structured card only after the write succeeds and the saved row reads as a valid word. A failed action keeps the repair open and shows its error. A read error offers Read again. A failed draft save keeps the typed repair visible with Save again, Discard, and Copy controls. Non-text and unreadable files are named but cannot be opened as text for repair.
+A word file with invalid frontmatter or fields appears in the repair list. Repair as text opens its exact source in a text draft. The problem list and the Show note and stage control update from the text currently typed, even before a write lands. Pressing that control lands any pending draft and returns to the structured card only after the saved row reads as a valid word. A failed action keeps the repair open and shows its error. A read error offers Read again. A failed draft save keeps the typed repair visible with Save again, Discard, and Copy controls. Non-text and unreadable files are named but cannot be opened as text for repair.
 
 ### Leaving the page
 

@@ -1,16 +1,8 @@
-import '../../../../packages/svelte/node_modules/fake-indexeddb/auto/index.mjs';
+import '../../../../packages/folder/node_modules/fake-indexeddb/auto/index.mjs';
 import { openFolder } from '@epicenter/folder/browser';
 import { createFolder, memoryHost } from '@epicenter/folder/testing';
 import { expectOk } from 'wellcrafted/testing';
 import { type VocabFolder, type VocabTables, vocabTables } from './data.js';
-
-export async function until(done: () => boolean, what: string) {
-	for (let attempt = 0; attempt < 1500; attempt++) {
-		if (done()) return;
-		await Bun.sleep(2);
-	}
-	throw new Error(`Timed out waiting for ${what}`);
-}
 
 export async function settle(conversation: {
 	snapshot(): { isGenerating: boolean; isSaving: boolean };

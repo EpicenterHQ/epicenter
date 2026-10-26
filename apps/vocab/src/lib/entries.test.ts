@@ -1,12 +1,13 @@
 import { expect, test } from 'bun:test';
 import { readRow } from '@epicenter/folder';
+import { until } from '@epicenter/folder/testing';
 import { expectOk } from 'wellcrafted/testing';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 
 const { createEntries } = await import('./entries.svelte.js');
 
 import { rowPath, vocabTables } from './data.js';
-import { createMemory, until } from './folder.test-support.js';
+import { createMemory } from './folder.test-support.js';
 
 const raw = (text: string, note = '', stage = 'new') =>
 	`---\ntext: ${text}\nnote: ${note}\nstage: ${stage}\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\nBody`;
@@ -129,7 +130,7 @@ test('an outside invalid edit keeps repair open after a valid draft', async () =
 	await until(() => {
 		const row = folder.tables.entries.row('broken');
 		return row !== undefined && row.issues !== null;
-	}, 'outside invalid row');
+	}, { timeout: 4000 });
 	expect(entries.repair.close(repaired)).toBe(false);
 	expect(entries.repair.open).toBe('broken');
 	await core.close();

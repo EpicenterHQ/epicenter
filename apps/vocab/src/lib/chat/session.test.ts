@@ -1,9 +1,10 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
+import { until } from '@epicenter/folder/testing';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
-import { createMemory, tableFiles, until } from '../folder.test-support.js';
+import { createMemory, tableFiles } from '../folder.test-support.js';
 
 const { createVocabChat } = await import('./session.svelte.js');
 const { createChatMessageStore } = await import('./messages.svelte.js');
@@ -241,7 +242,7 @@ test('a stopped answer is never saved after the rest arrives', async () => {
 	const answering = Promise.withResolvers<void>();
 	context.tutor.held = answering.promise;
 	await context.chat.retry();
-	await until(() => context.chat.streaming !== null, 'partial tutor answer');
+	await until(() => context.chat.streaming !== null, { timeout: 4000 });
 	context.chat.stop();
 	answering.resolve();
 	await Promise.all(context.tutor.answers);
@@ -263,7 +264,7 @@ test('stopping while the learner message saves prevents the tutor start', async 
 	context.host.control.putGate = saving.promise;
 	context.chat.inputValue = 'It was a lucid talk.';
 	const sending = context.chat.sendMessage();
-	await until(() => context.chat.isSaving, 'learner message save');
+	await until(() => context.chat.isSaving, { timeout: 4000 });
 	context.chat.stop();
 	saving.resolve();
 	await sending;

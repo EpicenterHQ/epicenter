@@ -1,13 +1,13 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
+import { until } from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	createBrowser,
 	createMemory,
 	fileText,
 	tableFiles,
-	until,
 } from '../folder.test-support.js';
 
 const { createChatMessageStore, messageId } = await import(
@@ -214,7 +214,7 @@ test('observe fires when another tab adds a message', async () => {
 	await until(() => {
 		flushSync();
 		return changes > 0;
-	}, 'message observation');
+	}, { timeout: 4000 });
 	stop();
 	expect([...store.entries()][0]?.key).toBe('one');
 });
