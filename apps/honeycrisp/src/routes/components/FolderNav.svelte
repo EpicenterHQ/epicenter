@@ -35,20 +35,30 @@
 
 	/** The folder being named: a new one, or an existing one by id. */
 	let naming = $state<{ id: string | undefined; value: string } | undefined>();
+	let savingName = false;
 
 	async function commitName() {
+		if (savingName) return;
 		const current = naming;
-		naming = undefined;
 		const name = current?.value.trim();
-		if (!current || !name) return;
+		if (!current || !name) {
+			naming = undefined;
+			return;
+		}
 		const target = folders.find((folder) => folder.id === current.id);
+		savingName = true;
 		const problem =
 			target === undefined
 				? await notes.createFolder(name)
 				: name === nameOf(target)
 					? undefined
 					: await notes.patchFolder(rowFile(FOLDERS, target.id), { name });
-		if (problem) toast.error('Could not save the folder', { description: problem });
+		savingName = false;
+		if (problem) {
+			toast.error('Could not save the folder', { description: problem });
+			return;
+		}
+		if (naming === current && current.value.trim() === name) naming = undefined;
 	}
 
 	function confirmDeleteFolder(folder: FolderEntry) {

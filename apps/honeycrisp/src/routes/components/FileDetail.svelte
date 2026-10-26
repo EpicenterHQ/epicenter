@@ -6,9 +6,10 @@
 -->
 <script lang="ts">
 	import { InstantString } from '@epicenter/definition';
-	import { basename, withFileNewlines } from '@epicenter/folder/file-browser';
+	import { basename } from '@epicenter/folder/file-browser';
 	import { readRow } from '@epicenter/folder';
-	import { draft } from '@epicenter/svelte/folder';
+	import { fileDraft } from '@epicenter/svelte/folder';
+	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -53,10 +54,7 @@
 	const noteRow = $derived(noteId === undefined ? undefined : folder.tables.notes.row(noteId));
 	const note = $derived(noteRow?.issues === null ? noteRow : undefined);
 	const text = $derived(typeof file?.data === 'string' && file.data.length <= LARGE ? file.data : undefined);
-	const raw = draft(
-		() => text?.replace(/\r\n?/g, '\n') ?? '',
-		(typed) => folder.write(path, withFileNewlines(typed, text ?? '')),
-	);
+	const raw = fileDraft(folder, path);
 	/** Why the text does not read as its row, apart from the file's own state. */
 	const issues = $derived(
 		text === undefined || (noteId === undefined && folderId === undefined)
@@ -64,6 +62,7 @@
 			: readRow(raw.value, noteId !== undefined ? honeycrispTables.notes : honeycrispTables.folders).issues ?? [],
 	);
 	const unreadable = $derived(file?.readError);
+	let switching = $state(false);
 
 	async function report(action: string, result: ReturnType<Notes['patchNote']>) {
 		const problem = await result;
@@ -71,12 +70,15 @@
 	}
 
 	async function openAsNote() {
-		const saved = await folder.write(path, withFileNewlines(raw.value, text ?? ''));
-		if (saved.error !== null) {
-			toast.error('Could not open as note', { description: saved.error.message });
-			return;
+		if (switching) return;
+		switching = true;
+		try {
+			if ((await raw.land()).error !== null) return;
+			if (notes.selected?.path !== path) return;
+			notes.open(path, 'note');
+		} finally {
+			switching = false;
 		}
-		notes.open(path, 'note');
 	}
 
 	/** A file shown as details: its extension names the type, then its size. */
@@ -90,7 +92,7 @@
 	}
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
+<div class="flex h-full min-h-0 flex-col" inert={switching}>
 	{#if noteId !== undefined}
 		<!-- Hidden and inert, rather than unmounted: this file's rich-text history stays here. -->
 		<div class="min-h-0 flex-1" hidden={as !== 'note'} inert={as !== 'note'}>
@@ -128,11 +130,7 @@
 							<Badge variant="destructive">Needs repair</Badge>
 							This text does not read as a {noteId !== undefined ? 'note' : 'folder'} yet. Fix it here; it is checked as you type and saves when you pause.
 						</p>
-						<ul class="space-y-0.5 text-muted-foreground">
-							{#each issues as issue, index (index)}
-							<li>{issue.message}</li>
-							{/each}
-						</ul>
+						<div class="space-y-0.5 text-muted-foreground"><RowIssues {issues} /></div>
 					</div>
 				{/if}
 				<div class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
@@ -143,7 +141,6 @@
 						bind:value={() => raw.value, (typed) => raw.set(typed.toWellFormed())}
 					/>
 				</div>
-				<UnsavedEdit draft={raw} />
 			{:else if file === undefined}
 				<Empty.Root class="flex-1">
 					<Empty.Title>This file is no longer in the folder</Empty.Title>
@@ -170,21 +167,21 @@
 			{/if}
 		</section>
 	{/if}
+	<UnsavedEdit draft={raw} />
 
 	{#if file !== undefined}
 		<div class="shrink-0 space-y-2 border-t px-4 py-2 text-xs text-muted-foreground">
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="min-w-0 flex-1"></span>
 				{#if as === 'note' && note !== undefined}
-					<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" onclick={() => void notes.open(path, 'text')}>Edit as file</Button>
 					{#if typeof note.fields.deletedAt === 'string'}
 						<Button size="sm" variant="outline" onclick={() => report('restore the note', notes.patchNote(path, { deletedAt: null }))}>Restore</Button>
-						<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path)}>Delete permanently</Button>
+						<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path, () => raw.discard())}>Delete permanently</Button>
 					{:else}
 						<Button size="sm" variant="ghost-destructive" onclick={() => report('delete the note', notes.patchNote(path, { deletedAt: InstantString.now() }))}>Move to Recently Deleted</Button>
 					{/if}
 				{:else if as === 'text'}
-					<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path)}>Delete</Button>
+					<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path, () => raw.discard())}>Delete</Button>
 				{/if}
 			</div>
 		</div>

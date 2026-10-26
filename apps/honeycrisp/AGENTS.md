@@ -27,8 +27,8 @@ for the current page flow and verify it against the code.
 - A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
 - Title, Source, and whole-file input pass through `toWellFormed()`. The rich
   editor replaces lone surrogates in its transaction. Note bodies use line
-  feeds (ADR-0572); whole-file editing keeps the file's line endings with
-  `withFileNewlines`.
+  feeds (ADR-0572); whole-file editing uses `fileDraft` to keep the file's
+  line endings.
 - The mirror refreshes from another tab through its change hints. Opening
   reads text files. Read errors offer `refresh()` as Try again.
 - There are no versions or sync. A note that does not parse is listed for
@@ -50,9 +50,8 @@ for the current page flow and verify it against the code.
   directions and tests.
 - The rich editor mount effect depends only on its element and `editable`
   boolean. Reading save or row changes there recreates it and loses history.
-- Switching between independent editors of the same file is immediate. Their
-  briefly stale views are accepted. Actions that require typed text on disk
-  write it explicitly and await the result before proceeding.
+- Switching between the note fields and whole-file editor lands the current
+  drafts first. A failed save keeps the current view open.
 
 ## Lifecycle and boundary
 

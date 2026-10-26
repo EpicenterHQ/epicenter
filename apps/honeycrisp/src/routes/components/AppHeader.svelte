@@ -1,6 +1,6 @@
 <!--
 	The header over the local folder: the app's name, whether
-	everything typed is saved on this device, the theme, and Files. It
+	folder writes are pending, the theme, and Files. It
 	offers no Save version, Sync, or Connect: this storage keeps no versions
 	and syncs nowhere yet.
 -->

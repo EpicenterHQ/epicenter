@@ -41,6 +41,13 @@ test('a clean file view follows another tab save', async () => {
     await shows(() => input()?.value === 'Their text', 'their text');
 });
 
+test('whole-file input replaces lone surrogates before saving', async () => {
+    const { folder, input, shows } = await open();
+    type(input(), 'Half \uD800');
+    await shows(() => folder.file('draft.txt')?.data === 'Half \uFFFD', 'well-formed file');
+    expect(input()?.value).toBe('Half \uFFFD');
+});
+
 test('a file deleted elsewhere shows it is gone', async () => {
     const { remove, shows, target } = await open();
     await remove('draft.txt');

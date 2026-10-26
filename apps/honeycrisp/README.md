@@ -70,15 +70,15 @@ shows only what landed. Pinning and list actions await their saved result.
 A failed draft save keeps the typed value and shows **Not saved** beside the editor
 with **Save again**, **Discard**, and **Copy**. Failed commands report their error
 where the command was used. The header says **Saving…** while writes are pending and
-**Saved** when they finish.
+**On this device** otherwise. An editor may still hold text during its debounce.
 
 A note has **Rich text** and **Source** views of its body. They share one body
 draft in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
-only the title also keeps Undo. **Edit as file** shows the whole text, including
-frontmatter, through its own draft. Switching between the two editors of the
-same file is immediate, so the other editor may briefly show older saved text.
-**Open as note** writes and awaits valid repair text before switching. A different body shown
-in either source view starts a new rich-text history.
+only the title also keeps Undo. **Edit as file** lands the title, folder, and
+body drafts before showing the whole text, including frontmatter. A failed
+save keeps the note view open. **Open as note** lands valid repair text before
+switching. A different body shown in either source view starts a new rich-text
+history.
 
 `<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,
 and closes it on unmount. Drafts send their latest text on pagehide, hidden,
@@ -145,7 +145,7 @@ again**, which refreshes the folder.
 
 | Control | What it does |
 | --- | --- |
-| Status | Whether everything typed is saved in this browser, and where notes are kept. |
+| Status | Whether folder writes are pending, and where notes are kept. |
 | Files (Ctrl+B) | The folder's files: open any file as text, create a file, and delete a file. |
 
 ## Layout
@@ -158,7 +158,7 @@ again**, which refreshes the folder.
 | `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's draft before it is shown, and semantic state replacement when the note's body changes. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: note and folder actions over mirror rows, creates and deletes, and what the detail shows. |
-| `src/lib/status.ts` | The header's save line. |
+| `@epicenter/svelte/status-line` | The header's save line. |
 | `src/routes/+page.svelte` | `<OpenFolder>` over `honeycrispTables`, with `HoneycrispApp` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
 

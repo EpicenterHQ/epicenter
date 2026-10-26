@@ -14,8 +14,9 @@
  */
 import { InstantString } from '@epicenter/definition';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
-import type { WriteError } from '@epicenter/folder';
+import { describeIssues, type WriteError } from '@epicenter/folder';
 import { SvelteSet } from 'svelte/reactivity';
+import { tick } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	FOLDERS,
@@ -33,7 +34,7 @@ import {
 import { nameProblem } from './files.js';
 import type { NotesFolder } from './folder.js';
 import { displayTitle } from './note-source.js';
-import { saveLine } from './status.js';
+import { saveLine } from '@epicenter/svelte/status-line';
 
 export type Notes = ReturnType<typeof createNotes>;
 
@@ -63,9 +64,6 @@ const NOT_A_FOLDER =
 	'This file does not read as a folder. Repair it as text first.';
 const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
 
-const reasonOf = (row: { issues: readonly { message?: string; kind: string }[] }) =>
-	row.issues.map((issue) => issue.message ?? issue.kind).join(' ');
-
 const notText = (row: NoteRow | FolderRow) =>
 	row.issues?.some(
 		(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
@@ -83,7 +81,7 @@ export function repairsOf(rows: readonly NoteRow[]): Problem[] {
 	return rows.flatMap((row) =>
 		row.issues === null || notText(row)
 			? []
-			: [{ path: row.path, message: reasonOf(row) }],
+			: [{ path: row.path, message: describeIssues(row.issues) }],
 	);
 }
 
@@ -95,13 +93,13 @@ export function unreadableOf(
 	return [
 		...notes.flatMap((row) =>
 			row.issues !== null && notText(row)
-				? [{ path: row.path, message: reasonOf(row) }]
+				? [{ path: row.path, message: describeIssues(row.issues) }]
 				: [],
 		),
 		...folders.flatMap((row) =>
 			row.issues === null
 				? []
-				: [{ path: row.path, message: reasonOf(row) }],
+				: [{ path: row.path, message: describeIssues(row.issues) }],
 		),
 	];
 }
@@ -206,9 +204,13 @@ export function createNotes(folder: NotesFolder) {
 	}
 
 	async function deleteConfirmed({ path }: Deletion): Promise<string | undefined> {
+		if (selected?.path === path) {
+			selected = undefined;
+			await tick();
+			await folder.idle();
+		}
 		const problem = failed((await folder.delete(path)).error);
 		if (problem !== undefined) return problem;
-		if (selected?.path === path) selected = undefined;
 		return undefined;
 	}
 
@@ -245,7 +247,7 @@ export function createNotes(folder: NotesFolder) {
 		// State read reactively
 		// ------------------------------------------------------------------
 
-		/** Whether everything typed is saved on this device, as the header says it. */
+		/** Folder writes may be idle while an editor still holds debouncing input. */
 		get saves() {
 			return saveLine(folder.saving);
 		},
