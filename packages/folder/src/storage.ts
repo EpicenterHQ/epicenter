@@ -1,25 +1,22 @@
 /**
- * The folder host lists cheap change stamps, reads file bytes and content
- * versions, and lands unconditional puts. Hints prompt another look.
+ * The folder host lists cheap change stamps, reads file bytes, and lands
+ * unconditional puts. Hints prompt another look.
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import { hashBytes } from './hash.js';
 import type { FolderWatch } from './native/watch.js';
 import { ReadError, SaveError } from './shared/errors.js';
 
 export type Listed = { readonly stamp: string };
 
-/** A read: the file's bytes and identity, or `null` when no file is there. */
+/** A read: the file's bytes and listing stamp, or `null` when absent. */
 export type Fetched = {
 	readonly bytes: Uint8Array;
-	readonly version: string;
 	readonly stamp: string;
 } | null;
 
-/** What landed: the new file's identity, or `null` for a removal. */
+/** What landed: the new file's listing stamp, or `null` for a removal. */
 export type Landed = {
-	readonly version: string;
 	readonly stamp: string;
 } | null;
 
@@ -39,8 +36,7 @@ export type FolderHost = {
 
 /**
  * Adapt directory storage. Its listing stamp is only the file size, so a
- * same-size outside edit needs a named hint to trigger a read. A put hashes
- * its landed bytes here.
+ * same-size outside edit needs a named hint to trigger a read.
  */
 export function storageHost(
 	storage: FolderStorage,
@@ -69,7 +65,6 @@ export function storageHost(
 							path,
 							Ok({
 								bytes: data.bytes,
-								version: data.sha256,
 								stamp: `${data.bytes.length}`,
 							}),
 						);
@@ -94,7 +89,7 @@ export function storageHost(
 					cause: 'Unconditional put was stale',
 				});
 			if (bytes === null) return Ok(null);
-			return Ok({ version: await hashBytes(bytes), stamp: `${bytes.length}` });
+			return Ok({ stamp: `${bytes.length}` });
 		},
 		hints: watch,
 	};

@@ -7,15 +7,15 @@
 import type { TSchema as Schema, Static } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { OpenFolderError } from './errors.js';
+import { applyPatch, declaredKeysOf, type RowPatch } from './patch.js';
 import { invalidTable } from './paths.js';
 import { ReadError, SaveError } from './shared/errors.js';
 import {
 	type Issue as MarkdownIssue,
 	readMarkdown,
 } from './shared/markdown-codec.js';
-import { type WriteError, WriteRefusal } from './write-refusal.js';
-import { applyPatch, declaredKeysOf, type RowPatch } from './patch.js';
 import type { Fetched, FolderHost, Listed } from './storage.js';
+import { type WriteError, WriteRefusal } from './write-refusal.js';
 
 /** A file's contents: text when the bytes are UTF-8, bytes otherwise. */
 export type Data = string | Uint8Array;
@@ -45,19 +45,7 @@ export type RowIssue =
 export type Row<S extends Schema = Schema> = {
 	readonly id: string;
 	readonly path: string;
-} & (
-	| {
-			readonly fields: Static<S>;
-			readonly body: string;
-			readonly issues: null;
-	  }
-	| {
-			/** Raw frontmatter when it parsed but failed the schema. */
-			readonly fields: Record<string, unknown> | undefined;
-			readonly body: string | undefined;
-			readonly issues: readonly [RowIssue, ...RowIssue[]];
-	  }
-);
+} & RowReading<S>;
 /** Fields and the body to set on a row's file as it is when the save runs; a field set to `undefined` is removed. */
 export type Patch<S extends Schema = Schema> = {
 	readonly fields?: Partial<Static<S>>;
@@ -86,6 +74,8 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FolderFile | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
+	/** Wait until no write is queued or out; use after asking editors to flush. */
+	idle(): Promise<void>;
 	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
 	/** Replace the whole file. */
@@ -114,16 +104,11 @@ export type Opened<T extends Tables> = Promise<
 
 type Entry = {
 	value: FolderFile;
-	version: string | null;
 	stamp: string | undefined;
 };
 type Op =
 	| { kind: 'write'; data: Data | null }
 	| { kind: 'create' | 'update'; patch: RowPatch; keys: readonly string[] };
-type Projector = {
-	set(path: string, value: FolderFile | undefined): void;
-	finish(): void;
-};
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
@@ -163,8 +148,6 @@ export async function createFolder<const T extends Tables>(
 	}
 	const landed = new Map<string, Entry>();
 	const listeners = new Set<() => void>();
-	const dirtyProjectors = new Set<Projector>();
-	const projectorsByDirectory = new Map<string, Projector>();
 	let filesSnapshot: readonly FolderFile[] = [];
 	let filesDirty = false;
 	let changed = false;
@@ -173,7 +156,7 @@ export async function createFolder<const T extends Tables>(
 	let phase: 'open' | 'closing' | 'closed' = 'open';
 	let lastTurn = Promise.resolve();
 	let closing: Promise<void> | undefined;
-	const look = { queued: false, relist: false, paths: new Set<string>() };
+	const look = { queued: false, paths: new Set<string>() };
 
 	function takeTurn<TValue>(work: () => Promise<TValue>): Promise<TValue> {
 		const next = lastTurn.then(work);
@@ -198,8 +181,6 @@ export async function createFolder<const T extends Tables>(
 				.map((entry) => entry.value)
 				.sort((a, b) => compare(a.path, b.path));
 		}
-		for (const projector of dirtyProjectors) projector.finish();
-		dirtyProjectors.clear();
 		for (const listener of [...listeners]) listener();
 	}
 
@@ -217,14 +198,6 @@ export async function createFolder<const T extends Tables>(
 		}
 		changed = true;
 		filesDirty = true;
-		const slash = path.indexOf('/');
-		if (slash !== -1) {
-			const projector = projectorsByDirectory.get(path.slice(0, slash));
-			if (projector !== undefined) {
-				projector.set(path, entry?.value);
-				dirtyProjectors.add(projector);
-			}
-		}
 	}
 
 	function applyRead(path: string, result: Result<Fetched, ReadError>) {
@@ -237,7 +210,6 @@ export async function createFolder<const T extends Tables>(
 					data: before?.value.data,
 					readError: result.error,
 				},
-				version: before?.version ?? null,
 				stamp: before?.stamp,
 			});
 			return;
@@ -249,9 +221,11 @@ export async function createFolder<const T extends Tables>(
 				return;
 			return set(path, mediaEntry(path, fetched));
 		}
+		const data = decode(fetched.bytes);
 		if (
-			before?.version === fetched.version &&
-			before.value.readError === null
+			before?.value.readError === null &&
+			before.value.data !== undefined &&
+			sameData(before.value.data, data)
 		) {
 			landed.set(path, { ...before, stamp: fetched.stamp });
 			return;
@@ -260,10 +234,9 @@ export async function createFolder<const T extends Tables>(
 			value: {
 				path,
 				mime: mimeOf(path),
-				data: decode(fetched.bytes),
+				data,
 				readError: null,
 			},
-			version: fetched.version,
 			stamp: fetched.stamp,
 		});
 	}
@@ -342,18 +315,15 @@ export async function createFolder<const T extends Tables>(
 
 	function requestLook(path?: string) {
 		if (phase !== 'open') return;
-		look.relist = true;
 		if (path !== undefined && holdsText(path)) look.paths.add(path);
 		if (look.queued) return;
 		look.queued = true;
 		void takeTurn(async () => {
 			look.queued = false;
 			const paths = [...look.paths];
-			const shouldRelist = look.relist;
 			look.paths.clear();
-			look.relist = false;
 			await readPaths(paths);
-			if (shouldRelist) await relist();
+			await relist();
 		});
 	}
 
@@ -419,7 +389,7 @@ export async function createFolder<const T extends Tables>(
 				sameData(before.data, data)
 					? before
 					: { path, mime: mimeOf(path), data, readError: null };
-			set(path, { value, version: result.version, stamp: result.stamp });
+			set(path, { value, stamp: result.stamp });
 		}
 		publish();
 		return Ok(undefined);
@@ -434,33 +404,39 @@ export async function createFolder<const T extends Tables>(
 			const id = path.slice(prefix.length, -3);
 			return id === '' || id.includes('/') ? undefined : id;
 		};
-		const byId = new Map<string, { from: FolderFile; row: Row<S> }>();
+		const cache = new WeakMap<FolderFile, Row<S>>();
+		let fromFiles: readonly FolderFile[] | undefined;
 		let rowsSnapshot: readonly Row<S>[] = [];
-		let dirty = false;
-		const projector: Projector = {
-			set(path, value) {
-				const id = idOf(path);
-				if (id === undefined) return;
-				if (value === undefined) {
-					if (byId.delete(id)) dirty = true;
-					return;
-				}
-				if (byId.get(id)?.from === value) return;
-				byId.set(id, { from: value, row: rowOf(id, value, schema) });
-				dirty = true;
-			},
-			finish() {
-				if (!dirty) return;
-				dirty = false;
-				rowsSnapshot = [...byId.entries()]
-					.sort(([a], [b]) => compare(a, b))
-					.map(([, value]) => value.row);
-			},
+		const cachedRow = (id: string, file: FolderFile) => {
+			let row = cache.get(file);
+			if (row === undefined) {
+				row = rowOf(id, file, schema);
+				cache.set(file, row);
+			}
+			return row;
 		};
-		projectorsByDirectory.set(directory, projector);
 		return {
-			rows: () => rowsSnapshot,
-			row: (id) => byId.get(id)?.row,
+			rows() {
+				if (fromFiles === filesSnapshot) return rowsSnapshot;
+				fromFiles = filesSnapshot;
+				const rows = filesSnapshot
+					.flatMap((file) => {
+						const id = idOf(file.path);
+						return id === undefined ? [] : [cachedRow(id, file)];
+					})
+					.sort((a, b) => compare(a.id, b.id));
+				if (
+					rows.length !== rowsSnapshot.length ||
+					rows.some((row, index) => row !== rowsSnapshot[index])
+				)
+					rowsSnapshot = rows;
+				return rowsSnapshot;
+			},
+			row(id) {
+				if (invalidId(id)) return undefined;
+				const file = landed.get(pathOf(id))?.value;
+				return file === undefined ? undefined : cachedRow(id, file);
+			},
 			create(id, init) {
 				if (invalidId(id)) return Promise.resolve(SaveError.InvalidId({ id }));
 				return enqueue(pathOf(id), {
@@ -502,6 +478,9 @@ export async function createFolder<const T extends Tables>(
 		files: () => filesSnapshot,
 		file: (path) => landed.get(path)?.value,
 		saving: () => savingSnapshot,
+		async idle() {
+			while (pendingWrites > 0) await lastTurn;
+		},
 		async read(path) {
 			const results = await host
 				.read([path])
@@ -571,6 +550,25 @@ export type RowReading<S extends Schema = Schema> =
 			readonly issues: readonly [RowIssue, ...RowIssue[]];
 	  };
 
+/** A readable sentence for one row issue. */
+export function describeIssue(issue: RowIssue): string {
+	const field = issue.path.length > 0 ? issue.path.join('.') : undefined;
+	const place = [
+		'line' in issue && issue.line !== undefined
+			? `Line ${issue.line}`
+			: undefined,
+		field,
+	].filter((part) => part !== undefined);
+	return place.length === 0
+		? issue.message
+		: `${place.join(': ')}: ${issue.message}`;
+}
+
+/** All row issues in reading order. */
+export function describeIssues(issues: readonly RowIssue[]): string {
+	return issues.map(describeIssue).join(' ');
+}
+
 /**
  * Read row text through `schema`, as the folder copy reads a saved row. For a
  * repair view that checks what is typed before it saves.
@@ -615,7 +613,6 @@ function rowOf<S extends Schema>(
 function mediaEntry(path: string, stat: Listed): Entry {
 	return {
 		value: { path, mime: mimeOf(path), data: undefined, readError: null },
-		version: null,
 		stamp: stat.stamp,
 	};
 }

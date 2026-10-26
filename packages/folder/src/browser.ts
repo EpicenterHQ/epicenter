@@ -1,20 +1,20 @@
 /**
  * `@epicenter/folder/browser`: this web origin's default local folder,
- * kept in IndexedDB as a Git working tree. A blob's oid is both its content
- * version and its change stamp, and other tabs' saves arrive as hints.
+ * kept in IndexedDB as a Git working tree. A blob's oid is its change stamp,
+ * and other tabs' saves arrive as hints.
  */
 import { isTauri } from '@tauri-apps/api/core';
 import { Ok } from 'wellcrafted/result';
 import { openRepository } from './browser/repository.js';
 import { snapshotContent } from './browser/storage.js';
 import { OpenFolderError } from './errors.js';
-import { ReadError } from './shared/errors.js';
 import {
 	createFolder,
 	type Opened,
 	type OpenOptions,
 	type Tables,
 } from './folder.js';
+import { ReadError } from './shared/errors.js';
 import type { Fetched, FolderHost } from './storage.js';
 
 export * from './contract.js';
@@ -69,7 +69,6 @@ function repositoryHost(
 								? null
 								: {
 										bytes: bytes.slice(),
-										version: entry.oid,
 										stamp: entry.oid,
 									};
 						return [path, Ok(fetched)];
@@ -84,11 +83,7 @@ function repositoryHost(
 			const { data, error } = await repository.put(path, bytes);
 			if (error !== null) return { data: null, error };
 			const { landed } = data;
-			return Ok(
-				landed === null
-					? null
-					: { version: landed.version, stamp: landed.version },
-			);
+			return Ok(landed === null ? null : { stamp: landed.version });
 		},
 		hints: (listener) =>
 			repository.onChange(({ paths, origin }) => {

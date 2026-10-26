@@ -8,9 +8,9 @@ import { ReadError, type SaveError } from './shared/errors.js';
 import type { Fetched, FolderHost, Listed } from './storage.js';
 
 export { OpenFolderError } from './errors.js';
+export { createFolder } from './folder.js';
 export { ReadError, SaveError } from './shared/errors.js';
 export { WriteRefusal } from './write-refusal.js';
-export { createFolder } from './folder.js';
 
 const encoder = new TextEncoder();
 
@@ -32,15 +32,12 @@ type StorageControl = {
 
 export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 	let clock = 0;
-	const files = new Map<
-		string,
-		{ bytes: Uint8Array; version: string; stamp: string }
-	>();
+	const files = new Map<string, { bytes: Uint8Array; stamp: string }>();
 	const listeners = new Set<(paths: readonly string[] | null) => void>();
 	const place = (path: string, data: string | Uint8Array) => {
 		const bytes = typeof data === 'string' ? encoder.encode(data) : data;
 		const stamp = `${++clock}`;
-		const file = { bytes, version: `v${stamp}`, stamp: `t${stamp}` };
+		const file = { bytes, stamp: `t${stamp}` };
 		files.set(path, file);
 		return file;
 	};
@@ -82,7 +79,6 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 							? null
 							: {
 									bytes: file.bytes.slice(),
-									version: file.version,
 									stamp: file.stamp,
 								};
 					return [path, Ok(fetched)] as const;
@@ -103,7 +99,7 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 				return Ok(null);
 			}
 			const placed = place(path, bytes);
-			return Ok({ version: placed.version, stamp: placed.stamp });
+			return Ok({ stamp: placed.stamp });
 		},
 		hints(listener) {
 			listeners.add(listener);
@@ -137,4 +133,15 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 export async function tick(ms = 0) {
 	await new Promise((resolve) => setTimeout(resolve, ms));
 	await Promise.resolve();
+}
+
+/** Wait for a condition that is expected to become true asynchronously. */
+export async function until(
+	check: () => boolean,
+	{ timeout = 1000 }: { timeout?: number } = {},
+) {
+	const deadline = Date.now() + timeout;
+	while (!check() && Date.now() < deadline) await tick(2);
+	if (!check())
+		throw new Error(`Condition did not become true within ${timeout} ms`);
 }

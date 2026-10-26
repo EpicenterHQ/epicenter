@@ -6,9 +6,14 @@
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import {
+	createFolder,
+	describeIssue,
+	describeIssues,
+	readRow,
+} from './folder.js';
 import { SaveError } from './shared/errors.js';
-import { createFolder, readRow } from './folder.js';
-import { memoryHost, tick } from './testing.js';
+import { memoryHost, tick, until } from './testing.js';
 
 const tables = {
 	notes: Type.Object({
@@ -82,9 +87,82 @@ describe('opening and rows', () => {
 		expect(notes.row('b')?.issues?.[0]?.kind).toBe('not-text');
 		expect(readRow(note('title: Fixed'), tables.notes).issues).toBeNull();
 	});
+
+	test('a new stamp with unchanged bytes keeps file and row identity', async () => {
+		const source = note('title: A');
+		const { folder, notes, outside } = await setup({ 'notes/a.md': source });
+		const file = folder.file('notes/a.md');
+		const row = notes.row('a');
+		outside('notes/a.md', source);
+		await until(() => notes.row('a') !== undefined && !folder.saving());
+		await folder.refresh();
+		expect(folder.file('notes/a.md')).toBe(file);
+		expect(notes.row('a')).toBe(row);
+	});
+
+	test('a named directory hint relists and discovers a new row', async () => {
+		const memory = memoryHost();
+		let hint: ((paths: readonly string[] | null) => void) | undefined;
+		const folder = expectOk(
+			await createFolder(
+				{
+					...memory.storage,
+					hints(listener) {
+						hint = listener;
+						return () => {};
+					},
+				},
+				{ tables },
+			),
+		);
+		memory.outside('notes/new.md', note('title: New'), { hint: false });
+		hint?.(['notes']);
+		await until(() => folder.tables.notes.row('new') !== undefined);
+		expect(folder.tables.notes.row('new')?.fields?.title).toBe('New');
+	});
+
+	test('describes issue locations and joins issue sentences', () => {
+		const located = {
+			kind: 'schema' as const,
+			line: 3,
+			path: ['title'],
+			message: 'Required',
+		};
+		const general = {
+			kind: 'frontmatter' as const,
+			path: [],
+			message: 'Invalid YAML',
+		};
+		expect(describeIssue(located)).toBe('Line 3: title: Required');
+		expect(describeIssues([located, general])).toBe(
+			'Line 3: title: Required Invalid YAML',
+		);
+	});
 });
 
 describe('one ordered put per write', () => {
+	test('idle waits for the last queued write to land', async () => {
+		const { folder, control, text } = await setup();
+		let release: () => void = () => {};
+		control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const first = folder.write('first.txt', 'First');
+		const second = folder.write('second.txt', 'Second');
+		let idle = false;
+		const barrier = folder.idle().then(() => {
+			idle = true;
+		});
+		await tick();
+		expect(idle).toBe(false);
+		control.putGate = undefined;
+		release();
+		await barrier;
+		expect(idle).toBe(true);
+		expect(text('second.txt')).toBe('Second');
+		expectOk(await first);
+		expectOk(await second);
+	});
 	test('writes each operation in order and resolves after the copy shows it', async () => {
 		const { folder, notes, log, text } = await setup({
 			'notes/a.md': note('title: A'),
