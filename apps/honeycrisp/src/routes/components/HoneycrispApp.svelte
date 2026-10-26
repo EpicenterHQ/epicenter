@@ -23,9 +23,9 @@
 
 	function openListed(path: string) {
 		const id = noteIdOf(path);
-		if (notes.selected?.path === path && notes.selected.as === 'text' &&
+		if (detail && notes.selected?.path === path && notes.selected.as === 'text' &&
 			id !== undefined && notes.folder.tables.notes.row(id)?.issues === null) {
-			void detail?.openAsNote();
+			void detail.openAsNote();
 			return;
 		}
 		notes.open(path);

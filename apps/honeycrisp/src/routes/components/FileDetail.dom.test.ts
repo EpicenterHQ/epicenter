@@ -12,7 +12,9 @@ import { expectOk } from 'wellcrafted/testing';
 import { click, type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { honeycrispTables } from '../../lib/data.js';
 
-Range.prototype.getClientRects ??= () => [] as unknown as ReturnType<Range['getClientRects']>;
+// SAFETY: jsdom has no layout; the empty list supplies only the geometry these tests need.
+Range.prototype.getClientRects ??= () => ({ length: 0, item: () => null }) as DOMRectList;
+// SAFETY: jsdom has no layout; this rectangle stands for an unmeasured range.
 Range.prototype.getBoundingClientRect ??= () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) as DOMRect;
 const { flushSync, mount, unmount } = await import('svelte');
 const { confirmationDialog } = await import('@epicenter/ui/confirmation-dialog');
@@ -31,6 +33,7 @@ async function view(content = noteText({ title: 'Alpha' }), as: 'note' | 'text' 
     fixture.notes.open('notes/a.md', as);
     const target = document.createElement('div');
     document.body.append(target);
+    // SAFETY: Host receives FileDetail's required props through its props object.
     const component = mount(Host, {
         target,
         props: { component: FileDetail as never, props: {
@@ -97,6 +100,7 @@ test('same-file presentation waits for the field write before opening whole-file
     notes.open('notes/a.md', 'note');
     const target = document.createElement('div');
     document.body.append(target);
+    // SAFETY: Host receives FileDetail's required props through its props object.
     const component = mount(Host, { target, props: { component: FileDetail as never, props: {
         notes, path: 'notes/a.md', get as() { return notes.selected?.as ?? 'note'; },
     } } });
@@ -110,7 +114,7 @@ test('same-file presentation waits for the field write before opening whole-file
         flushSync();
         expect(notes.selected?.as).toBe('note');
         expect(target.querySelector<HTMLElement>('section[aria-label="Note"]')?.inert).toBe(true);
-        release();
+        release?.();
         memory.control.putGate = undefined;
         await until(() => { flushSync(); return notes.selected?.as === 'text'; }, 'file presentation');
         const source = target.querySelector<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]');
@@ -122,7 +126,7 @@ test('same-file presentation waits for the field write before opening whole-file
         flushSync();
         expect(notes.selected?.as).toBe('text');
         expect(target.querySelector<HTMLElement>('section[aria-label="File"]')?.inert).toBe(true);
-        release();
+        release?.();
         memory.control.putGate = undefined;
         await until(() => { flushSync(); return notes.selected?.as === 'note'; }, 'note presentation');
         expect(target.querySelector<HTMLInputElement>('input[aria-label="Title"]')?.value).toBe('From source');
