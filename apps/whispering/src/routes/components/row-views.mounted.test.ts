@@ -246,7 +246,7 @@ test('a whole-file text draft recreates a file deleted outside the mirror', asyn
 	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]')?.value).toBe('Recreated');
 });
 
-test('switching a recording to Source is immediate and follows its title when the save lands', async () => {
+test('switching a recording to Source waits for its title to land', async () => {
 	const { folder, whispering, target, host } = await open(
 		{ [RECORDING]: recording('Before', '') },
 		'recordings',
@@ -262,7 +262,8 @@ test('switching a recording to Source is immediate and follows its title when th
 	);
 	sourceTab?.click();
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="Markdown source"]')).not.toBeNull();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
+	expect(target.querySelector<HTMLElement>('[data-testid="recording-detail"]')?.inert).toBe(true);
 	host!.control.putGate = undefined;
 	release.resolve();
 	await eventually(() => {
@@ -274,6 +275,90 @@ test('switching a recording to Source is immediate and follows its title when th
 		flushSync();
 		return field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]')?.value.includes('title: Latest') === true;
 	});
+	const source = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]');
+	const back = [...target.querySelectorAll<HTMLButtonElement>('button')].find(
+		(item) => item.textContent?.trim() === 'Details',
+	);
+	const second = deferred<void>();
+	host!.control.putGate = second.promise;
+	type(source, recording('From source', 'Notes\n'));
+	await eventually(() => host!.log.puts.length === 2);
+	back?.click();
+	flushSync();
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]')).not.toBeNull();
+	second.resolve();
+	host!.control.putGate = undefined;
+	await eventually(() => {
+		flushSync();
+		return field<HTMLInputElement>(target, 'input[aria-label="Recording title"]')?.value === 'From source';
+	});
+});
+
+test('failed recording title save keeps Details and its unsaved title visible', async () => {
+	const { folder, whispering, target, host } = await open(
+		{ [RECORDING]: recording('Before', '') }, 'recordings', { memory: true },
+	);
+	await show(whispering, folder, RECORDING);
+	host!.control.failPut.set(RECORDING, SaveError.StorageFailed({ cause: 'disk full' }).error);
+	type(field<HTMLInputElement>(target, 'input[aria-label="Recording title"]'), 'Unsaved');
+	[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === 'Source')?.click();
+	await eventually(() => { flushSync(); return target.textContent?.includes('Not saved:') === true; });
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]')).toBeNull();
+	expect(field<HTMLInputElement>(target, 'input[aria-label="Recording title"]')?.value).toBe('Unsaved');
+});
+
+test('transcript body lands before its whole-file editor opens and failed source stays visible', async () => {
+	const { folder, whispering, target, host } = await open(
+		{ [A]: transcript('Before\n') }, 'recordings', { memory: true },
+	);
+	await show(whispering, folder, A);
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
+	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]'), 'Landed\n');
+	await eventually(() => host!.log.puts.length === 1);
+	[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === 'Edit the whole file')?.click();
+	flushSync();
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]')?.value).toBe('Landed\n');
+	expect(target.querySelector<HTMLElement>('section[aria-label="File"]')?.inert).toBe(true);
+	release.resolve();
+	host!.control.putGate = undefined;
+	await eventually(() => {
+		flushSync();
+		return whispering.showsText(A) && field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]')?.value.includes('Landed\n') === true;
+	});
+	host!.control.failPut.set(A, SaveError.StorageFailed({ cause: 'disk full' }).error);
+	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]'), transcript('Unsaved\n'));
+	[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === 'Edit the text only')?.click();
+	await eventually(() => { flushSync(); return target.textContent?.includes('Not saved:') === true; });
+	expect(whispering.showsText(A)).toBe(true);
+	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]')?.value).toContain('Unsaved\n');
+});
+
+test('transformation fields land before Source and a failed source stays open', async () => {
+	const { folder, whispering, target, host } = await open(
+		{ [RECIPE]: '---\ntitle: Before\nmodel: null\n---\nTidy.\n' }, 'transformations', { memory: true },
+	);
+	await show(whispering, folder, RECIPE);
+	const release = deferred<void>();
+	host!.control.putGate = release.promise;
+	type(field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]'), 'Landed instructions\n');
+	await eventually(() => host!.log.puts.length === 1);
+	[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === 'Source')?.click();
+	flushSync();
+	expect(field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')?.value).toBe('Landed instructions\n');
+	expect(target.querySelector<HTMLElement>('[data-testid="transformation-detail"]')?.inert).toBe(true);
+	release.resolve();
+	host!.control.putGate = undefined;
+	await eventually(() => {
+		flushSync();
+		return field<HTMLTextAreaElement>(target, '[data-testid="transformation-source"]')?.value.includes('Landed instructions') === true;
+	});
+	host!.control.failPut.set(RECIPE, SaveError.StorageFailed({ cause: 'disk full' }).error);
+	type(field<HTMLTextAreaElement>(target, '[data-testid="transformation-source"]'), '---\ntitle: Unsaved\nmodel: null\n---\nText\n');
+	field<HTMLButtonElement>(target, '[data-testid="tab-instructions"]')?.click();
+	await eventually(() => { flushSync(); return target.textContent?.includes('Not saved:') === true; });
+	expect(field<HTMLTextAreaElement>(target, '[data-testid="transformation-source"]')?.value).toContain('Unsaved');
+	expect(field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]')).toBeNull();
 });
 
 test('a change made elsewhere shows once the folder looks again', async () => {
