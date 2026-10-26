@@ -276,15 +276,26 @@ test('a row whose frontmatter does not parse is answered with its issues, and a 
 	}
 });
 
-test('a missing row needs all three fields and writes nothing when they are incomplete', async () => {
+test('a missing row saves assigned fields and reads with issues until completed', async () => {
 	const { run, rowFile } = await setup();
-	const refused = await run(['set', 'text'], { fields: { model: 'm' } });
-	expect(refused.code).toBe(2);
-	expect(refused.reply.name).toBe('InvalidInput');
-	expect(refused.reply.error).toContain(
-		'a new connection row needs kind, title, and model',
-	);
-	expect(existsSync(rowFile())).toBe(false);
+	const saved = await run(['set', 'text'], { fields: { model: 'm' } });
+	expect(saved.code).toBe(0);
+	const text = '---\nmodel: m\n---\n';
+	expect(await readFile(rowFile(), 'utf8')).toBe(text);
+	expect(saved.reply.row.text).toBe(text);
+	expect(saved.reply.row.fields).toBeNull();
+	expect(saved.reply.row.issues[0].kind).toBe('schema');
+	expect((await run(['read', 'text'])).reply).toEqual(saved.reply);
+	const repaired = await run(['set', 'text'], {
+		fields: { kind: 'openai-compatible', title: 'Text' },
+	});
+	expect(repaired.code).toBe(0);
+	expect(repaired.reply.row.issues).toBeNull();
+	expect(repaired.reply.row.fields).toEqual({
+		kind: 'openai-compatible',
+		title: 'Text',
+		model: 'm',
+	});
 });
 
 test('an unreadable row answers ReadFailed before a save attempts a write', async () => {

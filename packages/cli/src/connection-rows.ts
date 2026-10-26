@@ -178,13 +178,9 @@ export async function setConnectionRow(
 		const existing = folder.tables.connections.row(id);
 		let saved: Awaited<ReturnType<typeof folder.tables.connections.create>>;
 		if (existing === undefined) {
-			const { kind, title, model } = fields;
-			if (kind === undefined || title === undefined || model === undefined)
-				return ConnectionRowError.InvalidInput({
-					reason: 'a new connection row needs kind, title, and model',
-				});
 			saved = await folder.tables.connections.create(id, {
-				fields: { kind, title, model },
+				// SAFETY: incomplete rows are saved for later repair and read with schema issues.
+				fields: fields as NonNullable<ConnectionRow['fields']>,
 			});
 			if (saved.error?.name === 'Exists')
 				saved = await folder.tables.connections.update(id, { fields });
