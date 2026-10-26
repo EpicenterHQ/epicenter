@@ -39,7 +39,7 @@ reads every text file, so every read after that is synchronous and complete:
 `folder.tables.recordings.rows`, `folder.file(path)`, `folder.files`. Audio
 and other files the mirror does not keep are listed with no data, and a view
 fetches their bytes with `folder.read(path)`. Every write
-(`write`, `update`, `delete`, `tables.<table>.create`, `.update`, `.delete`)
+(`write`, `update`, `move`, `delete`, `tables.<table>.create`, `.update`, `.delete`)
 answers once it landed and the mirror shows it. The mirror never runs ahead
 of the disk; the one thing that does is what a person is typing, which each
 editor keeps in a draft (`draft` from `@epicenter/svelte/folder`).
@@ -496,10 +496,10 @@ paid endpoint possibly one more charge. This applies to transcription too.
 
 ### Saving
 
-Text edits send after a short pause, on this device. The header says
+Text edits enter the folder's write queue as you type, on this device. The
+header says
 **Saving…** while a write is waiting or being saved and **On this device**
-while the folder is idle. A draft can still be waiting to send while the folder
-is idle, so the header does not claim everything is saved. Whispering keeps no history and does not sync
+while the folder is idle. Whispering keeps no history and does not sync
 its folder. Save version, Connect, and Sync are not in this build.
 
 - Terminal commands and other programs edit the files directly.
@@ -507,7 +507,7 @@ its folder. Save version, Connect, and Sync are not in this build.
   visible or hidden, comes back online, and before the page hides; the desktop
   watcher and another browser tab's saves make it look at once. What it finds
   shows everywhere it is listed.
-- Folder writes run in one queue. A draft debounces typing for one second;
+- Folder writes run in one queue. Each typed value enters it immediately;
   `update` applies its named fields over the file when its turn comes
   (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
@@ -589,23 +589,23 @@ the tab loses a browser recording in progress.
 
 ### Editing
 
-Text changes are written after a short pause in typing: a recording's title and
+Text changes enter the write queue as you type: a recording's title and
 notes, a transcript, a transformation's fields, and any text file opened from
 Files. There is no save button during ordinary editing. Each text field is a
 draft: it shows what you typed until that text's save succeeds, then shows the
 file again, which by then holds what landed. A failed save keeps the draft
 visible until you retry or discard it. The lists show a row once it is saved.
 
-- Folder writes take turns. A draft waits for its previous timed save before
-  sending a newer one, and sends its latest value when its editor closes.
+- Folder writes take turns. An edit queued before a later file action runs first,
+  even if its editor closes before that action finishes.
 - A field, a body, or a title sets only what it names over the file as it is
   when the save runs, so another program's change to the rest of the file is
   kept. Source writes the whole text as typed.
 - A save that does not land keeps the typed value in its editor with **Save
   again**, **Discard**, and **Copy**. Nothing is retried on its own.
-- Opening Source switches editors immediately; it follows the folder as saves
-  land, so it can briefly show older text. Returning to fields writes the shown
-  Source text first and stays in Source if that write fails.
+- Opening Source or returning to fields switches editors immediately. The new
+  view follows the folder as queued saves land, so it can briefly show older text.
+  A failed edit stays available in its detail view until you leave that view.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.
@@ -641,11 +641,10 @@ refuses while work for that recording runs or an unreadable result cannot say
 which recording it belongs to. Repair or remove those files first.
 
 Files lists files. Directories appear while files are in them, so Files creates
-files rather than empty folders. Rename copies the file as the folder shows it,
-or its bytes for a file the folder does not keep, to the new name and then
-deletes the old path. Text pending in an open editor is written and awaited
-before the copy. If the original changes while the copy is out, both files are kept
-and the notice names them.
+files rather than empty folders. Rename moves the file at its turn in the
+folder's write queue, after edits already typed. It reads the source then,
+creates the new path only if absent, and removes the old one. If removal fails,
+both files remain and the notice names them.
 
 ## Fixture audio
 
