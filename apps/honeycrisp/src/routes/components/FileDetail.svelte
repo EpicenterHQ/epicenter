@@ -62,23 +62,15 @@
 			: readRow(raw.value, noteId !== undefined ? honeycrispTables.notes : honeycrispTables.folders).issues ?? [],
 	);
 	const unreadable = $derived(file?.readError);
-	let switching = $state(false);
 
 	async function report(action: string, result: ReturnType<Notes['patchNote']>) {
 		const problem = await result;
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
 	}
 
-	async function openAsNote() {
-		if (switching) return;
-		switching = true;
-		try {
-			if ((await raw.land()).error !== null) return;
-			if (notes.selected?.path !== path) return;
-			notes.open(path, 'note');
-		} finally {
-			switching = false;
-		}
+	function openAsNote() {
+		if (notes.selected?.path !== path) return;
+		notes.open(path, 'note');
 	}
 
 	/** A file shown as details: its extension names the type, then its size. */
@@ -92,7 +84,7 @@
 	}
 </script>
 
-<div class="flex h-full min-h-0 flex-col" inert={switching}>
+<div class="flex h-full min-h-0 flex-col">
 	{#if noteId !== undefined}
 		<!-- Hidden and inert, rather than unmounted: this file's rich-text history stays here. -->
 		<div class="min-h-0 flex-1" hidden={as !== 'note'} inert={as !== 'note'}>
@@ -113,7 +105,7 @@
 						variant="outline"
 						disabled={issues.length > 0}
 						tooltip={issues.length > 0 ? 'Fix the text first' : undefined}
-						onclick={() => void openAsNote()}
+						onclick={openAsNote}
 					>
 						Open as note
 					</Button>
@@ -128,7 +120,7 @@
 					<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
 						<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 							<Badge variant="destructive">Needs repair</Badge>
-							This text does not read as a {noteId !== undefined ? 'note' : 'folder'} yet. Fix it here; it is checked as you type and saves when you pause.
+							This text does not read as a {noteId !== undefined ? 'note' : 'folder'} yet. Fix it here; it is checked as you type and saves automatically.
 						</p>
 						<div class="space-y-0.5 text-muted-foreground"><RowIssues {issues} /></div>
 					</div>
@@ -176,12 +168,12 @@
 				{#if as === 'note' && note !== undefined}
 					{#if typeof note.fields.deletedAt === 'string'}
 						<Button size="sm" variant="outline" onclick={() => report('restore the note', notes.patchNote(path, { deletedAt: null }))}>Restore</Button>
-						<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path, () => raw.discard())}>Delete permanently</Button>
+						<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path)}>Delete permanently</Button>
 					{:else}
 						<Button size="sm" variant="ghost-destructive" onclick={() => report('delete the note', notes.patchNote(path, { deletedAt: InstantString.now() }))}>Move to Recently Deleted</Button>
 					{/if}
 				{:else if as === 'text'}
-					<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path, () => raw.discard())}>Delete</Button>
+					<Button size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(notes, path)}>Delete</Button>
 				{/if}
 			</div>
 		</div>

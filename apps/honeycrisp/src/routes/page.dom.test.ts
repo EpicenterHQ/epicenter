@@ -98,7 +98,7 @@ test('invalid note repairs as file and opens as note when typed text validates',
     expect(seed.file('notes/a.md')?.data).toBe(noteText());
 });
 
-test('failed repair write keeps the file editor open', async () => {
+test('failed repair write leaves the unsaved text available after switching views', async () => {
     globalThis.indexedDB = new IDBFactory();
     const seed = await tab();
     expectOk(await seed.write('notes/a.md', 'plain text\n'));
@@ -106,14 +106,18 @@ test('failed repair write keeps the file editor open', async () => {
     await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'repair listing');
     page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
     await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor');
-    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), noteText());
-    flushSync();
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
     cleanups.push(() => { IDBObjectStore.prototype.put = put; });
+    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), noteText());
+    flushSync();
     button(page.target, 'Open as note').click();
     await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'repair failure');
-    expect(page.target.querySelector('textarea[aria-label="Contents of a.md"]')).not.toBeNull();
+    expect(page.target.querySelector('textarea[aria-label="Contents of a.md"]')).toBeNull();
+    expect(page.target.textContent).toContain('Needs repair');
+    button(page.target, 'Repair as text').click();
+    flushSync();
+    expect(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toBe(noteText());
     expect(seed.file('notes/a.md')?.data).toBe('plain text\n');
 });
 

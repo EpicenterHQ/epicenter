@@ -54,13 +54,16 @@ test('a file deleted elsewhere shows it is gone', async () => {
     await shows(() => target.textContent?.includes('no longer in the folder') ?? false, 'deletion');
 });
 
-test('a whole-file draft recreates a file deleted elsewhere', async () => {
+test('a whole-file edit queued before outside deletion does not recreate the file', async () => {
     const { remove, folder, input, shows, target } = await open();
-    type(input(), 'Recreated');
+    type(input(), 'Saved before deletion');
+    await folder.idle();
+    expect(folder.file('draft.txt')?.data).toBe('Saved before deletion');
     await remove('draft.txt');
-    await shows(() => target.textContent?.includes('no longer in the folder') ?? false, 'deletion before draft save');
-    await shows(() => folder.file('draft.txt')?.data === 'Recreated', 'draft recreation');
-    expect(input()?.value).toBe('Recreated');
+    await shows(() => target.textContent?.includes('no longer in the folder') ?? false, 'outside deletion');
+    await folder.idle();
+    expect(folder.file('draft.txt')).toBeUndefined();
+    expect(input()).toBeNull();
 });
 
 test('text larger than 1 MB is listed without an editor', async () => {
