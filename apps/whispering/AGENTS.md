@@ -72,11 +72,12 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 - **Recording audio is a supported same-stem sibling of its Markdown file.**
   Store no audio path in recording metadata. Refuse ambiguous matches. Do not
   add alternate path readers or migrations. Deleting a row keeps its audio.
-- **A saved status follows the folder.** The header says Saving… from
-  `folder.saving` and Saved once nothing waits, beside the count of answers
+- **The header reports folder activity.** It says Saving… from
+  `folder.saving` and On this device while idle, beside the count of answers
   not written. The caller holding a command's `Saved` presents its failure
   once. A failed editor draft keeps the typed value and shows Save again,
-  Discard, and Copy beside its input. The app has no per-file save line.
+  Discard, and Copy beside its input. An idle folder cannot see a draft still
+  waiting to send, so the header makes no saved claim. The app has no per-file save line.
 - **A recording is in the folder from its start, and its row holds facts
   only** (ADR-0543). The row is created when recording starts; explicit Stop
   writes its length while the page lives. Native departure preserves the WAV
