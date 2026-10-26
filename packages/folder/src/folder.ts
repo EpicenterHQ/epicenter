@@ -119,6 +119,31 @@ type PendingWrite = {
 };
 type WaitingWrite = { turn: PendingWrite; saved: Saved };
 
+/**
+ * A waiting write absorbs a newer one for the same file when landing the
+ * newer alone gives the same file: a whole-file write keeps the newest data,
+ * and two updates through the same schema apply their patches together.
+ * Anything else waits its own turn.
+ */
+function absorb(waiting: Op, next: Op): Op | undefined {
+	if (waiting.kind === 'write' && next.kind === 'write') return next;
+	if (
+		waiting.kind === 'update' &&
+		next.kind === 'update' &&
+		waiting.keys.length === next.keys.length &&
+		waiting.keys.every((key, index) => key === next.keys[index])
+	)
+		return {
+			kind: 'update',
+			keys: waiting.keys,
+			patch: {
+				fields: { ...waiting.patch.fields, ...next.patch.fields },
+				body: next.patch.body ?? waiting.patch.body,
+			},
+		};
+	return undefined;
+}
+
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
 const keptExtensions = new Set([
@@ -350,28 +375,13 @@ export async function createFolder<const T extends Tables>(
 		if (phase !== 'open') return Promise.resolve(WriteRefusal.Closed());
 		if (op.kind === 'move') waitingWrites.delete(op.to);
 		const waiting = waitingWrites.get(path);
-		if (waiting !== undefined && !waiting.turn.started) {
-			const previous = waiting.turn.op;
-			if (previous.kind === 'write' && op.kind === 'write') {
-				waiting.turn.op = op;
-				return waiting.saved;
-			}
-			if (
-				previous.kind === 'update' &&
-				op.kind === 'update' &&
-				previous.keys.length === op.keys.length &&
-				previous.keys.every((key, index) => key === op.keys[index])
-			) {
-				waiting.turn.op = {
-					kind: 'update',
-					keys: previous.keys,
-					patch: {
-						fields: { ...previous.patch.fields, ...op.patch.fields },
-						body: op.patch.body ?? previous.patch.body,
-					},
-				};
-				return waiting.saved;
-			}
+		const absorbed =
+			waiting === undefined || waiting.turn.started
+				? undefined
+				: absorb(waiting.turn.op, op);
+		if (waiting !== undefined && absorbed !== undefined) {
+			waiting.turn.op = absorbed;
+			return waiting.saved;
 		}
 		pendingWrites++;
 		publish();
