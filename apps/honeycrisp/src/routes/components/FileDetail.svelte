@@ -73,7 +73,7 @@
 		if (switching || notes.selected?.path !== path) return;
 		switching = true;
 		const { error } = await raw.landed();
-		if (error !== null || notes.selected?.path !== path) {
+		if (error !== null || issues.length > 0 || notes.selected?.path !== path) {
 			switching = false;
 			return;
 		}

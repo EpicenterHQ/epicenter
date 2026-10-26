@@ -140,6 +140,24 @@ test('selecting the same note from the list keeps a failed text edit visible', a
     expect(page.target.querySelector('section[aria-label="File"]')).not.toBeNull();
 });
 
+test('selecting the same note keeps invalid landed text open for repair', async () => {
+    globalThis.indexedDB = new IDBFactory();
+    const seed = await tab();
+    expectOk(await seed.write('notes/a.md', noteText({ title: 'Disk' })));
+    const page = await openPage();
+    await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'note listing');
+    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
+    await until(() => page.target.querySelector(TITLE) !== null, 'note title');
+    button(page.target, 'Edit as file').click();
+    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor');
+    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), 'invalid note\n');
+    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
+    await until(() => seed.file('notes/a.md')?.data === 'invalid note\n', 'invalid text save');
+    flushSync();
+    expect(page.target.querySelector('section[aria-label="File"]')).not.toBeNull();
+    expect(page.target.textContent).toContain('Needs repair');
+});
+
 test('failed title save keeps input for retry and discard', async () => {
     globalThis.indexedDB = new IDBFactory();
     const seed = await tab();
