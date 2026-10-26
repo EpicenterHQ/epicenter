@@ -103,6 +103,7 @@ export function editingPlugins(): Plugin[] {
 			'Mod-e': toggleMark(noteSchema.marks.code),
 			'Mod-Shift-b': toggleQuote,
 			'Shift-Enter': hardBreak,
+			// SAFETY: the base keymap defines Enter as a ProseMirror command.
 			Enter: chainCommands(
 				splitListItem(noteSchema.nodes.taskItem),
 				splitListItem(noteSchema.nodes.list_item),
@@ -124,6 +125,7 @@ export function editingPlugins(): Plugin[] {
 					/^(#{1,3})\s$/,
 					noteSchema.nodes.heading,
 					(match) => ({
+						// SAFETY: the matched heading pattern always captures its hash prefix.
 						level: (match[1] as string).length,
 					}),
 				),

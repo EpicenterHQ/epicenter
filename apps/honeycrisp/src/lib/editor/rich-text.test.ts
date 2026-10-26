@@ -43,7 +43,7 @@ import {
 	TextSelection,
 	type Transaction,
 } from 'prosemirror-state';
-import type { EditorView } from 'prosemirror-view';
+import { EditorView } from 'prosemirror-view';
 import { expectOk } from 'wellcrafted/testing';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
 import { noteSchema } from './schema.js';
@@ -67,44 +67,53 @@ const PATH = 'notes/a.md';
 
 /** The notes state over a folder holding one note with `text`, open as a note. */
 async function noteOver(text: string) {
-    const fixture = await openNotes();
-    cleanup.push(() => fixture.close());
-    await fixture.write(PATH, text);
-    const { notes } = fixture;
-    notes.open(PATH);
-    const table = notes.folder.tables.notes;
-    let writes = 0;
-    let pending: Promise<unknown> = Promise.resolve();
-    const failures: string[] = [];
-    let typed: string | undefined;
-    const note = {
-        read: () => noteBody(table.row('a')) === undefined ? undefined : typed ?? noteBody(table.row('a')),
-        write(value: string) {
-            typed = value;
-            writes++;
-            pending = table.update('a', { body: value }).then(({ error }) => {
-                if (error !== null) failures.push(error.message);
-                else if (typed === value) typed = undefined;
-            });
-        },
-    };
-    return {
-        fixture, notes, note,
-        failures: () => failures,
-        edit: () => {
-            const row = table.row('a');
-            if (row?.issues !== null || row === undefined) throw new Error('The note does not read as one');
-            return { ...row, body: note.read() ?? row.body };
-        },
-        saved: async () => { await pending; await quiet(notes); },
-        writes: () => writes,
-        stored: () => fixture.text(PATH),
-        theirs: async (body: string) => {
-            const tab = await fixture.otherTab();
-            expectOk(await tab.tables.notes.update('a', { body }));
-            await until(() => table.row('a')?.body === body, 'outside body');
-        },
-    };
+	const fixture = await openNotes();
+	cleanup.push(() => fixture.close());
+	await fixture.write(PATH, text);
+	const { notes } = fixture;
+	notes.open(PATH);
+	const table = notes.folder.tables.notes;
+	let writes = 0;
+	let pending: Promise<unknown> = Promise.resolve();
+	const failures: string[] = [];
+	let typed: string | undefined;
+	const note = {
+		read: () =>
+			noteBody(table.row('a')) === undefined
+				? undefined
+				: (typed ?? noteBody(table.row('a'))),
+		write(value: string) {
+			typed = value;
+			writes++;
+			pending = table.update('a', { body: value }).then(({ error }) => {
+				if (error !== null) failures.push(error.message);
+				else if (typed === value) typed = undefined;
+			});
+		},
+	};
+	return {
+		fixture,
+		notes,
+		note,
+		failures: () => failures,
+		edit: () => {
+			const row = table.row('a');
+			if (row?.issues !== null || row === undefined)
+				throw new Error('The note does not read as one');
+			return { ...row, body: note.read() ?? row.body };
+		},
+		saved: async () => {
+			await pending;
+			await quiet(notes);
+		},
+		writes: () => writes,
+		stored: () => fixture.text(PATH),
+		theirs: async (body: string) => {
+			const tab = await fixture.otherTab();
+			expectOk(await tab.tables.notes.update('a', { body }));
+			await until(() => table.row('a')?.body === body, 'outside body');
+		},
+	};
 }
 
 /** One rich-text view over `body`, as the view holds it, and its note. */
@@ -146,6 +155,7 @@ async function open(
 		});
 	/** A key, through the view's keymaps in order, as the view delivers it. */
 	const press = (key: string, { shift = false } = {}) => {
+		// SAFETY: the test supplies the keyboard fields used by the keymap.
 		const event = {
 			key,
 			shiftKey: shift,
@@ -154,12 +164,11 @@ async function open(
 			metaKey: false,
 			keyCode: 0,
 		} as KeyboardEvent;
-		const view = {
-			get state() {
-				return state;
-			},
-			dispatch,
-		} as unknown as EditorView;
+		// SAFETY: the keymap reads only state and dispatch from this test view.
+		const view = Object.create(EditorView.prototype, {
+			state: { get: () => state },
+			dispatch: { value: dispatch },
+		}) as EditorView;
 		const handled = state.plugins.some((plugin) =>
 			plugin.props.handleKeyDown?.call(plugin, view, event),
 		);
@@ -306,10 +315,12 @@ describe('every displayed edit is in the note', () => {
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
 		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
-		const { type, end, body, saved, failures, stored, writes } =
-			await open('', {
+		const { type, end, body, saved, failures, stored, writes } = await open(
+			'',
+			{
 				text: crlf,
-			});
+			},
+		);
 		expect(body()).toBe('\none\n\ntwo\n');
 		expect(crlf).toContain('\r\none\r\n\r\ntwo\r\n');
 		expect(writes()).toBe(0);
@@ -338,8 +349,6 @@ describe('every displayed edit is in the note', () => {
 		await saved();
 		expect(writes()).toBe(0);
 	});
-
-
 });
 
 describe('an edit that cannot be written', () => {
@@ -397,10 +406,6 @@ describe('an edit that cannot be written', () => {
 		expect(body()).toBe('Body.\n');
 		expectNoteHoldsScreen();
 	});
-
-
-
-
 });
 
 describe('undo history', () => {
@@ -554,7 +559,8 @@ describe('the editor follows the note', () => {
 	});
 
 	test('a failed save keeps the typed body and rich editor state', async () => {
-		const { fixture, type, end, saved, follow, body, failures, ...view } = await open('one\n');
+		const { fixture, type, end, saved, follow, body, failures, ...view } =
+			await open('one\n');
 		fixture.failSaves();
 		end();
 		type('!');
@@ -567,6 +573,4 @@ describe('the editor follows the note', () => {
 		expect(view.shown()).toBe(typed);
 		expect(undoDepth(view.shown())).toBe(1);
 	});
-
-
 });
