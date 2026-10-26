@@ -2,7 +2,7 @@
  * Hold a desktop window's close until the page's writes land.
  *
  * A Tauri window, unlike a browser tab, can wait: the first close request
- * sends what drafts hold, waits for the writes, then destroys the window. The
+ * waits for queued writes, then destroys the window. The
  * page shows "Saving…" meanwhile. Closing again while it waits asks whether to
  * close anyway, so a save that never answers cannot trap the window. One guard
  * owns a window, because Tauri runs each close listener on its own.
@@ -14,11 +14,6 @@ import { createLogger } from 'wellcrafted/logger';
 const log = createLogger('svelte/window-close');
 // Tauri runs each close listener on its own, so a window holds one at a time.
 let held = false;
-
-/** Let the page's `beforeunload` listeners send what they hold, as a browser would before leaving. */
-function sendPending() {
-	window.dispatchEvent(new Event('beforeunload', { cancelable: true }));
-}
 
 async function askToClose() {
 	const { ask } = await import('@tauri-apps/plugin-dialog');
@@ -77,7 +72,6 @@ export async function holdWindowClose(
 			phase = 'waiting';
 			wasInert = document.documentElement.inert;
 			document.documentElement.inert = true;
-			sendPending();
 			try {
 				await drain();
 			} catch (cause) {

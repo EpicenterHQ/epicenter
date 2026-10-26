@@ -1,5 +1,5 @@
 /**
- * The desktop close guard lets the page send what it holds, waits for its
+ * The desktop close guard waits for queued writes,
  * writes, and destroys once; closing again while it waits asks whether to
  * close anyway. One window holds one close listener.
  */
@@ -102,7 +102,7 @@ test('successful destruction drains once and stays inert', async () => {
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
-test('a close sends what the page holds, waits for its writes, and asks nothing', async () => {
+test('a close waits for queued writes without dispatching beforeunload', async () => {
 	desktop(true);
 	const sent: string[] = [];
 	const listener = () => sent.push('beforeunload');
@@ -114,7 +114,7 @@ test('a close sends what the page holds, waits for its writes, and asks nothing'
 		}),
 	);
 	await requestClose();
-	expect(sent).toEqual(['beforeunload', 'drain']);
+	expect(sent).toEqual(['drain']);
 	expect(ask).not.toHaveBeenCalled();
 	expect(nativeWindow.destroyed).toBe(1);
 });

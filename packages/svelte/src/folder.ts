@@ -51,6 +51,7 @@ export type SvelteFolder<T extends Tables = Tables> = {
 	read: Folder<T>['read'];
 	write(path: string, data: Data): Saved;
 	update: Folder<T>['update'];
+	move: Folder<T>['move'];
 	delete(path: string): Saved;
 	readonly tables: { readonly [K in keyof T]: SvelteTable<T[K]> };
 	refresh(): Promise<void>;
@@ -84,6 +85,7 @@ export function svelteFolder<const T extends Tables>(
 		read: folder.read,
 		write: folder.write,
 		update: folder.update,
+		move: folder.move,
 		delete: folder.delete,
 		idle: folder.idle,
 		refresh: folder.refresh,

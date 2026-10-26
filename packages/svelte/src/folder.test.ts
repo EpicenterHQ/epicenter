@@ -319,7 +319,7 @@ test('older answers do not replace the newest typed value', async () => {
 	await mounted.unmount();
 });
 
-test('beforeunload is unsure while immediate saves are out', async () => {
+test('a draft does not register a beforeunload prompt', async () => {
 	const first = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
 	const mounted = mountedDraft(
@@ -337,7 +337,7 @@ test('beforeunload is unsure while immediate saves are out', async () => {
 	const leaving = new Event('beforeunload', { cancelable: true });
 	window.dispatchEvent(leaving);
 	expect(calls).toEqual(['First', 'Second']);
-	expect(leaving.defaultPrevented).toBe(true);
+	expect(leaving.defaultPrevented).toBe(false);
 	first.resolve(Ok(undefined));
 	await mounted.unmount();
 });
@@ -531,26 +531,6 @@ test('desktop close discards text whose save failed, without asking', async () =
 		nativeWindow.reset();
 		target.remove();
 	}
-});
-
-test('a page unload is unsure only while a draft save is out', async () => {
-	const answer = Promise.withResolvers<Result<unknown, Failure>>();
-	const mounted = mountedDraft(
-		() => 'Disk',
-		() => answer.promise,
-	);
-	const unload = () => {
-		const event = new Event('beforeunload', { cancelable: true });
-		window.dispatchEvent(event);
-		return event.defaultPrevented;
-	};
-	expect(unload()).toBe(false);
-	mounted.editor.value = 'Typed';
-	expect(unload()).toBe(true); // the immediate save is out
-	answer.resolve(Err(failure));
-	await until(() => mounted.editor.error !== null);
-	expect(unload()).toBe(false); // failed: shown inline while open, not a reason to stay
-	await mounted.unmount();
 });
 
 test('a failed desktop destroy leaves the mounted Folder writable', async () => {

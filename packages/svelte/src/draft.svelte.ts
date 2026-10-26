@@ -10,7 +10,6 @@ export function draft<T, E>(
 	let current: { value: T } | null = null;
 	let error = $state<E | null>(null);
 	let lastSave: Promise<Result<unknown, E>> | undefined;
-	const pending = new Set<Promise<Result<unknown, E>>>();
 	let active = true;
 
 	function send(value: T) {
@@ -29,9 +28,7 @@ export function draft<T, E>(
 			},
 		);
 		lastSave = settled;
-		pending.add(settled);
 		void settled.then((result) => {
-			pending.delete(settled);
 			if (!active || lastSave !== settled) return;
 			if (result.error === null) {
 				current = null;
@@ -59,18 +56,8 @@ export function draft<T, E>(
 		return Ok(undefined);
 	}
 
-	/** Ask before leaving only while a save is out. */
-	function unload(event: Event) {
-		if (pending.size > 0) event.preventDefault();
-	}
-
 	onDestroy(() => {
 		active = false;
-	});
-
-	$effect(() => {
-		window.addEventListener('beforeunload', unload);
-		return () => window.removeEventListener('beforeunload', unload);
 	});
 
 	return {
