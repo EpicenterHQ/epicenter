@@ -113,189 +113,11 @@ Svelte's deep proxy can break handles whose methods rely on `this` being the ori
 
 ## Project-specific application
 
-For Folder-backed apps, `<FolderApp>` owns asynchronous opening and synchronous
-context close, including a folder whose opening finishes after unmount. The
-mounted product root receives the opened context and creates its product state
-over it. File views acquire editors from that Folder; they do not open or close
-storage per row. Key widgets by file identity when they need separate local
-state. See [Folder reads and editing](#folder-reads-and-editing).
-
-## Imperative Widgets: Own The Whole Runtime Boundary
-
-For imperative widgets such as ProseMirror, CodeMirror, maps, charts, or
-canvas-based tools, prefer one component that owns the whole runtime boundary:
-
-```txt
-keyed id prop
-  -> open disposable resource
-  -> wait for readiness in markup
-  -> construct imperative widget once
-  -> destroy widget and resource on component teardown
-```
-
-Avoid splitting this into a resource component plus a one-call generic widget
-component that only receives a stable handle such as `Y.XmlFragment`,
-`HTMLElement`, `EditorState`, `Map`, or `Chart` config. That split usually
-creates a reactive prop boundary around a value that is not application state.
-
-Use `untrack` in a widget setup effect only for values that are intentionally
-not part of widget identity, such as a stable notification callback. If you need
-`untrack` for the main setup object, first ask whether the component owns the
-wrong boundary. Moving ownership to the keyed child often removes the need for
-`untrack` and makes the lifecycle visible in the tree.
-
-Keep a generic widget component only when there are several real callers, a
-public component API, or a non-obvious widget invariant that deserves its own
-file. Otherwise, collapse the wrapper into the component that owns the resource
-and mount lifetime.
-
-## Related
-
-- The sync-construction / async-ready-property / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent for clients with async-ready properties.
-- `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
-- `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
-
-# Template locals: narrow reactive values before use
-
-Svelte template expressions already track reactive property reads. Introduce
-`{@const}` or `$derived` when a repeated optional property access loses its
-narrowing inside a deferred callback, or when a useful computation needs a
-name. An already-narrowed local needs no extra alias. A reactive local is not
-a second draft or a mount-time snapshot.
-
-Place `{@const}` in the nearest supported template scope containing the controls that
-need it. Capture the optional value, narrow that local, then create the binding
-callbacks. Several controls in that scope share one local; nested property
-access alone does not justify another alias.
-
-```svelte
-{#each rowEdits as rowEdit (rowEdit.path)}
-	{@const row = rowEdit.content}
-	{#if row && row.issues === null}
-		<Input bind:value={() => row.fields.title, title => rowEdit.patch({ fields: { title } })} />
-		<Textarea bind:value={() => row.body, body => rowEdit.patch({ body })} />
-	{/if}
-{/each}
-```
-
-In this case, read the row once, then check presence and validity. Use the actual contract:
-Folder rows are absent as `undefined`, and valid when `issues === null`.
-The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
-explains event-time composition through the current owner.
-
-Use `const row = $derived(rowEdit.content)` if script code also needs it or no
-existing template scope supports `{@const}` before the guard. Do not add a
-block solely to host the local. Do not replace either reactive form with a
-component-level `const row = rowEdit.content`:
-that captures only the initial value. A simple display that needs no shared
-narrowing may read `session.current` directly; do not add an alias just to
-rename it, and do not remove a useful local merely because its initializer
-is a shallow property read.
-
-Other reasons to keep a local include a computed predicate, an expensive
-projection shared by several consumers, a change filter that skips downstream
-work when its value stays identical, or a dynamic component such as
-`{@const Icon = item.icon}`. Inspect the consumers before inlining.
-
-An operation-local snapshot can keep a read-modify-write operation coherent.
-Capture it when the handler runs, and re-read or check the operation's
-validity after an `await` before writing.
-
-# Stable adapters and reactive reads
-
-Separate the adapter's identity from the values it exposes. For a read-through
-adapter whose getters participate in Svelte reactivity, construct it once when
-the source owner is fixed for the component instance:
-
-```svelte
-<!-- Parent: a new open item recreates the child. -->
-{#key item}
-	<RowView session={item.session} />
-{/key}
-```
-
-```svelte
-<!-- RowView.svelte -->
-<script lang="ts">
-	let { session } = $props();
-</script>
-
-<p>{session.draft.fields.title}</p>
-```
-
-The session's getters are reactive, so changes to the draft or save state need
-no reconstruction. If the owner can be replaced while this component stays
-mounted, key the component on the owner, or derive from the prop. For an
-adapter that owns a disposable resource, use an explicit lifecycle boundary
-instead; `$derived` does not supply cleanup.
-
-Confirm owner stability at the caller before removing the wrapper. A keyed
-child can establish that stability when the key tracks the owner identity.
-The caller now owns that guarantee; removing its key can leave the child stale.
-Use `untrack` for this intentional initial prop capture to avoid Svelte's
-[state_referenced_locally warning](https://svelte.dev/docs/svelte/compiler-warnings#state_referenced_locally). It documents the capture, not a substitute
-for the caller's lifetime guarantee. Prefer deriving from the prop when the
-component must remain correct independently of its caller's mount policy.
-Svelte executes component initialization once, and a `{#key}` block recreates
-its contents when the key changes. See the official
-[`$derived`](https://svelte.dev/docs/svelte/$derived),
-[`$props`](https://svelte.dev/docs/svelte/$props), and
-[`{#key}`](https://svelte.dev/docs/svelte/key) documentation.
-
-# `$derived` Value Mapping: Use `satisfies Record`, Not Ternaries
-
-When a `$derived` expression maps a finite union to output values, use a `satisfies Record` lookup. Never use nested ternaries. Never use `$derived.by()` with a switch just to map values.
-
-```svelte
-<!-- Bad: nested ternary in $derived -->
-<script lang="ts">
-	const tooltip = $derived(
-		syncStatus.current === 'connected'
-			? 'Connected'
-			: syncStatus.current === 'connecting'
-				? 'Connecting...'
-				: 'Offline',
-	);
-</script>
-
-<!-- Bad: $derived.by with switch for a pure value lookup -->
-<script lang="ts">
-	const tooltip = $derived.by(() => {
-		switch (syncStatus.current) {
-			case 'connected': return 'Connected';
-			case 'connecting': return 'Connecting...';
-			case 'offline': return 'Offline';
-		}
-	});
-</script>
-
-<!-- Good: $derived with satisfies Record -->
-<script lang="ts">
-	import type { SyncStatus } from '@epicenter/sync-client';
-
-	const tooltip = $derived(
-		({
-			connected: 'Connected',
-			connecting: 'Connecting...',
-			offline: 'Offline',
-		} satisfies Record<SyncStatus, string>)[syncStatus.current],
-	);
-</script>
-```
-
-Why `satisfies Record` wins:
-
-- Compile-time exhaustiveness: add a value to the union and TypeScript errors on the missing key. Nested ternaries silently fall through.
-- It's a data declaration, not control flow. The mapping is immediately visible.
-- `$derived()` stays a single expression: no need for `$derived.by()`.
-
-Reserve `$derived.by()` for multi-statement logic where you genuinely need a function body. For value lookups, keep it as `$derived()` with a record.
-
-`as const` is unnecessary when using `satisfies`. `satisfies Record<T, string>` already validates shape and value types.
-
-See `docs/articles/record-lookup-over-nested-ternaries.md` for rationale.
-
-# When to Use SvelteMap vs $state
+For Folder-backed apps, `<OpenFolder open={...}>{#snippet children(folder)}...{/snippet}</OpenFolder>`
+owns asynchronous opening and close, including a folder whose opening finishes
+after unmount. The mounted product root receives the `SvelteFolder` value and
+installs it in its app-owned context. Key editors by file identity so each
+mounted editor owns one draft. See [Folder reads and editing](#folder-reads-and-editing).
 
 Use `SvelteMap` when items have stable IDs and you need keyed lookup. Reads of
 `get`, `has`, `size`, and iteration participate in Svelte reactivity when they
@@ -308,8 +130,8 @@ value with `set(id, next)`.
 
 | Data Shape | Use | Example |
 |---|---|---|
-| Folder listings | Context query cache | saved notes and folders |
-| Editable file content | `liveSnapshot` tracked `.current` | source, fields, body, save feedback |
+| Folder listings | `folder.files`, `table.rows` | landed notes and files |
+| Editable text | `draft(source, save)` | typed text and inline save feedback |
 | Browser API keyed data | `new SvelteMap()` + listeners | media devices, windows |
 | Primitive value | `$state(value)` | `$state(false)`, `$state('')`, `$state(0)` |
 | Replace-only sequential data without IDs | `$state.raw<T[]>([])` | terminal history, command history |
@@ -323,42 +145,33 @@ TanStack Table into an infinite loop. See
 
 # Folder reads and editing
 
-The opened Folder context owns the query cache for saved listings and derived
-views. Folder owns each path's working source and accepted input.
-Use the app's typed `getFolder()` during component initialization. In an app
-whose folder declares a `notes` table:
+`<OpenFolder>` passes a reactive `SvelteFolder` to the product root. The root
+installs it in an app-owned `createContext` pair. The Folder mirror shows only
+what storage last returned or accepted. A text editor owns typed input until
+its save answers.
 
 ```svelte
 <script lang="ts">
-	import { createQuery } from '@tanstack/svelte-query';
-	import { getFolder } from '$lib/folder.js';
+  import { getFolder } from '$lib/folder.js';
 
-	const { queries } = getFolder();
-	const notes = createQuery(() => queries.rows('notes'));
-	const validNotes = $derived(notes.data?.filter((row) => row.issues === null) ?? []);
+  const folder = getFolder();
+  const validNotes = $derived(
+    folder.tables.notes.rows.filter((row) => row.issues === null),
+  );
 </script>
 ```
 
-The context invalidates affected queries from Folder change notifications.
-Do not copy query results into a second state array with a manual subscription.
-Filtering and sorting belong in `$derived` when several consumers need the
-computed view.
+`folder.files` and table `rows` are tracked getters; `file(path)` and
+`row(id)` track when called in reactive code. Keep derived filters in
+`$derived`. Each text input bound to folder data uses its own
+`draft(source, save)` from `@epicenter/svelte/folder`, including titles. Show
+failed saves beside that editor with `<UnsavedEdit>`. A checkbox, select, or
+button writes directly, and its returned result belongs to that action.
 
-Lists and raw file reads return stored data without acquiring or updating a
-working document. `liveSnapshot(handle)` exposes a tracked `.current` getter.
-Reusing it outside calculations that read its changing value avoids subscription
-replacement on each update; constructing it inside remains correct. No wrapper
-cache is needed. Tracking acquires unknown or invalidated source, and
-the last tracking effect leaving releases that view's subscription. For a one-off `save(patch)` on an unopened or
-inactive clean document, await its `refresh()` and check closing again before
-writing. A complete one-shot document uses `write()`. The [editor ownership guidance](component-ui-patterns.md#file-editor-views)
-explains these boundaries and failed-save retention.
-
-The mounted app creates product state over that opened context. The context's
-`close(): void` synchronously releases page listeners, the query client, and
-Folder storage; it submits no input and waits for no saves. Await an actual
-write or editor save when durable bytes are required. Keep product cleanup
-idempotent so it still releases its resources if the context closed first.
+Writes answer after storage and the mirror agree. `folder.refresh()` reconciles
+outside changes and retries a failed read. Mounted drafts flush on teardown
+and page departure. `<OpenFolder>` closes the Folder after drafts flush and
+queued writes drain. Keep product cleanup idempotent.
 
 ### Template Props
 

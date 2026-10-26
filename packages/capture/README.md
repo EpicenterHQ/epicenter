@@ -1,7 +1,7 @@
 # Capture file model
 
 A capture is one Markdown file, `captures/<stem>.md`, in a folder opened with
-`@epicenter/folder/next`. The file's bytes are the saved data. There is no Yjs
+`@epicenter/folder`. The file's bytes are the saved data. There is no Yjs
 document, no thought rows, and no IDs for thoughts.
 
 `captureTables` is the tables an application passes to

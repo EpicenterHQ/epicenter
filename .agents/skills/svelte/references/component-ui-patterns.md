@@ -232,29 +232,19 @@ shows its reason and opens as text, as below; repairing text does not switch a
 mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
 mode, or automatic Source fallback.
 
-The query cache owns saved listings; Folder owns each path's working source.
-Construct a view with `liveSnapshot(handle)` from
-`@epicenter/svelte/snapshot`, read its `.current`, and keep commands on the original handle. Reuse
-views per component, keyed block, or source identity to avoid subscription churn.
-Tracking starts observation, and the last tracking effect leaving releases it.
-Use function bindings: `patch({ fields: { title } })` patches a field and
-`replace(text)` replaces full source. Show immediate acceptance refusals at
-the control. Use `{@const content = snapshot.current.content}` in the nearest
-template block to narrow fields with `content.issues === null`.
+`<OpenFolder>` passes the reactive folder mirror to the product root. Read
+`folder.files` and table `rows` for landed listings, and use `row(id)` or
+`file(path)` for one item. A row with issues retains its path and source for
+repair. Use `{@const row = folder.tables.notes.row(id)}` near controls that
+need a narrowed valid row.
 
-For an action that publishes a patch to an existing document, use
-`document.save(patch)` and check its result. Refresh an unopened or inactive
-clean document first, then check `closing` again after the await. Success
-returns the exact captured content; failure retains the accepted patch. Use
-`folder.tables.notes.write()` for a complete form submission that must leave no deferred
-input after failure. The working document owns source acquisition, autosave,
-save results, and teardown behavior.
-
-Keep unsubmitted Add, Send, or Save form input with the form. A rich widget
-keeps its document, selection, and history; the Folder handle owns accepted
-file content. Do not mirror that content in a page store or the query cache.
-Invalid source opens as text with its issues and is repaired through the same
-handle's `replace(text)`.
+Each text editor creates its own `draft(source, save)` from
+`@epicenter/svelte/folder`. Bind text inputs to `draft.value` and render
+`<UnsavedEdit draft={draft} />` for inline failure, retry, discard, and Copy.
+A checkbox, select, or button writes directly, computing toggles from the
+value shown. `update({ fields?, body? })` patches the file as it stands when
+its queued write runs; `write(path, text)` replaces its whole content. Keep
+unsubmitted Add, Send, or Save form input with the form.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger

@@ -33,7 +33,7 @@ openFolder({ tables: vocabTables })       This browser's local folder (IndexedDB
   messages/<chat id>.<message id>.md      Chat ID and one finished message
 ```
 
-`src/lib/data.ts` declares the TypeBox schema for each table. `src/routes/+page.svelte` opens the browser folder through `@epicenter/folder/next/browser` and passes its Svelte mirror into Vocab. Opening needs no account or network. The folder is this browser origin's local folder, not a directory on disk.
+`src/lib/data.ts` declares the TypeBox schema for each table. `src/routes/+page.svelte` opens the browser folder through `@epicenter/folder/browser` and passes its Svelte mirror into Vocab. Opening needs no account or network. The folder is this browser origin's local folder, not a directory on disk.
 
 A schema interprets a row. Invalid files remain in the mirror with issues and their exact source text. Vocab lists invalid word and chat files by path; an open conversation lists invalid message files belonging to that chat. Files outside these tables are left alone.
 

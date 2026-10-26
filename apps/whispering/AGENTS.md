@@ -8,10 +8,10 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 ## Constraints
 
 - **Platform adapters own native capabilities.** Nothing under `src/`
-  imports a Node or Bun module or `@epicenter/folder/next/bun`. The page names
-  the folder contract through `@epicenter/folder/next`. The layout gives
+  imports a Node or Bun module or `@epicenter/folder/bun`. The page names
+  the folder contract through `@epicenter/folder`. The layout gives
   `<OpenFolder>` its sole inline opener. The build aliases
-  `@epicenter/folder/next` to the browser or Tauri entry. Platform capabilities
+  `@epicenter/folder` to the browser or Tauri entry. Platform capabilities
   live in `src/lib/platform/` and never open another folder. Other native
   services use Epicenter's generated bindings
   (`src/lib/tauri/bindings.gen.ts`), imported only by the desktop adapter. The build
@@ -21,7 +21,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 - **One folder, one opener.** Inside Epicenter the shell binds one folder to
   each Whispering window before it exists, `Whispering` by default, a listed
   folder opened with "Open with…", or one chosen in the native picker, and the
-  page's folder mirror (`@epicenter/folder/next/tauri`) is the only thing that
+  page's folder mirror (`@epicenter/folder/tauri`) is the only thing that
   opens it. The page names no folder. Do not add a second path by which the
   page reads or writes folder files, and do not copy the plugins' bindings
   into this app.
@@ -63,7 +63,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   asking. A stopped Epicenter host does not stop saving: do not tell the
   person it does.
 - **Files are authoritative.** The folder mirror shows what landed on disk,
-  and drafts (`draft` from `@epicenter/svelte/folder-next`) are the only state
+  and drafts (`draft` from `@epicenter/svelte/folder`) are the only state
   ahead of it: every text input bound to folder data uses one, one per editor
   component. Derive lists from the mirror's rows and files; do not add
   another save queue, cache, mirror, or second store of recordings, and keep
@@ -92,7 +92,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   audio is a development browser build's, and the UI says so while it is
   active. No build offers failure injection; a test that fails a recording
   write makes storage refuse it below the folder (the memory host's control
-  in `@epicenter/folder/next/testing`), so the folder fails it.
+  in `@epicenter/folder/testing`), so the folder fails it.
 - **A transformation never writes its transcript.** A result has its own file
   with a stem fixed before the request is sent. Saving a received result again
   must not call the endpoint or create a second file. A result on pasted text
@@ -124,8 +124,8 @@ also `cargo test --manifest-path ../epicenter/src-tauri/Cargo.toml`. Tests
 establish logic and what reaches disk. The TypeScript tests grant a real
 directory through a scripted shell
 (`packages/folder/src/granted-shell.test-support.ts`), open it with the Bun
-opener (`@epicenter/folder/next/bun`), or open a folder over memory
-(`@epicenter/folder/next/testing`) to hold or refuse a save; they never run
+opener (`@epicenter/folder/bun`), or open a folder over memory
+(`@epicenter/folder/testing`) to hold or refuse a save; they never run
 the Rust shell. Only opening Whispering in
 `bun dev:epicenter` and using it establishes that the desktop app works.
 

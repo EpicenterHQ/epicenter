@@ -148,34 +148,24 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Transaction or publication | Atomic storage work that acknowledges local state. This publication is unrelated to the retired app-owned schema publication. |
 | Cache | Data rebuilt without losing saved work. Unsent edits and uncertain pending commits are not caches. |
 
-File writes and document saves publish a complete file unconditionally.
-`files.write(path, content)` submits complete content; `folder.tables.notes.write(id, document)`
-does the same for a row without accepting pending input on failure.
-`folder.tables.notes.document(id).patch(input)` accepts local input synchronously;
-`save()` publishes the text visible at its call and reports that publication's
-result. A structured patch preserves unrelated source, including unknown
-fields. None of these operations makes a merge
-promise against outside writers. Git sync retains its separate three-way merge
-and conditional storage publication rules.
+A Folder shows what storage last returned or accepted; a draft holds what a
+person typed until that text's save lands. `folder.files()` and table rows are
+landed values. Each `write`, `update`, `create`, or `delete` joins one serial
+queue and answers after its unconditional put lands and the mirror shows it,
+or with a `WriteError`. A row update composes over the file as it stands when
+the operation runs. It preserves unrelated values but rewrites frontmatter
+canonically. Local writes do not merge against outside writers. Git sync
+retains its separate three-way merge and conditional storage publication.
 
-One `TextDocument` belongs to the folder for each path. File and table access to
-the same path return that same object; a table's `parse(text)` separately
-interprets source through its schema. `document()` is passive; subscriptions or
-explicit refresh acquire text. `replace(text)` replaces source, while
-`patch({ fields?, body? })` patches current source; both accept input
-synchronously and schedule autosave. `getSnapshot()` returns cached `text`,
-`loadError`, `isDirty`, `isSaving`, and `saveError`. Dirty means accepted text
-awaiting publication; saving means an admitted write or delete has not settled.
-Both may be true. A save captures current text at the call and resolves for
-that publication, even if newer input arrives. Reads never replace pending
-local input and never cause writes. A clean document follows readable storage
-changes; a missing or non-text read keeps its last readable text with a load
-error. Editing kept text schedules autosave, which can restore a missing path
-or overwrite a non-text file. An accepted local draft remains visible through
-unmounts and failed refresh.
-A later successful raw write or delete supersedes an earlier draft. Explicit
-local input can recreate a missing file. Holding text in memory does not
-provide crash recovery. See [Working documents](../packages/folder/README.md#working-documents).
+A Svelte editor creates one `draft(source, save)` for its input. The draft
+shows typed text until the corresponding write answers, then follows the
+Folder again. A failed save retains that text and its error beside the
+control for retry or discard. Mounted drafts flush on teardown and page
+departure. The Folder has no working document or aggregate save status; its
+`saving()` value reports queued and active writes. `close()` refuses new
+writes, drains admitted work, then releases storage. In-memory drafts do not
+survive a crash. See [the folder package](../packages/folder/README.md) and
+[the Svelte adapter](../packages/svelte/README.md).
 
 During sync, the same merge roles describe a base tree, the fetched remote
 tree, and the local tree being merged. These are roles in Epicenter's merge, not Git's
@@ -192,8 +182,7 @@ directory handoff rather than define another content merge policy.
 The planned app-facing synchronization states are `local`, `synced`, `pending`,
 `disconnected`, and `stuck`. Local means no destination is configured. The
 remaining states describe a configured synchronization connection, independently
-of local saving. The current public `Folder.getStatus()` reports local saving
-and recovery; it does not expose those network states.
+of local saving. The Folder exposes only local `saving()`; it does not expose those network states.
 
 ## Clients, services, and access
 

@@ -166,16 +166,6 @@ const saveVersion = createMutation(() => store.saveVersion.options);
 const deleteTodo  = createMutation(() => store.deleteTodo.options);
 ```
 
-A folder app edits accepted file content through Folder-owned working
-documents, observed with `liveSnapshot(handle)` from
-`@epicenter/svelte/snapshot`; read the view's `.current` and keep commands on the
-original handle. Keep document commands outside TanStack mutations;
-an app action over them, such as Save version, is a mutation like any other.
-Accept complete source with `replace(text)` and acquired fields/body with
-`patch(patch)`. Use `save(textOrPatch?)` when acceptance and publication must
-capture one exact input; keep synchronous acceptance followed by `void save()`
-when a control must clear its own form immediately.
-
 A query holds a value, so `todos.data` reads as the data. A mutation performs
 an action, so `deleteTodo.mutate(...)` reads as the action, and the handle
 names the option it came from. Keep the action's verb: `deleteTodo` for a

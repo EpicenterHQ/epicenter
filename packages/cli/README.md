@@ -50,7 +50,7 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
-| `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/next/bun` |
+| `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/bun` |
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 

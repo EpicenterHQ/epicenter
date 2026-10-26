@@ -34,33 +34,27 @@ migrates or removes data.
 
 ## Editing and saving
 
-`folder.files` reads and changes paths; `folder.tables` interprets rows at
-`<table>/<id>.md`. File and table `write` publish complete content. Table `set` immediately
-patches the acquired working document, then awaits its captured publication.
-Lists and gets do not populate editors; cold actions explicitly refresh first. All local publications and deletes
-share one FIFO lane per path. Once admitted, an operation finishes in order.
-Outside writers are uncoordinated: the last actual publication wins.
+The Folder mirrors the file values that storage last returned or accepted.
+`folder.files()` reads its current listing; `folder.tables` interprets rows at
+`<table>/<id>.md`. A row with issues keeps its path and diagnostics for repair.
+Browser and native change hints, focus, and explicit `refresh()` reconcile
+outside edits without periodic polling.
 
-One folder-owned editor retains text per path. Raw replacement and schema-bound
-changes edit that source. `getSnapshot()` is a pure cached read; `subscribe()`
-emits it immediately and activates initial reading. The Svelte 5 adapter exposes
-tracked `content`, `loadError`, `isDirty`, `isSaving`, and `saveError` getters.
-Dirty input and an in-progress save are independent. A save captures the text at
-its call; completion acknowledges only that intent. Newer input remains pending.
-Discard and delete consume unsubmitted input, never cancel admitted saves, and
-do not lock typing. Observations never cause writes. Acquired text remains
-usable even when a refresh finds deletion or non-text content.
+Each `write`, `update`, `create`, or `delete` enters one serial queue. An
+`update` composes over the Markdown file as it stands when that operation
+runs. Each write makes one unconditional put, then updates the mirror. Its
+promise answers after the new value is visible, or with a `WriteError`. There
+is no merge on a local write; the last publication to land wins. The browser
+commits the change atomically in IndexedDB. Native storage stages and renames
+one whole file under the shared save lock.
 
-The browser commits atomically in IndexedDB. Native engines stage bytes beside
-the target and replace one file, while preserving root containment and link
-checks. Failed saves retain the input and its error for retry. Folder-wide
-observations identify paths to reread. Native directory watching and browser
-broadcasts supply these hints; manual/focus refresh reconciles missed events
-without periodic polling. `getStatus()` reports aggregate work and immutable
-failure metadata as `{ path, error }`; copyable text remains in the live editor
-snapshot. Folder tracks submitted writes, not application workflows. Close synchronously releases listeners and storage without submitting held input
-or waiting for writes. Page hide calls best-effort `flush()`. Confirmed departure
-accepts losing unfinished work; callers needing durability await their write. Apps refuse new work and late results through their own closing state. In-memory retention does not survive a crash.
+A Svelte editor owns a `draft(source, save)` for typed text. It shows that
+text until its save answers, and keeps it with an inline error after a failed
+save. Mounted drafts flush on teardown and page departure. `folder.saving()`
+reports queued and active writes. `folder.close()` refuses new writes, drains
+the queue, then releases storage. A desktop window close waits for that drain;
+a browser unload asks only while saving. In-memory drafts do not survive a
+crash.
 
 Git exchange is separate from opening and local saving. The `epicenter`
 CLI retains history commands, while current product pages offer no Save
@@ -96,16 +90,16 @@ page still calls `openFolder({ tables })`. Its rows land directly under
 `todos/` there. The path choice belongs to the launch context, not to a path
 supplied by the WebView.
 
-Each window owns its Folder handle, query cache, retained input, and close
-coordination. The shell owns directory permission and atomic file publication.
-Whispering's recorder is a separate shell service that writes into the
-directory granted to its window. Settings and connection credentials are
-separate from the folder's local opening path.
+Each window owns one Folder mirror and the drafts of its mounted editors.
+The shell owns directory permission and atomic file publication. Whispering's
+recorder is a separate shell service that writes into the directory granted
+to its window. Settings and connection credentials are separate from the
+folder's local opening path.
 
-After a native window successfully dispatches destruction, its page context is
-closed immediately so app admission and late answers see `closing`. Cancel or a
-failed destroy keeps the context live. FolderApp also closes synchronously on
-unmount and closes any folder whose asynchronous open finishes after unmount.
+`<OpenFolder>` closes on unmount and closes an asynchronous open that finishes
+after unmount. Native window Close flushes drafts and waits for queued writes
+before destruction. A failed destroy leaves the page available for another
+close attempt. Application Quit remains a shell operation.
 
 ## What to check next
 

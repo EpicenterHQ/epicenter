@@ -22,7 +22,7 @@ of it. [What is not supported](#what-is-not-supported) lists the rest.
 
 The layout renders `<OpenFolder open={() => openFolder({ tables: whisperingTables })}>`
 (`@epicenter/svelte/open-folder`, with `openFolder` from
-`@epicenter/folder/next`, which the build resolves to the browser or Tauri
+`@epicenter/folder`, which the build resolves to the browser or Tauri
 entry). Its child is `<WhisperingApp {folder}>`: the product root puts that
 folder in its own context and calls `createWhispering(folder)`. Whispering
 constructs its own platform services internally; callers do not assemble a
@@ -42,7 +42,7 @@ fetches their bytes with `folder.read(path)`. Every write
 (`write`, `update`, `delete`, `tables.<table>.create`, `.update`, `.delete`)
 answers once it landed and the mirror shows it. The mirror never runs ahead
 of the disk; the one thing that does is what a person is typing, which each
-editor keeps in a draft (`draft` from `@epicenter/svelte/folder-next`).
+editor keeps in a draft (`draft` from `@epicenter/svelte/folder`).
 
 One Whispering owner holds capture, requests, selections and settings drafts,
 and derives every list from the mirror's rows and files. A recording row is
@@ -661,8 +661,8 @@ says there is no real input and opens none.
 
 ## Changed promises
 
-This build opens its folder as the folder mirror (`@epicenter/folder/next`)
-with Whispering's tables, read through `@epicenter/svelte/folder-next`, and
+This build opens its folder as the folder mirror (`@epicenter/folder`)
+with Whispering's tables, read through `@epicenter/svelte/folder`, and
 keeps what you type in each editor's draft until its save succeeds or you
 discard it. These promises of the earlier build changed:
 

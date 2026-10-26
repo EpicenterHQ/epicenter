@@ -170,7 +170,7 @@ features exist in this version.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder/next` for the folder mirror and rows; `@epicenter/svelte` for `<OpenFolder>` and text drafts; [TypeBox](https://github.com/sinclairzx81/typebox) for row schemas
+- `@epicenter/folder` for the folder mirror and rows; `@epicenter/svelte` for `<OpenFolder>` and text drafts; [TypeBox](https://github.com/sinclairzx81/typebox) for row schemas
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises

@@ -2,7 +2,7 @@
 
 Capture keeps dated captures, newest first. Each capture is one Markdown file in `captures/<stem>.md`: its text, then its thoughts as a bullet list under `## Thoughts`. The files are the saved data. There is no account, history, or sync. The file format and its rules are in [`packages/capture`](../../packages/capture/README.md).
 
-Capture opens one folder with `openFolder({ tables: captureTables })` from `@epicenter/folder/next`. The browser build uses this origin's IndexedDB folder. Inside Epicenter, the desktop build uses the directory granted to its window.
+Capture opens one folder with `openFolder({ tables: captureTables })` from `@epicenter/folder`. The browser build uses this origin's IndexedDB folder. Inside Epicenter, the desktop build uses the directory granted to its window.
 
 Run the browser app with `bun dev:capture` from the repository root.
 
@@ -49,7 +49,7 @@ A saved draft is an ordinary file with `draft: true`. Its body is raw writing, i
 
 `<OpenFolder>` opens, wraps, and closes the folder. It shows opening and refusal screens and refreshes on focus, visibility, and online events. A browser unload asks only while a write is pending; a desktop window close waits for writes. Capture's store owns navigation and timeline classification. The folder owns saved rows, files, and the write queue. Each editor component owns its unfinished text and inline save recovery. Commands present their own failures.
 
-The Vite configuration resolves the `@epicenter/folder/next` opener to the browser or host adapter for its build.
+The Vite configuration resolves the `@epicenter/folder` opener to the browser or host adapter for its build.
 
 ## Layout
 

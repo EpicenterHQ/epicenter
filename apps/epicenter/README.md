@@ -2,7 +2,7 @@
 
 Epicenter hosts Settings, a Folders window, and the apps it bundles in one
 Tauri runtime. The Folders editor opens native
-directories through `@epicenter/folder/next`. Apps supply their own
+directories through `@epicenter/folder`. Apps supply their own
 table schemas; local opening and saving require no account or Git repository.
 Git commands still exist outside a Folder handle, but the current folder and
 product pages offer no Save version, Connect, or Sync action.
@@ -45,9 +45,7 @@ new-window link opens in the system browser only when it is the hosted
 account website.
 
 App pages reach native file folders through the shared Folder plugin. Each
-page opens a directory the shell grants (ADR-0531). The editor and Settings
-use `@epicenter/folder/next`; other bundled pages still use the previous
-folder API. A bundled app's window is granted the native commands its page
+page opens a directory the shell grants (ADR-0531). The editor, Settings, and bundled pages use `@epicenter/folder`. A bundled app's window is granted the native commands its page
 calls by its window label ([Bundled apps](#bundled-apps)).
 
 The shell serves product bundles and holds no credential: the `epicenter`
@@ -548,14 +546,13 @@ guard. Detaching or merging changes presentation without reopening the
 folder or transferring drafts. Tab membership lives in AppKit, never in
 application data.
 
-Bundled app pages still use native close confirmation for unfinished Folder
-saves (ADR-0663). The Folders editor waits for its mirror writes and closes
-without a prompt. A saved window closes silently, including while recording:
-native destruction ends capture and keeps the audio captured so far. Cancel
-keeps unfinished input; confirmation destroys the window without waiting for a
-save. Repeated requests for one window share its answer. Other windows answer
-independently, including native tab-group members. A dispatched destruction
-keeps the page inert until it is gone; a rejected close restores it for retry.
+Bundled app pages and the Folders editor flush mounted drafts and wait for
+queued mirror writes on window Close, then destroy the window without a page
+prompt. A recording alone does not delay close: native destruction ends
+capture and keeps the audio captured so far. Repeated requests for one window
+share its current close; other windows answer independently, including native
+tab-group members. A dispatched destruction keeps the page inert until it is
+gone; a failed destroy restores it for retry.
 
 Application Quit always asks one separate native question. The recorder adds
 an active-recording warning, without asking any folder page for save status.
@@ -566,9 +563,7 @@ timeout, or global gate over individual window closes.
 
 `capabilities/bundled-app.json` selects `todos:*`, `capture:*`, and
 `honeycrisp:*` and grants the folder plugin and its change event. Inside
-Epicenter the close guard confirms through `dialog:allow-message`,
-focuses with `core:window:allow-set-focus`,
-and destroys with `core:window:allow-destroy`.
+Epicenter the close guard destroys with `core:window:allow-destroy`.
 
 `capabilities/whispering.json` selects `whispering:*` and grants what
 Whispering's page calls:
@@ -717,7 +712,7 @@ fixes that folder at `<folderDir>/so.epicenter`; no configuration selects it.
 
 ### Messages and Beeper
 
-Messages starts with fictional demo conversations. Its `FolderApp` opens the
+Messages starts with fictional demo conversations. Its `<OpenFolder>` opens the
 bound folder for drafts and send recovery records, never for a message mirror.
 Only `messages:*` windows receive `messages_beeper`; the fixed command passes a
 validated operation to `epicenter messages --json` over stdin. The CLI owns the

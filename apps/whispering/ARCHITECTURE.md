@@ -29,7 +29,7 @@ src/                        the page      the UI; opens the folder bound to its 
 └────────────────────────────────────────────────────┘
 ```
 
-The page opens the folder with `@epicenter/folder/next/tauri` and names no
+The page opens the folder with `@epicenter/folder/tauri` and names no
 folder: Epicenter binds one directory to each Whispering window before the
 window exists, and the shared Rust plugin (`tauri-plugin-epicenter-folder`),
 in Epicenter's process, answers every command in the calling window's
@@ -62,7 +62,7 @@ was out.
 `src/lib/definition.ts` names five tables and the schema each row's
 frontmatter reads through (`whisperingTables`), built from the shared field
 vocabulary (`@epicenter/definition`). The folder mirror from
-`@epicenter/folder/next` reads them as Markdown rows at `<table>/<id>.md`. A
+`@epicenter/folder` reads them as Markdown rows at `<table>/<id>.md`. A
 schema only interprets (ADR-0632): a row that does not fit comes back as a
 `Row` with its issues (`not-text`, `frontmatter`, `schema`, or `unreadable`
 for a read that failed), and a save never validates, so a field another
@@ -83,7 +83,7 @@ names and writes canonical frontmatter (declared keys in schema order, then
 others sorted, comments dropped), and a patch that changes no value writes
 nothing. `readRow(text, schema)` reads typed text exactly as the mirror reads a
 saved row, which is how a repair view checks Source before it saves. The
-package's `src/next/folder.ts` is the contract.
+package's `src/folder.ts` is the contract.
 
 `definition.ts` builds the table schemas with `@epicenter/definition` and
 TypeBox. Schemas interpret the files; they do not own their persistence.
@@ -166,7 +166,7 @@ those app capabilities. They neither open nor close storage:
 
 | | Desktop, in Epicenter (`desktop.ts`) | Browser (`browser.ts`) |
 | --- | --- | --- |
-| Folder | The directory Epicenter bound to this window, opened with Whispering's tables (`openFolder({ tables })` from `@epicenter/folder/next/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/next/browser`); earlier OPFS folders are not read or changed |
+| Folder | The directory Epicenter bound to this window, opened with Whispering's tables (`openFolder({ tables })` from `@epicenter/folder/tauri`) | This site's local folder in IndexedDB (`openFolder({ tables })` from `@epicenter/folder/browser`); earlier OPFS folders are not read or changed |
 | Recording | Epicenter's recorder plugin writes into the folder as it captures | `MediaRecorder`, written on stop |
 | Transcription and transformation | The page reads the audio and sends the request through the `epicenter` CLI (`ai_send`), which adds the key | The page sends the request, so the endpoint must allow its origin (CORS) |
 | Connections and keys | Rows of `so.epicenter`'s `connections` table, read and saved by Epicenter by operation; endpoints and keys in this computer's keychain; the page is told no key | `whispering.connections` in `localStorage` |
@@ -188,11 +188,11 @@ refusal on its "Could not open storage" screen as it is. The two storages are
 never substitutes: nothing that is missing or refuses inside a desktop app is
 replaced by browser storage, and the host build carries none.
 
-Page code names types and `readRow` from `@epicenter/folder/next`, and the
+Page code names types and `readRow` from `@epicenter/folder`, and the
 layout its `openFolder`. `hostAppViteConfig` (from `@epicenter/vite-config`,
 which `vite.config.ts` builds on) aliases that exact specifier to
-`@epicenter/folder/next/tauri` in the host build and to
-`@epicenter/folder/next/browser` otherwise, so a browser build carries no
+`@epicenter/folder/tauri` in the host build and to
+`@epicenter/folder/browser` otherwise, so a browser build carries no
 desktop adapter or Epicenter's generated bindings, and the host build no
 browser storage or isomorphic-git. `src/lib/platform-selection.test.ts`
 bundles both builds and reads what each pulls in.
@@ -584,7 +584,7 @@ files that could not be removed.
 The mirror shows only what landed, so an input bound straight to it would
 lose keystrokes typed while a save is out. Every text input bound to folder
 data therefore uses a draft (`draft(source, save)` from
-`@epicenter/svelte/folder-next`): it shows what was typed until that text's
+`@epicenter/svelte/folder`): it shows what was typed until that text's
 save succeeds, then follows `source` again, which by then is the landed text.
 A failed save keeps the typed value and exposes its error. Typing again or
 **Save again** retries; **Discard** follows the disk. Drafts debounce for one
@@ -713,12 +713,12 @@ tone instead of the microphone (`src/lib/capture.ts`); a production build and
 Epicenter never do.
 
 No build offers failure injection. Tests open a real directory with
-`@epicenter/folder/next/bun`, or a folder over memory with
-`@epicenter/folder/next/testing` whose host a test can hold (`putGate`), make
+`@epicenter/folder/bun`, or a folder over memory with
+`@epicenter/folder/testing` whose host a test can hold (`putGate`), make
 refuse a save (`failPut`, `beforePut`), or change behind the folder
 (`outside`), so the folder itself answers as it would on a real disk
 (`src/lib/services.test-support.ts`). Desktop tests open
-`@epicenter/folder/next/tauri` over a scripted shell.
+`@epicenter/folder/tauri` over a scripted shell.
 
 ## Where things are
 

@@ -14,7 +14,7 @@ Applications reach this engine through `openFolder({ tables })` from
 `@epicenter/folder`. Files and table views expose no commits, roots, history,
 collection controls, or sync scheduling. Rows remain views of Markdown files.
 Opening and offline saving require no account, network, or declaration file.
-The public handle waits for started operations before releasing storage.
+The Folder mirror drains queued writes before releasing storage.
 
 [ADR-0650](../../../../docs/adr/0650-a-browsers-current-folder-is-one-immutable-tree.md)
 records the working-tree decision. The
@@ -48,11 +48,9 @@ Git history needed for ancestry proofs can be fetched into temporary memory.
 ## Saving
 
 A file save captures W's required trees and the current file bytes in one
-read transaction. Public file and editor writes publish their captured whole
-content unconditionally. The folder owner applies table `set` changes to
-acquired working text and admits its captured publication before notifying
-observers; `write` creates a complete document without retaining a failed
-payload as input. Neither command reads inside the path's lane.
+read transaction. The Folder queues writes in call order. A row update composes
+over the file as it stands at its turn, then submits one unconditional put.
+The Folder changes its mirror only after that put lands.
 The engine hashes the submitted file and
 rewrites its ancestor directories. A write transaction compares captured W,
 then publishes the new objects and root together. A changed root retries the
@@ -68,9 +66,8 @@ collection cannot change the inputs of an in-progress computation.
 
 Public saves compare no prior file content and perform no content merge.
 The last publication wins. Sync separately merges Markdown by frontmatter
-field and body region, and other UTF-8 files by text region. The folder-owned
-editor retains accepted input through outside observations and failures;
-an older publication never acknowledges newer input merely because it matches.
+field and body region, and other UTF-8 files by text region. The Svelte editor draft retains typed input through outside observations and
+failures until its own save answers.
 
 Native names, untouched modes, symlinks, gitlinks, and directory occupancy
 survive tree rewriting. File/directory replacements require a witnessed
