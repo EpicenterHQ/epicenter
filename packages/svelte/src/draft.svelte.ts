@@ -4,8 +4,9 @@
  * older save answers before a timed newer send. Teardown, pagehide, hidden
  * visibility, and beforeunload send the newest unsent value synchronously,
  * even with a save out, then leave ordering to the folder's queue. Failed
- * input remains visible for retry or discard. A draft answers `beforeunload`
- * as unsure while its save is out or failed, so the page asks before leaving.
+ * input remains visible for retry or discard while the editor is mounted;
+ * leaving the page discards it. A draft answers `beforeunload` as unsure while
+ * a save is out, so the page asks before leaving.
  */
 import { onDestroy } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -120,10 +121,10 @@ export function draft<T, E>(
 		return Ok(undefined);
 	}
 
-	/** Leaving sends what was typed, and is unsure while that save is out or failed. */
+	/** Leaving sends what was typed, and is unsure while that save is out. */
 	function unload(event: Event) {
 		flush();
-		if (pending.size > 0 || error !== null) event.preventDefault();
+		if (pending.size > 0) event.preventDefault();
 	}
 
 	onDestroy(() => {

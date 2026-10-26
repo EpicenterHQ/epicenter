@@ -13,6 +13,7 @@
 	import { onDestroy, type Snippet } from 'svelte';
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
+	import { createLogger } from 'wellcrafted/logger';
 	import { Ok } from 'wellcrafted/result';
 	import { type SvelteFolder, svelteFolder } from './folder.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
@@ -33,6 +34,7 @@
 		class?: string;
 	} = $props();
 
+	const log = createLogger('svelte/open-folder');
 	let opened: Folder<TTables> | undefined;
 	let stopWindow: (() => void) | undefined;
 	let destroyed = false;
@@ -49,7 +51,10 @@
 		// A folder opened beneath another leaves the window's close to the outer one.
 		if (holdWindowClose) {
 			const stop = await registerWindowClose(() => folder.idle()).catch(
-				() => undefined,
+				(cause) => {
+					log.error(new Error('The window close guard could not be installed', { cause }));
+					return undefined;
+				},
 			);
 			if (destroyed) stop?.();
 			else stopWindow = stop;

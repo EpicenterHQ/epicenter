@@ -41,10 +41,12 @@ its Folder when it unmounts; each draft inside sends its text as it unmounts.
 
 Leaving asks once, only when the page is unsure, through the web's own
 `beforeunload`. A draft sends its latest text and is unsure while that save is
-out or failed; `<OpenFolder>` is unsure while a write is out. A browser tab
+out; `<OpenFolder>` is unsure while a write is out. A browser tab
 shows "Leave site?". A desktop window has one guard (`holdWindowClose`) that
 asks the same listeners, waits up to three seconds for `folder.idle()`, asks
-again, and asks natively whether to close anyway only if the page is still unsure.
+again, and asks natively whether to close anyway only if writes are still out.
+Text whose save failed is not a reason to ask: it stays on screen while the
+editor is open, and leaving discards it.
 The shell owns application Quit separately.
 
 ## Read landed values
@@ -85,7 +87,7 @@ getter shows what the person typed until that save answers, then follows
 by default. Teardown, page hide, hidden visibility, and beforeunload flush the
 latest unsent text. A value whose save already failed is not resent on
 teardown. A failed save keeps the typed value and its error for retry or
-discard, and makes a leaving page ask until it is saved or discarded.
+discard while the editor is mounted.
 
 ```svelte
 <script lang="ts">

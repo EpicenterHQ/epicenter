@@ -29,7 +29,7 @@ const elapsed = (ms: number) =>
 
 async function askToClose() {
 	const { ask } = await import('@tauri-apps/plugin-dialog');
-	return ask('Some changes did not save. Close the window anyway?', {
+	return ask('Some changes are still saving. Close the window anyway?', {
 		kind: 'warning',
 		okLabel: 'Close',
 		cancelLabel: 'Keep open',

@@ -15,9 +15,8 @@ import {
 	untilListening,
 } from './tauri-window.test-support.js';
 
-/** The native close question; each test sets the answer. */
-let closeAnyway = false;
-const ask = mock(async () => closeAnyway);
+/** The native close question; a folder test should never reach it. */
+const ask = mock(async () => false);
 mock.module('@tauri-apps/plugin-dialog', () => ({ ask }));
 
 const { svelteFolder } = await import('./folder.js');
@@ -501,59 +500,7 @@ test('desktop close waits for a pending draft write before destroying the window
 	}
 });
 
-test('desktop close asks once while a mounted draft holds text that did not save', async () => {
-	const memory = memoryHost({ 'note.txt': 'Disk' });
-	const folder = expectOk(await createFolder(memory.storage, { tables }));
-	const target = document.createElement('div');
-	document.body.append(target);
-	desktop(true);
-	ask.mockClear();
-	let editor: Editor | undefined;
-	const view = mount(OpenFolderHost, {
-		target,
-		props: {
-			open: () => Promise.resolve(Ok(folder)),
-			edit: true,
-			expose: (draft: Editor) => {
-				editor = draft;
-			},
-		},
-	});
-	try {
-		await untilListening();
-		await until(() => editor !== undefined);
-		if (editor === undefined) throw new Error('Missing editor');
-		const typed = editor;
-		memory.control.failPut.set(
-			'note.txt',
-			expectErr(SaveError.StorageFailed({ cause: 'full' })),
-		);
-		typed.value = 'Typed before a failing close';
-		// The save sent by the close fails; Keep open leaves everything in place.
-		closeAnyway = false;
-		await requestClose();
-		expect(ask).toHaveBeenCalledTimes(1);
-		expect(nativeWindow.destroyed).toBe(0);
-		expect(document.documentElement.inert).toBe(false);
-		expect(typed.value).toBe('Typed before a failing close');
-		expect(typed.error).not.toBeNull();
-		// Save again lands it; the next close asks nothing.
-		memory.control.failPut.clear();
-		typed.retry();
-		await until(() => typed.error === null && !folder.saving());
-		await requestClose();
-		expect(ask).toHaveBeenCalledTimes(1);
-		expect(nativeWindow.destroyed).toBe(1);
-		expect(memory.text('note.txt')).toBe('Typed before a failing close');
-	} finally {
-		await unmount(view);
-		await until(() => memory.control.closed);
-		nativeWindow.reset();
-		target.remove();
-	}
-});
-
-test('desktop Close anyway discards text whose save failed', async () => {
+test('desktop close discards text whose save failed, without asking', async () => {
 	const memory = memoryHost({ 'note.txt': 'Disk' });
 	const folder = expectOk(await createFolder(memory.storage, { tables }));
 	const target = document.createElement('div');
@@ -573,11 +520,10 @@ test('desktop Close anyway discards text whose save failed', async () => {
 		);
 		const input = target.querySelector('input');
 		if (input === null) throw new Error('Missing editor');
-		input.value = 'Lost on purpose';
+		input.value = 'Shown inline, then discarded';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
-		closeAnyway = true;
 		await requestClose();
-		expect(ask).toHaveBeenCalledTimes(1);
+		expect(ask).not.toHaveBeenCalled();
 		expect(nativeWindow.destroyed).toBe(1);
 		expect(memory.text('note.txt')).toBe('Disk');
 	} finally {
@@ -588,7 +534,7 @@ test('desktop Close anyway discards text whose save failed', async () => {
 	}
 });
 
-test('a page unload is unsure while a draft save is out or failed', async () => {
+test('a page unload is unsure only while a draft save is out', async () => {
 	const answer = Promise.withResolvers<Result<unknown, Failure>>();
 	const mounted = mountedDraft(
 		() => 'Disk',
@@ -604,9 +550,7 @@ test('a page unload is unsure while a draft save is out or failed', async () => 
 	expect(unload()).toBe(true); // the unload sent it; the save is out
 	answer.resolve(Err(failure));
 	await until(() => mounted.editor.error !== null);
-	expect(unload()).toBe(true); // failed, still on screen
-	mounted.editor.discard();
-	expect(unload()).toBe(false);
+	expect(unload()).toBe(false); // failed: shown inline while open, not a reason to stay
 	await mounted.unmount();
 });
 
