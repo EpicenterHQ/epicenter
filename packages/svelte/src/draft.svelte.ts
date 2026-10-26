@@ -4,10 +4,18 @@
  * older save answers before a timed newer send. Teardown, pagehide, hidden
  * visibility, beforeunload, and folder close send the newest
  * unsent value synchronously, even with a save out, then leave ordering to the
- * folder's queue. Failed input remains visible for retry or discard.
+ * folder's queue. Failed input remains visible for retry or discard, and a
+ * page or window close asks before it goes.
  */
 import { onDestroy } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
+
+/**
+ * The window event a closing folder dispatches. Every mounted draft flushes;
+ * when the event's `detail` is a list, each draft still holding typed text
+ * adds a promise answering whether that text landed.
+ */
+export const FOLDER_CLOSE = 'epicenter:folder-close';
 
 export function draft<T, E>(
 	source: () => T,
@@ -94,6 +102,50 @@ export function draft<T, E>(
 		}, delay);
 	}
 
+	async function land(): Promise<Result<void, E>> {
+		if (!active) return Ok(undefined);
+		clearTimer();
+		due = false;
+		while (active && current !== null) {
+			const sent = current;
+			const ongoing = pending.get(sent);
+			if (ongoing !== undefined) {
+				const result = await ongoing;
+				if (current === sent && result.error !== null) return Err(result.error);
+				continue;
+			}
+			if (sent === lastSent) return error === null ? Ok(undefined) : Err(error);
+			if (pending.size > 0) {
+				await Promise.all(pending.values());
+				continue;
+			}
+			const result = await send(true);
+			if (
+				current === sent &&
+				result?.error !== null &&
+				result?.error !== undefined
+			)
+				return Err(result.error);
+		}
+		return Ok(undefined);
+	}
+
+	/** A folder close flushes, and reports whether held text landed when asked. */
+	function closing(event: Event) {
+		flush();
+		const landed = event instanceof CustomEvent ? event.detail : undefined;
+		if (Array.isArray(landed) && current !== null)
+			landed.push(land().then((result) => result.error === null));
+	}
+
+	/** A page unload flushes, and asks before leaving text whose save failed. */
+	function unload(event: BeforeUnloadEvent) {
+		flush();
+		if (error === null) return;
+		event.preventDefault();
+		event.returnValue = '';
+	}
+
 	onDestroy(() => {
 		flush();
 		active = false;
@@ -105,13 +157,13 @@ export function draft<T, E>(
 			if (document.visibilityState === 'hidden') flush();
 		};
 		window.addEventListener('pagehide', flush);
-		window.addEventListener('beforeunload', flush);
-		window.addEventListener('epicenter:folder-close', flush);
+		window.addEventListener('beforeunload', unload);
+		window.addEventListener(FOLDER_CLOSE, closing);
 		document.addEventListener('visibilitychange', hidden);
 		return () => {
 			window.removeEventListener('pagehide', flush);
-			window.removeEventListener('beforeunload', flush);
-			window.removeEventListener('epicenter:folder-close', flush);
+			window.removeEventListener('beforeunload', unload);
+			window.removeEventListener(FOLDER_CLOSE, closing);
 			document.removeEventListener('visibilitychange', hidden);
 		};
 	});
@@ -127,35 +179,7 @@ export function draft<T, E>(
 			return error;
 		},
 		set,
-		async land(): Promise<Result<void, E>> {
-			if (!active) return Ok(undefined);
-			clearTimer();
-			due = false;
-			while (active && current !== null) {
-				const sent = current;
-				const ongoing = pending.get(sent);
-				if (ongoing !== undefined) {
-					const result = await ongoing;
-					if (current === sent && result.error !== null)
-						return Err(result.error);
-					continue;
-				}
-				if (sent === lastSent)
-					return error === null ? Ok(undefined) : Err(error);
-				if (pending.size > 0) {
-					await Promise.all(pending.values());
-					continue;
-				}
-				const result = await send(true);
-				if (
-					current === sent &&
-					result?.error !== null &&
-					result?.error !== undefined
-				)
-					return Err(result.error);
-			}
-			return Ok(undefined);
-		},
+		land,
 		retry() {
 			if (!active || current === null) return;
 			error = null;

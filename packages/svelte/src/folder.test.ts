@@ -4,7 +4,7 @@
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { createFolder, memoryHost } from '@epicenter/folder/testing';
+import { createFolder, memoryHost, SaveError } from '@epicenter/folder/testing';
 import { Type } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -16,6 +16,7 @@ import {
 } from './tauri-window.test-support.js';
 
 const { svelteFolder } = await import('./folder.js');
+const { FOLDER_CLOSE } = await import('./draft.svelte.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: DraftHost } = await import('./fixtures/DraftHost.svelte');
@@ -330,7 +331,7 @@ test('folder close event flushes the newest value while an earlier save is out',
 	mounted.editor.value = 'First';
 	await until(() => calls.length === 1);
 	mounted.editor.value = 'Second';
-	window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
+	window.dispatchEvent(new CustomEvent(FOLDER_CLOSE));
 	expect(calls).toEqual(['First', 'Second']);
 	first.resolve(Ok(undefined));
 	await mounted.unmount();
@@ -492,6 +493,77 @@ test('desktop close waits for a pending draft write before destroying the window
 		nativeWindow.reset();
 		target.remove();
 	}
+});
+
+test('desktop close stays open while a mounted draft holds text that did not save', async () => {
+	const memory = memoryHost({ 'note.txt': 'Disk' });
+	const folder = expectOk(await createFolder(memory.storage, { tables }));
+	const target = document.createElement('div');
+	document.body.append(target);
+	desktop(true);
+	let editor: Editor | undefined;
+	const view = mount(OpenFolderHost, {
+		target,
+		props: {
+			open: () => Promise.resolve(Ok(folder)),
+			edit: true,
+			expose: (draft: Editor) => {
+				editor = draft;
+			},
+		},
+	});
+	try {
+		await untilListening();
+		await until(() => editor !== undefined);
+		if (editor === undefined) throw new Error('Missing editor');
+		const typed = editor;
+		memory.control.failPut.set(
+			'note.txt',
+			expectErr(SaveError.StorageFailed({ cause: 'full' })),
+		);
+		typed.value = 'Typed before a failing close';
+		// The save sent by the close itself fails: the window stays open.
+		await requestClose();
+		expect(nativeWindow.destroyed).toBe(0);
+		expect(document.documentElement.inert).toBe(false);
+		expect(typed.value).toBe('Typed before a failing close');
+		expect(typed.error).not.toBeNull();
+		// A value that already failed is not resent, and still keeps the window.
+		memory.control.failPut.clear();
+		await requestClose();
+		expect(nativeWindow.destroyed).toBe(0);
+		expect(memory.text('note.txt')).toBe('Disk');
+		// Save again lands it; the next close goes.
+		typed.retry();
+		await until(() => typed.error === null && !folder.saving());
+		await requestClose();
+		expect(nativeWindow.destroyed).toBe(1);
+		expect(memory.text('note.txt')).toBe('Typed before a failing close');
+	} finally {
+		await unmount(view);
+		await until(() => memory.control.closed);
+		nativeWindow.reset();
+		target.remove();
+	}
+});
+
+test('a page unload asks while a draft holds text whose save failed', async () => {
+	const mounted = mountedDraft(
+		() => 'Disk',
+		() => Promise.resolve(Err(failure)),
+	);
+	const unload = () => {
+		const event = new Event('beforeunload', { cancelable: true });
+		window.dispatchEvent(event);
+		return event.defaultPrevented;
+	};
+	expect(unload()).toBe(false);
+	mounted.editor.value = 'Typed';
+	await until(() => mounted.editor.error !== null);
+	expect(unload()).toBe(true);
+	mounted.editor.discard();
+	expect(unload()).toBe(false);
+	await mounted.unmount();
 });
 
 test('a failed desktop destroy leaves the mounted Folder writable', async () => {

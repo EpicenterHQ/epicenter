@@ -37,8 +37,10 @@ writes. An outside writer can still land a later whole-file replacement.
 
 **Closing drains admitted writes before releasing storage.** The Folder
 refuses new writes, drains its queue, and releases its host. Desktop window
-Close flushes mounted drafts and waits for that drain without a page prompt.
-The browser asks on unload only while saving. The shell-owned application
+Close flushes mounted drafts and waits for that drain without a question.
+When a mounted draft still holds text whose save failed, the window stays
+open with a notice offering Close anyway; nothing typed leaves silently. The
+browser asks on unload while saving or while a draft holds failed text. The shell-owned application
 Quit alert still applies. There is no folder status object, working document,
 `settle`, Folder checkpoint, conditional local save, or global failure toast.
 Git synchronization retains its own three-way merge, checkpoints, and
@@ -60,5 +62,6 @@ Keeping a folder-owned working document would retain shared input and status
 machinery after the UI already owns each text control. Per-path queues would
 allow unrelated writes to overlap, but would make the order of a structured
 update and a whole-file write depend on timing across paths. Prompting on
-window Close would allow the page to discard a draft instead of draining its
-write.
+every window Close would allow the page to discard a draft instead of draining
+its write; asking only when a draft's text did not land keeps that drain and
+still protects the input the person can see.

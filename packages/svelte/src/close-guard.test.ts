@@ -4,9 +4,17 @@
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
-import { desktop, nativeWindow, requestClose } from './tauri-window.test-support.js';
+import {
+	desktop,
+	nativeWindow,
+	requestClose,
+} from './tauri-window.test-support.js';
 
-const warning = mock(() => {});
+type Notice = {
+	description: string;
+	action?: { label: string; onClick(): void };
+};
+const warning = mock((_title: string, _notice: Notice) => {});
 mock.module('@epicenter/ui/sonner', () => ({ toast: { warning } }));
 
 const { holdWindowClose } = await import('./window-close.js');
@@ -81,11 +89,13 @@ test('repeated close requests wait for one drain', async () => {
 	const drain = Promise.withResolvers<void>();
 	const started = Promise.withResolvers<void>();
 	let calls = 0;
-	cleanup.push(await holdWindowClose(async () => {
-		calls++;
-		started.resolve();
-		await drain.promise;
-	}));
+	cleanup.push(
+		await holdWindowClose(async () => {
+			calls++;
+			started.resolve();
+			await drain.promise;
+		}),
+	);
 	const first = requestClose();
 	await started.promise;
 	await requestClose();
@@ -112,7 +122,11 @@ test('a failed destroy restores input and allows another close', async () => {
 test('successful destruction drains once and stays inert', async () => {
 	desktop(true);
 	let drains = 0;
-	cleanup.push(await holdWindowClose(async () => { drains++; }));
+	cleanup.push(
+		await holdWindowClose(async () => {
+			drains++;
+		}),
+	);
 	await requestClose();
 	expect(document.documentElement.inert).toBe(true);
 	await requestClose();
@@ -135,4 +149,27 @@ test('a retired destroy completion keeps the replacement listener', async () => 
 	destruction.resolve();
 	await oldClose;
 	expect(nativeWindow.listeners).toBe(1);
+});
+
+test('a reason to stay open keeps the window and offers to close anyway', async () => {
+	desktop(true);
+	let drains = 0;
+	cleanup.push(
+		await holdWindowClose(async () => {
+			drains++;
+			return 'Some typed text did not save.';
+		}),
+	);
+	await requestClose();
+	expect(nativeWindow.destroyed).toBe(0);
+	expect(document.documentElement.inert).toBe(false);
+	expect(warning).toHaveBeenCalledTimes(1);
+	const notice = warning.mock.calls[0]?.[1];
+	expect(notice?.description).toBe('Some typed text did not save.');
+	expect(notice?.action?.label).toBe('Close anyway');
+	notice?.action?.onClick();
+	for (let tries = 0; tries < 400 && nativeWindow.destroyed === 0; tries++)
+		await Bun.sleep(1);
+	expect(nativeWindow.destroyed).toBe(1);
+	expect(drains).toBe(1);
 });

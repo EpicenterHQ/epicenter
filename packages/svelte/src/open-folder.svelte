@@ -1,6 +1,7 @@
 <!--
 	Open one folder, refresh it on return, and close after mounted drafts have
-	flushed their latest input. Desktop close waits for the queued writes.
+	flushed their latest input. Desktop close waits for the queued writes and
+	stays open, offering to close anyway, while typed text did not save.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
 	import type { Folder, Opened } from '@epicenter/folder';
@@ -12,6 +13,7 @@
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { Ok } from 'wellcrafted/result';
+	import { FOLDER_CLOSE } from './draft.svelte.js';
 	import { type SvelteFolder, svelteFolder } from './folder.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
 	import { holdWindowClose as registerWindowClose } from './window-close.js';
@@ -38,13 +40,19 @@
 	const saving = () => opened?.saving() ?? false;
 
 	function closeFolder(folder: Folder<TTables>) {
-		window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
+		window.dispatchEvent(new CustomEvent(FOLDER_CLOSE));
 		return folder.close();
 	}
 
+	/** Flush every draft and drain the queue; answers why to stay open, if typed text did not land. */
 	async function flushAndWait(folder: Folder<TTables>) {
-		window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
+		const landed: Promise<boolean>[] = [];
+		window.dispatchEvent(new CustomEvent(FOLDER_CLOSE, { detail: landed }));
+		const answers = await Promise.all(landed);
 		await folder.idle();
+		return answers.every(Boolean)
+			? undefined
+			: 'Some typed text did not save. Save it again or copy it before closing.';
 	}
 
 	async function openAndWrap() {
@@ -77,7 +85,7 @@
 	});
 
 	function beforeUnload(event: BeforeUnloadEvent) {
-		window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
+		window.dispatchEvent(new CustomEvent(FOLDER_CLOSE));
 		if (!saving()) return;
 		event.preventDefault();
 		event.returnValue = '';

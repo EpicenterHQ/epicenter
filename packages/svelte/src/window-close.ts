@@ -16,36 +16,42 @@ async function focusWindow(current: Window) {
 	try {
 		await current.setFocus();
 	} catch (cause) {
-		log.error(
-			new Error('The window could not receive focus', { cause }),
-		);
+		log.error(new Error('The window could not receive focus', { cause }));
 	}
 }
 
-/** Explain a failed close while keeping the window available to retry. */
-async function notifyCloseFailure(current: Window, guard: symbol) {
+/** Explain why the window stayed open, offering a close action when there is one. */
+async function notifyKeptOpen(
+	current: Window,
+	guard: symbol,
+	description: string,
+	closeAnyway?: () => void,
+) {
 	await focusWindow(current);
 	try {
 		const { toast } = await import('@epicenter/ui/sonner');
 		if (activeGuard !== guard) return;
 		toast.warning('The window stayed open', {
-			description: 'The window could not close. Try again.',
+			description,
+			...(closeAnyway && {
+				action: { label: 'Close anyway', onClick: closeAnyway },
+			}),
 		});
 	} catch (cause) {
-		log.error(
-			new Error('Could not show the window-close failure notice', { cause }),
-		);
+		log.error(new Error('Could not show the window-close notice', { cause }));
 	}
 }
 
 /**
  * Answer this window's close after its drafts and Folder writes finish.
+ * `beforeDestroy` may answer why the window should stay open, such as typed
+ * text that did not save; the notice then offers to close anyway.
  * Successful destruction stays occupied and inert until the page is gone:
  * Tauri's destroy promise acknowledges dispatch, not completed destruction.
  */
 export async function holdWindowClose(
-	/** Work to finish before the window is destroyed, such as saves in flight. */
-	beforeDestroy?: () => Promise<void>,
+	/** Work to finish before the window is destroyed, answering a reason to stay open. */
+	beforeDestroy?: () => Promise<string | void>,
 ): Promise<() => void> {
 	if (!isTauri()) return () => {};
 	if (activeGuard)
@@ -57,27 +63,43 @@ export async function holdWindowClose(
 	try {
 		const { getCurrentWindow } = await import('@tauri-apps/api/window');
 		const current = getCurrentWindow();
-		const unlisten = await current.onCloseRequested(async (event) => {
-			event.preventDefault();
+
+		/** Close for this guard; `confirm` answers a reason to stay open instead. */
+		async function close(confirm?: () => Promise<string | void>) {
 			if (closing || activeGuard !== guard) return;
 			closing = true;
 			const page = document.documentElement;
 			const wasInert = page.inert;
 			try {
-				if (activeGuard !== guard) return;
 				page.inert = true;
-				await beforeDestroy?.();
-				if (activeGuard !== guard) return;
+				const reason = await confirm?.();
+				if (activeGuard !== guard) {
+					page.inert = wasInert;
+					return;
+				}
+				if (typeof reason === 'string') {
+					page.inert = wasInert;
+					closing = false;
+					await notifyKeptOpen(current, guard, reason, () => void close());
+					return;
+				}
 				await current.destroy();
 			} catch (cause) {
 				if (activeGuard !== guard) return;
 				page.inert = wasInert;
 				log.error(new Error('The window could not close', { cause }));
-				await notifyCloseFailure(current, guard);
+				await notifyKeptOpen(
+					current,
+					guard,
+					'The window could not close. Try again.',
+				);
 				closing = false;
-				return;
 			}
+		}
 
+		const unlisten = await current.onCloseRequested(async (event) => {
+			event.preventDefault();
+			await close(beforeDestroy);
 		});
 		return () => {
 			if (activeGuard !== guard) return;
