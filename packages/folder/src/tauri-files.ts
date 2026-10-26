@@ -16,8 +16,7 @@
  * for: a permission it lacks, an unknown command, arguments it could not
  * read. That cannot be shown from here, and the path's state now is no
  * receipt for the call, so a rejected change (a put, a removal, `mkdir`,
- * `rmdir`) is `Unconfirmed`; the engine's write reads a put back once
- * (`confirmedPut` in `write.ts`). A rejected read or listing is `Io`.
+ * `rmdir`) is `Unconfirmed`. A rejected read or listing is `Io`.
  *
  * A call sent again after it landed answers what the second run found: a
  * put whose first run landed answers `stale`, since the path no longer holds
@@ -52,7 +51,9 @@ function isAnswer(value: unknown): value is StorageError {
 	return (
 		typeof value === 'object' &&
 		value !== null &&
-		ANSWERS.has((value as { name?: unknown }).name as string)
+		'name' in value &&
+		typeof value.name === 'string' &&
+		ANSWERS.has(value.name)
 	);
 }
 
@@ -132,7 +133,7 @@ export function tauriHostFiles(): HostFiles {
 			return Ok({ bytes, sha256: await hashBytes(bytes) });
 		},
 		async change(path, bytes, expected) {
-			const headers: Record<string, string> = {
+			const headers = {
 				path: encodeURIComponent(path),
 				remove: String(bytes === null),
 				expected: typeof expected === 'string' ? expected : expected.sha256,
