@@ -752,11 +752,6 @@ export function createWhispering(folder: WhisperingFolder) {
 		},
 		/** Select `path` immediately; false after close. Selection reads no file. */
 		open,
-		/** Retire mounted editors before renaming a file from the tree. */
-		clearSelection() {
-			selectedPath = undefined;
-			selectedTransformationPath = undefined;
-		},
 
 		// ------------------------------------------------------------------
 		// Edits
@@ -1057,12 +1052,7 @@ export function createWhispering(folder: WhisperingFolder) {
 		/** Read the connections again, as after a failed read. */
 		readConnections,
 
-		/**
-		 * Copy the file as the mirror shows it, or its bytes for a file the
-		 * mirror does not keep, to a new name, then delete the old path. The
-		 * two are separate writes in the folder's queue: an outside change the
-		 * folder has not heard of is lost, and a failed delete leaves both files.
-		 */
+		/** Move the file when its turn arrives in the folder's queue. */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
 			if (why !== undefined) return why;
@@ -1082,22 +1072,8 @@ export function createWhispering(folder: WhisperingFolder) {
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			const before = folder.file(path);
-			if (before === undefined) return `No file exists at '${path}'.`;
-			let data: string | Uint8Array;
-			if (typeof before.data === 'string') data = before.data;
-			else {
-				const { data: bytes, error } = await folder.read(path);
-				if (error !== null) return describeError(error);
-				if (bytes === null) return `No file exists at '${path}'.`;
-				data = bytes;
-			}
-			const { error: copyError } = await folder.write(to, data);
-			if (copyError !== null) return describeError(copyError);
-			const { error: removeError } = await folder.delete(path);
-			if (removeError !== null) {
-				return `${to} was saved, but ${path} was not deleted: ${describeError(removeError)}`;
-			}
+			const { error } = await folder.move(path, to);
+			if (error !== null) return describeError(error);
 			if (!disposed) moved(path, to);
 			return undefined;
 		},

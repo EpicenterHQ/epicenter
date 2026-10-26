@@ -69,24 +69,8 @@
 			: (readRow(source.value, whisperingTables[table]).issues ?? undefined),
 	);
 
-	/** Typing during the copy would land on the old path after it was read. */
-	let renaming = $state(false);
-
-	async function rename(next: string) {
-		renaming = true;
-		try {
-			const drafts = transcript ? [body, source] : [source, body];
-			for (const edit of drafts) if ((await edit.land()).error) return;
-			return await whispering.rename(own, next);
-		} finally {
-			renaming = false;
-		}
-	}
-
-	/** Returning to fields first writes the shown Source text. */
-	async function show(toSource: boolean) {
-		if (toSource && (await body.land()).error) return;
-		if (!toSource && (await source.land()).error) return;
+	/** The view changes now; queued edits keep their order. */
+	function show(toSource: boolean) {
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem)
 			toast.error(toSource ? 'The text was not opened for editing' : 'The text was not opened alone', {
@@ -106,7 +90,7 @@
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="File" inert={renaming}>
+<section class="flex h-full min-h-0 flex-col" aria-label="File">
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
 			<Button variant="ghost" size="icon-sm" aria-label="Back to recordings" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
@@ -222,7 +206,7 @@
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
-		onRename={rename}
+		onRename={(name) => whispering.rename(own, name)}
 		onDelete={() => void confirmDelete(whispering, path)}
 	/>
 </section>

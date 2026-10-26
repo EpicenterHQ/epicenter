@@ -18,7 +18,6 @@
 	import { tick } from 'svelte';
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import { getFolder } from '$lib/folder.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
@@ -27,7 +26,6 @@
 		onOpen: (path: string) => void;
 	} = $props();
 	const whispering = getWhispering();
-	const folder = getFolder();
 
 	/**
 	 * The tree: folders before files at each level, into the expanded folders.
@@ -156,11 +154,6 @@
 			return;
 		}
 		committing = true;
-		if (current.kind === 'rename') {
-			whispering.clearSelection();
-			await tick();
-			await folder.idle();
-		}
 		const problem =
 			current.kind === 'rename'
 				? await whispering.rename(current.path, name)
