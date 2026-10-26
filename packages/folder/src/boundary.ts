@@ -3,7 +3,7 @@
  * natively (ADR-0576): a directory over `node:fs` in Bun
  * (`directory-store.ts`), and a desktop page's directory through the shell,
  * one command per method (`tauri-files.ts`, ADR-0581). The native `Folder`
- * (`native/engine.ts`), the CLI's readers, and a directory's history all
+ * (`folder.ts` through `storage.ts`), the CLI's readers, and a directory's history all
  * read and change files through it. The browser's default folder keeps its
  * files in IndexedDB instead (`browser/storage.ts`).
  *

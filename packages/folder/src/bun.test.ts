@@ -9,7 +9,7 @@
  * Key behaviors:
  * - A save waits while another process holds the save lock, then replaces
  *   what that process saved
- * - Two processes writing one file through `files.write` each land whole,
+ * - Two processes writing one file through `write` each land whole,
  *   and the last one wins
  * - A save lock not taken in time is `NothingChanged`, so the put it guarded
  *   is `Io`, never `Unconfirmed`, and leaves no staged file or new directory
@@ -18,7 +18,7 @@
  *   `.git/epicenter/scratch` as it is
  *
  * See also:
- * - `native/bun.test.ts` for the rest of the Bun `Folder`
+ * - `directory.test.ts` for the Folder over directory storage
  * - `registry_tests.rs` in `tauri-plugin-epicenter-folder`, where a shell
  *   save waits for a Bun process holding the same lock
  */
@@ -89,7 +89,7 @@ function lines(stream: ReadableStream<Uint8Array>) {
 	};
 }
 
-test('a save waits for another process holding the save lock, then merges with its save', async () => {
+test('a save waits for another process holding the save lock, then replaces its save', async () => {
 	const root = await scratch('bun-save-lock-');
 	const lock = join(dirname(root), `.${basename(root)}.epicenter-save-lock`);
 	const target = join(root, 'note.txt');
@@ -129,7 +129,7 @@ test('a save waits for another process holding the save lock, then merges with i
 		expect(await said()).toBe('locked');
 
 		let settled = false;
-		const saving = folder.files.write('note.txt', 'ours').finally(() => {
+		const saving = folder.write('note.txt', 'ours').finally(() => {
 			settled = true;
 		});
 		await Bun.sleep(200);
@@ -152,7 +152,7 @@ test('a save waits for another process holding the save lock, then merges with i
 	}
 });
 
-test('two processes writing one file through files.write each land whole, the last one winning', async () => {
+test('two processes writing one file through write each land whole, the last one winning', async () => {
 	const ROUNDS = 30;
 	const root = await scratch('bun-write-race-');
 	try {
@@ -170,11 +170,11 @@ test('two processes writing one file through files.write each land whole, the la
 					const { data: folder, error } = await openFolder({ directory: root, tables: {} });
 					if (error !== null) throw new Error(JSON.stringify(error));
 					for (let line = 0; line < Number(rounds); line++) {
-						const { error } = await folder.files.write('log.txt', ('p${id}-' + line + '\\n').repeat(64));
+						const { error } = await folder.write('log.txt', ('p${id}-' + line + '\\n').repeat(64));
 						if (error !== null) throw new Error(JSON.stringify(error));
-						const read = await folder.files.read('log.txt');
+						const read = await folder.read('log.txt');
 						if (read.error !== null) throw new Error(JSON.stringify(read.error));
-						const lines = new Set((await read.data.content.text()).split('\\n').filter(Boolean));
+						const lines = new Set(new TextDecoder().decode(read.data).split('\\n').filter(Boolean));
 						if (lines.size !== 1) throw new Error('a torn file: ' + [...lines].join(','));
 					}
 					await folder.close();

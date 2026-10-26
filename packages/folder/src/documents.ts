@@ -1,9 +1,7 @@
 /** Interpret the same saved files for the editor and the desktop SQL reader. */
-import { Ok, type Result } from 'wellcrafted/result';
 import type { TSchema } from 'typebox';
 import { readDeclaredTables } from './declaration.js';
 import type { Declaration } from './declaration-schema.js';
-import type { FolderFiles, ReadError } from './folder.js';
 import { type Document, readDocument } from './shared/document.js';
 
 export {
@@ -78,34 +76,4 @@ export function documentsOf(
 		documents.push(document);
 	}
 	return { documents, unreadable, tables, declarationProblem };
-}
-
-/** Adapter for callers still using the old FolderFiles API. */
-export async function readDocuments(
-	files: Pick<FolderFiles, 'list' | 'read'>,
-): Promise<Result<DocumentReading, ReadError>> {
-	const listed = await files.list();
-	if (listed.error !== null) return listed;
-	const saved: SavedFile[] = [];
-	for (const path of new Set(['epicenter.json', ...listed.data])) {
-		const read = await files.read(path);
-		if (read.error !== null) {
-			saved.push({ path, data: undefined, readError: read.error });
-			continue;
-		}
-		if (read.data === undefined) continue;
-		const bytes = new Uint8Array(await read.data.content.arrayBuffer());
-		saved.push({ path, data: decode(bytes), readError: null });
-	}
-	return Ok(documentsOf(saved));
-}
-
-function decode(bytes: Uint8Array): string | Uint8Array {
-	try {
-		return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(
-			bytes,
-		);
-	} catch {
-		return bytes;
-	}
 }

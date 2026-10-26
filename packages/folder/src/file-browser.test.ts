@@ -2,49 +2,27 @@
  * Shared file-browser tests.
  *
  * Tree ordering, expanded directories, and text classification belong to the
- * folder package. Apps supply their editing limit; failed reads keep their
- * refusal, and editable text is the exact text of the file's bytes.
+ * folder package. Apps supply their editing limit, and editable text is the
+ * exact text of the file's bytes.
  *
  * Key behaviors:
  * - Folders precede files, only expanded descendants appear, and Git is hidden
  * - The byte limit includes its boundary, and BOM and CRLF survive decoding
  * - NUL bytes and invalid UTF-8 open as binary details
- * - Failed reads preserve their refusal, and an absent file is `undefined`
  */
 import { expect, test } from 'bun:test';
-import { Err, Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
-import { readTextFile, visibleRows } from './file-browser.js';
-import { ReadError } from './shared/errors.js';
+import { openedFile, visibleRows } from './file-browser.js';
 
-/** A folder's `files.read` that answers `bytes` for every path. */
-const holding = (bytes: Uint8Array) => ({
-	read: async (path: string) =>
-		Ok({ path, content: new Blob([new Uint8Array(bytes)]) }),
-});
-
-test('the caller owns the exact byte limit, and editable text keeps BOM and CRLF', async () => {
+test('the caller owns the exact byte limit, and editable text keeps BOM and CRLF', () => {
 	const bytes = new TextEncoder().encode('\ufeffhi\r\n');
-	const files = holding(bytes);
-	expect(
-		expectOk(await readTextFile(files, 'note.txt', bytes.byteLength - 1)),
-	).toEqual({
+	expect(openedFile(bytes, bytes.byteLength - 1)).toEqual({
 		kind: 'tooLarge',
 		size: bytes.byteLength,
 	});
-	expect(
-		expectOk(await readTextFile(files, 'note.txt', bytes.byteLength)),
-	).toEqual({ kind: 'text', text: '\ufeffhi\r\n' });
-});
-
-test('a failed read preserves its refusal, and an absent file is undefined', async () => {
-	const { error } = ReadError.StorageFailed({ cause: new Error('disk') });
-	const failing = { read: async () => Err(error) };
-	expect(await readTextFile(failing, 'note.txt', 10)).toEqual(Err(error));
-	const absent = { read: async () => Ok(undefined) };
-	expect(expectOk(await readTextFile(absent, 'missing.txt', 10))).toBe(
-		undefined,
-	);
+	expect(openedFile(bytes, bytes.byteLength)).toEqual({
+		kind: 'text',
+		text: '\ufeffhi\r\n',
+	});
 });
 
 const listing = {
@@ -81,12 +59,12 @@ test('folders list before files, and only expanded folders show children', () =>
 	expect(nested.find((row) => row.path === 'notes/deep/x.txt')?.depth).toBe(2);
 });
 
-test('NUL bytes and invalid UTF-8 open as binary details', async () => {
+test('NUL bytes and invalid UTF-8 open as binary details', () => {
 	for (const bytes of [
 		new Uint8Array([0x68, 0, 0x69]),
 		new Uint8Array([0xff, 0xfe, 0x41]),
 	]) {
-		expect(expectOk(await readTextFile(holding(bytes), 'a.bin', 10))).toEqual({
+		expect(openedFile(bytes, 10)).toEqual({
 			kind: 'binary',
 			size: bytes.byteLength,
 		});

@@ -645,50 +645,6 @@ function ownValue(
 	}
 }
 
-/**
- * A copy of typed `fields` as the canonical writer takes them, or why it
- * would refuse them: each value as its JSON value, read through any proxy,
- * so a later change of the caller's objects changes nothing. A field whose
- * value is `undefined` stays, as the removal it means.
- */
-export function ownFields(
-	fields: unknown,
-): Result<Record<string, unknown>, CanonicalRefusal> {
-	if (!isPlainRecord(fields)) return refuse('The fields are not a plain object');
-	let copy: Record<string, unknown> = {};
-	for (const key of Object.keys(fields)) {
-		const value = fields[key];
-		let owned: unknown;
-		if (value !== undefined) {
-			const { data, error } = ownValue(value, [key], new Set());
-			if (error !== null) return Err({ ...error, field: key });
-			owned = plainOf(data);
-		}
-		copy = Object.defineProperty(copy, key, {
-			value: owned,
-			enumerable: true,
-			writable: true,
-			configurable: true,
-		});
-	}
-	return Ok(copy);
-}
-
-/** An owned value as plain arrays and objects. */
-function plainOf(value: OwnedValue): unknown {
-	if (Array.isArray(value)) return value.map(plainOf);
-	if (!(value instanceof Map)) return value;
-	const record: Record<string, unknown> = {};
-	for (const [key, item] of value)
-		Object.defineProperty(record, key, {
-			value: plainOf(item),
-			enumerable: true,
-			writable: true,
-			configurable: true,
-		});
-	return record;
-}
-
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
 	if (typeof value !== 'object' || value === null || Array.isArray(value))
 		return false;

@@ -6,19 +6,19 @@
  */
 import type { Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import type { SaveError } from './shared/errors.js';
 import type { FileContent } from './shared/merge.js';
+import type { WriteError } from './write-refusal.js';
 
 export function put(
 	folder: {
 		write(
 			path: string,
 			to: FileContent | null,
-		): Promise<Result<void, SaveError>>;
+		): Promise<Result<void, WriteError>>;
 	},
 	path: string,
 	content: string | Uint8Array,
-): Promise<Result<void, SaveError>> {
+): Promise<Result<void, WriteError>> {
 	return folder.write(path, content);
 }
 

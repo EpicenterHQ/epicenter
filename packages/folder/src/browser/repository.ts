@@ -132,7 +132,6 @@ export async function openRepository<
 				// Trees identify structural collisions; only this path needs blob bytes.
 				const snapshot = await storage.capture([path]);
 				const current = snapshotContent(snapshot, path);
-				const entry = snapshot.files.get(path);
 				if (content !== null) {
 					if (!validPath(path) && !snapshot.files.has(path))
 						return SaveError.InvalidPath({ path });

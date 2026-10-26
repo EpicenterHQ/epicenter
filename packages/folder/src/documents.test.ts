@@ -172,9 +172,8 @@ test('directory SQL and the open editor share declared diagnostics without requi
 	);
 	const { tmpdir } = await import('node:os');
 	const { join } = await import('node:path');
-	const { openBunFolder } = await import('./native/bun.js');
+	const { openFolder } = await import('./bun.js');
 	const { readDirectoryDocuments } = await import('./directory-documents.js');
-	const { readDocuments } = await import('./documents.js');
 	const directory = await mkdtemp(join(tmpdir(), 'epicenter-documents-'));
 	await mkdir(join(directory, 'notes'));
 	await mkdir(join(directory, 'notes/attachments'));
@@ -196,10 +195,10 @@ test('directory SQL and the open editor share declared diagnostics without requi
 			views: 'broken unrelated view',
 		}),
 	);
-	const folder = expectOk(await openBunFolder({ directory, tables: {} }));
+	const folder = expectOk(await openFolder({ directory, tables: {} }));
 	try {
 		const desktop = expectOk(await readDirectoryDocuments(directory));
-		const editor = expectOk(await readDocuments(folder.files));
+		const editor = documentsOf(folder.files());
 		expect(desktop.documents).toEqual(editor.documents);
 		expect(
 			desktop.documents.find((doc) => doc.path === 'notes/a.md')?.issues?.[0]
