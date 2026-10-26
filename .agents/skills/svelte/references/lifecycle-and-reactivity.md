@@ -119,6 +119,184 @@ after unmount. The mounted product root receives the `SvelteFolder` value and
 installs it in its app-owned context. Key editors by file identity so each
 mounted editor owns one draft. See [Folder reads and editing](#folder-reads-and-editing).
 
+## Imperative Widgets: Own The Whole Runtime Boundary
+
+For imperative widgets such as ProseMirror, CodeMirror, maps, charts, or
+canvas-based tools, prefer one component that owns the whole runtime boundary:
+
+```txt
+keyed id prop
+  -> open disposable resource
+  -> wait for readiness in markup
+  -> construct imperative widget once
+  -> destroy widget and resource on component teardown
+```
+
+Avoid splitting this into a resource component plus a one-call generic widget
+component that only receives a stable handle such as `Y.XmlFragment`,
+`HTMLElement`, `EditorState`, `Map`, or `Chart` config. That split usually
+creates a reactive prop boundary around a value that is not application state.
+
+Use `untrack` in a widget setup effect only for values that are intentionally
+not part of widget identity, such as a stable notification callback. If you need
+`untrack` for the main setup object, first ask whether the component owns the
+wrong boundary. Moving ownership to the keyed child often removes the need for
+`untrack` and makes the lifecycle visible in the tree.
+
+Keep a generic widget component only when there are several real callers, a
+public component API, or a non-obvious widget invariant that deserves its own
+file. Otherwise, collapse the wrapper into the component that owns the resource
+and mount lifetime.
+
+## Related
+
+- The sync-construction / async-ready-property / UI-render-gate pattern (see `factory-function-composition`, `references/sync-construction-render-gate.md`) covers the service-layer equivalent for clients with async-ready properties.
+- `docs/articles/svelte-5-createsubscriber-pattern.md` covers `createSubscriber` for wrapping external event sources into reactive values: a different job than component-scoped handles.
+- `docs/articles/20260420T160000-state-handle-null-is-the-component-lifecycle-in-disguise.md` walks through why this rule exists and when Pattern B is still correct.
+
+# Template locals: narrow reactive values before use
+
+Svelte template expressions already track reactive property reads. Introduce
+`{@const}` or `$derived` when a repeated optional property access loses its
+narrowing inside a deferred callback, or when a useful computation needs a
+name. An already-narrowed local needs no extra alias. A reactive local is not
+a second draft or a mount-time snapshot.
+
+Place `{@const}` in the nearest supported template scope containing the controls that
+need it. Capture the optional value, narrow that local, then create the binding
+callbacks. Several controls in that scope share one local; nested property
+access alone does not justify another alias.
+
+```svelte
+{#each ids as id (id)}
+	{@const row = folder.tables.todos.row(id)}
+	{#if row?.issues === null}
+		<button onclick={() => void folder.tables.todos.update(id, { fields: { done: !row.fields.done } })}>
+			{row.fields.done ? 'Done' : 'Open'}
+		</button>
+	{/if}
+{/each}
+```
+
+In this case, read the row once, then check presence and validity. Use the actual contract:
+Folder rows are absent as `undefined`, and valid when `issues === null`.
+The [function binding guidance](component-ui-patterns.md#function-bindings-for-transformed-values)
+explains event-time composition through the current owner.
+
+Use `const row = $derived(folder.tables.todos.row(id))` if script code also needs it or no
+existing template scope supports `{@const}` before the guard. Do not add a
+block solely to host the local. Do not replace either reactive form with a
+component-level `const row = folder.tables.todos.row(id)`:
+that captures only the initial value. A simple display that needs no shared
+narrowing may read `session.current` directly; do not add an alias just to
+rename it, and do not remove a useful local merely because its initializer
+is a shallow property read.
+
+Other reasons to keep a local include a computed predicate, an expensive
+projection shared by several consumers, a change filter that skips downstream
+work when its value stays identical, or a dynamic component such as
+`{@const Icon = item.icon}`. Inspect the consumers before inlining.
+
+An operation-local snapshot can keep a read-modify-write operation coherent.
+Capture it when the handler runs, and re-read or check the operation's
+validity after an `await` before writing.
+
+# Stable adapters and reactive reads
+
+Separate the adapter's identity from the values it exposes. For a read-through
+adapter whose getters participate in Svelte reactivity, construct it once when
+the source owner is fixed for the component instance:
+
+```svelte
+<!-- Parent: a new open item recreates the child. -->
+{#key item}
+	<RowView session={item.session} />
+{/key}
+```
+
+```svelte
+<!-- RowView.svelte -->
+<script lang="ts">
+	let { session } = $props();
+</script>
+
+<p>{session.draft.fields.title}</p>
+```
+
+The session's getters are reactive, so changes to the draft or save state need
+no reconstruction. If the owner can be replaced while this component stays
+mounted, key the component on the owner, or derive from the prop. For an
+adapter that owns a disposable resource, use an explicit lifecycle boundary
+instead; `$derived` does not supply cleanup.
+
+Confirm owner stability at the caller before removing the wrapper. A keyed
+child can establish that stability when the key tracks the owner identity.
+The caller now owns that guarantee; removing its key can leave the child stale.
+Use `untrack` for this intentional initial prop capture to avoid Svelte's
+[state_referenced_locally warning](https://svelte.dev/docs/svelte/compiler-warnings#state_referenced_locally). It documents the capture, not a substitute
+for the caller's lifetime guarantee. Prefer deriving from the prop when the
+component must remain correct independently of its caller's mount policy.
+Svelte executes component initialization once, and a `{#key}` block recreates
+its contents when the key changes. See the official
+[`$derived`](https://svelte.dev/docs/svelte/$derived),
+[`$props`](https://svelte.dev/docs/svelte/$props), and
+[`{#key}`](https://svelte.dev/docs/svelte/key) documentation.
+
+# `$derived` Value Mapping: Use `satisfies Record`, Not Ternaries
+
+When a `$derived` expression maps a finite union to output values, use a `satisfies Record` lookup. Never use nested ternaries. Never use `$derived.by()` with a switch just to map values.
+
+```svelte
+<!-- Bad: nested ternary in $derived -->
+<script lang="ts">
+	const tooltip = $derived(
+		syncStatus.current === 'connected'
+			? 'Connected'
+			: syncStatus.current === 'connecting'
+				? 'Connecting...'
+				: 'Offline',
+	);
+</script>
+
+<!-- Bad: $derived.by with switch for a pure value lookup -->
+<script lang="ts">
+	const tooltip = $derived.by(() => {
+		switch (syncStatus.current) {
+			case 'connected': return 'Connected';
+			case 'connecting': return 'Connecting...';
+			case 'offline': return 'Offline';
+		}
+	});
+</script>
+
+<!-- Good: $derived with satisfies Record -->
+<script lang="ts">
+	import type { SyncStatus } from '@epicenter/sync-client';
+
+	const tooltip = $derived(
+		({
+			connected: 'Connected',
+			connecting: 'Connecting...',
+			offline: 'Offline',
+		} satisfies Record<SyncStatus, string>)[syncStatus.current],
+	);
+</script>
+```
+
+Why `satisfies Record` wins:
+
+- Compile-time exhaustiveness: add a value to the union and TypeScript errors on the missing key. Nested ternaries silently fall through.
+- It's a data declaration, not control flow. The mapping is immediately visible.
+- `$derived()` stays a single expression: no need for `$derived.by()`.
+
+Reserve `$derived.by()` for multi-statement logic where you genuinely need a function body. For value lookups, keep it as `$derived()` with a record.
+
+`as const` is unnecessary when using `satisfies`. `satisfies Record<T, string>` already validates shape and value types.
+
+See `docs/articles/record-lookup-over-nested-ternaries.md` for rationale.
+
+# When to Use SvelteMap vs $state
+
 Use `SvelteMap` when items have stable IDs and you need keyed lookup. Reads of
 `get`, `has`, `size`, and iteration participate in Svelte reactivity when they
 happen inside a template, `$derived`, or `$effect`. Use `$state` for primitives,
