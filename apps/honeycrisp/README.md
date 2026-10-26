@@ -82,9 +82,10 @@ history.
 
 `<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,
 and closes it on unmount. Drafts send their latest text on unmount, pagehide,
-hidden, and beforeunload. Leaving asks once, only while a save is out or a
-draft's save failed: a browser tab shows "Leave site?", and a desktop window
-waits for the writes, then asks natively only if the page is still unsure.
+hidden, and beforeunload. Leaving asks once, only while a save is out: a
+browser tab shows "Leave site?", and a desktop window waits for the writes,
+then asks natively only if they are still out. Text whose save failed is
+discarded on leaving.
 
 The mirror keeps text files and interprets Markdown rows. `row(id)` is absent
 when a file is gone; an invalid row has issues. `FileDetail` checks repair

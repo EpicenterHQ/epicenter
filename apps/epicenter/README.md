@@ -549,7 +549,7 @@ application data.
 Bundled app pages and the Folders editor answer window Close through the
 page's `beforeunload` listeners: drafts send their text, the guard waits up to
 three seconds for queued mirror writes, and it asks one native question only
-if a draft's save failed or a write is still out. A recording alone does not delay close: native destruction ends
+if a write is still out. A recording alone does not delay close: native destruction ends
 capture and keeps the audio captured so far. Repeated requests for one window
 share its current close; other windows answer independently, including native
 tab-group members. A dispatched destruction keeps the page inert until it is

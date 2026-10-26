@@ -349,7 +349,7 @@ page-local presentation state, drafts in a view included, resets. Reload
 mounts a fresh root and repeats startup.
 
 Leaving asks through `beforeunload`: drafts send what waits, and the page is
-unsure while a write is out or a draft's save failed. A browser tab raises its
+unsure while a write is out. A browser tab raises its
 leave warning then. Internal route changes keep the mounted app and need no
 guard. Inside Epicenter a window's Close waits for writes in flight and asks
 natively only if the page is still unsure. The host always
@@ -678,8 +678,7 @@ opening sweeps.
 A window whose folder could not be opened closes the same way: nothing is
 open in it.
 
-In a browser tab, the page warns only while a write is out or a draft's save
-failed. Recording adds no warning. Browser audio stays in the page
+In a browser tab, the page warns only while a write is out. Recording adds no warning. Browser audio stays in the page
 until Stop saves it, so reloading or closing the tab loses an unfinished take.
 
 ## Saving and status
