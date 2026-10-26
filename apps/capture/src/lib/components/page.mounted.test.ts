@@ -7,6 +7,7 @@
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { until } from '@epicenter/folder/testing';
 import {
 	setWide,
 	type,
@@ -14,7 +15,6 @@ import {
 
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: PageHost } = await import('./fixtures/PageHost.svelte');
-const { until } = await import('../local-folder.test-support.js');
 setWide(true);
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -22,7 +22,7 @@ afterEach(async () => {
 	document.body.replaceChildren();
 });
 
-test('fresh browser opens a timeline with saved status', async () => {
+test('fresh browser opens a timeline with a neutral storage status', async () => {
 	globalThis.indexedDB = new IDBFactory();
 	const target = document.createElement('div');
 	document.body.append(target);
@@ -33,8 +33,8 @@ test('fresh browser opens a timeline with saved status', async () => {
 	await until(() => {
 		flushSync();
 		return target.textContent?.includes('New capture') === true;
-	}, 'page open');
-	expect(target.textContent).toContain('Saved');
+	});
+	expect(target.textContent).toContain('On this device');
 	expect(target.textContent).not.toContain('Save version');
 });
 
@@ -49,7 +49,7 @@ test('Add from the page writes a capture and opens Add a thought', async () => {
 	await until(() => {
 		flushSync();
 		return document.getElementById('new-capture') !== null;
-	}, 'page open');
+	});
 	const field = document.getElementById('new-capture');
 	if (!(field instanceof HTMLTextAreaElement))
 		throw new Error('New capture did not mount');
@@ -60,7 +60,7 @@ test('Add from the page writes a capture and opens Add a thought', async () => {
 	await until(() => {
 		flushSync();
 		return document.getElementById('new-thought') !== null;
-	}, 'capture to open');
+	});
 	const capture = document.getElementById('capture-text');
 	if (!(capture instanceof HTMLTextAreaElement))
 		throw new Error('Capture did not open');

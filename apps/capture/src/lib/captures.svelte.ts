@@ -7,7 +7,7 @@ import {
 	composeBody,
 	excerpt,
 } from '@epicenter/capture';
-import type { WriteError } from '@epicenter/folder';
+import { describeIssues, type WriteError } from '@epicenter/folder';
 import type { SvelteFolder } from '@epicenter/svelte/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
@@ -97,22 +97,6 @@ export function readCaptureBody(
 	return Ok({ ...reading.data, draft: false });
 }
 
-export function problemOf(row: Pick<CaptureRow, 'issues'>): string {
-	return (row.issues ?? [])
-		.map((issue) => {
-			const at =
-				'line' in issue && issue.line !== undefined
-					? `Line ${issue.line}: `
-					: '';
-			const field =
-				issue.kind === 'schema' && issue.path.length > 0
-					? `${issue.path.join('.')} `
-					: '';
-			return `${at}${field}${issue.message.replace(/\.$/, '')}.`;
-		})
-		.join(' ');
-}
-
 export function timelineOf(listed: readonly CaptureRow[]) {
 	const rows: TimelineRow[] = [];
 	const drafts: TimelineRow[] = [];
@@ -127,13 +111,13 @@ export function timelineOf(listed: readonly CaptureRow[]) {
 		) {
 			unreadable.push({
 				path,
-				message: problemOf(row),
+				message: describeIssues(row.issues),
 				retry: row.issues.some((issue) => issue.kind === 'unreadable'),
 			});
 			continue;
 		}
 		if (row.issues !== null) {
-			repairs.push({ stem, path, problem: problemOf(row) });
+			repairs.push({ stem, path, problem: describeIssues(row.issues) });
 			continue;
 		}
 		const { data: body, error } = readCaptureBody(row);
@@ -185,9 +169,6 @@ export function createCaptures(folder: CaptureFolder) {
 	return {
 		get timeline() {
 			return timeline;
-		},
-		get saveLabel(): 'Saved' | 'Saving…' {
-			return folder.saving ? 'Saving…' : 'Saved';
 		},
 		get opened() {
 			return opened;

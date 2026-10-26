@@ -8,17 +8,10 @@ import {
 	createFolder,
 	memoryHost,
 	SaveError,
+	until,
 } from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { Captures } from './captures.svelte.js';
-
-export async function until(check: () => boolean, what = 'the check') {
-	for (let tries = 0; tries < 400; tries++) {
-		if (check()) return;
-		await Bun.sleep(5);
-	}
-	throw new Error(`Timed out waiting for ${what}`);
-}
 
 export async function openCaptures(
 	files: Record<string, string | Uint8Array> = {},
@@ -54,7 +47,7 @@ export async function openCaptures(
 		},
 		async quiet() {
 			await Bun.sleep(1050);
-			await until(() => !raw.saving(), 'saves to land');
+			await until(() => !raw.saving(), { timeout: 2500 });
 		},
 		close: () => raw.close(),
 	};

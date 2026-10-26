@@ -2,7 +2,8 @@
 <script lang="ts">
 	import { captureTables } from '@epicenter/capture';
 	import { readRow } from '@epicenter/folder';
-	import { draft } from '@epicenter/svelte/folder';
+	import { fileDraft } from '@epicenter/svelte/folder';
+	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
@@ -28,72 +29,46 @@
 		const file = folder.file(path);
 		return file?.readError === null && typeof file.data === 'string' ? file.data : undefined;
 	});
-	const text = draft(
-		() => (source ?? '').replace(/\r\n?/g, '\n'),
-		(typing) => folder.write(path, fileText(typing)),
-	);
-	function fileText(typing: string) {
-		const current = folder.file(path)?.data;
-		return typeof current === 'string' && current.includes('\r\n')
-			? typing.toWellFormed().replace(/\r?\n/g, '\r\n')
-			: typing.toWellFormed();
-	}
+	const text = fileDraft(folder, path);
 	const parsed = $derived(readRow(text.value, captureTables.captures));
 	const isDraft = $derived(parsed.issues === null && parsed.fields.draft === true);
 	const body = $derived(parsed.issues === null ? parsed.body : undefined);
-	const issues = $derived.by(() => {
-		if (parsed.issues !== null) return parsed.issues;
-		const reading = readCaptureBody(parsed);
-		return reading.error === null ? [] : [{ message: reading.error.message }];
-	});
+	const reading = $derived(parsed.issues === null ? readCaptureBody(parsed) : undefined);
+	const needsRepair = $derived(parsed.issues !== null || reading?.error !== null);
 	const selection = untrack(() => captures.opened?.focus);
 	let finishing = $state(false);
 	let refusal = $state<string | undefined>();
+	let textField = $state<HTMLTextAreaElement | null>(null);
 
 	function selectThought(node: HTMLTextAreaElement) {
 		if (typeof selection !== 'object') return;
 		node.focus();
 		node.setSelectionRange(selection.start, selection.end);
 	}
-	function input(field: HTMLTextAreaElement) {
-		const typing = field.value;
+	function input(typing: string) {
 		if (typing.includes('\0')) {
 			refusal = 'A file cannot contain U+0000.';
-			const accepted = text.value;
-			queueMicrotask(() => { field.value = accepted; });
+			queueMicrotask(() => {
+				if (textField) textField.value = text.value;
+			});
 			return;
 		}
 		refusal = undefined;
 		text.set(typing);
 	}
-	async function saveText() {
-		while (active) {
-			const shown = text.value;
-			const saved = await folder.write(path, fileText(shown));
-			if (!active) return false;
-			if (saved.error !== null) {
-				refusal = saved.error.message;
-				return false;
-			}
-			if (text.value === shown) {
-				text.discard();
-				refusal = undefined;
-				return true;
-			}
-		}
-		return false;
-	}
 	async function openCapture() {
-		if (!(await saveText())) return;
+		if ((await text.land()).error !== null) return;
+		if (!active) return;
 		captures.open(stem, 'capture');
 	}
 	async function finish() {
 		if (finishing || !isDraft || !body?.trim()) return;
 		finishing = true;
-		if (!(await saveText())) {
+		if ((await text.land()).error !== null) {
 			if (active) finishing = false;
 			return;
 		}
+		if (!active) return;
 		const result = await captures.finishDraft(stem);
 		if (!active) return;
 		finishing = false;
@@ -115,7 +90,7 @@
 					{finishing ? 'Adding…' : 'Add capture'}
 				</Button>
 			{:else}
-				<Button size="sm" variant="outline" disabled={issues.length > 0} onclick={() => void openCapture()}>Open as capture</Button>
+				<Button size="sm" variant="outline" disabled={needsRepair} onclick={() => void openCapture()}>Open as capture</Button>
 			{/if}
 			<Button size="sm" variant="ghost" onclick={() => void copy(text.value, 'File text')}>Copy file text</Button>
 			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem, () => text.discard())}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
@@ -134,17 +109,16 @@
 	<UnsavedEdit draft={text} />
 
 	{#if source !== undefined || text.value !== '' || text.error !== null}
-		{#if issues.length > 0}
+		{#if needsRepair}
 			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
 				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
 					This text does not read as a capture yet. It is checked as you type.
 				</p>
-				<ul class="space-y-0.5 text-muted-foreground">
-					{#each issues as issue, index (index)}
-						<li>{'line' in issue && issue.line !== undefined ? `Line ${issue.line}: ` : ''}{issue.message}</li>
-					{/each}
-				</ul>
+				<div class="space-y-0.5 text-muted-foreground">
+					{#if parsed.issues !== null}<RowIssues issues={parsed.issues} />{/if}
+					{#if reading?.error}<p>{reading.error.message}</p>{/if}
+				</div>
 			</div>
 		{/if}
 		<Textarea
@@ -153,8 +127,8 @@
 			spellcheck={false}
 			readonly={finishing}
 			aria-invalid={refusal !== undefined}
-			value={text.value}
-			oninput={(event) => input(event.currentTarget)}
+			bind:value={() => text.value, input}
+			bind:ref={textField}
 			onkeydown={(event) => {
 				if (!isDraft || !(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
 				event.preventDefault();
@@ -173,7 +147,7 @@
 		<Empty.Root role="alert">
 			<Empty.Header>
 				<Empty.Title>This capture could not be read</Empty.Title>
-				<Empty.Description>{row.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+				<Empty.Description><RowIssues issues={row.issues} /></Empty.Description>
 			</Empty.Header>
 			<Empty.Content><Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button></Empty.Content>
 		</Empty.Root>

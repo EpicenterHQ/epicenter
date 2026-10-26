@@ -6,6 +6,7 @@
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { until as waitUntil } from '@epicenter/folder/testing';
 import {
 	button,
 	setWide,
@@ -13,10 +14,12 @@ import {
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { openCaptures, until } = await import('../local-folder.test-support.js');
+const { openCaptures } = await import('../local-folder.test-support.js');
 const { locateThought } = await import('../capture-actions.svelte.ts');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 setWide(true);
+const until = (check: () => boolean, options: { timeout?: number } = { timeout: 2500 }) =>
+	waitUntil(check, options);
 const AT = '2026-10-04T20:49:23.041Z';
 const PATH = 'captures/one.md';
 const FILE = `---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- first\n`;
@@ -98,7 +101,7 @@ test('a thought added during the debounce keeps text typed just before it', asyn
 	submit(field('new-thought')?.form);
 	flushSync();
 	expect(field('capture-text')?.value).toBe('Typed just now');
-	await until(() => h.host.log.puts.length > 0);
+	await until(() => h.host.log.puts.length > 0, { timeout: 2500 });
 	release();
 	await land(h);
 	expect(h.text(PATH)).toContain('Typed just now');
@@ -171,8 +174,9 @@ test('a thought typed but not added stays visible to copy when the body becomes 
 	expect(button(h.target, 'Copy text')).toBeDefined();
 });
 
-test('a capture that becomes a draft offers Edit as text', async () => {
+test('a capture that becomes a draft lands held text before Edit as text', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
+	type(field('capture-text'), 'Held text');
 	h.writeElsewhere(
 		PATH,
 		FILE.replace('---\n\nText', 'draft: true\n---\n\nText'),
@@ -187,6 +191,8 @@ test('a capture that becomes a draft offers Edit as text', async () => {
 		return textFile() !== null;
 	});
 	expect(textFile()?.value).toContain('draft: true');
+	expect(textFile()?.value).toContain('Held text');
+	expect(h.text(PATH)).toContain('Held text');
 });
 
 test('Edit as text saves the typed body before opening the source', async () => {
@@ -209,18 +215,15 @@ test('Edit as text saves the typed body before opening the source', async () => 
 	expect(h.text(PATH)).toContain('Pending');
 });
 
-test('Edit as text stays in the capture and reports a refused save', async () => {
+test('Edit as text stays in the capture with the failed draft visible', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	h.failSaves(PATH);
 	type(field('capture-text'), 'Keep this');
 	button(h.target, 'Edit as text').click();
 	await until(() => {
 		flushSync();
-		return (
-			document.body.textContent?.includes('Could not save this capture') ===
-			true
-		);
-	});
+		return document.body.textContent?.includes('Not saved:') === true;
+	}, { timeout: 2500 });
 	expect(h.captures.opened?.mode).toBe('capture');
 	expect(field('capture-text')?.value).toBe('Keep this');
 	expect(h.text(PATH)).toBe(FILE);
@@ -234,7 +237,7 @@ test('leaving during an Edit as text save keeps the timeline open', async () => 
 	});
 	type(field('capture-text'), 'Pending');
 	button(h.target, 'Edit as text').click();
-	await until(() => h.host.log.puts.length > 0);
+	await until(() => h.host.log.puts.length > 0, { timeout: 2500 });
 	button(h.target, 'Back to timeline').click();
 	release();
 	await h.quiet();
@@ -271,7 +274,7 @@ test('an outside change appears when idle and typing stays visible until its sav
 	type(field('capture-text'), 'Mine');
 	flushSync();
 	expect(field('capture-text')?.value).toBe('Mine');
-	await until(() => h.host.log.puts.length > 0);
+	await until(() => h.host.log.puts.length > 0, { timeout: 2500 });
 	expect(field('capture-text')?.value).toBe('Mine');
 	release();
 	await land(h);
@@ -346,7 +349,7 @@ test('pending whole-file text recreates a file deleted elsewhere', async () => {
 	});
 	const typed = FILE.replace('Text', 'Recreated');
 	type(textFile(), typed);
-	await until(() => h.host.log.puts.length > 0);
+	await until(() => h.host.log.puts.length > 0, { timeout: 2500 });
 	h.deleteElsewhere('one');
 	flushSync();
 	expect(textFile()?.value).toBe(typed);
@@ -534,7 +537,7 @@ test('a text editor is read-only while Add finishes a saved draft', async () => 
 	});
 });
 
-test('Add retries the typed draft and stays on the write failure', async () => {
+test('Add stays on a failed draft until its text is retried', async () => {
 	const original = `---\ncapturedAt: ${AT}\ndraft: true\n---\nWriting`;
 	const h = await setup({ [PATH]: original }, 'text');
 	const restore = h.failSaves(PATH);
@@ -547,6 +550,8 @@ test('Add retries the typed draft and stays on the write failure', async () => {
 	expect(h.text(PATH)).toBe(original);
 	expect(h.captures.opened?.mode).toBe('text');
 	restore();
+	button(h.target, 'Save again').click();
+	await until(() => h.text(PATH)?.includes('Typed') === true);
 	button(h.target, 'Add capture').click();
 	await until(() => {
 		flushSync();

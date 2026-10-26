@@ -1,12 +1,13 @@
 <!--
 	Capture inside `<OpenFolder>`: builds the store over the opened
 	folder, and shows the timeline or the one open capture under a
-	header that says whether everything is saved on this device.
+	header that shows when folder writes are in progress.
 
 	The folder keeps no history and syncs nowhere yet: the header offers no
 	Save version, Sync, or Connect.
 -->
 <script lang="ts">
+	import { saveLine } from '@epicenter/svelte/status-line';
 	import { setFolder } from '$lib/folder.js';
 	import { Button } from '@epicenter/ui/button';
 	import { type CaptureFolder, createCaptures } from '$lib/captures.svelte.js';
@@ -35,7 +36,7 @@
 			onclick={() => captures.leave()}>Capture</Button
 		>
 		<span role="status" aria-label="Saving" class="text-xs text-muted-foreground"
-			>{captures.saveLabel}</span
+			>{saveLine(folder.saving).label}</span
 		>
 	</div>
 </header>

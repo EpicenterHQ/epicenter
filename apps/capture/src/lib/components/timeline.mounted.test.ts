@@ -6,13 +6,14 @@
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { until } from '@epicenter/folder/testing';
 import {
 	setWide,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { openCaptures, until } = await import('../local-folder.test-support.js');
+const { openCaptures } = await import('../local-folder.test-support.js');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 setWide(true);
 const AT = '2026-10-04T20:49:23Z';
