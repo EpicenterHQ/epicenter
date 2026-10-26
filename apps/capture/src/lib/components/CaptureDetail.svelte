@@ -92,13 +92,11 @@
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
-	async function openText() {
-		if ((await body.land()).error !== null) return;
-		if (!active) return;
+	function openText() {
 		captures.open(stem, 'text');
 	}
 
-	/** Export the file after explicitly saving the text shown in this editor. */
+	/** Export the landed file after the typed body saves. */
 	async function download() {
 		if ((await body.land()).error !== null) return;
 		if (!active) return;
@@ -111,6 +109,7 @@
 	}
 
 	async function editThought(index: number, list: readonly string[]) {
+		// Selection ranges come from the landed file, so wait for the typed body.
 		if ((await body.land()).error !== null) return;
 		if (!active) return;
 		const saved = folder.tables.captures.row(stem);
@@ -145,7 +144,7 @@
 			<Alert.Root>
 				<Alert.Title>This file is a draft</Alert.Title>
 				<Alert.Description>Edit its Markdown as text to continue writing or finish it.</Alert.Description>
-				<div class="mt-2"><Button size="sm" onclick={() => void openText()}>Edit as text</Button></div>
+				<div class="mt-2"><Button size="sm" onclick={openText}>Edit as text</Button></div>
 			</Alert.Root>
 		{:else if row?.issues && !row.issues.some((issue) => issue.kind === 'unreadable' || issue.kind === 'not-text')}
 			<Empty.Root role="alert">
@@ -153,7 +152,7 @@
 					<Empty.Title>This file does not read as a capture</Empty.Title>
 					<Empty.Description>{describeIssues(row.issues)}</Empty.Description>
 				</Empty.Header>
-				<Empty.Content><Button size="sm" onclick={() => void openText()}>Edit as text</Button></Empty.Content>
+				<Empty.Content><Button size="sm" onclick={openText}>Edit as text</Button></Empty.Content>
 			</Empty.Root>
 		{:else if row === undefined}
 			<Empty.Root role="alert">
@@ -192,7 +191,7 @@
 				Capture with no date
 			{/if}
 		</h1>
-		<Button variant="outline" size="sm" onclick={() => void openText()}>Edit as text</Button>
+		<Button variant="outline" size="sm" onclick={openText}>Edit as text</Button>
 		<DropdownMenu.Root>
 			<DropdownMenu.Trigger>
 				{#snippet child({ props })}
@@ -223,7 +222,7 @@
 				<p>Nothing was changed. Edit its Markdown as text to repair it.</p>
 			</Alert.Description>
 			<div class="mt-2 text-foreground">
-				<Button size="sm" onclick={() => void openText()}>Edit as text</Button>
+					<Button size="sm" onclick={openText}>Edit as text</Button>
 			</div>
 		</Alert.Root>
 

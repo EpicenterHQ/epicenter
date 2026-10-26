@@ -90,7 +90,7 @@ test('typing capture text then adding a thought keeps both edits', async () => {
 	expect(field('new-thought')?.value).toBe('');
 });
 
-test('a thought added during the debounce keeps text typed just before it', async () => {
+test('a thought added behind a pending write keeps text typed just before it', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	let release = () => {};
 	h.host.control.putGate = new Promise<void>((resolve) => {
@@ -174,7 +174,7 @@ test('a thought typed but not added stays visible to copy when the body becomes 
 	expect(button(h.target, 'Copy text')).toBeDefined();
 });
 
-test('a capture that becomes a draft lands held text before Edit as text', async () => {
+test('Edit as text follows queued typing after a capture becomes a draft', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	type(field('capture-text'), 'Held text');
 	h.writeElsewhere(
@@ -188,44 +188,43 @@ test('a capture that becomes a draft lands held text before Edit as text', async
 	button(h.target, 'Edit as text').click();
 	await until(() => {
 		flushSync();
-		return textFile() !== null;
+		return textFile()?.value.includes('Held text') === true;
 	});
 	expect(textFile()?.value).toContain('draft: true');
-	expect(textFile()?.value).toContain('Held text');
 	expect(h.text(PATH)).toContain('Held text');
 });
 
-test('Edit as text saves the typed body before opening the source', async () => {
+test('Edit as text switches while a queued body write is pending', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
+	let release = () => {};
+	h.host.control.putGate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
 	type(field('capture-text'), 'Pending');
-	const edit = [...document.querySelectorAll('button')].find(
-		(button) => button.textContent?.trim() === 'Edit as text',
-	);
-	edit?.click();
+	button(h.target, 'Edit as text').click();
+	flushSync();
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(textFile()?.value).toBe(FILE);
+	release();
 	await until(() => {
 		flushSync();
-		return (
-			document.querySelector('textarea[aria-label^="Contents of"]') !== null
-		);
+		return textFile()?.value.includes('Pending') === true;
 	});
-	const file = document.querySelector<HTMLTextAreaElement>(
-		'textarea[aria-label^="Contents of"]',
-	);
-	expect(file?.value).toContain('Pending');
 	expect(h.text(PATH)).toContain('Pending');
 });
 
-test('Edit as text stays in the capture with the failed draft visible', async () => {
+test('Edit as text leaves a failed body draft and shows the saved file', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	h.failSaves(PATH);
 	type(field('capture-text'), 'Keep this');
-	button(h.target, 'Edit as text').click();
 	await until(() => {
 		flushSync();
 		return document.body.textContent?.includes('Not saved:') === true;
 	}, { timeout: 2500 });
-	expect(h.captures.opened?.mode).toBe('capture');
-	expect(field('capture-text')?.value).toBe('Keep this');
+	button(h.target, 'Edit as text').click();
+	flushSync();
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(textFile()?.value).toBe(FILE);
 	expect(h.text(PATH)).toBe(FILE);
 });
 

@@ -57,6 +57,7 @@
 		text.set(typing);
 	}
 	async function openCapture() {
+		// Navigation checks the landed row before opening the structured view.
 		if ((await text.land()).error !== null) return;
 		if (!active) return;
 		captures.open(stem, 'capture');
@@ -64,6 +65,7 @@
 	async function finish() {
 		if (finishing || !isDraft || !body?.trim()) return;
 		finishing = true;
+		// Finishing composes the landed draft body into a capture.
 		if ((await text.land()).error !== null) {
 			if (active) finishing = false;
 			return;
@@ -93,7 +95,7 @@
 				<Button size="sm" variant="outline" disabled={needsRepair} onclick={() => void openCapture()}>Open as capture</Button>
 			{/if}
 			<Button size="sm" variant="ghost" onclick={() => void copy(text.value, 'File text')}>Copy file text</Button>
-			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem, () => text.discard())}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
+			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem)}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
 		{/if}
 	</div>
 
