@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-24
-- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
+- **Superseded by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md).
 - **Relates:** [A lens belongs to its reader](0632-a-lens-belongs-to-its-reader.md) and [a folder owns local files](0636-an-app-opens-local-files-through-one-folder-handle.md).
 - **Supersedes:** [ADR-0676](0676-structured-edits-share-the-acquired-working-document.md) at the public document API and owner implementation. [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md)'s per-path order and last-write-wins publication remain.
 

@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-15
-- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
+- **Superseded by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md).
 - **Amended by:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md) (Proposed): the folder holds typed input from open to close, so no page draft or app queue holds it; one write path, one read path and one channel of change remain.
 - **Amended by:** [ADR-0654](0654-visible-folder-queries-refresh-without-native-watchers.md): visible queries discover outside edits through bounded polling; native file watchers and the wake clock are removed. The built inventory below records the earlier implementation.
 - **Amended by:** [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md): a field edit sets fields on the file as it is now, as an `UPDATE` does; only document editors keep a starting version.

@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-15
-- **Amended by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md). Local writes are unconditional; Git sync still merges and uses conditional storage.
+- **Amended by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md). Local writes are unconditional; Git sync still merges and uses conditional storage.
 - **Amends:** ADR-0514, since deleted: [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) replaced Sync's choices with a merge the device syncing wins. This amended it so that taking a side of a text unit no longer took the captured version exactly.
 - **Built:** `mergeFile` and `fileKindOf` (`merge-file.ts`), the one-pass line merge (`git/merge-lines.ts`), `saveFile`, `Replaced`, and `restoreTheirs` (`save-file.ts`); content-carrying captures (`files.read`, `files.create`, `files.save`, and `StoredRow.text`); `files.save` with `files.replace` and `files.overwrite` deleted; `table.save` and `kv.set` over `saveFile`; Sync's held paths and binary paths over `mergeFile`; `publishDefinition` over create and `{ merge: false }`; drafts that carry changes made during a merged save onto the version it wrote, for rows and, in `createTextDraft`, for text; `ReplacedNotice` in `@epicenter/svelte`; and every caller listed below. The storage boundary keeps its `overwrite` change kind, which no folder verb sends.
 

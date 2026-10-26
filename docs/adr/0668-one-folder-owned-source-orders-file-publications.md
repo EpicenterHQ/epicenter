@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-22
-- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
+- **Superseded by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md).
 - **Amended by:** [ADR-0676](0676-structured-edits-share-the-acquired-working-document.md), which unifies acquired structured edits with editor input and separates complete row publication.
 - **Current document API:** [ADR-0688](0688-one-folder-owned-text-document-per-path.md) supersedes ADR-0676's handle and owner implementation while preserving this decision's per-path order and last-write-wins publication.
 - **Supersedes:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md), guarded editor saves, and [ADR-0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md), the nested editor state contract.

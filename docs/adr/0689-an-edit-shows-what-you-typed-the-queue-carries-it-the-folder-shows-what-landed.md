@@ -1,4 +1,4 @@
-# 0689. A folder shows what landed; a draft holds what was typed until it lands
+# 0689. An edit shows what you typed; the queue carries it; the folder shows what landed
 
 - **Status:** Proposed
 - **Date:** 2026-10-26
@@ -22,16 +22,17 @@ value until the corresponding write answers.
 
 ## Decision
 
-**A Folder mirrors landed storage, and each editor owns its typed draft.**
+**An edit shows what you typed; the queue carries it; the Folder shows what landed.**
 `files()` and table rows show what was last read or landed, never pending
-input. A Svelte text editor uses one `draft(source, save)` per mounted editor.
-Each typed value enters the Folder's queue immediately. The draft shows that
+input. A Svelte text editor uses one `edit(source, save)` per mounted editor.
+Each typed value enters the Folder queue immediately. The edit shows that
 value until its save answers. A failed value stays visible with Save again,
 Discard, and Copy while the editor is mounted; leaving discards it. The page
 never holds unsent text. How often the queue touches storage belongs to the
-queue.
+queue. An editor can await `edit.landed()` when its next action needs the
+newest typed value to have landed; that answer is an error if its write failed.
 
-**Every local write enters one serial queue and answers after the mirror shows
+**Every local write enters one serial queue and answers after the Folder shows
 its result.** Waiting writes for one path merge even when unrelated turns sit
 between them, provided that path has no intervening operation. `update` reads
 the file as storage holds it at its turn, applies the patch, and puts only if
@@ -41,11 +42,10 @@ absent path and answers `Exists` if another writer created it. Whole-file
 `write` and `delete` remain last-write-wins. `move(from, to)` reads the source
 at its queue turn, creates the destination only if absent, then removes the
 source. If removal fails, both paths remain and the error names both. A
-write's `Saved` promise returns after storage and the mirror agree, or returns
+write's `Saved` promise returns after storage and the Folder agree, or returns
 its `WriteError`. An outside writer can still land a later whole-file
-replacement. A watcher hint naming a file
-already held by the mirror rereads that file without relisting; unknown or
-unnamed hints relist the folder.
+replacement. A watcher hint naming a file already held by the Folder rereads
+that file without relisting; unknown or unnamed hints relist the Folder.
 
 **Closing drains admitted writes before releasing storage.** The Folder
 refuses new writes, drains its queue, and releases its host. `idle()` waits for
@@ -67,13 +67,14 @@ conditional storage publication.
 ## Consequences
 
 A list and an editor can read the same landed row without sharing pending
-input. An app awaiting `Saved` can read the landed value immediately. A failed
-put leaves the last read value in the mirror; a failed text draft retains the
-input in its own component until it unmounts. Crash recovery cannot recover a
-draft that never landed. Checked updates preserve outside field changes that
-arrive between read and put; after repeated contention the fourth attempt
-accepts last-write-wins. One serial queue orders unrelated file writes too,
-trading concurrency for a single understandable publication order.
+input. An app awaiting `Saved` or a successful `edit.landed()` can read the
+landed value immediately. A failed put leaves the last read value in the
+Folder; a failed edit retains the typed input in its component until it
+unmounts. Crash recovery cannot recover an edit that never landed. Checked
+updates preserve outside field changes that arrive between read and put; after
+repeated contention the fourth attempt accepts last-write-wins. One serial
+queue orders unrelated file writes too, trading concurrency for a single
+understandable publication order.
 
 ## Considered alternatives
 

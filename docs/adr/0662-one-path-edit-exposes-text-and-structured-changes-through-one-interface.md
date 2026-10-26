@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-21
-- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
+- **Superseded by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md).
 - **Amends:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md), the public row/text editor split. The folder still owns each path's input, saving and lifetime.
 - **Implementation history:** The common-editor proposal was implemented, then its API was replaced by the retained-source snapshot in [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md). The proposal below preserves the earlier interface, including its now-withdrawn promise to retain invalid text. It is not the current API reference.
 

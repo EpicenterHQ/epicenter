@@ -888,4 +888,4 @@ When you add an ADR, add its row here.
 | [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (Whispering desktop caller implemented) |
 | [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Superseded by 0689 |
-| [0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md) | A folder shows what landed; a draft holds what was typed until it lands | Proposed (implemented; supersedes the working-document model) |
+| [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Proposed (implemented; supersedes the working-document model) |

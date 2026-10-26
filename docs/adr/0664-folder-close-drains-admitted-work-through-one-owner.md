@@ -2,7 +2,7 @@
 
 - **Status:** Superseded
 - **Date:** 2026-10-21
-- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
+- **Superseded by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md).
 - **Lifecycle history:** The [synchronous release amendment](#amendment-2026-10-22-close-releases-without-draining) supersedes the drain contract: close releases without submitting input or waiting for writes. [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) records the intermediate removal of path reservations and save-before-action behavior. The [write-only closure amendment](#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes workflow admission entirely. The original decision and earlier amendments below preserve the preceding lifecycle models.
 - **Amends:** ADR-0574, ADR-0656, and ADR-0657 at action admission and orderly teardown. ADR-0662's FileEdit and MarkdownContent contract remains.
 
