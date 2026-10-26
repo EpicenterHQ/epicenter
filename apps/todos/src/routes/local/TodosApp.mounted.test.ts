@@ -25,6 +25,7 @@ import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { openFolder } from '@epicenter/folder/browser';
+import { until as waitUntil } from '@epicenter/folder/testing';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	blur,
@@ -97,18 +98,23 @@ function mountPage() {
 	};
 }
 
-/** Wait until `check` holds, letting saves, reads, and effects run. */
+/** Flush mounted views while the shared waiter checks asynchronous changes. */
 async function until(check: () => boolean, what: string) {
-	for (let tries = 0; tries < 400; tries++) {
-		flushSync();
-		try {
-			if (check()) return;
-		} catch {
-			// Not rendered yet.
-		}
-		await Bun.sleep(5);
+	try {
+		await waitUntil(
+			() => {
+				flushSync();
+				try {
+					return check();
+				} catch {
+					return false;
+				}
+			},
+			{ timeout: 2000 },
+		);
+	} catch {
+		throw new Error(`Timed out waiting for ${what}`);
 	}
-	throw new Error(`Timed out waiting for ${what}`);
 }
 
 /** Mount the page and wait until it lists the todos. */
@@ -186,24 +192,20 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	type(first.get<HTMLTextAreaElement>(NOTES), 'Two litres');
 	blur(first.get(NOTES));
 	press(first.get(DONE));
-	await until(
-		() =>
-			first
-				.get(SUMMARY)
-				.getAttribute('aria-label')
-				?.includes('Saved on this device') ?? false,
-		'the edits to save',
-	);
-	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain(
-		'Saved on this device',
-	);
-
 	await untilStored(
 		id,
 		(row) =>
 			row?.issues === null &&
 			row.fields.title === 'Buy oat milk' &&
 			row.fields.done,
+	);
+	await until(
+		() =>
+			first
+				.get(SUMMARY)
+				.getAttribute('aria-label')
+				?.includes('On this device') ?? false,
+		'the folder write to finish',
 	);
 	first.close();
 
@@ -400,6 +402,30 @@ test('a failed title stays visible and Save again writes it', async () => {
 		() => !get(DETAIL).textContent?.includes('Not saved:'),
 		'the notice to clear',
 	);
+});
+
+test('an unsaved title remains available after another tab deletes the row', async () => {
+	const { get, text, folder } = await onMilk();
+	const put = IDBObjectStore.prototype.put;
+	IDBObjectStore.prototype.put = () => {
+		throw new DOMException('Disk is full', 'QuotaExceededError');
+	};
+	cleanup.push(() => {
+		IDBObjectStore.prototype.put = put;
+	});
+	type(get(TITLE), 'Oat milk');
+	await until(
+		() => get(DETAIL).textContent?.includes('Not saved:') ?? false,
+		'the unsaved title notice',
+	);
+	IDBObjectStore.prototype.put = put;
+	expectOk(await folder.tables.todos.delete('milk'));
+	await until(
+		() => text(DETAIL)?.includes('This todo is no longer here') ?? false,
+		'the deletion observation',
+	);
+	expect(text(DETAIL)).toContain('Not saved:');
+	expect(text(DETAIL)).toContain('Copy');
 });
 
 test('Discard returns a failed title to the disk value', async () => {

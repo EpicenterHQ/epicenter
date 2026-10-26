@@ -23,7 +23,7 @@ From the repository root:
 bun dev:todos:ui
 ```
 
-Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saving…** while a write is pending and **Saved on this device** otherwise. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
+Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saving…** while a folder write is pending and **On this device** otherwise. A text draft may still be waiting to send when the header shows the neutral line. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
 
 A clean todo follows saved changes from another tab. Pending text remains in
 its editor until its write answers. Writes take turns, and the last write to a
