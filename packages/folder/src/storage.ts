@@ -1,9 +1,10 @@
 /**
  * The folder host lists cheap change stamps, reads file bytes, and lands
- * unconditional puts. Hints prompt another look.
+ * puts with optional content expectations. Hints prompt another look.
  */
 import { Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
+import { hashBytes } from './hash.js';
 import type { FolderWatch } from './native/watch.js';
 import { ReadError, SaveError } from './shared/errors.js';
 
@@ -28,6 +29,7 @@ export type FolderHost = {
 	put(
 		path: string,
 		bytes: Uint8Array | null,
+		expect?: 'absent' | Uint8Array,
 	): Promise<Result<Landed, SaveError>>;
 	/** Paths that may have changed, or `null` when the scope is unknown. */
 	hints?(listener: (paths: readonly string[] | null) => void): () => void;
@@ -77,17 +79,20 @@ export function storageHost(
 			);
 			return results;
 		},
-		async put(path, bytes) {
-			const { data, error } = await storage.put(path, bytes, 'any');
+		async put(path, bytes, expect) {
+			const expected =
+				expect === undefined
+					? 'any'
+					: expect === 'absent'
+						? expect
+						: { sha256: await hashBytes(expect) };
+			const { data, error } = await storage.put(path, bytes, expected);
 			if (error !== null) {
 				if (error.name === 'InvalidPath')
 					return SaveError.InvalidPath({ path });
 				return SaveError.StorageFailed({ cause: error });
 			}
-			if (data === 'stale')
-				return SaveError.StorageFailed({
-					cause: 'Unconditional put was stale',
-				});
+			if (data === 'stale') return SaveError.Changed({ path });
 			if (bytes === null) return Ok(null);
 			return Ok({ stamp: `${bytes.length}` });
 		},

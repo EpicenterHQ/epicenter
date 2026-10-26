@@ -84,8 +84,8 @@ function repositoryHost(
 				return new Map(paths.map((path) => [path, failed]));
 			}
 		},
-		async put(path, bytes) {
-			const { data, error } = await repository.put(path, bytes);
+		async put(path, bytes, expect) {
+			const { data, error } = await repository.put(path, bytes, expect);
 			if (error !== null) return { data: null, error };
 			const { landed } = data;
 			return Ok(landed === null ? null : { stamp: landed.version });

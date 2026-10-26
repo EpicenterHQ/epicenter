@@ -4,7 +4,7 @@
  * can write behind, delay, and break.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { ReadError, type SaveError } from './shared/errors.js';
+import { ReadError, SaveError } from './shared/errors.js';
 import type { Fetched, FolderHost, Listed } from './storage.js';
 
 export { OpenFolderError } from './errors.js';
@@ -91,11 +91,21 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 			await control.readGate;
 			return answer;
 		},
-		async put(path, bytes) {
+		async put(path, bytes, expect) {
 			if (control.closed) throw new Error('put after close');
 			log.puts.push({ path });
 			await control.putGate;
 			control.beforePut?.(path);
+			const current = files.get(path)?.bytes;
+			if (
+				expect === 'absent'
+					? current !== undefined
+					: expect !== undefined &&
+						(current === undefined ||
+							current.length !== expect.length ||
+							current.some((byte, index) => byte !== expect[index]))
+			)
+				return SaveError.Changed({ path });
 			const failure = control.failPut.get(path);
 			if (failure !== undefined) return Err(failure);
 			if (bytes === null) {

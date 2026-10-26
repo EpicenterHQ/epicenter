@@ -58,6 +58,7 @@ export async function openRepository(id: string) {
 	async function put(
 		path: string,
 		written: FileContent | null,
+		expect?: 'absent' | Uint8Array,
 	): Promise<Result<{ landed: { version: string } | null }, SaveError>> {
 		assertOpen();
 		const content = written instanceof Uint8Array ? written.slice() : written;
@@ -69,6 +70,12 @@ export async function openRepository(id: string) {
 				// Trees identify structural collisions; only this path needs blob bytes.
 				const snapshot = await storage.capture([path]);
 				const current = snapshotContent(snapshot, path);
+				if (
+					expect === 'absent'
+						? snapshot.files.has(path)
+						: expect !== undefined && !sameContent(current, expect)
+				)
+					return SaveError.Changed({ path });
 				if (content !== null) {
 					if (!validPath(path) && !snapshot.files.has(path))
 						return SaveError.InvalidPath({ path });
@@ -110,7 +117,14 @@ export async function openRepository(id: string) {
 										}),
 									},
 					});
-				if (sameContent(content, current)) return landed();
+				if (sameContent(content, current)) {
+					if (
+						expect === undefined ||
+						(await storage.publish({ expected: snapshot.state.workingTree }))
+					)
+						return landed();
+					continue;
+				}
 				const candidate = await changeSnapshot({
 					root: snapshot.state.workingTree,
 					edits: new Map([[path, content]]),

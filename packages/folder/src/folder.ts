@@ -74,7 +74,7 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FolderFile | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
-	/** Wait until no write is queued or out. */
+	/** Wait until every turn queued before this call, including immediate drafts, has finished. */
 	idle(): Promise<void>;
 	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
@@ -86,6 +86,8 @@ export type Folder<T extends Tables = Tables> = {
 		patch: { fields?: Record<string, unknown>; body?: string },
 		options?: { schema?: Schema },
 	): Saved;
+	/** Copy the latest source to an empty destination, then remove the source. */
+	move(from: string, to: string): Saved;
 	delete(path: string): Saved;
 	readonly tables: { readonly [K in keyof T]: Table<T[K]> };
 	/** Relist and read files that moved. */
@@ -108,6 +110,7 @@ type Entry = {
 };
 type Op =
 	| { kind: 'write'; data: Data | null }
+	| { kind: 'move'; to: string }
 	| { kind: 'create' | 'update'; patch: RowPatch; keys: readonly string[] };
 type PendingWrite = {
 	path: string;
@@ -161,12 +164,11 @@ export async function createFolder<const T extends Tables>(
 	let pendingWrites = 0;
 	let phase: 'open' | 'closing' | 'closed' = 'open';
 	let lastTurn = Promise.resolve();
-	let waitingWrite: WaitingWrite | undefined;
+	const waitingWrites = new Map<string, WaitingWrite>();
 	let closing: Promise<void> | undefined;
 	const look = { queued: false, relist: false, paths: new Set<string>() };
 
 	function takeTurn<TValue>(work: () => Promise<TValue>): Promise<TValue> {
-		waitingWrite = undefined;
 		const next = lastTurn.then(work);
 		lastTurn = next.then(
 			() => {},
@@ -346,11 +348,13 @@ export async function createFolder<const T extends Tables>(
 
 	function enqueue(path: string, op: Op): Saved {
 		if (phase !== 'open') return Promise.resolve(WriteRefusal.Closed());
-		if (waitingWrite?.turn.path === path && !waitingWrite.turn.started) {
-			const previous = waitingWrite.turn.op;
+		if (op.kind === 'move') waitingWrites.delete(op.to);
+		const waiting = waitingWrites.get(path);
+		if (waiting !== undefined && !waiting.turn.started) {
+			const previous = waiting.turn.op;
 			if (previous.kind === 'write' && op.kind === 'write') {
-				waitingWrite.turn.op = op;
-				return waitingWrite.saved;
+				waiting.turn.op = op;
+				return waiting.saved;
 			}
 			if (
 				previous.kind === 'update' &&
@@ -358,7 +362,7 @@ export async function createFolder<const T extends Tables>(
 				previous.keys.length === op.keys.length &&
 				previous.keys.every((key, index) => key === op.keys[index])
 			) {
-				waitingWrite.turn.op = {
+				waiting.turn.op = {
 					kind: 'update',
 					keys: previous.keys,
 					patch: {
@@ -366,7 +370,7 @@ export async function createFolder<const T extends Tables>(
 						body: op.patch.body ?? previous.patch.body,
 					},
 				};
-				return waitingWrite.saved;
+				return waiting.saved;
 			}
 		}
 		pendingWrites++;
@@ -374,7 +378,7 @@ export async function createFolder<const T extends Tables>(
 		const turn: PendingWrite = { path, op, started: false };
 		const saved = takeTurn(async (): Promise<Result<void, WriteError>> => {
 			turn.started = true;
-			if (waitingWrite?.turn === turn) waitingWrite = undefined;
+			if (waitingWrites.get(path)?.turn === turn) waitingWrites.delete(path);
 			try {
 				return await send(path, turn.op);
 			} catch (cause) {
@@ -384,51 +388,12 @@ export async function createFolder<const T extends Tables>(
 				publish();
 			}
 		});
-		waitingWrite = { turn, saved };
+		waitingWrites.set(path, { turn, saved });
 		return saved;
 	}
 
-	async function send(path: string, op: Op): Saved {
-		let next: Data | null;
-		switch (op.kind) {
-			case 'write':
-				next = op.data;
-				break;
-			case 'create':
-				if (landed.has(path)) return WriteRefusal.Exists({ path });
-				{
-					const patched = applyPatch(null, op.patch, op.keys);
-					if (patched.error !== null)
-						return SaveError.Unparseable({ reason: patched.error.reason });
-					next = patched.data === 'unchanged' ? '' : patched.data;
-				}
-				break;
-			case 'update': {
-				const results = await host.read([path]);
-				const fresh = results.get(path);
-				if (fresh === undefined)
-					return SaveError.StorageFailed({ cause: `No read answered ${path}` });
-				if (fresh.error !== null)
-					return SaveError.StorageFailed({ cause: fresh.error });
-				applyRead(path, fresh);
-				publish();
-				const current = fresh.data === null ? null : decode(fresh.data.bytes);
-				if (current === null) return WriteRefusal.NothingToUpdate({ path });
-				if (current instanceof Uint8Array) return SaveError.NotText();
-				const patched = applyPatch(current, op.patch, op.keys);
-				if (patched.error !== null)
-					return SaveError.Unparseable({ reason: patched.error.reason });
-				if (patched.data === 'unchanged') return Ok(undefined);
-				next = patched.data;
-				break;
-			}
-		}
-		// Encoding replaces lone surrogates on disk; the copy shows what landed.
-		if (typeof next === 'string') next = next.toWellFormed();
-		const put = await host.put(path, encode(next));
-		if (put.error !== null) return Err(put.error);
-		const result = put.data;
-		if (result === null) set(path, undefined);
+	function landedPut(path: string, next: Data | null, stamp: string | null) {
+		if (stamp === null) set(path, undefined);
 		else {
 			const data =
 				holdsText(path) && next !== null
@@ -444,9 +409,97 @@ export async function createFolder<const T extends Tables>(
 				sameData(before.data, data)
 					? before
 					: { path, mime: mimeOf(path), data, readError: null };
-			set(path, { value, stamp: result.stamp });
+			set(path, { value, stamp });
 		}
 		publish();
+	}
+
+	async function sendMove(from: string, to: string): Saved {
+		const results = await host.read([from]);
+		const fresh = results.get(from);
+		if (fresh === undefined)
+			return SaveError.StorageFailed({ cause: `No read answered ${from}` });
+		if (fresh.error !== null)
+			return SaveError.StorageFailed({ cause: fresh.error });
+		applyRead(from, fresh);
+		publish();
+		if (fresh.data === null)
+			return WriteRefusal.NothingToUpdate({ path: from });
+		const bytes = fresh.data.bytes;
+		const copied = await host.put(to, bytes, 'absent');
+		if (copied.error?.name === 'Changed') {
+			await readPaths([to]);
+			return WriteRefusal.Exists({ path: to });
+		}
+		if (copied.error !== null) return Err(copied.error);
+		landedPut(to, bytes, copied.data?.stamp ?? null);
+		const removed = await host.put(from, null, bytes);
+		if (removed.error !== null) {
+			await readPaths([from]);
+			return SaveError.MoveIncomplete({ from, to, cause: removed.error });
+		}
+		landedPut(from, null, null);
+		return Ok(undefined);
+	}
+
+	async function send(path: string, op: Op): Saved {
+		if (op.kind === 'move') return sendMove(path, op.to);
+		let next: Data | null;
+		let expect: 'absent' | Uint8Array | undefined;
+		switch (op.kind) {
+			case 'write':
+				next = op.data;
+				break;
+			case 'create':
+				expect = 'absent';
+				{
+					const patched = applyPatch(null, op.patch, op.keys);
+					if (patched.error !== null)
+						return SaveError.Unparseable({ reason: patched.error.reason });
+					next = patched.data === 'unchanged' ? '' : patched.data;
+				}
+				break;
+			case 'update':
+				for (let attempt = 0; ; attempt++) {
+					const results = await host.read([path]);
+					const fresh = results.get(path);
+					if (fresh === undefined)
+						return SaveError.StorageFailed({
+							cause: `No read answered ${path}`,
+						});
+					if (fresh.error !== null)
+						return SaveError.StorageFailed({ cause: fresh.error });
+					applyRead(path, fresh);
+					publish();
+					if (fresh.data === null)
+						return WriteRefusal.NothingToUpdate({ path });
+					const current = decode(fresh.data.bytes);
+					if (current instanceof Uint8Array) return SaveError.NotText();
+					const patched = applyPatch(current, op.patch, op.keys);
+					if (patched.error !== null)
+						return SaveError.Unparseable({ reason: patched.error.reason });
+					if (patched.data === 'unchanged') return Ok(undefined);
+					const updated = patched.data.toWellFormed();
+					const put = await host.put(
+						path,
+						encode(updated),
+						attempt < 3 ? fresh.data.bytes : undefined,
+					);
+					if (put.error?.name === 'Changed' && attempt < 3) continue;
+					if (put.error !== null) return Err(put.error);
+					landedPut(path, updated, put.data?.stamp ?? null);
+					return Ok(undefined);
+				}
+		}
+		// Encoding replaces lone surrogates on disk; the copy shows what landed.
+		if (typeof next === 'string') next = next.toWellFormed();
+		const put = await host.put(path, encode(next), expect);
+		if (put.error?.name === 'Changed' && op.kind === 'create') {
+			await readPaths([path]);
+			return WriteRefusal.Exists({ path });
+		}
+		if (put.error !== null) return Err(put.error);
+		landedPut(path, next, put.data?.stamp ?? null);
 		return Ok(undefined);
 	}
 
@@ -534,7 +587,11 @@ export async function createFolder<const T extends Tables>(
 		file: (path) => landed.get(path)?.value,
 		saving: () => savingSnapshot,
 		async idle() {
-			while (pendingWrites > 0) await lastTurn;
+			for (;;) {
+				const turn = lastTurn;
+				await turn;
+				if (turn === lastTurn) return;
+			}
 		},
 		async read(path) {
 			const results = await host
@@ -558,6 +615,7 @@ export async function createFolder<const T extends Tables>(
 				keys: declaredKeysOf(options?.schema),
 			}),
 		delete: (path) => enqueue(path, { kind: 'write', data: null }),
+		move: (from, to) => enqueue(from, { kind: 'move', to }),
 		// SAFETY: one table was built for each key in T.
 		tables: Object.fromEntries(tableEntries) as Folder<T>['tables'],
 		async refresh() {

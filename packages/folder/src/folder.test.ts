@@ -207,7 +207,7 @@ describe('opening and rows', () => {
 	});
 });
 
-describe('ordered writes with waiting tail merge', () => {
+describe('ordered writes with waiting path merge', () => {
 	test('idle waits for the last queued write to land', async () => {
 		const { folder, control, text } = await setup();
 		let release: () => void = () => {};
@@ -294,10 +294,7 @@ describe('ordered writes with waiting tail merge', () => {
 		expect(text('notes/a.md')).toBe(
 			note('title: Outside\npinned: true', 'Typed\n'),
 		);
-		expect(log.reads).toEqual([
-			['notes/a.md'],
-			['notes/a.md'],
-		]);
+		expect(log.reads).toEqual([['notes/a.md'], ['notes/a.md']]);
 		expect(log.puts).toHaveLength(2);
 	});
 
@@ -393,7 +390,7 @@ describe('ordered writes with waiting tail merge', () => {
 		]);
 	});
 
-	test('an intervening path keeps its turn between writes to one path', async () => {
+	test('an intervening path does not prevent a waiting write from merging', async () => {
 		const { folder, control, log } = await setup();
 		let release: () => void = () => {};
 		control.putGate = new Promise((resolve) => {
@@ -404,7 +401,7 @@ describe('ordered writes with waiting tail merge', () => {
 		const first = folder.write('note.txt', 'First');
 		const other = folder.write('other.txt', 'Other');
 		const last = folder.write('note.txt', 'Last');
-		expect(first).not.toBe(last);
+		expect(first).toBe(last);
 		control.putGate = undefined;
 		release();
 		await Promise.all([blocker, first, other, last]);
@@ -412,8 +409,51 @@ describe('ordered writes with waiting tail merge', () => {
 			'blocker.txt',
 			'note.txt',
 			'other.txt',
+		]);
+	});
+
+	test('a queued hint reread does not prevent a waiting write from merging', async () => {
+		const { folder, control, hint, log, text } = await setup({
+			'note.txt': 'Old',
+		});
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const first = folder.write('note.txt', 'First');
+		hint(['note.txt']);
+		const second = folder.write('note.txt', 'Second');
+		expect(first).toBe(second);
+		control.putGate = undefined;
+		gate.resolve();
+		await Promise.all([blocker, first, second]);
+		expect(text('note.txt')).toBe('Second');
+		expect(log.puts.map(({ path }) => path)).toEqual([
+			'blocker.txt',
 			'note.txt',
 		]);
+	});
+
+	test('a move prevents waiting destination writes on either side from merging', async () => {
+		const { folder, control, log, text } = await setup({
+			'from.txt': 'Source',
+		});
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const first = folder.write('to.txt', 'First');
+		const move = folder.move('from.txt', 'to.txt');
+		const last = folder.write('to.txt', 'Last');
+		expect(first).not.toBe(last);
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await first);
+		expect(expectErr(await move).name).toBe('Exists');
+		expectOk(await last);
+		expect(text('to.txt')).toBe('Last');
+		expect(text('from.txt')).toBe('Source');
 	});
 
 	test('an unconditional same-text write keeps the row object', async () => {
@@ -427,7 +467,7 @@ describe('ordered writes with waiting tail merge', () => {
 		expect(notes.rows()[0]).toBe(row);
 	});
 
-	test('create and update compose at their turns; create refuses only a file in the copy', async () => {
+	test('create and update compose at their turns; create refuses an unheard outside file', async () => {
 		const { notes, outside, folder, text, log } = await setup();
 		const made = notes.create('a', { fields: { title: 'A' } });
 		const changed = notes.update('a', { fields: { pinned: true } });
@@ -438,13 +478,15 @@ describe('ordered writes with waiting tail merge', () => {
 			expectErr(await notes.create('a', { fields: { title: 'Again' } })).name,
 		).toBe('Exists');
 		outside('notes/b.md', note('title: Outside'), { hint: false });
-		expectOk(await notes.create('b', { fields: { title: 'Mine' } }));
-		expect(text('notes/b.md')).toBe(note('title: Mine', ''));
+		expect(
+			expectErr(await notes.create('b', { fields: { title: 'Mine' } })).name,
+		).toBe('Exists');
+		expect(text('notes/b.md')).toBe(note('title: Outside'));
 		await folder.refresh();
 		expect(
 			expectErr(await notes.create('b', { fields: { title: 'Again' } })).name,
 		).toBe('Exists');
-		expect(log.puts).toHaveLength(3);
+		expect(log.puts).toHaveLength(5);
 	});
 
 	test('update keeps an outside change already heard by the copy', async () => {
@@ -505,14 +547,60 @@ describe('ordered writes with waiting tail merge', () => {
 		expect(log.puts).toEqual([]);
 	});
 
-	test('an outside write after composition loses to the put', async () => {
+	test('an outside write after composition is read again and both fields survive', async () => {
 		const { notes, control, outside, text } = await setup({
 			'notes/a.md': note('title: A'),
 		});
-		control.beforePut = () =>
+		let raced = false;
+		control.beforePut = () => {
+			if (raced) return;
+			raced = true;
 			outside('notes/a.md', note('title: Outside'), { hint: false });
+		};
 		expectOk(await notes.update('a', { fields: { pinned: true } }));
-		expect(text('notes/a.md')).toBe(note('title: A\npinned: true'));
+		expect(text('notes/a.md')).toBe(note('title: Outside\npinned: true'));
+	});
+
+	test('three changed puts retry, then the fourth lands unconditionally', async () => {
+		const { notes, control, outside, log, text } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		let races = 0;
+		control.beforePut = () => {
+			if (races++ < 3)
+				outside('notes/a.md', note(`title: Outside${races}`), { hint: false });
+		};
+		expectOk(await notes.update('a', { fields: { pinned: true } }));
+		expect(log.puts).toHaveLength(4);
+		expect(text('notes/a.md')).toBe(note('title: Outside3\npinned: true'));
+	});
+
+	test('move reads queued typing, refuses an occupied target, and keeps both files after failed removal', async () => {
+		const { folder, control, text } = await setup();
+		const typed = folder.write('draft.txt', 'Latest');
+		const moved = folder.move('draft.txt', 'final.txt');
+		expectOk(await typed);
+		expectOk(await moved);
+		expect(text('draft.txt')).toBeUndefined();
+		expect(text('final.txt')).toBe('Latest');
+		expect(expectErr(await folder.move('final.txt', 'final.txt')).name).toBe(
+			'Exists',
+		);
+		expectOk(await folder.write('other.txt', 'Other'));
+		expect(expectErr(await folder.move('final.txt', 'other.txt')).name).toBe(
+			'Exists',
+		);
+		expect(text('final.txt')).toBe('Latest');
+		control.failPut.set(
+			'final.txt',
+			expectErr(SaveError.StorageFailed({ cause: 'denied' })),
+		);
+		const failed = expectErr(await folder.move('final.txt', 'copy.txt'));
+		expect(failed.name).toBe('MoveIncomplete');
+		expect(text('final.txt')).toBe('Latest');
+		expect(text('copy.txt')).toBe('Latest');
+		expect(folder.file('final.txt')).toBeDefined();
+		expect(folder.file('copy.txt')).toBeDefined();
 	});
 
 	test('no-op patch writes nothing; changed patch canonicalizes and removes undefined', async () => {

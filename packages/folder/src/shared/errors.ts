@@ -13,6 +13,24 @@ export const ReadError = defineErrors({
 export type ReadError = InferErrors<typeof ReadError>;
 
 export const SaveError = defineErrors({
+	Changed: ({ path }: { path: string }) => ({
+		message: `The file changed before the save landed: ${path}`,
+		path,
+	}),
+	MoveIncomplete: ({
+		from,
+		to,
+		cause,
+	}: {
+		from: string;
+		to: string;
+		cause: unknown;
+	}) => ({
+		message: `Copied ${from} to ${to}, but could not remove ${from}: ${extractErrorMessage(cause)}`,
+		from,
+		to,
+		cause,
+	}),
 	InvalidId: ({ id }: { id: string }) => ({
 		message: `Row id must be one filename segment: ${id}`,
 		id,

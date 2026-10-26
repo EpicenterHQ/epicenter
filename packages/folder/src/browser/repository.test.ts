@@ -81,6 +81,56 @@ test('whole-file writes from two tabs land whole while a pending commit retains 
 	}
 });
 
+test('conditional puts compare exact content and refuse an occupied path', async () => {
+	const id = crypto.randomUUID();
+	const a = await openRepository(id);
+	const b = await openRepository(id);
+	const encoder = new TextEncoder();
+	try {
+		expectOk(await a.put('note.md', 'One'));
+		expect(expectErr(await b.put('note.md', 'New', 'absent')).name).toBe(
+			'Changed',
+		);
+		expectOk(await b.put('note.md', 'Two'));
+		expect(
+			expectErr(await a.put('note.md', 'Mine', encoder.encode('One'))).name,
+		).toBe('Changed');
+		expect(await text(a, 'note.md')).toBe('Two');
+		expectOk(await a.put('note.md', 'Three', encoder.encode('Two')));
+		expect(await text(b, 'note.md')).toBe('Three');
+	} finally {
+		a.close();
+		b.close();
+	}
+});
+
+test('a competing publication between capture and put is checked again', async () => {
+	const id = crypto.randomUUID();
+	const a = await openRepository(id);
+	const b = await openRepository(id);
+	try {
+		expectOk(await a.put('note.md', 'Original'));
+		const publish = a.storage.publish;
+		let raced = false;
+		a.storage.publish = async (input) => {
+			if (!raced) {
+				raced = true;
+				expectOk(await b.put('note.md', 'Outside'));
+			}
+			return publish(input);
+		};
+		expect(
+			expectErr(
+				await a.put('note.md', 'Mine', new TextEncoder().encode('Original')),
+			).name,
+		).toBe('Changed');
+		expect(await text(a, 'note.md')).toBe('Outside');
+	} finally {
+		a.close();
+		b.close();
+	}
+});
+
 test('reopen preserves offline edits before the first commit and a published commit afterwards', async () => {
 	const id = crypto.randomUUID();
 	let repository = await openRepository(id);
