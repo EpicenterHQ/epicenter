@@ -496,9 +496,10 @@ paid endpoint possibly one more charge. This applies to transcription too.
 
 ### Saving
 
-Every change is saved as you make it, on this device. The header says
-**Saving…** while a write is waiting or being saved and **Saved** once none
-is, and nothing about versions: Whispering keeps no history and does not sync
+Text edits send after a short pause, on this device. The header says
+**Saving…** while a write is waiting or being saved and **On this device**
+while the folder is idle. A draft can still be waiting to send while the folder
+is idle, so the header does not claim everything is saved. Whispering keeps no history and does not sync
 its folder. Save version, Connect, and Sync are not in this build.
 
 - Terminal commands and other programs edit the files directly.
@@ -506,9 +507,9 @@ its folder. Save version, Connect, and Sync are not in this build.
   visible or hidden, comes back online, and before the page hides; the desktop
   watcher and another browser tab's saves make it look at once. What it finds
   shows everywhere it is listed.
-- Each write waits per file: the first after a quiet moment is sent at once,
-  and writes made while one is out go together after it, applied in order
-  over the file as it is then (see [Editing](#editing)).
+- Folder writes run in one queue. A draft debounces typing for one second;
+  `update` applies its named fields over the file when its turn comes
+  (see [Editing](#editing)).
 - If the folder is a Git repository you manage, `git` works on it as on any
   directory. Whispering commits nothing, and recording audio stays out of
   that repository only according to its tracked-file and `.gitignore` rules.
