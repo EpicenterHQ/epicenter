@@ -48,9 +48,10 @@ Git history needed for ancestry proofs can be fetched into temporary memory.
 ## Saving
 
 A file save captures W's required trees and the current file bytes in one
-read transaction. The Folder queues writes in call order. A row update composes
-over the file as it stands at its turn, then submits one unconditional put.
-The Folder changes its mirror only after that put lands.
+read transaction. The Folder queues writes in call order. A row update first
+reads the file from storage at its turn and shows that fresh value in the
+mirror, then submits one unconditional put when its patch changes a value.
+The Folder shows the put result only after it lands.
 The engine hashes the submitted file and
 rewrites its ancestor directories. A write transaction compares captured W,
 then publishes the new objects and root together. A changed root retries the

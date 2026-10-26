@@ -3,7 +3,7 @@
  * folder and of what is built on it. `memoryHost` is a `FolderHost` a test
  * can write behind, delay, and break.
  */
-import { Err, Ok } from 'wellcrafted/result';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { ReadError, type SaveError } from './shared/errors.js';
 import type { Fetched, FolderHost, Listed } from './storage.js';
 
@@ -23,6 +23,7 @@ type StorageLog = {
 type StorageControl = {
 	beforePut: ((path: string) => void) | undefined;
 	readGate: Promise<void> | undefined;
+	failRead: Map<string, ReadError>;
 	listGate: Promise<void> | undefined;
 	putGate: Promise<void> | undefined;
 	failPut: Map<string, SaveError>;
@@ -49,6 +50,7 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 		beforePut: undefined,
 		/** While set, reads wait for it after taking their snapshot. */
 		readGate: undefined,
+		failRead: new Map<string, ReadError>(),
 		listGate: undefined,
 		putGate: undefined,
 		/** A put to this path fails with this error. */
@@ -71,8 +73,10 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 		async read(paths) {
 			log.reads.push([...paths]);
 			await Promise.resolve();
-			const answer = new Map(
+			const answer = new Map<string, Result<Fetched, ReadError>>(
 				paths.map((path) => {
+					const failure = control.failRead.get(path);
+					if (failure !== undefined) return [path, Err(failure)] as const;
 					const file = files.get(path);
 					const fetched: Fetched =
 						file === undefined
@@ -114,6 +118,9 @@ export function memoryHost(initial: Record<string, string | Uint8Array> = {}) {
 		storage,
 		log,
 		control,
+		hint(paths: readonly string[] | null) {
+			for (const listener of listeners) listener(paths);
+		},
 		text: (path: string) => {
 			const file = files.get(path);
 			return file === undefined

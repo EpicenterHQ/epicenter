@@ -30,11 +30,14 @@ The draft debounces its send, flushes on teardown, page hide, and
 discard.
 
 **Every local write enters one serial queue and answers after the mirror shows
-its result.** `write`, `update`, `create`, and `delete` make one unconditional
-put at their turn. `update` composes over the file at that turn and writes
-canonical frontmatter. A write's `Saved` promise returns after storage and the
-mirror agree, or returns its `WriteError`. There is no content merge on local
-writes. An outside writer can still land a later whole-file replacement.
+its result.** `update` reads the file as storage holds it at its turn, applies
+the patch to those bytes, and writes canonical frontmatter when values change.
+`write`, `create`, and `delete` make one unconditional put at their turn. A
+write's `Saved` promise returns after storage and the mirror agree, or returns
+its `WriteError`. There is no content merge on local writes. An outside writer
+can still land a later whole-file replacement. A watcher hint naming a file
+already held by the mirror rereads that file without relisting; unknown or
+unnamed hints relist the folder.
 
 **Closing drains admitted writes before releasing storage.** The Folder
 refuses new writes, drains its queue, and releases its host. Unmounting a
@@ -59,7 +62,7 @@ conditional storage publication.
 A list and an editor can read the same landed row without sharing pending
 input. Switching between mounted editors requires an explicit handoff if the
 first draft is still saving. An app awaiting `Saved` can read the landed value
-immediately. A failed direct write leaves the prior mirrored value; a failed
+immediately. A failed put leaves the last read value in the mirror; a failed
 text draft retains the input in its own component. Crash recovery cannot
 recover a draft that never landed. One serial queue orders unrelated file
 writes too, trading concurrency for a single understandable publication order.

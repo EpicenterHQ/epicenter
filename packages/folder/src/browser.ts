@@ -4,7 +4,7 @@
  * and other tabs' saves arrive as hints.
  */
 import { isTauri } from '@tauri-apps/api/core';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import { openRepository } from './browser/repository.js';
 import { snapshotContent } from './browser/storage.js';
 import { OpenFolderError } from './errors.js';
@@ -60,9 +60,14 @@ function repositoryHost(
 		async read(paths) {
 			try {
 				const snapshot = await storage.capture(paths);
-				return new Map(
+				return new Map<string, Result<Fetched, ReadError>>(
 					paths.map((path) => {
 						const entry = snapshot.files.get(path);
+						if (snapshot.directories.has(path))
+							return [
+								path,
+								ReadError.StorageFailed({ cause: `${path} is a directory` }),
+							] as const;
 						const bytes = snapshotContent(snapshot, path);
 						const fetched: Fetched =
 							entry === undefined || bytes === null

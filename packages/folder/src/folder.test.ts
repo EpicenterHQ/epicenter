@@ -1,7 +1,7 @@
 /**
  * The folder's landed copy, ordered writes, outside reads, and close.
- * Each Saved answer follows the copy change; updates use the copy at their
- * turn, while outside writes that it has not heard about may be overwritten.
+ * Each Saved answer follows the copy change; updates read storage at their
+ * turn so an unheard outside change to another field survives.
  */
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -13,7 +13,7 @@ import {
 	readRow,
 } from './folder.js';
 import { SaveError } from './shared/errors.js';
-import { memoryHost, tick, until } from './testing.js';
+import { memoryHost, ReadError, tick, until } from './testing.js';
 
 const tables = {
 	notes: Type.Object({
@@ -111,25 +111,68 @@ describe('opening and rows', () => {
 		expect(notes.row('a')).toBe(row);
 	});
 
-	test('a named directory hint relists and discovers a new row', async () => {
-		const memory = memoryHost();
-		let hint: ((paths: readonly string[] | null) => void) | undefined;
-		const folder = expectOk(
-			await createFolder(
-				{
-					...memory.storage,
-					hints(listener) {
-						hint = listener;
-						return () => {};
-					},
-				},
-				{ tables },
-			),
+	test('a hint for a held file rereads it without relisting', async () => {
+		const { folder, notes, outside, hint, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		const lists = log.lists;
+		const reads = log.reads.length;
+		expectOk(await folder.write('notes/a.md', note('title: Mine')));
+		hint(['notes/a.md']);
+		await until(() => log.reads.length === reads + 1);
+		await tick();
+		expect(log.lists).toBe(lists);
+		expect(notes.row('a')?.fields?.title).toBe('Mine');
+		outside('notes/a.md', note('title: Outside'));
+		await until(() => notes.row('a')?.fields?.title === 'Outside');
+		await tick();
+		expect(log.lists).toBe(lists);
+		expect(log.reads.slice(reads)).toEqual([['notes/a.md'], ['notes/a.md']]);
+	});
+
+	test('unknown file, directory, and null hints relist', async () => {
+		const { folder, notes, outside, hint, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		outside('notes/new.md', note('title: New'), { hint: false });
+		hint(['notes/new.md']);
+		await until(() => notes.row('new') !== undefined);
+		expect(log.lists).toBe(2);
+		outside('notes/dir.md', note('title: Directory'), { hint: false });
+		hint(['notes']);
+		await until(() => notes.row('dir') !== undefined);
+		expect(log.lists).toBe(3);
+		outside('notes/a.md', note('title: Changed'), { hint: false });
+		hint(null);
+		await until(() => notes.row('a')?.fields?.title === 'Changed');
+		expect(log.lists).toBe(4);
+		expect(folder.files()).toHaveLength(3);
+	});
+
+	test('a held file removal applies without relisting', async () => {
+		const { notes, outside, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		outside('notes/a.md', null);
+		await until(() => notes.row('a') === undefined);
+		await tick();
+		expect(log.lists).toBe(1);
+	});
+
+	test('a read error on a held path relists to discover a replacement directory', async () => {
+		const { notes, outside, hint, control, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		outside('notes/a.md', null, { hint: false });
+		outside('notes/a.md/child.md', note('title: Child'), { hint: false });
+		control.failRead.set(
+			'notes/a.md',
+			ReadError.StorageFailed({ cause: 'path is a directory' }).error,
 		);
-		memory.outside('notes/new.md', note('title: New'), { hint: false });
-		hint?.(['notes']);
-		await until(() => folder.tables.notes.row('new') !== undefined);
-		expect(folder.tables.notes.row('new')?.fields?.title).toBe('New');
+		hint(['notes/a.md']);
+		await until(() => log.lists === 2);
+		expect(notes.row('a')).toBeUndefined();
+		expect(log.reads.at(-1)).toEqual(['notes/a.md/child.md']);
 	});
 
 	test('describes issue locations and joins issue sentences', () => {
@@ -238,6 +281,54 @@ describe('one ordered put per write', () => {
 		expect(text('notes/a.md')).toBe(note('title: Outside\npinned: true'));
 	});
 
+	test('update preserves an outside field change the copy has not heard', async () => {
+		const { notes, outside, text } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		outside('notes/a.md', note('title: Outside'), { hint: false });
+		expect(notes.row('a')?.fields?.title).toBe('A');
+		expectOk(await notes.update('a', { fields: { pinned: true } }));
+		expect(text('notes/a.md')).toBe(note('title: Outside\npinned: true'));
+		expect(notes.row('a')?.fields?.title).toBe('Outside');
+	});
+
+	test('update refuses an outside deletion the copy has not heard', async () => {
+		const { notes, outside, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		outside('notes/a.md', null, { hint: false });
+		expect(expectErr(await notes.update('a', { body: 'Changed' })).name).toBe(
+			'NothingToUpdate',
+		);
+		expect(notes.row('a')).toBeUndefined();
+		expect(log.puts).toEqual([]);
+	});
+
+	test('unchanged update refreshes an unheard outside change without writing', async () => {
+		const { notes, outside, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		outside('notes/a.md', note('title: Outside'), { hint: false });
+		expectOk(await notes.update('a', { fields: { title: 'Outside' } }));
+		expect(notes.row('a')?.fields?.title).toBe('Outside');
+		expect(log.puts).toEqual([]);
+	});
+
+	test('update read failure returns StorageFailed without a put', async () => {
+		const { notes, control, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		control.failRead.set(
+			'notes/a.md',
+			ReadError.StorageFailed({ cause: 'read failed' }).error,
+		);
+		expect(expectErr(await notes.update('a', { body: 'Changed' })).name).toBe(
+			'StorageFailed',
+		);
+		expect(notes.row('a')?.fields?.title).toBe('A');
+		expect(log.puts).toEqual([]);
+	});
+
 	test('an outside write after composition loses to the put', async () => {
 		const { notes, control, outside, text } = await setup({
 			'notes/a.md': note('title: A'),
@@ -311,11 +402,15 @@ describe('one ordered put per write', () => {
 		expect(log.puts).toEqual([]);
 	});
 
-	test('failed put leaves the copy unchanged', async () => {
-		const { notes, control } = await setup({ 'notes/a.md': note('title: A') });
+	test('failed update put leaves the fresh outside value in the copy', async () => {
+		const { notes, control, outside } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		outside('notes/a.md', note('title: Outside'), { hint: false });
 		const error = SaveError.StorageFailed({ cause: 'disk full' }).error;
 		control.failPut.set('notes/a.md', error);
 		expect(expectErr(await notes.update('a', { body: 'Typed' }))).toBe(error);
+		expect(notes.row('a')?.fields?.title).toBe('Outside');
 		expect(notes.row('a')?.body).toBe('Body\n');
 	});
 });

@@ -58,7 +58,9 @@ table names are invalid. It never falls back to another store.
 text files when opening and reconciles outside changes through `refresh()`.
 Its `subscribe(listener)` method reports changes to mirrored values. Browser
 tabs and native directory watchers provide change hints; focus and explicit
-refresh reconcile missed hints.
+refresh reconcile missed hints. A hint naming a file the mirror already holds
+rereads that file without a full relist. New paths, directory hints, and
+unnamed hints relist the folder.
 
 `tables.notes.rows()` returns rows sorted by ID, and `row(id)` returns one row
 or `undefined`. A row with `issues === null` has schema-typed fields and a
@@ -72,17 +74,21 @@ repair view.
 ## Writes
 
 `write(path, data)` replaces a whole file. `update(path, patch, { schema? })`
-sets fields or body on a Markdown file as it exists when the operation runs.
+reads the file from storage at its queue turn, then sets fields or body on
+those fresh bytes.
 A table has `create(id, { fields, body? })`, `update(id, patch)`, and
 `delete(id)`; the folder also has `delete(path)`. Setting a field to
 `undefined` removes it. A patch that changes no value writes nothing.
 Updated frontmatter is canonical: declared keys first, then other keys in
 sorted order. Comments and original key order are not preserved by a patch.
 
-Each write is one unconditional put in the folder's serial queue. Its `Saved`
-promise resolves after the write lands and the mirror shows it, or returns a
-`WriteError`. A failed write leaves the prior mirrored value in place. Local
-writes do not merge with outside writers; the last publication to land wins.
+Writes enter the folder's serial queue. A changed update makes one
+unconditional put; an unchanged update makes none. A write's `Saved` promise
+resolves after the mirror shows what landed, or returns a `WriteError`. A failed
+put leaves the last read value in the mirror. An update preserves outside
+changes to fields it does not name when they are present at its read. A later
+whole-file write can still replace those bytes; the last publication to land
+wins.
 Git sync retains its separate three-way merge and conditional storage rules.
 
 `idle()` waits until no write is queued or out. An action that needs every

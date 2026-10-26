@@ -1,8 +1,8 @@
 /**
  * The folder shows what landed; a draft holds what was typed until it lands.
  * Opening reads listed text files. Reads and writes take turns in one queue, so
- * an update composes over the copy as it stands at its turn. The copy changes
- * only after a put lands or a read observes another writer.
+ * an update reads storage at its turn before composing its patch. The copy
+ * changes only after a put lands or a read observes another writer.
  */
 import type { TSchema as Schema, Static } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -156,7 +156,7 @@ export async function createFolder<const T extends Tables>(
 	let phase: 'open' | 'closing' | 'closed' = 'open';
 	let lastTurn = Promise.resolve();
 	let closing: Promise<void> | undefined;
-	const look = { queued: false, paths: new Set<string>() };
+	const look = { queued: false, relist: false, paths: new Set<string>() };
 
 	function takeTurn<TValue>(work: () => Promise<TValue>): Promise<TValue> {
 		const next = lastTurn.then(work);
@@ -241,8 +241,8 @@ export async function createFolder<const T extends Tables>(
 		});
 	}
 
-	async function readPaths(paths: readonly string[]) {
-		if (paths.length === 0 || phase === 'closed') return;
+	async function readPaths(paths: readonly string[]): Promise<boolean> {
+		if (paths.length === 0 || phase === 'closed') return false;
 		const results = await host
 			.read(paths)
 			.catch(
@@ -251,11 +251,14 @@ export async function createFolder<const T extends Tables>(
 						paths.map((path) => [path, ReadError.StorageFailed({ cause })]),
 					),
 			);
+		let failed = false;
 		for (const path of paths) {
 			const result = results.get(path);
+			if (result === undefined || result.error !== null) failed = true;
 			if (result !== undefined) applyRead(path, result);
 		}
 		publish();
+		return failed;
 	}
 
 	async function relist(): Promise<ReadError | null> {
@@ -315,15 +318,18 @@ export async function createFolder<const T extends Tables>(
 
 	function requestLook(path?: string) {
 		if (phase !== 'open') return;
-		if (path !== undefined && holdsText(path)) look.paths.add(path);
+		if (path === undefined || !landed.has(path)) look.relist = true;
+		else look.paths.add(path);
 		if (look.queued) return;
 		look.queued = true;
 		void takeTurn(async () => {
 			look.queued = false;
 			const paths = [...look.paths];
+			const shouldRelist = look.relist;
 			look.paths.clear();
-			await readPaths(paths);
-			await relist();
+			look.relist = false;
+			const failed = await readPaths(paths);
+			if (shouldRelist || failed) await relist();
 		});
 	}
 
@@ -344,7 +350,6 @@ export async function createFolder<const T extends Tables>(
 	}
 
 	async function send(path: string, op: Op): Saved {
-		const current = landed.get(path)?.value.data ?? null;
 		let next: Data | null;
 		switch (op.kind) {
 			case 'write':
@@ -360,6 +365,15 @@ export async function createFolder<const T extends Tables>(
 				}
 				break;
 			case 'update': {
+				const results = await host.read([path]);
+				const fresh = results.get(path);
+				if (fresh === undefined)
+					return SaveError.StorageFailed({ cause: `No read answered ${path}` });
+				if (fresh.error !== null)
+					return SaveError.StorageFailed({ cause: fresh.error });
+				applyRead(path, fresh);
+				publish();
+				const current = fresh.data === null ? null : decode(fresh.data.bytes);
 				if (current === null) return WriteRefusal.NothingToUpdate({ path });
 				if (current instanceof Uint8Array) return SaveError.NotText();
 				const patched = applyPatch(current, op.patch, op.keys);
