@@ -121,8 +121,6 @@ async function show(
 
 /** Let writes land and the views follow them. */
 async function settle(folder: WhisperingFolder) {
-	// Mounted drafts debounce before the folder's saving flag changes.
-	await new Promise((resolve) => setTimeout(resolve, 1050));
 	await waitForSaves(folder);
 	flushSync();
 }
@@ -248,7 +246,7 @@ test('a whole-file text draft recreates a file deleted outside the mirror', asyn
 	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]')?.value).toBe('Recreated');
 });
 
-test('switching a recording to Source follows its title when the save lands', async () => {
+test('switching a recording to Source is immediate and follows its title when the save lands', async () => {
 	const { folder, whispering, target, host } = await open(
 		{ [RECORDING]: recording('Before', '') },
 		'recordings',
@@ -264,7 +262,7 @@ test('switching a recording to Source follows its title when the save lands', as
 	);
 	sourceTab?.click();
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).not.toBeNull();
 	host!.control.putGate = undefined;
 	release.resolve();
 	await eventually(() => {
@@ -682,28 +680,27 @@ test('saved file text stays editable when a later read fails', async () => {
 	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of editable.txt"]')).toBe(editor);
 });
 
-test('rename writes the mounted editor draft before copying', async () => {
+test('rename includes the mounted editor draft queued before it', async () => {
 	const path = 'notes/draft.txt';
 	const { folder, host, whispering, target } = await open({ [path]: 'Old\n' }, 'recordings', { memory: true });
 	await show(whispering, folder, path);
 	const editor = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of draft.txt"]');
-	type(editor, 'New draft\n');
 	const gate = deferred<void>();
 	host!.control.putGate = gate.promise;
+	type(editor, 'New draft\n');
 	const name = field<HTMLInputElement>(target, 'input[autocomplete="off"]');
 	type(name, 'renamed.txt');
 	name?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 	await eventually(() => host!.log.puts.some((put) => put.path === path));
-	type(editor, 'Newest draft\n');
 	host!.control.putGate = undefined;
 	gate.resolve();
-	await eventually(() => host!.text('notes/renamed.txt') === 'Newest draft\n');
+	await eventually(() => host!.text('notes/renamed.txt') === 'New draft\n');
 	await settle(folder);
-	expect(host!.text('notes/renamed.txt')).toBe('Newest draft\n');
+	expect(host!.text('notes/renamed.txt')).toBe('New draft\n');
 	expect(host!.text(path)).toBeUndefined();
 });
 
-test('tree rename flushes a transcript draft after closing its card', async () => {
+test('rename includes a transcript draft without closing its card', async () => {
 	const { folder, host, whispering, target } = await open({
 		[RECORDING]: recording('Take', ''),
 		[A]: transcript('Old words\n').replace('recordingId: one', 'recordingId: take'),
@@ -711,13 +708,27 @@ test('tree rename flushes a transcript draft after closing its card', async () =
 	await show(whispering, folder, RECORDING);
 	const editor = field<HTMLTextAreaElement>(target, '[data-testid="transcript-text"]');
 	type(editor, 'New words\n');
-	whispering.clearSelection();
-	flushSync();
-	await folder.idle();
 	expect(await whispering.rename(A, 'renamed.md')).toBeUndefined();
 	await settle(folder);
 	expect(host!.text('transcriptions/renamed.md')).toContain('New words\n');
 	expect(host!.text(A)).toBeUndefined();
+});
+
+test('deleting after typing removes the file without a teardown write', async () => {
+	const path = 'notes/delete.txt';
+	const { folder, host, whispering, target } = await open({ [path]: 'Old\n' }, 'recordings', { memory: true });
+	await show(whispering, folder, path);
+	const gate = deferred<void>();
+	host!.control.putGate = gate.promise;
+	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of delete.txt"]'), 'Typed\n');
+	const deletion = expectOk(await whispering.deletionFor(path));
+	const removing = whispering.delete(deletion);
+	host!.control.putGate = undefined;
+	gate.resolve();
+	expect(await removing).toBeUndefined();
+	await settle(folder);
+	expect(host!.text(path)).toBeUndefined();
+	expect(folder.file(path)).toBeUndefined();
 });
 
 test('a file that left the folder is no longer shown', async () => {

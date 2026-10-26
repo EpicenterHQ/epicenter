@@ -588,9 +588,10 @@ data therefore uses a draft (`draft(source, save)` from
 `@epicenter/svelte/folder`): it shows what was typed until that text's
 save succeeds, then follows `source` again, which by then is the landed text.
 A failed save keeps the typed value and exposes its error. Typing again or
-**Save again** retries; **Discard** follows the disk. Drafts debounce for one
-second, and flush their newest value when the editor unmounts or the page
-leaves. Folder-backed checkboxes, selects, and action buttons write directly.
+**Save again** retries; **Discard** follows the disk. Each keystroke enters the
+folder queue immediately. Leaving an editor discards a failed draft; it sends
+nothing on teardown. Folder-backed checkboxes, selects, and action buttons
+write directly.
 
 ```ts
 const row = $derived(folder.tables.recordings.row(id));
@@ -605,8 +606,9 @@ const source = fileDraft(folder, path);
   source drafts; TransformationDetail title, model (empty saves `null`),
   instructions, and source; TranscriptCard and FileView a transcript body;
   FileView a text file's source. A draft is never shared between components.
-  Opening Source first calls `land()` on the field drafts. Returning to fields
-  calls `source.land()`; either view switch stays put if a save fails.
+  Switching between Source and fields changes the view immediately. The new
+  view follows the mirror as earlier queued edits land and may briefly show
+  older text.
 - **Source** uses `fileDraft` to show LF and save with the file's own newlines. Whether a
   row shows as text is `showsText(path)`: the person chose Source
   (`asText`, a `SvelteSet` of view state), or the row has issues. Repair
@@ -637,12 +639,11 @@ const source = fileDraft(folder, path);
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written; it holds no typed text.
-Rename explicitly saves any text pending in the mounted editor, copies the
-file as the mirror shows it (or its bytes via `read` for a file the mirror does
-not keep) to the new name, then deletes the source. If the file's value
-changed during the copy, the source stays and the app reports both paths; closing
-after the copy also keeps the source. Otherwise the selection follows the
-new name. Recording and transformation files keep their names. When
+Rename uses `folder.move(from, to)`: its turn follows edits already queued,
+reads the source at that turn, creates the destination only if absent, then
+removes the source. If removal fails, both paths remain and the error names
+them. A successful move carries the selection to the new path. Recording and
+transformation files keep their names. When
 `whispering.closing` becomes true, Whispering refuses new app work and late
 answers. Disposal returns immediately; OpenFolder's close then sends what
 waits before releasing storage.
@@ -688,8 +689,8 @@ Connect, and Sync were removed with the move to the local folder.
 `src/lib/status.ts` words the header's one line with
 `headerStatus({ saving: folder.saving, unwrittenAnswers })`: answers whose file
 could not be written, then "Saving…" while a write waits or is being saved,
-and otherwise the neutral "On this device". A draft can still be debouncing
-while the folder is idle. A command awaiting `Saved`
+and otherwise the neutral "On this device". Every typed edit is queued at
+once. A command awaiting `Saved`
 shows its own failure once; a failed editor draft offers Save again, Discard,
 and Copy. There is no per-file save line.
 

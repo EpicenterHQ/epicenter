@@ -189,7 +189,7 @@
 	/** Show Instructions with the model notes open. The button pressed leaves with Try it, so focus moves to the tab. */
 	async function goToInstructions() {
 		const from = document.activeElement;
-		if (!(await show(false))) return;
+		if (!show(false)) return;
 		tab = 'instructions';
 		notesOpen = true;
 		void focusTab('instructions', from);
@@ -217,14 +217,8 @@
 		(blocked === undefined ? runButtons[view.applySource] : (goToInstructionsButton ?? blockedReason))?.focus();
 	}
 
-	/**
-	 * Show the fields or the whole text. Returning to fields first writes the
-	 * shown Source text. Answers whether it switched.
-	 */
-	async function show(asSource: boolean) {
-		if (asSource) {
-			if ((await title.land()).error || (await modelText.land()).error || (await prompt.land()).error) return false;
-		} else if ((await source.land()).error) return false;
+	/** Show the fields or whole text while queued edits keep their order. */
+	function show(asSource: boolean) {
 		const problem = asSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 		return problem === undefined;
@@ -285,9 +279,7 @@
 				tab = 'try';
 				return;
 			}
-			void show(value === 'source').then((switched) => {
-				if (switched) tab = 'instructions';
-			});
+			if (show(value === 'source')) tab = 'instructions';
 		}
 	} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 		<Tabs.List>

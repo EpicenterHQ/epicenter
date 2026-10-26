@@ -94,11 +94,8 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	/** Returning to fields first writes the shown Source text. */
-	async function show(toSource: boolean) {
-		if (toSource) {
-			if ((await title.land()).error || (await notes.land()).error) return;
-		} else if ((await source.land()).error) return;
+	/** The view changes now; queued edits keep their order. */
+	function show(toSource: boolean) {
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(toSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 	}

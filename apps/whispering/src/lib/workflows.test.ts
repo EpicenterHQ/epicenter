@@ -27,9 +27,8 @@
  * - A row with no body and no request in this window is unfinished; running
  *   it again fills the same row, and deleting it discards it; after a reload
  *   a row whose answer was not written is unfinished
- * - Renaming copies the file as the folder shows it and then deletes the
- *   original, each a write in the folder's queue; a failed delete keeps both
- *   files; recording and transformation files keep their names
+ * - Renaming moves the file at its turn in the folder's queue; a failed
+ *   remove keeps both files; recording and transformation files keep their names
  * - Stop waits for its own initial row save across overlapping captures
  * - Closing refuses new work and selection without draining workflows; the
  *   writes already asked for still land
@@ -999,7 +998,7 @@ test('a recording file that does not read is deleted alone, as the bytes it hold
 // Files
 // ============================================================================
 
-test('renaming a text file copies it as the folder shows it and moves the selection', async () => {
+test('renaming a text file moves it and the selection', async () => {
 	const { folder, whispering, root } = await open();
 	expectOk(await folder.write('notes.md', 'typed\n'));
 	expect(whispering.open('notes.md')).toBe(true);
@@ -1054,7 +1053,7 @@ test('renaming audio no recording names moves its exact bytes', async () => {
 	);
 });
 
-test('renaming text copies its exact bytes, a byte order mark and line endings included', async () => {
+test('renaming text moves its exact bytes, a byte order mark and line endings included', async () => {
 	const { folder, whispering, root } = await open();
 	const original = '﻿Unopened café\r\n';
 	await writeFile(join(root, 'unopened.txt'), original);
@@ -1087,20 +1086,32 @@ test('an unrelated pending save does not refuse a rename or leave both files', a
 	expect(folder.file('from.txt')).toBeUndefined();
 });
 
-test('a write queued during a copy takes its turn before the rename deletes the source', async () => {
+test('a write queued after a move runs after the source is removed', async () => {
 	const { folder, host, whispering } = await open({ memory: true });
 	expectOk(await folder.write('from.txt', 'Copied text'));
 	let typed: ReturnType<typeof folder.write> | undefined;
 	host!.control.beforePut = (path) => {
-		// The person types into the original while the copy is out.
+		// A later write to the old path takes its own turn after the move.
 		if (path === 'to.txt') typed = folder.write('from.txt', 'Newer text');
 	};
 
 	expect(await whispering.rename('from.txt', 'to.txt')).toBeUndefined();
 	expectOk(await typed!);
 	expect(host!.text('to.txt')).toBe('Copied text');
-	expect(host!.text('from.txt')).toBeUndefined();
-	expect(folder.file('from.txt')).toBeUndefined();
+	expect(host!.text('from.txt')).toBe('Newer text');
+	expect(folder.file('from.txt')?.data).toBe('Newer text');
+});
+
+test('a failed removal during a move reports both paths and keeps the selection', async () => {
+	const { folder, host, whispering } = await open({ memory: true });
+	expectOk(await folder.write('from.txt', 'Saved text'));
+	expect(whispering.open('from.txt')).toBe(true);
+	host!.control.failPut.set('from.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+
+	expect(await whispering.rename('from.txt', 'to.txt')).toContain('Copied from.txt to to.txt');
+	expect(host!.text('from.txt')).toBe('Saved text');
+	expect(host!.text('to.txt')).toBe('Saved text');
+	expect(whispering.selectedPath).toBe('from.txt');
 });
 
 test('recording and transformation files keep their names, and a transcript keeps its extension', async () => {
@@ -1199,7 +1210,7 @@ test('stopping the app returns at once while a save it asked for lands', async (
 	expect(host!.text('kept.txt')).toBe('');
 });
 
-test('closing during a rename lands its copy and keeps the original', async () => {
+test('closing during a rename waits for the move to finish', async () => {
 	const { folder, host, whispering } = await open({ memory: true });
 	expectOk(await folder.write('original.txt', ''));
 	const release = deferred<void>();
@@ -1211,9 +1222,9 @@ test('closing during a rename lands its copy and keeps the original', async () =
 	const closing = close(whispering);
 	host!.control.putGate = undefined;
 	release.resolve();
-	expect(await renaming).toContain('was not deleted');
+	expect(await renaming).toBeUndefined();
 	await closing;
-	expect(host!.text('original.txt')).toBe('');
+	expect(host!.text('original.txt')).toBeUndefined();
 	expect(host!.text('renamed.txt')).toBe('');
 });
 
