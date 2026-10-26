@@ -27,9 +27,9 @@
  * - A row with no body and no request in this window is unfinished; running
  *   it again fills the same row, and deleting it discards it; after a reload
  *   a row whose answer was not written is unfinished
- * - Renaming copies the file as the folder shows it, waits behind unrelated
- *   saves, and keeps both files when the original changes during the copy;
- *   recording and transformation files keep their names
+ * - Renaming copies the file as the folder shows it and then deletes the
+ *   original, each a write in the folder's queue; a failed delete keeps both
+ *   files; recording and transformation files keep their names
  * - Stop waits for its own initial row save across overlapping captures
  * - Closing refuses new work and selection without draining workflows; the
  *   writes already asked for still land
@@ -1211,7 +1211,7 @@ test('closing during a rename lands its copy and keeps the original', async () =
 	const closing = close(whispering);
 	host!.control.putGate = undefined;
 	release.resolve();
-	expect(await renaming).toContain('was kept because the folder is closing');
+	expect(await renaming).toContain('was not deleted');
 	await closing;
 	expect(host!.text('original.txt')).toBe('');
 	expect(host!.text('renamed.txt')).toBe('');

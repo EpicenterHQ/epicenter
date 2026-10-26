@@ -1059,9 +1059,9 @@ export function createWhispering(folder: WhisperingFolder) {
 
 		/**
 		 * Copy the file as the mirror shows it, or its bytes for a file the
-		 * mirror does not keep, to a new name, then delete the old path. It
-		 * first saves the mounted editor's typed text. If the file changes during
-		 * the copy, both files are kept.
+		 * mirror does not keep, to a new name, then delete the old path. The
+		 * two are separate writes in the folder's queue: an outside change the
+		 * folder has not heard of is lost, and a failed delete leaves both files.
 		 */
 		async rename(path: string, name: string): Promise<string | undefined> {
 			const why = refused();
@@ -1093,14 +1093,7 @@ export function createWhispering(folder: WhisperingFolder) {
 				data = bytes;
 			}
 			const { error: copyError } = await folder.write(to, data);
-			if (copyError !== null) {
-				return describeError(copyError);
-			}
-			if (disposed)
-				return `${to} was saved. ${path} was kept because the folder is closing.`;
-			const current = folder.file(path);
-			if (current !== before)
-				return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
+			if (copyError !== null) return describeError(copyError);
 			const { error: removeError } = await folder.delete(path);
 			if (removeError !== null) {
 				return `${to} was saved, but ${path} was not deleted: ${describeError(removeError)}`;
