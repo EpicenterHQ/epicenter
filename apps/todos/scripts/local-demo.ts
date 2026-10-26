@@ -11,7 +11,7 @@ const url = process.argv[2] ?? 'http://127.0.0.1:5186/';
 const folderModule =
 	'/@fs' +
 	fileURLToPath(
-		new URL('../../../packages/folder/src/next/browser.ts', import.meta.url),
+		new URL('../../../packages/folder/src/browser.ts', import.meta.url),
 	);
 const source =
 	'---\ntitle: Seed\ndone: false\nextra: keep\n# source note\n---\nNotes from a file\n';

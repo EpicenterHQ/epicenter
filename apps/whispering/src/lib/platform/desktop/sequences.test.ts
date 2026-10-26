@@ -2,7 +2,7 @@
  * Delete sequences over the desktop opener.
  *
  * The real whispering runs over the folder mirror the desktop page opens
- * (`@epicenter/folder/next/tauri`), in a directory the shell grants
+ * (`@epicenter/folder/tauri`), in a directory the shell grants
  * (`granted-shell.test-support.ts` in the folder package). That is where a
  * save can be held while another is asked for, and where a reply can be lost
  * after the change landed.
@@ -20,7 +20,7 @@
 import '../../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { rm } from 'node:fs/promises';
-import { svelteFolder } from '@epicenter/svelte/folder-next';
+import { svelteFolder } from '@epicenter/svelte/folder';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	createGrantedShell,
@@ -56,7 +56,7 @@ mock.module('@tauri-apps/api/webview', () => ({
 	getCurrentWebview: () => ({ listen: async () => () => {} }),
 }));
 
-const { openFolder } = await import('@epicenter/folder/next/tauri');
+const { openFolder } = await import('@epicenter/folder/tauri');
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {

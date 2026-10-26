@@ -11,7 +11,7 @@ import {
 	createFolder,
 	memoryHost,
 	SaveError,
-} from '@epicenter/folder/next/testing';
+} from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	click,
@@ -22,7 +22,7 @@ import { messagesTables } from './definition.js';
 import { draftId } from './drafts.js';
 import { saveDraft, seedDraft } from './drafts.test-support.js';
 
-const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+const { svelteFolder } = await import('@epicenter/svelte/folder');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: MessagesApp } = await import('./MessagesApp.svelte');
 

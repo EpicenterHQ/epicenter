@@ -5,8 +5,8 @@
 	shown; in Source it sends the row in the folder.
 -->
 <script lang="ts">
-	import { readRow } from '@epicenter/folder/next';
-	import { draft } from '@epicenter/svelte/folder-next';
+	import { readRow } from '@epicenter/folder';
+	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';

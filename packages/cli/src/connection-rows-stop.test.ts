@@ -22,7 +22,7 @@ async function pausedCommand() {
 	const root = join(scratch, 'library');
 	const script = join(scratch, 'command.mjs');
 	const folderModule = Bun.resolveSync(
-		'@epicenter/folder/next/bun',
+		'@epicenter/folder/bun',
 		import.meta.dir,
 	);
 	await writeFile(

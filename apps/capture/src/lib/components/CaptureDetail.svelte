@@ -1,7 +1,7 @@
 <!-- A completed capture. One body draft holds text and thought commands until saves answer. -->
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
-	import { draft } from '@epicenter/svelte/folder-next';
+	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';

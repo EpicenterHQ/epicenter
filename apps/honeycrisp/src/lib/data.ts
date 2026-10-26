@@ -14,7 +14,7 @@
  * through `editor/markdown.ts`.
  */
 import { field } from '@epicenter/definition';
-import type { Row } from '@epicenter/folder/next';
+import type { Row } from '@epicenter/folder';
 import { type Static, Type } from 'typebox';
 
 export const honeycrispTables = {

@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { readRow } from '@epicenter/folder/next';
+	import { readRow } from '@epicenter/folder';
 	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { draft } from '@epicenter/svelte/folder-next';
+	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Textarea } from '@epicenter/ui/textarea';

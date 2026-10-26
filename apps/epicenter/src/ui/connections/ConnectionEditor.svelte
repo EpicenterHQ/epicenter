@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
+	import { draft, type SvelteFolder } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';

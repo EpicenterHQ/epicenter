@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type { Saved } from '@epicenter/folder/next';
-	import { draft } from '@epicenter/svelte/folder-next';
+	import type { Saved } from '@epicenter/folder';
+	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Input } from '@epicenter/ui/input';
 

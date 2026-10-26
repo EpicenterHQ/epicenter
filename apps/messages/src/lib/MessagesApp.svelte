@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import type { SvelteFolder } from '@epicenter/svelte/folder';
 	import { setFolder } from './folder.js';
 
 	import { Badge } from '@epicenter/ui/badge';

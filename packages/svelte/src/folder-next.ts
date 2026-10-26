@@ -8,7 +8,7 @@ import type {
 	Saved,
 	Table,
 	Tables,
-} from '@epicenter/folder/next';
+} from '@epicenter/folder';
 import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema as Schema, Static } from 'typebox';
 

@@ -29,10 +29,9 @@ test(
 			'src/lib/bundle.test-support.ts',
 			'browser',
 		);
-		expect(modules.some(folderModule('next/browser.ts'))).toBe(true);
+		expect(modules.some(folderModule('browser.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
-		expect(modules.some(folderModule('next/tauri.ts'))).toBe(false);
-		expect(modules.some(folderModule('native/tauri.ts'))).toBe(false);
+		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
 	},
 	BUNDLE_TIMEOUT,
 );

@@ -52,10 +52,8 @@ test(
 			'src/lib/bundle.test-support.ts',
 			'epicenter-host',
 		);
-		expect(modules.some(folderModule('next/tauri.ts'))).toBe(true);
-		expect(modules.some(folderModule('next/browser.ts'))).toBe(false);
-		expect(modules.some(folderModule('browser-adapter.ts'))).toBe(false);
-		expect(modules.some(folderModule('opfs-store.ts'))).toBe(false);
+		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
+		expect(modules.some(folderModule('browser.ts'))).toBe(false);
 	},
 	BUNDLE_TIMEOUT,
 );
@@ -68,10 +66,9 @@ test(
 			'src/lib/bundle.test-support.ts',
 			'browser',
 		);
-		expect(modules.some(folderModule('next/browser.ts'))).toBe(true);
+		expect(modules.some(folderModule('browser.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
-		expect(modules.some(folderModule('native/tauri.ts'))).toBe(false);
-		expect(modules.some(folderModule('next/tauri.ts'))).toBe(false);
+		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
 	},
 	BUNDLE_TIMEOUT,
 );

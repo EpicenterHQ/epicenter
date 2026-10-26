@@ -3,7 +3,7 @@
  * them, and what a person is told about a save. Pure functions of what the
  * table lists; the views read and write through `getFolder()`.
  */
-import type { Row } from '@epicenter/folder/next';
+import type { Row } from '@epicenter/folder';
 import type { StatusLine } from '@epicenter/svelte/status-line';
 import type { todosTables } from './definition.js';
 

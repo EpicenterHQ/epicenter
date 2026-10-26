@@ -28,7 +28,7 @@ import { leave, type } from '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { SaveError } from '@epicenter/folder/next/testing';
+import { SaveError } from '@epicenter/folder/testing';
 import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { WhisperingFolder } from '../../lib/folder.js';

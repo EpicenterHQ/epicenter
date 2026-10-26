@@ -14,7 +14,7 @@
  */
 import { InstantString } from '@epicenter/definition';
 import { ancestors, joinPath } from '@epicenter/folder/file-browser';
-import type { WriteError } from '@epicenter/folder/next';
+import type { WriteError } from '@epicenter/folder';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {

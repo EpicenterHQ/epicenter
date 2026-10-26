@@ -4,7 +4,7 @@
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
 	import OpenFolder from '@epicenter/svelte/open-folder';
-	import { openFolder } from '@epicenter/folder/next';
+	import { openFolder } from '@epicenter/folder';
 	import { whisperingTables } from '$lib/definition.js';
 	import { page } from '$app/state';
 	import WhisperingApp from './components/WhisperingApp.svelte';

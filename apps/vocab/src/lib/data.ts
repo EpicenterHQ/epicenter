@@ -1,7 +1,7 @@
 import type { AgentMessage } from '@epicenter/agent';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
-import type { Row } from '@epicenter/folder/next';
-import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+import type { Row } from '@epicenter/folder';
+import type { SvelteFolder } from '@epicenter/svelte/folder';
 import { Type } from 'typebox';
 
 /**

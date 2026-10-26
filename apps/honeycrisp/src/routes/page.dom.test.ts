@@ -7,7 +7,7 @@
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { openFolder } from '@epicenter/folder/next/browser';
+import { openFolder } from '@epicenter/folder/browser';
 import { expectOk } from 'wellcrafted/testing';
 import { button, type } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { honeycrispTables } from '../lib/data.js';

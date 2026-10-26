@@ -7,8 +7,8 @@
 	opened, and can still be renamed or deleted.
 -->
 <script lang="ts">
-	import { readRow } from '@epicenter/folder/next';
-	import { draft } from '@epicenter/svelte/folder-next';
+	import { readRow } from '@epicenter/folder';
+	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { getFolder } from '$lib/folder.js';

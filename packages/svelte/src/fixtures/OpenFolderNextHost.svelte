@@ -1,5 +1,5 @@
 <script lang="ts" generics="TTables extends Tables">
-	import type { Opened, Tables } from '@epicenter/folder/next';
+	import type { Opened, Tables } from '@epicenter/folder';
 	import DraftHost from './DraftHost.svelte';
 	import OpenFolder from '../open-folder.svelte';
 

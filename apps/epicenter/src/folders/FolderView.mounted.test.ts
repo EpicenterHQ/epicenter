@@ -12,9 +12,9 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
 	const { createFolder, memoryHost, SaveError } = await import(
-		'@epicenter/folder/next/testing'
+		'@epicenter/folder/testing'
 	);
-	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+	const { svelteFolder } = await import('@epicenter/svelte/folder');
 	const { default: FolderViewHost } = await import(
 		'./fixtures/FolderViewHost.svelte'
 	);
@@ -40,7 +40,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			memory.storage.read = async (paths) => {
 				const results = new Map(await read(paths));
 				if (blocked) {
-					const { ReadError } = await import('@epicenter/folder/next/testing');
+					const { ReadError } = await import('@epicenter/folder/testing');
 					results.set(
 						failRead,
 						ReadError.StorageFailed({ cause: 'temporarily unreadable' }),

@@ -39,7 +39,7 @@ import {
 	readConnectionRow,
 	setConnectionRow,
 } from '../../../../../../packages/cli/src/connection-rows.js';
-import { openFolder as openBunFolder } from '@epicenter/folder/next/bun';
+import { openFolder as openBunFolder } from '@epicenter/folder/bun';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,

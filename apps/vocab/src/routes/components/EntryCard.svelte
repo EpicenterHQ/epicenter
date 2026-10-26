@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { draft } from '@epicenter/svelte/folder-next';
+	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';

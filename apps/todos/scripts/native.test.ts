@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openFolder } from '@epicenter/folder/next/bun';
+import { openFolder } from '@epicenter/folder/bun';
 import { $ } from 'bun';
 import { expectOk } from 'wellcrafted/testing';
 import { todosTables } from '../src/lib/definition.js';

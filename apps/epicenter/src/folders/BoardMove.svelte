@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Saved } from '@epicenter/folder/next';
+	import type { Saved } from '@epicenter/folder';
 	import * as Select from '@epicenter/ui/select';
 	import type { BoardLane } from './view.js';
 

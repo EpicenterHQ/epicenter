@@ -8,7 +8,7 @@ import {
 	createFolder,
 	memoryHost,
 	SaveError,
-} from '@epicenter/folder/next/testing';
+} from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { Captures } from './captures.svelte.js';
 
@@ -27,7 +27,7 @@ export async function openCaptures(
 	const raw = expectOk(
 		await createFolder(host.storage, { tables: captureTables }),
 	);
-	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+	const { svelteFolder } = await import('@epicenter/svelte/folder');
 	const { createCaptures } = await import('./captures.svelte.ts');
 	const folder = svelteFolder(raw);
 	const captures: Captures = createCaptures(folder);

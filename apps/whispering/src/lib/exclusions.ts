@@ -1,4 +1,4 @@
-import type { ReadError, WriteError } from '@epicenter/folder/next';
+import type { ReadError, WriteError } from '@epicenter/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import type { WhisperingFolder } from './folder.js';

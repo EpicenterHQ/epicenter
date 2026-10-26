@@ -1,4 +1,4 @@
-import type { Patch } from '@epicenter/folder/next';
+import type { Patch } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
 import type { Backend } from './backend.js';
 import { messagesTables } from './definition.js';

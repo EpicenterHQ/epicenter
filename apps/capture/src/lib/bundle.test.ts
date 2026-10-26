@@ -3,7 +3,7 @@
  *
  * Bundles the page's root and its store through the app's Vite resolution, as
  * each build resolves them, and reads every module the bundle pulls in.
- * `hostAppViteConfig` resolves `@epicenter/folder/next`, which
+ * `hostAppViteConfig` resolves `@epicenter/folder`, which
  * `<OpenFolder>` opens with, to one entry per build; a dropped alias
  * fails no build.
  *
@@ -30,8 +30,8 @@ test(
 	'the host build carries the native engine and no browser storage',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'epicenter-host');
-		expect(modules.some(folderModule('next/tauri.ts'))).toBe(true);
-		expect(modules.some(folderModule('next/browser.ts'))).toBe(false);
+		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
+		expect(modules.some(folderModule('browser.ts'))).toBe(false);
 		expect(modules.some((path) => path.endsWith('folder-app.svelte'))).toBe(
 			false,
 		);
@@ -47,9 +47,9 @@ test(
 	'the browser build carries the mirror browser adapter and no native adapter',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'browser');
-		expect(modules.some(folderModule('next/browser.ts'))).toBe(true);
+		expect(modules.some(folderModule('browser.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
-		expect(modules.some(folderModule('next/tauri.ts'))).toBe(false);
+		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
 		expect(modules.some((path) => path.endsWith('folder-app.svelte'))).toBe(
 			false,
 		);

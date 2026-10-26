@@ -30,7 +30,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { connectionsTables } from '@epicenter/ai/connection-table';
-import { openFolder } from '@epicenter/folder/next/bun';
+import { openFolder } from '@epicenter/folder/bun';
 import { expectOk } from 'wellcrafted/testing';
 
 const binary = process.env.EPICENTER_BIN;
@@ -100,7 +100,7 @@ async function runWithFolderMock(
 	input?: unknown,
 ) {
 	const folderModule = Bun.resolveSync(
-		'@epicenter/folder/next/bun',
+		'@epicenter/folder/bun',
 		import.meta.dir,
 	);
 	const script = join(location.scratch, 'mock-folder.mjs');

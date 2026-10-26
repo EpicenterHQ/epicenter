@@ -22,7 +22,7 @@
  * row's body as it is when the save runs; a row deleted meanwhile is left
  * absent.
  */
-import type { Row } from '@epicenter/folder/next';
+import type { Row } from '@epicenter/folder';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { type ConnectionsInfo, sameBaseUrl } from './connections.js';

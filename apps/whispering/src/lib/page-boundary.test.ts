@@ -3,7 +3,7 @@
  *
  * The page runs in a WebView and in a browser tab, so nothing under `src/` may
  * reach Node or Bun, or the directory opener that runs there. It names the
- * folder contract through `@epicenter/folder/next`. A folder is opened in
+ * folder contract through `@epicenter/folder`. A folder is opened in
  * exactly one place: the layout gives OpenFolder its opener. The build
  * selects the browser or desktop folder entry.
  * The build picks the services (`#platform/services`), so no page code asks
@@ -133,7 +133,7 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 				// shared views are the folder's owner and the header status.
 				(specifier.startsWith('@epicenter/svelte') &&
 					![
-						'@epicenter/svelte/folder-next',
+						'@epicenter/svelte/folder',
 						'@epicenter/svelte/open-folder',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',

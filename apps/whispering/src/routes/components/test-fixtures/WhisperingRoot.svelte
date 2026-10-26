@@ -1,7 +1,7 @@
 <script lang="ts">
 	import OpenFolder from '@epicenter/svelte/open-folder';
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import type { Opened } from '@epicenter/folder/next';
+	import type { Opened } from '@epicenter/folder';
 	import type { Whispering } from '../../../lib/whispering.svelte.js';
 	import type { WhisperingTables } from '../../../lib/definition.js';
 	import type { WhisperingFolder } from '../../../lib/folder.js';

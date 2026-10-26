@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { captureTables } from '@epicenter/capture';
-	import { openFolder } from '@epicenter/folder/next';
+	import { openFolder } from '@epicenter/folder';
 	import OpenFolder from '@epicenter/svelte/open-folder';
 	import CaptureApp from '$lib/components/CaptureApp.svelte';
 </script>

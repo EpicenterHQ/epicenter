@@ -1,5 +1,5 @@
-import type { WriteError } from '@epicenter/folder/next';
-import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+import type { WriteError } from '@epicenter/folder';
+import type { SvelteFolder } from '@epicenter/svelte/folder';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Backend } from './backend.js';

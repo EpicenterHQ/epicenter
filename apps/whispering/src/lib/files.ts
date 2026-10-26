@@ -1,5 +1,5 @@
 /** App-owned file messages, and reading a file's bytes. */
-import type { ReadError, WriteError } from '@epicenter/folder/next';
+import type { ReadError, WriteError } from '@epicenter/folder';
 import { joinPath, pathProblem } from '@epicenter/folder/file-browser';
 import { extractErrorMessage } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';

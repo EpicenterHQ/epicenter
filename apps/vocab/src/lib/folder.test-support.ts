@@ -1,6 +1,6 @@
 import '../../../../packages/svelte/node_modules/fake-indexeddb/auto/index.mjs';
-import { openFolder } from '@epicenter/folder/next/browser';
-import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
+import { openFolder } from '@epicenter/folder/browser';
+import { createFolder, memoryHost } from '@epicenter/folder/testing';
 import { expectOk } from 'wellcrafted/testing';
 import { type VocabFolder, type VocabTables, vocabTables } from './data.js';
 
@@ -27,7 +27,7 @@ export function createBrowser() {
 	const opened: { close(): Promise<void> }[] = [];
 	return {
 		async open(): Promise<VocabFolder> {
-			const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+			const { svelteFolder } = await import('@epicenter/svelte/folder');
 			globalThis.indexedDB = indexedDB;
 			const core = expectOk(
 				await openFolder({ tables: vocabTables }),
@@ -44,7 +44,7 @@ export function createBrowser() {
 export async function createMemory(
 	initial: Record<string, string | Uint8Array> = {},
 ) {
-	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+	const { svelteFolder } = await import('@epicenter/svelte/folder');
 	const host = memoryHost(initial);
 	const core = expectOk(
 		await createFolder(host.storage, { tables: vocabTables }),

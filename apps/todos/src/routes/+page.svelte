@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { openFolder } from '@epicenter/folder/next';
+	import { openFolder } from '@epicenter/folder';
 	import OpenFolder from '@epicenter/svelte/open-folder';
 	import { todosTables } from '$lib/definition.js';
 	import TodosApp from './local/TodosApp.svelte';

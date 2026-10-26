@@ -1,7 +1,7 @@
 <script lang="ts">
-	import type { FolderFile, ReadError } from '@epicenter/folder/next';
+	import type { FolderFile, ReadError } from '@epicenter/folder';
 	import { openedFile, withFileNewlines, type OpenedFile } from '@epicenter/folder/file-browser';
-	import { draft, type SvelteFolder } from '@epicenter/svelte/folder-next';
+	import { draft, type SvelteFolder } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';

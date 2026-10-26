@@ -1,4 +1,4 @@
-import { readRow } from '@epicenter/folder/next';
+import { readRow } from '@epicenter/folder';
 import { type VocabFolder, vocabTables } from './data.js';
 
 /** Which word file is open as text. The editor owns its draft. */

@@ -5,7 +5,7 @@
 	 * existed; `<OpenFolder>` opens it with no tables, owns its handle, and
 	 * closes it when the window goes. The page names no folder.
 	 */
-	import { openFolder } from '@epicenter/folder/next/tauri';
+	import { openFolder } from '@epicenter/folder/tauri';
 	import OpenFolder from '@epicenter/svelte/open-folder';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import FolderView from './FolderView.svelte';

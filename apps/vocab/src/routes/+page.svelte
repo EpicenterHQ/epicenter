@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { openFolder } from '@epicenter/folder/next/browser';
+	import { openFolder } from '@epicenter/folder/browser';
 	import OpenFolder from '@epicenter/svelte/open-folder';
 	import { vocabTables } from '$lib/data.js';
 	import VocabApp from './components/VocabApp.svelte';

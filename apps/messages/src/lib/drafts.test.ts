@@ -12,13 +12,13 @@ import {
 	ReadError,
 	SaveError,
 	tick,
-} from '@epicenter/folder/next/testing';
+} from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Backend, createDemoBackend } from './backend.js';
 import { messagesTables } from './definition.js';
 import { saveDraft, seedDraft } from './drafts.test-support.js';
 
-const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+const { svelteFolder } = await import('@epicenter/svelte/folder');
 const { draftId, recoverDraft, sendDraft } = await import('./drafts.js');
 
 async function setup() {

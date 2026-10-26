@@ -1,6 +1,6 @@
 /**
  * The mounted Whispering app state over one opened folder
- * (`@epicenter/svelte/folder-next`).
+ * (`@epicenter/svelte/folder`).
  *
  * The folder is a mirror of what landed on disk, read reactively and in full:
  * every list here is derived from its rows and files, once per change. Rows
@@ -33,7 +33,7 @@ import {
 	type Row,
 	type RowIssue,
 	readRow,
-} from '@epicenter/folder/next';
+} from '@epicenter/folder';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
 import { customAlphabet } from 'nanoid';
 import { createContext } from 'svelte';

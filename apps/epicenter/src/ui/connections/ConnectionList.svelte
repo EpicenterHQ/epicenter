@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { ConnectionKind } from '@epicenter/ai/send';
-	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import type { SvelteFolder } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { commands } from '../bindings.gen';

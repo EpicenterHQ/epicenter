@@ -14,7 +14,7 @@ import {
 	WHISPERING_CONNECTION_IDS,
 	type WhisperingConnection,
 } from '@epicenter/ai/connection-table';
-import { type Folder, openFolder } from '@epicenter/folder/next/bun';
+import { type Folder, openFolder } from '@epicenter/folder/bun';
 import {
 	defineErrors,
 	extractErrorMessage,

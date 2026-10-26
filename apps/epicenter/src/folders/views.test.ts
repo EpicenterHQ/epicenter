@@ -1,8 +1,8 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { readSavedViews, type SavedView } from '@epicenter/folder/declaration';
-import { createFolder, memoryHost, tick } from '@epicenter/folder/next/testing';
-import { SaveError } from '@epicenter/folder/next/testing';
+import { createFolder, memoryHost, tick } from '@epicenter/folder/testing';
+import { SaveError } from '@epicenter/folder/testing';
 import { expectOk } from 'wellcrafted/testing';
 import type { QueryAnswer } from '../ui/bindings.gen.js';
 

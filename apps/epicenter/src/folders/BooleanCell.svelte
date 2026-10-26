@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Saved } from '@epicenter/folder/next';
+	import type { Saved } from '@epicenter/folder';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 
 	let { value, label, disabled, save }: {

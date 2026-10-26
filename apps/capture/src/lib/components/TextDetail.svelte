@@ -1,8 +1,8 @@
 <!-- One capture file as Markdown. This view owns its text draft until each save answers. -->
 <script lang="ts">
 	import { captureTables } from '@epicenter/capture';
-	import { readRow } from '@epicenter/folder/next';
-	import { draft } from '@epicenter/svelte/folder-next';
+	import { readRow } from '@epicenter/folder';
+	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';

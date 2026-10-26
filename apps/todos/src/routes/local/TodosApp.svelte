@@ -11,7 +11,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { setFolder } from '$lib/folder.js';
-	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import type { SvelteFolder } from '@epicenter/svelte/folder';
 	import type { todosTables } from '$lib/definition.js';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';

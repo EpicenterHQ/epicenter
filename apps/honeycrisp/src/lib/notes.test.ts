@@ -7,13 +7,13 @@
 import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { createFolder, memoryHost, ReadError } from '@epicenter/folder/next/testing';
+import { createFolder, memoryHost, ReadError } from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { honeycrispTables } from './data.js';
 import type { NotesFixture } from './local.test-support.ts';
 
 const { openNotes, until, shown, noteText, folderText } = await import('./local.test-support.ts');
-const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+const { svelteFolder } = await import('@epicenter/svelte/folder');
 const { createNotes, foldersOf, repairsOf } = await import('./notes.svelte.ts');
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => { for (const step of cleanup.splice(0).reverse()) await step(); });

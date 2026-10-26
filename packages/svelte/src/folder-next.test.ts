@@ -4,7 +4,7 @@
  */
 import './svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
+import { createFolder, memoryHost } from '@epicenter/folder/testing';
 import { Type } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';

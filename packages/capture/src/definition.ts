@@ -1,4 +1,4 @@
-import type { Row } from '@epicenter/folder/next';
+import type { Row } from '@epicenter/folder';
 import { type Static, Type } from 'typebox';
 
 /**

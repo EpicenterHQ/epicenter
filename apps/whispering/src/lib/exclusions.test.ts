@@ -8,7 +8,7 @@ import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { readdir } from 'node:fs/promises';
-import { openFolder as openBrowserFolder } from '@epicenter/folder/next/browser';
+import { openFolder as openBrowserFolder } from '@epicenter/folder/browser';
 import { Err } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { readSnapshot } from '../../../../packages/folder/src/browser/git/snapshot.js';

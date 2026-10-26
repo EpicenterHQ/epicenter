@@ -1,7 +1,7 @@
 /** Honeycrisp's notes over a fresh in-memory browser folder. */
-import { type Folder } from '@epicenter/folder/next';
-import { openFolder } from '@epicenter/folder/next/browser';
-import { svelteFolder } from '@epicenter/svelte/folder-next';
+import { type Folder } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder/browser';
+import { svelteFolder } from '@epicenter/svelte/folder';
 import { expectOk } from 'wellcrafted/testing';
 import { type HoneycrispTables, honeycrispTables, type NoteRow } from './data.js';
 import { createNotes, type Notes } from './notes.svelte.js';

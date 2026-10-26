@@ -3,7 +3,7 @@
 	flushed their latest input. Desktop close waits for the queued writes.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
-	import type { Folder, Opened } from '@epicenter/folder/next';
+	import type { Folder, Opened } from '@epicenter/folder';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';

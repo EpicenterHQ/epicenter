@@ -1,7 +1,7 @@
 /**
  * Platform Selection Tests
  *
- * Bundles the `#platform/services` seam, the `@epicenter/folder/next`
+ * Bundles the `#platform/services` seam, the `@epicenter/folder`
  * specifier, and the recording contract (`@epicenter/recorder`, the same file
  * in every build) the way each build resolves them, with the conditions and
  * aliases `vite.config.ts` declares, and reads every module the bundle pulls
@@ -59,8 +59,8 @@ describe('#platform/services', () => {
 			expect(reaches(modules, 'lib/platform/desktop/services.ts')).toBe(true);
 			expect(reaches(modules, 'lib/platform/desktop/auth.ts')).toBe(true);
 			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
-			expect(modules.some(folderModule('next/tauri.ts'))).toBe(true);
-			expect(modules.some(folderModule('next/folder.ts'))).toBe(true);
+			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
+			expect(modules.some(folderModule('folder.ts'))).toBe(true);
 			expect(modules.some(recorderModule('tauri.ts'))).toBe(true);
 			expect(reaches(modules, 'lib/platform/desktop/microphone.ts')).toBe(true);
 			expect(
@@ -83,7 +83,7 @@ describe('#platform/services', () => {
 
 			expect(reaches(modules, 'lib/platform/browser.ts')).toBe(true);
 			expect(reaches(modules, 'lib/platform/auth.ts')).toBe(true);
-			expect(modules.some(folderModule('next/browser.ts'))).toBe(true);
+			expect(modules.some(folderModule('browser.ts'))).toBe(true);
 			expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
 			expect(modules.some(recorderModule('browser.ts'))).toBe(true);
 			expect(reaches(modules, 'lib/webview-microphone.ts')).toBe(true);
@@ -102,7 +102,7 @@ describe('#platform/services', () => {
 });
 
 test('the browser folder refuses to open inside the desktop app', async () => {
-	const { openFolder } = await import('@epicenter/folder/next/browser');
+	const { openFolder } = await import('@epicenter/folder/browser');
 	// SAFETY: Tauri marks its pages with this flag; the test restores the global.
 	const scope = globalThis as { isTauri?: boolean };
 	scope.isTauri = true;

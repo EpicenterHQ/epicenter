@@ -3,10 +3,10 @@
  * endpoints. Nothing here reaches a network, a microphone, or a provider.
  *
  * The folder is the folder mirror over a real directory, opened by this test
- * process (`@epicenter/folder/next/bun`): the same mirror the desktop page
+ * process (`@epicenter/folder/bun`): the same mirror the desktop page
  * runs over a granted directory, and what a test can open without a shell.
  * A test that makes storage slow or refuse a save opens it over memory
- * instead (`@epicenter/folder/next/testing`), whose control does that below
+ * instead (`@epicenter/folder/testing`), whose control does that below
  * the folder. Nothing here establishes how the Rust shell behaves.
  *
  * The endpoint stubs are plain functions, so a test decides each answer and
@@ -16,10 +16,10 @@ import { mock } from 'bun:test';
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import type { Folder } from '@epicenter/folder/next';
-import { openFolder } from '@epicenter/folder/next/bun';
-import { createFolder, memoryHost } from '@epicenter/folder/next/testing';
-import { svelteFolder } from '@epicenter/svelte/folder-next';
+import type { Folder } from '@epicenter/folder';
+import { openFolder } from '@epicenter/folder/bun';
+import { createFolder, memoryHost } from '@epicenter/folder/testing';
+import { svelteFolder } from '@epicenter/svelte/folder';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { createFixtureDevice, toneWav } from './capture.js';

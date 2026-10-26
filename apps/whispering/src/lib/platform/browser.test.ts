@@ -4,7 +4,7 @@
  * connection. Malformed device settings remain visible rather than overwritten.
  */
 import { afterEach, expect, mock, test } from 'bun:test';
-import type { Folder, OpenFolderError } from '@epicenter/folder/next';
+import type { Folder, OpenFolderError } from '@epicenter/folder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { toneWav } from '../capture.js';
@@ -32,7 +32,7 @@ let folder: WhisperingFolder;
 let opened: Folder<WhisperingTables>;
 /** What the next opening answers instead of the folder, when set. */
 let refusal: Result<never, OpenFolderError> | undefined;
-mock.module('@epicenter/folder/next/browser', () => ({
+mock.module('@epicenter/folder/browser', () => ({
 	openFolder: async (options: Record<string, unknown>) => {
 		// The tables alone: no app, ID, definition, author, or credentials.
 		expect(options).toEqual({ tables: whisperingTables });
@@ -40,7 +40,7 @@ mock.module('@epicenter/folder/next/browser', () => ({
 	},
 }));
 const { createServices } = await import('./browser.js');
-const { openFolder } = await import('@epicenter/folder/next/browser');
+const { openFolder } = await import('@epicenter/folder/browser');
 
 /** Open the test's folder through the browser opener, and the services over it. */
 async function servicesOver(services: Awaited<ReturnType<typeof openTestServices>>) {

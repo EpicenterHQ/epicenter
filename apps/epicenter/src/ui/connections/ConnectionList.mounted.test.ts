@@ -12,9 +12,9 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
 	const { createFolder, memoryHost, SaveError } = await import(
-		'@epicenter/folder/next/testing'
+		'@epicenter/folder/testing'
 	);
-	const { svelteFolder } = await import('@epicenter/svelte/folder-next');
+	const { svelteFolder } = await import('@epicenter/svelte/folder');
 	const { connectionTables } = await import('./connections.js');
 	const { default: Host } = await import('./ConnectionListHost.svelte');
 

@@ -6,7 +6,7 @@
  * refusal is returned and nothing else is opened in its place, and that the
  * folder's changes go to the shell. The shell has a real directory bound to
  * the window, and the page's own folder mirror opens it through
- * `@epicenter/folder/next/tauri` (`granted-shell.test-support.ts` in the
+ * `@epicenter/folder/tauri` (`granted-shell.test-support.ts` in the
  * folder package); nothing here runs the Rust shell or a WebView.
  *
  * The connections are rows of a real `so.epicenter` folder on disk, which the
@@ -45,8 +45,8 @@ import {
 	grantedDirectory,
 	shellArguments,
 } from '../../../../../../packages/folder/src/granted-shell.test-support.js';
-import { openFolder as openBunFolder } from '@epicenter/folder/next/bun';
-import { svelteFolder } from '@epicenter/svelte/folder-next';
+import { openFolder as openBunFolder } from '@epicenter/folder/bun';
+import { svelteFolder } from '@epicenter/svelte/folder';
 import { toneWav } from '../../capture.js';
 import { whisperingTables } from '../../definition.js';
 import { readBytes } from '../../files.js';
@@ -84,7 +84,7 @@ mock.module('@tauri-apps/api/webview', () => ({
 	getCurrentWebview: () => ({ listen: async () => () => {} }),
 }));
 
-const { openFolder } = await import('@epicenter/folder/next/tauri');
+const { openFolder } = await import('@epicenter/folder/tauri');
 const { createServices } = await import('./services.js');
 const { createDesktopAccount } = await import('./account.js');
 

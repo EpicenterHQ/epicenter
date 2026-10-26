@@ -9,7 +9,7 @@ import type { connectionsTables as connectionTables } from '@epicenter/ai/connec
 export { connectionsTables as connectionTables } from '@epicenter/ai/connection-table';
 
 import type { ConnectionKind } from '@epicenter/ai/send';
-import type { Row } from '@epicenter/folder/next';
+import type { Row } from '@epicenter/folder';
 import type { Static } from 'typebox';
 import type { CliError } from '../bindings.gen';
 

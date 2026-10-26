@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { openFolder } from '@epicenter/folder/next/tauri';
+	import { openFolder } from '@epicenter/folder/tauri';
 	import OpenFolder from '@epicenter/svelte/open-folder';
 	import { QueryClient, setQueryClientContext } from '@tanstack/svelte-query';
 	import ConnectionList from './ConnectionList.svelte';

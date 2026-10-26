@@ -1,5 +1,5 @@
 /** The rows of Epicenter's local AI connections folder. */
-import type { RowIssue } from '@epicenter/folder/next';
+import type { RowIssue } from '@epicenter/folder';
 import { type Static, Type } from 'typebox';
 import { Value } from 'typebox/value';
 

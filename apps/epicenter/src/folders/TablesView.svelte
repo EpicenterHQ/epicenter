@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { documentsOf, type DocumentCache } from '@epicenter/folder/documents';
-	import type { SvelteFolder } from '@epicenter/svelte/folder-next';
+	import type { SvelteFolder } from '@epicenter/svelte/folder';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import * as Select from '@epicenter/ui/select';

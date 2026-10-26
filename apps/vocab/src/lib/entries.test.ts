@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { readRow } from '@epicenter/folder/next';
+import { readRow } from '@epicenter/folder';
 import { expectOk } from 'wellcrafted/testing';
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 

@@ -5,7 +5,7 @@
 	page goes away.
 -->
 <script lang="ts">
-	import { openFolder } from '@epicenter/folder/next';
+	import { openFolder } from '@epicenter/folder';
 	import OpenFolder from '@epicenter/svelte/open-folder';
 	import { honeycrispTables } from '$lib/data.js';
 	import HoneycrispApp from './components/HoneycrispApp.svelte';
