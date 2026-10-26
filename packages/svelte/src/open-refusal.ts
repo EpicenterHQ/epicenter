@@ -1,5 +1,5 @@
 /**
- * What `<FolderApp>` shows when an app's folder does not open: one screen,
+ * What `<OpenFolder>` shows when an app's folder does not open: one screen,
  * worded per refusal. Nothing else is opened in the folder's place.
  *
  * Plain module, so the wording is tested without mounting anything.

@@ -8,7 +8,7 @@
  * - A permanently invalid table name does not
  */
 import { expect, test } from 'bun:test';
-import { OpenFolderError } from '@epicenter/folder';
+import { OpenFolderError } from '@epicenter/folder/testing';
 import { describeOpenRefusal } from './open-refusal.js';
 
 test('an invalid table name cannot be fixed by opening again', () => {

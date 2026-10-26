@@ -1,26 +1,7 @@
 /**
- * A desktop window's close, answered from the folder's current status: the one
- * close listener of the window a `FolderContext` guards
- * (`context.guardWindowClose()`).
- *
- * Tauri sends a close request to the page once a listener is registered,
- * and closes the window only if the page destroys it. Each request is
- * refused at once (`preventDefault`), so Tauri never destroys the window
- * itself.
- *
- * Each page answers its own close with one awaited native confirmation for
- * unfinished saves. Native destruction ends a recording and keeps its audio;
- * a recording adds no close warning. Application Quit stays in `shell.rs`.
- * Repeated requests for this window join its current answer. Other windows
- * answer independently. Destroying needs `core:window:allow-destroy`; a failed
- * destroy keeps the listener and restores input so another close can be tried.
- * Save status is sampled once per request; a save finishing while the prompt
- * opens does not withdraw the question.
- *
- * Outside the desktop app nothing listens, and the browser's unload
- * behavior stands. Tauri's window API loads only inside the desktop app,
- * and the notice's toast only when one is shown, so a store that imports
- * the folder context loads neither.
+ * Hold a desktop window's close while mounted drafts flush and folder writes
+ * drain. Each close request is prevented until the page destroys the window.
+ * Application Quit remains owned by the shell.
  */
 import { isTauri } from '@tauri-apps/api/core';
 import type { Window } from '@tauri-apps/api/window';
@@ -36,7 +17,7 @@ async function focusWindow(current: Window) {
 		await current.setFocus();
 	} catch (cause) {
 		log.error(
-			new Error('The window could not show its unfinished input', { cause }),
+			new Error('The window could not receive focus', { cause }),
 		);
 	}
 }
@@ -58,13 +39,11 @@ async function notifyCloseFailure(current: Window, guard: symbol) {
 }
 
 /**
- * Answer this window's close from its unfinished Folder saves.
+ * Answer this window's close after its drafts and Folder writes finish.
  * Successful destruction stays occupied and inert until the page is gone:
  * Tauri's destroy promise acknowledges dispatch, not completed destruction.
  */
 export async function holdWindowClose(
-	pendingSave: () => boolean,
-	onDestroyed: () => void,
 	/** Work to finish before the window is destroyed, such as saves in flight. */
 	beforeDestroy?: () => Promise<void>,
 ): Promise<() => void> {
@@ -85,27 +64,10 @@ export async function holdWindowClose(
 			const page = document.documentElement;
 			const wasInert = page.inert;
 			try {
-				if (pendingSave()) {
-					await focusWindow(current);
-					const { confirm } = await import('@tauri-apps/plugin-dialog');
-					if (activeGuard !== guard) return;
-					const confirmed = await confirm(
-						'A change has not saved yet. Close anyway?',
-						{
-							title: 'Close window?',
-							kind: 'warning',
-							okLabel: 'Close Anyway',
-							cancelLabel: 'Cancel',
-						},
-					);
-					if (!confirmed) {
-						closing = false;
-						return;
-					}
-				}
 				if (activeGuard !== guard) return;
 				page.inert = true;
 				await beforeDestroy?.();
+				if (activeGuard !== guard) return;
 				await current.destroy();
 			} catch (cause) {
 				if (activeGuard !== guard) return;
@@ -115,16 +77,7 @@ export async function holdWindowClose(
 				closing = false;
 				return;
 			}
-			if (activeGuard !== guard) return;
-			try {
-				onDestroyed();
-			} catch (cause) {
-				log.error(
-					new Error('The destroyed window could not release its folder', {
-						cause,
-					}),
-				);
-			}
+
 		});
 		return () => {
 			if (activeGuard !== guard) return;

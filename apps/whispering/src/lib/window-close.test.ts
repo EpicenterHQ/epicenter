@@ -23,7 +23,6 @@ import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import {
 	desktop,
-	nativeDialog,
 	nativeWindow,
 	requestClose,
 	untilListening,
@@ -47,11 +46,7 @@ async function openWindow() {
 	const fixture = await openTestServices({ folder: memory });
 	desktop(true);
 	const { whispering } = await createTestWhispering(fixture);
-	const release = await holdWindowClose(
-		() => false,
-		() => {},
-		() => memory.opened.close(),
-	);
+	const release = await holdWindowClose(() => memory.opened.close());
 	cleanups.push(async () => {
 		release();
 		closeTestWhispering({ whispering, folder: fixture.folder });
@@ -74,7 +69,6 @@ test('a write in flight lands before the window closes, and nothing asks', async
 	gate.resolve();
 	await closing;
 
-	expect(nativeDialog.count).toBe(0);
 	expect(nativeWindow.destroyed).toBe(1);
 	expect((await saving).error).toBeNull();
 	expect(window.host.text('note.md')).toBe('Typed just before closing.\n');
@@ -87,7 +81,6 @@ test('a recording under way holds nothing: the window goes', async () => {
 	await requestClose();
 
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(nativeDialog.count).toBe(0);
 });
 
 test('unsubmitted connection settings do not prompt', async () => {
@@ -95,7 +88,6 @@ test('unsubmitted connection settings do not prompt', async () => {
 	window.whispering.settings.transcription.model = 'new model';
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(nativeDialog.count).toBe(0);
 });
 
 test('a connection save before a folder write does not prompt', async () => {
@@ -104,7 +96,6 @@ test('a connection save before a folder write does not prompt', async () => {
 	const saving = window.whispering.settings.transcription.save();
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(nativeDialog.count).toBe(0);
 	expect(await saving).toBeUndefined();
 });
 

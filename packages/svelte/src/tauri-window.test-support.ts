@@ -20,25 +20,6 @@ type Handler = (event: CloseRequested) => void | Promise<void>;
 
 const handlers = new Set<Handler>();
 
-export const nativeDialog = {
-	answer: false as boolean | Promise<boolean>,
-	count: 0,
-	messages: [] as string[],
-	reset() {
-		this.answer = false;
-		this.count = 0;
-		this.messages.length = 0;
-	},
-};
-
-mock.module('@tauri-apps/plugin-dialog', () => ({
-	confirm: async (message: string) => {
-		nativeDialog.count += 1;
-		nativeDialog.messages.push(message);
-		return nativeDialog.answer;
-	},
-}));
-
 export const nativeWindow = {
 	/** How many times the window was destroyed. */
 	destroyed: 0,
@@ -57,7 +38,6 @@ export const nativeWindow = {
 		return handlers.size;
 	},
 	reset() {
-		nativeDialog.reset();
 		handlers.clear();
 		this.destroyed = 0;
 		this.focused = 0;

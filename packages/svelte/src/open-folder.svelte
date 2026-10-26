@@ -12,7 +12,7 @@
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { Ok } from 'wellcrafted/result';
-	import { type SvelteFolder, svelteFolder } from './folder-next.js';
+	import { type SvelteFolder, svelteFolder } from './folder.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
 	import { holdWindowClose as registerWindowClose } from './window-close.js';
 
@@ -52,14 +52,11 @@
 		}
 		opened = folder;
 		// One guard per window: a folder opened beneath another leaves the
-		// window's close to the outer one. It never asks: it waits for the
-		// writes in flight, which answer in milliseconds.
+		// window's close to the outer one. It waits for writes in flight.
 		if (holdWindowClose) {
-			const stop = await registerWindowClose(
-				() => false,
-				() => {},
-				() => closeFolder(folder),
-			).catch(() => undefined);
+			const stop = await registerWindowClose(() => closeFolder(folder)).catch(
+				() => undefined,
+			);
 			if (destroyed) stop?.();
 			else stopWindow = stop;
 		}

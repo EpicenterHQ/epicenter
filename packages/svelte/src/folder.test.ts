@@ -10,12 +10,12 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { desktop, nativeWindow } from './tauri-window.test-support.js';
 
-const { svelteFolder } = await import('./folder-next.js');
+const { svelteFolder } = await import('./folder.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: DraftHost } = await import('./fixtures/DraftHost.svelte');
-const { default: OpenFolderNextHost } = await import(
-	'./fixtures/OpenFolderNextHost.svelte'
+const { default: OpenFolderHost } = await import(
+	'./fixtures/OpenFolderHost.svelte'
 );
 
 const tables = { notes: Type.Object({ title: Type.String() }) };
@@ -281,7 +281,7 @@ test('OpenFolder closes after a draft flushes behind an out save', async () => {
 	const folder = expectOk(await createFolder(memory.storage, { tables }));
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(OpenFolderNextHost, {
+	const view = mount(OpenFolderHost, {
 		target,
 		props: {
 			open: () => Promise.resolve(Ok(folder)),
@@ -319,7 +319,7 @@ test('holdWindowClose false registers no desktop close listener', async () => {
 	document.body.append(target);
 	desktop(true);
 	try {
-		const view = mount(OpenFolderNextHost, {
+		const view = mount(OpenFolderHost, {
 			target,
 			props: {
 				open: () => Promise.resolve(Ok(folder)),
