@@ -207,7 +207,7 @@ describe('opening and rows', () => {
 	});
 });
 
-describe('one ordered put per write', () => {
+describe('ordered writes with waiting tail merge', () => {
 	test('idle waits for the last queued write to land', async () => {
 		const { folder, control, text } = await setup();
 		let release: () => void = () => {};
@@ -230,7 +230,7 @@ describe('one ordered put per write', () => {
 		expectOk(await first);
 		expectOk(await second);
 	});
-	test('writes each operation in order and resolves after the copy shows it', async () => {
+	test('waiting updates merge fields and body before the copy publishes', async () => {
 		const { folder, notes, log, text } = await setup({
 			'notes/a.md': note('title: A'),
 		});
@@ -240,17 +240,180 @@ describe('one ordered put per write', () => {
 		expect(folder.saving()).toBe(true);
 		expect(notes.row('a')?.body).toBe('Body\n');
 		expectOk(await first);
-		expect(notes.row('a')?.body).toBe('First\n');
+		expect(notes.row('a')?.body).toBe('Second\n');
 		expectOk(await second);
 		expect(notes.row('a')?.body).toBe('Second\n');
 		expectOk(await third);
-		expect(log.puts).toEqual([
-			{ path: 'notes/a.md' },
-			{ path: 'notes/a.md' },
-			{ path: 'notes/a.md' },
-		]);
+		expect(log.puts).toEqual([{ path: 'notes/a.md' }]);
 		expect(text('notes/a.md')).toBe(note('title: A\npinned: true', 'Second\n'));
 		expect(folder.saving()).toBe(false);
+	});
+
+	test('waiting writes merge and every caller gets the same landed answer', async () => {
+		const { folder, log, text } = await setup();
+		const first = folder.write('note.txt', 'First');
+		const second = folder.write('note.txt', 'Second');
+		expect(first).toBe(second);
+		expectOk(await first);
+		expect(text('note.txt')).toBe('Second');
+		expect(log.puts).toEqual([{ path: 'note.txt' }]);
+		await folder.idle();
+		expect(folder.saving()).toBe(false);
+	});
+
+	test('waiting updates keep fields from both patches', async () => {
+		const { notes, log, text } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		const first = notes.update('a', { fields: { title: 'Renamed' } });
+		const second = notes.update('a', { fields: { pinned: true } });
+		expect(first).toBe(second);
+		expectOk(await first);
+		expect(text('notes/a.md')).toBe(note('title: Renamed\npinned: true'));
+		expect(log.puts).toHaveLength(1);
+	});
+
+	test('merged updates read fresh storage at their one turn', async () => {
+		const { folder, notes, control, outside, log, text } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		let release: () => void = () => {};
+		control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const first = notes.update('a', { fields: { pinned: true } });
+		const second = notes.update('a', { body: 'Typed\n' });
+		expect(first).toBe(second);
+		outside('notes/a.md', note('title: Outside'), { hint: false });
+		control.putGate = undefined;
+		release();
+		expectOk(await blocker);
+		expectOk(await first);
+		expect(text('notes/a.md')).toBe(
+			note('title: Outside\npinned: true', 'Typed\n'),
+		);
+		expect(log.reads).toEqual([
+			['notes/a.md'],
+			['notes/a.md'],
+		]);
+		expect(log.puts).toHaveLength(2);
+	});
+
+	test('merged callers share a failed answer', async () => {
+		const { folder, control, log } = await setup();
+		control.failPut.set(
+			'note.txt',
+			expectErr(SaveError.StorageFailed({ cause: 'full' })),
+		);
+		const first = folder.write('note.txt', 'First');
+		const second = folder.write('note.txt', 'Second');
+		expect(first).toBe(second);
+		expect(expectErr(await first).name).toBe('StorageFailed');
+		expect(expectErr(await second).name).toBe('StorageFailed');
+		expect(log.puts).toEqual([{ path: 'note.txt' }]);
+	});
+
+	test('a started turn never merges with a later write', async () => {
+		const { folder, control, log, text } = await setup();
+		let release: () => void = () => {};
+		control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const first = folder.write('note.txt', 'First');
+		await until(() => log.puts.length === 1);
+		const second = folder.write('note.txt', 'Second');
+		expect(first).not.toBe(second);
+		control.putGate = undefined;
+		release();
+		expectOk(await first);
+		expect(text('note.txt')).toBe('First');
+		expectOk(await second);
+		expect(text('note.txt')).toBe('Second');
+		expect(log.puts).toHaveLength(2);
+	});
+
+	test('a waiting write and update keep separate turns', async () => {
+		const { folder, control, log, text } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		let release: () => void = () => {};
+		control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const write = folder.write('notes/a.md', note('title: B'));
+		const update = folder.tables.notes.update('a', {
+			fields: { pinned: true },
+		});
+		expect(write).not.toBe(update);
+		control.putGate = undefined;
+		release();
+		expectOk(await blocker);
+		expectOk(await write);
+		expectOk(await update);
+		expect(log.puts.map(({ path }) => path)).toEqual([
+			'blocker.txt',
+			'notes/a.md',
+			'notes/a.md',
+		]);
+		expect(text('notes/a.md')).toBe(note('title: B\npinned: true'));
+	});
+
+	test('updates with different schema key orders keep separate turns', async () => {
+		const { folder, control, log } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		let release: () => void = () => {};
+		control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const first = folder.update(
+			'notes/a.md',
+			{ fields: { title: 'B' } },
+			{ schema: Type.Object({ title: Type.String(), pinned: Type.Boolean() }) },
+		);
+		const second = folder.update(
+			'notes/a.md',
+			{ fields: { pinned: true } },
+			{ schema: Type.Object({ pinned: Type.Boolean(), title: Type.String() }) },
+		);
+		expect(first).not.toBe(second);
+		control.putGate = undefined;
+		release();
+		await Promise.all([blocker, first, second]);
+		expect(log.puts.map(({ path }) => path)).toEqual([
+			'blocker.txt',
+			'notes/a.md',
+			'notes/a.md',
+		]);
+	});
+
+	test('an intervening path keeps its turn between writes to one path', async () => {
+		const { folder, control, log } = await setup();
+		let release: () => void = () => {};
+		control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const first = folder.write('note.txt', 'First');
+		const other = folder.write('other.txt', 'Other');
+		const last = folder.write('note.txt', 'Last');
+		expect(first).not.toBe(last);
+		control.putGate = undefined;
+		release();
+		await Promise.all([blocker, first, other, last]);
+		expect(log.puts.map(({ path }) => path)).toEqual([
+			'blocker.txt',
+			'note.txt',
+			'other.txt',
+			'note.txt',
+		]);
 	});
 
 	test('an unconditional same-text write keeps the row object', async () => {

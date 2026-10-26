@@ -82,18 +82,19 @@ A table has `create(id, { fields, body? })`, `update(id, patch)`, and
 Updated frontmatter is canonical: declared keys first, then other keys in
 sorted order. Comments and original key order are not preserved by a patch.
 
-Writes enter the folder's serial queue. A changed update makes one
-unconditional put; an unchanged update makes none. A write's `Saved` promise
-resolves after the mirror shows what landed, or returns a `WriteError`. A failed
-put leaves the last read value in the mirror. An update preserves outside
-changes to fields it does not name when they are present at its read. A later
-whole-file write can still replace those bytes; the last publication to land
-wins.
+Writes take turns in one serial queue. Consecutive waiting writes to the same
+path merge: whole-file writes keep the newest data, and updates combine their
+fields and newest body when their table keys match. A merged update reads
+storage at its one turn, preserving outside changes to fields it does not name.
+A changed update makes one unconditional put; an unchanged update makes none.
+Every merged caller receives the same `Saved` answer after the mirror shows
+what landed, or a `WriteError`. A failed put leaves the last read value in the
+mirror. A later whole-file write can still replace those bytes; the last
+publication to land wins.
 Git sync retains its separate three-way merge and conditional storage rules.
 
 `idle()` waits until no write is queued or out. An action that needs every
-editor's text on disk can dispatch the folder close or flush event and then
-await `idle()`. `close()` refuses new writes, drains admitted work, then
+editor's text on disk can await `idle()`. `close()` refuses new writes, drains admitted work, then
 releases storage and watchers. Await a write's result when subsequent work
 requires durable bytes. A UI draft and its retry or discard controls belong to
 [`@epicenter/svelte`](../svelte/README.md), outside the Folder.

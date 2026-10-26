@@ -51,7 +51,7 @@ export type Patch<S extends Schema = Schema> = {
 	readonly fields?: Partial<Static<S>>;
 	readonly body?: string;
 };
-/** Answers once the write landed and the folder copy shows it, or why it did not land. */
+/** Answers once this or a newer merged write landed and the copy shows it, or why it did not land. */
 export type Saved = Promise<Result<void, WriteError>>;
 /** A folder's tables: each key is a top-level directory of `<id>.md` rows read through its schema. */
 export type Tables = Record<string, Schema>;
@@ -74,7 +74,7 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FolderFile | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
-	/** Wait until no write is queued or out; use after asking editors to flush. */
+	/** Wait until no write is queued or out. */
 	idle(): Promise<void>;
 	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
@@ -109,6 +109,12 @@ type Entry = {
 type Op =
 	| { kind: 'write'; data: Data | null }
 	| { kind: 'create' | 'update'; patch: RowPatch; keys: readonly string[] };
+type PendingWrite = {
+	path: string;
+	op: Op;
+	started: boolean;
+};
+type WaitingWrite = { turn: PendingWrite; saved: Saved };
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
@@ -155,10 +161,12 @@ export async function createFolder<const T extends Tables>(
 	let pendingWrites = 0;
 	let phase: 'open' | 'closing' | 'closed' = 'open';
 	let lastTurn = Promise.resolve();
+	let waitingWrite: WaitingWrite | undefined;
 	let closing: Promise<void> | undefined;
 	const look = { queued: false, relist: false, paths: new Set<string>() };
 
 	function takeTurn<TValue>(work: () => Promise<TValue>): Promise<TValue> {
+		waitingWrite = undefined;
 		const next = lastTurn.then(work);
 		lastTurn = next.then(
 			() => {},
@@ -338,11 +346,37 @@ export async function createFolder<const T extends Tables>(
 
 	function enqueue(path: string, op: Op): Saved {
 		if (phase !== 'open') return Promise.resolve(WriteRefusal.Closed());
+		if (waitingWrite?.turn.path === path && !waitingWrite.turn.started) {
+			const previous = waitingWrite.turn.op;
+			if (previous.kind === 'write' && op.kind === 'write') {
+				waitingWrite.turn.op = op;
+				return waitingWrite.saved;
+			}
+			if (
+				previous.kind === 'update' &&
+				op.kind === 'update' &&
+				previous.keys.length === op.keys.length &&
+				previous.keys.every((key, index) => key === op.keys[index])
+			) {
+				waitingWrite.turn.op = {
+					kind: 'update',
+					keys: previous.keys,
+					patch: {
+						fields: { ...previous.patch.fields, ...op.patch.fields },
+						body: op.patch.body ?? previous.patch.body,
+					},
+				};
+				return waitingWrite.saved;
+			}
+		}
 		pendingWrites++;
 		publish();
-		return takeTurn(async (): Promise<Result<void, WriteError>> => {
+		const turn: PendingWrite = { path, op, started: false };
+		const saved = takeTurn(async (): Promise<Result<void, WriteError>> => {
+			turn.started = true;
+			if (waitingWrite?.turn === turn) waitingWrite = undefined;
 			try {
-				return await send(path, op);
+				return await send(path, turn.op);
 			} catch (cause) {
 				return SaveError.StorageFailed({ cause });
 			} finally {
@@ -350,6 +384,8 @@ export async function createFolder<const T extends Tables>(
 				publish();
 			}
 		});
+		waitingWrite = { turn, saved };
+		return saved;
 	}
 
 	async function send(path: string, op: Op): Saved {
