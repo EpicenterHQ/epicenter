@@ -495,7 +495,10 @@ export async function createFolder<const T extends Tables>(
 						encode(updated),
 						attempt < 3 ? fresh.data.bytes : undefined,
 					);
-					if (put.error?.name === 'Changed' && attempt < 3) continue;
+					if (put.error?.name === 'Changed') {
+						if (attempt < 3) continue;
+						return SaveError.StorageFailed({ cause: put.error });
+					}
 					if (put.error !== null) return Err(put.error);
 					landedPut(path, updated, put.data?.stamp ?? null);
 					return Ok(undefined);
@@ -504,9 +507,12 @@ export async function createFolder<const T extends Tables>(
 		// Encoding replaces lone surrogates on disk; the copy shows what landed.
 		if (typeof next === 'string') next = next.toWellFormed();
 		const put = await host.put(path, encode(next), expect);
-		if (put.error?.name === 'Changed' && op.kind === 'create') {
-			await readPaths([path]);
-			return WriteRefusal.Exists({ path });
+		if (put.error?.name === 'Changed') {
+			if (op.kind === 'create') {
+				await readPaths([path]);
+				return WriteRefusal.Exists({ path });
+			}
+			return SaveError.StorageFailed({ cause: put.error });
 		}
 		if (put.error !== null) return Err(put.error);
 		landedPut(path, next, put.data?.stamp ?? null);

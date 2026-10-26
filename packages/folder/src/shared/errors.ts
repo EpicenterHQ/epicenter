@@ -71,3 +71,5 @@ export const SaveError = defineErrors({
 	}),
 });
 export type SaveError = InferErrors<typeof SaveError>;
+/** Host save errors after the Folder has handled conditional-write conflicts. */
+export type LandedSaveError = Exclude<SaveError, { name: 'Changed' }>;

@@ -4,7 +4,7 @@
  * and so the folder copy, as it was.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { SaveError } from './shared/errors.js';
+import type { LandedSaveError } from './shared/errors.js';
 
 export const WriteRefusal = defineErrors({
 	/** A create found a file already there. */
@@ -20,4 +20,4 @@ export const WriteRefusal = defineErrors({
 	/** The folder is closing or closed and takes no new writes. */
 	Closed: () => ({ message: 'The folder is closed' }),
 });
-export type WriteError = InferErrors<typeof WriteRefusal> | SaveError;
+export type WriteError = InferErrors<typeof WriteRefusal> | LandedSaveError;
