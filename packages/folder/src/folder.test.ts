@@ -603,6 +603,38 @@ describe('ordered writes with waiting path merge', () => {
 		expect(folder.file('copy.txt')).toBeDefined();
 	});
 
+	test('create accepts a stale reply when the sent bytes already landed', async () => {
+		const memory = memoryHost();
+		const put = memory.storage.put;
+		memory.storage.put = async (path, bytes, expected) => {
+			const result = await put(path, bytes, expected);
+			return result.error === null && expected === 'absent'
+				? SaveError.Changed({ path })
+				: result;
+		};
+		const folder = expectOk(await createFolder(memory.storage, { tables }));
+		expectOk(await folder.tables.notes.create('a', { fields: { title: 'A' }, body: 'Saved' }));
+		expect(folder.tables.notes.row('a')?.body).toBe('Saved');
+		expect(memory.text('notes/a.md')).toContain('Saved');
+	});
+
+	test('move accepts stale replies after both the copy and removal land', async () => {
+		const memory = memoryHost({ 'from.txt': 'Moved' });
+		const put = memory.storage.put;
+		memory.storage.put = async (path, bytes, expected) => {
+			const result = await put(path, bytes, expected);
+			return result.error === null
+				? SaveError.Changed({ path })
+				: result;
+		};
+		const folder = expectOk(await createFolder(memory.storage, { tables }));
+		expectOk(await folder.move('from.txt', 'to.txt'));
+		expect(folder.file('from.txt')).toBeUndefined();
+		expect(folder.file('to.txt')?.data).toBe('Moved');
+		expect(memory.text('from.txt')).toBeUndefined();
+		expect(memory.text('to.txt')).toBe('Moved');
+	});
+
 	test('no-op patch writes nothing; changed patch canonicalizes and removes undefined', async () => {
 		const { notes, log, text } = await setup({
 			'notes/a.md': note("zeta: 1 # comment\npinned: false\ntitle: 'A'"),

@@ -296,6 +296,20 @@ export async function createFolder<const T extends Tables>(
 		return failed;
 	}
 
+	async function rereadAfterChanged(path: string) {
+		const results = await host
+			.read([path])
+			.catch((cause: unknown) =>
+				new Map([[path, ReadError.StorageFailed({ cause })]]),
+			);
+		const fresh = results.get(path);
+		if (fresh !== undefined) {
+			applyRead(path, fresh);
+			publish();
+		}
+		return fresh;
+	}
+
 	async function relist(): Promise<ReadError | null> {
 		if (phase === 'closed') return null;
 		const { data: listed, error } = await host
@@ -425,6 +439,7 @@ export async function createFolder<const T extends Tables>(
 	}
 
 	async function sendMove(from: string, to: string): Saved {
+		if (from === to) return WriteRefusal.Exists({ path: to });
 		const results = await host.read([from]);
 		const fresh = results.get(from);
 		if (fresh === undefined)
@@ -438,14 +453,17 @@ export async function createFolder<const T extends Tables>(
 		const bytes = fresh.data.bytes;
 		const copied = await host.put(to, bytes, 'absent');
 		if (copied.error?.name === 'Changed') {
-			await readPaths([to]);
-			return WriteRefusal.Exists({ path: to });
+			const destination = await rereadAfterChanged(to);
+			if (destination === undefined || destination.error !== null || destination.data === null || !sameData(destination.data.bytes, bytes))
+				return WriteRefusal.Exists({ path: to });
 		}
-		if (copied.error !== null) return Err(copied.error);
-		landedPut(to, bytes, copied.data?.stamp ?? null);
+		else if (copied.error !== null) return Err(copied.error);
+		else landedPut(to, bytes, copied.data?.stamp ?? null);
 		const removed = await host.put(from, null, bytes);
 		if (removed.error !== null) {
-			await readPaths([from]);
+			const source = await rereadAfterChanged(from);
+			if (removed.error.name === 'Changed' && source?.error === null && source.data === null)
+				return Ok(undefined);
 			return SaveError.MoveIncomplete({ from, to, cause: removed.error });
 		}
 		landedPut(from, null, null);
@@ -506,10 +524,13 @@ export async function createFolder<const T extends Tables>(
 		}
 		// Encoding replaces lone surrogates on disk; the copy shows what landed.
 		if (typeof next === 'string') next = next.toWellFormed();
-		const put = await host.put(path, encode(next), expect);
+		const sent = encode(next);
+		const put = await host.put(path, sent, expect);
 		if (put.error?.name === 'Changed') {
 			if (op.kind === 'create') {
-				await readPaths([path]);
+				const current = await rereadAfterChanged(path);
+				if (current?.error === null && current.data !== null && sent !== null && sameData(current.data.bytes, sent))
+					return Ok(undefined);
 				return WriteRefusal.Exists({ path });
 			}
 			return SaveError.StorageFailed({ cause: put.error });
