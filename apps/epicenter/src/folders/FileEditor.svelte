@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { FolderFile, ReadError } from '@epicenter/folder';
 	import { openedFile, withFileNewlines, type OpenedFile } from '@epicenter/folder/file-browser';
-	import { draft, type SvelteFolder } from '@epicenter/svelte/folder';
+	import { draft, fileDraft, type SvelteFolder } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
@@ -11,6 +11,11 @@
 
 	let { folder, path }: { folder: SvelteFolder<Record<never, never>>; path: string } = $props();
 	const file = $derived(folder.file(path));
+	// The parent keys this editor by path. A listed file's read error also
+	// identifies a file whose contents belong to the mirror.
+	// svelte-ignore state_referenced_locally
+	const atOpen = folder.file(path);
+	const mirrored = atOpen !== undefined && (atOpen.data !== undefined || atOpen.readError !== null);
 	let fetched = $state.raw<{ from: FolderFile; opened?: OpenedFile; error?: ReadError }>();
 	$effect(() => {
 		const from = folder.file(path);
@@ -27,22 +32,20 @@
 	});
 	const base = $derived(opened?.kind === 'text' ? opened.text : undefined);
 	const classification = $derived(base === undefined ? undefined : fileText(base));
-	// The parent keys this editor by path, so its identity stays fixed until teardown.
-	// svelte-ignore state_referenced_locally
-	const editedPath = path;
 	let lastBase = '';
 	let active = true;
 	$effect(() => {
 		if (base !== undefined) lastBase = base;
 	});
 	onDestroy(() => { active = false; });
-	const input = draft(
+	// svelte-ignore state_referenced_locally
+	const input = mirrored ? fileDraft(folder, path) : draft(
 		() => base?.replaceAll('\r\n', '\n') ?? '',
 		async (value) => {
 			const out = withFileNewlines(value, lastBase);
 			lastBase = out;
-			const result = await folder.write(editedPath, out);
-			const current = folder.file(editedPath);
+			const result = await folder.write(path, out);
+			const current = folder.file(path);
 			if (active && result.error === null && current && current.data === undefined)
 				fetched = { from: current, opened: { kind: 'text', text: out } };
 			return result;
@@ -77,11 +80,11 @@
 				spellcheck="false"
 				bind:value={input.value}
 			/>
-			<UnsavedEdit draft={input} />
 		{:else if fetched?.from === file && fetched.opened === undefined && !fetched.error}
 			<p class="p-4 text-sm text-muted-foreground">This file is no longer in the folder.</p>
 		{:else if !file.readError && !(fetched?.from === file && fetched.error)}
 			<p class="p-4 text-sm text-muted-foreground">Reading…</p>
 		{/if}
 	{/if}
+	<UnsavedEdit draft={input} />
 </section>

@@ -11,21 +11,21 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 		'../../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
-	const { createFolder, memoryHost, SaveError } = await import(
+	const { createFolder, memoryHost, SaveError, until: waitUntil } = await import(
 		'@epicenter/folder/testing'
 	);
 	const { svelteFolder } = await import('@epicenter/svelte/folder');
 	const { connectionTables } = await import('./connections.js');
 	const { default: Host } = await import('./ConnectionListHost.svelte');
 
-	async function until(check: () => boolean) {
-		for (let turn = 0; turn < 400; turn++) {
-			flushSync();
-			if (check()) return;
-			await Bun.sleep(5);
-		}
-		throw new Error('Connections did not update');
-	}
+	const until = (check: () => boolean) =>
+		waitUntil(
+			() => {
+				flushSync();
+				return check();
+			},
+			{ timeout: 2500 },
+		);
 
 	async function setup(files: Record<string, string> = {}) {
 		const memory = memoryHost(files);

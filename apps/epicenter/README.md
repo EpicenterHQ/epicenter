@@ -636,10 +636,11 @@ without waiting for pending saves. Repeated requests share the current alert.
 
 Quit queries no page and waits for no status reply or timeout. Its standalone
 native alert has no window parent, so closing a window leaves the Quit question
-in place. Window close remains independent; bundled pages can warn for unsaved
-Folder work, while the Folders editor waits for writes. Quit owns only ready, prompting, and approved state; it needs no attempt
-ID or window-destruction hook. On macOS, the unparented dialog uses the system's
-standalone alert presentation rather than an attached window sheet.
+in place. Window close remains independent; bundled pages and the Folders editor
+wait for queued Folder writes. Quit owns only ready, prompting, and approved
+state; it needs no attempt ID or window-destruction hook. On macOS, the
+unparented dialog uses the system's standalone alert presentation rather than
+an attached window sheet.
 
 The app menu's Quit, Cmd-Q, and tray Quit use this path. macOS Dock Quit,
 logout, and abrupt process termination are outside it. Standalone Todos' Cmd-Q

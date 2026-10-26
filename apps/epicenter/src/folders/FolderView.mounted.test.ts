@@ -11,7 +11,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		'../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
-	const { createFolder, memoryHost, SaveError } = await import(
+	const { createFolder, memoryHost, SaveError, until: waitUntil } = await import(
 		'@epicenter/folder/testing'
 	);
 	const { svelteFolder } = await import('@epicenter/svelte/folder');
@@ -20,14 +20,14 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 	);
 	const { default: FieldCell } = await import('./FieldCell.svelte');
 
-	async function until(check: () => boolean) {
-		for (let turn = 0; turn < 400; turn++) {
-			flushSync();
-			if (check()) return;
-			await Bun.sleep(5);
-		}
-		throw new Error('The folder view did not update');
-	}
+	const until = (check: () => boolean) =>
+		waitUntil(
+			() => {
+				flushSync();
+				return check();
+			},
+			{ timeout: 2500 },
+		);
 
 	async function setup(
 		files: Record<string, string | Uint8Array>,
@@ -127,6 +127,25 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			await until(() => fixture.text('a.md') === 'Changed\n');
 			expect(fixture.box()?.value).toBe('Changed\n');
 			expect(fixture.target.textContent).not.toContain('Not saved:');
+		} finally {
+			await fixture.close();
+		}
+	});
+
+	test('a failed file edit remains recoverable after outside deletion', async () => {
+		const fixture = await setup({ 'a.md': 'Original\n' });
+		try {
+			await until(() => fixture.file('a.md') !== null);
+			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			await until(() => fixture.box()?.value === 'Original\n');
+			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			type(fixture.box(), 'Changed\n');
+			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			fixture.outside('a.md', null);
+			await until(() => fixture.folder.file('a.md') === undefined);
+			expect(fixture.box()).toBeNull();
+			expect(fixture.target.textContent).toContain('Not saved:');
+			expect(fixture.target.textContent).toContain('Copy');
 		} finally {
 			await fixture.close();
 		}
