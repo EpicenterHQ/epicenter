@@ -2049,8 +2049,8 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
 
     /// Through the real CLI over a new Epicenter folder: a missing row reads
     /// as none and creates nothing; a save makes the row with only the
-    /// assigned fields; a row updated through these types keeps its byte-order
-    /// mark, CRLF, comments, and unknown fields; and
+    /// assigned fields; each field save writes canonical frontmatter with LF,
+    /// no BOM or comments, and declared key order while keeping unknown fields;
     /// a row whose frontmatter does not parse is refused, its bytes intact.
     #[tokio::test]
     async fn whispering_connection_rows_run_the_cli_over_the_shells_folder() {
@@ -2083,7 +2083,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         assert_eq!(
             made,
             ConnectionRow {
-                text: "---\nkind: openai-compatible\nmodel: chat\ntitle: Whispering text\n---\n"
+                text: "---\nkind: openai-compatible\ntitle: Whispering text\nmodel: chat\n---\n"
                     .into(),
                 issues: None,
                 fields: Some(ConnectionRowFields {
@@ -2109,7 +2109,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
         )
         .await
         .unwrap();
-        let expected = source.replace("model: chat", "model: other");
+        let expected = "---\nkind: openai-compatible\ntitle: Whispering text\nmodel: other\nretries: 3\n---\nNotes.\r\n";
         assert_eq!(saved.text, expected);
         assert_eq!(fs::read_to_string(&row_file).unwrap(), expected);
 
