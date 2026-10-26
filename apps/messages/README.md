@@ -44,16 +44,15 @@ shell and its compiled CLI must also be rebuilt for the new command.
 | Selection, filter, loaded pages, connection mode | Memory; every launch begins in demo mode |
 | Source code and fictional fixtures | This source repository |
 
-Selecting a conversation creates no file; the first keystroke schedules its
-draft save. Each composer keeps its own typed text until that save answers. If a
-save fails, the text stays in the composer with Save again, Discard, and Copy
-controls while it is open. Draft saves debounce for about a second and send the
-latest text when the composer closes or the page unloads. Switching between
+Selecting a conversation creates no file; the first keystroke starts its
+draft save. Each keystroke enters the Folder queue immediately, and each
+composer keeps its typed text until that save answers. If a save fails, the
+text stays in the composer with Save again, Discard, and Copy controls while
+it is open. Closing the composer sends nothing more. Switching between
 conversations can briefly show an older saved value. The folder mirror shows
 only files that landed on storage. The conversation list therefore shows a
-**Draft** preview after a save, usually about a second after
-typing. Empty drafts show the latest message instead. An unresolved attempt
-shows **Check send** with its submitted text. Previews include only drafts
+**Draft** preview once a save lands. Empty drafts show the latest message
+instead. An unresolved attempt shows **Check send** with its submitted text. Previews include only drafts
 matching the current demo/live mode and connection profile.
 
 The draft file records `chatId`, `profile`, and `mode` in Markdown frontmatter;
