@@ -1,57 +1,49 @@
 /**
- * Hold a desktop window's close while mounted drafts flush and folder writes
- * drain. Each close request is prevented until the page destroys the window.
- * Application Quit remains owned by the shell.
+ * Hold a desktop window's close until the page is sure it may leave.
+ *
+ * A browser asks a page's `beforeunload` listeners before a tab goes, and
+ * shows "Leave site?" when one prevents it. A Tauri window asks nothing: it
+ * destroys the webview. This guard asks the same listeners, waits for the
+ * writes they started, asks them again, and shows one native question only
+ * when the page is still unsure. One guard owns a window, because Tauri runs
+ * each close listener on its own. Application Quit remains owned by the shell.
  */
 import { isTauri } from '@tauri-apps/api/core';
-import type { Window } from '@tauri-apps/api/window';
 import { createLogger } from 'wellcrafted/logger';
 
 const log = createLogger('svelte/window-close');
+/** How long a close waits for writes before asking; a hung save cannot trap the window. */
+const DRAIN_MS = 3000;
 // One owner records both registration and whether an older listener is retired.
 let activeGuard: symbol | undefined;
 
-/** Select a background native tab without making focus a condition of closing. */
-async function focusWindow(current: Window) {
-	try {
-		await current.setFocus();
-	} catch (cause) {
-		log.error(new Error('The window could not receive focus', { cause }));
-	}
+/** Ask the page's `beforeunload` listeners, as a browser would before leaving. */
+function unsure() {
+	const event = new Event('beforeunload', { cancelable: true });
+	window.dispatchEvent(event);
+	return event.defaultPrevented;
 }
 
-/** Explain why the window stayed open, offering a close action when there is one. */
-async function notifyKeptOpen(
-	current: Window,
-	guard: symbol,
-	description: string,
-	closeAnyway?: () => void,
-) {
-	await focusWindow(current);
-	try {
-		const { toast } = await import('@epicenter/ui/sonner');
-		if (activeGuard !== guard) return;
-		toast.warning('The window stayed open', {
-			description,
-			...(closeAnyway && {
-				action: { label: 'Close anyway', onClick: closeAnyway },
-			}),
-		});
-	} catch (cause) {
-		log.error(new Error('Could not show the window-close notice', { cause }));
-	}
+const elapsed = (ms: number) =>
+	new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+async function askToClose() {
+	const { ask } = await import('@tauri-apps/plugin-dialog');
+	return ask('Some changes did not save. Close the window anyway?', {
+		kind: 'warning',
+		okLabel: 'Close',
+		cancelLabel: 'Keep open',
+	});
 }
 
 /**
- * Answer this window's close after its drafts and Folder writes finish.
- * `beforeDestroy` may answer why the window should stay open, such as typed
- * text that did not save; the notice then offers to close anyway.
- * Successful destruction stays occupied and inert until the page is gone:
- * Tauri's destroy promise acknowledges dispatch, not completed destruction.
+ * Answer this window's close once `drain` reports the page's writes landed,
+ * asking first if the page is still unsure. Successful destruction stays
+ * occupied and inert until the page is gone: Tauri's destroy promise
+ * acknowledges dispatch, not completed destruction.
  */
 export async function holdWindowClose(
-	/** Work to finish before the window is destroyed, answering a reason to stay open. */
-	beforeDestroy?: () => Promise<string | void>,
+	drain: () => Promise<void> = async () => {},
 ): Promise<() => void> {
 	if (!isTauri()) return () => {};
 	if (activeGuard)
@@ -63,43 +55,28 @@ export async function holdWindowClose(
 	try {
 		const { getCurrentWindow } = await import('@tauri-apps/api/window');
 		const current = getCurrentWindow();
-
-		/** Close for this guard; `confirm` answers a reason to stay open instead. */
-		async function close(confirm?: () => Promise<string | void>) {
+		const unlisten = await current.onCloseRequested(async (event) => {
+			event.preventDefault();
 			if (closing || activeGuard !== guard) return;
 			closing = true;
 			const page = document.documentElement;
 			const wasInert = page.inert;
+			const stay = () => {
+				page.inert = wasInert;
+				closing = false;
+			};
 			try {
 				page.inert = true;
-				const reason = await confirm?.();
-				if (activeGuard !== guard) {
-					page.inert = wasInert;
-					return;
-				}
-				if (typeof reason === 'string') {
-					page.inert = wasInert;
-					closing = false;
-					await notifyKeptOpen(current, guard, reason, () => void close());
-					return;
-				}
+				unsure(); // Drafts send what was typed.
+				await Promise.race([drain(), elapsed(DRAIN_MS)]);
+				if (activeGuard !== guard) return stay();
+				if (unsure() && !(await askToClose())) return stay();
+				if (activeGuard !== guard) return stay();
 				await current.destroy();
 			} catch (cause) {
-				if (activeGuard !== guard) return;
-				page.inert = wasInert;
 				log.error(new Error('The window could not close', { cause }));
-				await notifyKeptOpen(
-					current,
-					guard,
-					'The window could not close. Try again.',
-				);
-				closing = false;
+				stay();
 			}
-		}
-
-		const unlisten = await current.onCloseRequested(async (event) => {
-			event.preventDefault();
-			await close(beforeDestroy);
 		});
 		return () => {
 			if (activeGuard !== guard) return;

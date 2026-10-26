@@ -2,20 +2,13 @@
  * The folder shows what landed; a draft holds what was typed until it lands.
  * Changes debounce by default for 1000 ms. Timed sends never overlap: an
  * older save answers before a timed newer send. Teardown, pagehide, hidden
- * visibility, beforeunload, and folder close send the newest
- * unsent value synchronously, even with a save out, then leave ordering to the
- * folder's queue. Failed input remains visible for retry or discard, and a
- * page or window close asks before it goes.
+ * visibility, and beforeunload send the newest unsent value synchronously,
+ * even with a save out, then leave ordering to the folder's queue. Failed
+ * input remains visible for retry or discard. A draft answers `beforeunload`
+ * as unsure while its save is out or failed, so the page asks before leaving.
  */
 import { onDestroy } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-
-/**
- * The window event a closing folder dispatches. Every mounted draft flushes;
- * when the event's `detail` is a list, each draft still holding typed text
- * adds a promise answering whether that text landed.
- */
-export const FOLDER_CLOSE = 'epicenter:folder-close';
 
 export function draft<T, E>(
 	source: () => T,
@@ -130,20 +123,10 @@ export function draft<T, E>(
 		return Ok(undefined);
 	}
 
-	/** A folder close flushes, and reports whether held text landed when asked. */
-	function closing(event: Event) {
+	/** Leaving sends what was typed, and is unsure while that save is out or failed. */
+	function unload(event: Event) {
 		flush();
-		const landed = event instanceof CustomEvent ? event.detail : undefined;
-		if (Array.isArray(landed) && current !== null)
-			landed.push(land().then((result) => result.error === null));
-	}
-
-	/** A page unload flushes, and asks before leaving text whose save failed. */
-	function unload(event: BeforeUnloadEvent) {
-		flush();
-		if (error === null) return;
-		event.preventDefault();
-		event.returnValue = '';
+		if (inFlight > 0 || error !== null) event.preventDefault();
 	}
 
 	onDestroy(() => {
@@ -158,12 +141,10 @@ export function draft<T, E>(
 		};
 		window.addEventListener('pagehide', flush);
 		window.addEventListener('beforeunload', unload);
-		window.addEventListener(FOLDER_CLOSE, closing);
 		document.addEventListener('visibilitychange', hidden);
 		return () => {
 			window.removeEventListener('pagehide', flush);
 			window.removeEventListener('beforeunload', unload);
-			window.removeEventListener(FOLDER_CLOSE, closing);
 			document.removeEventListener('visibilitychange', hidden);
 		};
 	});

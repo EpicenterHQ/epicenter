@@ -25,8 +25,9 @@ value until the corresponding write answers.
 **A Folder mirrors landed storage, and each editor owns its typed draft.**
 `files()` and table rows show what was last read or landed, never pending
 input. A Svelte text editor uses one `draft(source, save)` per mounted editor.
-The draft debounces its send, flushes on teardown, page hide, and window close,
-and keeps failed text with an inline error for retry or discard.
+The draft debounces its send, flushes on teardown, page hide, and
+`beforeunload`, and keeps failed text with an inline error for retry or
+discard.
 
 **Every local write enters one serial queue and answers after the mirror shows
 its result.** `write`, `update`, `create`, and `delete` make one unconditional
@@ -36,12 +37,17 @@ mirror agree, or returns its `WriteError`. There is no content merge on local
 writes. An outside writer can still land a later whole-file replacement.
 
 **Closing drains admitted writes before releasing storage.** The Folder
-refuses new writes, drains its queue, and releases its host. Desktop window
-Close flushes mounted drafts and waits for that drain without a question.
-When a mounted draft still holds text whose save failed, the window stays
-open with a notice offering Close anyway; nothing typed leaves silently. The
-browser asks on unload while saving or while a draft holds failed text. The shell-owned application
-Quit alert still applies. There is no folder status object, working document,
+refuses new writes, drains its queue, and releases its host. Unmounting a
+draft sends its text first, so closing a folder needs no signal of its own.
+
+**Leaving asks once, only when the page is unsure.** The page speaks the web's
+own `beforeunload` protocol: a draft sends what was typed and is unsure while
+that save is out or failed; `<OpenFolder>` is unsure while a write is out. A
+browser tab shows its "Leave site?" question. A desktop window, whose webview
+never runs `beforeunload`, has one close guard that asks the same listeners,
+waits up to three seconds for the writes they started, asks again, and shows
+one native question only if the page is still unsure. The shell-owned
+application Quit alert still applies. There is no folder status object, working document,
 `settle`, Folder checkpoint, conditional local save, or global failure toast.
 Git synchronization retains its own three-way merge, checkpoints, and
 conditional storage publication.
@@ -63,5 +69,6 @@ machinery after the UI already owns each text control. Per-path queues would
 allow unrelated writes to overlap, but would make the order of a structured
 update and a whole-file write depend on timing across paths. Prompting on
 every window Close would allow the page to discard a draft instead of draining
-its write; asking only when a draft's text did not land keeps that drain and
-still protects the input the person can see.
+its write. A custom close event or a registry of drafts would let the desktop
+learn what is unsure, but both duplicate the question browsers already ask
+through `beforeunload`; the desktop guard runs that question instead.

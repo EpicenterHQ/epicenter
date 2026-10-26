@@ -3,7 +3,7 @@
  * Draft tests mount real components so lifecycle flushes and listeners run.
  */
 import './svelte-dom.test-support.js';
-import { expect, test } from 'bun:test';
+import { expect, mock, test } from 'bun:test';
 import { createFolder, memoryHost, SaveError } from '@epicenter/folder/testing';
 import { Type } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -15,8 +15,12 @@ import {
 	untilListening,
 } from './tauri-window.test-support.js';
 
+/** The native close question; each test sets the answer. */
+let closeAnyway = false;
+const ask = mock(async () => closeAnyway);
+mock.module('@tauri-apps/plugin-dialog', () => ({ ask }));
+
 const { svelteFolder } = await import('./folder.js');
-const { FOLDER_CLOSE } = await import('./draft.svelte.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
 const { default: DraftHost } = await import('./fixtures/DraftHost.svelte');
@@ -316,7 +320,7 @@ test('a timed send waits for an out save, then sends the newest value', async ()
 	await mounted.unmount();
 });
 
-test('folder close event flushes the newest value while an earlier save is out', async () => {
+test('beforeunload flushes the newest value while an earlier save is out, and is unsure', async () => {
 	const first = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
 	const mounted = mountedDraft(
@@ -331,8 +335,10 @@ test('folder close event flushes the newest value while an earlier save is out',
 	mounted.editor.value = 'First';
 	await until(() => calls.length === 1);
 	mounted.editor.value = 'Second';
-	window.dispatchEvent(new CustomEvent(FOLDER_CLOSE));
+	const leaving = new Event('beforeunload', { cancelable: true });
+	window.dispatchEvent(leaving);
 	expect(calls).toEqual(['First', 'Second']);
+	expect(leaving.defaultPrevented).toBe(true);
 	first.resolve(Ok(undefined));
 	await mounted.unmount();
 });
@@ -495,12 +501,13 @@ test('desktop close waits for a pending draft write before destroying the window
 	}
 });
 
-test('desktop close stays open while a mounted draft holds text that did not save', async () => {
+test('desktop close asks once while a mounted draft holds text that did not save', async () => {
 	const memory = memoryHost({ 'note.txt': 'Disk' });
 	const folder = expectOk(await createFolder(memory.storage, { tables }));
 	const target = document.createElement('div');
 	document.body.append(target);
 	desktop(true);
+	ask.mockClear();
 	let editor: Editor | undefined;
 	const view = mount(OpenFolderHost, {
 		target,
@@ -522,21 +529,20 @@ test('desktop close stays open while a mounted draft holds text that did not sav
 			expectErr(SaveError.StorageFailed({ cause: 'full' })),
 		);
 		typed.value = 'Typed before a failing close';
-		// The save sent by the close itself fails: the window stays open.
+		// The save sent by the close fails; Keep open leaves everything in place.
+		closeAnyway = false;
 		await requestClose();
+		expect(ask).toHaveBeenCalledTimes(1);
 		expect(nativeWindow.destroyed).toBe(0);
 		expect(document.documentElement.inert).toBe(false);
 		expect(typed.value).toBe('Typed before a failing close');
 		expect(typed.error).not.toBeNull();
-		// A value that already failed is not resent, and still keeps the window.
+		// Save again lands it; the next close asks nothing.
 		memory.control.failPut.clear();
-		await requestClose();
-		expect(nativeWindow.destroyed).toBe(0);
-		expect(memory.text('note.txt')).toBe('Disk');
-		// Save again lands it; the next close goes.
 		typed.retry();
 		await until(() => typed.error === null && !folder.saving());
 		await requestClose();
+		expect(ask).toHaveBeenCalledTimes(1);
 		expect(nativeWindow.destroyed).toBe(1);
 		expect(memory.text('note.txt')).toBe('Typed before a failing close');
 	} finally {
@@ -547,10 +553,46 @@ test('desktop close stays open while a mounted draft holds text that did not sav
 	}
 });
 
-test('a page unload asks while a draft holds text whose save failed', async () => {
+test('desktop Close anyway discards text whose save failed', async () => {
+	const memory = memoryHost({ 'note.txt': 'Disk' });
+	const folder = expectOk(await createFolder(memory.storage, { tables }));
+	const target = document.createElement('div');
+	document.body.append(target);
+	desktop(true);
+	ask.mockClear();
+	const view = mount(OpenFolderHost, {
+		target,
+		props: { open: () => Promise.resolve(Ok(folder)), edit: true },
+	});
+	try {
+		await untilListening();
+		await until(() => target.querySelector('input') !== null);
+		memory.control.failPut.set(
+			'note.txt',
+			expectErr(SaveError.StorageFailed({ cause: 'full' })),
+		);
+		const input = target.querySelector('input');
+		if (input === null) throw new Error('Missing editor');
+		input.value = 'Lost on purpose';
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		closeAnyway = true;
+		await requestClose();
+		expect(ask).toHaveBeenCalledTimes(1);
+		expect(nativeWindow.destroyed).toBe(1);
+		expect(memory.text('note.txt')).toBe('Disk');
+	} finally {
+		await unmount(view);
+		await until(() => memory.control.closed);
+		nativeWindow.reset();
+		target.remove();
+	}
+});
+
+test('a page unload is unsure while a draft save is out or failed', async () => {
+	const answer = Promise.withResolvers<Result<unknown, Failure>>();
 	const mounted = mountedDraft(
 		() => 'Disk',
-		() => Promise.resolve(Err(failure)),
+		() => answer.promise,
 	);
 	const unload = () => {
 		const event = new Event('beforeunload', { cancelable: true });
@@ -559,8 +601,10 @@ test('a page unload asks while a draft holds text whose save failed', async () =
 	};
 	expect(unload()).toBe(false);
 	mounted.editor.value = 'Typed';
+	expect(unload()).toBe(true); // the unload sent it; the save is out
+	answer.resolve(Err(failure));
 	await until(() => mounted.editor.error !== null);
-	expect(unload()).toBe(true);
+	expect(unload()).toBe(true); // failed, still on screen
 	mounted.editor.discard();
 	expect(unload()).toBe(false);
 	await mounted.unmount();

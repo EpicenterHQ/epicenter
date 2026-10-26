@@ -36,13 +36,16 @@ export const [getFolder, setFolder] =
   createContext<SvelteFolder<typeof todosTables>>();
 ```
 
-`<OpenFolder>` refreshes on focus, visibility, and reconnection. On page hide,
-unload, or close, mounted drafts submit their latest unsent text. Browser unload
-asks while a write is in progress or a draft holds text whose save failed. A
-desktop window close dispatches the draft flush, awaits each draft's landing
-and `folder.idle()`, and then destroys the window. If a draft's text did not
-land, the window stays open with a notice offering Close anyway. The shell owns
-application Quit separately.
+`<OpenFolder>` refreshes on focus, visibility, and reconnection, and closes
+its Folder when it unmounts; each draft inside sends its text as it unmounts.
+
+Leaving asks once, only when the page is unsure, through the web's own
+`beforeunload`. A draft sends its latest text and is unsure while that save is
+out or failed; `<OpenFolder>` is unsure while a write is out. A browser tab
+shows "Leave site?". A desktop window has one guard (`holdWindowClose`) that
+asks the same listeners, waits up to three seconds for `folder.idle()`, asks
+again, and asks natively whether to close anyway only if the page is still unsure.
+The shell owns application Quit separately.
 
 ## Read landed values
 
@@ -79,11 +82,10 @@ have text in a draft's debounce, so the calm line makes no saved claim.
 Create one `draft(source, save)` per mounted editor component. Its `value`
 getter shows what the person typed until that save answers, then follows
 `source()` again. Its setter and `set(value)` schedule a save after one second
-by default. Teardown, page hide, hidden visibility, beforeunload, and the
-folder close event flush the latest unsent text. A value whose save already
-failed is not resent on teardown. A failed save keeps the typed value and its
-error for retry or discard, and keeps a closing page or window asking until it
-is saved, discarded, or closed anyway.
+by default. Teardown, page hide, hidden visibility, and beforeunload flush the
+latest unsent text. A value whose save already failed is not resent on
+teardown. A failed save keeps the typed value and its error for retry or
+discard, and makes a leaving page ask until it is saved or discarded.
 
 ```svelte
 <script lang="ts">

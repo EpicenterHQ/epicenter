@@ -28,6 +28,7 @@
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tauri-apps/api": "catalog:",
+		"@tauri-apps/plugin-dialog": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},

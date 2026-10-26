@@ -1,7 +1,8 @@
 <!--
-	Open one folder, refresh it on return, and close after mounted drafts have
-	flushed their latest input. Desktop close waits for the queued writes and
-	stays open, offering to close anyway, while typed text did not save.
+	Open one folder, refresh it on return, and close it when unmounted; drafts
+	inside send their latest input as they unmount. Leaving the page is unsure
+	while a write is out: a browser asks "Leave site?", and a desktop window
+	waits for the writes, then asks only if the page is still unsure.
 -->
 <script lang="ts" generics="TTables extends Record<string, TSchema>">
 	import type { Folder, Opened } from '@epicenter/folder';
@@ -13,7 +14,6 @@
 	import type { TSchema } from 'typebox';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { Ok } from 'wellcrafted/result';
-	import { FOLDER_CLOSE } from './draft.svelte.js';
 	import { type SvelteFolder, svelteFolder } from './folder.js';
 	import { describeOpenRefusal, type OpenRefusal } from './open-refusal.js';
 	import { holdWindowClose as registerWindowClose } from './window-close.js';
@@ -37,37 +37,19 @@
 	let stopWindow: (() => void) | undefined;
 	let destroyed = false;
 
-	const saving = () => opened?.saving() ?? false;
-
-	function closeFolder(folder: Folder<TTables>) {
-		window.dispatchEvent(new CustomEvent(FOLDER_CLOSE));
-		return folder.close();
-	}
-
-	/** Flush every draft and drain the queue; answers why to stay open, if typed text did not land. */
-	async function flushAndWait(folder: Folder<TTables>) {
-		const landed: Promise<boolean>[] = [];
-		window.dispatchEvent(new CustomEvent(FOLDER_CLOSE, { detail: landed }));
-		const answers = await Promise.all(landed);
-		await folder.idle();
-		return answers.every(Boolean)
-			? undefined
-			: 'Some typed text did not save. Save it again or copy it before closing.';
-	}
-
 	async function openAndWrap() {
 		const result = await open();
 		if (result.error !== null) return result;
 		const folder = result.data;
 		if (destroyed) {
-			void closeFolder(folder);
+			void folder.close();
 			return Ok(svelteFolder(folder));
 		}
 		opened = folder;
 		// One guard per window: a folder opened beneath another leaves the
 		// window's close to the outer one. Keep this Folder writable if destroy fails.
 		if (holdWindowClose) {
-			const stop = await registerWindowClose(() => flushAndWait(folder)).catch(
+			const stop = await registerWindowClose(() => folder.idle()).catch(
 				() => undefined,
 			);
 			if (destroyed) stop?.();
@@ -80,15 +62,13 @@
 	onDestroy(() => {
 		destroyed = true;
 		stopWindow?.();
-		if (opened !== undefined) void closeFolder(opened);
+		if (opened !== undefined) void opened.close();
 		void opening.catch(() => {});
 	});
 
-	function beforeUnload(event: BeforeUnloadEvent) {
-		window.dispatchEvent(new CustomEvent(FOLDER_CLOSE));
-		if (!saving()) return;
-		event.preventDefault();
-		event.returnValue = '';
+	/** Leaving is unsure while a write is out. */
+	function beforeUnload(event: Event) {
+		if (opened?.saving()) event.preventDefault();
 	}
 	const refresh = () => { void opened?.refresh(); };
 	const visible = () => {

@@ -1,6 +1,7 @@
 /**
- * The desktop close guard waits for drafts and writes, then destroys once.
- * A retired guard cannot destroy a replacement or post a late failure notice.
+ * The desktop close guard asks the page's beforeunload listeners, waits for
+ * writes, and asks once more; one native question answers an unsure page.
+ * It destroys once, and a retired guard cannot destroy a replacement.
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -10,19 +11,26 @@ import {
 	requestClose,
 } from './tauri-window.test-support.js';
 
-type Notice = {
-	description: string;
-	action?: { label: string; onClick(): void };
-};
-const warning = mock((_title: string, _notice: Notice) => {});
-mock.module('@epicenter/ui/sonner', () => ({ toast: { warning } }));
+let closeAnyway = false;
+const ask = mock(async () => closeAnyway);
+mock.module('@tauri-apps/plugin-dialog', () => ({ ask }));
+
+/** A page listener that is unsure while `unsure()` says so. */
+function unsureWhile(unsure: () => boolean) {
+	const listener = (event: Event) => {
+		if (unsure()) event.preventDefault();
+	};
+	window.addEventListener('beforeunload', listener);
+	cleanup.push(() => window.removeEventListener('beforeunload', listener));
+}
 
 const { holdWindowClose } = await import('./window-close.js');
 const cleanup: (() => void)[] = [];
 afterEach(() => {
 	for (const stop of cleanup.splice(0).reverse()) stop();
 	nativeWindow.reset();
-	warning.mockClear();
+	ask.mockClear();
+	closeAnyway = false;
 });
 
 test('a retired guard cannot destroy the replacement window', async () => {
@@ -46,28 +54,6 @@ test('a retired guard cannot destroy the replacement window', async () => {
 	await oldClose;
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
-	await requestClose();
-	expect(nativeWindow.destroyed).toBe(1);
-});
-
-test('a failure notice waiting for focus cannot reach a replacement guard', async () => {
-	desktop(true);
-	const focus = Promise.withResolvers<void>();
-	const started = Promise.withResolvers<void>();
-	nativeWindow.focus = focus.promise;
-	const stop = await holdWindowClose(async () => {
-		started.resolve();
-		throw new Error('Draft flush failed');
-	});
-	cleanup.push(stop);
-	const oldClose = requestClose();
-	await started.promise;
-	stop();
-	cleanup.push(await holdWindowClose());
-	focus.resolve();
-	await oldClose;
-	expect(warning).not.toHaveBeenCalled();
-	expect(document.documentElement.inert).toBe(false);
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
 });
@@ -113,7 +99,6 @@ test('a failed destroy restores input and allows another close', async () => {
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(document.documentElement.inert).toBe(false);
-	expect(warning).toHaveBeenCalledTimes(1);
 	nativeWindow.refuseDestroy = false;
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
@@ -151,25 +136,40 @@ test('a retired destroy completion keeps the replacement listener', async () => 
 	expect(nativeWindow.listeners).toBe(1);
 });
 
-test('a reason to stay open keeps the window and offers to close anyway', async () => {
+test('a page sure after its writes land closes without asking', async () => {
 	desktop(true);
-	let drains = 0;
+	let out = true;
+	unsureWhile(() => out);
 	cleanup.push(
 		await holdWindowClose(async () => {
-			drains++;
-			return 'Some typed text did not save.';
+			out = false;
 		}),
 	);
 	await requestClose();
+	expect(ask).not.toHaveBeenCalled();
+	expect(nativeWindow.destroyed).toBe(1);
+});
+
+test('a page still unsure asks once; Keep open keeps the window usable', async () => {
+	desktop(true);
+	unsureWhile(() => true);
+	cleanup.push(await holdWindowClose());
+	await requestClose();
+	expect(ask).toHaveBeenCalledTimes(1);
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(document.documentElement.inert).toBe(false);
-	expect(warning).toHaveBeenCalledTimes(1);
-	const notice = warning.mock.calls[0]?.[1];
-	expect(notice?.description).toBe('Some typed text did not save.');
-	expect(notice?.action?.label).toBe('Close anyway');
-	notice?.action?.onClick();
-	for (let tries = 0; tries < 400 && nativeWindow.destroyed === 0; tries++)
-		await Bun.sleep(1);
+	closeAnyway = true;
+	await requestClose();
+	expect(ask).toHaveBeenCalledTimes(2);
 	expect(nativeWindow.destroyed).toBe(1);
-	expect(drains).toBe(1);
 });
+
+test('a drain that never answers asks after the wait instead of trapping the window', async () => {
+	desktop(true);
+	unsureWhile(() => true);
+	cleanup.push(await holdWindowClose(() => new Promise<void>(() => {})));
+	closeAnyway = true;
+	await requestClose();
+	expect(ask).toHaveBeenCalledTimes(1);
+	expect(nativeWindow.destroyed).toBe(1);
+}, 10_000);

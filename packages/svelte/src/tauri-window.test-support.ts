@@ -23,9 +23,6 @@ const handlers = new Set<Handler>();
 export const nativeWindow = {
 	/** How many times the window was destroyed. */
 	destroyed: 0,
-	focused: 0,
-	focus: undefined as Promise<void> | undefined,
-	refuseFocus: false,
 	/** Whether `destroy` rejects, as it does without `core:window:allow-destroy`. */
 	refuseDestroy: false,
 	/** Delay listener installation to test the editable-root opening boundary. */
@@ -40,9 +37,6 @@ export const nativeWindow = {
 	reset() {
 		handlers.clear();
 		this.destroyed = 0;
-		this.focused = 0;
-		this.focus = undefined;
-		this.refuseFocus = false;
 		this.refuseDestroy = false;
 		this.registration = undefined;
 		this.refuseRegistration = false;
@@ -73,11 +67,6 @@ mock.module('@tauri-apps/api/window', () => ({
 			};
 		},
 		destroy,
-		async setFocus() {
-			await nativeWindow.focus;
-			if (nativeWindow.refuseFocus) throw new Error('Window focus was refused');
-			nativeWindow.focused += 1;
-		},
 	}),
 }));
 
@@ -88,13 +77,15 @@ export async function untilListening() {
 	if (handlers.size === 0) throw new Error('No close listener was registered');
 }
 
-/** Count the page as desktop, supplying its inert root in headless tests. */
+/** Count the page as desktop, supplying its inert root and window events in headless tests. */
 export function desktop(on: boolean) {
 	if (on) {
 		if (!globalThis.document)
 			Object.assign(globalThis, {
 				document: { documentElement: { inert: false } },
 			});
+		if (!globalThis.window)
+			Object.assign(globalThis, { window: new EventTarget() });
 		// jsdom does not implement inert's initial value.
 		document.documentElement.inert ??= false;
 	}

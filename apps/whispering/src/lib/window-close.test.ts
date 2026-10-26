@@ -3,8 +3,9 @@
  *
  * Product state over a folder, run as a desktop window: the stand-in in
  * `tauri-window.test-support`, which runs the close listener as Tauri's
- * API does. The window's close is held as `<OpenFolder>` holds it: it never
- * asks, and waits for the folder's writes in flight before the window goes.
+ * API does. The window's close is held as `<OpenFolder>` holds it: it waits
+ * for the folder's writes in flight, and asks only if the page is still
+ * unsure afterwards; nothing here leaves it unsure.
  *
  * Key behaviors:
  * - A write in flight lands before the window closes, and nothing asks
