@@ -109,9 +109,10 @@ The app sends no read receipts and provides no archive, delete, edit, reaction,
 account-management or new-conversation operation.
 
 A send captures the text on screen and the latest visible attempt ID when
-clicked, then saves that text explicitly. Within the in-tab queue and browser
-Web Lock, it first reads the attempt file from storage and checks that it agrees
-with the folder mirror.
+clicked, then waits for pending composer typing to land. The attempt records
+the text captured at the click, even if typing continues. Within the in-tab
+queue and browser Web Lock, it first reads the attempt file from storage and
+checks that it agrees with the folder mirror.
 A mismatch refuses the send and asks the folder to read again. It also refuses
 an unresolved or changed attempt, a draft with Markdown issues, and a draft
 whose conversation or connection does not match the selected chat.

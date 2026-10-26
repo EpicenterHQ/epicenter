@@ -27,19 +27,15 @@
 		return folder.tables.drafts.update(draftId, { body });
 	}
 	const reply = draft(() => row?.issues === null ? row.body : '', saveReply);
-	let editVersion = 0;
-	let latestInput = '';
 	const pending = $derived(attempt?.issues === null && attempt.fields.state === 'sending');
 	let message = $state('');
 	const send = createMutation(() => ({
-		mutationFn: async ({ text, previousAttemptId, version }: { text: string; previousAttemptId: string | undefined; version: number }) => {
-			const saved = await saveReply(text);
-			if (saved.error !== null) { message = 'Nothing was sent: the draft could not be saved.'; return; }
-			if (editVersion === version) reply.discard();
-			else reply.set(latestInput);
+		mutationFn: async ({ text, previousAttemptId }: { text: string; previousAttemptId: string | undefined }) => {
+			const landed = await reply.land();
+			if (landed.error !== null) { message = 'Nothing was sent: the draft could not be saved.'; return; }
 			const result = await sendDraft(folder, {
 				id: draftId, chatId, backend, text, previousAttemptId,
-				unchanged: () => editVersion === version,
+				unchanged: () => reply.value === text,
 			});
 			if (result.error !== null) { message = result.error.message; return; }
 			message = backend.mode === 'demo' ? 'Demo message sent.' : 'Accepted by Beeper. Delivery status appears in the conversation.';
@@ -80,11 +76,11 @@
 		{#if row.issues.some((issue) => issue.kind === 'unreadable')}<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Read again</Button>{/if}
 	{:else}
 		<label for="reply" class="sr-only">Message</label>
-		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={() => reply.value, (value) => { reply.value = value; latestInput = value; editVersion++; }} />
-		<UnsavedEdit draft={reply} />
+		<Textarea id="reply" placeholder={backend.mode === 'demo' ? 'Write a demo reply…' : 'Write a reply…'} rows={3} maxlength={20000} bind:value={reply.value} />
 		<div class="flex items-center justify-end gap-3">
-			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.value.trim()} onclick={() => send.mutate({ text: reply.value, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined, version: editVersion })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
+			<Button disabled={send.isPending || recover.isPending || pending || !!attempt?.issues || !reply.value.trim()} onclick={() => send.mutate({ text: reply.value, previousAttemptId: attempt?.issues === null ? attempt.fields.attemptId : undefined })}>{send.isPending ? 'Sending…' : backend.mode === 'demo' ? 'Send demo reply' : 'Send reply'}</Button>
 		</div>
 	{/if}
+	<UnsavedEdit draft={reply} />
 	{#if message}<p role="status" class="text-sm">{message}</p>{/if}
 </div>
