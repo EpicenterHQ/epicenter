@@ -34,6 +34,34 @@ try {
 	page.on('pageerror', (error) => errors.push(error.message));
 	await page.goto(url);
 	await page.getByLabel('New todo title').waitFor();
+	const readStored = (path: string) =>
+		page.evaluate(
+			async ({ module, path }) => {
+				const { openFolder } = await import(/* @vite-ignore */ module);
+				const opened = await openFolder({ tables: {} });
+				if (opened.error) throw opened.error;
+				try {
+					return opened.data.file(path)?.data;
+				} finally {
+					await opened.data.close();
+				}
+			},
+			{ module: folderModule, path },
+		);
+	const waitForStored = async (path: string, fragments: string[]) => {
+		for (let tries = 0; tries < 100; tries++) {
+			const data = await readStored(path);
+			if (
+				typeof data === 'string' &&
+				fragments.every((part) => data.includes(part))
+			)
+				return;
+			await Bun.sleep(50);
+		}
+		throw new Error(
+			`Timed out waiting for ${path} to contain ${fragments.join(', ')}`,
+		);
+	};
 	assert(
 		(await page.evaluate(() => indexedDB.databases())).length === 1,
 		'Expected one IndexedDB database',
@@ -47,12 +75,13 @@ try {
 	await page.getByLabel('Notes').fill('Two litres');
 	await page.getByLabel('Notes').blur();
 	await page.getByRole('checkbox', { name: 'Done' }).click();
-	await page.waitForFunction(() =>
-		document
-			.querySelector('[data-testid="status-summary"]')
-			?.getAttribute('aria-label')
-			?.includes('Saved on this device'),
-	);
+	const milkPath = await page.getByTestId('file-path').textContent();
+	if (milkPath === null) throw new Error('The new todo has no file path');
+	await waitForStored(milkPath, [
+		'title: Oat milk',
+		'done: true',
+		'Two litres',
+	]);
 
 	const other = await context.newPage();
 	other.on('pageerror', (error) => errors.push(error.message));
@@ -70,12 +99,7 @@ try {
 		.getByRole('textbox', { name: 'Title', exact: true })
 		.fill('Oat milk offline');
 	await page.getByRole('textbox', { name: 'Title', exact: true }).blur();
-	await page.waitForFunction(() =>
-		document
-			.querySelector('[data-testid="status-summary"]')
-			?.getAttribute('aria-label')
-			?.includes('Saved on this device'),
-	);
+	await waitForStored(milkPath, ['title: Oat milk offline']);
 	await context.setOffline(false);
 	await page.reload();
 	assert(
@@ -181,29 +205,14 @@ try {
 		.getByRole('textbox', { name: 'Title', exact: true })
 		.fill('Edited seed');
 	await page.getByRole('textbox', { name: 'Title', exact: true }).blur();
-	await page.waitForFunction(() =>
-		document
-			.querySelector('[data-testid="status-summary"]')
-			?.getAttribute('aria-label')
-			?.includes('Saved on this device'),
-	);
-	const readSeed = () =>
-		page.evaluate(async (module) => {
-			const { openFolder } = await import(/* @vite-ignore */ module);
-			const opened = await openFolder({ tables: {} });
-			if (opened.error) throw opened.error;
-			try {
-				return opened.data.file('todos/seed.md')?.data;
-			} finally {
-				await opened.data.close();
-			}
-		}, folderModule);
+	await waitForStored('todos/seed.md', ['title: Edited seed']);
+	const readSeed = () => readStored('todos/seed.md');
 	const preserved = await readSeed();
 	assert(
 		preserved?.includes('title: Edited seed') &&
 			preserved.includes('extra: keep') &&
 			!preserved.includes('# source note'),
-		'Editing did not write canonical frontmatter',
+		`Editing did not write canonical frontmatter: ${JSON.stringify(preserved)}`,
 	);
 
 	await page.evaluate(
@@ -238,7 +247,6 @@ try {
 		.getByRole('textbox', { name: 'Title', exact: true })
 		.fill('Draft survives failure');
 	await page.getByRole('textbox', { name: 'Title', exact: true }).blur();
-	await page.getByText('Could not save todos/seed.md').waitFor();
 	await page.getByText('Not saved:', { exact: false }).waitFor();
 	assert(
 		(await page
@@ -246,7 +254,7 @@ try {
 			.inputValue()) === 'Draft survives failure',
 		'Failed save lost the typed title',
 	);
-	await page.getByRole('button', { name: 'Copy your text' }).waitFor();
+	await page.getByRole('button', { name: 'Copy', exact: true }).waitFor();
 	assert(
 		!(await readSeed())?.includes('Draft survives failure'),
 		'Failed save reached storage',
@@ -259,12 +267,7 @@ try {
 		);
 	});
 	await page.getByRole('button', { name: 'Save again' }).click();
-	await page.waitForFunction(() =>
-		document
-			.querySelector('[data-testid="status-summary"]')
-			?.getAttribute('aria-label')
-			?.includes('Saved on this device'),
-	);
+	await waitForStored('todos/seed.md', ['title: Draft survives failure']);
 	assert(
 		(await readSeed())?.includes('title: Draft survives failure'),
 		'Retry did not store the title',

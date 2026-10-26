@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { draft } from '@epicenter/svelte/folder';
+	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -84,6 +85,12 @@
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
+	{#if title.error !== null || body.error !== null}
+		<div class="space-y-2 px-4 py-2">
+			<UnsavedEdit draft={title} />
+			<UnsavedEdit draft={body} />
+		</div>
+	{/if}
 	{#if todo}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
@@ -98,7 +105,6 @@
 					aria-label="Title"
 					bind:value={title.value}
 				/>
-				<UnsavedEdit draft={title} />
 			</div>
 		</div>
 		<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
@@ -108,7 +114,6 @@
 				aria-label="Notes"
 				bind:value={body.value}
 			/>
-			<UnsavedEdit draft={body} />
 		</div>
 		{@render fileBar(labelOf(todo))}
 	{:else if row}
@@ -121,11 +126,7 @@
 				<Badge variant="destructive">Needs repair</Badge>
 				{unreadable ? 'Could not read this file.' : 'This file does not read as a todo. Todos keeps its source as it is.'}
 			</p>
-			<ul class="space-y-0.5 text-muted-foreground">
-				{#each row.issues ?? [] as issue, index (index)}
-					<li>{'line' in issue && issue.line !== undefined ? `Line ${issue.line}: ` : ''}{issue.message}</li>
-				{/each}
-			</ul>
+			<div class="space-y-0.5 text-muted-foreground"><RowIssues issues={row.issues ?? []} /></div>
 			{#if unreadable}
 				<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button>
 			{/if}

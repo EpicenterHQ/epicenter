@@ -5,6 +5,7 @@
 	disagree.
 -->
 <script lang="ts">
+	import { describeIssues } from '@epicenter/folder';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -12,7 +13,6 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { getFolder } from '$lib/folder.js';
 	import {
-		reasonOf,
 		repairsOf,
 		todoPath,
 		todosOf,
@@ -107,7 +107,7 @@
 						<li class="flex items-start gap-2">
 							<div class="min-w-0 flex-1">
 								<code class="font-mono break-anywhere">{todoPath(repair.id)}</code>
-								<p class="text-muted-foreground">{reasonOf(repair)}</p>
+								<p class="text-muted-foreground">{describeIssues(repair.issues)}</p>
 							</div>
 							<Button
 								size="xs"
@@ -135,7 +135,7 @@
 						<li class="flex items-start gap-2">
 							<div class="min-w-0 flex-1">
 								<code class="font-mono break-anywhere">{todoPath(file.id)}</code>
-								<p class="text-muted-foreground">{reasonOf(file)}</p>
+								<p class="text-muted-foreground">{describeIssues(file.issues)}</p>
 							</div>
 							<Button size="xs" variant="outline" onclick={() => onOpen?.(file.id)}>Show</Button>
 						</li>

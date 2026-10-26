@@ -20,7 +20,7 @@ use tauri_plugin_opener::OpenerExt;
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_epicenter_folder::init())
-        // Native startup errors and the page's unfinished-save confirmation.
+        // Native startup errors and close failures.
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![open_in_epicenter])

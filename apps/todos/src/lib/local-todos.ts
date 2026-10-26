@@ -4,7 +4,6 @@
  * table lists; the views read and write through `getFolder()`.
  */
 import type { Row } from '@epicenter/folder';
-import type { StatusLine } from '@epicenter/svelte/status-line';
 import type { todosTables } from './definition.js';
 
 export type TodoRow = Row<(typeof todosTables)['todos']>;
@@ -55,20 +54,8 @@ export function unreadableOf(rows: readonly TodoRow[]): Problem[] {
 		.sort(byId);
 }
 
-/** What a row's issues say, as one sentence per issue. */
-export function reasonOf(row: Problem): string {
-	return row.issues.map((issue) => issue.message).join(' ');
-}
-
 /** The todo's label: its title, or its file's name when it has none. */
 export function labelOf(todo: { id: string; fields: { title: string } }) {
 	if (todo.fields.title.trim() !== '') return todo.fields.title;
 	return todo.id === '' ? todoPath(todo.id) : todo.id;
-}
-
-/** The header's summary of whether everything is saved on this device. */
-export function saveLine(saving: boolean): StatusLine {
-	return saving
-		? { label: 'Saving…', tone: 'busy' }
-		: { label: 'Saved on this device', short: 'Saved', tone: 'good' };
 }
