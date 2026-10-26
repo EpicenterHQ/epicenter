@@ -7,12 +7,17 @@
 import 'fake-indexeddb/auto';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { createFolder, memoryHost } from '@epicenter/folder/testing';
+import { expectOk } from 'wellcrafted/testing';
 import { click, type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { honeycrispTables } from '../../lib/data.js';
 
 Range.prototype.getClientRects ??= () => [] as unknown as ReturnType<Range['getClientRects']>;
 Range.prototype.getBoundingClientRect ??= () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) as DOMRect;
 const { flushSync, mount, unmount } = await import('svelte');
 const { confirmationDialog } = await import('@epicenter/ui/confirmation-dialog');
+const { svelteFolder } = await import('@epicenter/svelte/folder');
+const { createNotes } = await import('../../lib/notes.svelte.js');
 const { openNotes, noteText, until } = await import('../../lib/local.test-support.ts');
 const FileDetail = (await import('./FileDetail.svelte')).default;
 const Host = (await import('../../lib/ui-host.test-support.svelte')).default;
@@ -72,17 +77,62 @@ test('Edit as file switches while queued title and body saves land', async () =>
     expect(get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toBe(saved);
 });
 
-test('Edit as file switches while a failed title draft remains available', async () => {
+test('Edit as file keeps a failed title draft visible in the note', async () => {
     const { target, get, render, notes, failSaves, folder } = await view();
     failSaves();
     type(get<HTMLInputElement>('input[aria-label="Title"]'), 'Unsaved title');
     click(target, 'Edit as file');
     await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'failed title save');
-    expect(notes.selected?.as).toBe('text');
-    expect(target.querySelector('section[aria-label="File"]')).not.toBeNull();
+    expect(notes.selected?.as).toBe('note');
+    expect(target.querySelector('section[aria-label="File"]')).toBeNull();
     expect(folder.tables.notes.row('a')?.fields?.title).toBe('Alpha');
-    click(target, 'Open as note'); render();
     expect(get<HTMLInputElement>('input[aria-label="Title"]').value).toBe('Unsaved title');
+});
+
+test('same-file presentation waits for the field write before opening whole-file text', async () => {
+    const memory = memoryHost({ 'notes/a.md': noteText({ title: 'Alpha' }) });
+    const owner = expectOk(await createFolder(memory.storage, { tables: honeycrispTables }));
+    const folder = svelteFolder(owner);
+    const notes = createNotes(folder);
+    notes.open('notes/a.md', 'note');
+    const target = document.createElement('div');
+    document.body.append(target);
+    const component = mount(Host, { target, props: { component: FileDetail as never, props: {
+        notes, path: 'notes/a.md', get as() { return notes.selected?.as ?? 'note'; },
+    } } });
+    let release: (() => void) | undefined;
+    try {
+        await until(() => { flushSync(); return target.querySelector('input[aria-label="Title"]') !== null; }, 'note title');
+        memory.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+        type(target.querySelector('input[aria-label="Title"]'), 'Landed');
+        await until(() => memory.log.puts.length === 1, 'queued title');
+        click(target, 'Edit as file');
+        flushSync();
+        expect(notes.selected?.as).toBe('note');
+        expect(target.querySelector<HTMLElement>('section[aria-label="Note"]')?.inert).toBe(true);
+        release();
+        memory.control.putGate = undefined;
+        await until(() => { flushSync(); return notes.selected?.as === 'text'; }, 'file presentation');
+        const source = target.querySelector<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]');
+        expect(source?.value).toContain('title: Landed');
+        memory.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+        type(source, noteText({ title: 'From source' }));
+        await until(() => memory.log.puts.length === 2, 'queued source');
+        click(target, 'Open as note');
+        flushSync();
+        expect(notes.selected?.as).toBe('text');
+        expect(target.querySelector<HTMLElement>('section[aria-label="File"]')?.inert).toBe(true);
+        release();
+        memory.control.putGate = undefined;
+        await until(() => { flushSync(); return notes.selected?.as === 'note'; }, 'note presentation');
+        expect(target.querySelector<HTMLInputElement>('input[aria-label="Title"]')?.value).toBe('From source');
+    } finally {
+        release?.();
+        memory.control.putGate = undefined;
+        await unmount(component);
+        await owner.close();
+        target.remove();
+    }
 });
 
 test('Delete runs after a queued whole-file edit', async () => {

@@ -11,7 +11,7 @@
 	import { foldersOf, type Notes, notesOf, repairsOf, unreadableOf } from '$lib/notes.svelte.js';
 	import { confirmDelete } from './file-actions.js';
 
-	let { notes }: { notes: Notes } = $props();
+	let { notes, openListed }: { notes: Notes; openListed: (path: string) => void } = $props();
 
 	// Filtering by fields and searching bodies reads every landed note row.
 	// An edit appears here once its save lands.
@@ -114,14 +114,14 @@
 							class:bg-accent={selectedPath === repair.path}
 							data-note={repair.path}
 							aria-current={selectedPath === repair.path ? 'true' : undefined}
-							onclick={() => notes.open(repair.path)}
+							onclick={() => openListed(repair.path)}
 						>
 							<span class="line-clamp-1 font-mono text-xs">{repair.path}</span>
 							<span class="line-clamp-2 text-xs text-destructive">{repair.message}</span>
 						</button>
 					</ContextMenu.Trigger>
 					<ContextMenu.Content class="w-52">
-						<ContextMenu.Item onSelect={() => notes.open(repair.path)}>
+						<ContextMenu.Item onSelect={() => openListed(repair.path)}>
 							Open to repair
 						</ContextMenu.Item>
 						<ContextMenu.Item
@@ -146,7 +146,7 @@
 							class:bg-accent={selectedPath === path}
 							data-note={path}
 							aria-current={selectedPath === path ? 'true' : undefined}
-							onclick={() => notes.open(path)}
+							onclick={() => openListed(path)}
 						>
 							<span class="flex items-start justify-between gap-2">
 								<span class="line-clamp-1 text-sm font-medium">
