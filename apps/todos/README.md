@@ -75,9 +75,9 @@ and Quit behavior; that capability is not part of this standalone product.
 
 On macOS, the app menu's Quit and Cmd-Q request that window's ordinary close.
 The page waits for writes in flight before closing. A saved window closes
-silently. A browser unload asks only while a write is still saving. A failed
-write has already answered and leaves the attempted value in the editor with
-Save again, Discard, and Copy available while the page remains open.
+silently. A failed save leaves the attempted value in the editor with Save
+again, Discard, and Copy, and makes leaving ask once: "Leave site?" in a
+browser tab, a native question on the desktop.
 
 The shell binds the window's directory to it in trusted Rust before the window exists ([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)). The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` selects `todos:*` and gives that window the folder plugin's commands and its change event, plus reading the app identifier and its own handoff command. The page receives no opener permission.
 

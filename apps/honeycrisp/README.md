@@ -81,9 +81,10 @@ switching. A different body shown in either source view starts a new rich-text
 history.
 
 `<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,
-and closes it on unmount. Drafts send their latest text on pagehide, hidden,
-beforeunload, and folder close. A browser unload asks only while a
-save is in flight. The desktop window waits for those writes on close.
+and closes it on unmount. Drafts send their latest text on unmount, pagehide,
+hidden, and beforeunload. Leaving asks once, only while a save is out or a
+draft's save failed: a browser tab shows "Leave site?", and a desktop window
+waits for the writes, then asks natively only if the page is still unsure.
 
 The mirror keeps text files and interprets Markdown rows. `row(id)` is absent
 when a file is gone; an invalid row has issues. `FileDetail` checks repair

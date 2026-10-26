@@ -546,9 +546,10 @@ guard. Detaching or merging changes presentation without reopening the
 folder or transferring drafts. Tab membership lives in AppKit, never in
 application data.
 
-Bundled app pages and the Folders editor flush mounted drafts and wait for
-queued mirror writes on window Close, then destroy the window without a page
-prompt. A recording alone does not delay close: native destruction ends
+Bundled app pages and the Folders editor answer window Close through the
+page's `beforeunload` listeners: drafts send their text, the guard waits up to
+three seconds for queued mirror writes, and it asks one native question only
+if a draft's save failed or a write is still out. A recording alone does not delay close: native destruction ends
 capture and keeps the audio captured so far. Repeated requests for one window
 share its current close; other windows answer independently, including native
 tab-group members. A dispatched destruction keeps the page inert until it is
@@ -556,8 +557,8 @@ gone; a failed destroy restores it for retry.
 
 Application Quit always asks one separate native question. The recorder adds
 an active-recording warning, without asking any folder page for save status.
-Cancel preserves every window. There is no cross-window status protocol,
-timeout, or global gate over individual window closes.
+Cancel preserves every window. There is no cross-window status protocol or
+global gate over individual window closes.
 
 ### Native commands for a bundled app
 
@@ -637,7 +638,7 @@ without waiting for pending saves. Repeated requests share the current alert.
 Quit queries no page and waits for no status reply or timeout. Its standalone
 native alert has no window parent, so closing a window leaves the Quit question
 in place. Window close remains independent; bundled pages and the Folders editor
-wait for queued Folder writes. Quit owns only ready, prompting, and approved
+wait for queued Folder writes and ask only while still unsure. Quit owns only ready, prompting, and approved
 state; it needs no attempt ID or window-destruction hook. On macOS, the
 unparented dialog uses the system's standalone alert presentation rather than
 an attached window sheet.

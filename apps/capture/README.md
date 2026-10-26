@@ -47,7 +47,7 @@ A saved draft is an ordinary file with `draft: true`. Its body is raw writing, i
       Timeline or one keyed detail editor
 ```
 
-`<OpenFolder>` opens, wraps, and closes the folder. It shows opening and refusal screens and refreshes on focus, visibility, and online events. A browser unload asks only while a write is pending; a desktop window close waits for writes. Capture's store owns navigation and timeline classification. The folder owns saved rows, files, and the write queue. Each editor component owns its unfinished text and inline save recovery. The full-file editor uses the shared `fileDraft` to show LF and save with the file's line endings. Commands present their own failures.
+`<OpenFolder>` opens, wraps, and closes the folder. It shows opening and refusal screens and refreshes on focus, visibility, and online events. Leaving asks once, only while a write is out or a draft's save failed; a desktop window close first waits for writes. Capture's store owns navigation and timeline classification. The folder owns saved rows, files, and the write queue. Each editor component owns its unfinished text and inline save recovery. The full-file editor uses the shared `fileDraft` to show LF and save with the file's line endings. Commands present their own failures.
 
 The Vite configuration resolves the `@epicenter/folder` opener to the browser or host adapter for its build.
 
