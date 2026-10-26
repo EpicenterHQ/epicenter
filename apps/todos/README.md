@@ -8,9 +8,9 @@ Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
 Add creates a complete row with `folder.tables.todos.create`; a failed Add leaves
 the title in the form and reports the error. Existing todo controls read the
 folder mirror. Each text editor keeps its own draft while its write is pending.
-Title and notes save after a short pause and send their latest text when the
-editor closes. Done writes directly. Each update changes only the fields it
-names over the file as it is when the save runs. After a successful write, the
+Title and notes queue each change immediately. Closing the editor sends nothing
+more. Done writes directly. Each update changes only the fields it names over
+the file as it is when the save runs. After a successful write, the
 mirror already shows the saved row. A failed text write leaves the mirror at
 the disk value and keeps the attempted value visible in that editor. The editor
 offers Save again, Discard, and Copy. Failed commands report their errors.
@@ -23,7 +23,7 @@ From the repository root:
 bun dev:todos:ui
 ```
 
-Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saving…** while a folder write is pending and **On this device** otherwise. A text draft may still be waiting to send when the header shows the neutral line. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
+Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saving…** while a folder write is pending and **On this device** otherwise. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
 
 A clean todo follows saved changes from another tab. Pending text remains in
 its editor until its write answers. Writes take turns, and the last write to a
