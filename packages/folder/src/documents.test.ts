@@ -8,13 +8,12 @@ import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
-	documentChange,
-	documentsOf,
-	readDocument,
 	type DocumentCache,
+	documentsOf,
 	type SavedFile,
 } from './documents.js';
 import { queryDocuments } from './query-documents.js';
+import { documentChange, readDocument } from './shared/document.js';
 
 const bytes = (text: string) => new TextEncoder().encode(text);
 
@@ -85,7 +84,9 @@ test('unchanged file values keep document identity with a cache', () => {
 		documentsOf([declaration, { ...file, data: '---\ntitle: B\n---\n' }], cache)
 			.documents[0],
 	).not.toBe(first);
-	expect(documentsOf([{ ...declaration }, file], cache).documents[0]).not.toBe(first);
+	expect(documentsOf([{ ...declaration }, file], cache).documents[0]).not.toBe(
+		first,
+	);
 	const broken = documentsOf([
 		{ path: 'epicenter.json', data: new Uint8Array([255]), readError: null },
 	]);

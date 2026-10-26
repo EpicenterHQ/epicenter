@@ -41,8 +41,8 @@ import {
 	defineTable,
 	field,
 	formatDefinition,
-	readFolder,
 } from './bun.js';
+import { readFolder } from './read-folder.js';
 
 const definition = defineFolder({
 	tables: {

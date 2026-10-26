@@ -9,7 +9,12 @@ import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { sweepStaleScratch } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
-import { createFolder, type Opened, type OpenOptions, type Tables } from './folder.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
 import type { GitCredentials } from './git/http.js';
 import { runNativeHistory } from './git/native-history.js';
 import {
@@ -87,11 +92,6 @@ export {
 	QueryFolderError,
 	queryFolder,
 } from './query-folder.js';
-export {
-	type FolderReading,
-	ReadFolderError,
-	readFolder,
-} from './read-folder.js';
 export { exportTables } from './schema-export.js';
 
 export async function openFolder<const T extends Tables>({
@@ -185,8 +185,11 @@ export async function runHistory(
 export function historyExitCode(reply: HistoryReply<unknown>): 0 | 1 {
 	const { result } = reply;
 	if (typeof result === 'object' && result !== null && 'error' in result)
-		return (result as { error: unknown }).error === null ? 0 : 1;
-	const status = (result as { status?: unknown } | null)?.status;
+		return result.error === null ? 0 : 1;
+	const status =
+		typeof result === 'object' && result !== null && 'status' in result
+			? result.status
+			: undefined;
 	return status === 'committed' || status === 'unchanged' ? 0 : 1;
 }
 

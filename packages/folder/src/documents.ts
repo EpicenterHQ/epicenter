@@ -6,7 +6,6 @@ import { type Document, readDocument } from './shared/document.js';
 
 export {
 	type Document,
-	documentChange,
 	readDocument,
 } from './shared/document.js';
 
