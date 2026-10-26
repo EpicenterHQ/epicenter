@@ -4,7 +4,7 @@
  * directory's history use.
  *
  * Library messages state the failure precisely; the application decides what
- * a person is told. Native publication uses `WriteError` (ADR-0576); public
+ * a person is told. Native publication uses `PublishError` (ADR-0576); public
  * Folder saves use `SaveError`.
  *
  * A row file whose text was read but is not a valid row is `InvalidRow`: it
@@ -142,12 +142,12 @@ const WriteRefusal = defineErrors({
  * storage (`Closed`). A failed write wrote nothing. A file that does not read
  * as its kind is never a refusal: it merges as text, for repair (ADR-0503).
  */
-export type WriteError =
+export type PublishError =
 	| Extract<FileError, { name: 'Io' | 'Closed' | 'InvalidPath' }>
 	| InferErrors<typeof WriteRefusal>;
 
-/** The constructors of `WriteError`. */
-export const WriteError = {
+/** The constructors of `PublishError`. */
+export const PublishError = {
 	Io: FileError.Io,
 	Closed: FileError.Closed,
 	InvalidPath: FileError.InvalidPath,

@@ -17,7 +17,7 @@
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Expectation, FileRead, FolderStorage } from './boundary.js';
-import { FileError, WriteError } from './errors.js';
+import { FileError, PublishError } from './errors.js';
 import { hashBytes } from './hash.js';
 import {
 	type FileContent,
@@ -91,7 +91,7 @@ export async function confirmedPut(
 }
 
 /** A storage failure as a write reports it. */
-function writeFailure(path: string, error: FileError): WriteError {
+function writeFailure(path: string, error: FileError): PublishError {
 	if (error.name === 'Closed' || error.name === 'InvalidPath') return error;
 	if (error.name === 'NotAFile' || error.name === 'NotADirectory')
 		return FileError.InvalidPath({ path, reason: error.message }).error;
@@ -108,7 +108,7 @@ export async function publishFile(
 	path: string,
 	checkpoint: FileContent | null,
 	mergedFile: FileContent | null,
-): Promise<Result<Written, WriteError>> {
+): Promise<Result<Written, PublishError>> {
 	const own = (content: FileContent | null) =>
 		typeof content === 'string' || content === null
 			? content
@@ -148,5 +148,5 @@ export async function publishFile(
 			}),
 		);
 	}
-	return WriteError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
+	return PublishError.KeptChanging({ path, attempts: WRITE_ATTEMPTS });
 }
