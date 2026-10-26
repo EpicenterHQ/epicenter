@@ -1,4 +1,4 @@
-<!-- One capture file as Markdown. This view owns its text draft until each save answers. -->
+<!-- One capture file as Markdown. This view owns its text edit until each save answers. -->
 <script lang="ts">
 	import { captureTables } from '@epicenter/capture';
 	import { readRow } from '@epicenter/folder';

@@ -7,7 +7,7 @@ Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
 
 Add creates a complete row with `folder.tables.todos.create`; a failed Add leaves
 the title in the form and reports the error. Existing todo controls read the
-folder mirror. Each text editor keeps its own draft while its write is pending.
+folder mirror. Each text editor keeps its own edit while its write is pending.
 Title and notes queue each change immediately. Closing the editor sends nothing
 more. Done writes directly. Each update changes only the fields it names over
 the file as it is when the save runs. After a successful write, the
@@ -101,7 +101,7 @@ Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB 
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts one `OpenFolder` with `open={() => openFolder({ tables: todosTables })}`. It owns opening, refreshing on return, and close. `src/routes/local/` reads the reactive folder through Svelte context, owns each text input's draft, and reports command failures. `apps/todos/scripts/native.ts` uses the same public folder operations over a directory. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts one `OpenFolder` with `open={() => openFolder({ tables: todosTables })}`. It owns opening, refreshing on return, and close. `src/routes/local/` reads the reactive folder through Svelte context, owns each text input's edit, and reports command failures. `apps/todos/scripts/native.ts` uses the same public folder operations over a directory. Todos has no account, inference, or sync action.
 
 From the repository root:
 

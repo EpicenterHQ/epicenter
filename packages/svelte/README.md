@@ -1,7 +1,7 @@
 # @epicenter/svelte
 
 This package makes a Folder mirror reactive in Svelte 5. The Folder reports
-what storage last returned or accepted. Each text editor owns a `draft` for
+what storage last returned or accepted. Each text editor owns a `edit` for
 what the person typed until that value's save answers. `<OpenFolder>` owns
 opening, refresh on return, and close.
 
@@ -37,7 +37,7 @@ export const [getFolder, setFolder] =
 ```
 
 `<OpenFolder>` refreshes on focus, visibility, and reconnection, and closes
-its Folder when it unmounts. Drafts send each value as it is typed.
+its Folder when it unmounts. Edits send each value as it is typed.
 
 Leaving asks once, only while a Folder write is out, through the web's own
 `beforeunload`. `<OpenFolder>` owns that question. A browser tab shows
@@ -77,9 +77,9 @@ source, read `folder.file(row.path)?.data` and check that it is a string.
 `saveLine` from `@epicenter/svelte/status-line` shows “Saving…” while a write
 is queued or active and “On this device” otherwise.
 
-## Keep typed text in a draft
+## Keep typed text in an edit
 
-Create one `draft(source, save)` per mounted editor component. Its `value`
+Create one `edit(source, save)` per mounted editor component. Its `value`
 getter shows what the person typed until that save answers, then follows
 `source()` again. Its setter and `set(value)` send each value immediately.
 An older answer cannot clear newer typing. A failed save keeps the typed value
@@ -87,13 +87,13 @@ and its error for retry or discard while the editor is mounted.
 
 ```svelte
 <script lang="ts">
-  import { draft } from '@epicenter/svelte/folder';
+  import { edit } from '@epicenter/svelte/folder';
   import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
   import { getFolder } from '$lib/folder.js';
 
   let { id }: { id: string } = $props();
   const folder = getFolder();
-  const title = draft(
+  const title = edit(
     () => {
       const row = folder.tables.notes.row(id);
       return row?.issues === null ? row.fields.title : '';
@@ -103,25 +103,25 @@ and its error for retry or discard while the editor is mounted.
 </script>
 
 <input aria-label="Title" bind:value={title.value} />
-<UnsavedEdit draft={title} />
+<UnsavedEdit edit={title} />
 ```
 
-Use a draft for every text input bound to folder data, including titles and
-body editors. Give distinct editor components distinct drafts. A checkbox,
+Use an edit for every text input bound to folder data, including titles and
+body editors. Give distinct editor components distinct edits. A checkbox,
 select, or button can write directly; compute toggles from the value shown.
 `<UnsavedEdit>` shows the failed save inline with Save again, Discard, and
 Copy for text. Direct actions handle their own returned errors near the action.
 
-Call `await editor.land()` when an action needs to know the newest typed value
+Call `await editor.landed()` when an action needs to know the newest typed value
 saved successfully, such as before sending it over a network. A failure
 remains on `editor.error` for `<UnsavedEdit>` and is also returned to stop the
-action. After teardown, `land()` succeeds without saving.
+action. After teardown, `landed()` succeeds without saving.
 
-`fileDraft(folder, path)` from `@epicenter/svelte/folder` edits a
+`fileEdit(folder, path)` from `@epicenter/svelte/folder` edits a
 whole text file. It shows LF line endings and, when sending, reads the current
 landed file to restore its newline style with `withFileNewlines`. If the file's
-data is not text, the draft starts empty and writes LF text. It has the same
-`value`, `error`, `set`, `retry`, `discard`, and `land` API as `draft`.
+data is not text, the edit starts empty and writes LF text. It has the same
+`value`, `error`, `set`, `retry`, `discard`, and `landed` API as `edit`.
 
 The package also exports agent conversation bindings and status display
 helpers. Those are independent of Folder editing.

@@ -50,11 +50,10 @@ aliases the bare folder specifier to its browser or desktop entry. A refused
 open stays a refusal; it does not choose another store.
 
 `folder.files` and `folder.tables.todos.rows` show landed values. A text editor
-uses its own `draft(source, save)` from `@epicenter/svelte/folder`, keeping
-what was typed visible until that value's save answers. A failed draft save
+uses its own `edit(source, save)` from `@epicenter/svelte/folder`, keeping
+what was typed visible until that value's save answers. A failed edit save
 stays beside the control through `<UnsavedEdit>`. Direct writes return a
-`Saved` result after storage and the mirror agree. Page departure flushes
-mounted drafts; desktop window close waits for queued writes. Product
+`Saved` result after storage and the mirror agree. Page departure needs no extra send because typing already entered the queue; desktop window close waits for queued writes. Product
 workflows and account or inference services keep their own lifetimes.
 
 The root `bun dev:<app>` scripts start each app's required development

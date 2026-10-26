@@ -1,4 +1,4 @@
-<!-- A completed capture. One body draft holds text and thought commands until saves answer. -->
+<!-- A completed capture. One body edit holds text and thought commands until saves answer. -->
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
 	import { describeIssues } from '@epicenter/folder';

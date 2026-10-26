@@ -15,9 +15,9 @@ for the current page flow and verify it against the code.
 - Opening or listing a note writes nothing. `folder.files` and table rows show
   landed values. Await `Saved` before opening a newly created file or relying
   on a write in an action.
-- Text inputs and selects use one `draft(source, save)` per editor component,
+- Text inputs and selects use one `edit(source, save)` per editor component,
   including titles and folder selection. Every change enters the folder queue
-  immediately. The draft shows typed input until its save lands, then follows
+  immediately. The edit shows typed input until its save lands, then follows
   the mirror. A failed save keeps the typed value and shows `<UnsavedEdit>`
   beside its editor with Save again,
   Discard, and Copy. Command callers report their own failed writes.
@@ -29,7 +29,7 @@ for the current page flow and verify it against the code.
 - The folder writes lone surrogates as U+FFFD, and its copy shows the same
   text. The rich editor also replaces them in its transaction, so its undo
   history matches. Note bodies use line
-  feeds (ADR-0572); whole-file editing uses `fileDraft` to keep the file's
+  feeds (ADR-0572); whole-file editing uses `fileEdit` to keep the file's
   line endings.
 - The mirror refreshes from another tab through its change hints. Opening
   reads text files. Read errors offer `refresh()` as Try again.
@@ -40,7 +40,7 @@ for the current page flow and verify it against the code.
 
 ## Editor ownership
 
-- `NoteDetail` owns one body draft shared by its Rich text and Source views.
+- `NoteDetail` owns one body edit shared by its Rich text and Source views.
   ProseMirror's `EditorState` owns cursor, pending formatting, undo history,
   and an empty paragraph Markdown cannot spell. `stateAfter` validates a
   changed document, calls `body.set`, then shows it. `stateShowing` preserves

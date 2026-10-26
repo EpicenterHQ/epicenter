@@ -63,11 +63,11 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   asking. A stopped Epicenter host does not stop saving: do not tell the
   person it does.
 - **Files are authoritative.** The folder mirror shows what landed on disk,
-  and drafts (`draft` from `@epicenter/svelte/folder`) are the only state
+  and edits (`edit` from `@epicenter/svelte/folder`) are the only state
   ahead of it: every typed value enters the folder queue immediately, so a
-  later file action runs after it. Switching views never waits for a draft to
-  land; a failed draft remains in its mounted editor and is discarded on leave.
-  Every text input bound to folder data uses one draft, one per editor
+  later file action runs after it. Switching views never waits for an edit to
+  land; a failed edit remains in its mounted editor and is discarded on leave.
+  Every text input bound to folder data uses one edit, one per editor
   component. Derive lists from the mirror's rows and files; do not add
   another save queue, cache, mirror, or second store of recordings, and keep
   no typed text in product state. Do not add Yjs, the `@epicenter/app` store,
@@ -78,7 +78,7 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 - **The header reports folder activity.** It says Saving… from
   `folder.saving` and On this device while idle, beside the count of answers
   not written. The caller holding a command's `Saved` presents its failure
-  once. A failed editor draft keeps the typed value and shows Save again,
+  once. A failed edit keeps the typed value and shows Save again,
   Discard, and Copy beside its input. The app has no per-file save line.
 - **A recording is in the folder from its start, and its row holds facts
   only** (ADR-0543). The row is created when recording starts; explicit Stop

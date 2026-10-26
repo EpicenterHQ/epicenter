@@ -2,7 +2,7 @@
 	A file opened beside the recordings, shown by what the folder holds of it.
 	A transcript that reads shows its body, edited as a row. Any other text
 	file, and a row file shown as text, shows its exact editable text. Each is
-	a draft over the file: what was typed shows until its save answers. Audio
+	an edit over the file: what was typed shows until its save answers. Audio
 	plays; any other file the folder does not keep as text is listed, not
 	opened, and can still be renamed or deleted.
 -->

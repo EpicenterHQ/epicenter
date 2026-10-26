@@ -52,7 +52,7 @@ The shell serves product bundles and holds no credential: the `epicenter`
 CLI holds the account and every key (ADR-0556). Settings opens its records
 folder through `<OpenFolder>`, creates connection rows with
 `folder.tables.connections.create`, and updates title and model through row
-patches. Each text field keeps its own draft until its write answers. Failed
+patches. Each text field keeps its own edit until its write answers. Failed
 writes keep the typed value and show Save again, Discard, and Copy beside the
 field. Connection creation and deletion report their own failures beside the action.
 
@@ -341,7 +341,7 @@ within an existing window record nothing. If persistence fails, the opened
 window remains open, a warning appears, and the directory remains in a
 temporary Recent row for this run. Temporary rows appear first in Recent,
 newest first, until saved again or removed. Pins change only when requested. Pin,
-Unpin, and Remove from Recent move no files and leave windows and drafts open.
+Unpin, and Remove from Recent move no files and leave windows and edits open.
 Opening another directory changes no app default: each remains its fixed
 `<root>/<id>` (ADR-0672).
 
@@ -400,12 +400,12 @@ Cards have no separate rank or drag-order record.
 The mirror reads every kept text file when it opens and gives Files its exact
 source through `folder.file(path)`. Tables interprets the same file values with
 `documentsOf`, while the SQL CLI builds the same values from disk. Each text
-input has a local `draft` that queues each typed value immediately and shows it
+input has a local `edit` that queues each typed value immediately and shows it
 until its write answers; folder writes then update the mirror's landed values.
 Structured edits use `folder.update(path, patch, { schema })`, including root and nested Markdown.
 Each write takes a turn in the folder queue. A patch reads the file as it is
 when its turn comes, so adjacent cell edits do not overwrite one another.
-A file read failure can be retried with `folder.refresh()`. Failed drafts keep
+A file read failure can be retried with `folder.refresh()`. Failed edits keep
 their value and offer Save again, Discard, and Copy beside the editor.
 Checkboxes and board moves write directly and report failures beside the action.
 Switching file editors mounts the next editor immediately. The previous editor's
@@ -543,7 +543,7 @@ them. Windows and Linux keep separate app-and-folder windows.
 
 Each native tab keeps its own window, page, directory binding, and save
 guard. Detaching or merging changes presentation without reopening the
-folder or transferring drafts. Tab membership lives in AppKit, never in
+folder or transferring edits. Tab membership lives in AppKit, never in
 application data.
 
 Bundled app pages and the Folders editor answer window Close through the

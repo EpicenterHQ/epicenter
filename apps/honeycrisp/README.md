@@ -65,16 +65,16 @@ saves exactly what you type.
 ## Editing
 
 A note's title, body, and folder selection save through the folder mirror.
-Every change enters the folder queue immediately. Each draft keeps what was
+Every change enters the folder queue immediately. Each edit keeps what was
 entered while its save is in flight; the mirror shows only what landed. Pinning
 and list actions await their saved result.
-A failed draft save keeps the typed value and shows **Not saved** beside the editor
+A failed edit save keeps the typed value and shows **Not saved** beside the editor
 with **Save again**, **Discard**, and **Copy**. Failed commands report their error
 where the command was used. The header says **Saving…** while writes are pending and
 **On this device** otherwise.
 
 A note has **Rich text** and **Source** views of its body. They share one body
-draft in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
+edit in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
 only the title also keeps Undo. **Edit as file** and **Open as note** switch
 views immediately. Earlier edits are already queued; the whole-file view
 follows them as they land. A different body shown in either source view starts
@@ -137,7 +137,7 @@ answers. Direct file and table writes take turns in the mirror's write queue.
 ## When something changes underneath you
 
 Another tab's saved change appears in the mirror. An editor with pending typed
-text keeps showing that draft until its save answers. A failed save keeps
+text keeps showing that edit until its save answers. A failed save keeps
 the typed text and offers Save again, Discard, and Copy. A clean editor
 follows the changed file. Deleted files leave the list, and a selected deleted
 file shows that it is no longer in the folder. Read failures offer **Try
@@ -157,7 +157,7 @@ again**, which refreshes the folder.
 | `src/lib/data.ts` | The tables: `notes` and `folders`, with each row's schema. |
 | `src/lib/editor/schema.ts` | The bounded ProseMirror schema. |
 | `src/lib/editor/markdown.ts` | Markdown to document and back, the equivalence it is held to, the check that gates opening and editing, and `bodyCodec`. |
-| `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's draft before it is shown, and semantic state replacement when the note's body changes. |
+| `src/lib/editor/rich-text.ts` | ProseMirror commands, plugins, the rule that puts each transaction's Markdown in the note's edit before it is shown, and semantic state replacement when the note's body changes. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/lib/notes.svelte.ts` | The notes over the folder `getFolder()` answers: note and folder actions over mirror rows, creates and deletes, and what the detail shows. |
 | `@epicenter/svelte/status-line` | The header's save line. |
@@ -172,7 +172,7 @@ features exist in this version.
 
 - [SvelteKit](https://kit.svelte.dev) with the static adapter, SSR disabled
 - [ProseMirror](https://prosemirror.net) with `prosemirror-history` and `prosemirror-markdown`
-- `@epicenter/folder` for the folder mirror and rows; `@epicenter/svelte` for `<OpenFolder>` and text drafts; [TypeBox](https://github.com/sinclairzx81/typebox) for row schemas
+- `@epicenter/folder` for the folder mirror and rows; `@epicenter/svelte` for `<OpenFolder>` and text edits; [TypeBox](https://github.com/sinclairzx81/typebox) for row schemas
 - `@epicenter/ui` and [Tailwind CSS](https://tailwindcss.com)
 
 ## Changed promises

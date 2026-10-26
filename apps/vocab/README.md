@@ -12,17 +12,17 @@ Choose one to three saved expressions to start a chat. Vocab saves the focus bef
 
 ### Editing a word
 
-Each word card edits its note and stage directly. The note has one local draft per mounted card, and each change enters the folder's write queue as it is typed. A stage press saves immediately. Each update sets only its named field over the file as it is when that write takes its turn, so unnamed fields and the Markdown body survive. A lone surrogate in a note becomes U+FFFD. The visible note follows what was typed until that save answers, then follows the file again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
+Each word card edits its note and stage directly. The note has one local edit per mounted card, and each change enters the folder's write queue as it is typed. A stage press saves immediately. Each update sets only its named field over the file as it is when that write takes its turn, so unnamed fields and the Markdown body survive. A lone surrogate in a note becomes U+FFFD. The visible note follows what was typed until that save answers, then follows the file again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
 
 Deleting a word asks first, then removes its path. A failed deletion shows an error toast. The header says Saving… while a write is outstanding and On this device otherwise.
 
 ### Repair as text
 
-A word file with invalid frontmatter or fields appears in the repair list. Repair as text opens its exact source in a text draft. The problem list and the Show note and stage control update from the text currently typed, even before a write lands. Pressing that control lands any pending draft and returns to the structured card only after the saved row reads as a valid word. A failed action keeps the repair open and shows its error. A read error offers Read again. A failed draft save keeps the typed repair visible with Save again, Discard, and Copy controls. Non-text and unreadable files are named but cannot be opened as text for repair.
+A word file with invalid frontmatter or fields appears in the repair list. Repair as text opens its exact source in a text edit. The problem list and the Show note and stage control update from the text currently typed, even before a write lands. Pressing that control lands the pending edit and returns to the structured card only after the saved row reads as a valid word. A failed action keeps the repair open and shows its error. A read error offers Read again. A failed edit save keeps the typed repair visible with Save again, Discard, and Copy controls. Non-text and unreadable files are named but cannot be opened as text for repair.
 
 ### Leaving the page
 
-`<OpenFolder>` refreshes on focus, visibility changes, and reconnect. Drafts send their newest text on teardown, page hide, hidden visibility, and before unload. The browser asks to confirm unload only while a write is outstanding. Unmount closes the folder after waiting for queued writes. A write made after close answers `Closed`.
+`<OpenFolder>` refreshes on focus, visibility changes, and reconnect. Edits send each value immediately as it is typed. The browser asks to confirm unload only while a write is outstanding. Unmount closes the folder after waiting for queued writes. A write made after close answers `Closed`.
 
 ## Data ownership
 

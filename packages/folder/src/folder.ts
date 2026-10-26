@@ -1,5 +1,5 @@
 /**
- * The folder shows what landed; a draft holds what was typed until it lands.
+ * An edit shows what was typed; the queue carries it; the folder shows what landed.
  * Opening reads listed text files. Reads and writes take turns in one queue, so
  * an update reads storage at its turn before composing its patch. The copy
  * changes only after a put lands or a read observes another writer.
@@ -74,7 +74,7 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FolderFile | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
-	/** Wait until every turn queued before this call, including immediate drafts, has finished. */
+	/** Wait until every turn queued before this call, including immediate edits, has finished. */
 	idle(): Promise<void>;
 	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;

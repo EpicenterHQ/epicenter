@@ -42,7 +42,7 @@ fetches their bytes with `folder.read(path)`. Every write
 (`write`, `update`, `move`, `delete`, `tables.<table>.create`, `.update`, `.delete`)
 answers once it landed and the mirror shows it. The mirror never runs ahead
 of the disk; the one thing that does is what a person is typing, which each
-editor keeps in a draft (`draft` from `@epicenter/svelte/folder`).
+editor keeps in an edit (`edit` from `@epicenter/svelte/folder`).
 
 One Whispering owner holds capture, requests, selections and settings drafts,
 and derives every list from the mirror's rows and files. A recording row is
@@ -591,9 +591,9 @@ the tab loses a browser recording in progress.
 
 Text changes enter the write queue as you type: a recording's title and
 notes, a transcript, a transformation's fields, and any text file opened from
-Files. There is no save button during ordinary editing. Each text field is a
-draft: it shows what you typed until that text's save succeeds, then shows the
-file again, which by then holds what landed. A failed save keeps the draft
+Files. There is no save button during ordinary editing. Each text field is an
+edit: it shows what you typed until that text's save succeeds, then shows the
+file again, which by then holds what landed. A failed save keeps the edit
 visible until you retry or discard it. The lists show a row once it is saved.
 
 - Folder writes take turns. An edit queued before a later file action runs first,
@@ -663,7 +663,7 @@ says there is no real input and opens none.
 
 This build opens its folder as the folder mirror (`@epicenter/folder`)
 with Whispering's tables, read through `@epicenter/svelte/folder`, and
-keeps what you type in each editor's draft until its save succeeds or you
+keeps what you type in each editor's edit until its save succeeds or you
 discard it. These promises of the earlier build changed:
 
 - No versions, Connect, or Sync. **Save version** and the status lines about
@@ -679,7 +679,7 @@ discard it. These promises of the earlier build changed:
   The earlier build refused it.
 - Saving a row from its fields writes its frontmatter in one standard form and
   drops comments.
-- A failed editor draft offers **Save again**, **Discard**, and **Copy** beside
+- A failed edit offers **Save again**, **Discard**, and **Copy** beside
   the field. An answer that could not be written keeps its separate **Save
   again** action; neither retries on its own.
 - There is no loading screen per file, no "larger than 1 MB" refusal, and no

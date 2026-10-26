@@ -1,9 +1,9 @@
-/** Capture commands compose over the text currently shown by one body draft. */
+/** Capture commands compose over the text currently shown by one body edit. */
 import { type CaptureBody, captureBody } from '@epicenter/capture';
 
 /** A range of a file's text as a text box shows it, with LF lines. */
 export type TextRange = { readonly start: number; readonly end: number };
-export type BodyDraft = { readonly value: string; set(value: string): void };
+export type BodyEdit = { readonly value: string; set(value: string): void };
 
 const CHANGED =
 	'The thoughts changed since they were shown, so nothing was changed.';
@@ -32,7 +32,7 @@ export function locateThought(
 	return { start: at(span.start), end: at(span.end) };
 }
 
-export function createCaptureActions(body: BodyDraft) {
+export function createCaptureActions(body: BodyEdit) {
 	let refusal = $state<string | undefined>();
 	const shown = () => {
 		const reading = captureBody.decode(body.value);

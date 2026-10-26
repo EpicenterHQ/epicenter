@@ -83,7 +83,7 @@ several apps can use the same files through their own schemas.
 | Folder declaration | The portable root `epicenter.json`, with independently optional `tables` and saved `views`. CLI `check` and `query` require its table schemas. The document schema is distinct from the row schemas it contains. |
 | Reader or writer | A role performed by an app, CLI, or agent, not another product or data owner. |
 | Issue or diagnostic | A specific parsing or schema problem, with its source. A schema disagreement is distinct from unparseable source or a storage failure. |
-| View | A presentation of data. Selecting another schema changes interpretation, not saved files or draft ownership. |
+| View | A presentation of data. Selecting another schema changes interpretation, not saved files or edit ownership. |
 | Saved view | A grid, board, or SQL configuration in the folder declaration. An opaque key identifies it; its display title can change. View settings travel with the folder, without a personal override. |
 | Query projection | Derived query data, such as an in-memory SQLite table built from files and selected schemas. It is not another durable data owner. |
 
@@ -106,7 +106,7 @@ app-schema import. The canonical TypeBox format, whole-table readers,
 section-preserving writers, schema exchange, grid, board, saved-view settings,
 and desktop SQL are implemented. Grid and board configurations name a top-level
 directory without requiring a schema. They retain column choices, filters, and
-sort rules. Grid cells and board moves share the editor's existing file drafts;
+sort rules. Grid cells and board moves share the editor's existing file edits;
 moving a card edits its grouping field without a separate rank record.
 SQL results remain read-only. Explicitly saving the first view can create a
 declaration containing only `views`.
@@ -134,7 +134,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 
 | Name | Meaning |
 | --- | --- |
-| Draft or unsaved input | Text an editor holds after the person typed it and until its save lands. The folder shows only what landed; a failed save keeps the draft on screen for retry, discard, or copy. |
+| Edit or unsaved input | Text an editor holds after the person typed it and until its save lands. The folder shows only what landed; a failed save keeps the edit on screen for retry, discard, or copy. |
 | Save | Acknowledged local persistence of an edit. It does not promise a Git commit or remote receipt. |
 | Write | A file or storage operation, as in `files.write`. It is not a second kind of dataset or an automatic upload. |
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
@@ -146,25 +146,25 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | Git object, tree, blob | Content-addressed Git data: commit metadata, directory entries, and file bytes. A Git blob is not a managed audio attachment. |
 | Revision | The local publication counter used to reject stale browser computations. It is not a Git commit. |
 | Transaction or publication | Atomic storage work that acknowledges local state. This publication is unrelated to the retired app-owned schema publication. |
-| Cache | Data rebuilt without losing saved work. Unsent edits and uncertain pending commits are not caches. |
+| Cache | Data rebuilt without losing saved work. Unlanded edits and uncertain pending commits are not caches. |
 
-A Folder shows what storage last returned or accepted; a draft holds what a
-person typed until that text's save lands. `folder.files()` and table rows are
+A Folder shows what storage last returned or accepted; an edit shows what a
+person typed until that text's save answers. `folder.files()` and table rows are
 landed values. Each `write`, `update`, `create`, or `delete` joins one serial
-queue and answers after its unconditional put lands and the mirror shows it,
+queue and answers after its put lands and the mirror shows it,
 or with a `WriteError`. A row update composes over the file as it stands when
 the operation runs. It preserves unrelated values but rewrites frontmatter
 canonically. Local writes do not merge against outside writers. Git sync
 retains its separate three-way merge and conditional storage publication.
 
-A Svelte editor creates one `draft(source, save)` for its input. The draft
+A Svelte editor creates one `edit(source, save)` for its input. The edit
 shows typed text until the corresponding write answers, then follows the
 Folder again. A failed save retains that text and its error beside the
-control for retry or discard. Mounted drafts flush on teardown and page
-departure. The Folder has no working document or aggregate save status; its
-`saving()` value reports queued and active writes. `close()` refuses new
-writes, drains admitted work, then releases storage. In-memory drafts do not
-survive a crash. See [the folder package](../packages/folder/README.md) and
+control for retry or discard. Each typed value enters the queue immediately;
+teardown sends nothing more. The Folder has no working document or aggregate
+save status; its `saving()` value reports queued and active writes. `close()`
+refuses new writes, drains admitted work, then releases storage. In-memory
+edits do not survive a crash. See [the folder package](../packages/folder/README.md) and
 [the Svelte adapter](../packages/svelte/README.md).
 
 During sync, the same merge roles describe a base tree, the fetched remote

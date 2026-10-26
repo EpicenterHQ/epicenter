@@ -2,21 +2,21 @@
  * The rich-text view's editing: its commands and plugins, and the two rules
  * that keep its ProseMirror state the note's body.
  *
- * The note's body draft holds text ahead of disk, with line feeds for
+ * The note's body edit holds text ahead of disk, with line feeds for
  * presentation. The view's `EditorState` adds cursor, pending formatting,
  * undo history, and an empty paragraph Markdown cannot spell yet. The body
  * is compared by content:
  *
  * - `stateAfter` decides every transaction before it is shown. One that
  *   changes the document is checked against the body shown now, then its
- *   Markdown goes into the note's draft in the same step, which saves it.
+ *   Markdown goes into the note's edit in the same step, which saves it.
  *   If the Markdown would not open as the same document, the screen does not
- *   change. An accepted edit enters the note's draft before it is shown.
+ *   change. Accepted Markdown enters the note's edit before it is shown.
  * - `stateShowing` follows the body. The same content keeps the state, so a
  *   body this view wrote or a save landing changes nothing on screen.
  *   Different content from Source or another tab starts a new state and undo
- *   history. A pending draft hides an outside body until its save answers;
- *   a failed save then follows the disk body.
+ *   history. A pending edit hides an outside body until its save answers;
+ *   a failed save keeps the typed body visible for retry or discard.
  *
  * Neither needs a DOM. The view calls both; tests drive them the same way.
  */
@@ -159,7 +159,7 @@ export function noteBody(row: NoteRow | undefined): string | undefined {
 	return row?.issues === null ? row.body.replace(/\r\n?/g, '\n') : undefined;
 }
 
-/** The body draft an editor shows and writes. */
+/** The body edit an editor shows and writes. */
 export type NoteBody = {
 	read(): string | undefined;
 	write(body: string): void;
@@ -176,7 +176,7 @@ export type NoteBody = {
  * transaction is dropped, and a body that is no longer rich text takes
  * nothing. Markdown that cannot spell the new document is refused with its
  * reason through `refuse`. Otherwise the new body goes into the note's
- * draft, which saves it. A lone surrogate
+ * edit, which saves it. A lone surrogate
  * becomes U+FFFD within the same transaction, as the file will store it, so
  * the screen and the undo history never show what the file does not hold.
  */
@@ -197,7 +197,7 @@ export function stateAfter(
 	const shown = stateShowing(state, current.doc);
 	if (shown !== state) return shown;
 	// The file stores a lone surrogate as U+FFFD (ADR-0572). The same
-	// transaction replaces it now, so the screen, the draft, and the undo
+	// transaction replaces it now, so the screen, the edit, and the undo
 	// history agree, and the save landing does not restart the state.
 	repairLoneSurrogates(transaction);
 	const next = state.apply(transaction);

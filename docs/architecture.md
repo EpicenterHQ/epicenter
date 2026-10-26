@@ -42,18 +42,20 @@ outside edits without periodic polling.
 
 Each `write`, `update`, `create`, or `delete` enters one serial queue. An
 `update` composes over the Markdown file as it stands when that operation
-runs. Each write makes one unconditional put, then updates the mirror. Its
+runs. Updates use conditional puts and retry when storage changed; whole-file
+writes replace the file. A landed write then updates the mirror. Its
 promise answers after the new value is visible, or with a `WriteError`. There
 is no merge on a local write; the last publication to land wins. The browser
 commits the change atomically in IndexedDB. Native storage stages and renames
 one whole file under the shared save lock.
 
-A Svelte editor owns a `draft(source, save)` for typed text. It shows that
+A Svelte editor owns an `edit(source, save)` for typed text. It shows that
 text until its save answers, and keeps it with an inline error after a failed
-save. Mounted drafts flush on teardown and page departure. `folder.saving()`
+save. Each typed value enters the queue immediately; teardown sends nothing
+more. `folder.saving()`
 reports queued and active writes. `folder.close()` refuses new writes, drains
 the queue, then releases storage. A desktop window close waits for that drain;
-a browser unload asks only while saving. In-memory drafts do not survive a
+a browser unload asks only while saving. In-memory edits do not survive a
 crash.
 
 Git exchange is separate from opening and local saving. The `epicenter`
@@ -90,14 +92,14 @@ page still calls `openFolder({ tables })`. Its rows land directly under
 `todos/` there. The path choice belongs to the launch context, not to a path
 supplied by the WebView.
 
-Each window owns one Folder mirror and the drafts of its mounted editors.
+Each window owns one Folder mirror and the edits of its mounted editors.
 The shell owns directory permission and atomic file publication. Whispering's
 recorder is a separate shell service that writes into the directory granted
 to its window. Settings and connection credentials are separate from the
 folder's local opening path.
 
 `<OpenFolder>` closes on unmount and closes an asynchronous open that finishes
-after unmount. Native window Close flushes drafts and waits for queued writes
+after unmount. Native window Close waits for queued writes
 before destruction. A failed destroy leaves the page available for another
 close attempt. Application Quit remains a shell operation.
 

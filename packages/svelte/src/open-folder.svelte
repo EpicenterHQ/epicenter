@@ -1,5 +1,5 @@
 <!--
-	Open one folder, refresh it on return, and close it when unmounted; drafts
+	Open one folder, refresh it on return, and close it when unmounted; edits
 	inside have already queued their latest input. Leaving the page is unsure
 	while a write is out: a browser asks "Leave site?", and a desktop window
 	waits for the writes, then asks only if the page is still unsure.

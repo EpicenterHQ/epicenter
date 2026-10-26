@@ -66,7 +66,7 @@ unnamed hints relist the folder.
 `tables.notes.rows()` returns rows sorted by ID, and `row(id)` returns one row
 or `undefined`. A row with `issues === null` has schema-typed fields and a
 body. An invalid or unreadable row keeps its path and diagnostics so an editor
-can offer repair. `readRow(text, schema)` interprets a draft with the same row
+can offer repair. `readRow(text, schema)` interprets typed text with the same row
 rules without writing it. A row's exact saved source is
 `folder.file(row.path)?.data`.
 `describeIssue` and `describeIssues` turn row diagnostics into sentences for a
@@ -96,7 +96,7 @@ fields and newest body when their table keys match. A merged update reads
 storage at its one turn, preserving outside changes to fields it does not name.
 An unchanged update makes no put.
 Every merged caller receives the same `Saved` answer after the mirror shows
-what landed, or a `WriteError`. A failed put leaves the last read value in the
+what landed, or a `WriteError`. `Changed` is handled inside the Folder; it is not a public `WriteError`. A failed put leaves the last read value in the
 mirror. A later whole-file write can still replace those bytes; the last
 publication to land wins.
 Git sync retains its separate three-way merge and conditional storage rules.
@@ -104,7 +104,7 @@ Git sync retains its separate three-way merge and conditional storage rules.
 `idle()` waits for every queued turn, including immediately queued typing.
 `close()` refuses new writes, drains admitted work, then
 releases storage and watchers. Await a write's result when subsequent work
-requires durable bytes. A UI draft and its retry or discard controls belong to
+requires durable bytes. A UI edit and its retry or discard controls belong to
 [`@epicenter/svelte`](../svelte/README.md), outside the Folder.
 
 ## Browser storage

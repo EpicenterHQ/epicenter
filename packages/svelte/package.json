@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for the folder mirror, editor drafts, agent conversations, and status.",
+	"description": "Svelte 5 bindings for the folder mirror, text editing, agent conversations, and status.",
 	"keywords": [
 		"svelte",
 		"local-first",

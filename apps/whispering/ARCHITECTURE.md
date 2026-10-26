@@ -348,7 +348,7 @@ running requests, pasted text, and settings draft survive them. Only
 page-local presentation state, drafts in a view included, resets. Reload
 mounts a fresh root and repeats startup.
 
-Leaving asks through `beforeunload`: drafts send what waits, and the page is
+Leaving asks through `beforeunload`: edits have already queued their values, and the page is
 unsure while a write is out. A browser tab raises its
 leave warning then. Internal route changes keep the mounted app and need no
 guard. Inside Epicenter a window's Close waits for writes in flight and
@@ -508,7 +508,7 @@ points call it, so they cannot disagree.
 
 `whispering.transform(transcript, recipe, shown?)` sends what the person sees:
 `shown.recipe` is the recipe as TransformationDetail's fields show it
-(`{ fields: { title, model }, body }` from its drafts), and `shown.input` the
+(`{ fields: { title, model }, body }` from its edits), and `shown.input` the
 transcript text TranscriptCard shows. Whatever is not shown is read from its
 row in the mirror; in Source, Run sends the mirror's row, so it is blocked
 while that row has issues. Invalid or empty input and a missing related
@@ -580,36 +580,36 @@ results remain. Each `folder.delete(path)` waits in the folder's queue behind
 the writes asked for before it. A partial cascade failure reports the result
 files that could not be removed.
 
-## Editing through drafts
+## Editing through edits
 
 The mirror shows only what landed, so an input bound straight to it would
 lose keystrokes typed while a save is out. Every text input bound to folder
-data therefore uses a draft (`draft(source, save)` from
+data therefore uses an edit (`edit(source, save)` from
 `@epicenter/svelte/folder`): it shows what was typed until that text's
 save succeeds, then follows `source` again, which by then is the landed text.
 A failed save keeps the typed value and exposes its error. Typing again or
 **Save again** retries; **Discard** follows the disk. Each keystroke enters the
-folder queue immediately. Leaving an editor discards a failed draft; it sends
+folder queue immediately. Leaving an editor discards a failed edit; it sends
 nothing on teardown. Folder-backed checkboxes, selects, and action buttons
 write directly.
 
 ```ts
 const row = $derived(folder.tables.recordings.row(id));
-const title = draft(
+const title = edit(
 	() => (row?.issues === null ? row.fields.title : ''),
 	(title) => folder.tables.recordings.update(id, { fields: { title } }),
 );
-const source = fileDraft(folder, path);
+const source = fileEdit(folder, path);
 ```
 
-- **One draft per editor component.** RecordingDetail has title, notes, and
-  source drafts; TransformationDetail title, model (empty saves `null`),
+- **One edit per editor component.** RecordingDetail has title, notes, and
+  source edits; TransformationDetail title, model (empty saves `null`),
   instructions, and source; TranscriptCard and FileView a transcript body;
-  FileView a text file's source. A draft is never shared between components.
+  FileView a text file's source. An edit is never shared between components.
   Switching between Source and fields changes the view immediately. The new
   view follows the mirror as earlier queued edits land and may briefly show
   older text.
-- **Source** uses `fileDraft` to show LF and save with the file's own newlines. Whether a
+- **Source** uses `fileEdit` to show LF and save with the file's own newlines. Whether a
   row shows as text is `showsText(path)`: the person chose Source
   (`asText`, a `SvelteSet` of view state), or the row has issues. Repair
   reads the typed Source text with `readRow(source.value, schema)`, so the
@@ -691,7 +691,7 @@ Connect, and Sync were removed with the move to the local folder.
 could not be written, then "Saving…" while a write waits or is being saved,
 and otherwise the neutral "On this device". Every typed edit is queued at
 once. A command awaiting `Saved`
-shows its own failure once; a failed editor draft offers Save again, Discard,
+shows its own failure once; a failed edit offers Save again, Discard,
 and Copy. There is no per-file save line.
 
 ## Noticing outside changes

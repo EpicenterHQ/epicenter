@@ -5,7 +5,7 @@
  * notes state and folder mirror: each transaction goes through `stateAfter`
  * before it is shown, and the body is followed
  * with `stateShowing`. The state the harness keeps is what the view would
- * display; the note's body draft holds an edit until its save lands, and
+ * display; the note's body edit holds typed text until its save lands, and
  * the mirror holds the note after.
  *
  * Key behaviors:
@@ -91,7 +91,7 @@ async function noteOver(text: string) {
     return {
         fixture, notes, note,
         failures: () => failures,
-        draft: () => {
+        edit: () => {
             const row = table.row('a');
             if (row?.issues !== null || row === undefined) throw new Error('The note does not read as one');
             return { ...row, body: note.read() ?? row.body };
@@ -227,7 +227,7 @@ describe('every displayed edit is in the note', () => {
 			type,
 			press,
 			body,
-			draft,
+			edit,
 			saved,
 			end,
 			writes,
@@ -235,11 +235,11 @@ describe('every displayed edit is in the note', () => {
 			...view
 		} = await open('one\n');
 		end();
-		const before = JSON.parse(JSON.stringify(draft()));
+		const before = JSON.parse(JSON.stringify(edit()));
 		press('Enter');
 		expect(view.shown().doc.childCount).toBe(2);
 		// An empty paragraph has no Markdown: the note, its time included, stays.
-		expect(JSON.parse(JSON.stringify(draft()))).toEqual(before);
+		expect(JSON.parse(JSON.stringify(edit()))).toEqual(before);
 		await saved();
 		expect(writes()).toBe(0);
 		expectNoteHoldsScreen();
@@ -287,15 +287,15 @@ describe('every displayed edit is in the note', () => {
 	test('an edit saves the body once, and every field stays as it was (ADR-0573)', async () => {
 		// An earlier Honeycrisp wrote `updatedAt`; it is now a key it does not declare.
 		const edited = '"updatedAt": "2026-10-01T00:00:00.000Z"';
-		const { type, draft, saved, failures, stored } = await open('one\n', {
+		const { type, edit, saved, failures, stored } = await open('one\n', {
 			text: noteText({ body: 'one\n', extra: `${edited}\n"owner": "sam"\n` }),
 		});
-		const before = JSON.parse(JSON.stringify(draft()));
+		const before = JSON.parse(JSON.stringify(edit()));
 		type('x');
-		expect(draft().body).toBe('xone\n');
+		expect(edit().body).toBe('xone\n');
 		await saved();
 		expect(failures()).toEqual([]);
-		const row = draft();
+		const row = edit();
 		expect(row.body).toBe('xone\n');
 		expect(row.fields).toEqual(before.fields);
 		const storedText = (await stored()) ?? '';
