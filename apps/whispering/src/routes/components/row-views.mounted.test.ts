@@ -700,6 +700,27 @@ test('rename includes the mounted editor draft queued before it', async () => {
 	expect(host!.text(path)).toBeUndefined();
 });
 
+test('the file view is inert while its rename is pending', async () => {
+	const path = 'notes/draft.txt';
+	const { folder, host, whispering, target } = await open({ [path]: 'Old\n' }, 'recordings', { memory: true });
+	await show(whispering, folder, path);
+	const gate = deferred<void>();
+	host!.control.putGate = gate.promise;
+	try {
+		const name = field<HTMLInputElement>(target, 'input[autocomplete="off"]');
+		type(name, 'renamed.txt');
+		name?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+		flushSync();
+		expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of draft.txt"]')?.closest('section')?.inert).toBe(true);
+		gate.resolve();
+		await settle(folder);
+		expect(host!.text(path)).toBeUndefined();
+		expect(host!.text('notes/renamed.txt')).toBe('Old\n');
+	} finally {
+		gate.resolve();
+	}
+});
+
 test('rename includes a transcript draft without closing its card', async () => {
 	const { folder, host, whispering, target } = await open({
 		[RECORDING]: recording('Take', ''),

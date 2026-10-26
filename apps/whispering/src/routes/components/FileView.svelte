@@ -82,6 +82,17 @@
 	const directory = $derived(dirname(path));
 	/** The recording whose row names this file as its audio, if one does. */
 	const owner = $derived(whispering.recordingNaming(path));
+	let renaming = $state(false);
+
+	async function rename(name: string) {
+		if (renaming) return;
+		renaming = true;
+		try {
+			return await whispering.rename(own, name);
+		} finally {
+			renaming = false;
+		}
+	}
 
 	/** A file shown as details: its extension names the type. */
 	function details() {
@@ -90,7 +101,7 @@
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="File">
+<section class="flex h-full min-h-0 flex-col" aria-label="File" inert={renaming}>
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
 			<Button variant="ghost" size="icon-sm" aria-label="Back to recordings" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
@@ -206,7 +217,7 @@
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
-		onRename={(name) => whispering.rename(own, name)}
+		onRename={rename}
 		onDelete={() => void confirmDelete(whispering, path)}
 	/>
 </section>
