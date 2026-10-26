@@ -37,7 +37,7 @@ import {
 	type TranscriptionFields,
 	type TransformationRunFields,
 } from './definition.js';
-import { describeError, type PresentWriteFailure, WRITE_FAILED } from './files.js';
+import { describeError } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import type { WhisperingServices } from './platform/types.js';
 import type { RecipeRow, ResolvedRecipe } from './recipe.js';
@@ -137,7 +137,6 @@ const unread = (row: Pick<Row, 'issues'>) =>
 
 export function createRuns({
 	folder,
-	presentWriteFailure,
 	transcribe,
 	transform,
 	makeId,
@@ -151,7 +150,6 @@ export function createRuns({
 	transcribe: WhisperingServices['transcribe'];
 	transform: WhisperingServices['transform'];
 	folder: WhisperingFolder;
-	presentWriteFailure: PresentWriteFailure;
 	makeId: MakeId;
 	/** Why nothing new starts now, if it does not. */
 	refused: () => string | undefined;
@@ -223,8 +221,7 @@ export function createRuns({
 						return Err(BEING_DELETED);
 					const { error } = await createRow(target, fields);
 					if (error === null) return Ok(undefined);
-					presentWriteFailure('Nothing was sent: the result file could not be written', error);
-					return Err(WRITE_FAILED);
+					return Err(describeError(error));
 				} catch (cause) {
 					// The folder went away.
 					return Err(describe(cause));
@@ -427,7 +424,6 @@ export function createRuns({
 			if (typeof prepared === 'string') return prepared;
 			const { target, fields } = prepared;
 			const { error: problem } = await begin(target, fields);
-			if (problem === WRITE_FAILED) return WRITE_FAILED;
 			if (problem !== null)
 				return `Nothing was sent: the result’s file could not be written. ${problem}`;
 			await send(target, () =>
@@ -612,8 +608,6 @@ export function createRuns({
 					endpoint: connection.baseUrl,
 				};
 				const { error: problem } = await begin(target, fields);
-				if (problem === WRITE_FAILED)
-					return fail('Nothing was sent. Try again.');
 				if (problem !== null)
 					return fail(
 						`Nothing was sent: the transcript’s file could not be written. ${problem}`,

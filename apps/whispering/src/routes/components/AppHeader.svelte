@@ -13,7 +13,7 @@
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import RecorderClock from './RecorderClock.svelte';
 	import SettingsForm from './SettingsForm.svelte';
-	import { filesLine } from '$lib/status.js';
+	import { headerStatus } from '$lib/status.js';
 
 	let {
 		filesOpen,
@@ -26,7 +26,7 @@
 
 	/** Whether what the person did is in the folder on this device. The folder keeps no versions and does not sync here. */
 	const files = $derived(
-		filesLine({
+		headerStatus({
 			saving: whispering.saving,
 			unwrittenAnswers: whispering.unwrittenAnswers,
 		}),

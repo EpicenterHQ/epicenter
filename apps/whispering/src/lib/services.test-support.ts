@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Folder } from '@epicenter/folder';
 import { openFolder } from '@epicenter/folder/bun';
-import { createFolder, memoryHost } from '@epicenter/folder/testing';
+import { createFolder, memoryHost, until } from '@epicenter/folder/testing';
 import { svelteFolder } from '@epicenter/svelte/folder';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
@@ -313,11 +313,7 @@ export function deferred<T>() {
 
 /** Wait until `check` holds, as work the test does not await lands. */
 export async function eventually(check: () => boolean, timeoutMs = 4000) {
-	const deadline = Date.now() + timeoutMs;
-	while (!check()) {
-		if (Date.now() > deadline) throw new Error('It never happened.');
-		await new Promise((resolve) => setTimeout(resolve, 10));
-	}
+	await until(check, { timeout: timeoutMs });
 }
 
 /** Per-folder device doubles used by the actual product constructor. */

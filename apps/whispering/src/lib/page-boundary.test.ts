@@ -135,6 +135,7 @@ test('the page imports no Yjs store, sync, history, or store module', () => {
 					![
 						'@epicenter/svelte/folder',
 						'@epicenter/svelte/open-folder',
+						'@epicenter/svelte/row-issues',
 						'@epicenter/svelte/status-line',
 						'@epicenter/svelte/status-popover',
 						'@epicenter/svelte/status-row',

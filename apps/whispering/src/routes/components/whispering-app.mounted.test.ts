@@ -15,7 +15,6 @@ import {
 } from '../../../../../packages/svelte/src/tauri-window.test-support.js';
 import type { WhisperingTables } from '../../lib/definition.js';
 import type { WhisperingFolder } from '../../lib/folder.js';
-import { WRITE_FAILED } from '../../lib/files.js';
 import type { WhisperingServices } from '../../lib/platform/types.js';
 import type { Whispering } from '../../lib/whispering.svelte.js';
 
@@ -141,7 +140,7 @@ test('unmount waits for no file command held before the folder', async () => {
 	await eventually(() => app.test.closes === 1);
 	gate.resolve();
 	// The folder closed first, so it takes no new write.
-	expect(await creating).toBe(WRITE_FAILED);
+	expect(await creating).toBeTruthy();
 	expect(app.test.closes).toBe(1);
 });
 

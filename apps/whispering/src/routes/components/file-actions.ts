@@ -1,13 +1,12 @@
 /**
  * Actions the screens share: copy a path or some text, open a file, delete
- * with a confirmation that names what will be removed, and textarea newlines.
+ * with a confirmation that names what will be removed.
  */
 
 import { basename } from '@epicenter/folder/file-browser';
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
 import { describeDeletion } from '$lib/deletion.js';
-import { WRITE_FAILED } from '$lib/files.js';
 import type { Whispering } from '$lib/whispering.svelte.js';
 
 export { recordingTitle } from '$lib/deletion.js';
@@ -30,13 +29,6 @@ export async function copyText(text: string, what: string) {
 		toast.error(`Could not copy ${what}`);
 	}
 }
-
-/**
- * A file's exact text as a textarea reports it: LF only. Raw-text editors
- * restore the file's own line endings with `withFileNewlines`. A row body
- * already reads with LF (ADR-0572).
- */
-export const lf = (text: string) => text.replace(/\r\n?/g, '\n');
 
 /** A saved time for display, or the raw value when it is not a time. */
 export function formatTime(value: unknown, style: 'short' | 'full' = 'full') {
@@ -68,7 +60,7 @@ export async function confirmDelete(whispering: Whispering, path: string) {
 		confirm: { text: 'Delete', variant: 'destructive' },
 		async onConfirm() {
 			const problem = await whispering.delete(deletion);
-			if (problem && problem !== WRITE_FAILED)
+			if (problem)
 				toast.error(`Could not delete ${basename(path)}`, {
 					description: problem,
 				});

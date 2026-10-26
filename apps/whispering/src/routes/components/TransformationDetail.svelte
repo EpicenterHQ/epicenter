@@ -6,7 +6,8 @@
 -->
 <script lang="ts">
 	import { readRow } from '@epicenter/folder';
-	import { draft } from '@epicenter/svelte/folder';
+	import { draft, fileDraft } from '@epicenter/svelte/folder';
+	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -21,14 +22,12 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import PlayIcon from '@lucide/svelte/icons/play';
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { getFolder } from '$lib/folder.js';
-	import { WRITE_FAILED } from '$lib/files.js';
 	import { tick } from 'svelte';
 	import { rowIdOf, TRANSFORMATIONS, whisperingTables } from '$lib/definition.js';
 	import type { RecipeRow } from '$lib/recipe.js';
-	import { getWhispering, issueLine, type TransformationEntry } from '$lib/whispering.svelte.js';
-	import { confirmDelete, formatTime, lf, recordingTitle } from './file-actions.js';
+	import { getWhispering, type TransformationEntry } from '$lib/whispering.svelte.js';
+	import { confirmDelete, formatTime, recordingTitle } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import SettingsForm from './SettingsForm.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
@@ -74,10 +73,7 @@
 		() => (stored?.issues === null ? stored.body : ''),
 		(body) => folder.tables.transformations.update(id, { body }),
 	);
-	const source = draft(
-		() => (typeof file?.data === 'string' ? file.data : ''),
-		(text) => folder.write(own, text),
-	);
+	const source = fileDraft(folder, own);
 
 	const asText = $derived(whispering.showsText(own));
 	/** The file's text, when the folder holds it as text. */
@@ -175,7 +171,7 @@
 			view.applySource === 'pasted'
 				? await whispering.transformText(own, view.pastedText, inputs)
 				: chosen && (await whispering.transform(chosen.result.path, own, inputs));
-		if (problem && problem !== WRITE_FAILED) toast.error('The transformation did not run', { description: problem });
+		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
 
 	/**
@@ -226,14 +222,9 @@
 	 * shown Source text. Answers whether it switched.
 	 */
 	async function show(asSource: boolean) {
-		if (!asSource && source.value !== text) {
-			const saved = await folder.write(own, source.value);
-			if (saved.error !== null) {
-				toast.error('The fields were not opened', { description: saved.error.message });
-				return false;
-			}
-			source.discard();
-		}
+		if (asSource) {
+			if ((await title.land()).error || (await modelText.land()).error || (await prompt.land()).error) return false;
+		} else if ((await source.land()).error) return false;
 		const problem = asSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 		return problem === undefined;
@@ -259,7 +250,7 @@
 			<h2 class="min-w-0 flex-1 truncate text-base font-medium" data-testid="transformation-title-text">{field('title') || id}</h2>
 		{/if}
 	</div>
-	{#if row && title.error}
+	{#if title.error}
 		<div class="px-4 pt-2"><UnsavedEdit draft={title} /></div>
 	{/if}
 
@@ -269,12 +260,7 @@
 				<Badge variant="destructive">Needs repair</Badge>
 				This file does not read as a transformation yet. Fix it in Source; it saves as you type.
 			</p>
-			<ul class="space-y-0.5 text-muted-foreground">
-				{#each issues as issue, index (index)}
-					{@const line = issueLine(issue)}
-					<li>{line === undefined ? '' : `Line ${line}: `}{issue.message}</li>
-				{/each}
-			</ul>
+			<RowIssues {issues} />
 		</div>
 	{/if}
 
@@ -326,7 +312,6 @@
 							placeholder="Say what to do with the text, such as: Fix punctuation and remove filler words. Answer with the text only."
 							data-testid="transformation-prompt"
 						/>
-						<UnsavedEdit draft={prompt} />
 					{/if}
 					<Field.Description>Sent first. The transcript or pasted text follows, unchanged.</Field.Description>
 				</Field.Field>
@@ -356,7 +341,6 @@
 									spellcheck={false}
 									data-testid="transformation-model"
 								/>
-								<UnsavedEdit draft={modelText} />
 							{:else}
 								<p class="text-sm" data-testid="transformation-model-text">{field('model') || 'The text connection’s model'}</p>
 							{/if}
@@ -512,16 +496,18 @@
 			</p>
 			<Textarea
 				class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(source.value), (value) => source.set(withFileNewlines(value, source.value))}
+				bind:value={source.value}
 				{@attach () => { whispering.editSource(own); }}
 				aria-label="Markdown source"
 				spellcheck={false}
 				data-testid="transformation-source"
 			/>
-			<UnsavedEdit draft={source} />
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}
+	<UnsavedEdit draft={prompt} />
+	<UnsavedEdit draft={modelText} />
+	<UnsavedEdit draft={source} />
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">{path}</code></span>

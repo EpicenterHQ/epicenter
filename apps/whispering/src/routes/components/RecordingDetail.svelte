@@ -6,7 +6,8 @@
 -->
 <script lang="ts">
 	import { readRow } from '@epicenter/folder';
-	import { draft } from '@epicenter/svelte/folder';
+	import { draft, fileDraft } from '@epicenter/svelte/folder';
+	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -18,13 +19,12 @@
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import XIcon from '@lucide/svelte/icons/x';
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
 	import { getFolder } from '$lib/folder.js';
 	import { RECORDINGS, rowIdOf, whisperingTables } from '$lib/definition.js';
-	import { getWhispering, issueLine, type RecordingEntry } from '$lib/whispering.svelte.js';
+	import { getWhispering, type RecordingEntry } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './AudioAbsent.svelte';
 	import AudioPlayer from './AudioPlayer.svelte';
-	import { confirmDelete, lf } from './file-actions.js';
+	import { confirmDelete } from './file-actions.js';
 	import { Input } from '@epicenter/ui/input';
 	import TranscriptCard from './TranscriptCard.svelte';
 
@@ -66,10 +66,7 @@
 		() => (stored?.issues === null ? stored.body : ''),
 		(body) => folder.tables.recordings.update(id, { body }),
 	);
-	const source = draft(
-		() => (typeof file?.data === 'string' ? file.data : ''),
-		(text) => folder.write(own, text),
-	);
+	const source = fileDraft(folder, own);
 
 	const asText = $derived(whispering.showsText(own));
 	/** The file's text, when the folder holds it as text. */
@@ -99,14 +96,9 @@
 
 	/** Returning to fields first writes the shown Source text. */
 	async function show(toSource: boolean) {
-		if (!toSource && source.value !== text) {
-			const saved = await folder.write(own, source.value);
-			if (saved.error !== null) {
-				toast.error('The fields were not opened', { description: saved.error.message });
-				return;
-			}
-			source.discard();
-		}
+		if (toSource) {
+			if ((await title.land()).error || (await notes.land()).error) return;
+		} else if ((await source.land()).error) return;
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(toSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
 	}
@@ -135,7 +127,7 @@
 			</Button>
 		{/if}
 	</div>
-	{#if row && title.error}
+	{#if title.error}
 		<div class="px-4 pt-2"><UnsavedEdit draft={title} /></div>
 	{/if}
 
@@ -145,12 +137,7 @@
 				<Badge variant="destructive">Needs repair</Badge>
 				This file does not read as a recording yet. Fix it here; it saves as you type.
 			</p>
-			<ul class="space-y-0.5 text-muted-foreground">
-				{#each issues as issue, index (index)}
-					{@const line = issueLine(issue)}
-					<li>{line === undefined ? '' : `Line ${line}: `}{issue.message}</li>
-				{/each}
-			</ul>
+			<RowIssues {issues} />
 		</div>
 	{/if}
 
@@ -228,7 +215,6 @@
 						placeholder="Notes in Markdown, saved in the recording’s file"
 						aria-label="Notes"
 					/>
-						<UnsavedEdit draft={notes} />
 				</div>
 
 				<Collapsible.Root>
@@ -284,15 +270,16 @@
 			</p>
 			<Textarea
 				class="h-full min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(source.value), (value) => source.set(withFileNewlines(value, source.value))}
+				bind:value={source.value}
 				{@attach () => { whispering.editSource(own); }}
 				aria-label="Markdown source"
 				spellcheck={false}
 			/>
-			<UnsavedEdit draft={source} />
 		</Tabs.Content>
 	</Tabs.Root>
 	{/if}
+	<UnsavedEdit draft={notes} />
+	<UnsavedEdit draft={source} />
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)}>

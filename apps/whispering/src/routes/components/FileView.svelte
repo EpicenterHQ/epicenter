@@ -8,7 +8,8 @@
 -->
 <script lang="ts">
 	import { readRow } from '@epicenter/folder';
-	import { draft } from '@epicenter/svelte/folder';
+	import { draft, fileDraft } from '@epicenter/svelte/folder';
+	import RowIssues from '@epicenter/svelte/row-issues';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { getFolder } from '$lib/folder.js';
@@ -21,16 +22,15 @@
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { basename, dirname, withFileNewlines } from '@epicenter/folder/file-browser';
+	import { basename, dirname } from '@epicenter/folder/file-browser';
 	import { toast } from '@epicenter/ui/sonner';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
 	import { rowIdOf, TRANSCRIPTIONS, whisperingTables } from '$lib/definition.js';
-	import { issueLine, rowTableOf } from '$lib/whispering.svelte.js';
+	import { rowTableOf } from '$lib/whispering.svelte.js';
 	import AudioPlayer from './AudioPlayer.svelte';
-	import { confirmDelete, copyPath, lf } from './file-actions.js';
+	import { confirmDelete, copyPath } from './file-actions.js';
 	import FileNameBar from './FileNameBar.svelte';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { onMount } from 'svelte';
 
 	let {
 		path,
@@ -61,10 +61,7 @@
 		() => (stored?.issues === null ? stored.body : ''),
 		(body) => folder.tables.transcriptions.update(transcriptId ?? '', { body }),
 	);
-	const source = draft(
-		() => text ?? '',
-		(text) => folder.write(own, text),
-	);
+	const source = fileDraft(folder, own);
 	/** Why the text shown does not read as a row, as it is typed. */
 	const issues = $derived(
 		table === undefined || text === undefined
@@ -72,40 +69,21 @@
 			: (readRow(source.value, whisperingTables[table]).issues ?? undefined),
 	);
 
-	async function saveBeforeRename() {
-		for (;;) {
-			const typedSource = source.value;
-			const typedBody = body.value;
-			const sourcePending = text !== undefined && typedSource !== text;
-			const bodyPending = transcriptId !== undefined && typedBody !== (stored?.issues === null ? stored.body : '');
-			const saveSource = () => sourcePending ? folder.write(own, typedSource) : undefined;
-			const saveBody = () => bodyPending
-				? folder.tables.transcriptions.update(transcriptId ?? '', { body: typedBody })
-				: undefined;
-			const saves = transcript ? [saveSource, saveBody] : [saveBody, saveSource];
-			for (const save of saves) {
-				const answer = save();
-				if (answer === undefined) continue;
-				const saved = await answer;
-				if (saved.error !== null) return saved;
-			}
-			if (source.value === typedSource && body.value === typedBody) break;
+	async function rename(next: string) {
+		if (transcript) {
+			if ((await body.land()).error) return;
+			if ((await source.land()).error) return;
+		} else {
+			if ((await source.land()).error) return;
+			if ((await body.land()).error) return;
 		}
-		source.discard();
-		body.discard();
+		return whispering.rename(own, next);
 	}
-	onMount(() => whispering.registerRenameDraft(own, saveBeforeRename));
 
 	/** Returning to fields first writes the shown Source text. */
 	async function show(toSource: boolean) {
-		if (!toSource && source.value !== text) {
-			const saved = await folder.write(own, source.value);
-			if (saved.error !== null) {
-				toast.error('The text was not opened alone', { description: saved.error.message });
-				return;
-			}
-			source.discard();
-		}
+		if (toSource && (await body.land()).error) return;
+		if (!toSource && (await source.land()).error) return;
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem)
 			toast.error(toSource ? 'The text was not opened for editing' : 'The text was not opened alone', {
@@ -172,7 +150,6 @@
 				bind:value={body.value}
 				aria-label="Contents of {name}"
 			/>
-			<UnsavedEdit draft={body} />
 		</div>
 	{:else if text !== undefined}
 		{#if file.readError}
@@ -184,12 +161,7 @@
 					<Badge variant="destructive">Needs repair</Badge>
 					This file does not read as a row yet. Fix it here; it saves as you type.
 				</p>
-				<ul class="space-y-0.5 text-muted-foreground">
-					{#each issues as issue, index (index)}
-						{@const line = issueLine(issue)}
-						<li>{line === undefined ? '' : `Line ${line}: `}{issue.message}</li>
-					{/each}
-				</ul>
+				<RowIssues {issues} />
 			</div>
 		{:else if table === TRANSCRIPTIONS}
 			<p class="shrink-0 px-4 pt-2 text-xs text-muted-foreground">
@@ -200,12 +172,11 @@
 		<div class="flex min-h-0 flex-1 flex-col gap-2 px-3 py-3 sm:px-4">
 			<Textarea
 				class="min-h-40 flex-1 resize-none font-mono text-xs"
-				bind:value={() => lf(source.value), (value) => source.set(withFileNewlines(value, source.value))}
+				bind:value={source.value}
 				{@attach () => { if (table !== undefined) whispering.editSource(own); }}
 				aria-label="Contents of {name}"
 				spellcheck={false}
 			/>
-			<UnsavedEdit draft={source} />
 		</div>
 	{:else if file.data !== undefined}
 		<Empty.Root class="flex-1" data-testid="file-not-text">
@@ -242,11 +213,13 @@
 			</Empty.Description>
 		</Empty.Root>
 	{/if}
+	<UnsavedEdit draft={body} />
+	<UnsavedEdit draft={source} />
 
 	<FileNameBar
 		prefix={directory === '' ? '' : `${directory}/`}
 		{name}
-		onRename={(next) => whispering.rename(path, next)}
+		onRename={rename}
 		onDelete={() => void confirmDelete(whispering, path)}
 	/>
 </section>

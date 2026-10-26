@@ -46,7 +46,7 @@ async function openWindow() {
 	const fixture = await openTestServices({ folder: memory });
 	desktop(true);
 	const { whispering } = await createTestWhispering(fixture);
-	const release = await holdWindowClose(() => memory.opened.close());
+	const release = await holdWindowClose(() => memory.opened.idle());
 	cleanups.push(async () => {
 		release();
 		closeTestWhispering({ whispering, folder: fixture.folder });
@@ -70,6 +70,7 @@ test('a write in flight lands before the window closes, and nothing asks', async
 	await closing;
 
 	expect(nativeWindow.destroyed).toBe(1);
+	expect(window.host.control.closed).toBe(false);
 	expect((await saving).error).toBeNull();
 	expect(window.host.text('note.md')).toBe('Typed just before closing.\n');
 });
