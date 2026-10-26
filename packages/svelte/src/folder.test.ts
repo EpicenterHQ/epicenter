@@ -8,7 +8,12 @@ import { createFolder, memoryHost } from '@epicenter/folder/testing';
 import { Type } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { desktop, nativeWindow } from './tauri-window.test-support.js';
+import {
+	desktop,
+	nativeWindow,
+	requestClose,
+	untilListening,
+} from './tauri-window.test-support.js';
 
 const { svelteFolder } = await import('./folder.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
@@ -310,6 +315,74 @@ test('OpenFolder closes after a draft flushes behind an out save', async () => {
 	expect(memory.log.puts).toEqual([{ path: 'note.txt' }, { path: 'note.txt' }]);
 	expect(memory.text('note.txt')).toBe('Second');
 	target.remove();
+});
+
+test('desktop close waits for a pending draft write before destroying the window', async () => {
+	const memory = memoryHost({ 'note.txt': 'Disk' });
+	const folder = expectOk(await createFolder(memory.storage, { tables }));
+	const target = document.createElement('div');
+	document.body.append(target);
+	desktop(true);
+	const view = mount(OpenFolderHost, {
+		target,
+		props: { open: () => Promise.resolve(Ok(folder)), edit: true },
+	});
+	let release: () => void = () => {};
+	try {
+		await untilListening();
+		await until(() => target.querySelector('input') !== null);
+		const input = target.querySelector('input');
+		if (input === null) throw new Error('Missing editor');
+		memory.control.putGate = new Promise((resolve) => {
+			release = resolve;
+		});
+		input.value = 'Typed just before close';
+		input.dispatchEvent(new Event('input', { bubbles: true }));
+		const closing = requestClose();
+		await until(() => folder.saving());
+		expect(nativeWindow.destroyed).toBe(0);
+		expect(memory.text('note.txt')).toBe('Disk');
+		release();
+		await closing;
+		expect(nativeWindow.destroyed).toBe(1);
+		expect(memory.text('note.txt')).toBe('Typed just before close');
+		expect(memory.control.closed).toBe(false);
+	} finally {
+		release();
+		await unmount(view);
+		await until(() => memory.control.closed);
+		nativeWindow.reset();
+		target.remove();
+	}
+});
+
+test('a failed desktop destroy leaves the mounted Folder writable', async () => {
+	const memory = memoryHost({ 'note.txt': 'Disk' });
+	const folder = expectOk(await createFolder(memory.storage, { tables }));
+	const target = document.createElement('div');
+	document.body.append(target);
+	desktop(true);
+	const view = mount(OpenFolderHost, {
+		target,
+		props: { open: () => Promise.resolve(Ok(folder)) },
+	});
+	try {
+		await untilListening();
+		nativeWindow.refuseDestroy = true;
+		await requestClose();
+		expect(nativeWindow.destroyed).toBe(0);
+		expect(memory.control.closed).toBe(false);
+		expectOk(await folder.write('note.txt', 'Saved after failed close'));
+		expect(memory.text('note.txt')).toBe('Saved after failed close');
+		nativeWindow.refuseDestroy = false;
+		await requestClose();
+		expect(nativeWindow.destroyed).toBe(1);
+	} finally {
+		await unmount(view);
+		await until(() => memory.control.closed);
+		nativeWindow.reset();
+		target.remove();
+	}
 });
 
 test('holdWindowClose false registers no desktop close listener', async () => {

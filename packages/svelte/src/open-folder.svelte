@@ -42,6 +42,18 @@
 		return folder.close();
 	}
 
+	async function flushAndWait(folder: Folder<TTables>) {
+		window.dispatchEvent(new CustomEvent('epicenter:folder-close'));
+		if (!folder.saving()) return;
+		await new Promise<void>((resolve) => {
+			const stop = folder.subscribe(() => {
+				if (folder.saving()) return;
+				stop();
+				resolve();
+			});
+		});
+	}
+
 	async function openAndWrap() {
 		const result = await open();
 		if (result.error !== null) return result;
@@ -52,9 +64,9 @@
 		}
 		opened = folder;
 		// One guard per window: a folder opened beneath another leaves the
-		// window's close to the outer one. It waits for writes in flight.
+		// window's close to the outer one. Keep this Folder writable if destroy fails.
 		if (holdWindowClose) {
-			const stop = await registerWindowClose(() => closeFolder(folder)).catch(
+			const stop = await registerWindowClose(() => flushAndWait(folder)).catch(
 				() => undefined,
 			);
 			if (destroyed) stop?.();
