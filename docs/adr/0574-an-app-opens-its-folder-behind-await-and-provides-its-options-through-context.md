@@ -1,7 +1,8 @@
 # 0574. An app opens its folder behind `{#await}` and provides its options through context
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Relates:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) (shared reads and changes), [ADR-0654](0654-visible-folder-queries-refresh-without-native-watchers.md) (visible query polling), [ADR-0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) (product roots).
 - **Amended by:** [ADR-0657](0657-departure-prompts-only-for-pending-folder-saves.md) for departure prompts, and [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md): Folder owns accepted file edits and persistence from construction until close; context connects that owner to the page.
 - **Built:** `FolderApp` and `createFolderContext` in `@epicenter/svelte`; app-local typed `getFolder`/`setFolder`; the Todos, Capture, Honeycrisp, Vocab, and Whispering roots.

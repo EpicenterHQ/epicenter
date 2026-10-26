@@ -1,7 +1,8 @@
 # 0668. One Folder-owned source orders file publications
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-22
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Amended by:** [ADR-0676](0676-structured-edits-share-the-acquired-working-document.md), which unifies acquired structured edits with editor input and separates complete row publication.
 - **Current document API:** [ADR-0688](0688-one-folder-owned-text-document-per-path.md) supersedes ADR-0676's handle and owner implementation while preserving this decision's per-path order and last-write-wins publication.
 - **Supersedes:** [ADR-0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md), guarded editor saves, and [ADR-0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md), the nested editor state contract.
@@ -137,7 +138,9 @@ the source is the Folder's current editing state, not an independent database.
 
 ## Evidence
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/folder/src/document-owner.ts` owns sources, snapshots, command lanes,
+<!-- doc-path-check: ignore-next-line -->
 publication receipts, and recovery. `packages/folder/src/handle.ts` routes file
 and table operations through it. `packages/folder/README.md` documents current
 signatures. Framework adapters and application callers were migrated in

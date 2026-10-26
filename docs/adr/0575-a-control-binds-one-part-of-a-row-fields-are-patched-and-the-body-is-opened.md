@@ -1,7 +1,8 @@
 # 0575. A control binds one part of a row: fields are patched and the body is opened
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-16
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Amended by:** [ADR-0656](0656-a-folder-owns-typed-input-from-open-to-close.md) (Proposed): a field and the body are typed through one edit handle per row (`folder.tables.<t>.edit(id)`) as one nested change, `{ fields?, body? }`, held by the folder and saved as one merge; `createBodyEditor`, the per-part mutations, and the rule that nothing saves fields and the body together give way to it. A field still takes the typed value, the body still merges by line, and the saver still wins.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), withdrawing the "Restore theirs" notice: where a save meets another writer's change to the same unit, the saver wins and nothing is shown. That Save and Sync share one merge remains.
 - **Relates:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) (the one write each part's helper calls), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (`InvalidRow`, no partial row), [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (a row merges by field and the body by line), [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) (`table.update`), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (`getFolder()`)

@@ -1,7 +1,8 @@
 # 0669. Folder actions track lifetime without reserving paths
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-22
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Amends:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md) at action admission, path reservations, and close-time editor results. Its one Folder owner and final storage-release boundary remain.
 - **Implementation history:** Commit `bd78bfb52b` implemented lifetime-only admission. [ADR-0664's write-only closure amendment](0664-folder-close-drains-admitted-work-through-one-owner.md#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes `Folder.run` and its wrappers. The decision and examples below preserve that intermediate model, rather than describe an API to use. The [Folder guide](../../packages/folder/README.md#the-handle) documents the replacement.
 - **Relates:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md), retained sources and ordered local publications; [ADR-0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md), native departure policy.
@@ -82,8 +83,11 @@ in ADR-0663; this lifecycle change adds no native acceptance result.
 
 ## Evidence
 
+<!-- doc-path-check: ignore-next-line -->
 `packages/folder/src/handle.ts` owns admission and the final drain/release
+<!-- doc-path-check: ignore-next-line -->
 boundary. `packages/folder/src/edit-owner.ts` owns publication lanes and held
+<!-- doc-path-check: ignore-next-line -->
 input. `packages/svelte/src/folder-app.svelte` starts asynchronous teardown;
 `apps/whispering/src/lib/runs.svelte.ts` admits result persistence separately
 from provider waits. Current contract details live in `packages/folder/README.md`.

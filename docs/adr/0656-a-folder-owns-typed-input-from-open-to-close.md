@@ -1,10 +1,12 @@
 # 0656. A folder owns typed input from open to close
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-21
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Amended by:** [ADR-0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md), the common editor interface, implemented; its decision remains Proposed.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) and [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md), where an editor's input lives: input not yet saved is held by the folder, not by a page draft or a queue in each app. A field edit still sets fields on the file as it is now, a body or text still merges by line, and one write path and one channel of change remain.
 - **Relates:** [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) (the merge each save uses), [ADR-0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) (folder queries), [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) (the app's folder context), [ADR-0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) (a control binds one part of a row)
+<!-- doc-path-check: ignore-next-line -->
 - **Built:** `createEditOwner` (`packages/folder/src/edit-owner.ts`) inside every folder handle; `folder.tables.<t>.edit(id)` and `folder.files.edit(path)`; `folder.getStatus()` with `unsaved`, `failures` and `closing`; `folder.settle()` and `folder.close()` answering `Pending[]`; the `saveAfterMs` open option on every opener; read notes (`shared/observation.ts`); `createRowEdit` and `createTextEdit` in `@epicenter/svelte/edits`; `useRowEdit` and `useTextEdit` in `@epicenter/react/edits`; the context's `getStatus()`, `folder.getStatus()` read reactively, with no summary of it beside; Todos, Capture, Honeycrisp, Vocab, Whispering and the generic editor on them; and the deletions below.
 
 - **Source amendment:** [ADR-0668](0668-one-folder-owned-source-orders-file-publications.md) records retained sources, unconditional publications, and identity-based acknowledgement.

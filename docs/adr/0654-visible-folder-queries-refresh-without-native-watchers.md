@@ -1,7 +1,8 @@
 # 0654. Visible folder queries refresh without native watchers
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-20
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md), external-change detection and UI refresh policy.
 
 ## Context
@@ -58,6 +59,7 @@ files measured 1,000-file scans at 0.43 to 0.58 seconds and 10,000-file scans at
 The latter imply roughly 35 to 50 seconds between periodic scan starts. Explicit
 refresh, mounting a reader, visibility return, and own writes do not wait for the
 poll timer. The repeatable Bun read benchmark is
+<!-- doc-path-check: ignore-next-line -->
 `packages/folder/src/__benchmarks__/folder-reads.bench.ts`.
 
 Polling rereads contents even when unchanged. It trades read work and finite

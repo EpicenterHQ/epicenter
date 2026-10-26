@@ -1,7 +1,8 @@
 # 0657. Departure prompts only for pending Folder saves
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-21
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Amends:** [ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) for application Quit, window close, and browser departure, and [ADR-0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) for the context's former `busy`, `leaving`, and `registerUnsent` departure policy. File-first recovery and orderly context teardown remain.
 
 - **Lifecycle amendment:** [ADR-0664](0664-folder-close-drains-admitted-work-through-one-owner.md) replaces context action admission and the split shutdown sequence with Folder-owned work and close.

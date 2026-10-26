@@ -25,6 +25,7 @@ The page opens it with `openFolder({ app, definition })`; `handedFolder`
 another app as `AppMismatch` (`packages/folder/src/errors.ts:257`). The
 shell's reply is `WindowFolder { app, folder }`
 (`packages/tauri-plugin-epicenter-folder/src/lib.rs:71`). `<FolderApp>`
+<!-- doc-path-check: ignore-next-line -->
 (`packages/svelte/src/folder-app.svelte`) takes `app={manifest}` and passes
 `manifest.id` on. App ids are folder ids: `TODOS_FOLDER_ID`
 (`apps/todos/src/lib/definition.ts:14`) and `WHISPERING_FOLDER_ID`

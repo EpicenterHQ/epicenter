@@ -1,7 +1,8 @@
 # 0553. A page's own writes keep its folder cache in step, and folder queries carry their read policy
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
+- **Superseded by:** [ADR-0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md).
 - **Amended by:** [ADR-0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md): a field edit sets fields on the file as it is now, as an `UPDATE` does; only document editors keep a starting version.
 - **Amends:** [ADR-0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) at "a page's own save updates its cache directly" and at TanStack's focus refetch.
 - **Built:** all of it, in `@epicenter/folder/query` and `@epicenter/folder/svelte`, with Todos, Capture, Honeycrisp, Whispering, Vocab, the Git lab, and the Folders window on it.

@@ -770,12 +770,12 @@ When you add an ADR, add its row here.
 | [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Accepted (supersedes 0474, amends 0471) |
 | [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Accepted (amended by 0586, 0593, 0595, 0605, 0608, 0612, and 0620) |
 | [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Accepted (amended by 0593, 0594, and 0612) |
-| [0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) | A view is a cache of files, with one write path, one read path, and one channel of change | Accepted |
+| [0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) | A view is a cache of files, with one write path, one read path, and one channel of change | Superseded by 0689 |
 | [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Accepted (supersedes 0071 and 0076; amends 0075, 0326, and 0331; amended by 0565, 0578, 0594, and 0618) |
 | [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Accepted (superseded by 0578) |
-| [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted |
+| [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted (local writes amended by 0689; sync merge remains) |
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Superseded by 0611 |
-| [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Accepted (amends 0548; drafts amended by 0554) |
+| [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Superseded by 0689 |
 | [0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) | A field edit sets fields on the file as it is now | Accepted (amends 0548 and 0553) |
 | [0555](0555-apps-reach-native-code-through-official-tauri-plugins-first-granted-by-app-id.md) | Apps reach native code through official Tauri plugins first, granted by app id | Superseded by 0611 |
 | [0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) | Outside a WebView, TypeScript runs only as the epicenter CLI | Superseded by 0611 |
@@ -794,8 +794,8 @@ When you add an ADR, add its row here.
 | [0570](0570-every-installed-apps-window-gets-the-same-grant.md) | Every installed app's window gets the same grant | Superseded by 0611 |
 | [0572](0572-a-row-body-is-read-and-written-with-line-feeds-and-storable-text.md) | A row body is read and written with line feeds and storable text | Proposed |
 | [0573](0573-applications-keep-no-last-edited-timestamp-in-a-row.md) | Applications keep no last-edited timestamp in a row | Proposed |
-| [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Proposed |
-| [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Proposed |
+| [0574](0574-an-app-opens-its-folder-behind-await-and-provides-its-options-through-context.md) | An app opens its folder behind `{#await}` and provides its options through context | Superseded by 0689 |
+| [0575](0575-a-control-binds-one-part-of-a-row-fields-are-patched-and-the-body-is-opened.md) | A control binds one part of a row: fields are patched and the body is opened | Superseded by 0689 |
 | [0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) | A folder has one write: a merge by unit where the writer acting wins | Superseded by 0622 |
 | [0577](0577-audio-stays-on-the-machine-that-recorded-it.md) | Audio stays on the machine that recorded it | Superseded by 0621 |
 | [0578](0578-epicenter-hosts-no-mcp-server.md) | Epicenter hosts no MCP server | Accepted (supersedes 0550; amends 0549 and 0565; amended by 0594 and 0606) |
@@ -842,7 +842,7 @@ When you add an ADR, add its row here.
 | [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590; amended by 0632, 0633, 0634, and 0635) |
 | [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Accepted (amends 0619, 0623, and 0627) |
 | [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
-| [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Proposed (amends 0626) |
+| [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Superseded by 0689 |
 | [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Proposed (amends 0623 and 0628) |
 | [0632](0632-a-lens-belongs-to-its-reader.md) | Apps supply schemas; CLI readers use root epicenter.json | Accepted (amends 0585, 0611, 0613, 0626, and 0627) |
 | [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627; amended by 0636) |
@@ -863,17 +863,17 @@ When you add an ADR, add its row here.
 | [0650](0650-a-browsers-current-folder-is-one-immutable-tree.md) | A browser's current folder is one immutable tree | Proposed (amends 0628) |
 | [0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) | Ignore rules select Git source without a declaration policy | Proposed |
 | [0655](0655-product-root-components-use-the-app-name-and-app-suffix.md) | Product root components use the app name and App suffix | Accepted |
-| [0656](0656-a-folder-owns-typed-input-from-open-to-close.md) | A folder owns typed input from open to close | Accepted (amends 0548 and 0554; source model amended by 0668) |
+| [0656](0656-a-folder-owns-typed-input-from-open-to-close.md) | A folder owns typed input from open to close | Superseded by 0689 |
 | [0658](0658-capture-compositions-are-durable-markdown-records.md) | Capture compositions are durable Markdown records from Add, not before | Accepted |
 | [0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) | Native apps default authored work to the Epicenter root | Accepted (amends 0636, 0644, and 0647; restores the native default of 0539; standalone fixed default built) |
-| [0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) | One path edit exposes text and structured changes through one interface | Proposed (historical interface; current API in 0668) |
-| [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (always-confirm Quit; unsaved-only Close) |
-| [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Accepted (amends 0574, 0656, and 0657; workflow admission removed, write lanes own draining) |
+| [0662](0662-one-path-edit-exposes-text-and-structured-changes-through-one-interface.md) | One path edit exposes text and structured changes through one interface | Superseded by 0689 |
+| [0663](0663-one-native-question-before-a-window-or-epicenter-leaves.md) | One native question before a window or Epicenter leaves | Accepted (window Close amended by 0689; shell Quit alert remains) |
+| [0664](0664-folder-close-drains-admitted-work-through-one-owner.md) | Folder close drains admitted work through one owner | Superseded by 0689 |
 | [0665](0665-a-markdown-file-without-frontmatter-has-empty-fields-and-a-body.md) | A Markdown file without frontmatter has empty fields and a body | Proposed |
 | [0666](0666-one-source-draft-per-path-saves-against-its-observed-source.md) | One source draft per path saves against its observed source | Superseded by 0668 |
 | [0667](0667-a-file-edits-ready-buffer-contains-its-unsaved-state.md) | A file edit's ready buffer contains its unsaved state | Superseded by 0668 |
-| [0668](0668-one-folder-owned-source-orders-file-publications.md) | One Folder-owned source orders file publications | Accepted (supersedes 0666 and 0667) |
-| [0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) | Folder actions track lifetime without reserving paths | Proposed (historical lifetime-only admission; removed by the write-only closure amendment in 0664) |
+| [0668](0668-one-folder-owned-source-orders-file-publications.md) | One Folder-owned source orders file publications | Superseded by 0689 |
+| [0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) | Folder actions track lifetime without reserving paths | Superseded by 0689 |
 | [0670](0670-native-shells-share-explicit-machine-local-app-homes.md) | Native shells share explicit machine-local app homes | Accepted (amends 0649 and 0660) |
 | [0671](0671-the-launcher-lists-directories-from-all-current-references.md) | The launcher lists directories from all current references | Accepted (amends 0537, 0641, and 0670) |
 | [0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) | Native app defaults are fixed reverse-DNS children of one library | Proposed (amends 0670 and 0671) |
@@ -887,4 +887,5 @@ When you add an ADR, add its row here.
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
 | [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (Whispering desktop caller implemented) |
-| [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Accepted (supersedes 0676's document API and owner) |
+| [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Superseded by 0689 |
+| [0689](0689-a-folder-shows-what-landed-a-draft-holds-what-was-typed-until-it-lands.md) | A folder shows what landed; a draft holds what was typed until it lands | Proposed (implemented; supersedes the working-document model) |

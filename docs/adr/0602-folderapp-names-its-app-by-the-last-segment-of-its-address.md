@@ -8,6 +8,7 @@
 
 ## Context
 
+<!-- doc-path-check: ignore-next-line -->
 `<FolderApp>` (`packages/svelte/src/folder-app.svelte`) takes
 `app={manifest}` and shows `app.title` in "Opening <title>…" (`:98`), in
 "<title> could not open its folder" (`:86`), and in its refusal (`:101`),
