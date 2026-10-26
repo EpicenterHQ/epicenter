@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: working documents, query cache, recovery, agent conversations, and status.",
+	"description": "Svelte 5 bindings for the folder mirror, editor drafts, agent conversations, and status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -14,34 +14,24 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./snapshot": "./src/snapshot.ts",
-		"./folder-next": "./src/folder-next.ts",
+		"./folder": "./src/folder.ts",
 		"./open-folder": "./src/open-folder.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
-		"./folder": "./src/folder-context.ts",
-		"./folder-app": "./src/folder-app.svelte",
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
-		"./status-row": "./src/status-row.svelte",
-		"./write-failure": "./src/write-failure.ts",
-		"./write-failure-toast": "./src/write-failure-toast.ts",
-		"./folder-queries": "./src/folder-queries.ts"
+		"./status-row": "./src/status-row.svelte"
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"@tanstack/query-core": "catalog:",
-		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"@tauri-apps/plugin-dialog": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
-		"fake-indexeddb": "^6.2.6",
 		"jsdom": "26.1.0",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",

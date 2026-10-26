@@ -9,14 +9,9 @@
 		"./browser": "./src/browser.ts",
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
+		"./testing": "./src/testing.ts",
 		"./file-browser": "./src/file-browser.ts",
 		"./documents": "./src/documents.ts",
-		"./document": "./src/document.ts",
-		"./next": "./src/next/auto.ts",
-		"./next/browser": "./src/next/browser.ts",
-		"./next/tauri": "./src/next/tauri.ts",
-		"./next/bun": "./src/next/bun.ts",
-		"./next/testing": "./src/next/testing.ts",
 		"./declaration": "./src/declaration/index.ts"
 	},
 	"scripts": {
