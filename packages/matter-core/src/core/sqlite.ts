@@ -113,6 +113,29 @@ function serializeInvalid(value: unknown): SqlValue {
 	return JSON.stringify(value); // an object / array where a scalar was expected
 }
 
+/** The columns every mirror table carries besides its typed fields. */
+const FIXED_COLUMNS = ['stem', '_extra', 'body'];
+
+/**
+ * Which typed fields get a column of their own. SQLite column names are case-insensitive, so a
+ * field named like a fixed column (`body`, `stem`, `_extra`) or like an earlier field (`Title`
+ * after `title`) would make the `CREATE TABLE` fail with "duplicate column name" and leave the
+ * folder with no mirror at all. Such a field keeps its typed cell in the grid; in the mirror its
+ * value rides in `_extra` like an untyped key, so the folder stays queryable.
+ */
+function hasOwnColumn(
+	fields: readonly Field[],
+): (field: Field, index: number) => boolean {
+	const taken = new Set(FIXED_COLUMNS);
+	const own = fields.map((field) => {
+		const key = field.name.toLowerCase();
+		if (taken.has(key)) return false;
+		taken.add(key);
+		return true;
+	});
+	return (_field, index) => own[index] ?? false;
+}
+
 /**
  * Build the `CREATE TABLE` for a folder: `stem` primary key (the row's reference
  * identity, basename without `.md` — the exact value a reference field stores, so a
@@ -124,7 +147,9 @@ function serializeInvalid(value: unknown): SqlValue {
 function buildDdl(tableName: string, fields: readonly Field[]): string {
 	const defs = [
 		`${quoteIdent('stem')} TEXT PRIMARY KEY`,
-		...fields.map((c) => `${quoteIdent(c.name)} ${storageOf(c.kind)}`),
+		...fields
+			.filter(hasOwnColumn(fields))
+			.map((c) => `${quoteIdent(c.name)} ${storageOf(c.kind)}`),
 		`${quoteIdent('_extra')} TEXT NOT NULL`,
 		`${quoteIdent('body')} TEXT`,
 	];
@@ -178,14 +203,22 @@ export function projectToSqlite(
 	contract: Contract,
 	conformance: readonly RowConformance[],
 ): SqliteProjection {
+	const ownColumn = hasOwnColumn(contract.fields);
+	const columnFields = contract.fields.filter(ownColumn);
 	const columns = [
 		'stem',
-		...contract.fields.map((c) => c.name),
+		...columnFields.map((c) => c.name),
 		'_extra',
 		'body',
 	];
 	const rows = conformance.map((c) => {
-		const cells = c.cells.map((cell): SqlValue => {
+		const cells = c.cells.filter((cell, index) => ownColumn(cell.field, index));
+		// A field without its own column keeps its frontmatter value in `_extra`.
+		const folded = contract.fields
+			.filter((field, index) => !ownColumn(field, index))
+			.filter((field) => Object.hasOwn(c.row.frontmatter, field.name))
+			.map((field) => [field.name, c.row.frontmatter[field.name]] as const);
+		const values = cells.map((cell): SqlValue => {
 			switch (cell.state) {
 				case 'MISSING_REQUIRED':
 				case 'MISSING_OPTIONAL':
@@ -199,10 +232,13 @@ export function projectToSqlite(
 			}
 		});
 		const extra = JSON.stringify(
-			Object.fromEntries(c.extras.map((e) => [e.key, e.value])),
+			Object.fromEntries([
+				...folded,
+				...c.extras.map((e) => [e.key, e.value] as const),
+			]),
 		);
 		// The body is the row's markdown prose, projected verbatim so the FTS5 index can search it.
-		return [stemOf(c.row.fileName), ...cells, extra, c.row.body];
+		return [stemOf(c.row.fileName), ...values, extra, c.row.body];
 	});
 
 	const placeholders = columns.map(() => '?').join(', ');
@@ -220,8 +256,14 @@ export function projectToSqlite(
 		`DROP TABLE IF EXISTS ${quoteIdent(tableName)};\n` +
 		`DROP TABLE IF EXISTS ${quoteIdent(ftsTableName(tableName))}`;
 	const create = buildDdl(tableName, contract.fields);
-	const fts = contract.searchable.length
-		? `;\n${buildFtsSchema(tableName, contract.searchable)}`
+	// Index only real columns, once each: a field folded into `_extra` has no column to index, and
+	// a field named `body` would otherwise list the prose column twice.
+	const columnNames = new Set(columns);
+	const searchable = [
+		...new Set(contract.searchable.filter((name) => columnNames.has(name))),
+	];
+	const fts = searchable.length
+		? `;\n${buildFtsSchema(tableName, searchable)}`
 		: '';
 	const schema = `${drops};\n${create}${fts}`;
 
