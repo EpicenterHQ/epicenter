@@ -400,19 +400,19 @@ Cards have no separate rank or drag-order record.
 The mirror reads every kept text file when it opens and gives Files its exact
 source through `folder.file(path)`. Tables interprets the same file values with
 `documentsOf`, while the SQL CLI builds the same values from disk. Each text
-input has a local `draft` that debounces writes and shows typing until its write answers; folder
-writes then update the mirror's landed values. Structured edits use
-`folder.update(path, patch, { schema })`, including root and nested Markdown.
+input has a local `draft` that queues each typed value immediately and shows it
+until its write answers; folder writes then update the mirror's landed values.
+Structured edits use `folder.update(path, patch, { schema })`, including root and nested Markdown.
 Each write takes a turn in the folder queue. A patch reads the file as it is
 when its turn comes, so adjacent cell edits do not overwrite one another.
 A file read failure can be retried with `folder.refresh()`. Failed drafts keep
 their value and offer Save again, Discard, and Copy beside the editor.
 Checkboxes and board moves write directly and report failures beside the action.
-Switching file editors mounts the next editor immediately; teardown sends the
-previous editor's latest unsent text.
+Switching file editors mounts the next editor immediately. The previous editor's
+typed text is already queued, so unmounting sends nothing more.
 
-The folder owner refreshes on focus, visibility, and connectivity. Drafts send
-their latest text on page hide and folder close.
+The folder owner refreshes on focus, visibility, and connectivity. Closing the
+folder drains writes already queued by its editors.
 Closing an editor window waits for writes in flight before destroying it.
 Saved-view submissions compose from the latest submitted declaration text while
 a write is waiting. Whole-file edits in Files and saved-view saves use last
@@ -547,7 +547,7 @@ folder or transferring drafts. Tab membership lives in AppKit, never in
 application data.
 
 Bundled app pages and the Folders editor answer window Close through the
-page's `beforeunload` listeners: drafts send their text, and the guard waits
+page's window-close guard: editor writes are already queued, and the guard waits
 for queued mirror writes, then destroys the window without a question. Closing
 again while it waits asks whether to close anyway. A recording alone does not delay close: native destruction ends
 capture and keeps the audio captured so far. Repeated requests for one window

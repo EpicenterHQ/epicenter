@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "bundled-app",
-	"description": "Todos, Capture, and Honeycrisp, which Epicenter bundles (`bundled_apps.rs`), each run in one window per folder, labelled <page>:<digest of the folder's directory>. The shell binds each window's one folder to it before the window exists, and the page lists and reads it through the folder plugin and its change event. On close it flushes drafts and waits for queued writes, then destroys the window. These pages call no account, AI, history, or app command. Whispering's windows have their own file, whispering.json. Its pages are served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"description": "Todos, Capture, and Honeycrisp, which Epicenter bundles (`bundled_apps.rs`), each run in one window per folder, labelled <page>:<digest of the folder's directory>. The shell binds each window's one folder to it before the window exists, and the page lists and reads it through the folder plugin and its change event. On close it waits for queued writes, then destroys the window. These pages call no account, AI, history, or app command. Whispering's windows have their own file, whispering.json. Its pages are served on the epicenter-app scheme, so the capability is local (ADR-0561).",
 	"local": true,
 	"windows": ["todos:*", "capture:*", "honeycrisp:*"],
 	"permissions": [

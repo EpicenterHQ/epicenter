@@ -115,7 +115,7 @@ test('a preview follows saved input and disappears when the draft is emptied', a
 	);
 });
 
-test('sending before the first debounce saves the reply and clears the composer', async () => {
+test('sending right after typing saves the reply and clears the composer', async () => {
 	const app = await setup();
 	await app.open('Maya Chen');
 	const id = await draftId(createDemoBackend(), 'demo-maya');
@@ -169,7 +169,6 @@ test('typing after Send survives a queued create retry', async () => {
 		);
 		click(app.target, 'Send demo reply');
 		type(app.composer(), 'New reply');
-		await Bun.sleep(1100);
 		gate.resolve();
 		await untilRendered(
 			() => app.target.textContent?.includes('Demo message sent.') === true,
