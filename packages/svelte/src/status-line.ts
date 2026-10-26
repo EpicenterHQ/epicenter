@@ -1,9 +1,8 @@
 /**
  * The shape and shared rules of a folder app's status lines: one fact each,
- * worded by the app, with a tone the header's dot and the outcome toasts
- * show. A plain module, so a page's status helpers import it without loading
- * Svelte runes. The wording stays with each app; `StatusPopover` from
- * `@epicenter/svelte/status-popover` shows the lines.
+ * worded by the app, with a tone the header's dot shows. A plain module, so
+ * a page's status helpers import it without loading Svelte runes.
+ * `StatusPopover` from `@epicenter/svelte/status-popover` shows the lines.
  */
 
 export type Tone = 'neutral' | 'busy' | 'good' | 'warning' | 'error';
@@ -17,48 +16,9 @@ export type StatusLine = {
 	readonly tone: Tone;
 };
 
-const SEVERITY: Record<Tone, number> = {
-	error: 4,
-	busy: 3,
-	warning: 2,
-	neutral: 1,
-	good: 0,
-};
-
-/**
- * The most severe line, the earlier one on a tie; `undefined` entries are
- * skipped. Each app decides which lines may lead and what a calm header says.
- */
-export function mostSevere(
-	lines: readonly (StatusLine | undefined)[],
-): StatusLine | undefined {
-	let chosen: StatusLine | undefined;
-	for (const line of lines)
-		if (
-			line !== undefined &&
-			(chosen === undefined || SEVERITY[line.tone] > SEVERITY[chosen.tone])
-		)
-			chosen = line;
-	return chosen;
-}
-
-/**
- * An absolute time, so a line never goes stale on screen: the time alone
- * today, the date and time otherwise.
- */
-export function localTime(time: number) {
-	const date = new Date(time);
-	return date.toDateString() === new Date().toDateString()
-		? date.toLocaleTimeString()
-		: date.toLocaleString();
-}
-
-/** The line with when it was observed or attempted as its last detail line. */
-export function withTime(
-	line: StatusLine,
-	event: 'Checked' | 'Last attempt',
-	time: number,
-): StatusLine {
-	const when = `${event} at ${localTime(time)}`;
-	return { ...line, detail: line.detail ? `${line.detail}\n${when}` : when };
+/** Folder writes may be idle while a draft is still debouncing. */
+export function saveLine(saving: boolean): StatusLine {
+	return saving
+		? { label: 'Saving…', tone: 'busy' }
+		: { label: 'On this device', tone: 'neutral' };
 }

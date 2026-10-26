@@ -17,6 +17,7 @@
 		"./folder": "./src/folder.ts",
 		"./open-folder": "./src/open-folder.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
+		"./row-issues": "./src/row-issues.svelte",
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte"

@@ -8,13 +8,12 @@
  * - The summary button names the summary line
  * - Each status line is a row under its name and test id, with its detail;
  *   the app's own rows follow the lines, and its actions sit in the footer
- * - The most severe line leads, the earlier one on a tie
  *
  * Run with `bun run test`.
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { mostSevere, type StatusLine } from './status-line.js';
+import type { StatusLine } from './status-line.js';
 import { click } from './svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
@@ -73,12 +72,4 @@ test('the details show each line under its name, then the app rows and actions',
 	).toBe('/notes');
 	click(document.body, 'Save version');
 	expect(actions).toBe(1);
-});
-
-test('the most severe line leads, the earlier one on a tie', () => {
-	const busy: StatusLine = { label: 'Saving…', tone: 'busy' };
-	const otherError: StatusLine = { label: 'Check failed', tone: 'error' };
-	expect(mostSevere([saved, busy, failed, otherError])).toBe(failed);
-	expect(mostSevere([undefined, saved])).toBe(saved);
-	expect(mostSevere([])).toBeUndefined();
 });

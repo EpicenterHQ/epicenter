@@ -11,11 +11,8 @@
 	</StatusPopover>
 	```
 
-	`toastStatus(line)` shows an outcome line as a toast in its tone, so the
-	toast and the details agree.
 -->
 <script module lang="ts">
-	import { toast } from '@epicenter/ui/sonner';
 	import type { StatusLine, Tone } from './status-line.js';
 
 	/** One fact the details name: its row name, its test id, and its line. */
@@ -33,18 +30,6 @@
 		error: 'bg-destructive',
 	};
 
-	const NOTIFY: Record<Tone, typeof toast.info> = {
-		good: toast.success,
-		neutral: toast.info,
-		busy: toast.info,
-		warning: toast.warning,
-		error: toast.error,
-	};
-
-	/** Show one outcome line as a toast, in its tone. */
-	export function toastStatus(line: StatusLine) {
-		NOTIFY[line.tone](line.label, { description: line.detail });
-	}
 </script>
 
 <script lang="ts">
