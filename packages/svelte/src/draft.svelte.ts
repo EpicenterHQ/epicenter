@@ -20,7 +20,6 @@ export function draft<T, E>(
 	let current: { value: T } | null = null;
 	let error = $state<E | null>(null);
 	let lastSent: { value: T } | null = null;
-	let inFlight = 0;
 	const pending = new Map<{ value: T }, Promise<Result<unknown, E>>>();
 	let due = false;
 	let active = true;
@@ -37,9 +36,8 @@ export function draft<T, E>(
 	): Promise<Result<unknown, E>> | undefined {
 		const sent = current;
 		if (sent === null || (!retry && sent === lastSent)) return undefined;
-		if (!immediate && inFlight > 0) return;
+		if (!immediate && pending.size > 0) return;
 		lastSent = sent;
-		inFlight++;
 		let answer: Promise<Result<unknown, E>>;
 		try {
 			answer = save(sent.value);
@@ -49,7 +47,6 @@ export function draft<T, E>(
 		}
 		const apply = (result: Result<unknown, E>) => {
 			pending.delete(sent);
-			inFlight--;
 			if (!active) return result;
 			if (current === sent) {
 				if (result.error === null) {
@@ -57,7 +54,7 @@ export function draft<T, E>(
 					typed = null;
 				} else error = result.error;
 			}
-			if (due && inFlight === 0) {
+			if (due && pending.size === 0) {
 				due = false;
 				send(false);
 			}
@@ -88,7 +85,7 @@ export function draft<T, E>(
 		timer = setTimeout(() => {
 			timer = undefined;
 			due = true;
-			if (inFlight === 0) {
+			if (pending.size === 0) {
 				due = false;
 				send(false);
 			}
@@ -126,7 +123,7 @@ export function draft<T, E>(
 	/** Leaving sends what was typed, and is unsure while that save is out or failed. */
 	function unload(event: Event) {
 		flush();
-		if (inFlight > 0 || error !== null) event.preventDefault();
+		if (pending.size > 0 || error !== null) event.preventDefault();
 	}
 
 	onDestroy(() => {
@@ -166,7 +163,7 @@ export function draft<T, E>(
 			error = null;
 			clearTimer();
 			due = false;
-			if (inFlight > 0) {
+			if (pending.size > 0) {
 				lastSent = null;
 				due = true;
 			} else send(true, true);
