@@ -81,7 +81,7 @@ async function setup() {
 		() => target.textContent?.includes('Maya Chen') === true,
 		'conversations',
 	);
-	return { host, folder, target, conversation, composer, open };
+	return { host, folder, target, conversation, composer, open, close: () => opened.close() };
 }
 
 test('a preview follows saved input and disappears when the draft is emptied', async () => {
@@ -256,6 +256,30 @@ test('typing during a save keeps the newest reply', async () => {
 			'the newest reply',
 		);
 		expect(app.composer()?.value).toBe('First and second');
+	} finally {
+		gate.resolve();
+	}
+});
+
+test('closing a missing draft waits for the newest typed reply', async () => {
+	const app = await setup();
+	const gate = Promise.withResolvers<void>();
+	try {
+		await app.open('Maya Chen');
+		const id = await draftId(createDemoBackend(), 'demo-maya');
+		app.host.control.putGate = gate.promise;
+		type(app.composer(), 'First');
+		await untilRendered(
+			() => app.host.log.puts.some((put) => put.path === `drafts/${id}.md`),
+			'the first draft write',
+		);
+		type(app.composer(), 'Newest');
+		const idle = app.folder.idle();
+		const close = app.close();
+		gate.resolve();
+		await idle;
+		await close;
+		expect(app.host.text(`drafts/${id}.md`)).toContain('Newest');
 	} finally {
 		gate.resolve();
 	}

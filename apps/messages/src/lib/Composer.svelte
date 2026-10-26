@@ -18,11 +18,13 @@
 	const attempt = $derived(folder.tables.attempts.row(draftId));
 	async function saveReply(body: string) {
 		if (!folder.tables.drafts.row(draftId)) {
-			const saved = await folder.tables.drafts.create(draftId, {
+			const created = folder.tables.drafts.create(draftId, {
 				fields: { chatId, profile: backend.profile, mode: backend.mode },
 				body,
 			});
-			if (saved.error?.name !== 'Exists') return saved;
+			const updated = folder.tables.drafts.update(draftId, { body });
+			const result = await created;
+			return result.error === null || result.error.name === 'Exists' ? updated : result;
 		}
 		return folder.tables.drafts.update(draftId, { body });
 	}
