@@ -21,6 +21,7 @@
 	async function close() {
 		closeProblem = '';
 		const value = raw.value;
+		// Closing reads the saved row, so the typed text must have landed.
 		if ((await raw.land()).error || entries.repair.open !== id || raw.value !== value) return;
 		if (entries.repair.close(value)) return;
 		const row = folder.tables.entries.row(id);
@@ -32,7 +33,7 @@
 </script>
 
 <section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
-	<p><code>{path}</code> {problems ? 'is not a valid word, so its note and stage cannot be shown.' : 'reads as a word in this editor and appears as one after saving.'} Changes are saved shortly after you type.</p>
+	<p><code>{path}</code> {problems ? 'is not a valid word, so its note and stage cannot be shown.' : 'reads as a word in this editor and appears as one after saving.'} Changes save as you type.</p>
 	<Textarea class="min-h-32 font-mono text-xs" aria-label="File text for {path}" bind:value={raw.value} oninput={() => closeProblem = ''} />
 	<UnsavedEdit draft={raw} />
 	{#if file?.readError}

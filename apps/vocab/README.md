@@ -12,9 +12,9 @@ Choose one to three saved expressions to start a chat. Vocab saves the focus bef
 
 ### Editing a word
 
-Each word card edits its note and stage directly. The note has one local draft per mounted card and saves after a short pause. A stage press saves immediately. Each update sets only its named field over the file as it is when that write takes its turn, so unnamed fields and the Markdown body survive. A lone surrogate in a note becomes U+FFFD. The visible note follows what was typed until that save answers, then follows the file again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
+Each word card edits its note and stage directly. The note has one local draft per mounted card, and each change enters the folder's write queue as it is typed. A stage press saves immediately. Each update sets only its named field over the file as it is when that write takes its turn, so unnamed fields and the Markdown body survive. A lone surrogate in a note becomes U+FFFD. The visible note follows what was typed until that save answers, then follows the file again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
 
-Deleting a word asks first, then removes its path. A failed deletion shows an error toast. The header says Saving… while a write is outstanding and On this device otherwise. A note draft can still be waiting for its short pause when the header says On this device.
+Deleting a word asks first, then removes its path. A failed deletion shows an error toast. The header says Saving… while a write is outstanding and On this device otherwise.
 
 ### Repair as text
 
