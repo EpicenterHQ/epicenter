@@ -8,11 +8,7 @@ import { toast } from '@epicenter/ui/sonner';
 import type { Captures } from './captures.svelte.js';
 
 /** Ask before deleting the capture at `stem`; the delete acts on the file as stored when it runs. */
-export function confirmDelete(
-	captures: Captures,
-	stem: string,
-	onDeleted?: () => void,
-) {
+export function confirmDelete(captures: Captures, stem: string) {
 	const deletion = captures.deletionFor(stem);
 	const named = deletion.title ? `“${deletion.title}” ` : 'This capture ';
 	confirmationDialog.open({
@@ -25,7 +21,7 @@ export function confirmDelete(
 			variant: 'destructive',
 		},
 		onConfirm: async () => {
-			const deleted = await captures.delete(deletion, onDeleted);
+			const deleted = await captures.delete(deletion);
 			if (deleted.error !== null)
 				toast.error('Could not delete this capture', {
 					description: deleted.error.message,

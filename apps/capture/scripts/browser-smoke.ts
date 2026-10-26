@@ -96,8 +96,7 @@ const errors: string[] = [];
 
 async function saved(page: Page) {
 	try {
-		// Wait through the draft debounce before checking that folder writes are idle.
-		await page.waitForTimeout(1100);
+		// The header returns to idle after queued writes answer.
 		await page
 			.locator('header [role="status"]')
 			.filter({ hasText: /^On this device$/ })

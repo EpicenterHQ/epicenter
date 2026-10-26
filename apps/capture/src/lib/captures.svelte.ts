@@ -228,12 +228,8 @@ export function createCaptures(folder: CaptureFolder) {
 				draft: reading?.draft ?? false,
 			};
 		},
-		async delete(
-			deletion: Deletion,
-			onDeleted?: () => void,
-		): Promise<Result<void, WriteError>> {
+		async delete(deletion: Deletion): Promise<Result<void, WriteError>> {
 			const deleted = await folder.tables.captures.delete(deletion.stem);
-			if (deleted.error === null) onDeleted?.();
 			if (deleted.error === null && opened?.stem === deletion.stem) {
 				++navigation;
 				opened = undefined;
