@@ -17,6 +17,11 @@ export const WriteRefusal = defineErrors({
 		message: `There is no readable file at ${path} to update`,
 		path,
 	}),
+	/** A move found no source file. */
+	NothingToMove: ({ path }: { path: string }) => ({
+		message: `There is no file at ${path} to move`,
+		path,
+	}),
 	/** The folder is closing or closed and takes no new writes. */
 	Closed: () => ({ message: 'The folder is closed' }),
 });

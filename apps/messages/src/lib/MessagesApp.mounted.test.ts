@@ -81,7 +81,15 @@ async function setup() {
 		() => target.textContent?.includes('Maya Chen') === true,
 		'conversations',
 	);
-	return { host, folder, target, conversation, composer, open, close: () => opened.close() };
+	return {
+		host,
+		folder,
+		target,
+		conversation,
+		composer,
+		open,
+		close: () => opened.close(),
+	};
 }
 
 test('a preview follows saved input and disappears when the draft is emptied', async () => {

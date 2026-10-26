@@ -74,7 +74,7 @@ export type Folder<T extends Tables = Tables> = {
 	file(path: string): FolderFile | undefined;
 	/** Whether a write is waiting or being saved. */
 	saving(): boolean;
-	/** Wait until every turn queued before this call, including immediate edits, has finished. */
+	/** Wait until the queue is quiet, including turns added while waiting. */
 	idle(): Promise<void>;
 	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
@@ -299,8 +299,9 @@ export async function createFolder<const T extends Tables>(
 	async function rereadAfterChanged(path: string) {
 		const results = await host
 			.read([path])
-			.catch((cause: unknown) =>
-				new Map([[path, ReadError.StorageFailed({ cause })]]),
+			.catch(
+				(cause: unknown) =>
+					new Map([[path, ReadError.StorageFailed({ cause })]]),
 			);
 		const fresh = results.get(path);
 		if (fresh !== undefined) {
@@ -448,21 +449,28 @@ export async function createFolder<const T extends Tables>(
 			return SaveError.StorageFailed({ cause: fresh.error });
 		applyRead(from, fresh);
 		publish();
-		if (fresh.data === null)
-			return WriteRefusal.NothingToUpdate({ path: from });
+		if (fresh.data === null) return WriteRefusal.NothingToMove({ path: from });
 		const bytes = fresh.data.bytes;
 		const copied = await host.put(to, bytes, 'absent');
 		if (copied.error?.name === 'Changed') {
 			const destination = await rereadAfterChanged(to);
-			if (destination === undefined || destination.error !== null || destination.data === null || !sameData(destination.data.bytes, bytes))
+			if (
+				destination === undefined ||
+				destination.error !== null ||
+				destination.data === null ||
+				!sameData(destination.data.bytes, bytes)
+			)
 				return WriteRefusal.Exists({ path: to });
-		}
-		else if (copied.error !== null) return Err(copied.error);
+		} else if (copied.error !== null) return Err(copied.error);
 		else landedPut(to, bytes, copied.data?.stamp ?? null);
 		const removed = await host.put(from, null, bytes);
 		if (removed.error !== null) {
 			const source = await rereadAfterChanged(from);
-			if (removed.error.name === 'Changed' && source?.error === null && source.data === null)
+			if (
+				removed.error.name === 'Changed' &&
+				source?.error === null &&
+				source.data === null
+			)
 				return Ok(undefined);
 			return SaveError.MoveIncomplete({ from, to, cause: removed.error });
 		}
@@ -529,7 +537,12 @@ export async function createFolder<const T extends Tables>(
 		if (put.error?.name === 'Changed') {
 			if (op.kind === 'create') {
 				const current = await rereadAfterChanged(path);
-				if (current?.error === null && current.data !== null && sent !== null && sameData(current.data.bytes, sent))
+				if (
+					current?.error === null &&
+					current.data !== null &&
+					sent !== null &&
+					sameData(current.data.bytes, sent)
+				)
 					return Ok(undefined);
 				return WriteRefusal.Exists({ path });
 			}

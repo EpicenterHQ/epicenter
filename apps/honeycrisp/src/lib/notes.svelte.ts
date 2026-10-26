@@ -237,7 +237,7 @@ export function createNotes(folder: NotesFolder) {
 		// State read reactively
 		// ------------------------------------------------------------------
 
-		/** Draft input enters the folder queue immediately. */
+		/** Typed input enters the folder queue immediately. */
 		get saves() {
 			return saveLine(folder.saving);
 		},

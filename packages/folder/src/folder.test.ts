@@ -613,7 +613,12 @@ describe('ordered writes with waiting path merge', () => {
 				: result;
 		};
 		const folder = expectOk(await createFolder(memory.storage, { tables }));
-		expectOk(await folder.tables.notes.create('a', { fields: { title: 'A' }, body: 'Saved' }));
+		expectOk(
+			await folder.tables.notes.create('a', {
+				fields: { title: 'A' },
+				body: 'Saved',
+			}),
+		);
 		expect(folder.tables.notes.row('a')?.body).toBe('Saved');
 		expect(memory.text('notes/a.md')).toContain('Saved');
 	});
@@ -623,9 +628,7 @@ describe('ordered writes with waiting path merge', () => {
 		const put = memory.storage.put;
 		memory.storage.put = async (path, bytes, expected) => {
 			const result = await put(path, bytes, expected);
-			return result.error === null
-				? SaveError.Changed({ path })
-				: result;
+			return result.error === null ? SaveError.Changed({ path }) : result;
 		};
 		const folder = expectOk(await createFolder(memory.storage, { tables }));
 		expectOk(await folder.move('from.txt', 'to.txt'));
@@ -633,6 +636,13 @@ describe('ordered writes with waiting path merge', () => {
 		expect(folder.file('to.txt')?.data).toBe('Moved');
 		expect(memory.text('from.txt')).toBeUndefined();
 		expect(memory.text('to.txt')).toBe('Moved');
+	});
+
+	test('move from a missing source explains what could not move', async () => {
+		const { folder } = await setup();
+		const error = expectErr(await folder.move('missing.txt', 'target.txt'));
+		expect(error.name).toBe('NothingToMove');
+		expect(error.message).toBe('There is no file at missing.txt to move');
 	});
 
 	test('no-op patch writes nothing; changed patch canonicalizes and removes undefined', async () => {
