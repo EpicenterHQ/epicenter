@@ -2,6 +2,7 @@
 	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
 	import { createInferenceCatalog } from '@epicenter/ai/picker';
 	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
+	import { saveLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { toast } from '@epicenter/ui/sonner';
@@ -99,7 +100,7 @@
 	<header class="contents md:flex md:items-center md:gap-2 md:border-b md:px-4 md:py-2">
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
 			<h1 class="text-lg font-semibold">Vocab</h1>
-			<span class="text-xs text-muted-foreground" role="status">{folder.saving ? 'Saving…' : 'Saved'}</span>
+			<span class="text-xs text-muted-foreground" role="status">{saveLine(folder.saving).label}</span>
 			<div class="flex items-center gap-1 md:order-last md:ml-auto"><LightSwitch variant="ghost" /><AccountMenu /></div>
 		</div>
 		<!--

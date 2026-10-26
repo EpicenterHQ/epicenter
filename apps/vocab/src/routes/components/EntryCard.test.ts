@@ -1,6 +1,7 @@
-import { createMemory, until } from '../../lib/folder.test-support.js';
+import { createMemory } from '../../lib/folder.test-support.js';
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, spyOn, test } from 'bun:test';
+import { until } from '@epicenter/folder/testing';
 import { expectOk } from 'wellcrafted/testing';
 import {
 	click,
@@ -64,7 +65,7 @@ test('note draft stays visible until save and then follows the row', async () =>
 	await until(() => {
 		const row = context.folder.tables.entries.row(context.id);
 		return row?.issues === null && row.fields.note === 'clear';
-	}, 'note save');
+	}, { timeout: 4000 });
 	flushSync();
 	expect(note.value).toBe('clear');
 	await context.close();
@@ -76,12 +77,12 @@ test('typing again during a note save keeps the newer value', async () => {
 	context.host.control.putGate = gate.promise;
 	const note = noteOf(context.target);
 	type(note, 'first');
-	await until(() => context.folder.saving, 'first note save');
+	await until(() => context.folder.saving, { timeout: 4000 });
 	type(note, 'second');
 	flushSync();
 	expect(note.value).toBe('second');
 	gate.resolve();
-	await until(() => context.folder.tables.entries.row(context.id)?.fields?.note === 'second', 'second note save');
+	await until(() => context.folder.tables.entries.row(context.id)?.fields?.note === 'second', { timeout: 4000 });
 	flushSync();
 	expect(note.value).toBe('second');
 	expect(context.folder.tables.entries.row(context.id)?.fields?.note).toBe('second');
@@ -98,7 +99,7 @@ test('a failed note keeps its typed text and can retry or discard', async () => 
 	});
 	const note = noteOf(context.target);
 	type(note, 'failed text');
-	await until(() => context.target.textContent?.includes('Not saved:') ?? false, 'failed save report');
+	await until(() => context.target.textContent?.includes('Not saved:') ?? false, { timeout: 4000 });
 	flushSync();
 	expect(note.value).toBe('failed text');
 	expect(context.target.textContent).toContain('Not saved:');
@@ -107,7 +108,7 @@ test('a failed note keeps its typed text and can retry or discard', async () => 
 	expect(row?.issues === null && row.fields.note).toBe('');
 	context.host.control.failPut.delete(path);
 	click(context.target, 'Save again');
-	await until(() => context.folder.tables.entries.row(context.id)?.fields?.note === 'failed text', 'retried note save');
+	await until(() => context.folder.tables.entries.row(context.id)?.fields?.note === 'failed text', { timeout: 4000 });
 	flushSync();
 	expect(context.target.textContent).not.toContain('Not saved:');
 	context.host.control.failPut.set(path, {
@@ -119,7 +120,7 @@ test('a failed note keeps its typed text and can retry or discard', async () => 
 	await until(() => {
 		flushSync();
 		return context.target.textContent?.includes('Not saved:') ?? false;
-	}, 'second failed save');
+	}, { timeout: 4000 });
 	flushSync();
 	expect(note.value).toBe('another attempt');
 	click(context.target, 'Discard');
@@ -141,7 +142,7 @@ test('note and stage updates merge over one path', async () => {
 			row.fields.stage === 'understood' &&
 			row.fields.note === 'new note'
 		);
-	}, 'merged updates');
+	}, { timeout: 4000 });
 	await context.close();
 });
 
@@ -156,7 +157,7 @@ test('failed stage and delete commands show their errors', async () => {
 	const errorToast = spyOn(toast, 'error');
 	try {
 		click(context.target, 'Understand');
-		await until(() => errorToast.mock.calls.length === 1, 'stage error');
+		await until(() => errorToast.mock.calls.length === 1, { timeout: 4000 });
 		expect(errorToast.mock.calls[0]?.[0]).toBe('The stage was not saved');
 		click(context.target, 'Delete');
 		await confirmationDialog.confirm();
