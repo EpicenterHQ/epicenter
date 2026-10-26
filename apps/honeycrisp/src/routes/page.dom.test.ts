@@ -14,7 +14,7 @@ import { button, type } from '../../../../packages/svelte/src/svelte-dom.test-su
 import { honeycrispTables } from '../lib/data.js';
 
 // SAFETY: jsdom has no layout; the empty list supplies only the geometry these tests need.
-Range.prototype.getClientRects ??= () => ({ length: 0, item: () => null }) as DOMRectList;
+Range.prototype.getClientRects ??= () => ({ length: 0, item: () => null, [Symbol.iterator]: function* () {} }) as DOMRectList;
 // SAFETY: jsdom has no layout; this rectangle stands for an unmeasured range.
 Range.prototype.getBoundingClientRect ??= () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) as DOMRect;
 const { flushSync, mount, unmount } = await import('svelte');
