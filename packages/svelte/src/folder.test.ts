@@ -600,7 +600,14 @@ test('failed desktop close registration refuses the folder and retry opens a fre
 	nativeWindow.refuseRegistration = true;
 	const view = mount(OpenFolderHost, {
 		target,
-		props: { open: () => Promise.resolve(Ok(folders[openings++]!)), edit: true },
+		props: {
+			open: () => {
+				const folder = folders[openings++];
+				if (!folder) throw new Error('No folder prepared for retry');
+				return Promise.resolve(Ok(folder));
+			},
+			edit: true,
+		},
 	});
 	try {
 		await until(() => target.textContent?.includes('Could not protect changes') ?? false);
