@@ -1,34 +1,99 @@
 /**
- * `@epicenter/folder/browser`: this origin's default local folder, and
- * nothing else.
- *
- * `openFolder({ tables })` opens the one local folder of this web origin, kept
- * in IndexedDB under a fixed internal key (ADR-0636). A build that imports
- * this entry, or aliases the bare specifier to it, carries no desktop engine.
- * Inside the desktop app the opener refuses: that page's folders are
- * directories the shell owns.
- *
- * Importing this module opens nothing.
+ * `@epicenter/folder/browser`: this web origin's default local folder,
+ * kept in IndexedDB as a Git working tree. A blob's oid is both its content
+ * version and its change stamp, and other tabs' saves arrive as hints.
  */
 import { isTauri } from '@tauri-apps/api/core';
-import type { TSchema as Schema } from 'typebox';
-import type { Result } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
+import { openRepository } from './browser/repository.js';
+import { snapshotContent } from './browser/storage.js';
 import { OpenFolderError } from './errors.js';
-import type { DefaultFolderOptions, Folder } from './folder.js';
-import { openLocalFolder } from './local-folder.js';
+import { ReadError } from './shared/errors.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
+import type { Fetched, FolderHost } from './storage.js';
 
 export * from './contract.js';
 
-/**
- * Open this origin's default local folder. Refusals are returned, not
- * thrown: a page inside the desktop app, a table that cannot be one
- * top-level directory or missing IndexedDB. Earlier OPFS folders are not
- * read or changed by this opener.
- */
-export async function openFolder<const TTables extends Record<string, Schema>>(
-	options: DefaultFolderOptions<TTables>,
-): Promise<Result<Folder<TTables>, OpenFolderError>> {
+/** The same fixed key as the browser's default folder, so its files carry over. */
+const DEFAULT_KEY = 'default';
+
+export async function openFolder<const T extends Tables>(
+	options: OpenOptions<T>,
+): Opened<T> {
+	// The desktop app opens its window's directory through the Tauri entry.
 	if (isTauri()) return OpenFolderError.InsideTauri();
-	if (options.directory !== undefined) return OpenFolderError.NotTauri();
-	return openLocalFolder(options);
+	if (typeof indexedDB === 'undefined')
+		return OpenFolderError.Unavailable({
+			cause: new Error('IndexedDB is not available in this page'),
+		});
+	let repository: Awaited<ReturnType<typeof openRepository>>;
+	try {
+		repository = await openRepository(DEFAULT_KEY);
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+	return createFolder(repositoryHost(repository), options);
+}
+
+function repositoryHost(
+	repository: Awaited<ReturnType<typeof openRepository>>,
+): FolderHost {
+	const { storage } = repository;
+	return {
+		async list() {
+			try {
+				// An empty scope walks every tree and loads no blob.
+				const snapshot = await storage.capture([]);
+				const listed = new Map<string, { stamp: string }>();
+				for (const [path, entry] of snapshot.files)
+					if (entry.mode !== '160000') listed.set(path, { stamp: entry.oid });
+				return Ok(listed);
+			} catch (cause) {
+				return ReadError.StorageFailed({ cause });
+			}
+		},
+		async read(paths) {
+			try {
+				const snapshot = await storage.capture(paths);
+				return new Map(
+					paths.map((path) => {
+						const entry = snapshot.files.get(path);
+						const bytes = snapshotContent(snapshot, path);
+						const fetched: Fetched =
+							entry === undefined || bytes === null
+								? null
+								: {
+										bytes: bytes.slice(),
+										version: entry.oid,
+										stamp: entry.oid,
+									};
+						return [path, Ok(fetched)];
+					}),
+				);
+			} catch (cause) {
+				const failed = ReadError.StorageFailed({ cause });
+				return new Map(paths.map((path) => [path, failed]));
+			}
+		},
+		async put(path, bytes) {
+			const { data, error } = await repository.put(path, bytes);
+			if (error !== null) return { data: null, error };
+			const { landed } = data;
+			return Ok(
+				landed === null
+					? null
+					: { version: landed.version, stamp: landed.version },
+			);
+		},
+		hints: (listener) =>
+			repository.onChange(({ paths, origin }) => {
+				if (origin === 'other-handle') listener(paths);
+			}),
+		close: repository.close,
+	};
 }

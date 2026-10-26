@@ -4,7 +4,7 @@
  * and so the folder copy, as it was.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { SaveError } from '../shared/errors.js';
+import type { SaveError } from './shared/errors.js';
 
 export const WriteRefusal = defineErrors({
 	/** A create found a file already there. */

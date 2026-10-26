@@ -3,10 +3,10 @@
  * versions, and lands unconditional puts. Hints prompt another look.
  */
 import { Ok, type Result } from 'wellcrafted/result';
-import type { FolderStorage } from '../boundary.js';
-import { hashBytes } from '../hash.js';
-import type { FolderWatch } from '../native/watch.js';
-import { ReadError, SaveError } from '../shared/errors.js';
+import type { FolderStorage } from './boundary.js';
+import { hashBytes } from './hash.js';
+import type { FolderWatch } from './native/watch.js';
+import { ReadError, SaveError } from './shared/errors.js';
 
 export type Listed = { readonly stamp: string };
 

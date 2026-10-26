@@ -1,17 +1,73 @@
 /**
- * `@epicenter/folder/tauri`: the directory the desktop shell bound to this
- * window, and nothing else.
- *
- * `openFolder({ tables })` opens it; the page names no path, scope, or
- * window. The handle reads and saves its files through the shell's storage
- * commands (`native/tauri.ts`), each answered in the calling window's
- * directory. A build that imports this entry, or aliases the bare specifier
- * to it, carries no browser storage. Outside the desktop app the opener
- * refuses; it never opens browser storage instead.
- *
- * The shell installs the `tauri-plugin-epicenter-folder` crate and binds
- * each window's directory before the window exists. Importing this module
- * does none of that and opens nothing.
+ * `@epicenter/folder/tauri`: open the directory the desktop shell bound
+ * to this window. The shell answers each storage command, and its watcher
+ * sends the paths that changed.
  */
+import { isTauri } from '@tauri-apps/api/core';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { hostStorage } from './boundary.js';
+import { OpenFolderError } from './errors.js';
+import { commands, events } from './native/bindings.gen.js';
+import { openRefusal } from './native/open-refusal.js';
+import { tauriHostFiles } from './tauri-files.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
+import { storageHost } from './storage.js';
+
 export * from './contract.js';
-export { openTauriFolder as openFolder } from './native/tauri.js';
+
+export async function openFolder<const T extends Tables>(
+	options: OpenOptions<T>,
+): Opened<T> {
+	if (!isTauri()) return OpenFolderError.NotTauri();
+	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
+	try {
+		opened = await commands.openFolder();
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+	if (opened.error !== null) {
+		const { error } = opened;
+		// Tauri also rejects with strings for missing commands or permissions;
+		// only an object with a name is the shell's own refusal.
+		if (typeof error !== 'object' || error === null || !('name' in error))
+			return OpenFolderError.Unavailable({ cause: error });
+		return openRefusal(error);
+	}
+	const listeners = new Set<(paths: readonly string[] | null) => void>();
+	let stop: () => void;
+	try {
+		stop = await events
+			.folderChanged(getCurrentWebview())
+			.listen(({ payload }) => {
+				const paths: unknown =
+					typeof payload === 'object' && payload !== null
+						? payload.paths
+						: undefined;
+				const named =
+					Array.isArray(paths) &&
+					paths.every((path) => typeof path === 'string')
+						? paths
+						: null;
+				for (const listener of listeners) listener(named);
+			});
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+	return createFolder(
+		storageHost(hostStorage(tauriHostFiles()), {
+			watch(listener) {
+				listeners.add(listener);
+				return () => {
+					listeners.delete(listener);
+					if (listeners.size === 0) stop();
+				};
+			},
+		}),
+		options,
+	);
+}

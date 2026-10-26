@@ -12,10 +12,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
-import { nodeDirectoryPrimitives } from '../directory-node.js';
-import { createDirectoryStorage } from '../directory-store.js';
-import { scratchDirectory } from '../native/directory.js';
-import { watchDirectory } from '../native/watch.js';
+import { nodeDirectoryPrimitives } from './directory-node.js';
+import { createDirectoryStorage } from './directory-store.js';
+import { scratchDirectory } from './native/directory.js';
+import { watchDirectory } from './native/watch.js';
 import { createFolder } from './folder.js';
 import { storageHost } from './storage.js';
 

@@ -15,7 +15,7 @@ import {
 	formatRowSource,
 	parseRowSource,
 	sameValue,
-} from '../shared/content/canonical.js';
+} from './shared/content/canonical.js';
 
 export type RowPatch = {
 	readonly fields?: Readonly<Record<string, unknown>>;

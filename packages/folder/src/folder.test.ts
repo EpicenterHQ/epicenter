@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { SaveError } from '../shared/errors.js';
+import { SaveError } from './shared/errors.js';
 import { createFolder, readRow } from './folder.js';
 import { memoryHost, tick } from './testing.js';
 

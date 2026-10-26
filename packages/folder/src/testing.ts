@@ -1,14 +1,15 @@
 /**
- * `@epicenter/folder/next/testing`: a folder over memory, for tests of the
+ * `@epicenter/folder/testing`: a folder over memory, for tests of the
  * folder and of what is built on it. `memoryHost` is a `FolderHost` a test
  * can write behind, delay, and break.
  */
 import { Err, Ok } from 'wellcrafted/result';
-import { ReadError, type SaveError } from '../shared/errors.js';
+import { ReadError, type SaveError } from './shared/errors.js';
 import type { Fetched, FolderHost, Listed } from './storage.js';
 
-export { ReadError, SaveError } from '../shared/errors.js';
-export { WriteRefusal } from './errors.js';
+export { OpenFolderError } from './errors.js';
+export { ReadError, SaveError } from './shared/errors.js';
+export { WriteRefusal } from './write-refusal.js';
 export { createFolder } from './folder.js';
 
 const encoder = new TextEncoder();

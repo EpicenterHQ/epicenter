@@ -1,28 +1,18 @@
-/**
- * The folder contract: everything an application names besides the opener.
- *
- * `@epicenter/folder`, `/browser`, `/tauri`, and `/bun` all export this
- * module unchanged, so code written against one entry type-checks against the
- * others, and an explicit entry never pulls the automatic selector into its
- * graph.
- *
- * This module is inert. Importing it opens nothing and loads no storage and
- * no runtime-specific module.
- */
-export { OpenFolderError } from './errors.js';
+/** The folder copy's public types, and its pure row reader. Open through a platform entry. */
+export type { OpenFolderError } from './errors.js';
+export type { ReadError } from './shared/errors.js';
+export type { WriteError } from './write-refusal.js';
 export type {
-	DefaultFolderOptions,
-	DirectoryFolderOptions,
-	FileContent,
+	Data,
 	Folder,
-	FolderChange,
-	FolderFiles,
-	FolderStatus,
-	FolderTable,
-	FolderTables,
-	Issue,
-	OpenFolder,
+	FolderFile,
+	Opened,
+	OpenOptions,
+	Patch,
 	Row,
-	RowChange,
+	RowIssue,
+	Saved,
+	Table,
+	Tables,
 } from './folder.js';
-export { ReadError, SaveError } from './shared/errors.js';
+export { type RowReading, readRow } from './folder.js';

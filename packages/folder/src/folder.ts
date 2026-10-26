@@ -1,214 +1,669 @@
 /**
- * The public `Folder`: one opened, rooted set of local file paths and their
- * contents (ADR-0636). Every entry's `openFolder` returns it, whichever
- * engine holds the files: the browser's default local folder in IndexedDB
- * (`local-folder.ts`), or an ordinary directory in Bun or the desktop app
- * (`native/`).
- *
- * The handle exposes rooted `files`, table views that interpret Markdown rows
- * through the caller's schemas, one editable text document per path (`document`,
- * owned by the folder for its whole life, `document-owner.ts`), change notification,
- * local-save status with held input, `flush`, and `close`. A schema only
- * interprets (ADR-0632). A row that does not fit still comes back with its
- * exact source, its raw fields, and the issues, and a save never validates
- * against the schema, so unknown fields survive. Malformed source stays
- * readable for full-text repair.
- *
- * Writes are unconditional: a file write replaces whatever is there, a
- * delete removes it, and the last to land wins. A document save publishes text
- * captured at its call. A row write publishes a complete document without
- * retaining failed publication as input. Document reads and all writes and
- * deletes of a path share one I/O slot in call order. Raw file reads and table
- * list/get calls read storage directly.
- *
- * Opening authenticates nothing, selects no remote, creates no Git history,
- * and writes no schema file (ADR-0633).
- *
- * A storage call on a released handle throws: it is a programming error, not a
- * storage failure. Held input stays readable through `getStatus` and the
- * editors. Failures that storage reports come back as `ReadError` and
- * `SaveError` results. A lost reply may follow a completed write, so failure
- * means publication could not be confirmed; accepted editor input stays held.
+ * The folder shows what landed; a draft holds what was typed until it lands.
+ * Opening reads listed text files. Reads and writes take turns in one queue, so
+ * an update composes over the copy as it stands at its turn. The copy changes
+ * only after a put lands or a read observes another writer.
  */
-import type { TSchema as Schema } from 'typebox';
-import type { Result } from 'wellcrafted/result';
-import type {
-	AnyFieldsSchema,
-	SaveFailure,
-	TextDocument,
-} from './document-owner.js';
-import type { OpenFolderError } from './errors.js';
-import type { ReadError, SaveError } from './shared/errors.js';
-import type { MarkdownValue } from './shared/markdown-codec.js';
-import type { FileContent } from './shared/merge.js';
-import type { Issue, Row, RowChange } from './shared/row.js';
+import type { TSchema as Schema, Static } from 'typebox';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { OpenFolderError } from './errors.js';
+import { invalidTable } from './paths.js';
+import { ReadError, SaveError } from './shared/errors.js';
+import {
+	type Issue as MarkdownIssue,
+	readMarkdown,
+} from './shared/markdown-codec.js';
+import { type WriteError, WriteRefusal } from './write-refusal.js';
+import { applyPatch, declaredKeysOf, type RowPatch } from './patch.js';
+import type { Fetched, FolderHost, Listed } from './storage.js';
 
-export type { FileContent, Issue, ReadError, Row, RowChange, SaveError };
+/** A file's contents: text when the bytes are UTF-8, bytes otherwise. */
+export type Data = string | Uint8Array;
 
-/** A committed change to file contents, from this handle or from another. */
-export type FolderChange = {
-	/** The paths written, or `null` when any path may differ. */
-	readonly paths: readonly string[] | null;
-	readonly origin: 'this-handle' | 'other-handle';
+/** One listed file, as it is on disk. */
+export type FolderFile = {
+	readonly path: string;
+	readonly mime: string;
+	/**
+	 * What is on disk: text, or bytes when a kept file is not UTF-8.
+	 * `undefined` for a file the folder copy does not keep (see `read`), and for a
+	 * kept file whose read failed (see `readError`).
+	 */
+	readonly data: Data | undefined;
+	/** The latest read of this file failed; `data` keeps what was read before, if anything. */
+	readonly readError: ReadError | null;
 };
-
-/**
- * What the handle can truthfully say about saving, held input included. A
- * save counts as saved only after storage committed it. `storageFailure` is
- * the last storage failure, cleared by a later successful write on this
- * handle.
- */
-export type FolderStatus = {
-	/** A write or delete admitted on this handle and not yet settled. */
-	readonly saving: boolean;
-	/** Paths with a write or delete admitted and not yet settled. Sorted; observing reads no files. */
-	readonly savingPaths: readonly string[];
-	readonly storageFailure: Extract<SaveError, { name: 'StorageFailed' }> | null;
-	/** The paths with pending local drafts. Sorted. */
-	readonly unsaved: readonly string[];
-	/** Pending drafts whose document publication failed, hidden while that exact draft retries. */
-	readonly failures: readonly SaveFailure[];
-	/** Whether `close` was called: no input, action, or listener is taken from then on. */
-	readonly closing: boolean;
+export type RowIssue =
+	| MarkdownIssue
+	| {
+			readonly kind: 'unreadable';
+			readonly message: string;
+			readonly path: readonly [];
+			readonly error: ReadError;
+	  };
+/** A row as it is on disk: valid, or with the issues that keep it from reading as one. */
+export type Row<S extends Schema = Schema> = {
+	readonly id: string;
+	readonly path: string;
+} & (
+	| {
+			readonly fields: Static<S>;
+			readonly body: string;
+			readonly issues: null;
+	  }
+	| {
+			/** Raw frontmatter when it parsed but failed the schema. */
+			readonly fields: Record<string, unknown> | undefined;
+			readonly body: string | undefined;
+			readonly issues: readonly [RowIssue, ...RowIssue[]];
+	  }
+);
+/** Fields and the body to set on a row's file as it is when the save runs; a field set to `undefined` is removed. */
+export type Patch<S extends Schema = Schema> = {
+	readonly fields?: Partial<Static<S>>;
+	readonly body?: string;
 };
+/** Answers once the write landed and the folder copy shows it, or why it did not land. */
+export type Saved = Promise<Result<void, WriteError>>;
+/** A folder's tables: each key is a top-level directory of `<id>.md` rows read through its schema. */
+export type Tables = Record<string, Schema>;
 
-/** What every engine stores files through; `FolderFiles` adds editors over them. */
-export type FolderFileOperations = {
-	/** Paths under `prefix`, relative to the root, sorted. */
-	list(prefix?: string): Promise<Result<string[], ReadError>>;
-	/** The file at `path`, or `undefined` when none exists. */
-	read(
+export type Table<S extends Schema = Schema> = {
+	/** Every row, sorted by id; an unchanged row keeps its object, and `row(id)` answers the same objects. */
+	rows(): readonly Row<S>[];
+	row(id: string): Row<S> | undefined;
+	/** Make the row's file; refuses with `Exists` when a file is there. */
+	create(id: string, init: { fields: Static<S>; body?: string }): Saved;
+	/** Set what `patch` names on the row's file as it is when the save runs. */
+	update(id: string, patch: Patch<S>): Saved;
+	delete(id: string): Saved;
+};
+export type Folder<T extends Tables = Tables> = {
+	/** One notice after each change to what the folder shows. Answers unsubscribe. */
+	subscribe(onChange: () => void): () => void;
+	/** Every listed file, sorted by path; an unchanged file keeps its object. */
+	files(): readonly FolderFile[];
+	file(path: string): FolderFile | undefined;
+	/** Whether a write is waiting or being saved. */
+	saving(): boolean;
+	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
+	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
+	/** Replace the whole file. */
+	write(path: string, data: Data): Saved;
+	/** Set fields and the body on a Markdown file at any path; `schema` orders its declared keys first. */
+	update(
 		path: string,
-	): Promise<Result<{ path: string; content: Blob } | undefined, ReadError>>;
-	/**
-	 * Replace whatever is at `path` with `content`, or make the file. Pass
-	 * bytes for binary files or to retain a byte-order mark.
-	 */
-	write(path: string, content: FileContent): Promise<Result<void, SaveError>>;
-	/** Remove the file at `path`. A file that is not there is already gone. */
-	delete(path: string): Promise<Result<void, SaveError>>;
+		patch: { fields?: Record<string, unknown>; body?: string },
+		options?: { schema?: Schema },
+	): Saved;
+	delete(path: string): Saved;
+	readonly tables: { readonly [K in keyof T]: Table<T[K]> };
+	/** Relist and read files that moved. */
+	refresh(): Promise<void>;
+	/** Refuse new writes, drain queued work, then release storage. */
+	close(): Promise<void>;
 };
 
-export type FolderFiles = FolderFileOperations & {
-	/**
-	 * The shared working text of `path`. Every caller of the same path gets
-	 * the same object. Acquisition reads nothing and
-	 * subscribes to nothing; input lives with the folder, not a component.
-	 * Throws RangeError for a structurally invalid path, before acquiring state.
-	 */
-	document<TSchema extends Schema = AnyFieldsSchema>(
-		path: string,
-	): TextDocument<TSchema>;
+export type OpenOptions<T extends Tables> = {
+	/** Each key is a top-level directory of `<id>.md` rows read through its schema. */
+	readonly tables: T;
+};
+export type Opened<T extends Tables> = Promise<
+	Result<Folder<T>, OpenFolderError>
+>;
+
+type Entry = {
+	value: FolderFile;
+	version: string | null;
+	stamp: string | undefined;
+};
+type Op =
+	| { kind: 'write'; data: Data | null }
+	| { kind: 'create' | 'update'; patch: RowPatch; keys: readonly string[] };
+type Projector = {
+	set(path: string, value: FolderFile | undefined): void;
+	finish(): void;
 };
 
-/** What every engine stores a table's rows through; `FolderTable` adds editors over them. */
-export type FolderTableOperations<TSchema extends Schema = Schema> = {
-	/** Stored rows with source, fields and issues; acquires no working documents. */
-	list(): Promise<Result<Row<TSchema>[], ReadError>>;
-	/** Read storage directly, independently of unsaved or retained working content. */
-	get(id: string): Promise<Result<Row<TSchema> | undefined, ReadError>>;
-	/**
-	 * Publish a complete row from fields and body, making or replacing its file.
-	 * Omitted fields and body are empty; id must be nonempty. No create-only or conflict guard.
-	 * Failure accepts no pending autosave input. Answers the exact stored row.
-	 */
-	write(
-		id: string,
-		change: RowChange,
-	): Promise<Result<Row<TSchema>, SaveError>>;
+const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+const encoder = new TextEncoder();
+const keptExtensions = new Set([
+	'md',
+	'markdown',
+	'txt',
+	'json',
+	'jsonl',
+	'yaml',
+	'yml',
+	'toml',
+	'csv',
+	'tsv',
+	'svg',
+	'html',
+	'htm',
+	'css',
+	'js',
+	'mjs',
+	'ts',
+	'xml',
+	'ini',
+	'log',
+]);
 
-	/**
-	 * Delete only the row file; a row that is not there is already gone.
-	 * Adjacent files remain accessible through `folder.files`.
-	 */
-	delete(id: string): Promise<Result<void, SaveError>>;
-};
+export async function createFolder<const T extends Tables>(
+	host: FolderHost,
+	{ tables }: OpenOptions<T>,
+): Opened<T> {
+	const invalid =
+		invalidTable(tables) ??
+		Object.keys(tables).find((name) => !name.isWellFormed());
+	if (invalid !== undefined) {
+		host.close?.();
+		return OpenFolderError.InvalidTable({ table: invalid });
+	}
+	const landed = new Map<string, Entry>();
+	const listeners = new Set<() => void>();
+	const dirtyProjectors = new Set<Projector>();
+	const projectorsByDirectory = new Map<string, Projector>();
+	let filesSnapshot: readonly FolderFile[] = [];
+	let filesDirty = false;
+	let changed = false;
+	let savingSnapshot = false;
+	let pendingWrites = 0;
+	let phase: 'open' | 'closing' | 'closed' = 'open';
+	let lastTurn = Promise.resolve();
+	let closing: Promise<void> | undefined;
+	const look = { queued: false, relist: false, paths: new Set<string>() };
 
-export type FolderTable<TSchema extends Schema = Schema> =
-	FolderTableOperations<TSchema> & {
-		/**
-		 * The shared document of row `id`, as `files.document` gives for its path.
-		 * Throws RangeError for an ID containing path separators or
-		 * otherwise structurally invalid; existing nonportable stems remain readable.
-		 */
-		document(id: string): TextDocument<TSchema>;
-		/** Interpret current or saved text with this table's schema, without I/O. */
-		parse(text: string): MarkdownValue<TSchema>;
+	function takeTurn<TValue>(work: () => Promise<TValue>): Promise<TValue> {
+		const next = lastTurn.then(work);
+		lastTurn = next.then(
+			() => {},
+			() => {},
+		);
+		return next;
+	}
+
+	function publish() {
+		const saving = pendingWrites > 0;
+		if (saving !== savingSnapshot) {
+			savingSnapshot = saving;
+			changed = true;
+		}
+		if (!changed) return;
+		changed = false;
+		if (filesDirty) {
+			filesDirty = false;
+			filesSnapshot = [...landed.values()]
+				.map((entry) => entry.value)
+				.sort((a, b) => compare(a.path, b.path));
+		}
+		for (const projector of dirtyProjectors) projector.finish();
+		dirtyProjectors.clear();
+		for (const listener of [...listeners]) listener();
+	}
+
+	function set(path: string, entry: Entry | undefined) {
+		const before = landed.get(path);
+		if (entry === undefined) {
+			if (before === undefined) return;
+			landed.delete(path);
+		} else {
+			if (before?.value === entry.value) {
+				landed.set(path, entry);
+				return;
+			}
+			landed.set(path, entry);
+		}
+		changed = true;
+		filesDirty = true;
+		const slash = path.indexOf('/');
+		if (slash !== -1) {
+			const projector = projectorsByDirectory.get(path.slice(0, slash));
+			if (projector !== undefined) {
+				projector.set(path, entry?.value);
+				dirtyProjectors.add(projector);
+			}
+		}
+	}
+
+	function applyRead(path: string, result: Result<Fetched, ReadError>) {
+		const before = landed.get(path);
+		if (result.error !== null) {
+			set(path, {
+				value: {
+					path,
+					mime: mimeOf(path),
+					data: before?.value.data,
+					readError: result.error,
+				},
+				version: before?.version ?? null,
+				stamp: before?.stamp,
+			});
+			return;
+		}
+		const fetched = result.data;
+		if (fetched === null) return set(path, undefined);
+		if (!holdsText(path)) {
+			if (before?.stamp === fetched.stamp && before.value.readError === null)
+				return;
+			return set(path, mediaEntry(path, fetched));
+		}
+		if (
+			before?.version === fetched.version &&
+			before.value.readError === null
+		) {
+			landed.set(path, { ...before, stamp: fetched.stamp });
+			return;
+		}
+		set(path, {
+			value: {
+				path,
+				mime: mimeOf(path),
+				data: decode(fetched.bytes),
+				readError: null,
+			},
+			version: fetched.version,
+			stamp: fetched.stamp,
+		});
+	}
+
+	async function readPaths(paths: readonly string[]) {
+		if (paths.length === 0 || phase === 'closed') return;
+		const results = await host
+			.read(paths)
+			.catch(
+				(cause: unknown) =>
+					new Map(
+						paths.map((path) => [path, ReadError.StorageFailed({ cause })]),
+					),
+			);
+		for (const path of paths) {
+			const result = results.get(path);
+			if (result !== undefined) applyRead(path, result);
+		}
+		publish();
+	}
+
+	async function relist(): Promise<ReadError | null> {
+		if (phase === 'closed') return null;
+		const { data: listed, error } = await host
+			.list()
+			.catch((cause: unknown) => ReadError.StorageFailed({ cause }));
+		if (error !== null) return error;
+		const toRead: string[] = [];
+		const media = new Map<string, Entry>();
+		for (const [path, stat] of listed) {
+			const entry = landed.get(path);
+			if (!holdsText(path)) {
+				if (
+					entry === undefined ||
+					entry.stamp !== stat.stamp ||
+					entry.value.readError !== null
+				)
+					media.set(path, mediaEntry(path, stat));
+				continue;
+			}
+			if (
+				entry === undefined ||
+				entry.stamp !== stat.stamp ||
+				entry.value.readError !== null
+			)
+				toRead.push(path);
+		}
+		const results =
+			toRead.length === 0
+				? new Map<string, Result<Fetched, ReadError>>()
+				: await host
+						.read(toRead)
+						.catch(
+							(cause: unknown) =>
+								new Map(
+									toRead.map((path) => [
+										path,
+										ReadError.StorageFailed({ cause }),
+									]),
+								),
+						);
+		for (const path of landed.keys())
+			if (!listed.has(path)) set(path, undefined);
+		for (const [path, entry] of media) set(path, entry);
+		for (const path of toRead) {
+			const result = results.get(path);
+			applyRead(
+				path,
+				result ??
+					ReadError.StorageFailed({ cause: `No read answered ${path}` }),
+			);
+		}
+		publish();
+		return null;
+	}
+
+	function requestLook(path?: string) {
+		if (phase !== 'open') return;
+		look.relist = true;
+		if (path !== undefined && holdsText(path)) look.paths.add(path);
+		if (look.queued) return;
+		look.queued = true;
+		void takeTurn(async () => {
+			look.queued = false;
+			const paths = [...look.paths];
+			const shouldRelist = look.relist;
+			look.paths.clear();
+			look.relist = false;
+			await readPaths(paths);
+			if (shouldRelist) await relist();
+		});
+	}
+
+	function enqueue(path: string, op: Op): Saved {
+		if (phase !== 'open') return Promise.resolve(WriteRefusal.Closed());
+		pendingWrites++;
+		publish();
+		return takeTurn(async (): Promise<Result<void, WriteError>> => {
+			try {
+				return await send(path, op);
+			} catch (cause) {
+				return SaveError.StorageFailed({ cause });
+			} finally {
+				pendingWrites--;
+				publish();
+			}
+		});
+	}
+
+	async function send(path: string, op: Op): Saved {
+		const current = landed.get(path)?.value.data ?? null;
+		let next: Data | null;
+		switch (op.kind) {
+			case 'write':
+				next = op.data;
+				break;
+			case 'create':
+				if (landed.has(path)) return WriteRefusal.Exists({ path });
+				{
+					const patched = applyPatch(null, op.patch, op.keys);
+					if (patched.error !== null)
+						return SaveError.Unparseable({ reason: patched.error.reason });
+					next = patched.data === 'unchanged' ? '' : patched.data;
+				}
+				break;
+			case 'update': {
+				if (current === null) return WriteRefusal.NothingToUpdate({ path });
+				if (current instanceof Uint8Array) return SaveError.NotText();
+				const patched = applyPatch(current, op.patch, op.keys);
+				if (patched.error !== null)
+					return SaveError.Unparseable({ reason: patched.error.reason });
+				if (patched.data === 'unchanged') return Ok(undefined);
+				next = patched.data;
+				break;
+			}
+		}
+		const put = await host.put(path, encode(next));
+		if (put.error !== null) return Err(put.error);
+		const result = put.data;
+		if (result === null) set(path, undefined);
+		else {
+			const data =
+				holdsText(path) && next !== null
+					? typeof next === 'string'
+						? next
+						: decode(next)
+					: undefined;
+			const before = landed.get(path)?.value;
+			const value =
+				before?.data !== undefined &&
+				data !== undefined &&
+				before.readError === null &&
+				sameData(before.data, data)
+					? before
+					: { path, mime: mimeOf(path), data, readError: null };
+			set(path, { value, version: result.version, stamp: result.stamp });
+		}
+		publish();
+		return Ok(undefined);
+	}
+
+	function table<S extends Schema>(directory: string, schema: S): Table<S> {
+		const prefix = `${directory}/`;
+		const keys = declaredKeysOf(schema);
+		const pathOf = (id: string) => `${prefix}${id}.md`;
+		const idOf = (path: string) => {
+			if (!path.startsWith(prefix) || !path.endsWith('.md')) return undefined;
+			const id = path.slice(prefix.length, -3);
+			return id === '' || id.includes('/') ? undefined : id;
+		};
+		const byId = new Map<string, { from: FolderFile; row: Row<S> }>();
+		let rowsSnapshot: readonly Row<S>[] = [];
+		let dirty = false;
+		const projector: Projector = {
+			set(path, value) {
+				const id = idOf(path);
+				if (id === undefined) return;
+				if (value === undefined) {
+					if (byId.delete(id)) dirty = true;
+					return;
+				}
+				if (byId.get(id)?.from === value) return;
+				byId.set(id, { from: value, row: rowOf(id, value, schema) });
+				dirty = true;
+			},
+			finish() {
+				if (!dirty) return;
+				dirty = false;
+				rowsSnapshot = [...byId.entries()]
+					.sort(([a], [b]) => compare(a, b))
+					.map(([, value]) => value.row);
+			},
+		};
+		projectorsByDirectory.set(directory, projector);
+		return {
+			rows: () => rowsSnapshot,
+			row: (id) => byId.get(id)?.row,
+			create(id, init) {
+				if (invalidId(id)) return Promise.resolve(SaveError.InvalidId({ id }));
+				return enqueue(pathOf(id), {
+					kind: 'create',
+					patch: {
+						// SAFETY: table frontmatter is a mapping.
+						fields: init.fields as Record<string, unknown>,
+						body: init.body ?? '',
+					},
+					keys,
+				});
+			},
+			update(id, patch) {
+				if (invalidId(id)) return Promise.resolve(SaveError.InvalidId({ id }));
+				// SAFETY: patch fields are a subset of the table's frontmatter mapping.
+				return folder.update(pathOf(id), patch as RowPatch, { schema });
+			},
+			delete(id) {
+				if (invalidId(id)) return Promise.resolve(SaveError.InvalidId({ id }));
+				return enqueue(pathOf(id), { kind: 'write', data: null });
+			},
+		};
+	}
+
+	const tableEntries = Object.entries(tables).map(([name, schema]) => [
+		name,
+		table(name, schema),
+	]);
+	const stopHints = host.hints?.((paths) => {
+		if (phase === 'closed') return;
+		if (paths === null) requestLook();
+		else for (const path of paths) requestLook(path);
+	});
+	const folder: Folder<T> = {
+		subscribe(onChange) {
+			listeners.add(onChange);
+			return () => listeners.delete(onChange);
+		},
+		files: () => filesSnapshot,
+		file: (path) => landed.get(path)?.value,
+		saving: () => savingSnapshot,
+		async read(path) {
+			const results = await host
+				.read([path])
+				.catch(
+					(cause: unknown) =>
+						new Map([[path, ReadError.StorageFailed({ cause })]]),
+				);
+			const result = results.get(path);
+			if (result === undefined)
+				return ReadError.StorageFailed({ cause: `No read answered ${path}` });
+			return result.error !== null
+				? Err(result.error)
+				: Ok(result.data?.bytes ?? null);
+		},
+		write: (path, data) => enqueue(path, { kind: 'write', data }),
+		update: (path, patch, options) =>
+			enqueue(path, {
+				kind: 'update',
+				patch,
+				keys: declaredKeysOf(options?.schema),
+			}),
+		delete: (path) => enqueue(path, { kind: 'write', data: null }),
+		// SAFETY: one table was built for each key in T.
+		tables: Object.fromEntries(tableEntries) as Folder<T>['tables'],
+		async refresh() {
+			if (phase !== 'open') return;
+			await takeTurn(relist);
+		},
+		close() {
+			closing ??= (async () => {
+				phase = 'closing';
+				stopHints?.();
+				await lastTurn;
+				phase = 'closed';
+				host.close?.();
+			})();
+			return closing;
+		},
 	};
+	const first = await takeTurn(relist);
+	if (first !== null) {
+		phase = 'closed';
+		stopHints?.();
+		host.close?.();
+		return OpenFolderError.Unavailable({ cause: first });
+	}
+	return Ok(folder);
+}
+
+function invalidId(id: string) {
+	return id === '' || id.includes('/');
+}
+function compare(a: string, b: string) {
+	return a < b ? -1 : a > b ? 1 : 0;
+}
+function sameData(a: Data, b: Data) {
+	if (a === b) return true;
+	if (!(a instanceof Uint8Array) || !(b instanceof Uint8Array)) return false;
+	return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+/** What a row's text reads as through its schema: the fields, body, and any issues. */
+export type RowReading<S extends Schema = Schema> =
+	| { readonly fields: Static<S>; readonly body: string; readonly issues: null }
+	| {
+			readonly fields: Record<string, unknown> | undefined;
+			readonly body: string | undefined;
+			readonly issues: readonly [RowIssue, ...RowIssue[]];
+	  };
 
 /**
- * The handle `openFolder` returns.
- *
- * Subscribe before reading: a notification means a read may now differ, and
- * `change.paths` says where (`null` when unknown).
+ * Read row text through `schema`, as the folder copy reads a saved row. For a
+ * repair view that checks what is typed before it saves.
  */
-export type Folder<TTables extends Record<string, Schema>> = {
-	/** Reconcile opened documents: read current subscribers, mark inactive ones stale.
-	 * Omit paths for all documents; paths also cover descendants. Never publishes input.
-	 * Use a document's `refresh()` for an individual Result.
-	 */
-	refresh(paths?: readonly string[]): Promise<void>;
-	readonly files: FolderFiles;
-	readonly tables: { [TName in keyof TTables]: FolderTable<TTables[TName]> };
-	/**
-	 * Reports committed writes and best-effort folder-wide storage hints.
-	 * Native directory events and browser broadcasts may coalesce changes;
-	 * paths include affected descendants, or null when scope is unknown.
-	 * The listener is not called for the current state. Returns the stop.
-	 */
-	onChange(listener: (change: FolderChange) => void): () => void;
-	/** Current save status; subscribe with `onStatusChange` for changes. */
-	getStatus(): FolderStatus;
-	/** Called when save status changes. Returns the function that stops listening. */
-	onStatusChange(listener: (status: FolderStatus) => void): () => void;
-	/** Submit pending drafts, failed input included, without waiting. */
-	flush(): void;
-	/**
-	 * Refuse new work and synchronously release listeners and storage, once.
-	 * Stops autosave without submitting held input or waiting for admitted writes.
-	 * Editors stay readable; admitted commands keep their own outcomes.
-	 * Await the write or save you started when durable bytes are required.
-	 */
-	close(): void;
-};
+export function readRow<S extends Schema>(
+	text: Data,
+	schema: S,
+): RowReading<S> {
+	const value = readMarkdown(text, schema);
+	if (value.issues === null)
+		return { fields: value.fields, body: value.body, issues: null };
+	const [first, ...rest] = value.issues;
+	return {
+		fields: value.fields,
+		body: value.body,
+		issues:
+			first === undefined
+				? [{ kind: 'frontmatter', message: 'The row did not read', path: [] }]
+				: [first, ...rest],
+	};
+}
 
-/**
- * The top-level directories an app reads as Markdown rows, with the schema
- * for each row's frontmatter. Schemas interpret; they never decide what may
- * be written.
- */
-export type FolderTables = Record<string, Schema>;
-
-/**
- * `openFolder({ tables })`: the runtime's own folder. In a browser it is this
- * origin's one local folder, reopened under a fixed internal key. In the
- * desktop app it is the directory the shell bound to this window before the
- * window existed; the page names none.
- */
-export type DefaultFolderOptions<TTables extends FolderTables> = {
-	readonly tables: TTables;
-	readonly directory?: never;
-} & DocumentOptions;
-
-/** How the folder's editors save accepted input. */
-export type DocumentOptions = {
-	/** How long after its last change input saves; `SAVE_AFTER_MS` by default. */
-	readonly saveAfterMs?: number;
-};
-
-/**
- * `openFolder({ directory, tables })` in Bun: the existing directory at the
- * filesystem path `directory`.
- */
-export type DirectoryFolderOptions<TTables extends FolderTables> = {
-	readonly directory: string;
-	readonly tables: TTables;
-} & DocumentOptions;
-
-/**
- * The opener of the browser, desktop, and automatic entries: each opens the
- * runtime's own folder and takes no directory.
- */
-export type OpenFolder = <const TTables extends FolderTables>(
-	options: DefaultFolderOptions<TTables>,
-) => Promise<Result<Folder<TTables>, OpenFolderError>>;
+function rowOf<S extends Schema>(
+	id: string,
+	file: FolderFile,
+	schema: S,
+): Row<S> {
+	const { path } = file;
+	if (file.data === undefined) {
+		// SAFETY: a kept row without data has a read error.
+		const error = file.readError as ReadError;
+		return {
+			id,
+			path,
+			fields: undefined,
+			body: undefined,
+			issues: [{ kind: 'unreadable', message: error.message, path: [], error }],
+		};
+	}
+	return { id, path, ...readRow(file.data, schema) };
+}
+function mediaEntry(path: string, stat: Listed): Entry {
+	return {
+		value: { path, mime: mimeOf(path), data: undefined, readError: null },
+		version: null,
+		stamp: stat.stamp,
+	};
+}
+function decode(bytes: Uint8Array): Data {
+	try {
+		return decoder.decode(bytes);
+	} catch {
+		return bytes;
+	}
+}
+function encode(data: Data | null): Uint8Array | null {
+	return data === null
+		? null
+		: typeof data === 'string'
+			? encoder.encode(data)
+			: data;
+}
+const MIME = new Map([
+	['md', 'text/markdown'],
+	['txt', 'text/plain'],
+	['json', 'application/json'],
+	['png', 'image/png'],
+	['jpg', 'image/jpeg'],
+	['jpeg', 'image/jpeg'],
+	['gif', 'image/gif'],
+	['webp', 'image/webp'],
+	['svg', 'image/svg+xml'],
+	['mp3', 'audio/mpeg'],
+	['m4a', 'audio/mp4'],
+	['wav', 'audio/wav'],
+	['webm', 'audio/webm'],
+	['ogg', 'audio/ogg'],
+	['mp4', 'video/mp4'],
+	['mov', 'video/quicktime'],
+	['pdf', 'application/pdf'],
+	['zip', 'application/zip'],
+]);
+function mimeOf(path: string): string {
+	const segment = path.slice(path.lastIndexOf('/') + 1);
+	const dot = segment.lastIndexOf('.');
+	return (
+		MIME.get(dot === -1 ? '' : segment.slice(dot + 1).toLowerCase()) ??
+		'application/octet-stream'
+	);
+}
+/** Whether the folder copy keeps a file's contents: text extensions, and names with no extension or only a leading dot. */
+function holdsText(path: string): boolean {
+	const segment = path.slice(path.lastIndexOf('/') + 1);
+	const dot = segment.lastIndexOf('.');
+	return dot <= 0 || keptExtensions.has(segment.slice(dot + 1).toLowerCase());
+}

@@ -106,26 +106,24 @@ export async function openRepository<
 	 * never made.
 	 */
 	function saveFile(path: string, written: FileContent | null) {
-		return putFile(path, written, 'any').then(
+		return putFile(path, written).then(
 			(result): Result<void, SaveError> =>
 				result.error === null ? Ok(undefined) : result,
 		);
 	}
 
 	/**
-	 * Put `content` at `path`, or remove its file for `null`, only while the
-	 * path holds what `expected` says: no file, or a blob with that oid. A
-	 * mismatch is `'stale'` and changes nothing. Lands with the new blob oid.
+	 * Put `content` at `path`, or remove its file for `null`. Lands with
+	 * the new blob oid.
 	 */
 	function putFile(
 		path: string,
 		written: FileContent | null,
-		expected: 'any' | 'absent' | { readonly version: string },
 	) {
 		const content = written instanceof Uint8Array ? written.slice() : written;
 		return save(
 			async (): Promise<
-				Result<{ landed: { version: string } | null } | 'stale', SaveError>
+				Result<{ landed: { version: string } | null }, SaveError>
 			> => {
 			if (!writableExistingPath(path)) return SaveError.InvalidPath({ path });
 			if (typeof content === 'string' && !storableText(content))
@@ -135,9 +133,6 @@ export async function openRepository<
 				const snapshot = await storage.capture([path]);
 				const current = snapshotContent(snapshot, path);
 				const entry = snapshot.files.get(path);
-				if (expected === 'absent' && entry !== undefined) return Ok('stale');
-				if (typeof expected === 'object' && entry?.oid !== expected.version)
-					return Ok('stale');
 				if (content !== null) {
 					if (!validPath(path) && !snapshot.files.has(path))
 						return SaveError.InvalidPath({ path });

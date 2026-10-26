@@ -1,25 +1,15 @@
 /**
- * `@epicenter/folder/bun`: open an ordinary directory as a `Folder`, in Bun,
- * and the `epicenter` CLI's tools over a directory.
- *
- * `openFolder({ directory, tables })` opens an existing directory
- * (`native/bun.ts`): this process reaches the disk itself, with `node:fs`,
- * and each save takes the directory's save lock, the one the desktop shell
- * and other Bun processes take (ADR-0562). Git is optional and not on the
- * handle's lifetime (ADR-0636).
- *
- * The rest is what the CLI runs over a directory it is given (ADR-0520):
- * `checkFolder`, `queryFolder`, and `readFolder` read the root
- * `epicenter.json` (ADR-0632), whose grammar `defineFolder`,
- * `formatDefinition`, and `readDeclaredTables` write and read; `runHistory`
- * runs one history operation over the system `git` (ADR-0559); and the Git
- * and lock helpers its other commands share. None of them opens a `Folder`.
+ * `@epicenter/folder/bun`: open an existing directory as a folder and expose
+ * the CLI's independent declaration, query, and Git history tools.
+ * Folder writes take the directory save lock; Git is outside its lifetime.
  */
 
 import { lstat, realpath } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { sweepStaleScratch } from './directory-store.js';
+import { OpenFolderError } from './errors.js';
+import { createFolder, type Opened, type OpenOptions, type Tables } from './folder.js';
 import type { GitCredentials } from './git/http.js';
 import { runNativeHistory } from './git/native-history.js';
 import {
@@ -30,8 +20,10 @@ import {
 } from './git/native-host.js';
 import type { Author } from './git/objects.js';
 import type { HistoryReply, HistoryRequest } from './history-wire.js';
-import { scratchDirectory } from './native/directory.js';
+import { localRoot, scratchDirectory } from './native/directory.js';
 import { nativeStorage, savingPrimitives } from './native/storage.js';
+import { watchDirectory } from './native/watch.js';
+import { storageHost } from './storage.js';
 
 export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 export {
@@ -82,7 +74,6 @@ export {
 	type HistoryResults,
 	type HistoryState,
 } from './history-wire.js';
-export { openBunFolder as openFolder } from './native/bun.js';
 export {
 	exportFolderSchemas,
 	importFolderSchemas,
@@ -102,6 +93,19 @@ export {
 	readFolder,
 } from './read-folder.js';
 export { exportTables } from './schema-export.js';
+
+export async function openFolder<const T extends Tables>({
+	directory,
+	...options
+}: OpenOptions<T> & { readonly directory: string }): Opened<T> {
+	const { data: root, error } = await localRoot(directory);
+	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	await sweepStaleScratch(scratchDirectory(root), savingPrimitives(root));
+	return createFolder(
+		storageHost(nativeStorage(root), { watch: watchDirectory(root) }),
+		options,
+	);
+}
 
 export type HistoryOptions = {
 	/** Who commits where the folder's Git configuration names nobody. */
