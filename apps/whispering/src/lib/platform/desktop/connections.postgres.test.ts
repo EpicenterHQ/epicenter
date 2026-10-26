@@ -39,7 +39,7 @@ import {
 	readConnectionRow,
 	setConnectionRow,
 } from '../../../../../../packages/cli/src/connection-rows.js';
-import { openFolder as openBunFolder } from '@epicenter/folder/bun';
+import { openFolder as openDirectoryFolder } from '@epicenter/folder/bun';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,
@@ -246,7 +246,7 @@ function shell(): ConnectionCommands {
 test('a transcription over an Epicenter connection reaches the deployment’s /v1 with an ai token from the app’s sign-in', async () => {
 	const root = join(scratch, 'so.epicenter');
 	await mkdir(root);
-	const opened = await openBunFolder({
+	const opened = await openDirectoryFolder({
 		directory: root,
 		tables: connectionsTables,
 	});

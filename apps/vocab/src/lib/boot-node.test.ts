@@ -52,7 +52,7 @@ describe('the callback opens nothing', () => {
 	test('callback and ancestor layouts never open the folder or mount the app', async () => {
 		for (const file of [callback, ...ancestorLayouts(callback)]) {
 			const text = await Bun.file(file).text();
-			expect(text).not.toMatch(/FolderApp|openFolder\s*\(/);
+			expect(text).not.toMatch(/OpenFolder|openFolder\s*\(/);
 			expect(text).not.toMatch(/@epicenter\/folder/);
 			expect(text).not.toContain('VocabApp.svelte');
 		}

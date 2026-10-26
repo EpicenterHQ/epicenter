@@ -64,8 +64,8 @@ representations becoming one; three logical folder versions remain necessary.
 
 | Owner and concept | Distinct information or responsibility |
 | --- | --- |
-| Public `Folder` / shared `folderHandle` | App-facing files, rows, status, and graceful close across browser and native engines. |
-| Local repository | Browser file admission, exact starting bytes, automatic merge, and Markdown row views. Its identity is the database key, independent of account or remote. |
+| Public `Folder` mirror | Landed files and rows, one serial write queue, and draining close across browser and native engines. |
+| Local repository | Browser file admission and unconditional whole-file publication. Its identity is the database key, independent of account or remote. |
 | Repository storage | One IndexedDB connection, atomic captures/publications, notification delivery, and snapshot collection. |
 | Sync instance | One coalesced network attempt per instance. It owns the URL, author callback, optional request function, and abort signal. No cross-tab leader exists. |
 | W: `meta.state.workingTree` | Current saved folder. Always a valid tree, including empty. |

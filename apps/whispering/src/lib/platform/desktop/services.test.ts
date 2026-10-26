@@ -45,7 +45,7 @@ import {
 	grantedDirectory,
 	shellArguments,
 } from '../../../../../../packages/folder/src/granted-shell.test-support.js';
-import { openFolder as openBunFolder } from '@epicenter/folder/bun';
+import { openFolder as openDirectoryFolder } from '@epicenter/folder/bun';
 import { svelteFolder } from '@epicenter/svelte/folder';
 import { toneWav } from '../../capture.js';
 import { whisperingTables } from '../../definition.js';
@@ -393,7 +393,7 @@ async function epicenter() {
 		ai,
 		/** `so.epicenter` as Settings opens it, as its own folder. */
 		settings: () =>
-			openBunFolder({
+			openDirectoryFolder({
 				directory: root,
 				tables: connectionsTables,
 			}),
