@@ -7,9 +7,10 @@
  * written. A save that fails is its own notice, with the text to copy.
  */
 import type { StatusLine } from '@epicenter/svelte/status-line';
+import { saveLine } from '@epicenter/svelte/status-line';
 
 /** What is saved to files: saves running, and answers whose write failed. */
-export function filesLine(state: {
+export function headerStatus(state: {
 	readonly saving: boolean;
 	/** Answers that arrived and whose result file could not be written. */
 	readonly unwrittenAnswers: number;
@@ -23,10 +24,5 @@ export function filesLine(state: {
 				'The answer is kept in this window: open its result to save it again or copy it. If the window closes first, its file stays without the answer, and you can run it again.',
 			tone: 'error',
 		};
-	if (state.saving) return { label: 'Saving…', tone: 'busy' };
-	return {
-		label: 'All changes saved on this device',
-		short: 'Saved',
-		tone: 'good',
-	};
+	return saveLine(state.saving);
 }

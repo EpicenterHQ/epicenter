@@ -18,7 +18,7 @@
 	import { tick } from 'svelte';
 	import { basename, dirname, joinPath, type TreeRow, visibleRows } from '@epicenter/folder/file-browser';
 	import { audioMimeTypeOf } from '$lib/audio-format.js';
-	import { WRITE_FAILED } from '$lib/files.js';
+	import { getFolder } from '$lib/folder.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
@@ -27,6 +27,7 @@
 		onOpen: (path: string) => void;
 	} = $props();
 	const whispering = getWhispering();
+	const folder = getFolder();
 
 	/**
 	 * The tree: folders before files at each level, into the expanded folders.
@@ -155,14 +156,18 @@
 			return;
 		}
 		committing = true;
+		if (current.kind === 'rename') {
+			whispering.clearSelection();
+			await tick();
+			await folder.idle();
+		}
 		const problem =
 			current.kind === 'rename'
 				? await whispering.rename(current.path, name)
 				: await whispering.createFile(directory, name);
 		committing = false;
 		if (problem) {
-			if (problem !== WRITE_FAILED)
-				toast.error(`Could not ${current.kind === 'rename' ? 'rename' : 'create the file'}`, { description: problem });
+			toast.error(`Could not ${current.kind === 'rename' ? 'rename' : 'create the file'}`, { description: problem });
 			return;
 		}
 		editing = undefined;

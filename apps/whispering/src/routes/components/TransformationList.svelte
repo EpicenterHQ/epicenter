@@ -12,7 +12,6 @@
 	import { STARTER_TRANSFORMATIONS } from '$lib/definition.js';
 	import { getWhispering, type TransformationEntry } from '$lib/whispering.svelte.js';
 	import { recipeModel } from '$lib/recipe.js';
-	import { WRITE_FAILED } from '$lib/files.js';
 
 	let { onOpen }: { onOpen?: () => void } = $props();
 	const whispering = getWhispering();
@@ -25,7 +24,7 @@
 		try {
 			const problem = await whispering.createTransformation(starter);
 			if (problem === undefined) onOpen?.();
-			else if (problem !== WRITE_FAILED) toast.error('Could not create the transformation', { description: problem });
+			else toast.error('Could not create the transformation', { description: problem });
 		} finally {
 			creating = false;
 		}

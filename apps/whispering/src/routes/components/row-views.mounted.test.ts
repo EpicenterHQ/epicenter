@@ -264,7 +264,7 @@ test('switching a recording to Source follows its title when the save lands', as
 	);
 	sourceTab?.click();
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="Markdown source"]')).not.toBeNull();
+	expect(target.querySelector('textarea[aria-label="Markdown source"]')).toBeNull();
 	host!.control.putGate = undefined;
 	release.resolve();
 	await eventually(() => {
@@ -272,7 +272,10 @@ test('switching a recording to Source follows its title when the save lands', as
 		return host!.text(RECORDING)?.includes('title: Latest') === true;
 	});
 	expect(host!.text(RECORDING)).toContain('title: Latest');
-	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]')?.value).toContain('title: Latest');
+	await eventually(() => {
+		flushSync();
+		return field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]')?.value.includes('title: Latest') === true;
+	});
 });
 
 test('a change made elsewhere shows once the folder looks again', async () => {
@@ -687,18 +690,20 @@ test('rename writes the mounted editor draft before copying', async () => {
 	type(editor, 'New draft\n');
 	const gate = deferred<void>();
 	host!.control.putGate = gate.promise;
-	const renaming = whispering.rename(path, 'renamed.txt');
+	const name = field<HTMLInputElement>(target, 'input[autocomplete="off"]');
+	type(name, 'renamed.txt');
+	name?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 	await eventually(() => host!.log.puts.some((put) => put.path === path));
 	type(editor, 'Newest draft\n');
 	host!.control.putGate = undefined;
 	gate.resolve();
-	expect(await renaming).toBeUndefined();
+	await eventually(() => host!.text('notes/renamed.txt') === 'Newest draft\n');
 	await settle(folder);
 	expect(host!.text('notes/renamed.txt')).toBe('Newest draft\n');
 	expect(host!.text(path)).toBeUndefined();
 });
 
-test('rename writes a transcript draft from the recording card', async () => {
+test('tree rename flushes a transcript draft after closing its card', async () => {
 	const { folder, host, whispering, target } = await open({
 		[RECORDING]: recording('Take', ''),
 		[A]: transcript('Old words\n').replace('recordingId: one', 'recordingId: take'),
@@ -706,6 +711,9 @@ test('rename writes a transcript draft from the recording card', async () => {
 	await show(whispering, folder, RECORDING);
 	const editor = field<HTMLTextAreaElement>(target, '[data-testid="transcript-text"]');
 	type(editor, 'New words\n');
+	whispering.clearSelection();
+	flushSync();
+	await folder.idle();
 	expect(await whispering.rename(A, 'renamed.md')).toBeUndefined();
 	await settle(folder);
 	expect(host!.text('transcriptions/renamed.md')).toContain('New words\n');

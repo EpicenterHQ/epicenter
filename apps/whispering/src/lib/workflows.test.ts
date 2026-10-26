@@ -54,7 +54,7 @@ import { audioMimeTypeOf } from './audio-format.js';
 import { createFixtureDevice, toneWav } from './capture.js';
 import { recordingAudioStem, type WhisperingTables } from './definition.js';
 import { describeDeletion } from './deletion.js';
-import { readBytes, type PresentWriteFailure, WRITE_FAILED } from './files.js';
+import { readBytes } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import { createMicrophoneDevice } from './microphone.js';
 import type { WhisperingServices } from './platform/types.js';
@@ -97,7 +97,6 @@ type Options = {
 	nativeCapture?: boolean;
 	/** What the device has set up. Both connections, keyless, unless a test says otherwise. */
 	connections?: Parameters<typeof testConnections>[0];
-	presentWriteFailure?: PresentWriteFailure;
 };
 
 async function open({
@@ -106,7 +105,6 @@ async function open({
 	memory = false,
 	nativeCapture = false,
 	connections,
-	presentWriteFailure,
 }: Options = {}) {
 	const directory =
 		root ?? (await whisperingDirectory('whispering-whispering-'));
@@ -156,7 +154,7 @@ async function open({
 			setMicrophone: async () => undefined,
 		},
 	};
-	const { whispering } = await openTestWhispering({ services, folder, presentWriteFailure });
+	const { whispering } = await openTestWhispering({ services, folder });
 	fixtures.push({ whispering, folder, opened });
 	return {
 		whispering,
@@ -860,6 +858,22 @@ test('deleting a recording removes its row and results, keeps its audio, and say
 	expect(await recordingFiles(root)).toEqual([]);
 });
 
+test('a partial recording deletion names the result left behind and its write failure', async () => {
+	const { folder, host, whispering } = await open({ memory: true });
+	await record(whispering, folder);
+	const entry = whispering.entries[0]!;
+	await whispering.transcribe(entry);
+	const { transcript } = newest(whispering, entry.stem);
+	const deletion = expectOk(await whispering.deletionFor(entry.path));
+	host!.control.failPut.set(transcript.path, SaveError.StorageFailed({ cause: 'disk full' }).error);
+
+	const problem = await whispering.delete(deletion);
+	expect(problem).toContain(transcript.path);
+	expect(problem).toContain('disk full');
+	expect(folder.file(entry.path)).toBeUndefined();
+	expect(folder.file(transcript.path)).toBeDefined();
+});
+
 test('deleting the audio a recording names keeps the recording, and the missing file is reported', async () => {
 	const { folder, whispering, root } = await open();
 	await record(whispering, folder);
@@ -1013,18 +1027,14 @@ test('a rename never replaces a file already at the new name', async () => {
 	expect(await readFile(join(root, 'b.txt'), 'utf8')).toBe('b\n');
 });
 
-test('a failed delete presents its write failure exactly once', async () => {
-	const shown: string[] = [];
+test('a failed delete returns its write failure and leaves the file', async () => {
 	const { folder, host, whispering } = await open({
 		memory: true,
-		presentWriteFailure: (action, error) => shown.push(`${action}: ${error.message}`),
 	});
 	expectOk(await folder.write('notes.txt', 'Keep this'));
 	const deletion = expectOk(await whispering.deletionFor('notes.txt'));
 	host!.control.failPut.set('notes.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
-	expect(await whispering.delete(deletion)).toBe(WRITE_FAILED);
-	expect(shown).toHaveLength(1);
-	expect(shown[0]).toContain('Could not delete notes.txt');
+	expect(await whispering.delete(deletion)).toContain('disk full');
 	expect(folder.file('notes.txt')?.data).toBe('Keep this');
 });
 

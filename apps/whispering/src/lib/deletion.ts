@@ -13,7 +13,7 @@
  * cannot say which recording it belongs to. A result on pasted text names no
  * recording and is never part of one.
  */
-import type { Row } from '@epicenter/folder';
+import { describeIssues } from '@epicenter/folder';
 import { basename } from '@epicenter/folder/file-browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -24,7 +24,7 @@ import {
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
 } from './definition.js';
-import { type PresentWriteFailure, WRITE_FAILED } from './files.js';
+import { describeError } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import type { RecordingAudio } from './recording-audio.js';
 
@@ -80,14 +80,6 @@ export function recordingTitle(entry: {
 	return entry.stem === '' ? entry.path : entry.stem;
 }
 
-/** Why a row does not read, in the words the person is shown. */
-function problemOf(row: Row): string {
-	if (row.issues === null) return '';
-	return row.issues.some((issue) => issue.kind === 'not-text')
-		? 'it is not text'
-		: row.issues.map((issue) => issue.message).join(' ');
-}
-
 /**
  * Every result row naming `id`, as the mirror shows them: transcripts, then
  * transformation results. Refused while any result does not read, since it
@@ -137,7 +129,7 @@ export function captureDeletion(
 				kind: 'file',
 				path,
 				recordingId,
-				problem: problemOf(stored),
+				problem: describeIssues(stored.issues),
 			});
 		const { data: results, error: resultsError } = resultsOf(
 			folder,
@@ -167,7 +159,7 @@ export function captureDeletion(
 		if (stored === undefined)
 			return Err('This transformation is no longer in the folder.');
 		if (stored.issues !== null)
-			return Ok({ kind: 'file', path, problem: problemOf(stored) });
+			return Ok({ kind: 'file', path, problem: describeIssues(stored.issues) });
 		const results = [
 			...folder.tables.transformation_runs.rows,
 			...folder.tables.text_runs.rows,
@@ -196,8 +188,7 @@ async function deleteFile(
 ): Promise<string | undefined> {
 	const { error } = await context.folder.delete(path);
 	if (error !== null) {
-		context.presentWriteFailure(`Could not delete ${basename(path)}`, error);
-		return WRITE_FAILED;
+		return describeError(error);
 	}
 	context.deleted(path);
 	return undefined;
@@ -205,7 +196,6 @@ async function deleteFile(
 
 type RunContext = {
 	readonly folder: WhisperingFolder;
-	readonly presentWriteFailure: PresentWriteFailure;
 	dropFailed(recordingId: string): void;
 	/** The view state lets a deleted file go. */
 	deleted(path: string): void;
@@ -229,13 +219,13 @@ export async function runDeletion(
 	const refused = await deleteFile(context, deletion.path);
 	if (refused !== undefined) return refused;
 	context.dropFailed(id);
-	// A partial failure reports the paths left after earlier successful deletions.
+	// A partial failure reports the paths left and why each write failed.
 	const leftovers: string[] = [];
 	for (const result of deletion.results) {
 		const problem = await deleteFile(context, result);
-		if (problem !== undefined) leftovers.push(result);
+		if (problem !== undefined) leftovers.push(`${result}: ${problem}`);
 	}
-	return leftovers.length > 0 ? WRITE_FAILED : undefined;
+	return leftovers.length > 0 ? `Could not delete ${leftovers.join(', ')}.` : undefined;
 }
 
 const count = (n: number, one: string, many: string) =>

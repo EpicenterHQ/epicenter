@@ -8,7 +8,6 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { transformationName } from '$lib/post-processing.js';
-	import { WRITE_FAILED } from '$lib/files.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
 	import AudioAbsent from './components/AudioAbsent.svelte';
 	import AudioPlayer from './components/AudioPlayer.svelte';
@@ -45,7 +44,7 @@
 	async function runPostProcessing() {
 		if (transcript === undefined || postProcessing.kind !== 'ready') return;
 		const problem = await whispering.transform(transcript.path, postProcessing.entry.path);
-		if (problem && problem !== WRITE_FAILED) toast.error('Post-processing did not run', { description: problem });
+		if (problem) toast.error('Post-processing did not run', { description: problem });
 	}
 
 	/** Show the recording, or one of its results, on the Recordings page. */

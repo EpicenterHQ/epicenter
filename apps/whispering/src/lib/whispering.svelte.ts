@@ -29,9 +29,8 @@
 import { InstantString } from '@epicenter/definition';
 import {
 	type FolderFile,
-	type WriteError,
 	type Row,
-	type RowIssue,
+	describeIssues,
 	readRow,
 } from '@epicenter/folder';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
@@ -68,7 +67,7 @@ import {
 	runDeletion,
 } from './deletion.js';
 import { maintainExclusions } from './exclusions.js';
-import { describeError, listingOf, nameProblem, type PresentWriteFailure, WRITE_FAILED } from './files.js';
+import { describeError, listingOf, nameProblem } from './files.js';
 import type { WhisperingFolder } from './folder.js';
 import { createMicrophoneInput } from './microphone-input.svelte.js';
 import type { PostProcessingChoice } from './post-processing.js';
@@ -85,8 +84,6 @@ import { createSettingsDraft } from './settings-draft.svelte.js';
 export const STOPPED = 'Whispering stopped before it finished starting.';
 
 export type TableName = keyof WhisperingTables;
-type RenameDraftAnswer = { readonly error: WriteError | null };
-type RenameDraftSave = () => Promise<RenameDraftAnswer | undefined>;
 /** The tables whose rows this window edits. */
 export type RowTable =
 	| typeof RECORDINGS
@@ -182,27 +179,6 @@ export function rowTableOf(path: string): RowTable | undefined {
 	return undefined;
 }
 
-/** Why a listed row file does not read as a row, in the words the person is shown. */
-export function repairReason(row: Pick<Row, 'issues'>): string {
-	if (row.issues === null) return '';
-	if (row.issues.some((issue) => issue.kind === 'not-text'))
-		return 'It is not text.';
-	return row.issues
-		.map((issue) => {
-			const [field] = issue.path;
-			const what =
-				field === undefined ? issue.message : `${field} ${issue.message}`;
-			const line = issueLine(issue);
-			return line === undefined ? what : `Line ${line}: ${what}`;
-		})
-		.join(' ');
-}
-
-/** The line a row issue names, when it names one; a failed read names none. */
-export function issueLine(issue: RowIssue): number | undefined {
-	return 'line' in issue ? issue.line : undefined;
-}
-
 /** A listing's rows that read, and the rest with why. */
 function split<T extends TableName>(table: T, rows: readonly ListedRow<T>[]) {
 	const entries: Entry<T>[] = [];
@@ -216,7 +192,7 @@ function split<T extends TableName>(table: T, rows: readonly ListedRow<T>[]) {
 			repairs.push({
 				path,
 				stem: row.id,
-				reason: repairReason(row),
+				reason: describeIssues(row.issues),
 				unreadable: row.issues.some((issue) => issue.kind === 'unreadable'),
 			});
 	}
@@ -256,7 +232,7 @@ function perListing<TListing extends object, TValue>(
 	};
 }
 
-export function createWhispering(folder: WhisperingFolder, presentWriteFailure: PresentWriteFailure) {
+export function createWhispering(folder: WhisperingFolder) {
 	const services = createServices(folder);
 	/** What the shell shows. Held here so no route owns it. */
 	const view = $state({
@@ -382,8 +358,6 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 
 	/** Row files the person chose to edit as their exact text. */
 	const asText = new SvelteSet<string>();
-	/** The mounted editor, if any, supplies text ahead of the folder for rename. */
-	const renameDrafts = new Map<string, Set<RenameDraftSave>>();
 
 	/**
 	 * Whether `path` shows as its exact text: a row file the person opened in
@@ -494,7 +468,6 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 
 	const runs = createRuns({
 		folder,
-		presentWriteFailure,
 		transcribe: (request) => services.transcribe(request),
 		transform: (request) => services.transform(request),
 		makeId: recordingId,
@@ -779,6 +752,11 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 		},
 		/** Select `path` immediately; false after close. Selection reads no file. */
 		open,
+		/** Retire mounted editors before renaming a file from the tree. */
+		clearSelection() {
+			selectedPath = undefined;
+			selectedTransformationPath = undefined;
+		},
 
 		// ------------------------------------------------------------------
 		// Edits
@@ -786,15 +764,6 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 
 		/** Whether `path` shows as its exact text rather than its fields. */
 		showsText,
-		registerRenameDraft(path: string, save: RenameDraftSave) {
-			const saves = renameDrafts.get(path) ?? new Set<RenameDraftSave>();
-			saves.add(save);
-			renameDrafts.set(path, saves);
-			return () => {
-				saves.delete(save);
-				if (saves.size === 0) renameDrafts.delete(path);
-			};
-		},
 		/** Whether a save is waiting or running; read reactively. */
 		get saving() {
 			return folder.saving;
@@ -1070,8 +1039,7 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 					body: prompt,
 				});
 				if (error !== null) {
-					presentWriteFailure('Could not create the transformation', error);
-					return WRITE_FAILED;
+					return describeError(error);
 				}
 			} catch (cause) {
 				return describe(cause);
@@ -1114,13 +1082,6 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 			)
 				return TRANSCRIPT_NAME;
 			if (taken(to)) return TAKEN;
-			for (const save of renameDrafts.get(path) ?? []) {
-				const pending = await save();
-				if (pending?.error) {
-					presentWriteFailure('Could not rename the file', pending.error);
-					return WRITE_FAILED;
-				}
-			}
 			const before = folder.file(path);
 			if (before === undefined) return `No file exists at '${path}'.`;
 			let data: string | Uint8Array;
@@ -1133,8 +1094,7 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 			}
 			const { error: copyError } = await folder.write(to, data);
 			if (copyError !== null) {
-				presentWriteFailure('Could not rename the file', copyError);
-				return WRITE_FAILED;
+				return describeError(copyError);
 			}
 			if (disposed)
 				return `${to} was saved. ${path} was kept because the folder is closing.`;
@@ -1143,8 +1103,7 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 				return `${to} was saved. Different text arrived during the copy, so ${path} was kept with that text.`;
 			const { error: removeError } = await folder.delete(path);
 			if (removeError !== null) {
-				presentWriteFailure(`${to} was saved, but ${path} was not deleted`, removeError);
-				return WRITE_FAILED;
+				return `${to} was saved, but ${path} was not deleted: ${describeError(removeError)}`;
 			}
 			if (!disposed) moved(path, to);
 			return undefined;
@@ -1160,8 +1119,7 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 				if (taken(path)) return `"${name}" already exists here.`;
 				const { error } = await folder.write(path, '');
 				if (error !== null) {
-					presentWriteFailure('Could not create the file', error);
-					return WRITE_FAILED;
+					return describeError(error);
 				}
 				open(path);
 				return undefined;
@@ -1201,7 +1159,6 @@ export function createWhispering(folder: WhisperingFolder, presentWriteFailure: 
 					{
 						folder,
 						dropFailed: runs.dropFailed,
-						presentWriteFailure,
 						deleted: (path) => {
 							if (!disposed) deleted(path);
 						},

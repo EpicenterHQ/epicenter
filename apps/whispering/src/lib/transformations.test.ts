@@ -725,7 +725,7 @@ test('an answer whose write fails is kept until Save again writes it, with no se
 		'Transformed: um so a steady tone\n',
 	);
 	expect(whispering.unwrittenAnswers).toBe(0);
-	expect(headerLine(whispering).tone).toBe('good');
+	expect(headerLine(whispering).tone).toBe('neutral');
 });
 
 test('an answer replaces the current body, and an answer for an already deleted row writes nothing', async () => {

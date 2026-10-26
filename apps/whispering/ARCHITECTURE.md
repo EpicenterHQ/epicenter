@@ -77,7 +77,7 @@ that is not there is `row(id) === undefined`. Audio and other files are listed
 with `data: undefined` and fetched with `folder.read(path)`. The mirror never
 runs ahead of the disk: it changes when a write lands or a read sees another
 writer's change, so a failed write needs no rollback. Every write answers
-`Saved` once it landed and the mirror shows it. Writes wait per path and land
+`Saved` once it landed and the mirror shows it. Writes wait in one queue and land
 in order over the file as it is then; an `update` sets the fields and body it
 names and writes canonical frontmatter (declared keys in schema order, then
 others sorted, comments dropped), and a patch that changes no value writes
@@ -575,7 +575,7 @@ deleted with one nor in the way of deleting one, readable or not.
 
 The confirmation reads current row metadata and result membership from the
 mirror. A malformed recording or transformation is deleted alone, so its
-results remain. Each `folder.delete(path)` waits in that path's lane behind
+results remain. Each `folder.delete(path)` waits in the folder's queue behind
 the writes asked for before it. A partial cascade failure reports the result
 files that could not be removed.
 
@@ -589,30 +589,24 @@ save succeeds, then follows `source` again, which by then is the landed text.
 A failed save keeps the typed value and exposes its error. Typing again or
 **Save again** retries; **Discard** follows the disk. Drafts debounce for one
 second, and flush their newest value when the editor unmounts or the page
-leaves. Folder-backed checkboxes and selects also use drafts; action buttons
-write directly.
+leaves. Folder-backed checkboxes, selects, and action buttons write directly.
 
 ```ts
 const row = $derived(folder.tables.recordings.row(id));
-const file = $derived(folder.file(path));
 const title = draft(
 	() => (row?.issues === null ? row.fields.title : ''),
 	(title) => folder.tables.recordings.update(id, { fields: { title } }),
 );
-const source = draft(
-	() => (typeof file?.data === 'string' ? file.data : ''),
-	(text) => folder.write(path, text),
-);
+const source = fileDraft(folder, path);
 ```
 
 - **One draft per editor component.** RecordingDetail has title, notes, and
   source drafts; TransformationDetail title, model (empty saves `null`),
   instructions, and source; TranscriptCard and FileView a transcript body;
   FileView a text file's source. A draft is never shared between components.
-  Opening Source changes editors immediately; it follows the folder as pending
-  field saves land. Returning to fields explicitly writes the shown Source
-  text and waits for that write before switching. A brief stale view is possible.
-- **Source** keeps the file's own newlines (`withFileNewlines`). Whether a
+  Opening Source first calls `land()` on the field drafts. Returning to fields
+  calls `source.land()`; either view switch stays put if a save fails.
+- **Source** uses `fileDraft` to show LF and save with the file's own newlines. Whether a
   row shows as text is `showsText(path)`: the person chose Source
   (`asText`, a `SvelteSet` of view state), or the row has issues. Repair
   reads the typed Source text with `readRow(source.value, schema)`, so the
@@ -692,9 +686,10 @@ until Stop saves it, so reloading or closing the tab loses an unfinished take.
 Whispering keeps no versions and does not sync its folder: Save version,
 Connect, and Sync were removed with the move to the local folder.
 `src/lib/status.ts` words the header's one line with
-`filesLine({ saving: folder.saving, unwrittenAnswers })`: answers whose file
+`headerStatus({ saving: folder.saving, unwrittenAnswers })`: answers whose file
 could not be written, then "Saving…" while a write waits or is being saved,
-and otherwise "All changes saved on this device". A command awaiting `Saved`
+and otherwise the neutral "On this device". A draft can still be debouncing
+while the folder is idle. A command awaiting `Saved`
 shows its own failure once; a failed editor draft offers Save again, Discard,
 and Copy. There is no per-file save line.
 

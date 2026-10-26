@@ -35,7 +35,6 @@
 		transcriptsToCopy,
 	} from '$lib/recording-collection.js';
 	import { getWhispering } from '$lib/whispering.svelte.js';
-	import { WRITE_FAILED } from '$lib/files.js';
 	import { copyText, formatTime } from './file-actions.js';
 
 	/**
@@ -178,10 +177,9 @@
 				view.recordingBulk = { label: 'Deleting', done: 0, total: captured.deletions.length };
 				try {
 					const { deleted, problems } = await deleteCaptured(whispering, captured.deletions);
-					const refusals = problems.filter(({ reason }) => reason !== WRITE_FAILED);
-					if (refusals.length > 0)
+					if (problems.length > 0)
 						toast.error(`${several(deleted, 'recording', 'recordings')} deleted, ${problems.length} not`, {
-							description: reasons(refusals),
+							description: reasons(problems),
 						});
 					else if (problems.length === 0) toast.success(`${several(deleted, 'recording', 'recordings')} deleted`);
 				} finally {

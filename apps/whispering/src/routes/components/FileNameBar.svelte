@@ -2,7 +2,6 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { toast } from '@epicenter/ui/sonner';
-	import { WRITE_FAILED } from '$lib/files.js';
 
 	let {
 		prefix,
@@ -30,7 +29,7 @@
 		renaming = true;
 		const problem = await onRename(value);
 		renaming = false;
-		if (problem && problem !== WRITE_FAILED) toast.error('Could not rename the file', { description: problem });
+		if (problem) toast.error('Could not rename the file', { description: problem });
 	}
 </script>
 
