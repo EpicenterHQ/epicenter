@@ -96,11 +96,11 @@ const errors: string[] = [];
 
 async function saved(page: Page) {
 	try {
-		// A draft can still be waiting for its debounce while the folder says Saved.
+		// Wait through the draft debounce before checking that folder writes are idle.
 		await page.waitForTimeout(1100);
 		await page
 			.locator('header [role="status"]')
-			.filter({ hasText: /^Saved$/ })
+			.filter({ hasText: /^On this device$/ })
 			.waitFor();
 	} catch (cause) {
 		console.error(

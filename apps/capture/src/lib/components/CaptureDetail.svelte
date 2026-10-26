@@ -1,6 +1,7 @@
 <!-- A completed capture. One body draft holds text and thought commands until saves answer. -->
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
+	import { describeIssues } from '@epicenter/folder';
 	import { draft } from '@epicenter/svelte/folder';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
@@ -91,31 +92,16 @@
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
-	async function saveBody() {
-		while (active) {
-			const shown = body.value;
-			const saved = await folder.tables.captures.update(stem, { body: shown });
-			if (!active) return false;
-			if (saved.error !== null) {
-				toast.error('Could not save this capture', { description: saved.error.message });
-				return false;
-			}
-			if (body.value === shown) {
-				body.discard();
-				return true;
-			}
-		}
-		return false;
-	}
-
 	async function openText() {
-		if (stored && !(await saveBody())) return;
+		if ((await body.land()).error !== null) return;
+		if (!active) return;
 		captures.open(stem, 'text');
 	}
 
 	/** Export the file after explicitly saving the text shown in this editor. */
 	async function download() {
-		if (!(await saveBody())) return;
+		if ((await body.land()).error !== null) return;
+		if (!active) return;
 		const data = folder.file(path)?.data;
 		if (typeof data !== 'string') {
 			toast.error('Could not download this capture', { description: 'Its text is not available.' });
@@ -125,7 +111,8 @@
 	}
 
 	async function editThought(index: number, list: readonly string[]) {
-		if (!(await saveBody())) return;
+		if ((await body.land()).error !== null) return;
+		if (!active) return;
 		const saved = folder.tables.captures.row(stem);
 		const data = folder.file(path)?.data;
 		const range = saved?.issues === null && typeof data === 'string'
@@ -164,7 +151,7 @@
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This file does not read as a capture</Empty.Title>
-					<Empty.Description>{row.issues.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Description>{describeIssues(row.issues)}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content><Button size="sm" onclick={() => void openText()}>Edit as text</Button></Empty.Content>
 			</Empty.Root>
@@ -186,7 +173,7 @@
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This capture could not be read</Empty.Title>
-					<Empty.Description>{row.issues?.map((issue) => issue.message).join(' ')}</Empty.Description>
+					<Empty.Description>{row.issues && describeIssues(row.issues)}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content>
 					<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button>

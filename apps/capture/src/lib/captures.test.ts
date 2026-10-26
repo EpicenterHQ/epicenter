@@ -7,11 +7,11 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { composeBody } from '@epicenter/capture';
+import { until } from '@epicenter/folder/testing';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	type CapturesHarness,
 	openCaptures,
-	until,
 } from './local-folder.test-support.js';
 
 const { locateThought } = await import('./capture-actions.svelte.ts');
@@ -81,7 +81,7 @@ test('timeline orders captured instants and lists repair and nontext rows', asyn
 	expect(timelineOf(h.rows()).unreadable).toEqual([
 		{
 			path: 'captures/binary.md',
-			message: 'The file is not valid UTF-8.',
+			message: 'The file is not valid UTF-8',
 			retry: false,
 		},
 	]);
