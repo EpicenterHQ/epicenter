@@ -16,7 +16,7 @@ export type StatusLine = {
 	readonly tone: Tone;
 };
 
-/** Folder writes may be idle while a draft is still debouncing. */
+/** A neutral label after the Folder's queued writes settle. */
 export function saveLine(saving: boolean): StatusLine {
 	return saving
 		? { label: 'Saving…', tone: 'busy' }

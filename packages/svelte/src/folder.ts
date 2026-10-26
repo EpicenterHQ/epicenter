@@ -20,7 +20,6 @@ export { draft } from './draft.svelte.js';
 export function fileDraft<T extends Tables>(
 	folder: SvelteFolder<T>,
 	path: string,
-	options?: { delay?: number },
 ) {
 	return draft(
 		() => {
@@ -34,7 +33,6 @@ export function fileDraft<T extends Tables>(
 				withFileNewlines(typed, typeof data === 'string' ? data : ''),
 			);
 		},
-		options,
 	);
 }
 

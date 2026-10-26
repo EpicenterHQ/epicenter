@@ -37,17 +37,15 @@ export const [getFolder, setFolder] =
 ```
 
 `<OpenFolder>` refreshes on focus, visibility, and reconnection, and closes
-its Folder when it unmounts; each draft inside sends its text as it unmounts.
+its Folder when it unmounts. Drafts send each value as it is typed.
 
 Leaving asks once, only when the page is unsure, through the web's own
-`beforeunload`. A draft sends its latest text and is unsure while that save is
-out; `<OpenFolder>` is unsure while a write is out. A browser tab
-shows "Leave site?". A desktop window can wait instead: its one guard
-(`holdWindowClose`) lets the same listeners send what they hold, waits for
-`folder.idle()`, and closes, while the page shows "Saving…". Closing again
-while it waits asks whether to close anyway.
-Text whose save failed is not a reason to ask: it stays on screen while the
-editor is open, and leaving discards it.
+`beforeunload`. A draft is unsure while a save is out; `<OpenFolder>` is
+unsure while a write is out. A browser tab shows "Leave site?". A desktop
+window can wait instead: its one guard (`holdWindowClose`) waits for
+`folder.idle()` and closes while the page shows "Saving…". Closing again while
+it waits asks whether to close anyway. Text whose save failed stays on screen
+while the editor is open; leaving discards it without asking.
 The shell owns application Quit separately.
 
 ## Read landed values
@@ -77,18 +75,15 @@ exports `describeIssue` and `describeIssues`. A read failure has an
 `unreadable` issue; call `folder.refresh()` for a new attempt. To edit exact
 source, read `folder.file(row.path)?.data` and check that it is a string.
 `saveLine` from `@epicenter/svelte/status-line` shows “Saving…” while a write
-is queued or active and “On this device” otherwise. An idle folder may still
-have text in a draft's debounce, so the calm line makes no saved claim.
+is queued or active and “On this device” otherwise.
 
 ## Keep typed text in a draft
 
 Create one `draft(source, save)` per mounted editor component. Its `value`
 getter shows what the person typed until that save answers, then follows
-`source()` again. Its setter and `set(value)` schedule a save after one second
-by default. Teardown, page hide, hidden visibility, and beforeunload flush the
-latest unsent text. A value whose save already failed is not resent on
-teardown. A failed save keeps the typed value and its error for retry or
-discard while the editor is mounted.
+`source()` again. Its setter and `set(value)` send each value immediately.
+An older answer cannot clear newer typing. A failed save keeps the typed value
+and its error for retry or discard while the editor is mounted.
 
 ```svelte
 <script lang="ts">
@@ -118,11 +113,11 @@ select, or button can write directly; compute toggles from the value shown.
 Copy for text. Direct actions handle their own returned errors near the action.
 
 Call `await editor.land()` before an action needs the typed text on disk. It
-cancels the debounce, waits for an out save, and sends any newer typing before
-returning. A failure remains on `editor.error` for `<UnsavedEdit>` and is also
+waits for the newest sent save, including typing that arrives while it waits.
+A failure remains on `editor.error` for `<UnsavedEdit>` and is also
 returned to stop the action. After teardown, `land()` succeeds without saving.
 
-`fileDraft(folder, path, options?)` from `@epicenter/svelte/folder` edits a
+`fileDraft(folder, path)` from `@epicenter/svelte/folder` edits a
 whole text file. It shows LF line endings and, when sending, reads the current
 landed file to restore its newline style with `withFileNewlines`. If the file's
 data is not text, the draft starts empty and writes LF text. It has the same

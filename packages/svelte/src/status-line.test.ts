@@ -1,4 +1,4 @@
-/** Header status avoids claiming a debouncing draft was saved. */
+/** Header status describes whether a folder write is queued or active. */
 import { expect, test } from 'bun:test';
 import { saveLine } from './status-line.js';
 

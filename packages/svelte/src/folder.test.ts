@@ -1,6 +1,6 @@
 /**
  * Reactive folder reads, editor-owned drafts, and folder close.
- * Draft tests mount real components so lifecycle flushes and listeners run.
+ * Draft tests mount real components so immediate saves and listeners run.
  */
 import './svelte-dom.test-support.js';
 import { expect, mock, test } from 'bun:test';
@@ -49,7 +49,6 @@ async function until(check: () => boolean) {
 function mountedDraft(
 	source: () => string,
 	save: (value: string) => Promise<Result<unknown, Failure>>,
-	delay = 10,
 ) {
 	const target = document.createElement('div');
 	document.body.append(target);
@@ -59,7 +58,6 @@ function mountedDraft(
 		props: {
 			source,
 			save,
-			delay,
 			expose: (draft) => {
 				editor = draft;
 			},
@@ -138,7 +136,7 @@ test('svelteFolder passes refresh through to the core', async () => {
 	expect(folder.tables.notes.row('milk')?.fields?.title).toBe('Oat');
 });
 
-test('a burst of typing debounces to one synchronous save call', async () => {
+test('each typed value calls save immediately', async () => {
 	const calls: string[] = [];
 	const mounted = mountedDraft(
 		() => 'Disk',
@@ -146,18 +144,15 @@ test('a burst of typing debounces to one synchronous save call', async () => {
 			calls.push(value);
 			return Promise.resolve(Ok(undefined));
 		},
-		20,
 	);
 	mounted.editor.value = 'A';
 	mounted.editor.value = 'AB';
 	expect(mounted.editor.value).toBe('AB');
-	expect(calls).toEqual([]);
-	await until(() => calls.length === 1);
-	expect(calls).toEqual(['AB']);
+	expect(calls).toEqual(['A', 'AB']);
 	await mounted.unmount();
 });
 
-test('land sends a pending debounce and waits for its answer', async () => {
+test('land waits for the newest sent value', async () => {
 	const pending = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
 	const mounted = mountedDraft(
@@ -166,7 +161,6 @@ test('land sends a pending debounce and waits for its answer', async () => {
 			calls.push(value);
 			return pending.promise;
 		},
-		1000,
 	);
 	mounted.editor.value = 'Typed';
 	const landed = mounted.editor.land();
@@ -177,7 +171,7 @@ test('land sends a pending debounce and waits for its answer', async () => {
 	await mounted.unmount();
 });
 
-test('land waits for an out save then sends newer typing', async () => {
+test('land waits for newer typing while an older save is out', async () => {
 	const first = Promise.withResolvers<Result<unknown, Failure>>();
 	const second = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
@@ -192,9 +186,8 @@ test('land waits for an out save then sends newer typing', async () => {
 	await until(() => calls.length === 1);
 	mounted.editor.value = 'Second';
 	const landed = mounted.editor.land();
-	expect(calls).toEqual(['First']);
+	expect(calls).toEqual(['First', 'Second']);
 	first.resolve(Ok(undefined));
-	await until(() => calls.length === 2);
 	expect(calls).toEqual(['First', 'Second']);
 	second.resolve(Ok(undefined));
 	expectOk(await landed);
@@ -292,34 +285,41 @@ test('fileDraft keeps a byte order mark and starts empty for non-text data', asy
 	}
 });
 
-test('a timed send waits for an out save, then sends the newest value', async () => {
+test('older answers do not replace the newest typed value', async () => {
 	const first = Promise.withResolvers<Result<unknown, Failure>>();
 	const second = Promise.withResolvers<Result<unknown, Failure>>();
+	const third = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
 	const mounted = mountedDraft(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
-			return calls.length === 1 ? first.promise : second.promise;
+			switch (calls.length) {
+				case 1:
+					return first.promise;
+				case 2:
+					return second.promise;
+				default:
+					return third.promise;
+			}
 		},
 	);
 	mounted.editor.value = 'First';
 	await until(() => calls.length === 1);
 	mounted.editor.value = 'Second';
 	mounted.editor.value = 'Newest';
-	await Bun.sleep(20);
-	expect(calls).toEqual(['First']);
+	expect(calls).toEqual(['First', 'Second', 'Newest']);
 	first.resolve(Ok(undefined));
-	await until(() => calls.length === 2);
-	expect(calls).toEqual(['First', 'Newest']);
-	expect(mounted.editor.value).toBe('Newest');
 	second.resolve(Ok(undefined));
 	await Promise.resolve();
+	expect(mounted.editor.value).toBe('Newest');
+	third.resolve(Ok(undefined));
+	await until(() => mounted.editor.value === 'Disk');
 	expect(mounted.editor.value).toBe('Disk');
 	await mounted.unmount();
 });
 
-test('beforeunload flushes the newest value while an earlier save is out, and is unsure', async () => {
+test('beforeunload is unsure while immediate saves are out', async () => {
 	const first = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
 	const mounted = mountedDraft(
@@ -342,7 +342,7 @@ test('beforeunload flushes the newest value while an earlier save is out, and is
 	await mounted.unmount();
 });
 
-test('pagehide flush calls save synchronously before the event returns', async () => {
+test('pagehide does not resend an already sent value', async () => {
 	const memory = memoryHost({ 'note.txt': 'Disk' });
 	const folder = expectOk(await createFolder(memory.storage, { tables }));
 	const mounted = mountedDraft(
@@ -351,17 +351,17 @@ test('pagehide flush calls save synchronously before the event returns', async (
 			return typeof data === 'string' ? data : '';
 		},
 		(value) => folder.write('note.txt', value),
-		1000,
 	);
 	mounted.editor.value = 'Typed';
 	window.dispatchEvent(new Event('pagehide'));
 	expect(folder.saving()).toBe(true);
 	await folder.close();
 	expect(memory.text('note.txt')).toBe('Typed');
+	expect(memory.log.puts).toHaveLength(1);
 	await mounted.unmount();
 });
 
-test('teardown flushes pending input and never saves after teardown', async () => {
+test('teardown does not resend input or save after teardown', async () => {
 	const calls: string[] = [];
 	const mounted = mountedDraft(
 		() => 'Disk',
@@ -369,7 +369,6 @@ test('teardown flushes pending input and never saves after teardown', async () =
 			calls.push(value);
 			return Promise.resolve(Ok(undefined));
 		},
-		1000,
 	);
 	mounted.editor.value = 'Last';
 	await mounted.unmount();
@@ -425,7 +424,7 @@ test('failed input retries and discard ignores an out answer', async () => {
 	await mounted.unmount();
 });
 
-test('OpenFolder closes after a draft flushes behind an out save', async () => {
+test('OpenFolder closes after queued immediate saves land', async () => {
 	const memory = memoryHost({ 'note.txt': 'Disk' });
 	const folder = expectOk(await createFolder(memory.storage, { tables }));
 	const target = document.createElement('div');
@@ -547,7 +546,7 @@ test('a page unload is unsure only while a draft save is out', async () => {
 	};
 	expect(unload()).toBe(false);
 	mounted.editor.value = 'Typed';
-	expect(unload()).toBe(true); // the unload sent it; the save is out
+	expect(unload()).toBe(true); // the immediate save is out
 	answer.resolve(Err(failure));
 	await until(() => mounted.editor.error !== null);
 	expect(unload()).toBe(false); // failed: shown inline while open, not a reason to stay
