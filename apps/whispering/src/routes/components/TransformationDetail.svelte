@@ -189,7 +189,7 @@
 	/** Show Instructions with the model notes open. The button pressed leaves with Try it, so focus moves to the tab. */
 	async function goToInstructions() {
 		const from = document.activeElement;
-		if (!show(false)) return;
+		if (!await show(false)) return;
 		tab = 'instructions';
 		notesOpen = true;
 		void focusTab('instructions', from);
@@ -217,15 +217,35 @@
 		(blocked === undefined ? runButtons[view.applySource] : (goToInstructionsButton ?? blockedReason))?.focus();
 	}
 
-	/** Show the fields or whole text while queued edits keep their order. */
-	function show(asSource: boolean) {
+	let switching = $state(false);
+	/** Show the next editor after this editor's saves land. */
+	async function show(asSource: boolean) {
+		if (switching) return false;
+		switching = true;
+		const results = await Promise.all(asSource
+			? [title.landed(), modelText.landed(), prompt.landed()]
+			: [source.landed()]);
+		if (results.some(({ error }) => error !== null)) {
+			switching = false;
+			return false;
+		}
 		const problem = asSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
+		switching = false;
 		return problem === undefined;
+	}
+	function selectTab(value: string) {
+		if (value === 'try') {
+			tab = 'try';
+			return;
+		}
+		void show(value === 'source').then((opened) => {
+			if (opened) tab = 'instructions';
+		});
 	}
 </script>
 
-<section bind:this={editor} class="flex h-full min-h-0 flex-col" aria-label="Transformation" data-testid="transformation-detail">
+<section bind:this={editor} class="flex h-full min-h-0 flex-col" aria-label="Transformation" data-testid="transformation-detail" inert={switching}>
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
 			<Button variant="ghost" size="icon-sm" aria-label="Back to transformations" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
@@ -274,13 +294,7 @@
 	{:else}
 	<Tabs.Root bind:value={
 		() => tab === 'try' ? 'try' : asText ? 'source' : 'instructions',
-		(value) => {
-			if (value === 'try') {
-				tab = 'try';
-				return;
-			}
-			if (show(value === 'source')) tab = 'instructions';
-		}
+		selectTab
 	} class="flex min-h-0 flex-1 flex-col px-3 py-3 sm:px-4">
 		<Tabs.List>
 			<Tabs.Trigger bind:ref={tabTriggers.instructions} value="instructions" disabled={issues !== undefined} data-testid="tab-instructions">Instructions</Tabs.Trigger>

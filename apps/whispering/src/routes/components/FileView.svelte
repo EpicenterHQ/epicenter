@@ -69,13 +69,22 @@
 			: (readRow(source.value, whisperingTables[table]).issues ?? undefined),
 	);
 
-	/** The view changes now; queued edits keep their order. */
-	function show(toSource: boolean) {
+	let switching = $state(false);
+	/** The next editor reads the file only after this editor's save lands. */
+	async function show(toSource: boolean) {
+		if (switching) return;
+		switching = true;
+		const { error } = await (toSource ? body : source).landed();
+		if (error !== null) {
+			switching = false;
+			return;
+		}
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem)
 			toast.error(toSource ? 'The text was not opened for editing' : 'The text was not opened alone', {
 				description: problem,
 			});
+		switching = false;
 	}
 
 	const name = $derived(basename(path));
@@ -101,7 +110,7 @@
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="File" inert={renaming}>
+<section class="flex h-full min-h-0 flex-col" aria-label="File" inert={renaming || switching}>
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
 			<Button variant="ghost" size="icon-sm" aria-label="Back to recordings" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>

@@ -55,6 +55,7 @@
 	const note = $derived(noteRow?.issues === null ? noteRow : undefined);
 	const text = $derived(typeof file?.data === 'string' && file.data.length <= LARGE ? file.data : undefined);
 	const raw = fileEdit(folder, path);
+	let switching = $state(false);
 	/** Why the text does not read as its row, apart from the file's own state. */
 	const issues = $derived(
 		text === undefined || (noteId === undefined && folderId === undefined)
@@ -68,9 +69,16 @@
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
 	}
 
-	function openAsNote() {
-		if (notes.selected?.path !== path) return;
+	export async function openAsNote() {
+		if (switching || notes.selected?.path !== path) return;
+		switching = true;
+		const { error } = await raw.landed();
+		if (error !== null || issues.length > 0 || notes.selected?.path !== path) {
+			switching = false;
+			return;
+		}
 		notes.open(path, 'note');
+		switching = false;
 	}
 
 	/** A file shown as details: its extension names the type, then its size. */
@@ -92,7 +100,7 @@
 		</div>
 	{/if}
 	{#if as === 'text'}
-		<section class="flex min-h-0 flex-1 flex-col" aria-label="File">
+		<section class="flex min-h-0 flex-1 flex-col" aria-label="File" inert={switching}>
 			<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 				<FileIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 				<div class="min-w-0 flex-1">

@@ -194,7 +194,7 @@ test('Edit as text follows queued typing after a capture becomes a draft', async
 	expect(h.text(PATH)).toContain('Held text');
 });
 
-test('Edit as text switches while a queued body write is pending', async () => {
+test('Edit as text waits for a queued body write before showing the file', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	let release = () => {};
 	h.host.control.putGate = new Promise<void>((resolve) => {
@@ -203,8 +203,9 @@ test('Edit as text switches while a queued body write is pending', async () => {
 	type(field('capture-text'), 'Pending');
 	button(h.target, 'Edit as text').click();
 	flushSync();
-	expect(h.captures.opened?.mode).toBe('text');
-	expect(textFile()?.value).toBe(FILE);
+	expect(h.captures.opened?.mode).toBe('capture');
+	expect(textFile()).toBeNull();
+	expect(h.target.querySelector<HTMLElement>(':scope > div')?.inert).toBe(true);
 	release();
 	await until(() => {
 		flushSync();
@@ -213,7 +214,7 @@ test('Edit as text switches while a queued body write is pending', async () => {
 	expect(h.text(PATH)).toContain('Pending');
 });
 
-test('Edit as text leaves a failed body draft and shows the saved file', async () => {
+test('Edit as text keeps a failed body draft visible for retry', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	h.failSaves(PATH);
 	type(field('capture-text'), 'Keep this');
@@ -223,8 +224,8 @@ test('Edit as text leaves a failed body draft and shows the saved file', async (
 	}, { timeout: 2500 });
 	button(h.target, 'Edit as text').click();
 	flushSync();
-	expect(h.captures.opened?.mode).toBe('text');
-	expect(textFile()?.value).toBe(FILE);
+	expect(h.captures.opened?.mode).toBe('capture');
+	expect(field('capture-text')?.value).toBe('Keep this');
 	expect(h.text(PATH)).toBe(FILE);
 });
 
@@ -237,7 +238,7 @@ test('leaving during an Edit as text save keeps the timeline open', async () => 
 	type(field('capture-text'), 'Pending');
 	button(h.target, 'Edit as text').click();
 	await until(() => h.host.log.puts.length > 0, { timeout: 2500 });
-	button(h.target, 'Back to timeline').click();
+	h.captures.leave();
 	release();
 	await h.quiet();
 	flushSync();

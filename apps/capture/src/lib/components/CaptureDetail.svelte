@@ -33,6 +33,7 @@
 	const path = untrack(() => capturePath(stem));
 	const folder = getFolder();
 	let active = true;
+	let switching = $state(false);
 	onDestroy(() => {
 		active = false;
 	});
@@ -92,7 +93,14 @@
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 
-	function openText() {
+	async function openText() {
+		if (switching) return;
+		switching = true;
+		const { error } = await body.landed();
+		if (error !== null || !active || captures.opened?.stem !== stem) {
+			switching = false;
+			return;
+		}
 		captures.open(stem, 'text');
 	}
 
@@ -138,7 +146,7 @@
 <UnsavedEdit edit={body} />
 
 {#if reading === undefined}
-	<div class="flex flex-col gap-4">
+	<div class="flex flex-col gap-4" inert={switching}>
 		<Button variant="outline" size="sm" class="self-start" onclick={() => captures.leave()}>Back to timeline</Button>
 		{#if row?.fields && row.issues === null && row.fields.draft === true}
 			<Alert.Root>
@@ -181,7 +189,7 @@
 		{/if}
 	</div>
 {:else}
-<div class="flex flex-col gap-4">
+<div class="flex flex-col gap-4" inert={switching}>
 	<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
 		<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		<h1 class="mr-auto text-lg font-semibold tracking-tight">

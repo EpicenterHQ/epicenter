@@ -52,9 +52,9 @@ for the current page flow and verify it against the code.
   directions and tests.
 - The rich editor mount effect depends only on its element and `editable`
   boolean. Reading save or row changes there recreates it and loses history.
-- Switching between note fields and the whole-file editor changes the view
-  immediately. Earlier typed input is already in the folder queue. The
-  whole-file editor follows the mirror as those writes land.
+- Switching between note fields and the whole-file editor waits for the
+  current view's edits to land. A failed save keeps that view and its
+  UnsavedEdit visible.
 
 ## Lifecycle and boundary
 

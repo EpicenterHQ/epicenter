@@ -33,7 +33,28 @@
 		directory === '*' || doc.directory === (directory === '.' ? '' : directory),
 	));
 	let focusedPath = $state<string>();
-	const projection = $derived(applyView(members, view, focusedPath));
+	let switchingPath = $state<string>();
+	const projection = $derived(applyView(members, view, switchingPath ?? focusedPath));
+	const edits = new Map<string, Set<() => Promise<boolean>>>();
+	function register(path: string, landed: () => Promise<boolean>) {
+		let row = edits.get(path);
+		if (!row) edits.set(path, row = new Set());
+		row.add(landed);
+		return () => {
+			row.delete(landed);
+			if (row.size === 0) edits.delete(path);
+		};
+	}
+	export async function landed(path: string): Promise<boolean> {
+		const row = edits.get(path);
+		if (!row?.size) return true;
+		switchingPath = path;
+		const results = await Promise.all([...row].map((edit) => edit()));
+		const success = results.every(Boolean);
+		if (!success) focusedPath = path;
+		switchingPath = undefined;
+		return success;
+	}
 	const included = $derived(new Set(applyView(members, view).documents.map((doc) => doc.path)));
 	const documents = $derived(projection.documents);
 	const availableColumns = $derived([
@@ -97,13 +118,14 @@
 	}
 	function blur() {
 		queueMicrotask(() => {
+			if (switchingPath !== undefined) return;
 			const active = document.activeElement;
 			focusedPath = active?.closest('[data-row-path]')?.getAttribute('data-row-path') ?? undefined;
 		});
 	}
 </script>
 
-<section class="flex min-h-0 flex-1 flex-col gap-3 p-4" aria-label="Tables" onfocusin={focus} onfocusout={blur}>
+<section class="flex min-h-0 flex-1 flex-col gap-3 p-4" aria-label="Tables" onfocusin={focus} onfocusout={blur} inert={switchingPath !== undefined}>
 	<div class="flex items-center gap-3">
 		<label for="table-directory">Directory</label>
 		<Select.Root type="single" value={directory} onValueChange={(table) => change({ ...view, table })}>
@@ -155,7 +177,7 @@
 								{#each columns.filter((column) => column !== view.groupBy && column !== 'title') as column}
 									<p class="truncate text-sm"><span class="text-muted-foreground">{column}: </span>{display(fieldValue(doc.fields, column))}</p>
 								{/each}
-								<BoardMove path={doc.path} {lane} {lanes} disabled={!row.canEdit} save={(key) => {
+								<BoardMove path={doc.path} {lane} {lanes} disabled={!row.canEdit} register={(landed) => register(doc.path, landed)} save={(key) => {
 									const destination = lanes.find((entry) => entry.key === key);
 									return view.type === 'board' && destination?.editable ? update(doc.path, view.groupBy, destination.value) : undefined;
 								}} />
@@ -189,9 +211,9 @@
 								{@const value = fieldValue(doc.fields, column)}
 								{@const kind = cellKind(doc.path, column, value)}
 								{#if kind === 'boolean'}
-									<BooleanCell {value} label="{doc.path}: {column}" disabled={!canEdit} save={(next) => update(doc.path, column, next)} />
+									<BooleanCell {value} label="{doc.path}: {column}" disabled={!canEdit} register={(landed) => register(doc.path, landed)} save={(next) => update(doc.path, column, next)} />
 								{:else if kind === 'string' || kind === 'number' || kind === 'integer'}
-									<FieldCell {value} {kind} label="{doc.path}: {column}" disabled={!canEdit} save={(next) => update(doc.path, column, next)} />
+									<FieldCell {value} {kind} label="{doc.path}: {column}" disabled={!canEdit} register={(landed) => register(doc.path, landed)} save={(next) => update(doc.path, column, next)} />
 								{:else}<span class="font-mono text-xs">{display(value)}</span>{/if}
 							</Table.Cell>
 						{/each}

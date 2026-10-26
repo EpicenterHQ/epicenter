@@ -75,9 +75,9 @@ where the command was used. The header says **Saving…** while writes are pendi
 
 A note has **Rich text** and **Source** views of its body. They share one body
 edit in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
-only the title also keeps Undo. **Edit as file** and **Open as note** switch
-views immediately. Earlier edits are already queued; the whole-file view
-follows them as they land. A different body shown in either source view starts
+only the title also keeps Undo. **Edit as file** and **Open as note** wait for
+the current view's edits to save before switching. If a save fails, the current
+view stays visible with its unsaved edit. A different body shown in either source view starts
 a new rich-text history.
 
 `<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,

@@ -4,6 +4,7 @@
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createNotes } from '$lib/notes.svelte.js';
+	import { noteIdOf } from '$lib/data.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileDetail from './FileDetail.svelte';
@@ -18,6 +19,17 @@
 	const notes = createNotes(setFolder(folder));
 
 	let filesOpen = $state(false);
+	let detail: FileDetail | undefined = $state();
+
+	function openListed(path: string) {
+		const id = noteIdOf(path);
+		if (detail && notes.selected?.path === path && notes.selected.as === 'text' &&
+			id !== undefined && notes.folder.tables.notes.row(id)?.issues === null) {
+			void detail.openAsNote();
+			return;
+		}
+		notes.open(path);
+	}
 
 </script>
 
@@ -48,7 +60,7 @@
 		</Resizable.Pane>
 		<Resizable.Handle />
 		<Resizable.Pane id="list" order={2} defaultSize={24} minSize={15}>
-			<NoteList {notes} />
+			<NoteList {notes} {openListed} />
 		</Resizable.Pane>
 		<Resizable.Handle />
 		<Resizable.Pane id="detail" order={3} defaultSize={filesOpen ? 40 : 60} minSize={30}>
@@ -56,7 +68,7 @@
 			{#if shown !== undefined}
 				<!-- Changing presentation keeps this file's editors and their undo history alive. -->
 				{#key shown.path}
-					<FileDetail {notes} path={shown.path} as={shown.as} />
+					<FileDetail bind:this={detail} {notes} path={shown.path} as={shown.as} />
 				{/key}
 			{:else}
 				<Empty.Root class="h-full">
@@ -68,7 +80,7 @@
 		{#if filesOpen}
 			<Resizable.Handle />
 			<Resizable.Pane id="files" order={4} defaultSize={20} minSize={14} maxSize={40}>
-				<FileBrowser {notes} />
+				<FileBrowser {notes} {openListed} />
 			</Resizable.Pane>
 		{/if}
 	</Resizable.PaneGroup>

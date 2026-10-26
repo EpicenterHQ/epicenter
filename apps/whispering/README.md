@@ -603,9 +603,8 @@ visible until you retry or discard it. The lists show a row once it is saved.
   kept. Source writes the whole text as typed.
 - A save that does not land keeps the typed value in its editor with **Save
   again**, **Discard**, and **Copy**. Nothing is retried on its own.
-- Opening Source or returning to fields switches editors immediately. The new
-  view follows the folder as queued saves land, so it can briefly show older text.
-  A failed edit stays available in its detail view until you leave that view.
+- Opening Source or returning to fields waits for the current editor's saves to
+  land. A failed edit keeps that view visible with its retry and discard controls.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.

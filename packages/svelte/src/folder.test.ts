@@ -585,3 +585,46 @@ test('holdWindowClose false registers no desktop close listener', async () => {
 		target.remove();
 	}
 });
+
+test('failed desktop close registration refuses the folder and retry opens a fresh one', async () => {
+	const first = memoryHost({ 'note.txt': 'First' });
+	const second = memoryHost({ 'note.txt': 'Second' });
+	const folders = [
+		expectOk(await createFolder(first.storage, { tables })),
+		expectOk(await createFolder(second.storage, { tables })),
+	];
+	let openings = 0;
+	const target = document.createElement('div');
+	document.body.append(target);
+	desktop(true);
+	nativeWindow.refuseRegistration = true;
+	const view = mount(OpenFolderHost, {
+		target,
+		props: {
+			open: () => {
+				const folder = folders[openings++];
+				if (!folder) throw new Error('No folder prepared for retry');
+				return Promise.resolve(Ok(folder));
+			},
+			edit: true,
+		},
+	});
+	try {
+		await until(() => target.textContent?.includes('Could not protect changes') ?? false);
+		expect(first.control.closed).toBe(true);
+		expect(target.querySelector('input')).toBeNull();
+		expect(nativeWindow.listeners).toBe(0);
+		nativeWindow.refuseRegistration = false;
+		const retry = [...target.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Try again');
+		if (!retry) throw new Error('Missing retry button');
+		retry.click();
+		await until(() => target.querySelector('input') !== null);
+		expect(openings).toBe(2);
+		expect(nativeWindow.listeners).toBe(1);
+	} finally {
+		await unmount(view);
+		await until(() => second.control.closed);
+		nativeWindow.reset();
+		target.remove();
+	}
+});

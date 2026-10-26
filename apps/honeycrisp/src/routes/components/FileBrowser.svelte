@@ -19,7 +19,7 @@
 	import { type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 
-	let { notes }: { notes: Notes } = $props();
+	let { notes, openListed }: { notes: Notes; openListed: (path: string) => void } = $props();
 
 	/**
 	 * The tree over the mirror. The folder lists file paths only: a directory
@@ -57,7 +57,7 @@
 			else notes.expanded.add(row.path);
 			return;
 		}
-		notes.open(row.path);
+		openListed(row.path);
 	}
 
 	function startCreate(directory: string) {
