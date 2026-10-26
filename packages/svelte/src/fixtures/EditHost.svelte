@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Result } from 'wellcrafted/result';
-	import { draft } from '../draft.svelte.js';
+	import { edit } from '../edit.svelte.js';
 
 	type Failure = { message: string };
 	let {
@@ -10,10 +10,10 @@
 	}: {
 		source: () => string;
 		save: (value: string) => Promise<Result<unknown, Failure>>;
-		expose: (editor: ReturnType<typeof draft<string, Failure>>) => void;
+		expose: (editor: ReturnType<typeof edit<string, Failure>>) => void;
 	} = $props();
 	// svelte-ignore state_referenced_locally
-	const editor = draft(source, save);
+	const editor = edit(source, save);
 	// svelte-ignore state_referenced_locally
 	expose(editor);
 </script>

@@ -1,8 +1,8 @@
-/** A draft shows typed text until its latest immediate save answers. */
+/** An edit shows typed text until its latest immediate save answers. */
 import { onDestroy } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
-export function draft<T, E>(
+export function edit<T, E>(
 	source: () => T,
 	save: (value: T) => Promise<Result<unknown, E>>,
 ) {
@@ -17,7 +17,7 @@ export function draft<T, E>(
 		try {
 			answer = save(value);
 		} catch (cause) {
-			// SAFETY: a thrown save failure is presented through the draft's error channel.
+			// SAFETY: a thrown save failure is presented through the edit's error channel.
 			answer = Promise.resolve(Err(cause as E));
 		}
 		const settled = answer.then(
@@ -45,7 +45,7 @@ export function draft<T, E>(
 		send(value);
 	}
 
-	async function land(): Promise<Result<void, E>> {
+	async function landed(): Promise<Result<void, E>> {
 		while (active && current !== null) {
 			const answer = lastSave;
 			if (answer === undefined) return Ok(undefined);
@@ -71,7 +71,7 @@ export function draft<T, E>(
 			return error;
 		},
 		set,
-		land,
+		landed,
 		retry() {
 			if (!active || current === null) return;
 			error = null;

@@ -12,16 +12,16 @@ import type {
 import { withFileNewlines } from '@epicenter/folder/file-browser';
 import { createSubscriber } from 'svelte/reactivity';
 import type { TSchema as Schema, Static } from 'typebox';
-import { draft } from './draft.svelte.js';
+import { edit } from './edit.svelte.js';
 
-export { draft } from './draft.svelte.js';
+export { edit } from './edit.svelte.js';
 
-/** A whole-file text draft, edited as LF and sent in the file's current newline style. */
-export function fileDraft<T extends Tables>(
+/** A whole-file text edit, edited as LF and sent in the file's current newline style. */
+export function fileEdit<T extends Tables>(
 	folder: SvelteFolder<T>,
 	path: string,
 ) {
-	return draft(
+	return edit(
 		() => {
 			const data = folder.file(path)?.data;
 			return typeof data === 'string' ? data.replace(/\r\n?/g, '\n') : '';

@@ -1,6 +1,6 @@
 /**
- * Reactive folder reads, editor-owned drafts, and folder close.
- * Draft tests mount real components so immediate saves and listeners run.
+ * Reactive folder reads, editor-owned edits, and folder close.
+ * Edit tests mount real components so immediate saves and listeners run.
  */
 import './svelte-dom.test-support.js';
 import { expect, mock, test } from 'bun:test';
@@ -22,9 +22,9 @@ mock.module('@tauri-apps/plugin-dialog', () => ({ ask }));
 const { svelteFolder } = await import('./folder.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
 const { flushSync, mount, unmount } = await import('svelte');
-const { default: DraftHost } = await import('./fixtures/DraftHost.svelte');
-const { default: FileDraftHost } = await import(
-	'./fixtures/FileDraftHost.svelte'
+const { default: EditHost } = await import('./fixtures/EditHost.svelte');
+const { default: FileEditHost } = await import(
+	'./fixtures/FileEditHost.svelte'
 );
 const { default: OpenFolderHost } = await import(
 	'./fixtures/OpenFolderHost.svelte'
@@ -35,7 +35,7 @@ const text = (title: string) => `---\ntitle: ${title}\n---\nBody\n`;
 const failure = { message: 'disk full' };
 type Failure = { message: string };
 type Editor = ReturnType<
-	typeof import('./draft.svelte.js').draft<string, Failure>
+	typeof import('./edit.svelte.js').edit<string, Failure>
 >;
 
 async function until(check: () => boolean) {
@@ -46,25 +46,25 @@ async function until(check: () => boolean) {
 	expect(check()).toBe(true);
 }
 
-function mountedDraft(
+function mountedEdit(
 	source: () => string,
 	save: (value: string) => Promise<Result<unknown, Failure>>,
 ) {
 	const target = document.createElement('div');
 	document.body.append(target);
 	let editor: Editor | undefined;
-	const view = mount(DraftHost, {
+	const view = mount(EditHost, {
 		target,
 		props: {
 			source,
 			save,
-			expose: (draft) => {
-				editor = draft;
+			expose: (edit) => {
+				editor = edit;
 			},
 		},
 	});
 	flushSync();
-	if (editor === undefined) throw new Error('Draft did not mount');
+	if (editor === undefined) throw new Error('Edit did not mount');
 	return {
 		editor,
 		target,
@@ -138,7 +138,7 @@ test('svelteFolder passes refresh through to the core', async () => {
 
 test('each typed value calls save immediately', async () => {
 	const calls: string[] = [];
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
@@ -152,10 +152,10 @@ test('each typed value calls save immediately', async () => {
 	await mounted.unmount();
 });
 
-test('land waits for the newest sent value', async () => {
+test('landed waits for the newest sent value', async () => {
 	const pending = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
@@ -163,7 +163,7 @@ test('land waits for the newest sent value', async () => {
 		},
 	);
 	mounted.editor.value = 'Typed';
-	const landed = mounted.editor.land();
+	const landed = mounted.editor.landed();
 	expect(calls).toEqual(['Typed']);
 	pending.resolve(Ok(undefined));
 	expectOk(await landed);
@@ -171,11 +171,11 @@ test('land waits for the newest sent value', async () => {
 	await mounted.unmount();
 });
 
-test('land waits for newer typing while an older save is out', async () => {
+test('landed waits for newer typing while an older save is out', async () => {
 	const first = Promise.withResolvers<Result<unknown, Failure>>();
 	const second = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
@@ -185,7 +185,7 @@ test('land waits for newer typing while an older save is out', async () => {
 	mounted.editor.value = 'First';
 	await until(() => calls.length === 1);
 	mounted.editor.value = 'Second';
-	const landed = mounted.editor.land();
+	const landed = mounted.editor.landed();
 	expect(calls).toEqual(['First', 'Second']);
 	first.resolve(Ok(undefined));
 	expect(calls).toEqual(['First', 'Second']);
@@ -194,9 +194,9 @@ test('land waits for newer typing while an older save is out', async () => {
 	await mounted.unmount();
 });
 
-test('land returns a failed save and leaves its error visible', async () => {
+test('landed returns a failed save and leaves its error visible', async () => {
 	let calls = 0;
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		() => {
 			calls++;
@@ -204,24 +204,24 @@ test('land returns a failed save and leaves its error visible', async () => {
 		},
 	);
 	mounted.editor.value = 'Typed';
-	expectErr(await mounted.editor.land());
+	expectErr(await mounted.editor.landed());
 	expect(mounted.editor.error).toEqual(failure);
 	expect(mounted.editor.value).toBe('Typed');
 	await mounted.unmount();
 	expect(calls).toBe(1);
-	expectOk(await mounted.editor.land());
+	expectOk(await mounted.editor.landed());
 	expect(calls).toBe(1);
 });
 
-test('fileDraft edits LF text and sends with current file newline style', async () => {
+test('fileEdit edits LF text and sends with current file newline style', async () => {
 	const memory = memoryHost({ 'note.txt': 'First\r\nSecond\r\n' });
 	const folder = svelteFolder(
 		expectOk(await createFolder(memory.storage, { tables })),
 	);
 	const target = document.createElement('div');
 	document.body.append(target);
-	let editor: ReturnType<typeof import('./folder.js').fileDraft> | undefined;
-	const view = mount(FileDraftHost, {
+	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
+	const view = mount(FileEditHost, {
 		target,
 		props: {
 			folder,
@@ -232,16 +232,16 @@ test('fileDraft edits LF text and sends with current file newline style', async 
 		},
 	});
 	flushSync();
-	if (editor === undefined) throw new Error('File draft did not mount');
+	if (editor === undefined) throw new Error('File edit did not mount');
 	expect(editor.value).toBe('First\nSecond\n');
 	editor.value = 'Changed\n';
-	expectOk(await editor.land());
+	expectOk(await editor.landed());
 	expect(memory.text('note.txt')).toBe('Changed\r\n');
 	await unmount(view);
 	target.remove();
 });
 
-test('fileDraft keeps a byte order mark and starts empty for non-text data', async () => {
+test('fileEdit keeps a byte order mark and starts empty for non-text data', async () => {
 	const memory = memoryHost({
 		'bom.txt': '\ufeffFirst\r\n',
 		'binary.txt': Uint8Array.of(255),
@@ -255,8 +255,8 @@ test('fileDraft keeps a byte order mark and starts empty for non-text data', asy
 	] as const) {
 		const target = document.createElement('div');
 		document.body.append(target);
-		let editor: ReturnType<typeof import('./folder.js').fileDraft> | undefined;
-		const view = mount(FileDraftHost, {
+		let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
+		const view = mount(FileEditHost, {
 			target,
 			props: {
 				folder,
@@ -267,10 +267,10 @@ test('fileDraft keeps a byte order mark and starts empty for non-text data', asy
 			},
 		});
 		flushSync();
-		if (editor === undefined) throw new Error('File draft did not mount');
+		if (editor === undefined) throw new Error('File edit did not mount');
 		expect(editor.value).toBe(shown);
 		editor.value = typed;
-		expectOk(await editor.land());
+		expectOk(await editor.landed());
 		expect(folder.file(path)?.data).toBe(stored);
 		expect(memory.text(path)).toBe(stored.replace(/^\ufeff/, ''));
 		if (path === 'bom.txt') {
@@ -290,7 +290,7 @@ test('older answers do not replace the newest typed value', async () => {
 	const second = Promise.withResolvers<Result<unknown, Failure>>();
 	const third = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
@@ -319,10 +319,10 @@ test('older answers do not replace the newest typed value', async () => {
 	await mounted.unmount();
 });
 
-test('a draft does not register a beforeunload prompt', async () => {
+test('an edit does not register a beforeunload prompt', async () => {
 	const first = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
@@ -345,7 +345,7 @@ test('a draft does not register a beforeunload prompt', async () => {
 test('pagehide does not resend an already sent value', async () => {
 	const memory = memoryHost({ 'note.txt': 'Disk' });
 	const folder = expectOk(await createFolder(memory.storage, { tables }));
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => {
 			const data = folder.file('note.txt')?.data;
 			return typeof data === 'string' ? data : '';
@@ -363,7 +363,7 @@ test('pagehide does not resend an already sent value', async () => {
 
 test('teardown does not resend input or save after teardown', async () => {
 	const calls: string[] = [];
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
@@ -378,7 +378,7 @@ test('teardown does not resend input or save after teardown', async () => {
 });
 
 test('rejected and thrown saves leave typed input and an error', async () => {
-	const rejected = mountedDraft(
+	const rejected = mountedEdit(
 		() => 'Disk',
 		() => Promise.reject(failure),
 	);
@@ -387,7 +387,7 @@ test('rejected and thrown saves leave typed input and an error', async () => {
 	expect(rejected.editor.error).toEqual(failure);
 	expect(rejected.editor.value).toBe('Rejected');
 	await rejected.unmount();
-	const thrown = mountedDraft(
+	const thrown = mountedEdit(
 		() => 'Disk',
 		() => {
 			throw failure;
@@ -403,7 +403,7 @@ test('failed input retries and discard ignores an out answer', async () => {
 	let fails = true;
 	const pending = Promise.withResolvers<Result<unknown, Failure>>();
 	const calls: string[] = [];
-	const mounted = mountedDraft(
+	const mounted = mountedEdit(
 		() => 'Disk',
 		(value) => {
 			calls.push(value);
@@ -460,7 +460,7 @@ test('OpenFolder closes after queued immediate saves land', async () => {
 	target.remove();
 });
 
-test('desktop close waits for a pending draft write before destroying the window', async () => {
+test('desktop close waits for a pending edit write before destroying the window', async () => {
 	const memory = memoryHost({ 'note.txt': 'Disk' });
 	const folder = expectOk(await createFolder(memory.storage, { tables }));
 	const target = document.createElement('div');

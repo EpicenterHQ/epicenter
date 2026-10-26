@@ -1,6 +1,6 @@
 <script lang="ts" generics="TTables extends Tables">
 	import type { Opened, Tables } from '@epicenter/folder';
-	import DraftHost from './DraftHost.svelte';
+	import EditHost from './EditHost.svelte';
 	import OpenFolder from '../open-folder.svelte';
 
 	let {
@@ -20,7 +20,7 @@
 	{#snippet children(folder)}
 		<span>Ready</span>
 		{#if edit}
-			<DraftHost
+			<EditHost
 				source={() => { const data = folder.file('note.txt')?.data; return typeof data === 'string' ? data : ''; }}
 				save={(value) => folder.write('note.txt', value)}
 				expose={() => {}}

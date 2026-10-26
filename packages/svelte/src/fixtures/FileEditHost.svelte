@@ -1,14 +1,14 @@
 <script lang="ts">
 	import type { SvelteFolder } from '../folder.js';
-	import { fileDraft } from '../folder.js';
+	import { fileEdit } from '../folder.js';
 
 	let { folder, path, expose }: {
 		folder: SvelteFolder;
 		path: string;
-		expose: (editor: ReturnType<typeof fileDraft>) => void;
+		expose: (editor: ReturnType<typeof fileEdit>) => void;
 	} = $props();
 	// svelte-ignore state_referenced_locally
-	const editor = fileDraft(folder, path);
+	const editor = fileEdit(folder, path);
 	// svelte-ignore state_referenced_locally
 	expose(editor);
 </script>
