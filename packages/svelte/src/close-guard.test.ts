@@ -1,7 +1,7 @@
 /**
  * The desktop close guard asks the page's beforeunload listeners, waits for
  * writes, and asks once more; one native question answers an unsure page.
- * It destroys once, and a retired guard cannot destroy a replacement.
+ * One window holds one close listener, and it destroys once.
  */
 import './svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
@@ -33,26 +33,17 @@ afterEach(() => {
 	closeAnyway = false;
 });
 
-test('a retired guard cannot destroy the replacement window', async () => {
+test('a window holds one close listener until it is released', async () => {
 	desktop(true);
-	const drain = Promise.withResolvers<void>();
-	const started = Promise.withResolvers<void>();
-	const stop = await holdWindowClose(async () => {
-		started.resolve();
-		await drain.promise;
-	});
-	cleanup.push(stop);
-	const oldClose = requestClose();
-	await started.promise;
-	stop();
+	const release = await holdWindowClose();
+	const again = await holdWindowClose();
+	expect(nativeWindow.listeners).toBe(1);
+	again();
+	expect(nativeWindow.listeners).toBe(1);
+	release();
+	release();
+	expect(nativeWindow.listeners).toBe(0);
 	cleanup.push(await holdWindowClose());
-	stop();
-	await expect(holdWindowClose()).rejects.toThrow(
-		'This window already has a Folder close guard',
-	);
-	drain.resolve();
-	await oldClose;
-	expect(nativeWindow.destroyed).toBe(0);
 	expect(nativeWindow.listeners).toBe(1);
 	await requestClose();
 	expect(nativeWindow.destroyed).toBe(1);
@@ -117,23 +108,6 @@ test('successful destruction drains once and stays inert', async () => {
 	await requestClose();
 	expect(drains).toBe(1);
 	expect(nativeWindow.destroyed).toBe(1);
-});
-
-test('a retired destroy completion keeps the replacement listener', async () => {
-	desktop(true);
-	const destruction = Promise.withResolvers<void>();
-	nativeWindow.destruction = destruction.promise;
-	const stop = await holdWindowClose();
-	cleanup.push(stop);
-	const oldClose = requestClose();
-	for (let tries = 0; tries < 400 && !document.documentElement.inert; tries++)
-		await Bun.sleep(1);
-	stop();
-	nativeWindow.destruction = undefined;
-	cleanup.push(await holdWindowClose());
-	destruction.resolve();
-	await oldClose;
-	expect(nativeWindow.listeners).toBe(1);
 });
 
 test('a page sure after its writes land closes without asking', async () => {

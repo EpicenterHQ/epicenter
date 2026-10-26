@@ -28,8 +28,6 @@ export const nativeWindow = {
 	/** Delay listener installation to test the editable-root opening boundary. */
 	registration: undefined as Promise<void> | undefined,
 	refuseRegistration: false,
-	/** Delay destruction to test the final input boundary. */
-	destruction: undefined as Promise<void> | undefined,
 	/** How many close listeners are registered. */
 	get listeners() {
 		return handlers.size;
@@ -40,7 +38,6 @@ export const nativeWindow = {
 		this.refuseDestroy = false;
 		this.registration = undefined;
 		this.refuseRegistration = false;
-		this.destruction = undefined;
 		// A destroyed native page takes its inert DOM with it. Tests reuse one.
 		if (globalThis.document) document.documentElement.inert = false;
 		desktop(false);
@@ -48,7 +45,6 @@ export const nativeWindow = {
 };
 
 async function destroy() {
-	await nativeWindow.destruction;
 	if (nativeWindow.refuseDestroy)
 		throw 'window.destroy not allowed. Permissions associated with this command: core:window:allow-destroy';
 	nativeWindow.destroyed += 1;

@@ -46,8 +46,7 @@
 			return Ok(svelteFolder(folder));
 		}
 		opened = folder;
-		// One guard per window: a folder opened beneath another leaves the
-		// window's close to the outer one. Keep this Folder writable if destroy fails.
+		// A folder opened beneath another leaves the window's close to the outer one.
 		if (holdWindowClose) {
 			const stop = await registerWindowClose(() => folder.idle()).catch(
 				() => undefined,

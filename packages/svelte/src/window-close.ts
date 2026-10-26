@@ -14,8 +14,8 @@ import { createLogger } from 'wellcrafted/logger';
 const log = createLogger('svelte/window-close');
 /** How long a close waits for writes before asking; a hung save cannot trap the window. */
 const DRAIN_MS = 3000;
-// One owner records both registration and whether an older listener is retired.
-let activeGuard: symbol | undefined;
+// Tauri runs each close listener on its own, so a window holds one at a time.
+let held = false;
 
 /** Ask the page's `beforeunload` listeners, as a browser would before leaving. */
 function unsure() {
@@ -38,18 +38,16 @@ async function askToClose() {
 
 /**
  * Answer this window's close once `drain` reports the page's writes landed,
- * asking first if the page is still unsure. Successful destruction stays
- * occupied and inert until the page is gone: Tauri's destroy promise
- * acknowledges dispatch, not completed destruction.
+ * asking first if the page is still unsure. A window already held answers a
+ * release that does nothing. Successful destruction stays occupied and inert
+ * until the page is gone: Tauri's destroy promise acknowledges dispatch, not
+ * completed destruction.
  */
 export async function holdWindowClose(
 	drain: () => Promise<void> = async () => {},
 ): Promise<() => void> {
-	if (!isTauri()) return () => {};
-	if (activeGuard)
-		throw new Error('This window already has a Folder close guard');
-	const guard = Symbol('window close');
-	activeGuard = guard;
+	if (!isTauri() || held) return () => {};
+	held = true;
 	let closing = false;
 
 	try {
@@ -57,7 +55,7 @@ export async function holdWindowClose(
 		const current = getCurrentWindow();
 		const unlisten = await current.onCloseRequested(async (event) => {
 			event.preventDefault();
-			if (closing || activeGuard !== guard) return;
+			if (closing) return;
 			closing = true;
 			const page = document.documentElement;
 			const wasInert = page.inert;
@@ -69,22 +67,22 @@ export async function holdWindowClose(
 				page.inert = true;
 				unsure(); // Drafts send what was typed.
 				await Promise.race([drain(), elapsed(DRAIN_MS)]);
-				if (activeGuard !== guard) return stay();
 				if (unsure() && !(await askToClose())) return stay();
-				if (activeGuard !== guard) return stay();
 				await current.destroy();
 			} catch (cause) {
 				log.error(new Error('The window could not close', { cause }));
 				stay();
 			}
 		});
+		let holding = true;
 		return () => {
-			if (activeGuard !== guard) return;
-			activeGuard = undefined;
+			if (!holding) return;
+			holding = false;
+			held = false;
 			unlisten();
 		};
 	} catch (cause) {
-		activeGuard = undefined;
+		held = false;
 		throw cause;
 	}
 }
