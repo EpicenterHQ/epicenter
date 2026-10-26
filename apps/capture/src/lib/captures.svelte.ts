@@ -186,7 +186,7 @@ export function createCaptures(folder: CaptureFolder) {
 			const stem = newStem(now);
 			const saved = await folder.tables.captures.create(stem, {
 				fields: { capturedAt: now.toISOString() },
-				body: composeBody(text.toWellFormed()).body,
+				body: composeBody(text).body,
 			});
 			if (saved.error !== null) return saved;
 			go(requested, stem, 'capture', 'new-thought');

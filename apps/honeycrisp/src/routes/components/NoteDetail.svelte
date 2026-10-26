@@ -87,7 +87,7 @@
 		<div class="flex flex-wrap items-center gap-2 border-b px-3 py-2">
 			<Input
 				class="min-w-40 flex-1 text-base font-medium"
-				bind:value={() => title.value, (typed) => title.set(typed.toWellFormed())}
+				bind:value={title.value}
 
 				placeholder="Title"
 				aria-label="Title"
@@ -140,7 +140,7 @@
 				<div class="flex min-h-0 flex-1 flex-col p-3">
 					<Textarea
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
-						bind:value={() => body.value, (typed) => body.set(typed.toWellFormed())}
+						bind:value={body.value}
 
 						aria-label="Markdown source"
 						spellcheck={false}

@@ -36,8 +36,8 @@ export function applyPatch(
 		({ fields, body } = parsed.data.document);
 	}
 	const next = {
-		fields: { ...fields, ...patch.fields },
-		body: patch.body ?? body,
+		fields: { ...fields, ...wellFormed(patch.fields ?? {}) },
+		body: patch.body?.toWellFormed() ?? body,
 	};
 	for (const key of Object.keys(next.fields))
 		if (next.fields[key] === undefined) delete next.fields[key];
@@ -46,6 +46,30 @@ export function applyPatch(
 	const formatted = formatRowSource(next, declaredKeys);
 	if (formatted.error !== null) return Err(formatted.error);
 	return Ok(formatted.data.text);
+}
+
+/** Patched fields with lone surrogates replaced by U+FFFD, as the disk encoding writes them. */
+function wellFormed(
+	fields: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(fields).map(([key, value]) => [
+			key.toWellFormed(),
+			wellFormedValue(value),
+		]),
+	);
+}
+
+function wellFormedValue(value: unknown): unknown {
+	if (typeof value === 'string') return value.toWellFormed();
+	if (Array.isArray(value)) return value.map(wellFormedValue);
+	if (
+		typeof value === 'object' &&
+		value !== null &&
+		Object.getPrototypeOf(value) === Object.prototype
+	)
+		return wellFormed(Object.fromEntries(Object.entries(value)));
+	return value;
 }
 
 /** The keys a table's schema declares, in declared order. */

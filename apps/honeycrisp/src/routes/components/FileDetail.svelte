@@ -138,7 +138,7 @@
 						class="min-h-40 flex-1 resize-none font-mono text-xs"
 						aria-label="Contents of {name}"
 						spellcheck={false}
-						bind:value={() => raw.value, (typed) => raw.set(typed.toWellFormed())}
+						bind:value={raw.value}
 					/>
 				</div>
 			{:else if file === undefined}

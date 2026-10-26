@@ -88,6 +88,17 @@ describe('opening and rows', () => {
 		expect(readRow(note('title: Fixed'), tables.notes).issues).toBeNull();
 	});
 
+	test('writes lone surrogates as U+FFFD, and the copy shows what landed', async () => {
+		const { folder, notes, text } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		expectOk(await folder.write('draft.txt', 'Half \uD800'));
+		expect(folder.file('draft.txt')?.data).toBe('Half \uFFFD');
+		expect(text('draft.txt')).toBe('Half \uFFFD');
+		expectOk(await notes.update('a', { fields: { title: 'T \uDC00' } }));
+		expect(notes.row('a')?.fields?.title).toBe('T \uFFFD');
+	});
+
 	test('a new stamp with unchanged bytes keeps file and row identity', async () => {
 		const source = note('title: A');
 		const { folder, notes, outside } = await setup({ 'notes/a.md': source });

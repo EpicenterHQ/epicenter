@@ -128,11 +128,7 @@ export function createNotes(folder: NotesFolder) {
 		const row = noteTable.row(id);
 		if (row === undefined) return NOT_LISTED;
 		if (row.issues !== null) return NOT_A_NOTE;
-		const wellFormed = {
-			...fields,
-			...(fields.title === undefined ? {} : { title: fields.title.toWellFormed() }),
-		};
-		return failed((await noteTable.update(id, { fields: wellFormed })).error);
+		return failed((await noteTable.update(id, { fields })).error);
 	}
 
 	// ------------------------------------------------------------------

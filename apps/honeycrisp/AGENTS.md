@@ -25,8 +25,9 @@ for the current page flow and verify it against the code.
   sent. Canonical frontmatter keeps declared keys in schema order, then other
   keys sorted; comments and original key order do not survive a patch.
 - A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
-- Title, Source, and whole-file input pass through `toWellFormed()`. The rich
-  editor replaces lone surrogates in its transaction. Note bodies use line
+- The folder writes lone surrogates as U+FFFD, and its copy shows the same
+  text. The rich editor also replaces them in its transaction, so its undo
+  history matches. Note bodies use line
   feeds (ADR-0572); whole-file editing uses `fileDraft` to keep the file's
   line endings.
 - The mirror refreshes from another tab through its change hints. Opening

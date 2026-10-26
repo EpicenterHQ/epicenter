@@ -370,6 +370,8 @@ export async function createFolder<const T extends Tables>(
 				break;
 			}
 		}
+		// Encoding replaces lone surrogates on disk; the copy shows what landed.
+		if (typeof next === 'string') next = next.toWellFormed();
 		const put = await host.put(path, encode(next));
 		if (put.error !== null) return Err(put.error);
 		const result = put.data;

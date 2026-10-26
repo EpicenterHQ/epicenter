@@ -18,7 +18,7 @@
 		onToggle: () => void;
 	} = $props();
 
-	const note = draft(() => entry.note, (text) => entries.setNote(entry.id, text.toWellFormed()));
+	const note = draft(() => entry.note, (text) => entries.setNote(entry.id, text));
 </script>
 
 <article class={cn('rounded-lg border p-4', chosen && 'border-primary bg-accent/30')}>

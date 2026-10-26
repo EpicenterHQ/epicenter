@@ -100,7 +100,7 @@ export function createEntries(folder: VocabFolder) {
 		},
 		/** Set only the note field over the file's current contents. */
 		setNote(id: string, note: string) {
-			return table.update(id, { fields: { note: note.toWellFormed() } });
+			return table.update(id, { fields: { note } });
 		},
 		/** Set only the learner's stage over the file's current contents. */
 		setStage(id: string, stage: Stage) {
