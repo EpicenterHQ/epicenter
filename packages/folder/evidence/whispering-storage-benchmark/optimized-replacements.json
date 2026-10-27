@@ -1,0 +1,47 @@
+[
+  {
+    "label": "table-local latest-row cache",
+    "before": "\t\tconst rowPath = (id: string) => `${name}/${id}.md`;",
+    "after": "\t\tconst rowPath = (id: string) => `${name}/${id}.md`;\n\t\tlet cache = new Map<string, { oid: string; row: Row<TSchema> }>();"
+  },
+  {
+    "label": "prune cache to current table",
+    "before": "\t\t\t\t\tconst rows: Row<TSchema>[] = [];",
+    "after": "\t\t\t\t\tconst rows: Row<TSchema>[] = [];\n\t\t\t\t\tconst nextCache = new Map<string, { oid: string; row: Row<TSchema> }>();"
+  },
+  {
+    "label": "supply current parsed-row hashes to capture",
+    "before": "await storage.capture({ rows: name })",
+    "after": "await storage.capture({ rows: name, knownRows: new Map([...cache].map(([id, value]) => [rowPath(id), value.oid])) })"
+  },
+  {
+    "label": "use cached row before requesting its absent blob",
+    "before": "\t\t\t\t\t\tconst content = snapshotContent(snapshot, path);",
+    "after": "\t\t\t\t\t\tconst known = cache.get(id);\n\t\t\t\t\t\tif (known?.oid === snapshot.files.get(path)?.oid) { nextCache.set(id, known); rows.push(known.row); continue; }\n\t\t\t\t\t\tconst content = snapshotContent(snapshot, path);"
+  },
+  {
+    "label": "reuse parsed row only for equal content hash",
+    "before": "\t\t\t\t\t\tif (content !== null) rows.push(readRow(id, content, schema));",
+    "after": "\t\t\t\t\t\tif (content !== null) {\n\t\t\t\t\t\t\tconst oid = snapshot.files.get(path)!.oid;\n\t\t\t\t\t\t\tconst previous = cache.get(id);\n\t\t\t\t\t\t\tconst row = previous?.oid === oid ? previous.row : readRow(id, content, schema);\n\t\t\t\t\t\t\tnextCache.set(id, { oid, row }); rows.push(row);\n\t\t\t\t\t\t}"
+  },
+  {
+    "label": "install current cache",
+    "before": "\t\t\t\t\treturn rows;",
+    "after": "\t\t\t\t\tcache = nextCache;\n\t\t\t\t\treturn rows;"
+  },
+  {
+    "label": "allow hash-only witnesses for cached rows",
+    "before": "| { rows: string }",
+    "after": "| { rows: string; knownRows?: ReadonlyMap<string, string> }"
+  },
+  {
+    "label": "batch selected blobs",
+    "before": "\t\t\t\tfor (const path of selected) {\n\t\t\t\t\tconst entry = tree.files.get(path);\n\t\t\t\t\tif (entry !== undefined && entry.mode !== '160000')\n\t\t\t\t\t\tawait read(entry.oid);\n\t\t\t\t}",
+    "after": "\t\t\t\tawait Promise.all([...selected].map(async (path) => {\n\t\t\t\t\tconst entry = tree.files.get(path);\n\t\t\t\t\tif (entry !== undefined && entry.mode !== '160000') await read(entry.oid);\n\t\t\t\t}));"
+  },
+  {
+    "label": "skip unchanged cached row blobs",
+    "before": "if (entry !== undefined && entry.mode !== '160000') await read(entry.oid);",
+    "after": "if (entry !== undefined && entry.mode !== '160000' && !(scope && typeof scope === 'object' && 'rows' in scope && scope.knownRows?.get(path) === entry.oid)) await read(entry.oid);"
+  }
+]

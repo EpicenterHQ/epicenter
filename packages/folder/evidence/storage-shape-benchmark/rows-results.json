@@ -1,0 +1,117 @@
+{
+  "recordedAt": "2026-10-27T06:59:58.754Z",
+  "browser": "151.0.7922.34",
+  "edits": 2000,
+  "runs": [
+    {
+      "size": 1000,
+      "variant": "rows",
+      "seed": {
+        "seedMs": 9.5
+      },
+      "cold": [
+        {
+          "readMs": 9.799999713897705,
+          "parseMs": 1.1000003814697266,
+          "readyMs": 10.900000095367432,
+          "retainedMiB": 14.5
+        },
+        {
+          "readMs": 10.600000381469727,
+          "parseMs": 1.3999996185302734,
+          "readyMs": 12,
+          "retainedMiB": 14.5
+        },
+        {
+          "readMs": 10.400000095367432,
+          "parseMs": 1.0999999046325684,
+          "readyMs": 11.5,
+          "retainedMiB": 14.5
+        }
+      ],
+      "typing": {
+        "digest": {
+          "n": 5000,
+          "h": 736836039
+        }
+      },
+      "typingSummary": {
+        "p50": 0.7,
+        "p95": 2.2,
+        "max": 66.4,
+        "logBytes": null
+      },
+      "reopenWithLog": {
+        "readMs": 23.200000286102295,
+        "parseMs": 2.0999999046325684,
+        "readyMs": 25.300000190734863,
+        "sameText": true
+      },
+      "compact": {
+        "ms": 22.700000286102295
+      },
+      "reopenCompacted": {
+        "readMs": 16.800000190734863,
+        "parseMs": 1.1999998092651367,
+        "readyMs": 18,
+        "sameText": true,
+        "retainedMiB": 14.5
+      }
+    },
+    {
+      "size": 10000,
+      "variant": "rows",
+      "seed": {
+        "seedMs": 118.59999990463257
+      },
+      "cold": [
+        {
+          "readMs": 53.5,
+          "parseMs": 8.400000095367432,
+          "readyMs": 61.90000009536743,
+          "retainedMiB": 144
+        },
+        {
+          "readMs": 53.5,
+          "parseMs": 10,
+          "readyMs": 63.5,
+          "retainedMiB": 144
+        },
+        {
+          "readMs": 57,
+          "parseMs": 8.800000190734863,
+          "readyMs": 65.80000019073486,
+          "retainedMiB": 144
+        }
+      ],
+      "typing": {
+        "digest": {
+          "n": 50000,
+          "h": 1159766199
+        }
+      },
+      "typingSummary": {
+        "p50": 0.4,
+        "p95": 1.7,
+        "max": 6.6,
+        "logBytes": null
+      },
+      "reopenWithLog": {
+        "readMs": 59.69999980926514,
+        "parseMs": 14.699999809265137,
+        "readyMs": 74.39999961853027,
+        "sameText": true
+      },
+      "compact": {
+        "ms": 105.90000009536743
+      },
+      "reopenCompacted": {
+        "readMs": 76.5,
+        "parseMs": 10.599999904632568,
+        "readyMs": 87.09999990463257,
+        "sameText": true,
+        "retainedMiB": 144
+      }
+    }
+  ]
+}
