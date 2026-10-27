@@ -1,0 +1,558 @@
+/**
+ * The repository server core: one object per repository that orders every
+ * write. It applies batches all or nothing against an overlay of files changed
+ * since the last commit, broadcasts what changed, and commits the overlay to
+ * Git's `main` by compare-and-swap. It knows no transport: a host (an
+ * in-process test transport, later a Durable Object) calls `connect`.
+ */
+import { createLogger, type Logger } from 'wellcrafted/logger';
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
+import { gitBlobHash } from '../hash.js';
+import { merge, withMarkers } from '../merge.js';
+import type {
+	Batch,
+	BatchOutcome,
+	Broadcast,
+	ChangeOutcome,
+	FileState,
+	Move,
+	Overlap,
+	Welcome,
+} from '../protocol.js';
+import { first, type SqlDriver } from '../sql.js';
+import { type GitStore, MAIN, type Signature, sequenceOf, type Tree } from './git-store.js';
+import { receivePush } from './push.js';
+
+const WEEK = 7 * 24 * 60 * 60 * 1000;
+
+export const CommitError = defineErrors({
+	/** `main` moved while the commit was being written; nothing was cleared. */
+	Raced: ({ expected }: { expected: string | null }) => ({
+		message: `main moved away from ${expected ?? 'nothing'} during a commit`,
+		expected,
+	}),
+});
+export type CommitError = InferErrors<typeof CommitError>;
+
+const ServerDiagnostic = defineErrors({
+	TimedCommitFailed: ({ cause }: { cause: unknown }) => ({
+		message: 'A timed commit did not land; the overlay is kept',
+		cause,
+	}),
+});
+
+/** Who is connected: the server stamps every batch with `user`. */
+export type Peer = {
+	device: string;
+	user: string;
+	/** Agents get refusals instead of conflict markers. */
+	agent?: boolean;
+	onBroadcast?: (broadcast: Broadcast) => void;
+};
+
+export type Committed = { oid: string; seq: number };
+
+export type ServerOptions = {
+	driver: SqlDriver;
+	git: GitStore;
+	now?: () => number;
+	/** How long path history, receipts and bases are kept. A week by default. */
+	windowMs?: number;
+	/** How old an overlay change is before `tick` commits it. A minute by default. */
+	commitAfterMs?: number;
+	/**
+	 * When an applied batch is acknowledged: right away from the overlay, or
+	 * after its commit lands in Git. See `settle`.
+	 */
+	durability?: 'overlay' | 'commit-before-ack';
+	identify?: (user: string) => Signature;
+	log?: Logger;
+};
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS overlay (path TEXT PRIMARY KEY, text TEXT, hash TEXT, seq INTEGER NOT NULL, at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS texts (hash TEXT PRIMARY KEY, text TEXT NOT NULL, seq INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS batches (seq INTEGER PRIMARY KEY, device TEXT NOT NULL, n INTEGER NOT NULL, user TEXT NOT NULL, at INTEGER NOT NULL, changes TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS devices (device TEXT PRIMARY KEY, last_n INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS receipts (device TEXT NOT NULL, n INTEGER NOT NULL, at INTEGER NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY (device, n)) STRICT;
+CREATE TABLE IF NOT EXISTS timeline (seq INTEGER PRIMARY KEY, at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS history (seq INTEGER NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, dest TEXT) STRICT;
+INSERT OR IGNORE INTO state VALUES ('seq', 0), ('committed', 0), ('horizon', 0);
+`;
+
+const decoder = new TextDecoder('utf-8', { fatal: true });
+
+export function createRepositoryServer({
+	driver,
+	git,
+	now = Date.now,
+	windowMs = WEEK,
+	commitAfterMs = 60_000,
+	durability = 'overlay',
+	identify = (user) => ({ name: user, email: `${user}@users.epicenter.invalid` }),
+	log = createLogger('repository/server'),
+}: ServerOptions) {
+	driver.exec(SCHEMA);
+	const peers = new Set<Peer>();
+
+	// One request at a time: a batch's reads, its transaction and its commit
+	// never interleave with another's.
+	let tail: Promise<unknown> = Promise.resolve();
+	function serially<T>(fn: () => Promise<T>): Promise<T> {
+		const run = tail.then(fn);
+		tail = run.catch(() => undefined);
+		return run;
+	}
+
+	const state = (key: 'seq' | 'committed' | 'horizon') =>
+		first<{ value: number }>(driver, 'SELECT value FROM state WHERE key = ?', [key])?.value ?? 0;
+	const setState = (key: 'seq' | 'committed' | 'horizon', value: number) =>
+		driver.run('UPDATE state SET value = ? WHERE key = ?', [value, key]);
+
+	// ------------------------------------------------------------------------
+	// Reading Git's main, cached by head
+	// ------------------------------------------------------------------------
+
+	let main: { oid: string | null; tree: Tree; seq: number } = { oid: null, tree: new Map(), seq: 0 };
+	let mainLoaded = false;
+	const blobTexts = new Map<string, string | null>();
+
+	async function loadMain() {
+		const oid = await git.readRef(MAIN);
+		if (mainLoaded && main.oid === oid) return main;
+		const commit = oid === null ? null : await git.readCommit(oid);
+		main = {
+			oid,
+			tree: commit === null ? new Map() : await git.readTree(commit.tree),
+			seq: commit === null ? 0 : (sequenceOf(commit.message) ?? 0),
+		};
+		mainLoaded = true;
+		return main;
+	}
+
+	/** A Git blob as text, or null when it is missing or not UTF-8. */
+	async function gitText(oid: string): Promise<string | null> {
+		if (blobTexts.has(oid)) return blobTexts.get(oid) ?? null;
+		const bytes = await git.readBlob(oid);
+		let text: string | null = null;
+		if (bytes !== null)
+			try {
+				text = decoder.decode(bytes);
+			} catch {
+				text = null;
+			}
+		blobTexts.set(oid, text);
+		return text;
+	}
+
+	/** The server's current text at `path`: the overlay over main. */
+	async function current(path: string): Promise<string | null> {
+		const row = first<{ text: string | null }>(driver, 'SELECT text FROM overlay WHERE path = ?', [path]);
+		if (row !== undefined) return row.text;
+		const entry = (await loadMain()).tree.get(path);
+		return entry === undefined ? null : gitText(entry.oid);
+	}
+
+	/** A text the server has seen, by hash: recent bases and results, then Git. */
+	async function textByHash(hash: string): Promise<string | null> {
+		const row = first<{ text: string }>(driver, 'SELECT text FROM texts WHERE hash = ?', [hash]);
+		if (row !== undefined) return row.text;
+		return gitText(hash);
+	}
+
+	/**
+	 * Where `path` went after `since`: followed through moves, and whether it was
+	 * deleted, and then whether another file took the path.
+	 */
+	function trace(path: string, since: number) {
+		const rows = driver.all<{ kind: string; path: string; dest: string | null }>(
+			'SELECT kind, path, dest FROM history WHERE seq > ? ORDER BY seq, rowid',
+			[since],
+		);
+		let at = path;
+		let deleted = false;
+		for (const row of rows) {
+			if (!deleted && row.kind === 'move' && row.path === at && row.dest !== null) at = row.dest;
+			else if (!deleted && row.kind === 'delete' && row.path === at) deleted = true;
+			else if (deleted && ((row.kind === 'create' && row.path === at) || (row.kind === 'move' && row.dest === at)))
+				return { path: at, deleted, recreated: true };
+		}
+		return { path: at, deleted, recreated: false };
+	}
+
+	/** Who last wrote `path` in the overlay, for marker labels. */
+	function writerOf(path: string) {
+		const row = first<{ user: string; at: number; seq: number }>(
+			driver,
+			'SELECT b.user, b.at, b.seq FROM overlay o JOIN batches b ON b.seq = o.seq WHERE o.path = ?',
+			[path],
+		);
+		return row === undefined ? `main (seq ${main.seq})` : label(row.user, row.at, row.seq);
+	}
+	const label = (user: string, at: number, seq: number) => `${user} ${new Date(at).toISOString()} seq ${seq}`;
+
+	// ------------------------------------------------------------------------
+	// Applying a batch
+	// ------------------------------------------------------------------------
+
+	type Prepared = { currents: Map<string, string | null>; bases: Map<string, string> };
+
+	/** Everything the transaction reads asynchronously, fetched first. */
+	async function prepare(batch: Batch): Promise<Prepared> {
+		const currents = new Map<string, string | null>();
+		const bases = new Map<string, string>();
+		const load = async (path: string) => {
+			if (!currents.has(path)) currents.set(path, await current(path));
+		};
+		for (const change of batch.changes) {
+			if (change.kind === 'move') {
+				await load(trace(change.from, batch.seq).path);
+				await load(change.from);
+				await load(change.to);
+				continue;
+			}
+			await load(trace(change.path, batch.seq).path);
+			await load(change.path);
+			if (change.kind === 'write' && change.base !== null && !bases.has(change.base.hash)) {
+				const text = change.base.text ?? (await textByHash(change.base.hash));
+				if (text !== null) bases.set(change.base.hash, text);
+			}
+		}
+		return { currents, bases };
+	}
+
+	type Applied = { outcome: BatchOutcome; broadcast: Broadcast | null };
+
+	function applyPrepared(batch: Batch, peer: Peer, { currents, bases }: Prepared): Applied {
+		const work = new Map(currents);
+		const read = (path: string) => (work.has(path) ? (work.get(path) ?? null) : null);
+		const isExpired = batch.seq < state('horizon');
+		const seq = state('seq') + 1;
+		const at = now();
+		const incomingLabel = label(peer.user, at, seq);
+		const outcomes: ChangeOutcome[] = [];
+		const history: { kind: string; path: string; dest: string | null }[] = [];
+		const moves: Move[] = [];
+		const seenTexts = new Set<string>();
+		const needBase: string[] = [];
+		const expired: string[] = [];
+		const refuse = (path: string, reason: string, overlaps: Overlap[] = []): Applied => ({
+			outcome: { kind: 'refused', path, reason, overlaps },
+			broadcast: null,
+		});
+		const outcome = (change: Partial<ChangeOutcome> & { path: string }): ChangeOutcome => ({
+			at: null,
+			hash: null,
+			overlaps: [],
+			dropped: [],
+			editKept: false,
+			movedTo: null,
+			stale: false,
+			...change,
+		});
+		const stale = (path: string) => outcome({ path, stale: true });
+
+		for (const change of batch.changes) {
+			if (change.kind === 'move') {
+				const from = trace(change.from, batch.seq);
+				const text = from.recreated ? null : read(from.path);
+				if (text === null) {
+					if (peer.agent) return refuse(change.from, 'the file to move is gone');
+					outcomes.push(stale(change.from));
+					continue;
+				}
+				if (read(change.to) !== null) return refuse(change.to, 'the destination is taken');
+				work.set(from.path, null);
+				work.set(change.to, text);
+				history.push({ kind: 'move', path: from.path, dest: change.to });
+				moves.push({ from: from.path, to: change.to });
+				outcomes.push(
+					outcome({
+						path: change.from,
+						at: change.to,
+						hash: gitBlobHash(text),
+						movedTo: from.path === change.from ? null : from.path,
+					}),
+				);
+				continue;
+			}
+
+			const traced = trace(change.path, batch.seq);
+			const movedTo = traced.path === change.path ? null : traced.path;
+			if (traced.recreated) {
+				if (peer.agent) return refuse(change.path, 'the file was deleted and its path reused');
+				outcomes.push(stale(change.path));
+				continue;
+			}
+			const target = traced.path;
+			const existing = read(target);
+
+			if (change.kind === 'append') {
+				if (existing === null) {
+					if (peer.agent) return refuse(change.path, 'the file to append to is gone');
+					outcomes.push(stale(change.path));
+					continue;
+				}
+				const text = existing + change.text;
+				work.set(target, text);
+				outcomes.push(outcome({ path: change.path, at: target, hash: gitBlobHash(text), text, movedTo }));
+				continue;
+			}
+
+			let baseText: string | null = null;
+			if (change.base !== null) {
+				const known = bases.get(change.base.hash);
+				if (known === undefined) {
+					needBase.push(change.path);
+					continue;
+				}
+				baseText = known;
+				if (isExpired && (existing === null ? null : gitBlobHash(existing)) !== change.base.hash) {
+					expired.push(change.path);
+					continue;
+				}
+			}
+			if (change.text !== null) seenTexts.add(change.text);
+			const result = merge(baseText, existing, change.text);
+			let text = result.text;
+			let editKept = false;
+			if (result.deleteEdit !== null) {
+				if (peer.agent) return refuse(change.path, 'a delete and an edit of the same file');
+				editKept = true;
+			}
+			if (result.overlaps.length > 0) {
+				if (peer.agent) return refuse(change.path, 'the change overlaps changes since its base', result.overlaps);
+				text = withMarkers(result, { current: writerOf(target), incoming: incomingLabel });
+			}
+			if (existing === null && text !== null) history.push({ kind: 'create', path: target, dest: null });
+			if (existing !== null && text === null) history.push({ kind: 'delete', path: target, dest: null });
+			work.set(target, text);
+			outcomes.push(
+				outcome({
+					path: change.path,
+					at: text === null ? null : target,
+					hash: text === null ? null : gitBlobHash(text),
+					...(text === change.text ? {} : { text }),
+					overlaps: result.overlaps,
+					dropped: result.dropped,
+					editKept,
+					movedTo,
+				}),
+			);
+		}
+
+		if (needBase.length > 0) return { outcome: { kind: 'need-base', paths: needBase }, broadcast: null };
+		if (expired.length > 0) return { outcome: { kind: 'expired', paths: expired }, broadcast: null };
+
+		const files: FileState[] = [];
+		for (const [path, text] of work) {
+			if (currents.has(path) && text === currents.get(path)) continue;
+			const hash = text === null ? null : gitBlobHash(text);
+			driver.run('INSERT OR REPLACE INTO overlay (path, text, hash, seq, at) VALUES (?, ?, ?, ?, ?)', [path, text, hash, seq, at]);
+			if (text !== null) seenTexts.add(text);
+			files.push({ path, text, hash });
+		}
+		for (const text of seenTexts)
+			driver.run('INSERT OR REPLACE INTO texts (hash, text, seq) VALUES (?, ?, ?)', [gitBlobHash(text), text, seq]);
+		for (const row of history)
+			driver.run('INSERT INTO history (seq, kind, path, dest) VALUES (?, ?, ?, ?)', [seq, row.kind, row.path, row.dest]);
+		driver.run('INSERT INTO batches (seq, device, n, user, at, changes) VALUES (?, ?, ?, ?, ?, ?)', [
+			seq,
+			batch.device,
+			batch.n,
+			peer.user,
+			at,
+			JSON.stringify(batch.changes),
+		]);
+		driver.run('INSERT INTO timeline (seq, at) VALUES (?, ?)', [seq, at]);
+		setState('seq', seq);
+		return {
+			outcome: { kind: 'applied', seq, changes: outcomes },
+			broadcast: { seq, device: batch.device, files, moves },
+		};
+	}
+
+	/** Apply one batch under per-device numbering; a retry returns its recorded outcome. */
+	async function applyBatch(batch: Batch, peer: Peer, numbered = true): Promise<Applied> {
+		if (numbered) {
+			const last = first<{ last_n: number }>(driver, 'SELECT last_n FROM devices WHERE device = ?', [batch.device])?.last_n ?? 0;
+			if (batch.n <= last) {
+				const receipt = first<{ outcome: string }>(driver, 'SELECT outcome FROM receipts WHERE device = ? AND n = ?', [batch.device, batch.n]);
+				if (receipt !== undefined) return { outcome: JSON.parse(receipt.outcome) as BatchOutcome, broadcast: null };
+				return { outcome: { kind: 'expired', paths: [] }, broadcast: null };
+			}
+			if (batch.n !== last + 1)
+				return {
+					outcome: { kind: 'refused', path: '', reason: `batch ${batch.n} arrived after ${last}`, overlaps: [] },
+					broadcast: null,
+				};
+		}
+		const prepared = await prepare(batch);
+		return driver.transaction(() => {
+			const applied = applyPrepared(batch, peer, prepared);
+			if (numbered && applied.outcome.kind !== 'need-base') {
+				driver.run('INSERT OR REPLACE INTO devices (device, last_n) VALUES (?, ?)', [batch.device, batch.n]);
+				driver.run('INSERT OR REPLACE INTO receipts (device, n, at, outcome) VALUES (?, ?, ?, ?)', [
+					batch.device,
+					batch.n,
+					now(),
+					JSON.stringify(applied.outcome),
+				]);
+			}
+			return applied;
+		});
+	}
+
+	function broadcast(message: Broadcast, from: Peer | null) {
+		for (const peer of peers) if (peer !== from) peer.onBroadcast?.(message);
+	}
+
+	/**
+	 * The one place that decides when an applied batch may be acknowledged. A
+	 * deployed spike is measuring whether committing every batch before its
+	 * acknowledgment keeps up; if it does, the overlay can go.
+	 */
+	async function settle() {
+		if (durability === 'commit-before-ack') await commitNow();
+	}
+
+	// ------------------------------------------------------------------------
+	// Committing
+	// ------------------------------------------------------------------------
+
+	/** Clear overlay rows Git already holds: never past main's sequence. */
+	function clearThrough(seq: number) {
+		driver.transaction(() => {
+			driver.run('DELETE FROM overlay WHERE seq <= ?', [seq]);
+			driver.run('DELETE FROM texts WHERE seq <= ?', [seq]);
+			driver.run('DELETE FROM batches WHERE seq <= ?', [seq]);
+			if (seq > state('committed')) setState('committed', seq);
+		});
+	}
+
+	async function commitNow(extraParents: string[] = []): Promise<Result<Committed | null, CommitError>> {
+		const head = await loadMain();
+		clearThrough(head.seq);
+		const rows = driver.all<{ path: string; text: string | null; seq: number }>('SELECT path, text, seq FROM overlay ORDER BY path');
+		if (rows.length === 0 && extraParents.length === 0) return Ok(null);
+		const seq = state('seq');
+		const tree: Tree = new Map(head.tree);
+		const encoder = new TextEncoder();
+		for (const row of rows) {
+			if (row.text === null) tree.delete(row.path);
+			else tree.set(row.path, { mode: '100644', oid: await git.writeBlob(encoder.encode(row.text)) });
+		}
+		const users = driver.all<{ user: string }>('SELECT DISTINCT user FROM batches WHERE seq <= ? ORDER BY user', [seq]);
+		const coauthors = users.map(({ user }) => {
+			const who = identify(user);
+			return `Co-authored-by: ${who.name} <${who.email}>`;
+		});
+		const message = `Update ${rows.length} ${rows.length === 1 ? 'file' : 'files'}\n\nEpicenter-Seq: ${seq}\n${coauthors.map((line) => `${line}\n`).join('')}`;
+		const oid = await git.writeCommit({
+			tree: await git.writeTree(tree),
+			parents: [...(head.oid === null ? [] : [head.oid]), ...extraParents],
+			message,
+			author: { name: 'Epicenter', email: 'server@epicenter.invalid' },
+			at: new Date(now()),
+		});
+		if (!(await git.updateRef(MAIN, oid, head.oid))) return CommitError.Raced({ expected: head.oid });
+		main = { oid, tree, seq };
+		clearThrough(seq);
+		return Ok({ oid, seq });
+	}
+
+	/** Drop history, receipts and the timeline older than the window. */
+	function prune() {
+		const cutoff = now() - windowMs;
+		driver.transaction(() => {
+			const old = first<{ seq: number | null }>(driver, 'SELECT max(seq) AS seq FROM timeline WHERE at < ?', [cutoff])?.seq ?? null;
+			if (old !== null) {
+				driver.run('DELETE FROM history WHERE seq <= ?', [old]);
+				driver.run('DELETE FROM timeline WHERE seq <= ?', [old]);
+				if (old > state('horizon')) setState('horizon', old);
+			}
+			driver.run('DELETE FROM receipts WHERE at < ?', [cutoff]);
+		});
+	}
+
+	// ------------------------------------------------------------------------
+	// Reading for devices
+	// ------------------------------------------------------------------------
+
+	async function hello(seq: number): Promise<Welcome> {
+		const head = await loadMain();
+		const serverSeq = state('seq');
+		if (seq >= state('committed') && seq >= head.seq) {
+			const files = driver.all<FileState>('SELECT path, text, hash FROM overlay WHERE seq > ? ORDER BY seq, path', [seq]);
+			return { kind: 'changes', seq: serverSeq, files };
+		}
+		const overlay = new Map(
+			driver.all<FileState>('SELECT path, text, hash FROM overlay').map((row) => [row.path, row]),
+		);
+		const files: FileState[] = [];
+		for (const [path, entry] of head.tree) {
+			if (overlay.has(path)) continue;
+			const text = await gitText(entry.oid);
+			if (text !== null) files.push({ path, text, hash: entry.oid });
+		}
+		for (const row of overlay.values()) if (row.text !== null) files.push(row);
+		return { kind: 'snapshot', seq: serverSeq, files };
+	}
+
+	const core: ServerCore = { git, loadMain, gitText, applyBatch, commitNow, settle, broadcast };
+
+	return {
+		/** Connect a device or agent; batches it sends are stamped with its user. */
+		connect(peer: Peer) {
+			peers.add(peer);
+			return {
+				hello: (seq: number) => serially(() => hello(seq)),
+				push: (batch: Batch) =>
+					serially(async () => {
+						prune();
+						const { outcome, broadcast: message } = await applyBatch(batch, peer);
+						if (message !== null) {
+							await settle();
+							broadcast(message, peer);
+						}
+						return outcome;
+					}),
+				close() {
+					peers.delete(peer);
+				},
+			};
+		},
+		/** Commit the overlay now (`epicenter pull` asks for this). */
+		commit: () => serially(() => commitNow()),
+		/** Prune the window and commit when the oldest overlay change is due. */
+		tick: () =>
+			serially(async (): Promise<Result<Committed | null, CommitError>> => {
+				prune();
+				const oldest = first<{ at: number | null }>(driver, 'SELECT min(at) AS at FROM overlay')?.at ?? null;
+				if (oldest === null || now() - oldest < commitAfterMs) return Ok(null);
+				const committed = await commitNow();
+				if (committed.error !== null) log.warn(ServerDiagnostic.TimedCommitFailed({ cause: committed.error }));
+				return committed;
+			}),
+		/** Merge a commit already in the Git store into main as one agent batch. */
+		receivePush: (input: { commit: string; user: string }) => serially(() => receivePush(core, input)),
+		/** The server's current text of a file. */
+		read: (path: string) => serially(() => current(path)),
+		/** How many files the overlay holds: what Git does not yet. */
+		overlaySize: () => first<{ n: number }>(driver, 'SELECT count(*) AS n FROM overlay')?.n ?? 0,
+		sequence: () => state('seq'),
+	};
+}
+export type RepositoryServer = ReturnType<typeof createRepositoryServer>;
+/** What an agent push needs from the server, without its connection surface. */
+export type ServerCore = {
+	git: GitStore;
+	loadMain(): Promise<{ oid: string | null; tree: Tree; seq: number }>;
+	gitText(oid: string): Promise<string | null>;
+	applyBatch(batch: Batch, peer: Peer, numbered?: boolean): Promise<{ outcome: BatchOutcome; broadcast: Broadcast | null }>;
+	commitNow(extraParents?: string[]): Promise<Result<Committed | null, CommitError>>;
+	settle(): Promise<void>;
+	broadcast(message: Broadcast, from: Peer | null): void;
+};
