@@ -124,10 +124,13 @@ destination artifact.
 
 ## References
 
-Read [the example conversations](references/conversations.md) when developing
-writing, an API, a skill, or a website, or calibrating how to show an attempt.
-They show how intent, proposed work, and consequences can advance the discussion
-without prescribing a format, number of versions, or sequence.
+Read [the example conversations](references/conversations.md) when
+calibrating the progression or how to make a proposal judgeable. The
+complete example shows intent, vision, and concrete form developing
+through corrections and explicit recognition. Focused excerpts show
+particular judgments within a stage; their introductions establish
+the shared understanding they build on. All invented exchanges are
+illustrations, not measured results or records of the user's preferences.
 
 For prose drafting and revisions, use [writing-voice](../writing-voice/SKILL.md)
 for developing recognizable expression and presenting revisions in context.
