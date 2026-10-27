@@ -260,7 +260,8 @@ impl Folders {
             return CloseAnswer::Ignore;
         }
         match close.phase {
-            ClosePhase::Idle | ClosePhase::Sent => {
+            ClosePhase::Idle => CloseAnswer::Ignore,
+            ClosePhase::Sent => {
                 close.phase = ClosePhase::Answering;
                 CloseAnswer::Destroy
             }
@@ -507,6 +508,30 @@ mod tests {
         folders.page_started("main");
         assert!(!folders.owns_close("main", next));
         assert_eq!(folders.request_close("main"), CloseRequest::Unhandled);
+    }
+
+    #[test]
+    fn a_page_cannot_destroy_an_idle_window() {
+        use tauri::ipc::{Channel, InvokeResponseBody};
+
+        let root = tempfile::tempdir().unwrap();
+        let folders = Folders::default();
+        folders
+            .bind("main", Directory::existing(root.path()).unwrap())
+            .unwrap();
+        let token = folders
+            .subscribe_close("main", Channel::new(|_: InvokeResponseBody| Ok(())))
+            .unwrap();
+
+        assert_eq!(
+            folders.begin_close_answer("main", token),
+            CloseAnswer::Ignore
+        );
+        assert_eq!(folders.request_close("main"), CloseRequest::Sent);
+        assert_eq!(
+            folders.begin_close_answer("main", token),
+            CloseAnswer::Destroy
+        );
     }
 
     #[test]

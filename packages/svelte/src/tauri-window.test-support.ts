@@ -40,7 +40,7 @@ export const nativeWindow = {
 };
 
 async function destroy(token: number): Promise<boolean> {
-	if (!handlers.has(token) || phase === 'gone') return false;
+	if (!handlers.has(token) || phase === 'idle' || phase === 'gone') return false;
 	if (phase === 'prompting') {
 		phase = 'ready';
 		return true;
