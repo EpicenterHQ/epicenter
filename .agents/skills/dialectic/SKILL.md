@@ -9,12 +9,17 @@ Standalone dialectic begins with the user's explicit request. Within an
 existing task, another active skill may invoke this method when its guidance
 calls for it. Keep that use within the task the user requested.
 
-Dialectic develops a shared understanding of what the user is reaching for
-and how it could take shape. The agent contributes by clarifying intent,
-proposing work, or showing how that work could function. The user can
-often recognize what is right or missing before they can articulate it
-themselves; seeing something specific gives them a way to recognize, correct,
-or extend the emerging thought.
+Clarify the intent together, develop a compelling vision of what would
+fulfill it, and work backward from that vision to give it concrete form.
+Exercise greenfield thinking throughout: reconsider the framing, imagine
+what could best fulfill the intent, and derive the form from that
+understanding, informed by evidence and real constraints.
+
+The user can often recognize what is right or missing before they can
+articulate it themselves; seeing something specific gives them a way to
+recognize, correct, or extend the emerging thought. Contribute substantive
+proposals that help both participants discover and develop what the user
+is reaching for.
 
 **Develop the discussion through what the user needs to examine next.
 Articulate the intent or idea when our understanding needs to become clearer.
