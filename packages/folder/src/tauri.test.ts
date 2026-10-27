@@ -5,6 +5,9 @@ let open: () => unknown = () => null;
 let changeChannel: { onmessage?: (value: { paths: string[] | null }) => void } | undefined;
 let putExpectation: string | undefined;
 let putStamp: string | null = 'v1:1:2:3:4';
+let openCalls = 0;
+let listedStamp = 'v1:3:1:3:4';
+let listedText = 'old';
 
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {
@@ -18,17 +21,18 @@ mock.module('@tauri-apps/api/core', () => ({
 		options?: { headers?: Record<string, string> },
 	) => {
 		if (command === 'plugin:epicenter-folder|open_folder') {
+			openCalls++;
 			changeChannel = body?.onChange;
 			return open();
 		}
 		if (command === 'plugin:epicenter-folder|list_folder')
 			return {
-				files: [{ path: 'note.txt', size: 3, stamp: 'v1:3:1:3:4' }],
+				files: [{ path: 'note.txt', size: listedText.length, stamp: listedStamp }],
 				directories: [],
 			};
 		if (command === 'plugin:epicenter-folder|read_folder_file') {
-			const stamp = new TextEncoder().encode('v1:3:1:3:4');
-			return Uint8Array.from([...stamp, 0, ...new TextEncoder().encode('old')]).buffer;
+			const stamp = new TextEncoder().encode(listedStamp);
+			return Uint8Array.from([...stamp, 0, ...new TextEncoder().encode(listedText)]).buffer;
 		}
 		if (command === 'plugin:epicenter-folder|put_folder_file') {
 			putExpectation = options?.headers?.expected;
@@ -46,6 +50,9 @@ afterEach(() => {
 	open = () => null;
 	putExpectation = undefined;
 	putStamp = 'v1:1:2:3:4';
+	openCalls = 0;
+	listedStamp = 'v1:3:1:3:4';
+	listedText = 'old';
 });
 
 test('Tauri list, read and put retain the shell stamps', async () => {
@@ -81,6 +88,36 @@ test('opens with a private folder change channel', async () => {
 	const folder = expectOk(await openFolder({ tables: {} }));
 	await folder.close();
 });
+
+for (const mode of ['concurrent', 'sequential'] as const) {
+	test(`${mode} opens share changes until each Folder closes`, async () => {
+		open = () => null;
+		const [first, second] =
+			mode === 'concurrent'
+				? await Promise.all([openFolder({ tables: {} }), openFolder({ tables: {} })])
+				: [await openFolder({ tables: {} }), await openFolder({ tables: {} })];
+		const firstFolder = expectOk(first);
+		const secondFolder = expectOk(second);
+		expect(openCalls).toBe(1);
+		expect(firstFolder.file('note.txt')?.data).toBe('old');
+		expect(secondFolder.file('note.txt')?.data).toBe('old');
+
+		listedStamp = 'v1:5:1:3:4';
+		listedText = 'newer';
+		changeChannel?.onmessage?.({ paths: ['note.txt'] });
+		await Promise.all([firstFolder.idle(), secondFolder.idle()]);
+		expect(firstFolder.file('note.txt')?.data).toBe('newer');
+		expect(secondFolder.file('note.txt')?.data).toBe('newer');
+
+		await firstFolder.close();
+		listedStamp = 'v1:6:1:3:4';
+		listedText = 'latest';
+		changeChannel?.onmessage?.({ paths: ['note.txt'] });
+		await secondFolder.idle();
+		expect(secondFolder.file('note.txt')?.data).toBe('latest');
+		await secondFolder.close();
+	});
+}
 
 test('a refused open reports the shell refusal', async () => {
 	open = () => Promise.reject({ name: 'NotBound' });

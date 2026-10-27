@@ -19,22 +19,66 @@ import { storageHost } from './storage.js';
 
 export * from './contract.js';
 
+const observers = new Set<(change: FolderChanged) => void>();
+let opening: ReturnType<typeof commands.openFolder> | undefined;
+let openHandles = 0;
+let pendingOpens = 0;
+
+function releaseRegistrationIfIdle() {
+	if (openHandles === 0 && pendingOpens === 0) opening = undefined;
+}
+
+function openBoundFolder() {
+	if (opening) return opening;
+	const channel = new Channel<FolderChanged>();
+	channel.onmessage = (change) => {
+		for (const observer of observers) observer(change);
+	};
+	opening = commands.openFolder(channel).then(
+		(opened) => {
+			if (opened.error !== null) opening = undefined;
+			return opened;
+		},
+		(cause) => {
+			opening = undefined;
+			throw cause;
+		},
+	);
+	return opening;
+}
+
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,
 ): Opened<T> {
 	if (!isTauri()) return OpenFolderError.NotTauri();
 	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
 	const listeners = new Set<(paths: readonly string[] | null) => void>();
-	const onChange = new Channel<FolderChanged>();
-	onChange.onmessage = ({ paths }) => {
+	const observer = ({ paths }: FolderChanged) => {
 		for (const listener of listeners) listener(paths);
 	};
+	observers.add(observer);
+	let retained = false;
+	const stop = () => {
+		observers.delete(observer);
+		if (retained) {
+			retained = false;
+			openHandles--;
+			releaseRegistrationIfIdle();
+		}
+	};
+	pendingOpens++;
 	try {
-		opened = await commands.openFolder(onChange);
+		opened = await openBoundFolder();
 	} catch (cause) {
+		pendingOpens--;
+		stop();
+		releaseRegistrationIfIdle();
 		return OpenFolderError.Unavailable({ cause });
 	}
+	pendingOpens--;
 	if (opened.error !== null) {
+		stop();
+		releaseRegistrationIfIdle();
 		const { error } = opened;
 		// Tauri also rejects with strings for missing commands or permissions;
 		// only an object with a name is the shell's own refusal.
@@ -42,16 +86,25 @@ export async function openFolder<const T extends Tables>(
 			return OpenFolderError.Unavailable({ cause: error });
 		return openRefusal(error);
 	}
-	return createFolder(
-		storageHost(hostStorage(tauriHostFiles()), {
-			watch(listener) {
-				listeners.add(listener);
-				return () => {
-					listeners.delete(listener);
-					if (listeners.size === 0) onChange.onmessage = () => {};
-				};
-			},
-		}),
-		options,
-	);
+	try {
+		retained = true;
+		openHandles++;
+		const result = await createFolder(
+			storageHost(hostStorage(tauriHostFiles()), {
+				watch(listener) {
+					listeners.add(listener);
+					return () => {
+						listeners.delete(listener);
+						stop();
+					};
+				},
+			}),
+			options,
+		);
+		if (result.error !== null) stop();
+		return result;
+	} catch (cause) {
+		stop();
+		throw cause;
+	}
 }
