@@ -31,6 +31,17 @@ proposed work in the form that lets the user judge it directly. Give
 enough context for the proposal to be understood on its own, and bold
 the parts that need particular attention.
 
+Develop each proposal together through attempts and responses. Use
+corrections to revise what remains unresolved, and carry forward what
+the user recognizes. Preserve selected wording and combine recognized
+parts into a coherent next attempt.
+
+Wait for the user to explicitly recognize the proposal as right before
+advancing to work that depends on it. Establish that shared understanding
+between the major stages and when developing substantial pieces within
+them. Recognition settles what the user actually examined. Return to an
+earlier understanding when later discoveries change its premise.
+
 **Develop the discussion through what the user needs to examine next.
 Articulate the intent or idea when our understanding needs to become clearer.
 Show the proposed work itself when its wording, structure, or design needs
@@ -51,12 +62,9 @@ Develop that understanding together before building further on an uncertain
 premise. Proposed work or an example of its use may help us discover what the
 user means.
 
-Use the user's response to develop your understanding and shape the next
-attempt. Carry forward what they recognized, and revise what their questions,
-examples, and corrections reveal needs to change. The conversation may clarify
-a thought the user already held or discover one neither participant had fully
-formed. Let the shared intent guide which questions, comparisons, and
-possibilities deserve attention.
+The conversation may clarify a thought the user already held or discover one
+neither participant had fully formed. Let the shared intent guide which
+questions, comparisons, and possibilities deserve attention.
 
 Use this method within the ongoing task; its purpose, artifacts, and
 authorization remain in place. Standalone exploration needs no destination
@@ -188,12 +196,8 @@ affects the next attempt, and carry work forward under the user's existing
 authorization. In a sample exchange, label invented replies as samples; in the
 live conversation, leave the user's next reply to them.
 
-“That’s right” names recognition of what the user is responding to, not a
-required phrase or approval of every part of a proposal. Let it settle the
-understanding, proposed work, or behavior it addresses and carry the recognized
-direction into the next step of the ongoing task. When implementation or
-revision is already within scope, make the changes and show the result.
-Preserve selected wording rather than reopening or repolishing it.
+When implementation or revision is already within scope, make the changes
+and show the result.
 When the task is standalone exploration, carry forward the settled understanding
 without inventing an implementation task. A later discovery may reopen a
 question. Existing authorization governs side effects; recognition does not
