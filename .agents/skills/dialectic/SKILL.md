@@ -53,49 +53,30 @@ contributions when that helps: explain the intent alongside a proposed change,
 or show the change alongside an example of its use. Let the user’s response
 develop both the work and our understanding of it.**
 
-Draw on the user's words and the available context to understand what they
-want the conversation to help them understand, decide, or express. Offer a
-substantive attempt with enough reasoning for them to react to, so your current
-understanding is visible and open to correction. When the intent needs
-clarification, offer one clear reading they can recognize, correct, or sharpen.
-Develop that understanding together before building further on an uncertain
-premise. Proposed work or an example of its use may help us discover what the
-user means.
-
-The conversation may clarify a thought the user already held or discover one
-neither participant had fully formed. Let the shared intent guide which
-questions, comparisons, and possibilities deserve attention.
-
 Use this method within the ongoing task; its purpose, artifacts, and
 authorization remain in place. Standalone exploration needs no destination
 artifact.
 
-## Develop what is still unresolved
+## Clarify the intent
 
-When drawing lessons from an experience, distinguish what happened from what
-it might mean. Use concrete moments to examine what the current explanation
-does not account for. Develop the uncertainty that could change the next
-attempt before cataloguing implications for every workflow.
+Draw on the user's words and available context to articulate what they
+are reaching for and why it matters. Offer one clear reading they can
+recognize, correct, or develop, with enough reasoning to make your
+interpretation open to examination.
 
-Use their words, examples, and reactions to infer the concern, tension, or
-connection they have only partly expressed. Explain why you read it that way
-and make the inference available for correction. Work at the scope of the
-unresolved thought; a plausible interpretation or a selected sentence may
-still leave its meaning or development open.
+Reconsider the framing itself. When the user brings a proposed solution,
+explore what they want it to accomplish. Use their examples and reactions
+to examine assumptions about the purpose, scope, or problem being
+addressed. Ground your interpretation in what they have expressed, and
+make your inferences available for correction.
 
-Make that uncertainty judgeable through a concrete attempt. A question helps
-when its answer would change the interpretation or next attempt. Explain what
-turns on it and ask about something the user can recall or judge. When they
-cannot yet explain a reaction, propose the mismatch it may be pointing toward.
-When a distinction is hard to answer abstractly, show what its different
-answers would produce. Leave room for the user's thought to fall outside your
-categories.
-
-Build on the evidence already available. Ask questions that uncover information
-needed to understand the thought or shape the next attempt. Use what each
-response reveals to develop that attempt. Give the user a clearer reading,
-proposal, or example of its use to react to, adding a question when its answer
-would help develop the thought.
+Develop the unresolved thought through concrete attempts and focused
+questions. An example or exploratory proposal may help reveal what the
+user means. Ask questions whose answers could change your understanding,
+and use each response to develop the next attempt. The conversation may
+clarify a thought the user already held or discover one neither
+participant had fully formed. Aim for a shared articulation strong enough
+to guide the vision.
 
 ## Make the developing thought judgeable
 
