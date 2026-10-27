@@ -3,10 +3,10 @@
 - **Status:** Proposed
 - **Date:** 2026-10-27
 - **Would supersede:** [ADR-0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) entirely; [ADR-0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) and [ADR-0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md), whose browser submission path this replaces; [ADR-0650](0650-a-browsers-current-folder-is-one-immutable-tree.md), since a browser no longer holds a Git working tree.
-- **Would amend:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at "folders are the only data model": the Git repository remains the only durable record, and people's apps edit a Yjs document checkpointed into it; [ADR-0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) and [ADR-0687](0687-opening-a-site-url-opens-its-derived-folder.md) at the derived desktop folder, which is retired; [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) at the desktop live folder; [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md), because a conflicting push is rejected rather than overridden; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) and [ADR-0530](0530-applications-record-a-version-at-natural-moments.md), because the server makes people's commits.
-- **Relates:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md), whose single document this restores as working state rather than as the authority; [ADR-0294](0294-a-database-is-sized-against-a-measured-device-budget-not-an-assumed-ceiling.md) for device memory; [ADR-0620](0620-history-in-a-repository-only-grows.md), which `main` keeps; [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), unchanged: audio stays outside the repository.
+- **Would amend:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at "folders are the only data model": the Git repository remains the durable record, and people's apps edit a Yjs document checkpointed into it; [ADR-0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) and [ADR-0687](0687-opening-a-site-url-opens-its-derived-folder.md) at the derived desktop folder, which is retired; [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) at the desktop live folder; [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md), because a conflicting push is rejected rather than overridden; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) and [ADR-0530](0530-applications-record-a-version-at-natural-moments.md), because the server makes people's commits; [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), because binary files enter the repository as Git LFS pointers.
+- **Relates:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md), whose single document this restores as working state checkpointed into Git; [ADR-0294](0294-a-database-is-sized-against-a-measured-device-budget-not-an-assumed-ceiling.md) for device memory; [ADR-0620](0620-history-in-a-repository-only-grows.md), which `main` keeps.
 - **Evidence:** [browser storage shape](../../packages/folder/evidence/storage-shape-benchmark/RESULTS.md), [Whispering storage benchmark](../../packages/folder/evidence/whispering-storage-benchmark/results.json), and the [two worlds prototype](../../packages/folder/evidence/two-worlds-prototype/RESULTS.md).
-- **Unbuilt:** all of it. A throwaway prototype confirms the five deciding claims (see Verification); a deployed spike has not run.
+- **Unbuilt:** all of it. A throwaway prototype tested the push merge and open times (see Verification); a deployed spike has not run.
 
 ## Context
 
@@ -36,7 +36,8 @@ The owner's answers settled the product questions this record rests on:
 letters must appear on other devices as they are typed; people must never see
 a conflict; people who work in Git, directly or through an agent, can resolve
 one; the desktop folder need not be live; history requires an account, but an
-app must work fully offline without one.
+app must work fully offline without one; the server may keep each repository's
+document permanently, as one compacted object; binary files use Git LFS.
 
 ## Decision
 
@@ -52,13 +53,10 @@ is the same kind of client as the browser. Without a server, an app still
 works fully, with no history.
 
 **The server.** For each repository, one server object relays the document
-between devices and checkpoints changed files into `main` as Markdown commits,
-so history is Git. Each document is seeded from a commit and named by that
-commit's hash and the seed version, so every device builds the same document
-without downloading it. When a repository has no connections and nothing left
-to commit, the server deletes its Yjs state after a short wait. The next client
-to connect seeds the new document from that commit, carrying over any edits it
-made while away. At rest, the server holds only Git.
+between devices, keeps it as one compacted object, and checkpoints changed
+files into `main` as Markdown commits, so history is Git. A device back from
+any time offline syncs like any other Yjs peer; offline edits merge exactly as
+live ones do.
 
 **Agents' world.** Agents, and people who prefer files, work in Git clones
 through `epicenter` clone, pull and push. A push to `main` is accepted only if
@@ -68,55 +66,69 @@ and resolves the conflict. Conflicts belong to whoever works in Git, never to a
 person in an app. The repository can be mirrored to GitHub or GitLab, but
 pushes go through Epicenter.
 
-**Reading.** Queries read the in-memory document. Full-text search, when a
-corpus needs it, is a contentless SQLite index in the browser's storage.
+**Reading.** An app's document covers the paths the app declares; the
+repository may hold more, and every commit keeps those files unchanged. Within
+that scope every Markdown file appears: a valid file as fields and a body, and
+an invalid one as its raw text with an issue, shown next to the valid ones and
+editable as source. Queries read the in-memory document. Full-text search,
+when a corpus needs it, is a contentless SQLite index in the browser's
+storage.
+
+**Binary files.** Images, recordings and other binary files are Git LFS
+objects stored in R2. The repository holds their pointer files, Markdown refers
+to them by relative path everywhere, and apps load them on demand from
+short-lived URLs.
 
 ### Mechanism
 
-**The document.** One `Y.Doc` per repository. Each file is an entry keyed by
-path: frontmatter fields as attributes (last write per key wins) and the body
-as text. Its identity is `<repository>/<commit oid>/<seed version>`. Seeding
-inserts the commit's files in path order under a client id derived from that
-identity, so seeding is a pure function of the commit and the seed version, and
-two devices that seed independently produce byte-identical documents that
-merge without duplicating text. A device edits under its own client id. The
-seed version names the codec and layout; clients on different seed versions
-never share a document, and an outdated client is told to update.
+**The document.** One `Y.Doc` per repository. Each file in the app's scope is
+an entry keyed by path: frontmatter fields as attributes (last write per key
+wins) and the body as text. An invalid file is an entry marked raw whose body is
+its whole source; when a later parse succeeds, it becomes fields and a body.
+An LFS pointer is an entry holding its object id and size. A new device
+downloads the compacted document once and then syncs updates.
 
 **The server object.** One Durable Object per repository holds the open
-WebSockets, the live document (a compacted state plus recent updates, under a
-fixed key), and the lock on `main`. It checkpoints by serializing changed
-entries to Markdown and committing them. It knows quiet from its own
-connections: when the last socket closes it commits what is left and sets an
-alarm; a new socket cancels it; when the alarm fires with no connections, the
-epoch becomes the latest commit and the Yjs state is deleted. No list of
-devices is kept, and nothing is stored per epoch, so nothing is orphaned.
+WebSockets, the document (one compacted state plus recent updates, under a
+fixed key and overwritten in place), and the lock on `main`. Storage is about
+the text's size per repository, and nothing accumulates per version.
 
-**Changing epochs.** On connect, the handshake names the server's epoch. A
-client on that epoch syncs normally. A client on an older epoch fetches the
-files whose content differs from its last-synced text, seeds the new document
-locally, and carries over its pending edits as a three-way merge whose base is
-its text as of its last sync. A client with nothing pending carries nothing;
-both are the same algorithm. A client switches only after sync completes, so
-its text equals the commit's; this is enforced by the protocol, not checked
-afterwards.
+**When commits happen.** The server object commits the files that changed when
+the document has had no updates for the idle period, at most once per maximum
+period during continuous typing, before every push merge, and when the last
+device disconnects. A commit is a snapshot at an instant; typing continues
+through it. The idle and maximum periods (2 and 30 minutes by default) are a
+setting at the repository, organization or account level, resolved in that
+order, and stored in Postgres beside the repository record that
+`apps/api/worker/git-repositories.ts` reads. The server object reads the
+effective setting when it starts and when the setting changes.
 
-**A push.** The server object locks `main`, checkpoints the live document as
-commit P, and three-way merges the pushed commit A with P, using A's parent as
-the base. A clean merge advances `main` and applies the difference from P into
-the live document; people typing meanwhile merge with it through Yjs. A
-conflict rejects the push as non-fast-forward.
+**A push.** The server object locks `main`, checkpoints the document as commit
+P, and three-way merges the pushed commit A with P, using A's parent as the
+base. A clean merge advances `main` and applies the difference from P into the
+document; people typing meanwhile merge with it through Yjs. A conflict rejects
+the push as non-fast-forward. Files outside the app's scope merge in Git alone.
+
+**Binary files.** The server implements the Git LFS batch API over R2, so a
+clone fetches objects with `git lfs pull`, and the repository's
+`.gitattributes` names which paths are LFS. In an app, a renderer resolves a
+relative path against its Markdown file's directory, finds the pointer entry in
+the document, and asks the server for a short-lived URL for that object id; the
+browser loads the object directly from R2. Object ids are content hashes, so a
+loaded object can be cached indefinitely and shown offline. An upload goes to
+R2 through a presigned URL, then adds a pointer entry to the document; the next
+commit writes the pointer file.
 
 **Without a server.** The document persists in IndexedDB; nothing is
-committed until a server sees it.
+committed until a server sees it. Binary files stay on the device until then.
 
 ## Consequences
 
-People get live editing across devices, offline use, and no conflict UI.
-Agents get ordinary Git: clone, branch, commit, push, and resolve. Epicenter
-never designs a conflict policy, a merge notice, or a recovery screen; the only
-merges it writes are the clean-merge check on push and the offline carry-over,
-both against a recorded base.
+People get live editing across devices, offline use that merges like live
+editing, and no conflict UI. Agents get ordinary Git, with LFS for binary
+files: clone, branch, commit, push, and resolve. Epicenter never designs a
+conflict policy, a merge notice, or a recovery screen; the only merge it writes
+is the clean-merge check on push, against a recorded base.
 
 The deletion prize, once built: the local write queue and checked writes in
 `packages/folder/src/folder.ts`, the native stamp, the Tauri plugin's file
@@ -133,35 +145,44 @@ The costs:
 - **The server becomes required for live editing and for history.** An
   offline-only person has a working app and no commits. Self-hosting means
   running the same server code.
+- **Storage about doubles per repository:** Git's objects plus the compacted
+  document, which is about the size of the text.
 - **`~/Epicenter` is no longer live.** A person editing in Vim or Obsidian
   works in a clone, and their edit reaches other devices only when pushed.
 - **Memory.** A full replica costs roughly 1.7 times its text in memory
   (about 250 MiB at 50,000 rows); a snapshot of parsed rows would cost about
   144 MiB. The simpler model was chosen over the saving.
-- **Prose merges by character.** Two people rewriting one paragraph at once can
-  leave a stray fragment. Agents, whose rewrites are larger, merge through Git
-  instead.
+- **Prose merges by character.** Two people rewriting one paragraph at once,
+  live or after time offline, can leave a stray fragment. Agents, whose
+  rewrites are larger, merge through Git instead.
+- **Keystrokes in flight are not checked.** The push check sees only updates
+  the server has received; keystrokes in flight when a push lands merge with
+  it through Yjs, by character in the same paragraph.
 - **GitHub or GitLab cannot be the primary remote**, because they cannot run the
-  push check. They can be mirrors.
+  push check. They can be mirrors, LFS objects included.
 
-Still undecided: how often the server checkpoints while people type; the
-length of the quiet wait; whether a clean merge is by line or by field and line
-as `packages/folder/src/shared/merge.ts` merges now; and how schema migrations
-change the seed version.
+Still undecided: whether a clean merge is by line, or by field and line as
+`packages/folder/src/shared/merge.ts` merges now; how commits name their
+authors when several people's edits land in one; and compaction. Compaction is
+a later, explicit operation: a candidate is a pass that runs once every known
+device has acknowledged the current state, replacing the document with a fresh
+one built from the latest commit.
 
 ## Considered alternatives
 
+- **Deleting the document when a repository is quiet, and seeding the next one
+  from a commit (epochs).** Nothing would stay on the server at rest, but it
+  needs deterministic seeding, a seed version, per-file hashes in the
+  handshake, a last-synced copy on every device, and a carry-over merge for
+  devices returning from offline. That carry-over is a second merge rule:
+  where live editing interleaves two rewrites of one paragraph by character,
+  the carry-over kept both versions as whole lines. The prototype built and
+  tested it; keeping the document removes all of it.
 - **A snapshot of the last commit plus Yjs only for files being edited.** Less
   memory and a faster open (0.065 s at 50,000 rows), but it adds a snapshot
-  format, a rule that a live document wins over the snapshot, a rule for
-  dropping documents, and per-epoch seeding for every edited file. An
-  offline-only person would hold everything in Yjs anyway, so the app would
-  have two modes.
-- **Switching documents at every checkpoint.** Someone is usually typing during
-  a checkpoint, so every in-flight edit would need carrying over, for every
-  active user, all day. Switching only when quiet keeps that path rare.
-- **Keeping the Yjs state permanently on the server.** Simpler, but storage then
-  scales with every repository ever opened rather than with active ones.
+  format, a rule that a live document wins over the snapshot, and a rule for
+  dropping documents. An offline-only person would hold everything in Yjs
+  anyway, so the app would have two modes.
 - **Local files as the authority on desktop (ADR-0690).** Every file edit outside
   the app would need importing into the live document, and the desktop
   folder and the document would race on disk.
@@ -170,37 +191,32 @@ change the seed version.
   resolve them.
 - **GitHub or GitLab as the primary remote.** Pushes would bypass the live
   document, and Epicenter would have to resolve the resulting conflicts itself.
+- **Binary files in Git, or in R2 referenced by hash.** In Git, every clone and
+  mirror grows with every image and recording. Referenced by hash, relative
+  paths stop working in clones, and mirrors carry dangling references. LFS
+  keeps the repository text and relative paths working everywhere.
+- **Commit timing in a file in the repository.** It would travel to mirrors,
+  where it means nothing, and any agent could change the server's behavior by
+  pushing. It is the host's setting, not the data's.
 
 ## Verification
 
-A throwaway prototype tests the claims this record depends on, before any
-production change:
+A throwaway prototype in
+[`packages/folder/evidence/two-worlds-prototype/`](../../packages/folder/evidence/two-worlds-prototype/RESULTS.md)
+uses an in-process stand-in for the server object. Its results that bear on
+this decision:
 
-1. Seeding from one commit produces byte-identical documents in Chromium,
-   WebKit and Bun, and two seeded copies merge edits without duplicating text.
-2. The quiet switch loses nothing, and both clients end on identical documents.
-3. An offline carry-over keeps the offline device's edits without undoing
-   edits it never saw.
-4. A push merges into a document while someone types, and an overlapping push
-   is rejected.
-5. Opening and seeding are acceptable in WebKit at 5,000 and 50,000 rows.
+- A push lands as a merge commit while another device's keystrokes are in
+  flight, and both survive on every device and in the next commit. An
+  overlapping push is rejected with the conflicting path, and lands after the
+  agent pulls and merges.
+- At 50,000 rows, WebKit opens the document in 345 to 382 ms and Chromium in
+  287 to 324 ms; at 5,000 rows, both open in under 60 ms.
+- It also built the epoch alternative: byte-identical seeds in Bun, Chromium
+  and WebKit, the quiet switch, and the offline carry-over all held, and the
+  carry-over's second merge rule is why that alternative was dropped.
 
-If claim 1 fails, every quiet switch costs a full document download. If claim
-3 fails, offline edits need a different path. Claims 2, 4 and 5 adjust the
-design rather than overturn it. Real Durable Object behavior, networks, phone
-hardware and cost need a deployed spike afterwards.
-
-All five hold in the prototype. Seeds are byte-identical in Bun, Chromium and
-WebKit at 5,000 and 50,000 rows, and seeding under random client ids instead
-drops one device's edit. At 50,000 rows, WebKit opens the document in 345 to
-382 ms and seeds it in 638 ms. The prototype also found three things this
-record now states:
-
-- The push check sees only what has been delivered. Keystrokes in flight when
-  a push lands merge with it through Yjs, and in the same paragraph as the
-  agent's change they interleave by character.
-- A new device's first open downloads every file's text once and seeds
-  locally; it never downloads a Yjs state.
-- When an offline device and another device rewrote the same paragraph, the
-  carry-over keeps both, the other device's version first. That ordering is a
-  choice.
+Not yet tested: a device syncing after weeks offline against a document others
+kept editing, which is ordinary Yjs behavior; real Durable Object behavior,
+networks, phone hardware and cost, which need a deployed spike; and the LFS
+batch API and short-lived URLs.
