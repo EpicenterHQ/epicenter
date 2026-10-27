@@ -66,8 +66,8 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
   and edits (`edit` from `@epicenter/svelte/folder`) are the only state
   ahead of it: every typed value enters the folder queue immediately, so a
   later file action runs after it. Switching between writable views of the
-  same file is immediate. Whole-file edits merge over field changes that land
-  after their base was read.
+  same file is immediate. Whole-file edits replace the file at their turn;
+  earlier field changes survive only if the editor includes them.
   Every text input bound to folder data uses one edit, one per editor
   component. Derive lists from the mirror's rows and files; do not add
   another save queue, cache, mirror, or second store of recordings, and keep
