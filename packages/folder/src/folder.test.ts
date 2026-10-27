@@ -772,7 +772,7 @@ describe('ordered writes with waiting path merge', () => {
 		expect(folder.file('copy.txt')).toBeDefined();
 	});
 
-	test('create refuses a changed reply even when the bytes match', async () => {
+	test('a create whose stale reply reads back its own bytes landed', async () => {
 		const memory = memoryHost();
 		const put = memory.storage.put;
 		memory.storage.put = async (path, bytes, expected) => {
@@ -782,14 +782,12 @@ describe('ordered writes with waiting path merge', () => {
 				: result;
 		};
 		const folder = expectOk(await createFolder(memory.storage, { tables }));
-		expect(
-			expectErr(
-				await folder.tables.notes.create('a', {
-					fields: { title: 'A' },
-					body: 'Saved',
-				}),
-			).name,
-		).toBe('Exists');
+		expectOk(
+			await folder.tables.notes.create('a', {
+				fields: { title: 'A' },
+				body: 'Saved',
+			}),
+		);
 		expect(folder.tables.notes.row('a')?.body).toBe('Saved');
 		expect(memory.text('notes/a.md')).toContain('Saved');
 	});

@@ -588,7 +588,15 @@ export async function createFolder<const T extends Tables>(
 		const put = await host.put(path, sent, expect);
 		if (put.error?.name === 'Changed') {
 			if (op.kind === 'create') {
-				await rereadAfterChanged(path);
+				// A resent create whose first run landed reads back its own bytes.
+				const current = await rereadAfterChanged(path);
+				if (
+					current?.error === null &&
+					current.data !== null &&
+					sent !== null &&
+					sameData(current.data.bytes, sent)
+				)
+					return Ok(undefined);
 				return WriteRefusal.Exists({ path });
 			}
 			return SaveError.StorageFailed({ cause: put.error });
