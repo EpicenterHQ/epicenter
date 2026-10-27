@@ -5,8 +5,8 @@
 - **Would supersede:** [ADR-0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) entirely; [ADR-0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) and [ADR-0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md), whose browser submission path this replaces; [ADR-0650](0650-a-browsers-current-folder-is-one-immutable-tree.md), since a browser no longer holds a Git working tree.
 - **Would amend:** [ADR-0534](0534-data-folders-are-the-only-data-model.md) at "folders are the only data model": the Git repository remains the only durable record, and people's apps edit a Yjs document checkpointed into it; [ADR-0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) and [ADR-0687](0687-opening-a-site-url-opens-its-derived-folder.md) at the derived desktop folder, which is retired; [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) at the desktop live folder; [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md), because a conflicting push is rejected rather than overridden; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) and [ADR-0530](0530-applications-record-a-version-at-natural-moments.md), because the server makes people's commits.
 - **Relates:** [ADR-0295](0295-a-database-is-one-yjs-document-and-a-row-holds-its-rich-content.md), whose single document this restores as working state rather than as the authority; [ADR-0294](0294-a-database-is-sized-against-a-measured-device-budget-not-an-assumed-ceiling.md) for device memory; [ADR-0620](0620-history-in-a-repository-only-grows.md), which `main` keeps; [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md), unchanged: audio stays outside the repository.
-- **Evidence:** [browser storage shape](../../packages/folder/evidence/storage-shape-benchmark/RESULTS.md) and [Whispering storage benchmark](../../packages/folder/evidence/whispering-storage-benchmark/results.json).
-- **Unbuilt:** all of it. The deciding claims are tested by a throwaway prototype first (see Verification).
+- **Evidence:** [browser storage shape](../../packages/folder/evidence/storage-shape-benchmark/RESULTS.md), [Whispering storage benchmark](../../packages/folder/evidence/whispering-storage-benchmark/results.json), and the [two worlds prototype](../../packages/folder/evidence/two-worlds-prototype/RESULTS.md).
+- **Unbuilt:** all of it. A throwaway prototype confirms the five deciding claims (see Verification); a deployed spike has not run.
 
 ## Context
 
@@ -189,3 +189,18 @@ If claim 1 fails, every quiet switch costs a full document download. If claim
 3 fails, offline edits need a different path. Claims 2, 4 and 5 adjust the
 design rather than overturn it. Real Durable Object behavior, networks, phone
 hardware and cost need a deployed spike afterwards.
+
+All five hold in the prototype. Seeds are byte-identical in Bun, Chromium and
+WebKit at 5,000 and 50,000 rows, and seeding under random client ids instead
+drops one device's edit. At 50,000 rows, WebKit opens the document in 345 to
+382 ms and seeds it in 638 ms. The prototype also found three things this
+record now states:
+
+- The push check sees only what has been delivered. Keystrokes in flight when
+  a push lands merge with it through Yjs, and in the same paragraph as the
+  agent's change they interleave by character.
+- A new device's first open downloads every file's text once and seeds
+  locally; it never downloads a Yjs state.
+- When an offline device and another device rewrote the same paragraph, the
+  carry-over keeps both, the other device's version first. That ordering is a
+  choice.
