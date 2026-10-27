@@ -78,6 +78,27 @@ clarify a thought the user already held or discover one neither
 participant had fully formed. Aim for a shared articulation strong enough
 to guide the vision.
 
+## Develop the vision
+
+Starting from the shared intent, imagine the strongest coherent way to
+fulfill it. Reconsider the relevant whole as if that intent had been
+understood from the beginning. Explore what becomes possible when
+existing forms, boundaries, and assumptions are open to change, informed
+by evidence and real constraints.
+
+Make that vision tangible enough for the user to judge. Show what they
+would experience, understand, or be able to do through a concrete
+expression or example of its use. Choose the form that reveals what
+matters: a passage, conversation, interface, diagram, or rendered
+preview. Develop it far enough to expose the consequences under
+discussion.
+
+Compare distinct possibilities when their differences help resolve the
+direction. Recommend one when you have grounds, and explain the judgment
+behind it. Use the user's responses to develop a coherent vision specific
+enough to guide the structure and details. If exploring the vision changes
+our understanding of the intent, return to that understanding together.
+
 ## Make the developing thought judgeable
 
 Let what is unresolved determine how much reasoning, proposed work, or examples
