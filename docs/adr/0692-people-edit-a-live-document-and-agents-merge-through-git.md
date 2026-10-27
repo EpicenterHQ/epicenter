@@ -37,10 +37,15 @@ directly and may lag the server by that minute.
   note that has since moved. An app that needs a permanent id declares an `id`
   field in its own schema.
 - **Mutations.** Each carries its device's id and a per-device number, so a
-  retry applies once. Setting a field edits that one frontmatter key in place,
-  keeping the file's other text; the write the server accepts last wins. A body
-  patch carries its base text and merges by character. Create, move and delete
-  complete the set; a delete that had not seen an edit loses to it.
+  retry applies once, and the server sequence of the value it saw. **A write
+  replaces only what it saw:** setting a field or setting edits that one key in
+  place, keeping the file's other text, and is not applied if the key changed
+  since; a delete that had not seen an edit loses to it. A body patch carries
+  its base text and merges by character. Append adds text at the end in server
+  order and never conflicts, for conversations, logs and journals. Create and
+  move complete the set; a create at a path already taken is saved under a
+  numbered copy (`ideas (2).md`) and reported. A reply streamed by an assistant
+  is relayed live without being stored, then written as one append.
 - **Conflicts.** When two body edits change the same characters, the note gets
   Git conflict markers with a base section, in the order the server accepted
   the edits, labeled with who, when and the server sequence. Editors such as
@@ -51,19 +56,32 @@ directly and may lag the server by that minute.
 - **Agents.** `epicenter set`, `patch`, `create`, `mv` and `rm` send mutations
   that merge like a person's. `git push` is diffed against its actual merge
   base into mutations and refused, with the file and reason, if it overlaps
-  changes made since that base, if frontmatter does not parse, or if a note
-  exceeds 1 MB stored. `epicenter pull` asks the server to commit first.
+  changes made since that base (including a path created since), if
+  frontmatter does not parse, or if a note exceeds 1 MB stored. `epicenter pull`
+  asks the server to commit first.
 - **Schemas.** The app brings its own schema, published with its release;
   `epicenter check --schema <url>` validates a clone. The server reads none.
-- **The server object.** Its SQLite holds each note's text and sequence, the
-  mutation log since the last commit, and the move log. Each commit records the
-  server sequence it includes; `main` moves only by compare-and-swap, and the
-  log is trimmed only up to what Git holds.
-- **Devices.** Notes live in memory, or in SQLite in the browser's storage at
-  larger sizes; pending mutations are stored durably. Lists are async, live
-  queries; the note being edited is read and written synchronously.
-  Per-device settings stay in IndexedDB. Without a server, an app works fully,
-  with no history.
+- **The server object.** It holds only an overlay: the notes changed since the
+  last commit, their mutations, the last number applied per device, and recent
+  moves. Each commit records the server sequence it includes; `main` moves only
+  by compare-and-swap, and the overlay is cleared only up to what Git holds. At
+  rest it holds almost nothing; Git holds the text.
+- **Reading.** Devices read committed notes without the server object: the head
+  commit and its sequence, a diff between two commits, and notes by content
+  hash in batches. They ask the object only for changes after that sequence, or
+  are told to resync from the head.
+- **Devices.** Each repository is one SQLite file per device: in the browser's
+  storage (OPFS) through a worker, natively on desktop, and through Bun in the
+  CLI, behind one driver interface and one shared engine. Engine tables are
+  named with a `/` so no folder can collide with them: `"epicenter/files"`
+  holds each note's text, its frontmatter parsed once into JSON, and its
+  sequence; others hold settings, pending mutations, sync state and settings
+  for this device only. Each app's lens is a set of read-only views and indexes
+  over them, recreated on every start; apps query them in plain SQL. Writes go
+  only through the API as mutations. Any change re-runs live queries, whose
+  results are compared before re-rendering; the note being edited is held open
+  and read synchronously. Without a server, an app works fully, with no
+  history.
 
 ## Consequences
 
@@ -84,8 +102,15 @@ which a push takes effect relative to mutations, which the spike must fix.
 
 Prototypes v1 and v2 tested an earlier per-note Yjs variant; they establish
 open times and push-merge behavior, not this design. Independent reviews by
-Codex and Claude reviewers agreed on its class. Before acceptance: tests for
-the character merge and the conflict-marker lifecycle; a deployed,
+Codex and Claude reviewers agreed on its class. A local spike of the read path
+and the overlay found first open from content-addressed notes under 2 s for
+5,000 notes at 150 ms latency, reconnect by tree comparison moving a few MB
+rather than the whole repository, and the overlay surviving retries, the
+resync race and crashes at three points; it also found that writing 50,000
+records to IndexedDB took 17 s in Chromium, one reason the device store is
+SQLite. Before acceptance: SQLite in OPFS at 5,000 and 50,000 notes in Chromium
+and WebKit, with the tab-leader pattern; tests for the character merge and the
+conflict-marker lifecycle; a deployed,
 fault-injected spike against a non-production namespace that kills the server
 object around each SQLite commit, Git update and reply, and retries the same
 mutation and push; and device memory measured on a phone.
