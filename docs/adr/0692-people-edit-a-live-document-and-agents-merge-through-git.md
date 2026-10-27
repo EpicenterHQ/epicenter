@@ -67,6 +67,18 @@ the server by that minute.
   first and its pointer written second, so a pointer never names missing
   bytes. A reply streamed by an assistant is relayed live without being stored,
   then written as one append.
+- **The app API.** `defineApp` maps identifier names to templates, each with a
+  schema or a blob declaration; names must be identifiers, so they never
+  collide with engine tables. Every handle takes a parameter object whose keys
+  TypeScript reads from the template: `repo.tasks.get({ project: 'acme', stem:
+  'fix-login' })`; `list` takes some segments as a filter; a template without
+  segments takes none (`repo.settings.get()`). Note handles offer `get`, `list`,
+  `create`, `write`, `move` and `delete`; blob handles offer `put`, `get`, `url`,
+  `list` and `delete`. `repo.batch(b => ...)` builds one batch synchronously from
+  write-only handles and resolves to one outcome per change, so a note and its
+  blob land together. A shorthand that fills in some segments (`in`, as in
+  `repo.tasks.in({ project: 'acme' })`) is deferred until call sites show it is
+  needed.
 - **The Epicenter merge.** One pure function, used by the server, by devices
   replaying unsent edits, and by the CLI, merges a write against its base:
   frontmatter by key, where on a clash the current value wins and the other is
