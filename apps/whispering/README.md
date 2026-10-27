@@ -600,11 +600,11 @@ visible until you retry or discard it. The lists show a row once it is saved.
   even if its editor closes before that action finishes.
 - A field, a body, or a title sets only what it names over the file as it is
   when the save runs, so another program's change to the rest of the file is
-  kept. Source writes the whole text as typed.
+  kept. Source writes the whole text as typed against the file it was based on.
 - A save that does not land keeps the typed value in its editor with **Save
   again**, **Discard**, and **Copy**. Nothing is retried on its own.
-- Opening Source or returning to fields waits for the current editor's saves to
-  land. A failed edit keeps that view visible with its retry and discard controls.
+- Opening Source or returning to fields is immediate. A whole-file edit merges
+  over field changes that land after its base was read.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.

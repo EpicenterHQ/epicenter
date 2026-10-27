@@ -608,7 +608,8 @@ const source = fileEdit(folder, path);
   FileView a text file's source. An edit is never shared between components.
   Switching between Source and fields changes the view immediately. The new
   view follows the mirror as earlier queued edits land and may briefly show
-  older text.
+  older text. A whole-file edit made during that interval merges over those
+  field changes at its turn.
 - **Source** uses `fileEdit` to show LF and save with the file's own newlines. Whether a
   row shows as text is `showsText(path)`: the person chose Source
   (`asText`, a `SvelteSet` of view state), or the row has issues. Repair

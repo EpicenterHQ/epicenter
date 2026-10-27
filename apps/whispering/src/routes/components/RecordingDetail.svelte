@@ -94,25 +94,13 @@
 		return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 	}
 
-	let switching = $state(false);
-	/** The next editor reads the file only after this editor's saves land. */
-	async function show(toSource: boolean) {
-		if (switching) return;
-		switching = true;
-		const results = await Promise.all(toSource
-			? [title.landed(), notes.landed()]
-			: [source.landed()]);
-		if (results.some(({ error }) => error !== null)) {
-			switching = false;
-			return;
-		}
+	function show(toSource: boolean) {
 		const problem = toSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(toSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
-		switching = false;
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="Recording" data-testid="recording-detail" inert={switching}>
+<section class="flex h-full min-h-0 flex-col" aria-label="Recording" data-testid="recording-detail">
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
 			<Button variant="ghost" size="icon-sm" aria-label="Back to recordings" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>

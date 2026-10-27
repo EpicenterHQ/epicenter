@@ -187,9 +187,9 @@
 	}
 
 	/** Show Instructions with the model notes open. The button pressed leaves with Try it, so focus moves to the tab. */
-	async function goToInstructions() {
+	function goToInstructions() {
 		const from = document.activeElement;
-		if (!await show(false)) return;
+		if (!show(false)) return;
 		tab = 'instructions';
 		notesOpen = true;
 		void focusTab('instructions', from);
@@ -217,21 +217,9 @@
 		(blocked === undefined ? runButtons[view.applySource] : (goToInstructionsButton ?? blockedReason))?.focus();
 	}
 
-	let switching = $state(false);
-	/** Show the next editor after this editor's saves land. */
-	async function show(asSource: boolean) {
-		if (switching) return false;
-		switching = true;
-		const results = await Promise.all(asSource
-			? [title.landed(), modelText.landed(), prompt.landed()]
-			: [source.landed()]);
-		if (results.some(({ error }) => error !== null)) {
-			switching = false;
-			return false;
-		}
+	function show(asSource: boolean) {
 		const problem = asSource ? whispering.editSource(own) : whispering.useForm(own, source.value);
 		if (problem) toast.error(asSource ? 'The text was not opened for editing' : 'The fields were not opened', { description: problem });
-		switching = false;
 		return problem === undefined;
 	}
 	function selectTab(value: string) {
@@ -239,13 +227,11 @@
 			tab = 'try';
 			return;
 		}
-		void show(value === 'source').then((opened) => {
-			if (opened) tab = 'instructions';
-		});
+		if (show(value === 'source')) tab = 'instructions';
 	}
 </script>
 
-<section bind:this={editor} class="flex h-full min-h-0 flex-col" aria-label="Transformation" data-testid="transformation-detail" inert={switching}>
+<section bind:this={editor} class="flex h-full min-h-0 flex-col" aria-label="Transformation" data-testid="transformation-detail">
 	<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 		{#if onBack}
 			<Button variant="ghost" size="icon-sm" aria-label="Back to transformations" onclick={onBack} {@attach (node: HTMLElement) => node.focus()}>
