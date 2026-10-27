@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-10-22
 - **Amends:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) and [ADR-0635](0635-generic-desktop-data-tools-are-deferred.md) at the optional runner's exclusion of installed source-built pages and native app admission, if this proposal is accepted.
-- **Relates:** Historical [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) and [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) keeps standalone releases and fixed bundled pages separate; [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) defines fixed first-party folders; [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) proposes runtime-bound device storage; the proposed launcher grouping concerns data folders.
+- **Relates:** Historical [ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md) and [ADR-0605](0605-an-app-is-an-ordinary-single-page-app-in-a-forkable-git-repository.md); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) keeps standalone releases and fixed bundled pages separate; [ADR-0672](0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md) defines fixed first-party folders; [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) proposes an installation-bound private database opener; the proposed launcher grouping concerns data folders.
 - **Unbuilt:** Installed-page serving, per-installation origins and labels, pinned-window builds, installed-page grants, and current-platform isolation probes. Rust presently serves only built-in and fixed bundled pages from `epicenter-app://localhost`.
 
 ## Context
@@ -52,18 +52,16 @@ serving any file, and keeps navigation on that origin. An app cannot fetch
 another installation's build through a different host from its own window.
 
 The installation key is also an installed page's only host-assigned identity
-for browser and device storage. Its browser origin storage is separated by
-that key.
-If native device storage is later granted under ADR-0678, its scope derives
-from the key in a namespace separate from the first-party logical app IDs
-compiled into standalone and bundled shells. A manifest identifier, title,
-target path, or Git remote cannot select a first-party device scope. Thus a
-source-installed Todos, including a fork of the first-party source, does not
-silently share standalone or bundled Todos's device state. Sharing that state
-would need a separate native admission and migration decision; a manifest
-claim alone cannot authorize it.
-This qualifies ADR-0678's shared first-party device scope for source-installed
-apps without changing how standalone and fixed bundled versions share it.
+for browser storage and any later private database grant. Its browser origin
+storage is separated by that key. If native database access is later granted
+under ADR-0678, its root derives from the key in a namespace separate from
+the fixed bundled app IDs. A manifest identifier, title, target path, or Git
+remote cannot select a first-party database root. Thus a source-installed
+Todos, including a fork of the first-party source, does not silently share
+standalone or bundled Todos's private database. Sharing that state would need
+a separate native admission and migration decision; a manifest claim alone
+cannot authorize it. Standalone and fixed bundled versions also have separate
+private roots under ADR-0678.
 
 **An open window keeps the build it opened.**
 
@@ -85,8 +83,8 @@ its binding; closing and reopening it selects the active build.
 The grant allows the folder API on the one directory that Rust binds to
 the window, its change events, and the close behavior those pages need.
 It grants no generic process execution, CLI runner, Epicenter account
-operation, recorder, model administration, or device-storage binding.
-`openDeviceStorage()` refuses an installed page without a binding. Rust
+operation, recorder, model administration, or private database grant.
+`openDeviceDatabase()` refuses an installed page without a grant and binding. Rust
 admits the selected data folder with the same protected-directory checks
 used for bundled apps before the WebView exists; the page supplies no
 filesystem path to its native calls. A manifest cannot expand this grant.
