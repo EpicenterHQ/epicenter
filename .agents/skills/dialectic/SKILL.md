@@ -99,111 +99,28 @@ behind it. Use the user's responses to develop a coherent vision specific
 enough to guide the structure and details. If exploring the vision changes
 our understanding of the intent, return to that understanding together.
 
-## Make the developing thought judgeable
+## Work backward into concrete form
 
-Let what is unresolved determine how much reasoning, proposed work, or examples
-of use to develop. A broad design question may need a substantial comparison;
-a correction may need the revised idea and its consequence. Build on settled
-context and give the user enough in the current turn to understand, judge, and
-respond to the thought.
+Work backward from the shared vision to the structure, decisions, and
+details needed to realize it. Reconsider the relevant whole, deriving
+its form from the intent and vision. Examine which existing parts
+support that direction and which need to change.
 
-**Make the proposal easy to find and react to.** This may be your current
-reading of the user's intent, the actual wording or design you propose,
-or an example that exposes how it would work in practice.
+Develop the work in coherent pieces the user can judge. Choose the
+scope of each attempt around a consequential question or decision.
+Show the actual wording, design, interface, or code, with enough context
+to reveal how it works. When revising, show the current and proposed
+versions together so the user can examine what changes. Let the vision
+guide the whole while reviewing pieces at the user's pace.
 
-Make the current thought visible in a form the user can point to and change.
-A small map can expose connections and omissions; a list, passage, or caller
-example can expose other choices. When a response changes our understanding,
-revise the same passage, design, or example where it still fits so the user can
-see what changed. Connect what you show to what you think and why, without
-repeating its lesson after every example. Recommend a direction when you have
-grounds, and name what could change your mind when it remains open. Judge by
-whether the user can engage with and alter the thought, not by reply length
-or a required format.
-
-Check facts you can establish yourself and distinguish evidence from proposals.
-Ask when missing information would make the attempt misleading or unhelpful.
-A hypothetical conversation or caller sketch proposes a result; it does not
-establish that an implementation produces it.
-
-When the proposed work needs judgment, show the work itself as close as
-practical to its intended final form: the affected code, revised passage,
-proposed interface, or actual skill instructions. When behavior or consequences
-need judgment, show the relevant use: caller code using the interface or a
-conversation following the skill. The same material may serve both purposes;
-a revised passage may already make its meaning and effect clear. Add a separate
-explanation where it gives the user reasoning they need to judge the attempt.
-
-For appearance or movement, show the rendered result. When judging how a blog
-reads on the site, render the proposed writing there and show screenshots.
-Use a simpler representation when it is sufficient for the question being
-judged, and distinguish illustrative sketches from actual changes. Prepare
-previews within the task's authorization; showing a proposed result does not
-require publishing it.
-
-Follow the concrete example far enough to show the consequence being judged.
-If resource lifetimes matter, show sharing and cleanup. If a skill's response
-to uncertainty matters, show that later turn. If a passage's movement or ending
-matters, let the user read it. Complete enough means enough for the live
-question, not an entire application or a rewrite of settled work. Economical
-commentary does not require a short expression.
-
-Compare distinct attempts when their differences help develop or judge what
-remains unresolved. They may offer different readings of the intent, different
-proposed work, or different ways it could function in practice.
-Preserve what the user recognized, explain consequential differences, and
-recommend a direction when you have grounds. Leave room to combine, reject,
-or redirect the possibilities. Let the uncertainty determine their number and
-extent. A settled selection or straightforward correction needs direct
-application.
-
-When comparing revisions, show the relevant original and alternatives together
-using a diff, paired excerpts, or previews as appropriate, so the user need not
-reconstruct earlier versions from memory. Keep enough surrounding context to
-reveal the consequence under discussion. Keep unrelated conditions comparable
-while allowing each change to show its consequences.
-
-## Learn from the response
-
-**Follow what the response reveals needs to change.** Explain connections the
-user needs, and let their questions, examples, and corrections develop both
-the work and either participant’s understanding. Follow that movement rather
-than assuming fixed teacher and learner roles.
-
-Existing code is checked against what the code does; an intended product is
-developed against what the user wants it to do. The conversation can move
-between those, too.
-
-Treat the user's response as evidence about what you understood and what the
-attempt reveals, including where the thought needs to move. They may recognize
-the intent but dislike the proposed wording or design. Seeing it in use may
-expose a consequence neither of you had considered and change the intent
-itself. Use their words, examples, and corrections to locate what needs to
-change. Revise at the scope their response illuminates, and treat a reaction
-to one passage as evidence about that passage.
-
-Carry what you learn into the next coherent attempt. If the user recognizes
-parts of different versions, combine those parts into one coherent version.
-If their response changes the premise, reconsider the relevant whole as if that
-understanding had been known from the beginning.
-
-Use the next concrete attempt to explore the consequences of a challenged
-assumption. Focus the attempt on what turns on that assumption, and introduce
-names, schemas, workflows, or further examples as they help the user judge it.
-
-Leave the user's reaction open, including rejection of your framing. Judge
-against their intent, evidence, constraints, and consequences; stay willing
-to disagree and explain why. Ask focused questions to resolve uncertainty that
-affects the next attempt, and carry work forward under the user's existing
-authorization. In a sample exchange, label invented replies as samples; in the
-live conversation, leave the user's next reply to them.
-
-When implementation or revision is already within scope, make the changes
-and show the result.
-When the task is standalone exploration, carry forward the settled understanding
-without inventing an implementation task. A later discovery may reopen a
-question. Existing authorization governs side effects; recognition does not
-expand the task's scope.
+Carry settled choices into the authorized work. Check facts and behavior
+you can establish, distinguish illustrative proposals from actual
+results, and show rendered work when appearance or movement matters.
+Read or examine the assembled whole against the intent and vision;
+individual pieces may reveal a problem when brought together. Use that
+discovery to revisit the relevant decision. Standalone exploration can
+end with shared understanding, without requiring an implementation or
+destination artifact.
 
 ## References
 
