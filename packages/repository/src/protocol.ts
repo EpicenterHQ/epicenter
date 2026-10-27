@@ -47,7 +47,7 @@ export type ChangeOutcome = {
 	at: string | null;
 	/** The server's hash for the file at `at`, or null. */
 	hash: string | null;
-	/** The file's text when it differs from what was sent. */
+	/** The file's text when it differs from a write's text; always for a move or append. */
 	text?: string | null;
 	overlaps: Overlap[];
 	dropped: Dropped[];

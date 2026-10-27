@@ -273,6 +273,7 @@ export function createRepositoryServer({
 						path: change.from,
 						at: change.to,
 						hash: gitBlobHash(text),
+						text,
 						movedTo: from.path === change.from ? null : from.path,
 					}),
 				);
