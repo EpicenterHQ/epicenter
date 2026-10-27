@@ -48,7 +48,7 @@ async function until(check: () => boolean) {
 
 function mountedEdit(
 	source: () => string,
-	save: (value: string) => Promise<Result<unknown, Failure>>,
+	save: (value: string, base: string) => Promise<Result<unknown, Failure>>,
 ) {
 	const target = document.createElement('div');
 	document.body.append(target);
@@ -137,18 +137,63 @@ test('svelteFolder passes refresh through to the core', async () => {
 });
 
 test('each typed value calls save immediately', async () => {
-	const calls: string[] = [];
+	const calls: { value: string; base: string }[] = [];
 	const mounted = mountedEdit(
 		() => 'Disk',
-		(value) => {
-			calls.push(value);
+		(value, base) => {
+			calls.push({ value, base });
 			return Promise.resolve(Ok(undefined));
 		},
 	);
 	mounted.editor.value = 'A';
 	mounted.editor.value = 'AB';
 	expect(mounted.editor.value).toBe('AB');
-	expect(calls).toEqual(['A', 'AB']);
+	expect(calls).toEqual([
+		{ value: 'A', base: 'Disk' },
+		{ value: 'AB', base: 'A' },
+	]);
+	await mounted.unmount();
+});
+
+test('a new typing run bases its first send on landed text', async () => {
+	let disk = 'Disk';
+	const calls: { value: string; base: string }[] = [];
+	const mounted = mountedEdit(
+		() => disk,
+		(value, base) => {
+			calls.push({ value, base });
+			disk = value;
+			return Promise.resolve(Ok(undefined));
+		},
+	);
+	mounted.editor.value = 'First';
+	expectOk(await mounted.editor.landed());
+	mounted.editor.value = 'Second';
+	expect(calls).toEqual([
+		{ value: 'First', base: 'Disk' },
+		{ value: 'Second', base: 'First' },
+	]);
+	await mounted.unmount();
+});
+
+test('retry bases a failed value on what has landed', async () => {
+	let disk = 'Disk';
+	const calls: { value: string; base: string }[] = [];
+	const mounted = mountedEdit(
+		() => disk,
+		(value, base) => {
+			calls.push({ value, base });
+			return Promise.resolve(calls.length === 1 ? Err(failure) : Ok(undefined));
+		},
+	);
+	mounted.editor.value = 'Typed';
+	expectErr(await mounted.editor.landed());
+	disk = 'Outside';
+	mounted.editor.retry();
+	expect(calls).toEqual([
+		{ value: 'Typed', base: 'Disk' },
+		{ value: 'Typed', base: 'Outside' },
+	]);
 	await mounted.unmount();
 });
 
@@ -250,7 +295,13 @@ test('fileEdit keeps one inserted line when typing continues during a held put',
 	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
 	const view = mount(FileEditHost, {
 		target,
-		props: { folder, path: 'note.txt', expose: (value) => { editor = value; } },
+		props: {
+			folder,
+			path: 'note.txt',
+			expose: (value) => {
+				editor = value;
+			},
+		},
 	});
 	const gate = Promise.withResolvers<void>();
 	try {
@@ -285,7 +336,13 @@ test('fileEdit merges an outside field update between typed writes', async () =>
 	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
 	const view = mount(FileEditHost, {
 		target,
-		props: { folder, path: 'notes/a.md', expose: (value) => { editor = value; } },
+		props: {
+			folder,
+			path: 'notes/a.md',
+			expose: (value) => {
+				editor = value;
+			},
+		},
 	});
 	const gate = Promise.withResolvers<void>();
 	try {
@@ -294,7 +351,9 @@ test('fileEdit merges an outside field update between typed writes', async () =>
 		memory.control.putGate = gate.promise;
 		editor.value = `${initial}h`;
 		await until(() => memory.log.puts.length === 1);
-		const field = folder.tables.notes.update('a', { fields: { title: 'Outside' } });
+		const field = folder.tables.notes.update('a', {
+			fields: { title: 'Outside' },
+		});
 		editor.value = `${initial}he`;
 		memory.control.putGate = undefined;
 		gate.resolve();
@@ -319,7 +378,13 @@ test('delete after file typing removes the file after every queued edit', async 
 	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
 	const view = mount(FileEditHost, {
 		target,
-		props: { folder, path: 'note.txt', expose: (value) => { editor = value; } },
+		props: {
+			folder,
+			path: 'note.txt',
+			expose: (value) => {
+				editor = value;
+			},
+		},
 	});
 	const gate = Promise.withResolvers<void>();
 	try {
@@ -353,12 +418,21 @@ test('fileEdit can retry a failed based write', async () => {
 	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
 	const view = mount(FileEditHost, {
 		target,
-		props: { folder, path: 'note.txt', expose: (value) => { editor = value; } },
+		props: {
+			folder,
+			path: 'note.txt',
+			expose: (value) => {
+				editor = value;
+			},
+		},
 	});
 	try {
 		flushSync();
 		if (editor === undefined) throw new Error('File edit did not mount');
-		memory.control.failPut.set('note.txt', expectErr(SaveError.StorageFailed({ cause: 'full' })));
+		memory.control.failPut.set(
+			'note.txt',
+			expectErr(SaveError.StorageFailed({ cause: 'full' })),
+		);
 		editor.value = 'Body.\nTyped\n';
 		await owner.idle();
 		expect(editor.error).not.toBeNull();
@@ -742,12 +816,16 @@ test('failed desktop close registration refuses the folder and retry opens a fre
 		},
 	});
 	try {
-		await until(() => target.textContent?.includes('Could not protect changes') ?? false);
+		await until(
+			() => target.textContent?.includes('Could not protect changes') ?? false,
+		);
 		expect(first.control.closed).toBe(true);
 		expect(target.querySelector('input')).toBeNull();
 		expect(nativeWindow.listeners).toBe(0);
 		nativeWindow.refuseRegistration = false;
-		const retry = [...target.querySelectorAll('button')].find((button) => button.textContent?.trim() === 'Try again');
+		const retry = [...target.querySelectorAll('button')].find(
+			(button) => button.textContent?.trim() === 'Try again',
+		);
 		if (!retry) throw new Error('Missing retry button');
 		retry.click();
 		await until(() => target.querySelector('input') !== null);

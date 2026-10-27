@@ -9,7 +9,7 @@
 		expose,
 	}: {
 		source: () => string;
-		save: (value: string) => Promise<Result<unknown, Failure>>;
+		save: (value: string, base: string) => Promise<Result<unknown, Failure>>;
 		expose: (editor: ReturnType<typeof edit<string, Failure>>) => void;
 	} = $props();
 	// svelte-ignore state_referenced_locally

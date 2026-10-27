@@ -4,7 +4,7 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export function edit<T, E>(
 	source: () => T,
-	save: (value: T) => Promise<Result<unknown, E>>,
+	save: (value: T, base: T) => Promise<Result<unknown, E>>,
 ) {
 	let typed = $state<{ value: T } | null>(null);
 	let current: { value: T } | null = null;
@@ -12,10 +12,10 @@ export function edit<T, E>(
 	let lastSave: Promise<Result<unknown, E>> | undefined;
 	let active = true;
 
-	function send(value: T) {
+	function send(value: T, base: T) {
 		let answer: Promise<Result<unknown, E>>;
 		try {
-			answer = save(value);
+			answer = save(value, base);
 		} catch (cause) {
 			// SAFETY: a thrown save failure is presented through the edit's error channel.
 			answer = Promise.resolve(Err(cause as E));
@@ -39,10 +39,11 @@ export function edit<T, E>(
 
 	function set(value: T) {
 		if (!active) return;
+		const base = current === null ? source() : current.value;
 		current = { value };
 		typed = current;
 		error = null;
-		send(value);
+		send(value, base);
 	}
 
 	async function landed(): Promise<Result<void, E>> {
@@ -75,7 +76,7 @@ export function edit<T, E>(
 		retry() {
 			if (!active || current === null) return;
 			error = null;
-			send(current.value);
+			send(current.value, source());
 		},
 		discard() {
 			if (!active) return;

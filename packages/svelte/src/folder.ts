@@ -1,6 +1,5 @@
 /** Reactive reads over one opened folder; writes keep their core promises. */
 import type {
-	Data,
 	Folder,
 	FolderFile,
 	Patch,
@@ -21,27 +20,25 @@ export function fileEdit<T extends Tables>(
 	folder: SvelteFolder<T>,
 	path: string,
 ) {
-	let base: Data | null = folder.file(path)?.data ?? null;
-	let submitted = 0;
 	return edit(
 		() => {
 			const data = folder.file(path)?.data;
-			base = data ?? null;
 			return typeof data === 'string' ? data.replace(/\r\n?/g, '\n') : '';
 		},
-		(typed) => {
-			const sequence = ++submitted;
-			const data = withFileNewlines(
-				typed,
-				typeof base === 'string' ? base : '',
+		(typed, base) => {
+			const landed = folder.file(path)?.data ?? null;
+			const style = typeof landed === 'string' ? landed : '';
+			const baseFile =
+				base === style.replace(/\r\n?/g, '\n')
+					? landed
+					: withFileNewlines(base, style);
+			return folder.write(
+				path,
+				withFileNewlines(typed, typeof baseFile === 'string' ? baseFile : ''),
+				{
+					base: baseFile,
+				},
 			);
-			const sent = base;
-			base = data;
-			const saved = folder.write(path, data, { base: sent });
-			void saved.then(() => {
-				if (sequence === submitted) base = folder.file(path)?.data ?? null;
-			});
-			return saved;
 		},
 	);
 }
