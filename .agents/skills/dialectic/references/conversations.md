@@ -1,12 +1,88 @@
 # Example conversations
 
-These illustrations show how making intent, proposed work, or consequences
-visible can advance a discussion. A reading of the intent may clarify what
-matters; actual prose or a design may expose a choice; caller code, a sample
-conversation, or a rendered page may reveal how the proposal works in practice.
-The user’s response can change both the work and our understanding of it.
-These are not measured runs or records of the user's preferences. The examples
-teach judgment, not a fixed sequence, number of versions, or response format.
+These illustrations make the progression and particular conversational
+judgments available for examination. They are not measured runs or records of
+the user's preferences. The complete reading-list example has been reviewed;
+the existing examples that follow are being reviewed individually for retention.
+
+## Reading list: intent, vision, and concrete form
+
+Everything in this conversation is hypothetical, including the user's replies.
+It shows corrections leading to revisions and recognition establishing a basis
+for the next stage. The final stage develops one consequential piece of the
+design; it does not settle the entire implementation.
+
+**User:** I keep saving articles, but the list just gets longer. Can we rethink it?
+
+**Agent:** My first reading of the intent is:
+
+> Help me decide what to read next.
+
+Does that capture what you're reaching for?
+
+**User:** Partly. But I don't necessarily want to read more. Sometimes I just
+want to remember what interested me.
+
+**Agent:** Then I'd revise the intent to:
+
+> Help me return to things that interested me, whenever that interest becomes
+> relevant again.
+
+Finishing the list wouldn't be the measure of success. Is that closer?
+
+**User:** That's right.
+
+**Agent:** Starting from that intent, I'd imagine arriving with a current
+curiosity. You might say, “I've been thinking about cities,” and encounter a few
+things you saved, with enough context to recognize what drew you to them.
+
+The vision could be:
+
+> A reading list you return to through curiosity, where saved things can become
+> interesting again.
+
+**User:** I like that, but I also want to stumble across things. I won't always
+have a question.
+
+**Agent:** Then the vision needs room for both searching and accidental
+rediscovery:
+
+> A place to rediscover your interests, whether you come looking for something
+> or encounter something you'd forgotten.
+
+You could arrive with a question, or simply open it and see a few things you
+once cared about.
+
+**User:** That's right.
+
+**Agent:** Working backward, one consequential question is what we preserve
+when you save something. The article tells us its subject; a passage you
+highlighted or a few words from you could preserve what caught your attention.
+
+For the capture interaction, I'd start with:
+
+> **Saved.**
+> Add what caught your attention: a passage, a thought, or a question.
+
+That addition would be optional, so saving remains immediate.
+
+**User:** That's right. But sometimes I won't remember why until I encounter
+it again.
+
+**Agent:** Then that context should be editable whenever you return. The saved
+item could show:
+
+> **Why this caught my attention**
+> Add a passage, thought, or question.
+
+Saving works immediately, and rediscovery can develop the context later. That
+gives us one piece of the design to build on before we work out how resurfacing
+should work.
+
+**User:** That's right.
+
+The move from rediscovery to preserving personal context is a design judgment
+to examine. Another concrete approach might fulfill the vision better.
 
 ## Process reflection: investigate before turning an experience into rules
 
