@@ -107,8 +107,8 @@ sync engines such as Replicache. Two people typing in the same words at the same
 moment produce a conflict block; a live co-editing session can be
 added later if teams need it, replacing only body merging for that note.
 
-Undecided: how commits name their authors; when LFS lands; the exact point at
-which a push takes effect relative to mutations, which the spike must fix.
+Undecided: whether each write is committed to Git before it is acknowledged,
+which would remove the overlay if hosted Git keeps up; when LFS lands.
 
 ## Verification
 
