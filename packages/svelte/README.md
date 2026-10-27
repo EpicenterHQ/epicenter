@@ -55,7 +55,7 @@ and `row(id)` participate in Svelte tracking when read in a template or
 derivation. These values describe the mirror, so a write's returned `Saved`
 promise does not resolve until its new value is visible there. `folder.saving`
 tracks queued and active writes. The adapter passes `read`, `write`, `update`,
-`move`, `delete`, `refresh`, and `idle` through to the Folder.
+`replace`, `move`, `delete`, `refresh`, and `idle` through to the Folder.
 
 ```svelte
 <script lang="ts">
@@ -79,12 +79,11 @@ is queued or active and “On this device” otherwise.
 
 ## Keep typed text in an edit
 
-Create one `edit(source, save)` per mounted editor component. `save(value, base)`
-receives the value this edit last sent as `base`, or the source shown at the
-start of a new typing run. A retry after failure uses the value that landed.
-Field update callbacks can ignore `base`. The edit's `value` getter shows what
-the person typed until that save answers, then follows
-`source()` again. Its setter and `set(value)` send each value immediately.
+Create one `edit(source, save)` per mounted editor component. `save(value)`
+receives each typed value immediately. A retry resends the failed value.
+The edit's `value` getter shows what the person typed until that save answers,
+then follows `source()` again. Its setter and `set(value)` send each value
+immediately.
 An older answer cannot clear newer typing. A failed save keeps the typed value
 and its error for retry or discard while the editor is mounted.
 
@@ -121,11 +120,21 @@ remains on `editor.error` for `<UnsavedEdit>` and is also returned to stop the
 action. After teardown, `landed()` succeeds without saving.
 
 `fileEdit(folder, path)` from `@epicenter/svelte/folder` edits a
-whole text file. It shows LF line endings and sends each value with its base
-through `folder.write(path, data, { base })`, restoring the base file's newline
-style with `withFileNewlines`. If the file's data is not text, the edit starts
-empty and writes LF text. It has the same
+whole text file. It shows LF line endings and sends each value through
+`folder.replace(path, data)`, restoring the current file's newline style with
+`withFileNewlines`. If the file's data is not text, the edit starts empty and
+writes LF text. A deleted file returns `NothingToUpdate`, which the edit shows
+inline for Save again, Discard, or Copy. It has the same
 `value`, `error`, `set`, `retry`, `discard`, and `landed` API as `edit`.
+
+The later write wins on the same unit: a field, the body, or a whole file.
+Field and body updates make up to three checked attempts when storage changes
+during a save, then return `KeptChanging` for inline recovery. `write` still
+creates or replaces a file, while `create` expects an absent path. A stale
+create reply that reads back its own bytes counts as landed; identical existing
+bytes are indistinguishable from that case.
+
+**Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through Folder instructions like any editor. Fields are never collaborative; they stay last-write-wins per field. No layer writes files except through the Folder. Agents may write files directly or issue the same Folder instructions through Epicenter; either way their changes reach editors through the Folder copy.
 
 The package also exports agent conversation bindings and status display
 helpers. Those are independent of Folder editing.

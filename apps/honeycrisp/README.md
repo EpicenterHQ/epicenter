@@ -59,9 +59,9 @@ between folders changes one field and never moves its file.
 
 The tables only interpret. Every field or body save keeps the keys Honeycrisp
 does not name, and a file that does not read as a note is still listed, with
-its text and why. To change a key Honeycrisp does not show, use **Edit as file**: it
-sends what you type with the file it was based on. The Folder merges changes
-made elsewhere before that write's turn; overlapping text uses the newer edit.
+its text and why. To change a key Honeycrisp does not show, use **Edit as file**:
+it replaces the whole file with the text typed. Earlier changes to other parts
+of the file survive only if that text includes them.
 
 ## Editing
 
@@ -70,9 +70,8 @@ Every change enters the folder queue immediately. Each edit keeps what was
 entered while its save is in flight; the mirror shows only what landed. Pinning
 and list actions await their saved result.
 
-An edit sends the previous typed value as its base, or the saved value shown
-when typing began. If an earlier save fails, a later typed value can still
-carry its changes into the file. A retry bases on what has landed.
+An edit sends each typed value immediately. A later typed value can still land
+after an earlier save fails. Save again resends the failed value.
 
 A failed edit save keeps the typed value and shows **Not saved** beside the editor
 with **Save again**, **Discard**, and **Copy**. Failed commands report their error
@@ -81,10 +80,11 @@ where the command was used. The header says **Saving…** while writes are pendi
 
 A note has **Rich text** and **Source** views of its body. They share one body
 edit in `NoteDetail`, so a save landing does not reset rich-text Undo. Editing
-only the title also keeps Undo. **Edit as file** and **Open as note** wait for
-the current view's edits to save before switching so a failed save remains
-visible beside its editor. If a save fails, the current view stays visible
-with its unsaved edit. A different body shown in either source view starts
+only the title also keeps Undo. **Edit as file** and **Open as note** switch
+immediately. An earlier queued edit can land after the new view opens; a later
+whole-file edit replaces the file with the text it shows. A failed note edit
+remains in its mounted editor for recovery when returning to the note view.
+A different body shown in either source view starts
 a new rich-text history.
 
 `<OpenFolder>` opens the mirror, refreshes it on focus, visibility, and online,
@@ -99,8 +99,9 @@ when a file is gone; an invalid row has issues. `FileDetail` checks repair
 text with `readRow` as it is typed. A row patch sets only named fields or body
 over the file at save time. It writes frontmatter in schema key order, then
 other keys sorted, so comments and original key order are not preserved by a
-structured edit. **Edit as file** sends whole-file text with its base, merging
-outside changes to other regions.
+structured edit. **Edit as file** replaces the whole file and refuses to
+recreate one deleted elsewhere. Its failed edit offers Save again, Discard,
+and Copy.
 
 The body is edited with line feeds (ADR-0572): a note whose file has CRLF line
 endings shows normally, and its first edit saves it with line feeds.

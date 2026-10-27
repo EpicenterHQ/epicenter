@@ -136,7 +136,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | --- | --- |
 | Edit or unsaved input | Text an editor holds after the person typed it and until its save lands. The folder shows only what landed; a failed save keeps the edit on screen for retry, discard, or copy. |
 | Save | Acknowledged local persistence of an edit. It does not promise a Git commit or remote receipt. |
-| Write | A file or storage operation. A based whole-file write names the content it was edited from so the Folder can merge it with storage at its turn. It is not a second kind of dataset or an automatic upload. |
+| Write | A file or storage operation. Folder `write` creates or replaces a whole file, while `replace` requires an existing file. It is not a second kind of dataset or an automatic upload. |
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
 | Sync | Exchange commits with the remote and merge changes. It can run after local saves. |
 | Merge | Combine base, current, and change by frontmatter field or text region. Schemas do not choose merge behavior. |
@@ -150,18 +150,18 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 
 A Folder shows what storage last returned or accepted; an edit shows what a
 person typed until that text's save answers. `folder.files()` and table rows are
-landed values. Each `write`, `update`, `create`, or `delete` joins one serial
+landed values. Each `write`, `replace`, `update`, `create`, or `delete` joins one serial
 queue and answers after its put lands and the mirror shows it,
 or with a `WriteError`. A row update composes over the file as it stands when
 the operation runs. It preserves unrelated values but rewrites frontmatter
-canonically. A whole-file write with a base merges with outside changes at its
-turn, with the newer text winning overlapping regions. Direct writes without a
-base remain unconditional, as do deletes. Git sync retains its separate
+canonically. Updates make up to three checked attempts, then fail if the file
+keeps changing. A whole-file write replaces the file at its turn; `replace`
+refuses if the file was deleted. Later writes win on the same field, body, or
+whole-file unit. Git sync retains its separate
 three-way merge and conditional storage publication.
 
 A Svelte editor creates one `edit(source, save)` for its input. Its
-`save(value, base)` receives the previous sent value, or the source shown when
-a new typing run began. The edit shows typed text until the corresponding
+`save(value)` receives each typed value. The edit shows typed text until the corresponding
 write answers, then follows the
 Folder again. A failed save retains that text and its error beside the
 control for retry or discard. Each typed value enters the queue immediately;
@@ -194,7 +194,7 @@ of local saving. The Folder exposes only local `saving()`; it does not expose th
 | --- | --- |
 | App | A program using its own read schemas. Qualify a web app or desktop app when runtime or native capabilities matter. |
 | CLI | The `epicenter` executable. Its package entry points and commands are documented by the CLI package. |
-| Agent or person | A direct file writer. Based whole-file edits merge against current storage; overlapping regions use the newer text. Unconditional replacements still follow last publication wins. |
+| Agent or person | A direct file writer. Its changes reach editors through the Folder copy; later writes to the same unit win locally. |
 | Epicenter desktop app | The app in `apps/epicenter`: a folder launcher, generic Files/grid/board/SQL editor with saved views, Settings, and host for fixed bundled apps. Host app, desktop host, and launcher are not additional products. It is optional to standalone apps and the CLI. |
 | Runner | A deferred capability of the Epicenter desktop app: opening built local websites over selected disk data. It is not another app or required platform layer. |
 | Web origin | The web app's storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |

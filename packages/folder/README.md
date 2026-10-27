@@ -74,46 +74,47 @@ repair view.
 
 ## Writes
 
-`write(path, data, { base })` replaces a whole file from the bytes it was edited
-from. At its queue turn, a matching base is a checked write. A stale base
-three-way merges with current storage, then puts the result checked; overlapping
-regions use the newer text. If a based write fails, a later write based on its
-text inherits its original base, including across repeated failures.
-`write(path, data)` remains an unconditional replacement for direct commands.
-`update(path, patch, { schema? })` reads the file from storage at its queue
-turn, then sets fields or body on
-those fresh bytes. The put is checked against the bytes read. If another
-writer changes the file before the put, the update rereads and reapplies the
-patch for three checked attempts, then puts unconditionally.
+`write(path, data)` creates or replaces a whole file at its queue turn.
+`replace(path, data)` replaces only an existing file; if the file is absent at
+its turn, it returns `NothingToUpdate`. A checked put prevents `replace` from
+recreating a file deleted between its read and save. Whole-file editors use
+`replace`. `update(path, patch, { schema? })` reads the file from storage at
+its turn and sets only the named fields or body. Its put is checked against
+the bytes read. If another writer changes the file before the put, the update
+rereads and reapplies the patch for up to three checked attempts. If those
+attempts all lose, it returns `KeptChanging` for the editor to show inline;
+it never makes an unconditional final put.
+
 A table has `create(id, { fields, body? })`, `update(id, patch)`, and
 `delete(id)`; the folder also has `delete(path)` and `move(from, to)`.
 `create` expects an absent path, including files the mirror has not heard
-about, and refuses matching bytes already there. `move` reads the source when
-its turn runs, creates the destination only if absent, then removes the source.
-A failed removal leaves both files
-and returns `MoveIncomplete` with both paths. Setting a field to
-`undefined` removes it. A patch that changes no value writes nothing.
-Updated frontmatter is canonical: declared keys first, then other keys in
-sorted order. Comments and original key order are not preserved by a patch.
+about. A stale reply that reads back the bytes it tried to create counts as
+landed; identical existing content is indistinguishable from that case.
+`move` reads the source when its turn runs, creates the destination only if
+absent, then removes the source. A failed removal leaves both files and
+returns `MoveIncomplete` with both paths. Setting a field to `undefined`
+removes it. A patch that changes no value writes nothing. Updated
+frontmatter is canonical: declared keys first, then other keys in sorted
+order. Comments and original key order are not preserved by a patch.
 
-Writes take turns in one serial queue. Waiting writes to the same path merge
-even across unrelated queued turns, as long as no operation for that path sits
-between them: successive based whole-file writes keep the newest data and the
-oldest base, while updates combine their fields and newest body when their
-table keys match. A merged update reads
-storage at its one turn, preserving outside changes to fields it does not name.
-An unchanged update makes no put.
-Every merged caller receives the same `Saved` answer after the mirror shows
-what landed, or a `WriteError`. `Changed` is handled inside the Folder; it is not a public `WriteError`. A failed put leaves the last read value in the
-mirror. A later based whole-file write merges with those bytes; a direct
-unconditional replacement can still replace them. Same-region overlap and
-failed text discarded on leaving can still be lost.
-Git sync retains its separate three-way merge and conditional storage rules.
+Writes take turns in one serial queue. Waiting whole-file writes of the same
+kind keep the newest data, and waiting updates through the same schema combine
+their fields and newest body. A coalesced update reads storage at its one turn,
+preserving outside changes to fields it does not name. Each coalesced caller
+receives the same `Saved` answer after the mirror shows what landed, or a
+`WriteError`. A failed put leaves the last read value in the mirror. The later
+write wins on the same unit: an `update({ fields })` sets its named fields, an
+`update({ body })` sets the body while keeping storage's frontmatter, and a
+whole-file `write` or `replace` replaces the file. A whole-file write queued
+after a field update can overwrite that field. Git sync retains its separate
+three-way merge and conditional storage rules.
+
+**Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through Folder instructions like any editor. Fields are never collaborative; they stay last-write-wins per field. No layer writes files except through the Folder. Agents may write files directly or issue the same Folder instructions through Epicenter; either way their changes reach editors through the Folder copy.
 
 `idle()` waits for every queued turn, including immediately queued typing.
-`close()` refuses new writes, drains admitted work, then
-releases storage and watchers. Await a write's result when subsequent work
-requires durable bytes. A UI edit and its retry or discard controls belong to
+`close()` refuses new writes, drains admitted work, then releases storage and
+watchers. Await a write's result when subsequent work requires durable bytes.
+A UI edit and its retry or discard controls belong to
 [`@epicenter/svelte`](../svelte/README.md), outside the Folder.
 
 ## Browser storage
@@ -180,7 +181,7 @@ chooses at call time and loads only the chosen engine. The
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `testing.ts` | Public and test entries. |
 | `src/browser/` | IndexedDB repository and independent Git exchange. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
-| `src/shared/` | Markdown reading and content merge rules used by the mirror and sync. |
+| `src/shared/` | Markdown reading and Git sync content merge rules. |
 | `src/git/`, `history-wire.ts`, `write.ts` | History requests and Git publication. |
 | `src/declaration/`, `declaration.ts`, `directory-documents.ts` | Portable schemas and generic document reads. |
 | `evidence/`, `smoke/` | Bundle checks and browser smoke runs. |

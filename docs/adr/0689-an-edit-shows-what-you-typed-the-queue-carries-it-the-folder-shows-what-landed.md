@@ -31,32 +31,32 @@ Discard, and Copy while the editor is mounted; leaving discards it. The page
 never holds unsent text. How often the queue touches storage belongs to the
 queue. An editor can await `edit.landed()` when its next action needs the
 newest typed value to have landed; that answer is an error if its write failed.
-The edit calls `save(value, base)`: the first send in a typing run uses the
-source the edit showed when that run began, and later sends use the previous
-sent value. A retry after failure uses the value that landed. `fileEdit`
-converts its LF text to the base file's newline style and sends that base with
-the whole-file write.
+The edit calls `save(value)` for every typed value. A retry resends the
+failed value. `fileEdit` converts its LF text to the current file's newline
+style and uses `replace` so a deleted file is not recreated.
 
 **Every local write enters one serial queue and answers after the Folder shows
-its result.** Waiting writes for one path merge even when unrelated turns sit
-between them, provided that path has no intervening operation. `update` reads
-the file as storage holds it at its turn, applies the patch, and puts only if
-the file still holds the bytes it read. On a conflict it rereads and reapplies,
-up to three checked attempts, then puts unconditionally. A based whole-file
-`write` carries its base. At its turn, a matching base makes a plain checked
-write; a stale base three-way merges with storage through `shared/merge.ts` and puts
-the result checked. On overlapping regions the newer text wins. If an earlier
-based write failed, a later write based on its text inherits its base, even
-across consecutive failures. Successful writes clear that chain. `create`
-expects an absent path and answers `Exists` if a file is there, even if its
-bytes match. A direct write without a base and `delete` are unconditional.
+its result.** Waiting whole-file writes of the same kind keep the newest
+data, and waiting updates through the same schema combine their patches.
+`update` reads the file as storage holds it at its turn, applies the patch,
+and puts only if the file still holds the bytes it read. On a conflict it
+rereads and reapplies for up to three checked attempts, then answers
+`KeptChanging` instead of writing unchecked. `write` creates or replaces a
+whole file. `replace` writes only if the file exists at its turn and refuses
+a deletion before its checked put with `NothingToUpdate`. A field, body, or
+whole-file write sets its unit at its queue turn; the later write wins on that
+unit. `create` expects an absent path. A stale reply that reads back the bytes
+it tried to create counts as landed; identical existing content is
+indistinguishable from that case. `delete` is unconditional.
 `move(from, to)` reads the source at its queue turn, creates the destination
-only if absent, then removes the
-source. If removal fails, both paths remain and the error names both. A
-write's `Saved` promise returns after storage and the Folder agree, or returns
-its `WriteError`. An outside writer can still land a later whole-file
-replacement. A watcher hint naming a file already held by the Folder rereads
-that file without relisting; unknown or unnamed hints relist the Folder.
+only if absent, then removes the source. If removal fails, both paths remain
+and the error names both. A write's `Saved` promise returns after storage and
+the Folder agree, or returns its `WriteError`. An outside writer can still land
+a later whole-file replacement. A watcher hint naming a file already held by
+the Folder rereads that file without relisting; unknown or unnamed hints
+relist the Folder.
+
+**Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through Folder instructions like any editor. Fields are never collaborative; they stay last-write-wins per field. No layer writes files except through the Folder. Agents may write files directly or issue the same Folder instructions through Epicenter; either way their changes reach editors through the Folder copy.
 
 **Closing drains admitted writes before releasing storage.** The Folder
 refuses new writes, drains its queue, and releases its host. `idle()` waits for
@@ -84,10 +84,10 @@ Folder; a failed edit retains the typed input in its component until it
 unmounts. Same-region overlapping writes can still lose the older change.
 Leaving after a failed save loses that failed text. Crash recovery cannot
 recover an edit that never landed. Checked updates preserve outside field
-changes that arrive between read and put; after repeated contention the fourth
-attempt accepts last-write-wins. One serial
-queue orders unrelated file writes too, trading concurrency for a single
-understandable publication order.
+changes that arrive between read and put; after repeated contention the edit
+keeps its typed value and shows the refusal. One serial queue orders unrelated
+file writes too, trading concurrency for a single understandable publication
+order.
 
 ## Considered alternatives
 

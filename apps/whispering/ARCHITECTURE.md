@@ -608,8 +608,8 @@ const source = fileEdit(folder, path);
   FileView a text file's source. An edit is never shared between components.
   Switching between Source and fields changes the view immediately. The new
   view follows the mirror as earlier queued edits land and may briefly show
-  older text. A whole-file edit made during that interval merges over those
-  field changes at its turn.
+  older text. A whole-file edit made during that interval replaces the file
+  at its turn, so an earlier field change survives only if the editor includes it.
 - **Source** uses `fileEdit` to show LF and save with the file's own newlines. Whether a
   row shows as text is `showsText(path)`: the person chose Source
   (`asText`, a `SvelteSet` of view state), or the row has issues. Repair
@@ -635,16 +635,19 @@ const source = fileEdit(folder, path);
   `Uint8Array` data is not UTF-8 and is not opened; `undefined` data with no
   read error is a file the mirror does not keep (audio plays, others show
   their kind); a read error shows its message with Try again
-  (`refresh()`); no file says it is no longer in the folder. A read error
-  alongside known text leaves that text editable.
+  (`refresh()`); no file says it is no longer in the folder and keeps a failed
+  edit's inline recovery controls. A read error alongside known text leaves
+  that text editable.
 
 Whispering retains view selection, connection forms, pasted text, capture
 state, and answers whose files are not written; it holds no typed text.
 Rename uses `folder.move(from, to)`: its turn follows edits already queued,
 reads the source at that turn, creates the destination only if absent, then
 removes the source. If removal fails, both paths remain and the error names
-them. A successful move carries the selection to the new path. Recording and
-transformation files keep their names. When
+them. A successful move carries the selection to the new path. An outside
+deletion keeps the missing path selected until the person leaves it; a
+successful in-app deletion clears selection. Recording and transformation
+files keep their names. When
 `whispering.closing` becomes true, Whispering refuses new app work and late
 answers. Disposal returns immediately; OpenFolder's close then sends what
 waits before releasing storage.

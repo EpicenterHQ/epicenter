@@ -600,11 +600,13 @@ visible until you retry or discard it. The lists show a row once it is saved.
   even if its editor closes before that action finishes.
 - A field, a body, or a title sets only what it names over the file as it is
   when the save runs, so another program's change to the rest of the file is
-  kept. Source writes the whole text as typed against the file it was based on.
+  kept. Source replaces the whole file with the text typed.
 - A save that does not land keeps the typed value in its editor with **Save
   again**, **Discard**, and **Copy**. Nothing is retried on its own.
-- Opening Source or returning to fields is immediate. A whole-file edit merges
-  over field changes that land after its base was read.
+- Opening Source or returning to fields is immediate. A whole-file edit queued
+  after a field change replaces it unless the editor includes that change.
+  If the file was deleted, Source refuses to recreate it and shows the error
+  beside the edit.
 - A value that does not fit a row, such as a field with the wrong kind of
   value, is saved as written, and the row is listed under "Needs repair" until
   it is fixed. Nothing you typed is refused.
@@ -672,8 +674,9 @@ discard it. These promises of the earlier build changed:
 - In a browser tab, recordings an earlier build kept in OPFS are not read or
   changed. An origin with only those recordings opens an empty current folder.
 - A failed save keeps the typed value in its editor so you can save again,
-  discard it, or copy it. A file deleted while you edit it is gone from the
-  view; a whole-file Source save can recreate it.
+  discard it, or copy it. A file deleted while you edit it stays selected
+  with a missing-file message; Source refuses to recreate it and keeps its
+  failed edit available for recovery.
 - A value that does not fit a row is saved, and the row is listed for repair.
   The earlier build refused it.
 - Saving a row from its fields writes its frontmatter in one standard form and
