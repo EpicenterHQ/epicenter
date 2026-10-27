@@ -722,11 +722,10 @@ export function createWhispering(folder: WhisperingFolder) {
 		get selectedPath() {
 			return selectedPath;
 		},
-		/** What the recordings page shows while its file remains in the folder. */
+		/** What the recordings page shows until selection changes, including a file that disappeared. */
 		get selection(): Selection | undefined {
 			const path = selectedPath;
-			if (path === undefined || folder.file(path) === undefined)
-				return undefined;
+			if (path === undefined) return undefined;
 			if (rowTableOf(path) !== RECORDINGS)
 				return { kind: 'file', path, entry: undefined };
 			return {
@@ -741,8 +740,7 @@ export function createWhispering(folder: WhisperingFolder) {
 		/** The transformation being edited, with its listed row when it reads. */
 		get selectedTransformation() {
 			const path = selectedTransformationPath;
-			if (path === undefined || folder.file(path) === undefined)
-				return undefined;
+			if (path === undefined) return undefined;
 			return {
 				path,
 				entry: transformationsRead().entries.find(

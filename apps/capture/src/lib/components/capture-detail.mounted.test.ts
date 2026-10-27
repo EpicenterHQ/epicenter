@@ -194,7 +194,7 @@ test('Edit as text follows queued typing after a capture becomes a draft', async
 	expect(h.text(PATH)).toContain('Held text');
 });
 
-test('Edit as text merges with a body write still saving', async () => {
+test('Edit as text queued after a body write replaces the whole file', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	let release = () => {};
 	h.host.control.putGate = new Promise<void>((resolve) => {
@@ -209,7 +209,8 @@ test('Edit as text merges with a body write still saving', async () => {
 	type(textFile(), FILE.replace('- first', '- first\n- from source'));
 	release();
 	await land(h);
-	expect(h.text(PATH)).toContain('Pending');
+	expect(h.text(PATH)).toContain('Text');
+	expect(h.text(PATH)).not.toContain('Pending');
 	expect(h.text(PATH)).toContain('- from source');
 });
 
@@ -308,13 +309,13 @@ test('Discard returns failed text editing to the saved file', async () => {
 	expect(h.target.textContent).not.toContain('Not saved:');
 });
 
-test('pending whole-file text recreates a file deleted elsewhere', async () => {
+test('pending whole-file text refuses a file deleted elsewhere', async () => {
 	const h = await setup({ [PATH]: FILE }, 'text');
 	let release = () => {};
 	h.host.control.putGate = new Promise<void>((resolve) => {
 		release = resolve;
 	});
-	const typed = FILE.replace('Text', 'Recreated');
+	const typed = FILE.replace('Text', 'Typed');
 	type(textFile(), typed);
 	await until(() => h.host.log.puts.length > 0, { timeout: 2500 });
 	h.deleteElsewhere('one');
@@ -322,7 +323,9 @@ test('pending whole-file text recreates a file deleted elsewhere', async () => {
 	expect(textFile()?.value).toBe(typed);
 	release();
 	await land(h);
-	expect(h.text(PATH)).toBe(typed);
+	expect(h.text(PATH)).toBeUndefined();
+	expect(h.target.textContent).toContain('Not saved:');
+	expect(h.target.textContent).toContain('Copy');
 });
 
 test('deleting a text editor with pending typing does not recreate the file', async () => {

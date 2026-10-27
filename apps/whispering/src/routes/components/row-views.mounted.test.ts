@@ -232,7 +232,7 @@ test('a failed text edit stays visible until Save again succeeds or Discard foll
 	expect(target.textContent).not.toContain('Not saved:');
 });
 
-test('a whole-file text draft recreates a file deleted outside the mirror', async () => {
+test('a whole-file text edit refuses a file deleted outside the mirror', async () => {
 	const { folder, whispering, target, host } = await open(
 		{ 'note.txt': 'Before' },
 		'recordings',
@@ -240,13 +240,14 @@ test('a whole-file text draft recreates a file deleted outside the mirror', asyn
 	);
 	await show(whispering, folder, 'note.txt');
 	host!.outside('note.txt', null, { hint: false });
-	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]'), 'Recreated');
+	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]'), 'Typed');
 	await settle(folder);
-	expect(host!.text('note.txt')).toBe('Recreated');
-	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]')?.value).toBe('Recreated');
+	expect(host!.text('note.txt')).toBeUndefined();
+	expect(target.textContent).toContain('Not saved:');
+	expect(target.textContent).toContain('Copy');
 });
 
-test('recording Source merges with a title still saving from Details', async () => {
+test('recording Source queued after a title write replaces the whole file', async () => {
 	const { folder, whispering, target, host } = await open(
 		{ [RECORDING]: recording('Before', '') },
 		'recordings',
@@ -268,11 +269,11 @@ test('recording Source merges with a title still saving from Details', async () 
 	host!.control.putGate = undefined;
 	release.resolve();
 	await settle(folder);
-	expect(host!.text(RECORDING)).toContain('title: Latest');
+	expect(host!.text(RECORDING)).toContain('title: Before');
 	expect(host!.text(RECORDING)).toContain('Source note\n');
 });
 
-test('transcript Source merges with a body still saving', async () => {
+test('transcript Source queued after a body write replaces the whole file', async () => {
 	const { folder, whispering, target, host } = await open(
 		{ [A]: transcript('Before\n') }, 'recordings', { memory: true },
 	);
@@ -291,10 +292,11 @@ test('transcript Source merges with a body still saving', async () => {
 	host!.control.putGate = undefined;
 	await settle(folder);
 	expect(host!.text(A)).toContain('model: new-model');
-	expect(host!.text(A)).toContain('Updated body\n');
+	expect(host!.text(A)).toContain('Before\n');
+	expect(host!.text(A)).not.toContain('Updated body\n');
 });
 
-test('transformation Source merges with instructions still saving', async () => {
+test('transformation Source queued after instructions replaces the whole file', async () => {
 	const { folder, whispering, target, host } = await open(
 		{ [RECIPE]: '---\ntitle: Before\nmodel: null\n---\nTidy.\n' }, 'transformations', { memory: true },
 	);
@@ -312,7 +314,8 @@ test('transformation Source merges with instructions still saving', async () => 
 	host!.control.putGate = undefined;
 	await settle(folder);
 	expect(host!.text(RECIPE)).toContain('title: From source');
-	expect(host!.text(RECIPE)).toContain('Updated instructions\n');
+	expect(host!.text(RECIPE)).toContain('Tidy.\n');
+	expect(host!.text(RECIPE)).not.toContain('Updated instructions\n');
 });
 
 test('a change made elsewhere shows once the folder looks again', async () => {
@@ -794,7 +797,7 @@ test('deleting after typing removes the file without a teardown write', async ()
 	expect(folder.file(path)).toBeUndefined();
 });
 
-test('a file that left the folder is no longer shown', async () => {
+test('a file that left the folder shows its missing view', async () => {
 	const { folder, whispering, target } = await open({
 		'notes/gone.txt': 'Here for now\n',
 	});
@@ -802,8 +805,8 @@ test('a file that left the folder is no longer shown', async () => {
 	expect(target.querySelector('textarea')).not.toBeNull();
 	expectOk(await folder.delete('notes/gone.txt'));
 	flushSync();
-	// The selection lets a file go once the folder shows it gone.
-	expect(whispering.selection).toBeUndefined();
+	expect(whispering.selection?.path).toBe('notes/gone.txt');
+	expect(target.textContent).toContain('no longer in the folder');
 	expect(target.querySelector('textarea')).toBeNull();
 	expect(offersRenameAndDelete(target)).toBe(false);
 });

@@ -213,10 +213,12 @@
 	<UnsavedEdit edit={body} />
 	<UnsavedEdit edit={source} />
 
-	<FileNameBar
-		prefix={directory === '' ? '' : `${directory}/`}
-		{name}
-		onRename={rename}
-		onDelete={() => void confirmDelete(whispering, path)}
-	/>
+	{#if file !== undefined}
+		<FileNameBar
+			prefix={directory === '' ? '' : `${directory}/`}
+			{name}
+			onRename={rename}
+			onDelete={() => void confirmDelete(whispering, path)}
+		/>
+	{/if}
 </section>

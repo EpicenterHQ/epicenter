@@ -14,7 +14,6 @@ import {
 	type Issue as MarkdownIssue,
 	readMarkdown,
 } from './shared/markdown-codec.js';
-import { merge, sameContent } from './shared/merge.js';
 import type { Fetched, FolderHost, Listed } from './storage.js';
 import { type WriteError, WriteRefusal } from './write-refusal.js';
 
@@ -61,7 +60,11 @@ export type Table<S extends Schema = Schema> = {
 	/** Every row, sorted by id; an unchanged row keeps its object, and `row(id)` answers the same objects. */
 	rows(): readonly Row<S>[];
 	row(id: string): Row<S> | undefined;
-	/** Make the row's file; refuses with `Exists` when a file is there. */
+	/**
+	 * Make a row only when its file is absent. A stale reply that reads back
+	 * identical bytes counts as landed; preexisting identical content is
+	 * indistinguishable from that case.
+	 */
 	create(id: string, init: { fields: Static<S>; body?: string }): Saved;
 	/** Set what `patch` names on the row's file as it is when the save runs. */
 	update(id: string, patch: Patch<S>): Saved;
@@ -79,8 +82,10 @@ export type Folder<T extends Tables = Tables> = {
 	idle(): Promise<void>;
 	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
-	/** Replace the whole file, or merge it at its turn against the exact base it was edited from. */
-	write(path: string, data: Data, options?: { base?: Data | null }): Saved;
+	/** Create or replace the whole file at its queue turn. */
+	write(path: string, data: Data): Saved;
+	/** Replace the whole file only if it exists at its queue turn. */
+	replace(path: string, data: Data): Saved;
 	/** Set fields and the body on a Markdown file at any path; `schema` orders its declared keys first. */
 	update(
 		path: string,
@@ -110,7 +115,8 @@ type Entry = {
 	stamp: string | undefined;
 };
 type Op =
-	| { kind: 'write'; data: Data | null; base?: Data | null }
+	| { kind: 'write'; data: Data | null }
+	| { kind: 'replace'; data: Data }
 	| { kind: 'move'; to: string }
 	| { kind: 'create' | 'update'; patch: RowPatch; keys: readonly string[] };
 type PendingWrite = {
@@ -121,18 +127,12 @@ type PendingWrite = {
 type WaitingWrite = { turn: PendingWrite; saved: Saved };
 
 /**
- * A waiting write absorbs a newer one for the same file when its based text
- * follows the waiting text: whole-file writes keep the newest data and the
- * oldest supplied base; two updates through the same schema combine patches.
- * Anything else waits its own turn.
+ * Waiting whole-file writes of the same kind keep the newest data. Updates
+ * through the same schema combine patches. Other operations keep their turns.
  */
 function absorb(waiting: Op, next: Op): Op | undefined {
-	if (waiting.kind === 'write' && next.kind === 'write') {
-		if (next.base === undefined) return next;
-		if (waiting.base === undefined || !sameContent(waiting.data, next.base))
-			return undefined;
-		return { ...next, base: waiting.base };
-	}
+	if (waiting.kind === 'write' && next.kind === 'write') return next;
+	if (waiting.kind === 'replace' && next.kind === 'replace') return next;
 	if (
 		waiting.kind === 'update' &&
 		next.kind === 'update' &&
@@ -196,10 +196,6 @@ export async function createFolder<const T extends Tables>(
 	let phase: 'open' | 'closing' | 'closed' = 'open';
 	let lastTurn = Promise.resolve();
 	const waitingWrites = new Map<string, WaitingWrite>();
-	const failedBasedWrites = new Map<
-		string,
-		{ data: Data; base: Data | null }
-	>();
 	let closing: Promise<void> | undefined;
 	const look = { queued: false, relist: false, paths: new Set<string>() };
 
@@ -415,24 +411,9 @@ export async function createFolder<const T extends Tables>(
 			turn.started = true;
 			if (waitingWrites.get(path)?.turn === turn) waitingWrites.delete(path);
 			const op = turn.op;
-			if (op.kind === 'write' && op.data !== null && op.base !== undefined) {
-				const failed = failedBasedWrites.get(path);
-				if (failed !== undefined && sameContent(op.base, failed.data))
-					op.base = failed.base;
-			}
 			try {
-				const result = await send(path, op);
-				if (result.error === null) failedBasedWrites.delete(path);
-				else if (
-					op.kind === 'write' &&
-					op.data !== null &&
-					op.base !== undefined
-				)
-					failedBasedWrites.set(path, { data: op.data, base: op.base });
-				return result;
+				return await send(path, op);
 			} catch (cause) {
-				if (op.kind === 'write' && op.data !== null && op.base !== undefined)
-					failedBasedWrites.set(path, { data: op.data, base: op.base });
 				return SaveError.StorageFailed({ cause });
 			} finally {
 				pendingWrites--;
@@ -506,10 +487,10 @@ export async function createFolder<const T extends Tables>(
 
 	async function send(path: string, op: Op): Saved {
 		if (op.kind === 'move') return sendMove(path, op.to);
-		if (op.kind === 'write' && op.base !== undefined && op.data !== null) {
-			const change =
+		if (op.kind === 'replace') {
+			const next =
 				typeof op.data === 'string' ? op.data.toWellFormed() : op.data;
-			for (let attempt = 0; ; attempt++) {
+			for (let attempt = 0; attempt < 3; attempt++) {
 				const results = await host.read([path]);
 				const fresh = results.get(path);
 				if (fresh === undefined)
@@ -518,19 +499,20 @@ export async function createFolder<const T extends Tables>(
 					return SaveError.StorageFailed({ cause: fresh.error });
 				applyRead(path, fresh);
 				publish();
-				const current = fresh.data?.bytes ?? null;
-				const next = sameContent(current, op.base)
-					? change
-					: (await merge(path, { base: op.base, current, change })).content;
-				const put = await host.put(path, encode(next), current ?? 'absent');
+				if (fresh.data === null) return WriteRefusal.NothingToUpdate({ path });
+				const put = await host.put(path, encode(next), fresh.data.bytes);
 				if (put.error?.name === 'Changed') {
-					if (attempt < 3) continue;
-					return SaveError.StorageFailed({ cause: put.error });
+					if (attempt < 2) continue;
+					const current = await rereadAfterChanged(path);
+					if (current?.error === null && current.data === null)
+						return WriteRefusal.NothingToUpdate({ path });
+					return WriteRefusal.KeptChanging({ path });
 				}
 				if (put.error !== null) return Err(put.error);
 				landedPut(path, next, put.data?.stamp ?? null);
 				return Ok(undefined);
 			}
+			return WriteRefusal.KeptChanging({ path });
 		}
 		let next: Data | null;
 		let expect: 'absent' | Uint8Array | undefined;
@@ -548,7 +530,7 @@ export async function createFolder<const T extends Tables>(
 				}
 				break;
 			case 'update':
-				for (let attempt = 0; ; attempt++) {
+				for (let attempt = 0; attempt < 3; attempt++) {
 					const results = await host.read([path]);
 					const fresh = results.get(path);
 					if (fresh === undefined)
@@ -568,19 +550,17 @@ export async function createFolder<const T extends Tables>(
 						return SaveError.Unparseable({ reason: patched.error.reason });
 					if (patched.data === 'unchanged') return Ok(undefined);
 					const updated = patched.data.toWellFormed();
-					const put = await host.put(
-						path,
-						encode(updated),
-						attempt < 3 ? fresh.data.bytes : undefined,
-					);
+					const put = await host.put(path, encode(updated), fresh.data.bytes);
 					if (put.error?.name === 'Changed') {
-						if (attempt < 3) continue;
-						return SaveError.StorageFailed({ cause: put.error });
+						if (attempt < 2) continue;
+						await rereadAfterChanged(path);
+						return WriteRefusal.KeptChanging({ path });
 					}
 					if (put.error !== null) return Err(put.error);
 					landedPut(path, updated, put.data?.stamp ?? null);
 					return Ok(undefined);
 				}
+				return WriteRefusal.KeptChanging({ path });
 		}
 		// Encoding replaces lone surrogates on disk; the copy shows what landed.
 		if (typeof next === 'string') next = next.toWellFormed();
@@ -710,8 +690,8 @@ export async function createFolder<const T extends Tables>(
 				? Err(result.error)
 				: Ok(result.data?.bytes ?? null);
 		},
-		write: (path, data, options) =>
-			enqueue(path, { kind: 'write', data, base: options?.base }),
+		write: (path, data) => enqueue(path, { kind: 'write', data }),
+		replace: (path, data) => enqueue(path, { kind: 'replace', data }),
 		update: (path, patch, options) =>
 			enqueue(path, {
 				kind: 'update',

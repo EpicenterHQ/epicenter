@@ -277,9 +277,11 @@
 	<UnsavedEdit edit={notes} />
 	<UnsavedEdit edit={source} />
 
-	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
-		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)}>
-			Delete recording
-		</Button>
-	</div>
+	{#if file !== undefined}
+		<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
+			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)}>
+				Delete recording
+			</Button>
+		</div>
+	{/if}
 </section>

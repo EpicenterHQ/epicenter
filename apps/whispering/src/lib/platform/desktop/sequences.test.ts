@@ -137,5 +137,5 @@ test('a deletion whose reply was lost is reported, and the folder shows the file
 	expect(await shell.text(PATH)).toBeUndefined();
 	folder.refresh();
 	await eventually(() => folder.file(PATH) === undefined);
-	expect(whispering.selectedTransformation).toBeUndefined();
+	expect(whispering.selectedTransformation?.path).toBe(PATH);
 });

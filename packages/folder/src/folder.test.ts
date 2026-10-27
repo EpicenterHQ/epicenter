@@ -207,172 +207,66 @@ describe('opening and rows', () => {
 	});
 });
 
-describe('based whole-file writes', () => {
-	test('matching base puts the replacement after one fresh read', async () => {
-		const base = note('title: A');
-		const { folder, log, text } = await setup({ 'notes/a.md': base });
-		expectOk(await folder.write('notes/a.md', note('title: B'), { base }));
-		expect(text('notes/a.md')).toBe(note('title: B'));
-		expect(log.reads).toEqual([['notes/a.md'], ['notes/a.md']]);
-		expect(log.puts).toEqual([{ path: 'notes/a.md' }]);
-	});
-
-	test('stale base merges independent title and body changes', async () => {
-		const base = note('title: A');
-		const { folder, outside, text } = await setup({ 'notes/a.md': base });
-		outside('notes/a.md', note('title: Outside'), { hint: false });
-		expectOk(
-			await folder.write('notes/a.md', note('title: A', 'Typed\n'), { base }),
+describe('whole-file writes', () => {
+	test('write creates or replaces, while replace requires a file at its turn', async () => {
+		const { folder, outside, text } = await setup({ 'note.txt': 'Before' });
+		expectOk(await folder.replace('note.txt', 'After'));
+		expect(text('note.txt')).toBe('After');
+		outside('note.txt', null, { hint: false });
+		expect(expectErr(await folder.replace('note.txt', 'Typed')).name).toBe(
+			'NothingToUpdate',
 		);
-		expect(text('notes/a.md')).toBe(note('title: Outside', 'Typed\n'));
+		expect(text('note.txt')).toBeUndefined();
+		expectOk(await folder.write('note.txt', 'Created'));
+		expect(text('note.txt')).toBe('Created');
 	});
 
-	test('overlapping changes use the newer whole-file text', async () => {
-		const base = note('title: A');
-		const { folder, outside, text } = await setup({ 'notes/a.md': base });
-		outside('notes/a.md', note('title: Outside'), { hint: false });
-		expectOk(await folder.write('notes/a.md', note('title: Typed'), { base }));
-		expect(text('notes/a.md')).toBe(note('title: Typed'));
-	});
-
-	test('a null base merges a file created before the turn', async () => {
-		const { folder, outside, text } = await setup();
-		outside('note.txt', 'Outside\n', { hint: false });
-		expectOk(await folder.write('note.txt', 'Typed\n', { base: null }));
-		expect(text('note.txt')).toBe('Outside\nTyped\n');
-	});
-
-	test('a changed checked put rereads and merges a concurrent update', async () => {
-		const base = note('title: A');
-		const { folder, control, outside, log, text } = await setup({
-			'notes/a.md': base,
+	test('replace refuses a deletion between its read and checked put', async () => {
+		const { folder, control, outside, text } = await setup({
+			'note.txt': 'Before',
 		});
 		let raced = false;
 		control.beforePut = (path) => {
-			if (path !== 'notes/a.md' || raced) return;
+			if (path !== 'note.txt' || raced) return;
 			raced = true;
-			outside(path, note('title: Outside'), { hint: false });
+			outside(path, null, { hint: false });
 		};
-		expectOk(
-			await folder.write('notes/a.md', note('title: A', 'Typed\n'), { base }),
+		expect(expectErr(await folder.replace('note.txt', 'Typed')).name).toBe(
+			'NothingToUpdate',
 		);
-		expect(log.puts).toHaveLength(2);
-		expect(text('notes/a.md')).toBe(note('title: Outside', 'Typed\n'));
+		expect(text('note.txt')).toBeUndefined();
 	});
 
-	test('a based write never publishes unchecked after repeated changes', async () => {
-		const { folder, control, log, outside, text } = await setup({
-			'note.txt': 'A\n',
-		});
-		let changes = 0;
-		control.beforePut = (path) => {
-			if (path !== 'note.txt') return;
-			outside(path, `A\nOutside ${++changes}\n`, { hint: false });
-		};
-		expectErr(await folder.write('note.txt', 'Typed\n', { base: 'A\n' }));
-		expect(log.puts).toHaveLength(4);
-		expect(text('note.txt')).toBe('A\nOutside 4\n');
-	});
-
-	test('a later based write carries text from a failed earlier write', async () => {
-		const { folder, control, text } = await setup({ 'note.txt': 'A\nB\n' });
-		control.failPut.set(
-			'note.txt',
-			expectErr(SaveError.StorageFailed({ cause: 'full' })),
-		);
-		expectErr(await folder.write('note.txt', 'A1\nB\n', { base: 'A\nB\n' }));
-		control.failPut.clear();
-		expectOk(await folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' }));
-		expect(text('note.txt')).toBe('A1\nB2\n');
-	});
-
-	test('a third based write carries text across two failed turns', async () => {
-		const { folder, control, text } = await setup({ 'note.txt': 'A\nB\n' });
-		control.failPut.set(
-			'note.txt',
-			expectErr(SaveError.StorageFailed({ cause: 'full' })),
-		);
-		expectErr(await folder.write('note.txt', 'A1\nB\n', { base: 'A\nB\n' }));
-		expectErr(await folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' }));
-		control.failPut.clear();
-		expectOk(
-			await folder.write('note.txt', 'A1\nB2\nC\n', { base: 'A1\nB2\n' }),
-		);
-		expect(text('note.txt')).toBe('A1\nB2\nC\n');
-	});
-
-	test('a failed based write still preserves an outside change', async () => {
-		const { folder, control, outside, text } = await setup({
-			'note.txt': 'A\nB\n',
-		});
-		control.failPut.set(
-			'note.txt',
-			expectErr(SaveError.StorageFailed({ cause: 'full' })),
-		);
-		expectErr(await folder.write('note.txt', 'A1\nB\n', { base: 'A\nB\n' }));
-		control.failPut.clear();
-		outside('note.txt', 'A\nB\nOutside\n', { hint: false });
-		expectOk(await folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' }));
-		expect(text('note.txt')).toBe('A1\nB2\nOutside\n');
-	});
-
-	test('absorbed writes retain the older base', async () => {
-		const base = 'A\nB\n';
+	test('replace retries a changed file and its whole-file text wins', async () => {
 		const { folder, control, outside, log, text } = await setup({
-			'note.txt': base,
+			'note.txt': 'Before',
 		});
-		const gate = Promise.withResolvers<void>();
-		control.putGate = gate.promise;
-		const blocker = folder.write('blocker.txt', 'Block');
-		await until(() => log.puts.length === 1);
-		const first = folder.write('note.txt', 'A1\nB\n', { base });
-		const second = folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' });
-		expect(first).toBe(second);
-		outside('note.txt', 'A\nB\nC\n', { hint: false });
-		control.putGate = undefined;
-		gate.resolve();
-		expectOk(await blocker);
-		expectOk(await first);
-		expect(text('note.txt')).toBe('A1\nB2\nC\n');
+		let raced = false;
+		control.beforePut = (path) => {
+			if (path !== 'note.txt' || raced) return;
+			raced = true;
+			outside(path, 'Outside', { hint: false });
+		};
+		expectOk(await folder.replace('note.txt', 'Typed'));
+		expect(log.puts).toHaveLength(2);
+		expect(text('note.txt')).toBe('Typed');
 	});
 
-	test('independent based writes wait for separate turns and preserve both edits', async () => {
-		const base = note('title: A');
-		const { folder, control, log, text } = await setup({ 'notes/a.md': base });
-		const gate = Promise.withResolvers<void>();
-		control.putGate = gate.promise;
-		const blocker = folder.write('blocker.txt', 'Block');
-		await until(() => log.puts.length === 1);
-		const title = folder.write('notes/a.md', note('title: First'), { base });
-		const body = folder.write('notes/a.md', note('title: A', 'Second\n'), {
-			base,
+	test('replace refuses after three changed puts without an unchecked write', async () => {
+		const { folder, control, outside, log, text } = await setup({
+			'note.txt': 'Before',
 		});
-		expect(title).not.toBe(body);
-		control.putGate = undefined;
-		gate.resolve();
-		expectOk(await blocker);
-		expectOk(await title);
-		expectOk(await body);
-		expect(text('notes/a.md')).toBe(note('title: First', 'Second\n'));
-	});
-
-	test('a based write after a waiting plain write keeps their order', async () => {
-		const { folder, control, log, text } = await setup({
-			'note.txt': 'A\nB\n',
-		});
-		const gate = Promise.withResolvers<void>();
-		control.putGate = gate.promise;
-		const blocker = folder.write('blocker.txt', 'Block');
-		await until(() => log.puts.length === 1);
-		const plain = folder.write('note.txt', 'A1\nB\n');
-		const based = folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' });
-		expect(plain).not.toBe(based);
-		control.putGate = undefined;
-		gate.resolve();
-		expectOk(await blocker);
-		expectOk(await plain);
-		expectOk(await based);
-		expect(text('note.txt')).toBe('A1\nB2\n');
+		let races = 0;
+		control.beforePut = (path) => {
+			if (path === 'note.txt')
+				outside(path, `Outside ${++races}`, { hint: false });
+		};
+		expect(expectErr(await folder.replace('note.txt', 'Typed')).name).toBe(
+			'KeptChanging',
+		);
+		expect(log.puts).toHaveLength(3);
+		expect(text('note.txt')).toBe('Outside 3');
+		expect(folder.file('note.txt')?.data).toBe('Outside 3');
 	});
 });
 
@@ -526,6 +420,42 @@ describe('ordered writes with waiting path merge', () => {
 			'notes/a.md',
 		]);
 		expect(text('notes/a.md')).toBe(note('title: B\npinned: true'));
+	});
+
+	test('a whole-file replacement queued after a field update wins the file', async () => {
+		const { folder, notes, control, log, text } = await setup({
+			'notes/a.md': note('title: A'),
+		});
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const field = notes.update('a', { fields: { title: 'Field' } });
+		const file = folder.replace('notes/a.md', note('title: File'));
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await field);
+		expectOk(await file);
+		expect(text('notes/a.md')).toBe(note('title: File'));
+	});
+
+	test('a replacement queued after deletion refuses instead of recreating', async () => {
+		const { folder, control, log, text } = await setup({
+			'note.txt': 'Before',
+		});
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const deleted = folder.delete('note.txt');
+		const replaced = folder.replace('note.txt', 'Typed');
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await deleted);
+		expect(expectErr(await replaced).name).toBe('NothingToUpdate');
+		expect(text('note.txt')).toBeUndefined();
 	});
 
 	test('updates with different schema key orders keep separate turns', async () => {
@@ -730,18 +660,20 @@ describe('ordered writes with waiting path merge', () => {
 		expect(text('notes/a.md')).toBe(note('title: Outside\npinned: true'));
 	});
 
-	test('three changed puts retry, then the fourth lands unconditionally', async () => {
+	test('three changed puts refuse without losing the outside value', async () => {
 		const { notes, control, outside, log, text } = await setup({
 			'notes/a.md': note('title: A'),
 		});
 		let races = 0;
 		control.beforePut = () => {
-			if (races++ < 3)
-				outside('notes/a.md', note(`title: Outside${races}`), { hint: false });
+			outside('notes/a.md', note(`title: Outside${++races}`), { hint: false });
 		};
-		expectOk(await notes.update('a', { fields: { pinned: true } }));
-		expect(log.puts).toHaveLength(4);
-		expect(text('notes/a.md')).toBe(note('title: Outside3\npinned: true'));
+		expect(
+			expectErr(await notes.update('a', { fields: { pinned: true } })).name,
+		).toBe('KeptChanging');
+		expect(log.puts).toHaveLength(3);
+		expect(text('notes/a.md')).toBe(note('title: Outside3'));
+		expect(notes.row('a')?.fields?.title).toBe('Outside3');
 	});
 
 	test('move reads queued typing, refuses an occupied target, and keeps both files after failed removal', async () => {

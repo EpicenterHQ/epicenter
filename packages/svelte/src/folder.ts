@@ -15,7 +15,7 @@ import { edit } from './edit.svelte.js';
 
 export { edit } from './edit.svelte.js';
 
-/** A whole-file text edit, edited as LF and sent in its base's newline style. */
+/** A whole-file text edit, shown as LF and saved in the file's newline style. */
 export function fileEdit<T extends Tables>(
 	folder: SvelteFolder<T>,
 	path: string,
@@ -25,20 +25,10 @@ export function fileEdit<T extends Tables>(
 			const data = folder.file(path)?.data;
 			return typeof data === 'string' ? data.replace(/\r\n?/g, '\n') : '';
 		},
-		(typed, base) => {
+		(typed) => {
 			const landed = folder.file(path)?.data ?? null;
 			const style = typeof landed === 'string' ? landed : '';
-			const baseFile =
-				base === style.replace(/\r\n?/g, '\n')
-					? landed
-					: withFileNewlines(base, style);
-			return folder.write(
-				path,
-				withFileNewlines(typed, typeof baseFile === 'string' ? baseFile : ''),
-				{
-					base: baseFile,
-				},
-			);
+			return folder.replace(path, withFileNewlines(typed, style));
 		},
 	);
 }
@@ -57,6 +47,7 @@ export type SvelteFolder<T extends Tables = Tables> = {
 	idle(): Promise<void>;
 	read: Folder<T>['read'];
 	write: Folder<T>['write'];
+	replace: Folder<T>['replace'];
 	update: Folder<T>['update'];
 	move: Folder<T>['move'];
 	delete(path: string): Saved;
@@ -91,6 +82,7 @@ export function svelteFolder<const T extends Tables>(
 		tables: tables as SvelteFolder<T>['tables'],
 		read: folder.read,
 		write: folder.write,
+		replace: folder.replace,
 		update: folder.update,
 		move: folder.move,
 		delete: folder.delete,

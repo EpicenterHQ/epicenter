@@ -130,7 +130,7 @@ test('a failed repair stays visible until Save again lands', async () => {
 		flushSync();
 		return target.textContent?.includes('Not saved:') ?? false;
 	}, { timeout: 4000 });
-	expect((target.querySelector('textarea') as HTMLTextAreaElement).value).toBe(repaired);
+	expect(target.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(repaired);
 	const attempts = host.log.puts.length;
 	click(target, 'Show note and stage');
 	await folder.idle();
@@ -177,7 +177,7 @@ test('switching repairs remounts the editor with the selected file', async () =>
 	await core.close();
 });
 
-test('a repair draft recreates a file deleted outside the folder', async () => {
+test('a repair edit refuses a file deleted outside the folder', async () => {
 	const { folder, core, host } = await createMemory({
 		'entries/broken.md': 'broken frontmatter',
 	});
@@ -195,9 +195,14 @@ test('a repair draft recreates a file deleted outside the folder', async () => {
 	await until(() => folder.file('entries/broken.md') === undefined, { timeout: 4000 });
 	const repaired = '---\ntext: lucid\nnote: clear\nstage: new\ncreatedAt: 2026-01-01\n---\n';
 	type(target.querySelector('textarea'), repaired);
-	await until(() => host.text('entries/broken.md') === repaired, { timeout: 4000 });
-	expect(host.text('entries/broken.md')).toBe(repaired);
-	expect(folder.tables.entries.row('broken')?.issues).toBeNull();
+	await until(() => {
+		flushSync();
+		return target.textContent?.includes('Not saved:') ?? false;
+	}, { timeout: 4000 });
+	expect(host.text('entries/broken.md')).toBeUndefined();
+	expect(target.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(repaired);
+	expect(target.textContent).toContain('Save again');
+	expect(target.textContent).toContain('Copy');
 	await unmount(mounted);
 	target.remove();
 	await core.close();

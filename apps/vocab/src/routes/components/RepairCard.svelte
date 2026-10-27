@@ -26,7 +26,7 @@
 		if (entries.repair.close(value)) return;
 		const row = folder.tables.entries.row(id);
 		if (row === undefined)
-			closeProblem = 'The file is missing. Type to save it again.';
+			closeProblem = 'The file is missing. Restore it before continuing.';
 		else if (row.issues !== null)
 			closeProblem = 'The saved file still has problems. Review its text and try again.';
 	}

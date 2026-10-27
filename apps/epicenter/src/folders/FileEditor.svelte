@@ -44,7 +44,7 @@
 		async (value) => {
 			const out = withFileNewlines(value, lastBase);
 			lastBase = out;
-			const result = await folder.write(path, out);
+			const result = await folder.replace(path, out);
 			const current = folder.file(path);
 			if (active && result.error === null && current && current.data === undefined)
 				fetched = { from: current, opened: { kind: 'text', text: out } };

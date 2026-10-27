@@ -4,18 +4,17 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export function edit<T, E>(
 	source: () => T,
-	save: (value: T, base: T) => Promise<Result<unknown, E>>,
+	save: (value: T) => Promise<Result<unknown, E>>,
 ) {
 	let typed = $state<{ value: T } | null>(null);
-	let current: { value: T } | null = null;
 	let error = $state<E | null>(null);
 	let lastSave: Promise<Result<unknown, E>> | undefined;
 	let active = true;
 
-	function send(value: T, base: T) {
+	function send(value: T) {
 		let answer: Promise<Result<unknown, E>>;
 		try {
-			answer = save(value, base);
+			answer = save(value);
 		} catch (cause) {
 			// SAFETY: a thrown save failure is presented through the edit's error channel.
 			answer = Promise.resolve(Err(cause as E));
@@ -31,7 +30,6 @@ export function edit<T, E>(
 		void settled.then((result) => {
 			if (!active || lastSave !== settled) return;
 			if (result.error === null) {
-				current = null;
 				typed = null;
 			} else error = result.error;
 		});
@@ -39,15 +37,13 @@ export function edit<T, E>(
 
 	function set(value: T) {
 		if (!active) return;
-		const base = current === null ? source() : current.value;
-		current = { value };
-		typed = current;
+		typed = { value };
 		error = null;
-		send(value, base);
+		send(value);
 	}
 
 	async function landed(): Promise<Result<void, E>> {
-		while (active && current !== null) {
+		while (active && typed !== null) {
 			const answer = lastSave;
 			if (answer === undefined) return Ok(undefined);
 			const result = await answer;
@@ -74,13 +70,12 @@ export function edit<T, E>(
 		set,
 		landed,
 		retry() {
-			if (!active || current === null) return;
+			if (!active || typed === null) return;
 			error = null;
-			send(current.value, source());
+			send(typed.value);
 		},
 		discard() {
 			if (!active) return;
-			current = null;
 			typed = null;
 			error = null;
 			lastSave = undefined;

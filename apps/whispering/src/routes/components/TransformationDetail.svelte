@@ -503,8 +503,10 @@
 
 	<div class="flex flex-wrap items-center gap-2 border-t px-4 py-2 text-xs text-muted-foreground">
 		<span><code class="font-mono">{path}</code></span>
-		<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)} data-testid="delete-transformation">
-			Delete transformation
-		</Button>
+		{#if file !== undefined}
+			<Button class="ml-auto" size="sm" variant="ghost-destructive" onclick={() => void confirmDelete(whispering, path)} data-testid="delete-transformation">
+				Delete transformation
+			</Button>
+		{/if}
 	</div>
 </section>

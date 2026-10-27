@@ -175,7 +175,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a whole-file draft recreates a file deleted while its save waits', async () => {
+	test('a whole-file edit refuses a file deleted while its save waits', async () => {
 		const fixture = await setup({ 'a.md': 'First\n' });
 		let release: (() => void) | undefined;
 		try {
@@ -183,12 +183,14 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.box()?.value === 'First\n');
 			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
-			type(fixture.box(), 'Recreated\n');
+			type(fixture.box(), 'Typed\n');
 			fixture.outside('a.md', null);
 			release?.();
 			fixture.control.putGate = undefined;
-			await until(() => fixture.text('a.md') === 'Recreated\n');
-			await until(() => fixture.box()?.value === 'Recreated\n');
+			await fixture.owner.idle();
+			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			expect(fixture.text('a.md')).toBeUndefined();
+			expect(fixture.target.textContent).toContain('Copy');
 		} finally {
 			release?.();
 			fixture.control.putGate = undefined;
@@ -547,7 +549,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		}
 	});
 
-	test('a row source edit merges with a cell edit still saving', async () => {
+	test('a row source edit queued after a cell edit replaces the whole file', async () => {
 		const fixture = await setup({ 'a.md': '---\ntitle: Before\n---\n' });
 		let release: (() => void) | undefined;
 		try {
@@ -563,7 +565,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			release?.();
 			fixture.control.putGate = undefined;
 			await fixture.owner.idle();
-			expect(fixture.text('a.md')).toContain('title: From table');
+			expect(fixture.text('a.md')).toContain('title: Before');
 			expect(fixture.text('a.md')).toContain('category: from source');
 		} finally {
 			release?.();

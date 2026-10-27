@@ -12,9 +12,14 @@ export const WriteRefusal = defineErrors({
 		message: `A file already exists at ${path}`,
 		path,
 	}),
-	/** An update found no readable file to change. */
+	/** An update or replacement found no file to change. */
 	NothingToUpdate: ({ path }: { path: string }) => ({
-		message: `There is no readable file at ${path} to update`,
+		message: `There is no file at ${path} to update`,
+		path,
+	}),
+	/** A checked write could not land while another writer kept changing the file. */
+	KeptChanging: ({ path }: { path: string }) => ({
+		message: `The file at ${path} kept changing; save again to retry`,
 		path,
 	}),
 	/** A move found no source file. */

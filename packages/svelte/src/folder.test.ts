@@ -48,7 +48,7 @@ async function until(check: () => boolean) {
 
 function mountedEdit(
 	source: () => string,
-	save: (value: string, base: string) => Promise<Result<unknown, Failure>>,
+	save: (value: string) => Promise<Result<unknown, Failure>>,
 ) {
 	const target = document.createElement('div');
 	document.body.append(target);
@@ -137,63 +137,34 @@ test('svelteFolder passes refresh through to the core', async () => {
 });
 
 test('each typed value calls save immediately', async () => {
-	const calls: { value: string; base: string }[] = [];
+	const calls: string[] = [];
 	const mounted = mountedEdit(
 		() => 'Disk',
-		(value, base) => {
-			calls.push({ value, base });
+		(value) => {
+			calls.push(value);
 			return Promise.resolve(Ok(undefined));
 		},
 	);
 	mounted.editor.value = 'A';
 	mounted.editor.value = 'AB';
 	expect(mounted.editor.value).toBe('AB');
-	expect(calls).toEqual([
-		{ value: 'A', base: 'Disk' },
-		{ value: 'AB', base: 'A' },
-	]);
+	expect(calls).toEqual(['A', 'AB']);
 	await mounted.unmount();
 });
 
-test('a new typing run bases its first send on landed text', async () => {
-	let disk = 'Disk';
-	const calls: { value: string; base: string }[] = [];
+test('retry resends the failed value', async () => {
+	const calls: string[] = [];
 	const mounted = mountedEdit(
-		() => disk,
-		(value, base) => {
-			calls.push({ value, base });
-			disk = value;
-			return Promise.resolve(Ok(undefined));
-		},
-	);
-	mounted.editor.value = 'First';
-	expectOk(await mounted.editor.landed());
-	mounted.editor.value = 'Second';
-	expect(calls).toEqual([
-		{ value: 'First', base: 'Disk' },
-		{ value: 'Second', base: 'First' },
-	]);
-	await mounted.unmount();
-});
-
-test('retry bases a failed value on what has landed', async () => {
-	let disk = 'Disk';
-	const calls: { value: string; base: string }[] = [];
-	const mounted = mountedEdit(
-		() => disk,
-		(value, base) => {
-			calls.push({ value, base });
+		() => 'Disk',
+		(value) => {
+			calls.push(value);
 			return Promise.resolve(calls.length === 1 ? Err(failure) : Ok(undefined));
 		},
 	);
 	mounted.editor.value = 'Typed';
 	expectErr(await mounted.editor.landed());
-	disk = 'Outside';
 	mounted.editor.retry();
-	expect(calls).toEqual([
-		{ value: 'Typed', base: 'Disk' },
-		{ value: 'Typed', base: 'Outside' },
-	]);
+	expect(calls).toEqual(['Typed', 'Typed']);
 	await mounted.unmount();
 });
 
@@ -326,7 +297,7 @@ test('fileEdit keeps one inserted line when typing continues during a held put',
 	}
 });
 
-test('fileEdit merges an outside field update between typed writes', async () => {
+test('fileEdit queued after a field update replaces the whole file', async () => {
 	const initial = text('First');
 	const memory = memoryHost({ 'notes/a.md': initial });
 	const owner = expectOk(await createFolder(memory.storage, { tables }));
@@ -359,7 +330,7 @@ test('fileEdit merges an outside field update between typed writes', async () =>
 		gate.resolve();
 		await owner.idle();
 		expectOk(await field);
-		expect(memory.text('notes/a.md')).toBe(`${text('Outside')}he`);
+		expect(memory.text('notes/a.md')).toBe(`${initial}he`);
 	} finally {
 		memory.control.putGate = undefined;
 		gate.resolve();
@@ -409,7 +380,7 @@ test('delete after file typing removes the file after every queued edit', async 
 	}
 });
 
-test('fileEdit can retry a failed based write', async () => {
+test('fileEdit can retry a failed replacement', async () => {
 	const memory = memoryHost({ 'note.txt': 'Body.\n' });
 	const owner = expectOk(await createFolder(memory.storage, { tables }));
 	const folder = svelteFolder(owner);

@@ -93,7 +93,7 @@ test('a failed title save stays visible after returning from the file view', asy
     expect(target.textContent).toContain('Not saved:');
 });
 
-test('title and file typing merge when the title write was held during the switch', async () => {
+test('file typing queued behind the title write replaces the whole file', async () => {
     const memory = memoryHost({ 'notes/a.md': noteText({ title: 'Alpha' }) });
     const owner = expectOk(await createFolder(memory.storage, { tables: honeycrispTables }));
     const folder = svelteFolder(owner);
@@ -120,12 +120,12 @@ test('title and file typing merge when the title write was held during the switc
         release?.();
         memory.control.putGate = undefined;
         await owner.idle();
-        expect(memory.text('notes/a.md')).toContain('title: Landed');
+		expect(memory.text('notes/a.md')).toContain('title: "Alpha"');
         expect(memory.text('notes/a.md')).toContain('File typing.\n');
         click(target, 'Open as note');
         flushSync();
         expect(notes.selected?.as).toBe('note');
-        expect(target.querySelector<HTMLInputElement>('input[aria-label="Title"]')?.value).toBe('Landed');
+		expect(target.querySelector<HTMLInputElement>('input[aria-label="Title"]')?.value).toBe('Alpha');
     } finally {
         release?.();
         memory.control.putGate = undefined;
@@ -135,7 +135,7 @@ test('title and file typing merge when the title write was held during the switc
     }
 });
 
-test('file typing merges an outside same-size edit missed by hints', async () => {
+test('file typing replaces an outside same-size edit missed by hints', async () => {
     const base = noteText({ title: 'Alpha' });
     const memory = memoryHost({ 'notes/a.md': base });
     const owner = expectOk(await createFolder(memory.storage, { tables: honeycrispTables }));
@@ -155,7 +155,7 @@ test('file typing merges an outside same-size edit missed by hints', async () =>
         memory.outside('notes/a.md', outside, { hint: false });
         type(target.querySelector('textarea[aria-label="Contents of a.md"]'), noteText({ title: 'Alpha', body: 'File typing.\n' }));
         await owner.idle();
-        expect(memory.text('notes/a.md')).toContain('title: "Bravo"');
+		expect(memory.text('notes/a.md')).toContain('title: "Alpha"');
         expect(memory.text('notes/a.md')).toContain('File typing.\n');
     } finally {
         await unmount(component);
@@ -228,7 +228,7 @@ test('a field draft keeps its value when its file was deleted elsewhere', async 
     await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'deleted field error');
     expect(folder.tables.notes.row('a')).toBeUndefined();
     expect(target.querySelector('input[aria-label="Title"]')).toBeNull();
-    expect(target.textContent).toContain('There is no readable file at notes/a.md to update');
+    expect(target.textContent).toContain('There is no file at notes/a.md to update');
     expect(target.textContent).toContain('Save again');
     expect(target.textContent).toContain('Copy');
 });
