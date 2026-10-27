@@ -4,7 +4,7 @@
 - **Date:** 2026-10-27
 - **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at its `a save` role: a local save no longer merges; the sync role is unchanged.
 - **Relates:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) for the local write queue; [ADR-0534](0534-data-folders-are-the-only-data-model.md) for folders as the only data model; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) and [ADR-0530](0530-applications-record-a-version-at-natural-moments.md) for when commits happen.
-- **Unbuilt:** no app commits automatically or turns on sync; no merge notice reaches an editor; no live body session or capture-only client exists; browser submission does not yet filter `.device/` paths.
+- **Unbuilt:** no app commits automatically or turns on sync; no merge notice reaches an editor; no live body session or capture-only client exists; browser sync does not yet honor `.gitignore` patterns.
 
 ## Context
 
@@ -72,9 +72,11 @@ evict. A client that only adds entries may append through the remote instead
 of holding a replica. Agents edit desktop files directly or issue the same
 Folder instructions through `epicenter`; browser data reaches them through sync.
 
-Within an app's area, paths under `.device/` never leave that device. Desktop
-Git ignores them under [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md); a browser must omit them from submissions.
-Apps name no paths for this rule.
+**Device-only data is whatever the area's `.gitignore` names.** An app writes
+its own patterns to `.gitignore` in its area, like any other file, and a
+person or agent may edit them. Desktop Git leaves ignored paths out of commits
+under [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md);
+browser sync leaves the same paths out of what it sends. Apps name no paths.
 
 ## Consequences
 
