@@ -121,16 +121,18 @@ type PendingWrite = {
 type WaitingWrite = { turn: PendingWrite; saved: Saved };
 
 /**
- * A waiting write absorbs a newer one for the same file: whole-file writes
- * keep the newest data and the oldest supplied base; two updates through the
- * same schema combine their patches.
+ * A waiting write absorbs a newer one for the same file when its based text
+ * follows the waiting text: whole-file writes keep the newest data and the
+ * oldest supplied base; two updates through the same schema combine patches.
  * Anything else waits its own turn.
  */
 function absorb(waiting: Op, next: Op): Op | undefined {
-	if (waiting.kind === 'write' && next.kind === 'write')
-		return waiting.base !== undefined && next.base !== undefined
-			? { ...next, base: waiting.base }
-			: next;
+	if (waiting.kind === 'write' && next.kind === 'write') {
+		if (next.base === undefined) return next;
+		if (waiting.base === undefined || !sameContent(waiting.data, next.base))
+			return undefined;
+		return { ...next, base: waiting.base };
+	}
 	if (
 		waiting.kind === 'update' &&
 		next.kind === 'update' &&

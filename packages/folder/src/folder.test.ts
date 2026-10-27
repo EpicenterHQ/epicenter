@@ -271,6 +271,41 @@ describe('based whole-file writes', () => {
 		expectOk(await first);
 		expect(text('note.txt')).toBe('A1\nB2\nC\n');
 	});
+
+	test('independent based writes wait for separate turns and preserve both edits', async () => {
+		const base = note('title: A');
+		const { folder, control, log, text } = await setup({ 'notes/a.md': base });
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const title = folder.write('notes/a.md', note('title: First'), { base });
+		const body = folder.write('notes/a.md', note('title: A', 'Second\n'), { base });
+		expect(title).not.toBe(body);
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await title);
+		expectOk(await body);
+		expect(text('notes/a.md')).toBe(note('title: First', 'Second\n'));
+	});
+
+	test('a based write after a waiting plain write keeps their order', async () => {
+		const { folder, control, log, text } = await setup({ 'note.txt': 'A\nB\n' });
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const plain = folder.write('note.txt', 'A1\nB\n');
+		const based = folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' });
+		expect(plain).not.toBe(based);
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await plain);
+		expectOk(await based);
+		expect(text('note.txt')).toBe('A1\nB2\n');
+	});
 });
 
 describe('ordered writes with waiting path merge', () => {
