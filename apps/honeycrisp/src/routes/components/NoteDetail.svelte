@@ -50,7 +50,6 @@
 
 	/** Which view of the note shows. Switching writes nothing and discards nothing. */
 	let tab = $state<'rich' | 'source'>('rich');
-	let switching = $state(false);
 
 	/** Say so when a change was refused. */
 	function refusal(problem: Awaited<ReturnType<Notes['patchNote']>>) {
@@ -64,20 +63,12 @@
 	const optionOf = (id: string | null) => (id === null ? '' : `folder:${id}`);
 	const idOf = (option: string) => (option === '' ? null : option.slice('folder:'.length));
 
-	async function openAsFile() {
-		if (switching || notes.selected?.path !== path) return;
-		switching = true;
-		const results = await Promise.all([title.landed(), folderSelection.landed(), body.landed()]);
-		if (results.some(({ error }) => error !== null) || notes.selected?.path !== path) {
-			switching = false;
-			return;
-		}
-		notes.open(path, 'text');
-		switching = false;
+	export function hasFailedEdit() {
+		return title.error !== null || folderSelection.error !== null || body.error !== null;
 	}
 </script>
 
-<section class="flex h-full min-h-0 flex-col" aria-label="Note" inert={switching}>
+<section class="flex h-full min-h-0 flex-col" aria-label="Note">
 	{#if shownNote !== undefined}
 		{@const row = shownNote}
 		{@const folderId = folderSelection.value}
@@ -116,7 +107,7 @@
 			>
 				<PinIcon class={pinned ? 'fill-current' : ''} />
 			</Button>
-		<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" onclick={openAsFile}>Edit as file</Button>
+		<Button size="sm" variant="ghost" tooltip="Edit the whole file as text, including keys Honeycrisp does not show" onclick={() => notes.open(path, 'text')}>Edit as file</Button>
 		</div>
 
 		<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
@@ -173,7 +164,7 @@
 				<Empty.Description>
 					<code class="font-mono">{path}</code>: {describeIssues(issues)}
 				</Empty.Description>
-				<Button variant="outline" size="sm" onclick={openAsFile}>Repair as text</Button>
+				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Repair as text</Button>
 			{/if}
 		</Empty.Root>
 	{/if}
