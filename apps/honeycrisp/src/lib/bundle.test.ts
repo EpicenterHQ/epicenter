@@ -8,8 +8,8 @@
  * - Neither build carries a Yjs, Node, or Bun module, or the directory
  *   folder and Git host that run on them
  * - The bundled host build carries the native folder engine and no browser
- *   engine or OPFS store; the browser build carries the browser engine
- *   and no native engine
+ *   engine or OPFS store; the published build carries both folder engines
+ *   behind one runtime choice
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -59,7 +59,7 @@ test(
 );
 
 test(
-	'the browser build carries the local folder and no native engine',
+	'the published build carries the runtime choice and both folder engines',
 	async () => {
 		const modules = await bundledModules(
 			appDir,
@@ -68,7 +68,8 @@ test(
 		);
 		expect(modules.some(folderModule('browser.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
-		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
+		expect(modules.some(folderModule('index.ts'))).toBe(true);
+		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 	},
 	BUNDLE_TIMEOUT,
 );

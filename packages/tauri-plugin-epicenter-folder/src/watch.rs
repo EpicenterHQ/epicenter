@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// Paths whose stored content may differ, or any path when scope is unknown.
-#[derive(Debug, Clone, Serialize, Deserialize, Type, tauri_specta::Event)]
-#[tauri_specta(event_name = "folder-changed")]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct FolderChanged {
     pub paths: Option<Vec<String>>,
 }

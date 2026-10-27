@@ -23,6 +23,9 @@
 	] as const);
 	let sourceProblems = $state.raw<string[]>([]);
 	let listProblem = $state<string | undefined>(undefined);
+	let siteUrl = $state('');
+	let siteProblem = $state<string | undefined>(undefined);
+	let siteBusy = $state(false);
 
 	/**
 	 * The shell's event when the list of data folders may have changed:
@@ -73,6 +76,21 @@
 			settingsProblem = `Settings did not open. ${
 				cause instanceof Error ? cause.message : String(cause)
 			}`;
+		}
+	}
+
+	async function openSite(url: string) {
+		siteBusy = true;
+		siteProblem = undefined;
+		try {
+			const result = await commands.openHostedSite(url);
+			if (result.error !== null) throw new Error(result.error);
+			siteUrl = '';
+			await list();
+		} catch (cause) {
+			siteProblem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			siteBusy = false;
 		}
 	}
 
@@ -252,6 +270,31 @@
 				{/each}
 			</section>
 		{/if}
+
+		<section class="px-4 pt-3" aria-label="Sites">
+			<h2 class="text-sm font-semibold">Sites</h2>
+			<p class="mt-1 text-xs text-muted-foreground">Open a website in its own folder under {libraryName}.</p>
+			<form
+				class="mt-2 flex gap-2"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void openSite(siteUrl.trim());
+				}}
+			>
+				<input
+					aria-label="Site URL"
+					type="url"
+					placeholder="https://todos.example.com"
+					class="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
+					bind:value={siteUrl}
+					required
+				/>
+				<Button type="submit" size="sm" disabled={siteBusy}>Open</Button>
+			</form>
+			{#if siteProblem}
+				<p class="mt-2 text-sm text-destructive" role="alert">{siteProblem}</p>
+			{/if}
+		</section>
 
 		<h2 class="px-4 pt-2 text-sm font-semibold">Apps</h2>
 		<ul class="flex flex-col gap-0.5 px-2" aria-label="Apps">

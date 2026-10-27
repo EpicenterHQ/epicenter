@@ -10,6 +10,7 @@
 		"allow-list-data-folders",
 		"allow-open-folder-editor",
 		"allow-open-bundled-app",
+		"allow-open-hosted-site",
 		"allow-choose-folder-for-app",
 		"allow-open-home",
 		"allow-pending-folder-openings",

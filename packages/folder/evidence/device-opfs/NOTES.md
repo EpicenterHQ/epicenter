@@ -1,17 +1,22 @@
-# SQLite and ordinary device files can share one OPFS namespace
+# Official OPFS SQLite: multi-tab SQL and file transparency
 
 On 2026-10-22, a throwaway browser prototype demonstrated that its own
-`device.openSqlite('search.sqlite')` and
+historical `device.openSqlite('search.sqlite')` and
 `device.files.read('search.sqlite')` can address the same OPFS file. The
 official `opfs` adapter supplies this without a custom SQLite VFS. The
 remaining difficulty is safe ownership during raw access and predictable
 cross-tab contention, rather than filename transparency.
 
-This is experiment evidence, not a production package or an implemented
-`openDeviceStorage` export. The API it imitates is proposed in
+The shared `openDeviceStorage`/`device.files` namespace is a retired proposal.
 [ADR-0678](../../../../docs/adr/0678-app-storage-openers-use-runtime-bound-scopes.md)
-and [ADR-0673](../../../../docs/adr/0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md),
-both still Proposed. The source is frozen in
+instead defines `openDeviceDatabase(name)` and `deleteDeviceDatabase(name)`
+within separate standalone and hosted installation roots, with no generic
+device-file API or parent device handle. Browser storage need not expose literal
+filenames. That ADR and
+[ADR-0673](../../../../docs/adr/0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md)
+are Accepted as a design, with production implementation unbuilt. This experiment
+implements no package export. Its fixture spellings and raw-file policy are
+historical. The source is frozen unchanged in
 [prototype-source.tar.gz](prototype-source.tar.gz) so it does not become an
 active implementation inside the library.
 
@@ -89,9 +94,9 @@ It does not protect journal paths, coordinate native processes, provide an
 account boundary, or prevent arbitrary code from bypassing it through OPFS.
 The experiment-only `device.unprotected` bypass exists to observe actual
 browser behavior. Neither it nor the probe-only transaction commands belong
-in a production API. A shipping raw-access contract must cover recovery
-sidecars and all relevant connection owners, or explicitly make quiescence
-the caller's responsibility.
+in a production API. Any separately proposed raw-access capability would need
+to cover recovery sidecars and all relevant connection owners, or explicitly
+make quiescence the caller's responsibility. ADR-0678 includes no such capability.
 
 ## Contention is the material limitation
 
@@ -130,11 +135,14 @@ and cooperative queuing; it establishes neither a hard timeout nor indefinite
 waiting behavior. The two timing experiments overlapped in execution, so
 small latency differences are not a meaningful adapter benchmark.
 
-## Consequence for the proposed API
+## Reconciliation with installation-scoped databases
 
-Keep a shared path namespace: the database is a file, and ordinary cleanly
-closed database files can be read, copied, and reopened. There is no need to
-invent a managed database namespace or a custom VFS to achieve that.
+The experiment establishes that this adapter preserves literal OPFS files and
+permits quiescent copies. It does not establish a need for an app-facing shared
+path namespace. ADR-0678 retires that promise: apps name databases, and the
+runtime owns their installation scope and physical backing. A pooled browser
+adapter remains eligible. This archive supplies conditional evidence for
+`opfs`, not a browser backend selection or a raw-file compatibility obligation.
 
 Keep production transactions inside one worker request, such as a bounded
 `batch` of statements. The deliberately held cross-request transaction in
@@ -144,12 +152,15 @@ clock bound: long queries, page suspension, and adapter waits still need
 deliberate handling. The caller must not confuse a lost or timed-out reply
 with proof that a write did not happen.
 
-Before shipping, resolve raw main-file and sidecar admission, cross-tab
-operation ownership, deadline and cancellation semantics, worker failure
-cleanup, database deletion, and cross-origin isolation for production pages.
-A separate cross-tab SQL scheduler could avoid exposing the adapter to
-overlapping transactions, but was not built or validated here. The small
-raw-file lease should not be mistaken for one.
+Before shipping a selected browser backend, resolve named database admission,
+maintenance deletion, cross-tab operation ownership, deadline and cancellation
+semantics, worker failure cleanup, and deployment requirements. The later
+[SQL coordination experiment](../device-opfs-coordination/NOTES.md) tests a
+separate request lock; this archive includes only the raw-file lease.
+[Deletion interruption checks](../sqlite-delete/NOTES.md) separately exercise
+literal-file cleanup. Neither experiment validates their combined lifecycle or
+a pooled backend. The raw-file lease is fixture machinery, not a requirement
+of the named database contract.
 
 ## Replay and inspect
 
@@ -178,7 +189,8 @@ bun run.ts --contention-only --vfs=opfs-wl --output=results-opfs-wl-contention.j
 bun run.ts --manual
 ```
 
-The manual page renders filenames and active Web Locks. In each tab's console,
+The archived manual page renders filenames and active Web Locks. Its historical
+console interface is not the proposed app API. In each tab's console,
 the same scope is available as `deviceProbe.device`. For example, open
 `const db = await deviceProbe.device.openSqlite('manual.sqlite')`, run SQL,
 then `await db.close()` before reading `manual.sqlite` through

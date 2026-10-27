@@ -1,0 +1,2370 @@
+{
+  "package": "@sqlite.org/sqlite-wasm@3.54.1-build1",
+  "playwright": "1.61.1",
+  "platform": {
+    "os": "darwin",
+    "arch": "arm64",
+    "bun": "1.4.3"
+  },
+  "candidates": [
+    "none",
+    "weblock",
+    "weblock-asap"
+  ],
+  "engines": [
+    "chromium",
+    "firefox",
+    "webkit"
+  ],
+  "vfs": "opfs",
+  "evidence": [
+    {
+      "candidate": "none",
+      "engine": "chromium",
+      "cases": [
+        {
+          "name": "environment",
+          "value": {
+            "version": "149.0.7827.55",
+            "isolated": true,
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+            "open": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "files": [
+              "messages.sqlite"
+            ]
+          }
+        },
+        {
+          "name": "concurrent-sync",
+          "value": {
+            "complete": true,
+            "totals": {
+              "messages": 750,
+              "distinct": 750,
+              "cursor": 30
+            },
+            "fetches": {
+              "A": 20,
+              "B": 20
+            },
+            "aSync": {
+              "n": 20,
+              "p50": 6.385000228881836,
+              "p95": 296.960000038147,
+              "max": 302.5449995994568,
+              "over250msLikelyAdapterRetry": 2,
+              "errors": [],
+              "fetches": 20
+            },
+            "bSync": {
+              "n": 20,
+              "p50": 8.485000133514404,
+              "p95": 12.404999732971191,
+              "max": 322.12000036239624,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 20
+            },
+            "aRead": {
+              "n": 40,
+              "p50": 0.7050004005432129,
+              "p95": 7.199999809265137,
+              "max": 310.4299998283386,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 3
+            },
+            "bRead": {
+              "n": 40,
+              "p50": 0.6299996376037598,
+              "p95": 8.324999809265137,
+              "max": 12.574999809265137,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 3
+            },
+            "wallMs": 1100.858792,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "peer-open-then-batch",
+          "value": {
+            "reopened": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "batch": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 319.814625
+            }
+          }
+        },
+        {
+          "name": "failed-batch-rolls-back",
+          "value": {
+            "failed": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 1299,
+              "message": "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: NOT NULL constraint failed: messages.body",
+              "ms": 14.603417000000036
+            },
+            "before": {
+              "count": 750,
+              "cursor": 30
+            },
+            "after": {
+              "count": 750,
+              "cursor": 30
+            }
+          }
+        },
+        {
+          "name": "held-peer",
+          "value": {
+            "locks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "atDeadline": {
+              "settledBefore1500ms": false,
+              "callerOutcome": "caller reply timeout at 1500ms; request still pending"
+            },
+            "batchOutcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 6376.695291
+            },
+            "readOutcome": {
+              "ok": true,
+              "value": [
+                {
+                  "n": 775
+                }
+              ],
+              "ms": 6377.056667
+            },
+            "failFast": {
+              "ok": true,
+              "value": [
+                {
+                  "x": 1
+                }
+              ],
+              "ms": 6377.021083
+            },
+            "holdOutcome": {
+              "ok": true,
+              "value": null,
+              "ms": 6010.55225
+            },
+            "page40CountBeforeRetry": 25,
+            "retry": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 1.7220419999994192
+            }
+          }
+        },
+        {
+          "name": "owner-disappears",
+          "value": {
+            "outcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 930.0297499999997
+            },
+            "msFromCloseToSettle": 428.72862500000156,
+            "dying": {
+              "pageClosed": "Error: evaluate: Target page, context or browser has been closed"
+            },
+            "diedMarks": 0,
+            "page41Count": 25,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "raw-access-composition",
+          "value": {
+            "liveLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "activeLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "rawBusy": {
+              "ok": false,
+              "name": "FileBusy",
+              "code": null,
+              "message": "Close every SQLite connection before raw access",
+              "ms": 0.15000009536743164
+            },
+            "expectedCount": 800,
+            "copied": {
+              "header": "SQLite format 3\u0000",
+              "bytes": 106496,
+              "count": [
+                {
+                  "n": 800
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "candidate": "none",
+      "engine": "firefox",
+      "cases": [
+        {
+          "name": "environment",
+          "value": {
+            "version": "151.0",
+            "isolated": true,
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
+            "open": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "files": [
+              "messages.sqlite"
+            ]
+          }
+        },
+        {
+          "name": "concurrent-sync",
+          "value": {
+            "complete": true,
+            "totals": {
+              "messages": 750,
+              "distinct": 750,
+              "cursor": 30
+            },
+            "fetches": {
+              "A": 20,
+              "B": 20
+            },
+            "aSync": {
+              "n": 20,
+              "p50": 28.920000000000073,
+              "p95": 38.39999999999998,
+              "max": 39.81999999999999,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "bSync": {
+              "n": 20,
+              "p50": 23.779999999999973,
+              "p95": 44.559999999999945,
+              "max": 907.84,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 20
+            },
+            "aRead": {
+              "n": 40,
+              "p50": 1.6800000000000068,
+              "p95": 29.75999999999999,
+              "max": 31.519999999999982,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 4
+            },
+            "bRead": {
+              "n": 40,
+              "p50": 2.519999999999982,
+              "p95": 6.120000000000118,
+              "max": 921.1,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 7
+            },
+            "wallMs": 1557.635542,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "peer-open-then-batch",
+          "value": {
+            "reopened": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "batch": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 315.4302090000001
+            }
+          }
+        },
+        {
+          "name": "failed-batch-rolls-back",
+          "value": {
+            "failed": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 1299,
+              "message": "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: NOT NULL constraint failed: messages.body",
+              "ms": 32.949916000001394
+            },
+            "before": {
+              "count": 750,
+              "cursor": 30
+            },
+            "after": {
+              "count": 750,
+              "cursor": 30
+            }
+          }
+        },
+        {
+          "name": "held-peer",
+          "value": {
+            "locks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "atDeadline": {
+              "settledBefore1500ms": false,
+              "callerOutcome": "caller reply timeout at 1500ms; request still pending"
+            },
+            "batchOutcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 6407.318833000001
+            },
+            "readOutcome": {
+              "ok": true,
+              "value": [
+                {
+                  "n": 775
+                }
+              ],
+              "ms": 6408.579207999999
+            },
+            "failFast": {
+              "ok": true,
+              "value": [
+                {
+                  "x": 1
+                }
+              ],
+              "ms": 6408.662958000001
+            },
+            "holdOutcome": {
+              "ok": true,
+              "value": null,
+              "ms": 6020.602042
+            },
+            "page40CountBeforeRetry": 25,
+            "retry": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 4.238083000000188
+            }
+          }
+        },
+        {
+          "name": "owner-disappears",
+          "value": {
+            "outcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 947.8291250000002
+            },
+            "msFromCloseToSettle": 445.8229170000013,
+            "dying": {
+              "pageClosed": "Error: evaluate: Target page, context or browser has been closed"
+            },
+            "diedMarks": 0,
+            "page41Count": 25,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "raw-access-composition",
+          "value": {
+            "liveLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "activeLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "rawBusy": {
+              "ok": false,
+              "name": "FileBusy",
+              "code": null,
+              "message": "Close every SQLite connection before raw access",
+              "ms": 0.2400000000000091
+            },
+            "expectedCount": 800,
+            "copied": {
+              "header": "SQLite format 3\u0000",
+              "bytes": 106496,
+              "count": [
+                {
+                  "n": 800
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "candidate": "none",
+      "engine": "webkit",
+      "cases": [
+        {
+          "name": "environment",
+          "value": {
+            "version": "26.5",
+            "isolated": true,
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+            "open": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "files": [
+              "messages.sqlite"
+            ]
+          }
+        },
+        {
+          "name": "concurrent-sync",
+          "value": {
+            "complete": true,
+            "totals": {
+              "messages": 750,
+              "distinct": 750,
+              "cursor": 30
+            },
+            "fetches": {
+              "A": 20,
+              "B": 20
+            },
+            "aSync": {
+              "n": 20,
+              "p50": 5.300000000000068,
+              "p95": 6.519999999999982,
+              "max": 7.460000000000036,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "bSync": {
+              "n": 20,
+              "p50": 5.2999999999999545,
+              "p95": 9,
+              "max": 615.86,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 20
+            },
+            "aRead": {
+              "n": 40,
+              "p50": 0.660000000000025,
+              "p95": 2.019999999999982,
+              "max": 8.220000000000027,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 3
+            },
+            "bRead": {
+              "n": 40,
+              "p50": 1.1200000000000045,
+              "p95": 2.6000000000000227,
+              "max": 623.7,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 4
+            },
+            "wallMs": 1015.206000000002,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "peer-open-then-batch",
+          "value": {
+            "reopened": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "batch": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 310.6936249999999
+            }
+          }
+        },
+        {
+          "name": "failed-batch-rolls-back",
+          "value": {
+            "failed": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 1299,
+              "message": "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: NOT NULL constraint failed: messages.body",
+              "ms": 19.19904200000019
+            },
+            "before": {
+              "count": 750,
+              "cursor": 30
+            },
+            "after": {
+              "count": 750,
+              "cursor": 30
+            }
+          }
+        },
+        {
+          "name": "held-peer",
+          "value": {
+            "locks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "atDeadline": {
+              "settledBefore1500ms": false,
+              "callerOutcome": "caller reply timeout at 1500ms; request still pending"
+            },
+            "batchOutcome": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 3850,
+              "message": "SQLITE_IOERR_LOCK: sqlite3 result code 3850: disk I/O error",
+              "ms": 4520.323999999997
+            },
+            "readOutcome": {
+              "ok": true,
+              "value": [
+                {
+                  "n": 750
+                }
+              ],
+              "ms": 6337.886834000001
+            },
+            "failFast": {
+              "ok": true,
+              "value": [
+                {
+                  "x": 1
+                }
+              ],
+              "ms": 7339.282916999997
+            },
+            "holdOutcome": {
+              "ok": true,
+              "value": null,
+              "ms": 6005.602791000001
+            },
+            "page40CountBeforeRetry": 0,
+            "retry": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 8.913332999996783
+            }
+          }
+        },
+        {
+          "name": "owner-disappears",
+          "value": {
+            "outcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 915.629832999999
+            },
+            "msFromCloseToSettle": 414.4956669999956,
+            "dying": {
+              "pageClosed": "Error: evaluate: Target page, context or browser has been closed"
+            },
+            "diedMarks": 0,
+            "page41Count": 25,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "raw-access-composition",
+          "value": {
+            "liveLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "activeLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "rawBusy": {
+              "ok": false,
+              "name": "FileBusy",
+              "code": null,
+              "message": "Close every SQLite connection before raw access",
+              "ms": 0.1999999999999318
+            },
+            "expectedCount": 800,
+            "copied": {
+              "header": "SQLite format 3\u0000",
+              "bytes": 106496,
+              "count": [
+                {
+                  "n": 800
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "candidate": "weblock",
+      "engine": "chromium",
+      "cases": [
+        {
+          "name": "environment",
+          "value": {
+            "version": "149.0.7827.55",
+            "isolated": true,
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+            "open": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "files": [
+              "messages.sqlite"
+            ]
+          }
+        },
+        {
+          "name": "concurrent-sync",
+          "value": {
+            "complete": true,
+            "totals": {
+              "messages": 750,
+              "distinct": 750,
+              "cursor": 30
+            },
+            "fetches": {
+              "A": 20,
+              "B": 20
+            },
+            "aSync": {
+              "n": 20,
+              "p50": 6.255000114440918,
+              "p95": 15.369999885559082,
+              "max": 17.179999828338623,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "bSync": {
+              "n": 20,
+              "p50": 6.950000286102295,
+              "p95": 10.884999752044678,
+              "max": 11.799999713897705,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "aRead": {
+              "n": 40,
+              "p50": 1.3949999809265137,
+              "p95": 8.845000267028809,
+              "max": 17.449999809265137,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 6
+            },
+            "bRead": {
+              "n": 40,
+              "p50": 1.3899998664855957,
+              "p95": 8.540000438690186,
+              "max": 17.920000076293945,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 6
+            },
+            "wallMs": 503.7338329999984,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "peer-open-then-batch",
+          "value": {
+            "reopened": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "batch": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 307.96087499999703
+            }
+          }
+        },
+        {
+          "name": "failed-batch-rolls-back",
+          "value": {
+            "failed": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 1299,
+              "message": "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: NOT NULL constraint failed: messages.body",
+              "ms": 12.09491700000217
+            },
+            "before": {
+              "count": 750,
+              "cursor": 30
+            },
+            "after": {
+              "count": 750,
+              "cursor": 30
+            }
+          }
+        },
+        {
+          "name": "held-peer",
+          "value": {
+            "locks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "atDeadline": {
+              "settledBefore1500ms": true,
+              "outcome": {
+                "ok": false,
+                "name": "DatabaseBusy",
+                "code": null,
+                "message": "SQL acquisition deadline exceeded",
+                "dispatched": false,
+                "ms": 1006.0773330000011
+              }
+            },
+            "batchOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1006.0773330000011
+            },
+            "readOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1006.0447920000006
+            },
+            "failFast": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 0.5920830000031856
+            },
+            "holdOutcome": {
+              "ok": true,
+              "value": null,
+              "ms": 6007.9310419999965
+            },
+            "page40CountBeforeRetry": 0,
+            "retry": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 9.209458000004815
+            }
+          }
+        },
+        {
+          "name": "owner-disappears",
+          "value": {
+            "outcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 832.4663329999967
+            },
+            "msFromCloseToSettle": 331.34954200000357,
+            "dying": {
+              "pageClosed": "Error: evaluate: Target page, context or browser has been closed"
+            },
+            "diedMarks": 0,
+            "page41Count": 25,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "raw-access-composition",
+          "value": {
+            "liveLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "activeLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "rawBusy": {
+              "ok": false,
+              "name": "FileBusy",
+              "code": null,
+              "message": "Close every SQLite connection before raw access",
+              "ms": 0.125
+            },
+            "expectedCount": 800,
+            "copied": {
+              "header": "SQLite format 3\u0000",
+              "bytes": 106496,
+              "count": [
+                {
+                  "n": 800
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "candidate": "weblock",
+      "engine": "firefox",
+      "cases": [
+        {
+          "name": "environment",
+          "value": {
+            "version": "151.0",
+            "isolated": true,
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
+            "open": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "files": [
+              "messages.sqlite"
+            ]
+          }
+        },
+        {
+          "name": "concurrent-sync",
+          "value": {
+            "complete": true,
+            "totals": {
+              "messages": 750,
+              "distinct": 750,
+              "cursor": 30
+            },
+            "fetches": {
+              "A": 20,
+              "B": 20
+            },
+            "aSync": {
+              "n": 20,
+              "p50": 38.06000000000006,
+              "p95": 47.43999999999994,
+              "max": 329.79999999999995,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 20
+            },
+            "bSync": {
+              "n": 20,
+              "p50": 36.90000000000009,
+              "p95": 46.48000000000002,
+              "max": 357.74,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 20
+            },
+            "aRead": {
+              "n": 40,
+              "p50": 24.899999999999977,
+              "p95": 37.25999999999999,
+              "max": 311.64,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 16
+            },
+            "bRead": {
+              "n": 40,
+              "p50": 25.43999999999994,
+              "p95": 37.22000000000003,
+              "max": 318.52,
+              "over250msLikelyAdapterRetry": 1,
+              "errors": [],
+              "fetches": 15
+            },
+            "wallMs": 1362.808041999997,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "peer-open-then-batch",
+          "value": {
+            "reopened": {
+              "version": "3.54.1",
+              "filename": "/PROTOTYPE-wipe-me-device-opfs/messages.sqlite"
+            },
+            "batch": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 315.4702499999985
+            }
+          }
+        },
+        {
+          "name": "failed-batch-rolls-back",
+          "value": {
+            "failed": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 1299,
+              "message": "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: NOT NULL constraint failed: messages.body",
+              "ms": 28.275249999998778
+            },
+            "before": {
+              "count": 750,
+              "cursor": 30
+            },
+            "after": {
+              "count": 750,
+              "cursor": 30
+            }
+          }
+        },
+        {
+          "name": "held-peer",
+          "value": {
+            "locks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "atDeadline": {
+              "settledBefore1500ms": true,
+              "outcome": {
+                "ok": false,
+                "name": "DatabaseBusy",
+                "code": null,
+                "message": "SQL acquisition deadline exceeded",
+                "dispatched": false,
+                "ms": 1058.8453329999975
+              }
+            },
+            "batchOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1058.8453329999975
+            },
+            "readOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1058.8539579999997
+            },
+            "failFast": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 0.7744579999998678
+            },
+            "holdOutcome": {
+              "ok": true,
+              "value": null,
+              "ms": 6016.729874999997
+            },
+            "page40CountBeforeRetry": 0,
+            "retry": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 21.626790999995137
+            }
+          }
+        },
+        {
+          "name": "owner-disappears",
+          "value": {
+            "outcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 528.5764169999966
+            },
+            "msFromCloseToSettle": 27.449459000003117,
+            "dying": {
+              "pageClosed": "Error: evaluate: Target page, context or browser has been closed"
+            },
+            "diedMarks": 0,
+            "page41Count": 25,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "raw-access-composition",
+          "value": {
+            "liveLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "activeLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "rawBusy": {
+              "ok": false,
+              "name": "FileBusy",
+              "code": null,
+              "message": "Close every SQLite connection before raw access",
+              "ms": 0.08000000000004093
+            },
+            "expectedCount": 800,
+            "copied": {
+              "header": "SQLite format 3\u0000",
+              "bytes": 106496,
+              "count": [
+                {
+                  "n": 800
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "candidate": "weblock",
+      "engine": "webkit",
+      "cases": [],
+      "error": "Error: evaluate: SQLite3Error: SQLITE_ERROR: sqlite3 result code 1: table messages already exists"
+    },
+    {
+      "candidate": "weblock-asap",
+      "engine": "chromium",
+      "cases": [
+        {
+          "name": "environment",
+          "value": {
+            "version": "149.0.7827.55",
+            "isolated": true,
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+            "open": {
+              "version": "3.54.1",
+              "filename": "file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite?opfs-unlock-asap=1"
+            },
+            "files": [
+              "messages.sqlite"
+            ]
+          }
+        },
+        {
+          "name": "concurrent-sync",
+          "value": {
+            "complete": true,
+            "totals": {
+              "messages": 750,
+              "distinct": 750,
+              "cursor": 30
+            },
+            "fetches": {
+              "A": 20,
+              "B": 20
+            },
+            "aSync": {
+              "n": 20,
+              "p50": 7.694999694824219,
+              "p95": 10.300000190734863,
+              "max": 11.020000457763672,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "bSync": {
+              "n": 20,
+              "p50": 7.920000076293945,
+              "p95": 9.514999866485596,
+              "max": 20.450000286102295,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "aRead": {
+              "n": 40,
+              "p50": 1.6500000953674316,
+              "p95": 9.570000171661377,
+              "max": 21,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 7
+            },
+            "bRead": {
+              "n": 40,
+              "p50": 1.674999713897705,
+              "p95": 9.454999923706055,
+              "max": 20.605000019073486,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 7
+            },
+            "wallMs": 515.5168749999939,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "peer-open-then-batch",
+          "value": {
+            "reopened": {
+              "version": "3.54.1",
+              "filename": "file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite?opfs-unlock-asap=1"
+            },
+            "batch": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 2.4038329999966663
+            }
+          }
+        },
+        {
+          "name": "failed-batch-rolls-back",
+          "value": {
+            "failed": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 1299,
+              "message": "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: NOT NULL constraint failed: messages.body",
+              "ms": 10.846582999998645
+            },
+            "before": {
+              "count": 750,
+              "cursor": 30
+            },
+            "after": {
+              "count": 750,
+              "cursor": 30
+            }
+          }
+        },
+        {
+          "name": "held-peer",
+          "value": {
+            "locks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "atDeadline": {
+              "settledBefore1500ms": true,
+              "outcome": {
+                "ok": false,
+                "name": "DatabaseBusy",
+                "code": null,
+                "message": "SQL acquisition deadline exceeded",
+                "dispatched": false,
+                "ms": 1004.2632499999963
+              }
+            },
+            "batchOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1004.2632499999963
+            },
+            "readOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1004.2382920000018
+            },
+            "failFast": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 0.617167000003974
+            },
+            "holdOutcome": {
+              "ok": true,
+              "value": null,
+              "ms": 6016.655082999998
+            },
+            "page40CountBeforeRetry": 0,
+            "retry": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 9.055792000006477
+            }
+          }
+        },
+        {
+          "name": "owner-disappears",
+          "value": {
+            "outcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 824.9327499999927
+            },
+            "msFromCloseToSettle": 323.79991699999664,
+            "dying": {
+              "pageClosed": "Error: evaluate: Target page, context or browser has been closed"
+            },
+            "diedMarks": 0,
+            "page41Count": 25,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "raw-access-composition",
+          "value": {
+            "liveLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "activeLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "rawBusy": {
+              "ok": false,
+              "name": "FileBusy",
+              "code": null,
+              "message": "Close every SQLite connection before raw access",
+              "ms": 0.125
+            },
+            "expectedCount": 800,
+            "copied": {
+              "header": "SQLite format 3\u0000",
+              "bytes": 106496,
+              "count": [
+                {
+                  "n": 800
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "candidate": "weblock-asap",
+      "engine": "firefox",
+      "cases": [
+        {
+          "name": "environment",
+          "value": {
+            "version": "151.0",
+            "isolated": true,
+            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
+            "open": {
+              "version": "3.54.1",
+              "filename": "file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite?opfs-unlock-asap=1"
+            },
+            "files": [
+              "messages.sqlite"
+            ]
+          }
+        },
+        {
+          "name": "concurrent-sync",
+          "value": {
+            "complete": true,
+            "totals": {
+              "messages": 750,
+              "distinct": 750,
+              "cursor": 30
+            },
+            "fetches": {
+              "A": 20,
+              "B": 20
+            },
+            "aSync": {
+              "n": 20,
+              "p50": 26.519999999999982,
+              "p95": 37.69999999999999,
+              "max": 39.719999999999914,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "bSync": {
+              "n": 20,
+              "p50": 27,
+              "p95": 37.19999999999999,
+              "max": 55.20000000000002,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 20
+            },
+            "aRead": {
+              "n": 40,
+              "p50": 19.520000000000095,
+              "p95": 29.060000000000002,
+              "max": 58.04000000000002,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 15
+            },
+            "bRead": {
+              "n": 40,
+              "p50": 20.980000000000018,
+              "p95": 28.319999999999993,
+              "max": 57.28,
+              "over250msLikelyAdapterRetry": 0,
+              "errors": [],
+              "fetches": 15
+            },
+            "wallMs": 899.4893750000047,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "peer-open-then-batch",
+          "value": {
+            "reopened": {
+              "version": "3.54.1",
+              "filename": "file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite?opfs-unlock-asap=1"
+            },
+            "batch": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 4.332750000001397
+            }
+          }
+        },
+        {
+          "name": "failed-batch-rolls-back",
+          "value": {
+            "failed": {
+              "ok": false,
+              "name": "SQLite3Error",
+              "code": 1299,
+              "message": "SQLITE_CONSTRAINT_NOTNULL: sqlite3 result code 1299: NOT NULL constraint failed: messages.body",
+              "ms": 32.38004199998977
+            },
+            "before": {
+              "count": 750,
+              "cursor": 30
+            },
+            "after": {
+              "count": 750,
+              "cursor": 30
+            }
+          }
+        },
+        {
+          "name": "held-peer",
+          "value": {
+            "locks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "atDeadline": {
+              "settledBefore1500ms": true,
+              "outcome": {
+                "ok": false,
+                "name": "DatabaseBusy",
+                "code": null,
+                "message": "SQL acquisition deadline exceeded",
+                "dispatched": false,
+                "ms": 1044.0798750000104
+              }
+            },
+            "batchOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1044.0798750000104
+            },
+            "readOutcome": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 1044.0662090000114
+            },
+            "failFast": {
+              "ok": false,
+              "name": "DatabaseBusy",
+              "code": null,
+              "message": "SQL acquisition deadline exceeded",
+              "dispatched": false,
+              "ms": 0.9302499999903375
+            },
+            "holdOutcome": {
+              "ok": true,
+              "value": null,
+              "ms": 6019.181832999995
+            },
+            "page40CountBeforeRetry": 0,
+            "retry": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 26.644167000005837
+            }
+          }
+        },
+        {
+          "name": "owner-disappears",
+          "value": {
+            "outcome": {
+              "ok": true,
+              "value": {
+                "changes": [
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1,
+                  1
+                ]
+              },
+              "ms": 531.7717919999996
+            },
+            "msFromCloseToSettle": 30.647417000000132,
+            "dying": {
+              "pageClosed": "Error: evaluate: Target page, context or browser has been closed"
+            },
+            "diedMarks": 0,
+            "page41Count": 25,
+            "integrity": "ok"
+          }
+        },
+        {
+          "name": "raw-access-composition",
+          "value": {
+            "liveLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                }
+              ],
+              "pending": []
+            },
+            "activeLocks": {
+              "held": [
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-file:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "shared"
+                },
+                {
+                  "name": "prototype-sql:/PROTOTYPE-wipe-me-device-opfs/messages.sqlite",
+                  "mode": "exclusive"
+                }
+              ],
+              "pending": []
+            },
+            "rawBusy": {
+              "ok": false,
+              "name": "FileBusy",
+              "code": null,
+              "message": "Close every SQLite connection before raw access",
+              "ms": 0.08000000000004093
+            },
+            "expectedCount": 800,
+            "copied": {
+              "header": "SQLite format 3\u0000",
+              "bytes": 106496,
+              "count": [
+                {
+                  "n": 800
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "candidate": "weblock-asap",
+      "engine": "webkit",
+      "cases": [],
+      "error": "Error: evaluate: SQLite3Error: SQLITE_ERROR: sqlite3 result code 1: table messages already exists"
+    }
+  ]
+}

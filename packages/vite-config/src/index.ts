@@ -61,10 +61,9 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
  *   the host leaf of each `#platform/*` seam in the app's package.json
  *   "imports". The `...defaultClientConditions` spread is load-bearing:
  *   custom conditions REPLACE Vite's defaults.
- * - Shared code imports a folder contract from `@epicenter/folder`. Each build
- *   resolves that specifier to its platform entry, so the host build carries
- *   no browser storage or Git implementation and the browser build carries
- *   no desktop adapter. Other subpaths are left alone.
+ * - Shared code imports a folder contract from `@epicenter/folder`. The host
+ *   build selects its Tauri entry. The portable build keeps the runtime choice
+ *   so the same bytes can run in a browser or a hosted Epicenter window.
  * - isomorphic-git and its SHA-1 dependency expect Node's Buffer.
  *   `@epicenter/folder` owns that dependency, so `buffer` resolves from there.
  *   The replacement is the package directory, so `buffer/` resolves too.
@@ -86,12 +85,9 @@ export function hostAppViteConfig(app: { port: number }): UserConfig {
 				conditions: ['epicenter-host', ...defaultClientConditions],
 			}),
 			alias: [
-				{
-					find: /^@epicenter\/folder$/,
-					replacement: host
-						? '@epicenter/folder/tauri'
-						: '@epicenter/folder/browser',
-				},
+				...(host
+					? [{ find: /^@epicenter\/folder$/, replacement: '@epicenter/folder/tauri' }]
+					: []),
 				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
 			],
 		},

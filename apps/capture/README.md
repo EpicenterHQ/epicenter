@@ -72,12 +72,12 @@ The package exports the file model and body codec; it opens no folder.
 | `bun run --cwd packages/capture typecheck` | Package types. |
 | `bun run --cwd apps/capture typecheck` | App and script types. |
 | `bun run --cwd apps/capture test` | Mirror store, bundle graph, and mounted components. |
-| `bun run --cwd apps/capture build` | Browser build. |
+| `bun run --cwd apps/capture build` | Portable website and offline service worker. |
 | `bun run --cwd apps/capture build:host` | Host build. |
 | `bun run --cwd apps/capture smoke:browser` | Chromium flow over a shared browser profile. |
 | `bun scripts/check-ui-boundary.ts` | UI import boundary. |
 
-The browser build writes `build/`; the host build writes `dist/`. They share SvelteKit's output directory, so run them in sequence. The browser smoke needs a free local port and Chromium installed through `bun x playwright install chromium`.
+The portable build writes `build/`; the host build writes `dist/`. They share SvelteKit's output directory, so run them in sequence. The browser smoke needs a free local port and Chromium installed through `bun x playwright install chromium`.
 
 ## Changed promises
 
@@ -88,6 +88,6 @@ This folder-mirror version drops these behaviors from the earlier document engin
 - Folder close fences, loading or Missing states inside an opened detail, and TanStack folder queries.
 - Preserving frontmatter comments, key order, or spelling after a structured update. Unknown keys remain.
 - Downloading unsaved input. Download now writes the shown body and exports the saved file only after that write lands.
-- Edit as text writes the whole file, so a save can recreate a capture deleted elsewhere while that editor is open.
+- Edit as text replaces the whole file and reports a deleted file for inline recovery.
 
 The earlier move to the local folder also removed Save version, Git history, sync, and automatic access to captures stored in OPFS.

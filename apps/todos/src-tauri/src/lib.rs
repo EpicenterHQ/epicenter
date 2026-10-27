@@ -233,6 +233,14 @@ mod tests {
         command: &str,
         args: Value,
     ) -> Result<Value, Value> {
+        let args = if command == "open_folder" {
+            let channel = tauri::ipc::Channel::<tauri_plugin_epicenter_folder::FolderChanged>::new(
+                |_: tauri::ipc::InvokeResponseBody| Ok(()),
+            );
+            json!({ "onChange": channel })
+        } else {
+            args
+        };
         tauri::test::get_ipc_response(
             window,
             InvokeRequest {
@@ -396,11 +404,6 @@ mod tests {
             capability["permissions"],
             json!([
                 "epicenter-folder:default",
-                "core:event:allow-listen",
-                "core:event:allow-unlisten",
-                "dialog:allow-message",
-                "core:window:allow-set-focus",
-                "core:window:allow-destroy",
                 "core:app:allow-identifier",
                 "allow-open-in-epicenter"
             ])

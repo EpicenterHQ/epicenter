@@ -1,5 +1,5 @@
-//! The `epicenter-app` scheme: Rust serves every page Epicenter shows from the
-//! one origin `epicenter-app://localhost` (ADR-0561).
+//! The `epicenter-app` scheme: Rust serves built-in and legacy bundled pages
+//! from `epicenter-app://localhost` (ADR-0561). Published sites load HTTPS.
 //!
 //! ```txt
 //! epicenter-app://localhost/<page>/…    Epicenter's own pages (`BuiltInApp`), from `<pages>/<page>/`
@@ -73,10 +73,14 @@ pub fn is_allowed_navigation(prefix: &str, url: &Url) -> bool {
 pub fn register<R: Runtime>(builder: Builder<R>) -> Builder<R> {
     builder.register_asynchronous_uri_scheme_protocol(SCHEME, |context, request, responder| {
         let app = context.app_handle().clone();
+        let requester = context.webview_label().to_owned();
         tauri::async_runtime::spawn_blocking(move || {
-            let response = match app.try_state::<Pages>() {
-                Some(pages) => respond(&pages.0, &request),
-                None => plain(StatusCode::SERVICE_UNAVAILABLE, "Epicenter is starting."),
+            let response = match request.uri().host() {
+                Some(HOST) if !requester.starts_with("site:") => match app.try_state::<Pages>() {
+                    Some(pages) => respond(&pages.0, &request),
+                    None => plain(StatusCode::SERVICE_UNAVAILABLE, "Epicenter is starting."),
+                },
+                _ => plain(StatusCode::NOT_FOUND, "Not Found"),
             };
             responder.respond(response);
         });

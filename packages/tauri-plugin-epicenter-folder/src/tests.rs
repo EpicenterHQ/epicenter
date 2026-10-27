@@ -49,13 +49,88 @@ use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
 use crate::{init, BindError, Directory, FolderExt, COMMANDS};
 
-/// Real notify delivery through the typed event and the calling WebView target.
-/// No file content or absolute root crosses the event channel.
+#[test]
+fn hosted_observations_use_only_the_callers_channel() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    use tauri::ipc::{Channel, InvokeResponseBody};
+
+    let fixture = fixture("hosted-channel");
+    let window = fixture.bound_window("site:hosted", &fixture.root);
+    let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
+    let (send, receive) = mpsc::channel();
+    let channel = Channel::new(move |body: InvokeResponseBody| {
+        if let InvokeResponseBody::Json(json) = body {
+            if let Ok(change) = serde_json::from_str::<crate::FolderChanged>(&json) {
+                let _ = send.send(change);
+            }
+        }
+        Ok(())
+    });
+    tauri::async_runtime::block_on(crate::commands::open_folder(webview, channel)).unwrap();
+    std::fs::write(fixture.root.join("change.md"), b"changed").unwrap();
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let notice = receive
+            .recv_timeout(until.saturating_duration_since(std::time::Instant::now()))
+            .unwrap();
+        if notice
+            .paths
+            .is_none_or(|paths| paths.contains(&"change.md".to_string()))
+        {
+            break;
+        }
+    }
+    while receive.try_recv().is_ok() {}
+    // A WebView reload keeps the window binding and watcher, but its old
+    // JavaScript channel is gone. Opening from the new page replaces it.
+    let (next_send, next_receive) = mpsc::channel();
+    let next_channel = Channel::new(move |body: InvokeResponseBody| {
+        if let InvokeResponseBody::Json(json) = body {
+            if let Ok(change) = serde_json::from_str::<crate::FolderChanged>(&json) {
+                let _ = next_send.send(change);
+            }
+        }
+        Ok(())
+    });
+    let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
+    tauri::async_runtime::block_on(crate::commands::open_folder(webview, next_channel)).unwrap();
+    std::fs::write(fixture.root.join("after-reload.md"), b"changed").unwrap();
+    let until = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let notice = next_receive
+            .recv_timeout(until.saturating_duration_since(std::time::Instant::now()))
+            .unwrap();
+        if notice
+            .paths
+            .is_none_or(|paths| paths.contains(&"after-reload.md".to_string()))
+        {
+            break;
+        }
+    }
+    assert!(receive.try_iter().all(|change| change
+        .paths
+        .is_none_or(|paths| !paths.contains(&"after-reload.md".to_string()))));
+}
+
+/// Real notify delivery through each bound WebView's private channel.
+/// No file content or absolute root crosses the channel.
 #[test]
 fn external_writes_and_atomic_replacements_reach_only_the_bound_webview() {
     use std::sync::mpsc;
     use std::time::Duration;
-    use tauri_specta::Event;
+    use tauri::ipc::{Channel, InvokeResponseBody};
+
+    let channel = |send: mpsc::Sender<crate::FolderChanged>| {
+        Channel::new(move |body: InvokeResponseBody| {
+            if let InvokeResponseBody::Json(json) = body {
+                if let Ok(change) = serde_json::from_str(&json) {
+                    let _ = send.send(change);
+                }
+            }
+            Ok(())
+        })
+    };
 
     let fixture = fixture("native-watch");
     let main = fixture.bound_window("main", &fixture.root);
@@ -64,17 +139,14 @@ fn external_writes_and_atomic_replacements_reach_only_the_bound_webview() {
     let other = fixture.bound_window("other", &elsewhere);
     let (send, receive) = mpsc::channel();
     let (other_send, other_receive) = mpsc::channel();
-    let view: &tauri::Webview<MockRuntime> = main.as_ref();
-    let other_view: &tauri::Webview<MockRuntime> = other.as_ref();
-    crate::FolderChanged::listen(view, move |event| {
-        send.send(event.payload).unwrap();
-    });
-    crate::FolderChanged::listen(other_view, move |event| {
-        other_send.send(event.payload).unwrap();
-    });
-    open(&main).unwrap();
-    open(&main).unwrap(); // Reuses this binding's watcher.
-    open(&other).unwrap();
+    let view: tauri::Webview<MockRuntime> = main.as_ref().clone();
+    let other_view: tauri::Webview<MockRuntime> = other.as_ref().clone();
+    tauri::async_runtime::block_on(crate::commands::open_folder(view, channel(send))).unwrap();
+    tauri::async_runtime::block_on(crate::commands::open_folder(
+        other_view,
+        channel(other_send),
+    ))
+    .unwrap();
 
     std::fs::create_dir(fixture.root.join("notes")).unwrap();
     std::fs::write(fixture.root.join("notes/a.md"), b"external").unwrap();
@@ -126,24 +198,33 @@ fn one_watch_belongs_to_each_binding_and_unbind_or_shutdown_stops_it() {
     fixture
         .app
         .folders()
-        .watch("main", &directory, move |event| {
+        .watch_current("main", &directory, move |event| {
             let _ = send.send(event);
-        })
-        .unwrap();
-    fixture
-        .app
-        .folders()
-        .watch("main", &directory, move |event| {
-            let _ = duplicate_send.send(event);
         })
         .unwrap();
     std::fs::write(fixture.root.join("first.md"), b"first").unwrap();
     receive.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert!(duplicate_receive.try_recv().is_err());
-    fixture.app.folders().unbind("main");
     while receive.try_recv().is_ok() {}
+    fixture
+        .app
+        .folders()
+        .watch_current("main", &directory, move |event| {
+            let _ = duplicate_send.send(event);
+        })
+        .unwrap();
+    std::fs::write(fixture.root.join("second.md"), b"second").unwrap();
+    duplicate_receive
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap();
+    assert!(receive.try_iter().all(|change| change
+        .paths
+        .is_none_or(|paths| !paths.contains(&"second.md".to_string()))));
+    fixture.app.folders().unbind("main");
+    while duplicate_receive.try_recv().is_ok() {}
     std::fs::write(fixture.root.join("detached.md"), b"detached").unwrap();
-    assert!(receive.recv_timeout(Duration::from_millis(200)).is_err());
+    assert!(duplicate_receive
+        .recv_timeout(Duration::from_millis(200))
+        .is_err());
 
     let (send, receive) = mpsc::channel();
     fixture
@@ -154,7 +235,7 @@ fn one_watch_belongs_to_each_binding_and_unbind_or_shutdown_stops_it() {
     fixture
         .app
         .folders()
-        .watch("main", &directory, move |event| {
+        .watch_current("main", &directory, move |event| {
             let _ = send.send(event);
         })
         .unwrap();
@@ -344,7 +425,14 @@ fn response(
 }
 
 fn open(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
-    invoke(window, "open_folder", json!({}))
+    use tauri::ipc::{Channel, InvokeResponseBody};
+    let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
+    tauri::async_runtime::block_on(crate::commands::open_folder(
+        webview,
+        Channel::new(|_: InvokeResponseBody| Ok(())),
+    ))
+    .map(|_| Value::Null)
+    .map_err(|error| serde_json::to_value(error).unwrap())
 }
 
 /// `read_folder_file` as `tauri-files.ts` asks for it: the bytes, which

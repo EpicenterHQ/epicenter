@@ -20,6 +20,9 @@ tauri-build = { version = "2.6", features = [] }
 # The runtime smoke embeds a built Todos page, which ordinary cargo tests
 # must not require on a fresh checkout.
 native-tabs-smoke = []
+# Experiment only (`evidence/offline-proxy/run-tauri.ts`): a hosted site through
+# a pinned local replay proxy in its own WebKit store. Not a product proxy.
+hosted-site-offline-gate = ["tauri/macos-proxy"]
 # Native dictation: paste at the cursor and its Accessibility-grant watch,
 # pausing other apps' media, the macOS recording overlay panel, and the
 # clipboard-manager and global-shortcut plugins. No page reaches any of it, and
@@ -50,6 +53,10 @@ glob = "0.3"
 [[example]]
 name = "native_tabs"
 required-features = ["native-tabs-smoke"]
+
+[[example]]
+name = "hosted_site_offline"
+required-features = ["hosted-site-offline-gate"]
 
 [dependencies]
 dunce = "1"

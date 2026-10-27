@@ -3,11 +3,10 @@
  * to this window. The shell answers each storage command, and its watcher
  * sends the paths that changed.
  */
-import { isTauri } from '@tauri-apps/api/core';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { Channel, isTauri } from '@tauri-apps/api/core';
 import { hostStorage } from './boundary.js';
 import { OpenFolderError } from './errors.js';
-import { commands, events } from './native/bindings.gen.js';
+import { commands, type FolderChanged } from './native/bindings.gen.js';
 import { openRefusal } from './native/open-refusal.js';
 import { tauriHostFiles } from './tauri-files.js';
 import {
@@ -25,8 +24,13 @@ export async function openFolder<const T extends Tables>(
 ): Opened<T> {
 	if (!isTauri()) return OpenFolderError.NotTauri();
 	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
+	const listeners = new Set<(paths: readonly string[] | null) => void>();
+	const onChange = new Channel<FolderChanged>();
+	onChange.onmessage = ({ paths }) => {
+		for (const listener of listeners) listener(paths);
+	};
 	try {
-		opened = await commands.openFolder();
+		opened = await commands.openFolder(onChange);
 	} catch (cause) {
 		return OpenFolderError.Unavailable({ cause });
 	}
@@ -38,33 +42,13 @@ export async function openFolder<const T extends Tables>(
 			return OpenFolderError.Unavailable({ cause: error });
 		return openRefusal(error);
 	}
-	const listeners = new Set<(paths: readonly string[] | null) => void>();
-	let stop: () => void;
-	try {
-		stop = await events
-			.folderChanged(getCurrentWebview())
-			.listen(({ payload }) => {
-				const paths: unknown =
-					typeof payload === 'object' && payload !== null
-						? payload.paths
-						: undefined;
-				const named =
-					Array.isArray(paths) &&
-					paths.every((path) => typeof path === 'string')
-						? paths
-						: null;
-				for (const listener of listeners) listener(named);
-			});
-	} catch (cause) {
-		return OpenFolderError.Unavailable({ cause });
-	}
 	return createFolder(
 		storageHost(hostStorage(tauriHostFiles()), {
 			watch(listener) {
 				listeners.add(listener);
 				return () => {
 					listeners.delete(listener);
-					if (listeners.size === 0) stop();
+					if (listeners.size === 0) onChange.onmessage = () => {};
 				};
 			},
 		}),

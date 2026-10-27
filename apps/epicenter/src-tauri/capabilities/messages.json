@@ -8,12 +8,6 @@
 	],
 	"permissions": [
 		"epicenter-folder:default",
-		"core:event:allow-listen",
-		"core:event:allow-emit",
-		"dialog:allow-message",
-		"core:event:allow-unlisten",
-		"core:window:allow-set-focus",
-		"core:window:allow-destroy",
 		"allow-messages-beeper"
 	]
 }

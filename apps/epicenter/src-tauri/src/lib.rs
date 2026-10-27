@@ -24,6 +24,10 @@ mod folder_listing;
 mod folder_opening;
 mod folder_query;
 mod folder_windows;
+mod hosted_sites;
+// Experiment only: the offline-proxy Tauri gate (`evidence/offline-proxy`).
+#[cfg(all(target_os = "macos", feature = "hosted-site-offline-gate"))]
+pub use hosted_sites::offline_gate;
 use epicenter_folder_core::library;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 #[cfg(target_os = "macos")]
@@ -162,6 +166,7 @@ macro_rules! shell_commands {
             cli::whispering_connection_set,
             bundled_apps::open_bundled_app,
             bundled_apps::choose_folder_for_app,
+            hosted_sites::open_hosted_site,
             get_unload_policy,
             set_unload_policy,
             list_models,
@@ -355,6 +360,7 @@ pub fn run() {
         .manage(cli::CliChildren::default())
         .manage(shell::QuitRequest::default())
         .manage(updates::Updates::default())
+        .manage(hosted_sites::HostedSites::default())
         .manage(DownloadManager::default());
 
     // Only native dictation uses these plugins; no capability grants them.
@@ -810,10 +816,8 @@ mod tests {
         assert_eq!(pending.take(), None, "a claimed intent must not fire again");
     }
 
-    /// Every page is served on the `epicenter-app` scheme, which Tauri treats
-    /// as local, so no capability names a remote origin (ADR-0561). There is
-    /// one file per kind of window, and the build selects each of them; a
-    /// development build changes none of it.
+    /// Built-in and legacy bundled pages use local capabilities. Published
+    /// sites receive an exact-origin capability at window creation instead.
     #[test]
     fn one_local_capability_per_kind_of_window() {
         let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
@@ -906,15 +910,7 @@ mod tests {
         );
         assert_eq!(
             bundled["permissions"],
-            serde_json::json!([
-                "epicenter-folder:default",
-                "core:event:allow-listen",
-                "core:event:allow-emit",
-                "dialog:allow-message",
-                "core:event:allow-unlisten",
-                "core:window:allow-set-focus",
-                "core:window:allow-destroy"
-            ])
+            serde_json::json!(["epicenter-folder:default"])
         );
         for app in BundledApp::ALL {
             for label in folder_labels(app.page()) {
@@ -950,16 +946,7 @@ mod tests {
         );
         assert_eq!(
             capability["permissions"],
-            serde_json::json!([
-                "epicenter-folder:default",
-                "allow-folder-query",
-                "core:event:allow-listen",
-                "core:event:allow-emit",
-                "dialog:allow-message",
-                "core:event:allow-unlisten",
-                "core:window:allow-set-focus",
-                "core:window:allow-destroy"
-            ])
+            serde_json::json!(["epicenter-folder:default", "allow-folder-query"])
         );
         for label in folder_labels(crate::folder_windows::EDITOR_PREFIX) {
             for encoded in ALL_CAPABILITIES {
@@ -995,12 +982,6 @@ mod tests {
             capability["permissions"],
             serde_json::json!([
                 "epicenter-folder:default",
-                "core:event:allow-listen",
-                "core:event:allow-emit",
-                "dialog:allow-message",
-                "core:event:allow-unlisten",
-                "core:window:allow-set-focus",
-                "core:window:allow-destroy",
                 "epicenter-recorder:default",
                 {
                     "identifier": "opener:allow-open-url",
@@ -1334,6 +1315,7 @@ mod tests {
                 "allow-list-data-folders",
                 "allow-open-folder-editor",
                 "allow-open-bundled-app",
+                "allow-open-hosted-site",
                 "allow-choose-folder-for-app",
                 "allow-open-home",
                 OPENING[0],

@@ -42,6 +42,7 @@ import {
 let shell: GrantedShell;
 mock.module('@tauri-apps/api/core', () => ({
 	SERIALIZE_TO_IPC_FN: '__TAURI_TO_IPC_KEY__',
+	Channel: class {},
 	transformCallback: () => 0,
 	isTauri: () => true,
 	invoke: (

@@ -34,15 +34,15 @@
 //! than silently replaced (ADR-0562, ADR-0568). `Folders::shutdown` refuses
 //! new work without waiting for work already running (ADR-0542).
 //!
-//! Each opened binding owns one recursive native watch. A scoped typed event
-//! tells its page which paths may differ; the page owns reading those paths.
+//! Each opened binding owns one recursive native watch. Its private channel
+//! tells the page which paths may differ; the page owns reading those paths.
 
 use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
 pub use epicenter_folder_core::directory::{Directory, DirectoryError};
 pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
-pub use epicenter_folder_core::{navigation, library};
+pub use epicenter_folder_core::{library, navigation};
 
 mod command_names;
 mod commands;
@@ -52,9 +52,10 @@ mod watch;
 mod windows;
 
 pub use command_names::COMMANDS;
+use folders::CloseRequest;
 pub use folders::{BindError, Folders, WindowError};
 pub use watch::FolderChanged;
-pub use windows::{FolderExt, OpenWindowError};
+pub use windows::{folder_window_label, FolderExt, OpenWindowError};
 
 const PLUGIN_NAME: &str = "epicenter-folder";
 
@@ -69,12 +70,14 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
         .plugin_name(PLUGIN_NAME)
         .commands(tauri_specta::collect_commands![
             commands::open_folder::<tauri::Wry>,
+            commands::subscribe_close::<tauri::Wry>,
+            commands::unsubscribe_close::<tauri::Wry>,
+            commands::destroy_bound_window::<tauri::Wry>,
             commands::list_folder::<tauri::Wry>,
             commands::read_folder_children::<tauri::Wry>,
             commands::make_folder_directory::<tauri::Wry>,
             commands::remove_folder_directory::<tauri::Wry>,
         ])
-        .events(tauri_specta::collect_events![FolderChanged])
         .typ::<PutOutcome>()
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
 }
@@ -95,11 +98,31 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             _ => typed(invoke),
         })
         .setup(move |app, _api| {
-            contract.mount_events(app);
             app.manage(Folders::default());
             Ok(())
         })
+        .on_page_load(|webview, payload| {
+            if payload.event() == tauri::webview::PageLoadEvent::Started {
+                webview.app_handle().folders().page_started(webview.label());
+            }
+        })
         .on_event(|app, event| match event {
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::CloseRequested { api, .. },
+                ..
+            } => match app.folders().request_close(label) {
+                CloseRequest::Unhandled => {}
+                CloseRequest::Sent | CloseRequest::Waiting => api.prevent_close(),
+                CloseRequest::ConfirmNatively(token) => {
+                    api.prevent_close();
+                    if let Some(window) = app.get_webview_window(label) {
+                        commands::confirm_unanswered_close(window, token);
+                    } else {
+                        app.folders().finish_close_request(label, token);
+                    }
+                }
+            },
             // A destroyed window's label may be built again, on any folder.
             RunEvent::WindowEvent {
                 label,

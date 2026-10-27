@@ -10,8 +10,9 @@ product pages offer no Save version, Connect, or Sync action.
 The existing app owns one Tauri runtime, one native command API, and the short
 list of what it compiles in. It bundles [Todos, Capture, Honeycrisp, Whispering, and
 Messages](#bundled-apps), each built from its own folder under `apps/` with
-Epicenter's own pages. Epicenter installs no other app: there is no source
-installer, manifest, approval, or app build on this machine. Clones and
+Epicenter's own pages. Epicenter also opens published HTTPS sites in their own
+windows. It has no source installer, app manifest, or app build on this
+machine. Clones and
 builds an earlier version installed are left on disk, never read and never
 removed ([Application data](#application-data)).
 
@@ -24,7 +25,7 @@ apps/<page> (build:host) ---------> dist/<page> ------> epicenter-app://localhos
   for todos, capture, honeycrisp, whispering, messages
 ```
 
-Rust serves every page Epicenter shows from one origin,
+Rust serves built-in and bundled pages from one legacy origin,
 `epicenter-app://localhost`, through a scheme the shell registers
 (`src-tauri/src/scheme.rs`, ADR-0561): Settings (the `home` window) at
 `/home/`, the Folders window at `/folders/`, and each bundled app at
@@ -40,13 +41,52 @@ Content-Security-Policy: a page reaches its own origin and Tauri's IPC
 (`connect-src 'self' ipc: http://ipc.localhost`) and nothing else, and a
 document's policy admits each of its inline scripts by hash. Each window
 navigates only below the path it opened at, a built-in page's or a bundled
-app's `/<page>/`, so an app window never loads another app's page; a
+app's `/<page>/`, so a bundled app window never loads another app's page; a
 new-window link opens in the system browser only when it is the hosted
 account website.
 
 App pages reach native file folders through the shared Folder plugin. Each
 page opens a directory the shell grants (ADR-0531). The editor, Settings, and bundled pages use `@epicenter/folder`. A bundled app's window is granted the native commands its page
 calls by its window label ([Bundled apps](#bundled-apps)).
+
+## Hosted sites
+
+The Folders window accepts an HTTPS root URL such as
+`https://todos.acme.dev`. The hostname is the site identity and determines
+its authored area: `~/Epicenter/dev.acme.todos`. Paths within that origin
+remain app routes. `https://epicenter.so` is reserved because its derived
+area is Epicenter's own `so.epicenter`; subdomains such as
+`https://todos.epicenter.so` have separate areas.
+
+The window loads the site's real HTTPS URL. There is no installation, archive,
+Update action, or saved folder association. Opening creates a missing derived
+folder and reuses an existing one. The publisher controls the code that loads
+next time, including code that reads this folder. A missing folder is created
+again; Epicenter does not infer that it was moved.
+
+On macOS the host binds the window to its derived directory before loading
+the page, then grants the Folder plugin to that exact window and HTTPS origin.
+The page cannot choose a different directory. Top-level navigation cannot
+leave the origin, and new windows and device permission requests are denied.
+The host grants no general event, dialog, process, recorder, account, or native
+network API. Site scripts use `@epicenter/folder` at runtime: browser pages
+use browser storage, while hosted WebViews use the native folder. These are
+separate stores even at the same URL.
+
+The publisher serves a normal website at the HTTPS URL. Today, cold offline
+reopening depends on the website's own offline support and retained WebView
+data. A running page can keep editing its local folder after its code has
+loaded. [ADR-0691](../../docs/adr/0691-offline-reopening-keeps-the-sites-https-origin.md)
+proposes host-owned response capture and replay without a publisher-specific
+protocol; [macOS native and Tauri integration probes](evidence/offline-proxy/RESULTS.md)
+pass for a fixed-host fixture, while the production proxy and trust hook remain
+unbuilt. Online services
+and media have their own requirements. Site opening on Windows and Linux
+remains disabled pending native origin checks.
+
+Bundled pages and their `build:host` path remain during migration. A
+published site's browser build is already portable through
+`@epicenter/folder`'s runtime choice; the old host build is not its release.
 
 The shell serves product bundles and holds no credential: the `epicenter`
 CLI holds the account and every key (ADR-0556). Settings opens its records
@@ -159,6 +199,7 @@ Files split by what they cost to lose (ADR-0539):
   so.epicenter.honeycrisp/                    Honeycrisp's default
   so.epicenter.whispering/                    Whispering's default
   so.epicenter.messages/                      Messages's default
+  dev.acme.todos/                             a hosted site's derived area
   Notes/, ...                                 other data folders, each listed and opened as files
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
@@ -180,6 +221,10 @@ stay on disk. Epicenter never reads them and never removes them; delete them
 by hand to reclaim the space. The folders those apps opened under the same
 reverse-DNS names, such as `~/Epicenter/so.epicenter.todos`, are now those
 apps' defaults, reused with their files.
+
+The earlier archive implementation stored `sites/<hostname>/release.tar` and
+`associated` under application data. Current site windows leave those files
+untouched and load the publisher's HTTPS page instead.
 
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
@@ -548,8 +593,8 @@ guard. Detaching or merging changes presentation without reopening the
 folder or transferring edits. Tab membership lives in AppKit, never in
 application data.
 
-Bundled app pages and the Folders editor answer window Close through the
-page's window-close guard: editor writes are already queued, and the guard waits
+Bundled app pages, hosted sites, and the Folders editor answer window Close over
+the Folder plugin's private channel: editor writes are already queued, and `<OpenFolder>` waits
 for queued mirror writes, then destroys the window without a question. Closing
 again while it waits asks whether to close anyway. A recording alone does not delay close: native destruction ends
 capture and keeps the audio captured so far. Repeated requests for one window
@@ -565,13 +610,13 @@ global gate over individual window closes.
 ### Native commands for a bundled app
 
 `capabilities/bundled-app.json` selects `todos:*`, `capture:*`, and
-`honeycrisp:*` and grants the folder plugin and its change event. Inside
-Epicenter the close guard destroys with `core:window:allow-destroy`.
+`honeycrisp:*` and grants the folder plugin's private observation and close
+channels. The plugin destroys only the calling bound window.
 
 `capabilities/whispering.json` selects `whispering:*` and grants what
 Whispering's page calls:
 
-- the folder plugin and its change event, for the one folder the shell binds
+- the folder plugin and its private channels, for the one folder the shell binds
   to its window;
 - the recorder plugin, and the opener's `allow-open-url` scoped to
   `x-apple.systempreferences:`, to open System Settings' microphone pane;
@@ -608,8 +653,9 @@ name it is now Whispering's default and opens with its files.
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, `home.json`,
 `bundled-app.json`, `whispering.json`, and `folder-editor.json`, which selects
-`files:*` and grants the folder plugin, its change event,
-and destroying its own window. A development build selects the same five. This is wiring, not a sandbox (ADR-0179, ADR-0334).
+`files:*` and grants the folder plugin's private observation and close
+channels. A development build selects the same five. Hosted sites receive an
+exact-origin runtime grant instead. This is wiring, not a sandbox (ADR-0179, ADR-0334).
 
 Whispering's page has no recording overlay and
 registers no global shortcuts, so neither is created or granted.
@@ -694,14 +740,14 @@ as Whispering and Honeycrisp, are checked in their own folders.
 
 ## Ownership rules
 
-- `src-tauri` owns native commands, permissions, windows, deep links, the `epicenter-app` scheme that serves every page, and packaging.
+- `src-tauri` owns native commands, permissions, windows, deep links, the `epicenter-app` scheme for built-in and bundled pages, and packaging.
 - `src` owns the Settings page and the Folders window's page. The CLI's commands live in `packages/cli`.
 - `dist` is generated. Never edit it or commit product source beneath it.
 - A product SPA owns its UI and browser deployment from its own app folder.
-- A multi-host SPA selects implementations through build-time `#platform/*` conditions. Runtime checks guard optional capabilities; they do not choose which implementation was bundled.
+- A published SPA bundles both browser and desktop implementations of portable `@epicenter/*` capabilities and selects them at runtime. Legacy bundled pages still use build-time `#platform/*` conditions until migration.
 - Do not create `apps/epicenter/<app>` source copies. The build must consume the canonical app source directly.
 
-The one trusted origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md), and Rust serving it over the scheme in [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md).
+The legacy shared origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) and [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md). Hosted-site behavior is described above and under review in [ADR-0687](../../docs/adr/0687-opening-a-site-url-opens-its-derived-folder.md).
 
 ## Shared AI connections
 

@@ -267,6 +267,14 @@ mod tests {
         command: &str,
         args: Value,
     ) -> Result<Value, Value> {
+        let args = if command == "open_folder" {
+            let channel = tauri::ipc::Channel::<tauri_plugin_epicenter_folder::FolderChanged>::new(
+                |_: tauri::ipc::InvokeResponseBody| Ok(()),
+            );
+            json!({ "onChange": channel })
+        } else {
+            args
+        };
         tauri::test::get_ipc_response(
             window,
             InvokeRequest {

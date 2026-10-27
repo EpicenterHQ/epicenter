@@ -425,8 +425,11 @@ test('the page opens its window folder naming no folder, and opening writes noth
 
 	const { services, folder: opened } = await openDesktop();
 
-	// The window opens the folder bound to it; no root, scope, author, or branch.
-	expect(calls[0]).toEqual({ cmd: 'open_folder', args: {} });
+	// The window opens the folder bound to it and supplies only a change channel.
+	expect(calls[0]).toMatchObject({
+		cmd: 'open_folder',
+		args: { onChange: expect.anything() },
+	});
 	expect(sent('open_folder')).toHaveLength(1);
 	expect(calls.filter(namesAFolder)).toEqual([]);
 	expect(services.location).toBe('The folder opened in Epicenter');

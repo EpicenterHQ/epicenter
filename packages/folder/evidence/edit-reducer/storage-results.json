@@ -1,0 +1,11 @@
+{
+  "scenarios": 6048,
+  "mismatches": 0,
+  "stalePublications": 3024,
+  "injectedFailures": 624,
+  "bytesChecked": 476143,
+  "exactHeaderChecks": 504,
+  "recoveries": 2280,
+  "successfulRepairs": 2280,
+  "differences": []
+}

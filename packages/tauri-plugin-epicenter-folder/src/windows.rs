@@ -39,7 +39,7 @@ pub trait FolderExt<R: Runtime>: Manager<R> {
             + Send
             + 'static,
     {
-        let label = label(application, directory.root());
+        let label = folder_window_label(application, directory.root());
         let app = self.app_handle().clone();
         let on_main = app.clone();
         let (send, receive) = mpsc::sync_channel(1);
@@ -81,7 +81,8 @@ pub trait FolderExt<R: Runtime>: Manager<R> {
 
 impl<R: Runtime, T: Manager<R>> FolderExt<R> for T {}
 
-fn label(application: &str, root: &Path) -> String {
+/// The label that `open_folder_window` will reserve before building its WebView.
+pub fn folder_window_label(application: &str, root: &Path) -> String {
     let digest = Sha256::digest(root.as_os_str().as_encoded_bytes());
     let hex: String = digest[..16]
         .iter()
@@ -231,7 +232,7 @@ mod tests {
         for bind_other_root in [false, true] {
             let fixture = fixture();
             let root = directory(&fixture, "Todos");
-            let key = label("todos", root.root());
+            let key = folder_window_label("todos", root.root());
             let original = WebviewWindowBuilder::new(&fixture.app, &key, Default::default())
                 .title("Unrelated")
                 .build()
@@ -266,7 +267,7 @@ mod tests {
     fn configure_and_native_build_failures_release_the_reservation() {
         let fixture = fixture();
         let root = directory(&fixture, "Todos");
-        let key = label("todos", root.root());
+        let key = folder_window_label("todos", root.root());
         let handle = fixture.app.handle().clone();
         let expected = root.clone();
         let checking = key.clone();
@@ -280,7 +281,7 @@ mod tests {
         assert!(matches!(failed, Err(OpenWindowError::Native(_))));
         assert!(fixture.app.folders().bound(&key).is_err());
         assert!(fixture.app.webview_windows().is_empty());
-        let invalid = label("invalid?", root.root());
+        let invalid = folder_window_label("invalid?", root.root());
         assert!(fixture
             .app
             .open_folder_window("invalid?", root.clone(), Default::default(), |builder| Ok(

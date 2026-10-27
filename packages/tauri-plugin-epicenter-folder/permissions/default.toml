@@ -6,6 +6,9 @@
 description = "Open the folder the shell bound to this window, then read and change its files through the shell."
 permissions = [
   "allow-open-folder",
+  "allow-subscribe-close",
+  "allow-unsubscribe-close",
+  "allow-destroy-bound-window",
   "allow-list-folder",
   "allow-read-folder-children",
   "allow-read-folder-file",

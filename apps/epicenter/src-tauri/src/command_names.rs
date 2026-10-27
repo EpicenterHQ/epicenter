@@ -39,6 +39,7 @@ pub const COMMANDS: &[&str] = &[
     "whispering_connection_set",
     "open_bundled_app",
     "choose_folder_for_app",
+    "open_hosted_site",
     "set_active_model",
     "get_unload_policy",
     "set_unload_policy",

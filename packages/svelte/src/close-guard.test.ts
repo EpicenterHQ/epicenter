@@ -1,27 +1,22 @@
 /**
- * The desktop close guard waits for queued writes,
- * writes, and destroys once; closing again while it waits asks whether to
+ * The desktop close guard waits for queued writes and destroys once;
+ * closing again while it waits asks whether to
  * close anyway. One window holds one close listener.
  */
 import './svelte-dom.test-support.js';
-import { afterEach, expect, mock, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import {
 	desktop,
+	nativeDialog,
 	nativeWindow,
 	requestClose,
 } from './tauri-window.test-support.js';
-
-let closeAnyway = false;
-const ask = mock(async () => closeAnyway);
-mock.module('@tauri-apps/plugin-dialog', () => ({ ask }));
 
 const { holdWindowClose } = await import('./window-close.js');
 const cleanup: (() => void)[] = [];
 afterEach(() => {
 	for (const stop of cleanup.splice(0).reverse()) stop();
 	nativeWindow.reset();
-	ask.mockClear();
-	closeAnyway = false;
 });
 
 test('a window holds one close listener until it is released', async () => {
@@ -67,7 +62,7 @@ test('closing again while writes are out asks; Keep waiting closes once they lan
 	const first = requestClose();
 	await started.promise;
 	await requestClose();
-	expect(ask).toHaveBeenCalledTimes(1);
+	expect(nativeDialog.count).toBe(1);
 	expect(calls).toBe(1);
 	expect(nativeWindow.destroyed).toBe(0);
 	drain.resolve();
@@ -115,7 +110,7 @@ test('a close waits for queued writes without dispatching beforeunload', async (
 	);
 	await requestClose();
 	expect(sent).toEqual(['drain']);
-	expect(ask).not.toHaveBeenCalled();
+	expect(nativeDialog.count).toBe(0);
 	expect(nativeWindow.destroyed).toBe(1);
 });
 
@@ -126,8 +121,8 @@ test('a save that never answers waits until Close anyway', async () => {
 	await Bun.sleep(5);
 	expect(nativeWindow.destroyed).toBe(0);
 	expect(document.documentElement.inert).toBe(true);
-	closeAnyway = true;
+	nativeDialog.answer = true;
 	await requestClose();
-	expect(ask).toHaveBeenCalledTimes(1);
+	expect(nativeDialog.count).toBe(1);
 	expect(nativeWindow.destroyed).toBe(1);
 });

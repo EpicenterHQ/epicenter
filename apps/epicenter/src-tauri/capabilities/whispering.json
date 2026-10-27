@@ -1,17 +1,11 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "whispering",
-	"description": "Whispering, which Epicenter bundles (`bundled_apps.rs`), runs in one window per folder, labelled whispering:<digest of the folder's directory>. The shell binds each window's one folder to it before the window exists, and the window reaches no other. The page lists and reads that folder through the folder plugin and its change event. On close it waits for queued writes, then destroys the window. Closing ends any recording and keeps its captured audio (ADR-0663). It lists the microphones, reads one's level, and records into that folder through the recorder plugin, which asks macOS for microphone access first and finalizes a recording when the window is destroyed (ADR-0543, ADR-0571), and opens System Settings at a privacy pane through the opener (`x-apple.systempreferences:` only, ADR-0555). It transcribes with the one active local model, reads whether that model is ready, and opens Settings, where that model is chosen (ADR-0180); it administers no model. It reads and saves its two AI connection rows in Epicenter's own folder, so.epicenter, by operation and never by path, sends user-supplied provider requests through the narrow CLI runner and saves each connection's key without reading it back (ADR-0557). For an Epicenter connection it reads the desktop grant and sends only the hosted API requests granted to Whispering through its resource-bound Account (ADR-0683). It runs no folder history. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
+	"description": "Whispering, which Epicenter bundles (`bundled_apps.rs`), runs in one window per folder, labelled whispering:<digest of the folder's directory>. The shell binds each window's one folder to it before the window exists, and the window reaches no other. The page lists and reads that folder through the folder plugin's private observation and close channels. On close it waits for queued writes, then destroys the window. Closing ends any recording and keeps its captured audio (ADR-0663). It lists the microphones, reads one's level, and records into that folder through the recorder plugin, which asks macOS for microphone access first and finalizes a recording when the window is destroyed (ADR-0543, ADR-0571), and opens System Settings at a privacy pane through the opener (`x-apple.systempreferences:` only, ADR-0555). It transcribes with the one active local model, reads whether that model is ready, and opens Settings, where that model is chosen (ADR-0180); it administers no model. It reads and saves its two AI connection rows in Epicenter's own folder, so.epicenter, by operation and never by path, sends user-supplied provider requests through the narrow CLI runner and saves each connection's key without reading it back (ADR-0557). For an Epicenter connection it reads the desktop grant and sends only the hosted API requests granted to Whispering through its resource-bound Account (ADR-0683). It runs no folder history. Its page is served on the epicenter-app scheme, so the capability is local (ADR-0561).",
 	"local": true,
 	"windows": ["whispering:*"],
 	"permissions": [
 		"epicenter-folder:default",
-		"core:event:allow-listen",
-		"core:event:allow-emit",
-		"dialog:allow-message",
-		"core:event:allow-unlisten",
-		"core:window:allow-set-focus",
-		"core:window:allow-destroy",
 		"epicenter-recorder:default",
 		{
 			"identifier": "opener:allow-open-url",

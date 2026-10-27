@@ -14,12 +14,10 @@
  *   services, OPFS Git, isomorphic-git, or code that opens a microphone in the
  *   WebView (`getUserMedia`, `enumerateDevices`, `MediaRecorder`,
  *   `AudioContext`)
- * - The browser build reaches the browser services, the folder mirror's
- *   browser entry over the IndexedDB repository, and the WebView microphone,
- *   and no desktop services, desktop adapter, shell recorder, or generated
- *   bindings
- * - Neither build reaches the folder's automatic entries, which load either
- *   adapter, or a Bun or Node module
+ * - The portable build reaches browser services and the Folder's runtime
+ *   choice, which includes a dormant Tauri engine for hosted windows.
+ * - The host build bypasses that runtime choice; neither build reaches Bun
+ *   or Node modules.
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -42,9 +40,7 @@ const folderModule = (name: string) => (path: string) =>
 const reaches = (modules: string[], suffix: string) =>
 	modules.some((path) => path.endsWith(suffix));
 
-/** The folder's automatic entries, which can load either adapter, and Bun or Node. */
-const SHARED_FORBIDDEN =
-	/packages\/folder\/src\/index\.ts$|packages\/folder\/src\/next\/auto\.ts$|packages\/folder\/src\/(next\/)?(bun|directory-node)\.ts$|^node:|^bun:/;
+const PAGE_FORBIDDEN = /packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
 
 describe('#platform/services', () => {
 	test(
@@ -66,7 +62,8 @@ describe('#platform/services', () => {
 			expect(
 				modules.filter(
 					(path) =>
-						SHARED_FORBIDDEN.test(path) ||
+						PAGE_FORBIDDEN.test(path) ||
+						folderModule('index.ts')(path) ||
 						/lib\/platform\/browser\.ts$|lib\/webview-microphone\.ts$|packages\/folder\/src\/next\/browser\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|packages\/recorder\/src\/(browser|microphone|vad-recorder)\.ts$|@ricky0123|isomorphic-git/.test(
 							path,
 						),
@@ -85,13 +82,15 @@ describe('#platform/services', () => {
 			expect(reaches(modules, 'lib/platform/auth.ts')).toBe(true);
 			expect(modules.some(folderModule('browser.ts'))).toBe(true);
 			expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
+			expect(modules.some(folderModule('index.ts'))).toBe(true);
+			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 			expect(modules.some(recorderModule('browser.ts'))).toBe(true);
 			expect(reaches(modules, 'lib/webview-microphone.ts')).toBe(true);
 			expect(
 				modules.filter(
 					(path) =>
-						SHARED_FORBIDDEN.test(path) ||
-						/lib\/platform\/desktop\/|lib\/tauri\/bindings\.gen\.ts$|packages\/folder\/src\/next\/tauri\.ts$|packages\/folder\/src\/(tauri|tauri-adapter|tauri-handed-folder)\.ts$|packages\/(folder|recorder)\/src\/native\/|packages\/recorder\/src\/tauri\.ts$/.test(
+						PAGE_FORBIDDEN.test(path) ||
+						/lib\/platform\/desktop\/|lib\/tauri\/bindings\.gen\.ts$|packages\/recorder\/src\/tauri\.ts$/.test(
 							path,
 						),
 				),

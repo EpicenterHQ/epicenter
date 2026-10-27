@@ -3,14 +3,13 @@
  *
  * Bundles the page's root and its store through the app's Vite resolution, as
  * each build resolves them, and reads every module the bundle pulls in.
- * `hostAppViteConfig` resolves `@epicenter/folder`, which
- * `<OpenFolder>` opens with, to one entry per build; a dropped alias
- * fails no build.
+ * The host build selects the Tauri entry. The portable build keeps the
+ * runtime choice so the same bytes also open in a hosted window.
  *
  * Key behaviors:
  * - The host build carries the native folder engine and no browser
  *   engine, OPFS store, or Node or Bun module
- * - The browser build carries the browser engine and no native engine
+ * - The published build carries both engines behind the runtime choice
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -44,12 +43,13 @@ test(
 );
 
 test(
-	'the browser build carries the mirror browser adapter and no native adapter',
+	'the portable build carries both folder engines',
 	async () => {
 		const modules = await bundledModules(appDir, ENTRY, 'browser');
 		expect(modules.some(folderModule('browser.ts'))).toBe(true);
 		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
-		expect(modules.some(folderModule('tauri.ts'))).toBe(false);
+		expect(modules.some(folderModule('index.ts'))).toBe(true);
+		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
 		expect(modules.some((path) => path.endsWith('folder-app.svelte'))).toBe(
 			false,
 		);

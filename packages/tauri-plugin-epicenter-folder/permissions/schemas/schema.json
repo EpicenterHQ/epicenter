@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the destroy_bound_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-destroy-bound-window",
+          "markdownDescription": "Enables the destroy_bound_window command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the destroy_bound_window command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-destroy-bound-window",
+          "markdownDescription": "Denies the destroy_bound_window command without any pre-configured scope."
+        },
+        {
           "description": "Enables the list_folder command without any pre-configured scope.",
           "type": "string",
           "const": "allow-list-folder",
@@ -379,10 +391,34 @@
           "markdownDescription": "Denies the remove_folder_directory command without any pre-configured scope."
         },
         {
-          "description": "Open the folder the shell bound to this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`",
+          "description": "Enables the subscribe_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-subscribe-close",
+          "markdownDescription": "Enables the subscribe_close command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the subscribe_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-subscribe-close",
+          "markdownDescription": "Denies the subscribe_close command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the unsubscribe_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-unsubscribe-close",
+          "markdownDescription": "Enables the unsubscribe_close command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the unsubscribe_close command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-unsubscribe-close",
+          "markdownDescription": "Denies the unsubscribe_close command without any pre-configured scope."
+        },
+        {
+          "description": "Open the folder the shell bound to this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Open the folder the shell bound to this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`"
+          "markdownDescription": "Open the folder the shell bound to this window, then read and change its files through the shell.\n#### This default permission set includes:\n\n- `allow-open-folder`\n- `allow-subscribe-close`\n- `allow-unsubscribe-close`\n- `allow-destroy-bound-window`\n- `allow-list-folder`\n- `allow-read-folder-children`\n- `allow-read-folder-file`\n- `allow-put-folder-file`\n- `allow-make-folder-directory`\n- `allow-remove-folder-directory`"
         }
       ]
     }

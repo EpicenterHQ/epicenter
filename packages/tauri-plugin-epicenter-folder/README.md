@@ -152,12 +152,23 @@ lets a window call the plugin. Which directory it reaches is its binding.
 
 ## Opening
 
-The page calls `open_folder()`, with no arguments. A window with no binding
+The page's `@epicenter/folder` adapter calls `open_folder` with a private
+change channel and no path or root argument. A window with no binding
 is refused `NotBound`, a bound directory that is gone `Missing`, and one that
 cannot be inspected `Unavailable`; nothing is made again here, since making a
 default belongs to the shell's launch. After shutdown the answer is
 `ShuttingDown`. The first successful open starts one recursive watcher for this
-window's binding; subsequent opens reuse it. Watch setup failure is `Unavailable`.
+window's binding; subsequent opens replace its channel while reusing the
+watcher. Watch setup failure is `Unavailable`.
+
+The page registers one private close channel with `subscribe_close`; it
+releases that registration with `unsubscribe_close`. On window close, Rust
+sends the request to the page. `<OpenFolder>` waits for `folder.idle()`, then
+calls `destroy_bound_window` with its subscription token; Rust destroys only
+that window. A second close while the page waits asks natively whether to
+close anyway. Keeping the window open lets the first wait finish and close it.
+A page reload clears
+the old channel and token, so an old page cannot close its successor.
 
 Every open also removes the staged files in `.<directory>.epicenter-scratch`
 beside the root that a stopped save left more than an hour ago
@@ -305,12 +316,13 @@ only when empty; nothing removes a tree whole. The page writes no Git
 object: the `epicenter` CLI stores each with `git hash-object -w`, which
 names and checks it.
 
-### Not a cross-version contract
+### Hosted-page compatibility
 
-These commands are a contract between a shell and the pages it ships or
-installs, not across versions. A shell update may change them, and an
-installed app built for the old ones is rebuilt; no command set is kept for
-an older page.
+Hosted pages are published independently of the shell. Their Folder command
+names and payloads therefore cross release versions. An incompatible change
+needs a versioned command path or a transition that keeps published pages
+working. Bundled pages still ship with the shell. There is no negotiated
+protocol version yet.
 
 ## Git
 
@@ -322,25 +334,24 @@ history command. Git's checks live in the CLI's runner,
 ## Changes outside the page
 
 Each opened window binding owns one `notify::RecommendedWatcher` over its root,
-recursively, without following symbolic links. It routes the typed `FolderChanged`
-event to the binding's WebView target. Its `paths` are root-relative hints, including
+recursively, without following symbolic links. It sends typed `FolderChanged`
+hints to the calling WebView's private channel. Its `paths` are root-relative hints, including
 directory hints that cover descendants; `null` means any path may differ.
 Rename notifications retain both paths when the operating system supplies them.
 Read/open access events and private Git paths are ignored; close-after-write
 events remain observations. A native rescan, unknown
 scope, or watch error emits `null`; no file is read or hashed by the callback.
 
-`@epicenter/folder/tauri` opens the native watch, installs its scoped listener,
+`@epicenter/folder/tauri` opens the native watch with its private channel,
 then constructs and returns its passive Folder. No reader or cached source
 exists before listening, so hints need no startup replay.
 The owner rereads sources held by readers or accepted input. An observation,
 including an echo of an own write, never acknowledges a save or initiates a
-write. Each handle releases its listener on close; the binding releases the
+write. Each handle retires its channel on close; the binding releases the
 watch on destruction or shutdown, outside the bindings mutex. Native setup also
 runs outside that mutex; a candidate remains inactive until installed on the
 same binding. Teardown fences in-flight callbacks before reusing a window label.
-No new command,
-resource identifier, or filesystem permission is exposed to the page.
+No resource identifier or filesystem permission is exposed to the page.
 
 Delivery is best effort. Root replacement recovery is unsupported and platform
 dependent; neither original-inode retention nor reattachment is guaranteed.

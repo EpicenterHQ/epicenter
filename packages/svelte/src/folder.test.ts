@@ -3,21 +3,18 @@
  * Edit tests mount real components so immediate saves and listeners run.
  */
 import './svelte-dom.test-support.js';
-import { expect, mock, test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import { createFolder, memoryHost, SaveError } from '@epicenter/folder/testing';
 import { Type } from 'typebox';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	desktop,
+	nativeDialog,
 	nativeWindow,
 	requestClose,
 	untilListening,
 } from './tauri-window.test-support.js';
-
-/** The native close question; a folder test should never reach it. */
-const ask = mock(async () => false);
-mock.module('@tauri-apps/plugin-dialog', () => ({ ask }));
 
 const { svelteFolder } = await import('./folder.js');
 const { follow } = await import('./reactive.test-support.svelte.js');
@@ -682,7 +679,6 @@ test('desktop close discards text whose save failed, without asking', async () =
 	const target = document.createElement('div');
 	document.body.append(target);
 	desktop(true);
-	ask.mockClear();
 	const view = mount(OpenFolderHost, {
 		target,
 		props: { open: () => Promise.resolve(Ok(folder)), edit: true },
@@ -699,7 +695,7 @@ test('desktop close discards text whose save failed, without asking', async () =
 		input.value = 'Shown inline, then discarded';
 		input.dispatchEvent(new Event('input', { bubbles: true }));
 		await requestClose();
-		expect(ask).not.toHaveBeenCalled();
+		expect(nativeDialog.count).toBe(0);
 		expect(nativeWindow.destroyed).toBe(1);
 		expect(memory.text('note.txt')).toBe('Disk');
 	} finally {

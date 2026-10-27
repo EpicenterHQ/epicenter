@@ -186,6 +186,7 @@ export const commands = {
 	/**  Why `navigation.sqlite` was not updated; the folder is open regardless. */
 	rememberProblem: string | null,
 } | null, string>(__TAURI_INVOKE("choose_folder_for_app", { app })),
+	openHostedSite: (url: string) => typedError<null, string>(__TAURI_INVOKE("open_hosted_site", { url })),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
 	/**

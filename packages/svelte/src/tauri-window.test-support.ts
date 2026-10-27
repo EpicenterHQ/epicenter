@@ -1,108 +1,127 @@
-/**
- * The desktop window as `@tauri-apps/api/window` serves it to a page, for Bun
- * tests of this package and of the apps, which import it by relative path.
- * Importing it replaces that module.
- *
- * `onCloseRequested` runs a listener as the installed API runs it: the
- * handler is awaited, and the window is destroyed unless the handler
- * prevented it. With no listener, a close destroys the window at once, as
- * the shell does. `refuseDestroy` stands for a capability without
- * `core:window:allow-destroy`, whose `destroy` rejects.
- *
- * The page counts as the desktop app while `globalThis.isTauri` is true,
- * which `isTauri()` reads; `desktop(true)` sets it. Set it after a page
- * chose its folder engine, so the page still opens browser storage.
- */
+/** The Folder plugin's caller-bound close protocol in page tests. */
 import { mock } from 'bun:test';
 
-type CloseRequested = { preventDefault(): void };
-type Handler = (event: CloseRequested) => void | Promise<void>;
+type CloseChannel = { onmessage?: (value: null) => void | Promise<void> };
+const handlers = new Map<number, CloseChannel>();
+let nextToken = 0;
+let phase: 'idle' | 'sent' | 'prompting' | 'ready' | 'gone' = 'idle';
+const isReady = () => phase === 'ready';
 
-const handlers = new Set<Handler>();
+export const nativeDialog = {
+	// SAFETY: Tests replace this field with either a decision or a pending decision.
+	answer: false as boolean | Promise<boolean>,
+	count: 0,
+	reset() {
+		this.answer = false;
+		this.count = 0;
+	},
+};
 
 export const nativeWindow = {
-	/** How many times the window was destroyed. */
 	destroyed: 0,
-	/** Whether `destroy` rejects, as it does without `core:window:allow-destroy`. */
 	refuseDestroy: false,
-	/** Delay listener installation to test the editable-root opening boundary. */
+	// SAFETY: Tests may delay registration with a promise.
 	registration: undefined as Promise<void> | undefined,
 	refuseRegistration: false,
-	/** How many close listeners are registered. */
 	get listeners() {
 		return handlers.size;
 	},
 	reset() {
 		handlers.clear();
+		phase = 'idle';
 		this.destroyed = 0;
 		this.refuseDestroy = false;
 		this.registration = undefined;
 		this.refuseRegistration = false;
-		// A destroyed native page takes its inert DOM with it. Tests reuse one.
+		nativeDialog.reset();
 		if (globalThis.document) document.documentElement.inert = false;
 		desktop(false);
 	},
 };
 
-async function destroy() {
-	if (nativeWindow.refuseDestroy)
-		throw 'window.destroy not allowed. Permissions associated with this command: core:window:allow-destroy';
-	nativeWindow.destroyed += 1;
+async function destroy(token: number): Promise<boolean> {
+	if (!handlers.has(token) || phase === 'gone') return false;
+	if (phase === 'prompting') {
+		phase = 'ready';
+		return true;
+	}
+	if (nativeWindow.refuseDestroy) {
+		phase = 'idle';
+		throw new Error('The bound window could not be destroyed');
+	}
+	phase = 'gone';
+	nativeWindow.destroyed++;
+	return true;
 }
 
-mock.module('@tauri-apps/api/window', () => ({
-	getCurrentWindow: () => ({
-		label: 'test-folder',
-		async onCloseRequested(handler: Handler) {
-			await nativeWindow.registration;
-			if (nativeWindow.refuseRegistration)
-				throw new Error('Close listener could not be installed');
-			handlers.add(handler);
-			return () => {
-				handlers.delete(handler);
-			};
-		},
-		destroy,
-	}),
+mock.module('@tauri-apps/api/core', () => ({
+	Channel: class {
+		onmessage?: (value: null) => void | Promise<void>;
+	},
+	// SAFETY: The test harness sets this optional marker on the global object.
+	isTauri: () => (globalThis as { isTauri?: boolean }).isTauri === true,
+	invoke: async (command: string, args?: { onClose?: CloseChannel; token?: number }) => {
+		switch (command) {
+			case 'plugin:epicenter-folder|subscribe_close': {
+				await nativeWindow.registration;
+				if (nativeWindow.refuseRegistration)
+					throw new Error('Close listener could not be installed');
+				const token = nextToken++;
+				handlers.set(token, args?.onClose ?? {});
+				phase = 'idle';
+				return token;
+			}
+			case 'plugin:epicenter-folder|unsubscribe_close':
+				handlers.delete(args?.token ?? -1);
+				return null;
+			case 'plugin:epicenter-folder|destroy_bound_window':
+				return destroy(args?.token ?? -1);
+			default:
+				throw new Error(`Unexpected command ${command}`);
+		}
+	},
 }));
 
-/** Wait until a close listener is registered; the page loads the window API first. */
 export async function untilListening() {
 	for (let tries = 0; tries < 400 && handlers.size === 0; tries++)
 		await Bun.sleep(5);
 	if (handlers.size === 0) throw new Error('No close listener was registered');
 }
 
-/** Count the page as desktop, supplying its inert root and window events in headless tests. */
 export function desktop(on: boolean) {
 	if (on) {
 		if (!globalThis.document)
-			Object.assign(globalThis, {
-				document: { documentElement: { inert: false } },
-			});
+			Object.assign(globalThis, { document: { documentElement: { inert: false } } });
 		if (!globalThis.window)
 			Object.assign(globalThis, { window: new EventTarget() });
-		// jsdom does not implement inert's initial value.
 		document.documentElement.inert ??= false;
 	}
+	// SAFETY: The test harness owns this optional marker on the global object.
 	(globalThis as { isTauri?: boolean }).isTauri = on;
 }
 
-/** The person clicks the window's close button; resolves once every listener answered. */
 export async function requestClose(): Promise<void> {
 	if (handlers.size === 0) {
-		nativeWindow.destroyed += 1;
+		nativeWindow.destroyed++;
 		return;
 	}
-	await Promise.all(
-		[...handlers].map(async (handler) => {
-			let prevented = false;
-			await handler({
-				preventDefault: () => {
-					prevented = true;
-				},
-			});
-			if (!prevented) await destroy();
-		}),
-	);
+	if (phase === 'gone' || phase === 'prompting' || phase === 'ready') return;
+	if (phase === 'sent') {
+		phase = 'prompting';
+		nativeDialog.count++;
+		const confirmed = await nativeDialog.answer;
+		if (confirmed || isReady()) {
+			if (nativeWindow.refuseDestroy) {
+				phase = 'idle';
+				return;
+			}
+			phase = 'gone';
+			nativeWindow.destroyed++;
+		} else {
+			phase = 'sent';
+		}
+		return;
+	}
+	phase = 'sent';
+	await Promise.all([...handlers.values()].map((channel) => channel.onmessage?.(null)));
 }

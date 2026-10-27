@@ -16,7 +16,7 @@ From the repository root:
 | Command | What it does |
 | --- | --- |
 | `bun dev:honeycrisp` | Starts the browser build on port 5175. Notes live in this browser's local folder (IndexedDB), not in a directory on disk. `bun dev:honeycrisp:ui` is the same. |
-| `bun build:honeycrisp:ui` | Builds the browser page into `apps/honeycrisp/build`. |
+| `bun build:honeycrisp:ui` | Builds one portable SPA and offline service worker into `apps/honeycrisp/build`. |
 
 The host build (`bun run build:host`, which Epicenter's `build:bundled` runs
 from this folder) uses the same rows and edits over the shell's granted

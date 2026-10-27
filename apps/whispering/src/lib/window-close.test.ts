@@ -28,12 +28,13 @@ import {
 	requestClose,
 	untilListening,
 } from '../../../../packages/svelte/src/tauri-window.test-support.js';
-import { holdWindowClose } from '../../../../packages/svelte/src/window-close.js';
 import {
 	deferred,
 	openMemoryTestFolder,
 	openTestServices,
 } from './services.test-support.js';
+
+const { holdWindowClose } = await import('../../../../packages/svelte/src/window-close.js');
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {

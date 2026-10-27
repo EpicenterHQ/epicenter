@@ -10,16 +10,16 @@
 //! blocking pool, never on the thread that drives the windows. The folder's
 //! Git is not here: the `epicenter` CLI runs it (ADR-0559).
 //!
-//! These commands are a contract between this shell and the pages it ships,
-//! not across versions: a shell update may change them, and a page built for
-//! the old ones is rebuilt.
+//! Hosted pages are published independently of the shell, so their Folder
+//! commands must tolerate the site's deployment and the shell's update cycle.
 
 use epicenter_folder_core::root::{prepare_directory, PrepareError};
 use epicenter_folder_core::storage::{self, Children, FileListing, PutOutcome, StorageError};
-use tauri::{Manager, Runtime, Webview};
-use tauri_specta::Event;
+use tauri::ipc::Channel;
+use tauri::{Manager, Runtime, Webview, WebviewWindow};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
-use crate::{Directory, Folders, WindowError};
+use crate::{folders::CloseAnswer, Directory, FolderChanged, Folders, WindowError};
 
 /// Run blocking work off the window thread.
 async fn blocking<T: Send + 'static>(
@@ -45,15 +45,19 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 /// directory that is gone, which is never made again for the window. Every open
 /// removes the staged files a stopped save left an hour or more ago
 /// (`storage::sweep_scratch`).
+/// Open the calling WebView's folder with a private observation channel.
 #[tauri::command]
 #[specta::specta]
-pub async fn open_folder<R: Runtime>(webview: Webview<R>) -> Result<(), WindowError> {
-    let app = webview.app_handle().clone();
+pub async fn open_folder<R: Runtime>(
+    webview: Webview<R>,
+    on_change: Channel<FolderChanged>,
+) -> Result<(), WindowError> {
     let label = webview.label().to_string();
-    let directory = webview
+    let (directory, observation) = webview
         .app_handle()
         .state::<Folders>()
-        .bound(webview.label())?;
+        .reserve_observation(&label)?;
+    let app = webview.app_handle().clone();
     blocking(
         move || {
             let root = directory.root();
@@ -62,11 +66,9 @@ pub async fn open_folder<R: Runtime>(webview: Webview<R>) -> Result<(), WindowEr
                 PrepareError::Failed(message) => WindowError::Unavailable { message },
             })?;
             storage::sweep_stale_scratch(root);
-            let emitter = app.clone();
-            let target = tauri::EventTarget::webview(&label);
             app.state::<Folders>()
-                .watch(&label, &directory, move |change| {
-                    if let Err(error) = change.emit_to(&emitter, target.clone()) {
+                .watch(&label, &directory, observation, move |change| {
+                    if let Err(error) = on_change.send(change) {
                         log::warn!("The folder observation could not be delivered: {error}");
                     }
                 })?;
@@ -75,6 +77,105 @@ pub async fn open_folder<R: Runtime>(webview: Webview<R>) -> Result<(), WindowEr
         |message| Err(WindowError::Unavailable { message }),
     )
     .await
+}
+
+/// Let this bound window answer its own native close requests.
+#[tauri::command]
+#[specta::specta]
+pub fn subscribe_close<R: Runtime>(
+    window: WebviewWindow<R>,
+    on_close: Channel<()>,
+) -> Result<u32, WindowError> {
+    window
+        .state::<Folders>()
+        .subscribe_close(window.label(), on_close)
+}
+
+#[tauri::command]
+#[specta::specta]
+pub fn unsubscribe_close<R: Runtime>(window: WebviewWindow<R>, token: u32) {
+    window
+        .state::<Folders>()
+        .unsubscribe_close(window.label(), token);
+}
+
+/// The caller can destroy only its own bound window after its writes drain.
+#[tauri::command]
+#[specta::specta]
+pub async fn destroy_bound_window<R: Runtime>(
+    window: WebviewWindow<R>,
+    token: u32,
+) -> Result<bool, String> {
+    match window.state::<Folders>().begin_close_answer(window.label(), token) {
+        CloseAnswer::Ignore => return Ok(false),
+        CloseAnswer::WaitForPrompt => return Ok(true),
+        CloseAnswer::Destroy => {}
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let result = destroy_if_current(window.clone(), token);
+        window
+            .state::<Folders>()
+            .finish_close_request(window.label(), token);
+        result
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+/// An unanswered page cannot trap its window. A second close asks natively.
+pub(crate) fn confirm_unanswered_close<R: Runtime>(window: WebviewWindow<R>, token: u32) {
+    tauri::async_runtime::spawn_blocking(move || {
+        let confirmed = window
+            .dialog()
+            .message("Some changes are still saving. Close the window anyway?")
+            .title("Close window?")
+            .kind(MessageDialogKind::Warning)
+            .buttons(MessageDialogButtons::OkCancelCustom(
+                "Close anyway".into(),
+                "Keep waiting".into(),
+            ))
+            .blocking_show();
+        let result = if window
+            .state::<Folders>()
+            .finish_native_prompt(window.label(), token, confirmed)
+        {
+            destroy_if_current(window.clone(), token)
+        } else {
+            Ok(false)
+        };
+        if result != Ok(false) {
+            window
+                .state::<Folders>()
+                .finish_close_request(window.label(), token);
+        }
+        if let Err(error) = result {
+            log::warn!("The unanswered window could not close: {error}");
+        }
+    });
+}
+
+fn destroy_if_current<R: Runtime>(window: WebviewWindow<R>, token: u32) -> Result<bool, String> {
+    let (send, receive) = std::sync::mpsc::sync_channel(1);
+    let dispatch = window.clone();
+    window
+        .run_on_main_thread(move || {
+            // Navigation and close subscription changes also arrive on this
+            // thread. A retired page cannot dispatch destruction afterward.
+            let result = if !dispatch
+                .state::<Folders>()
+                .owns_close(dispatch.label(), token)
+            {
+                Ok(false)
+            } else {
+                dispatch
+                    .destroy()
+                    .map(|_| true)
+                    .map_err(|error| error.to_string())
+            };
+            let _ = send.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    receive.recv().map_err(|error| error.to_string())?
 }
 
 /// The directory bound to the calling window, cloned for this command.
