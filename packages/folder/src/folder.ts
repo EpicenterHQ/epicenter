@@ -10,6 +10,7 @@ import { OpenFolderError } from './errors.js';
 import { applyPatch, declaredKeysOf, type RowPatch } from './patch.js';
 import { invalidTable } from './paths.js';
 import { ReadError, SaveError } from './shared/errors.js';
+import { merge, sameContent } from './shared/merge.js';
 import {
 	type Issue as MarkdownIssue,
 	readMarkdown,
@@ -78,8 +79,8 @@ export type Folder<T extends Tables = Tables> = {
 	idle(): Promise<void>;
 	/** A file's bytes from storage, `null` when no file is there; for files the folder copy does not keep. */
 	read(path: string): Promise<Result<Uint8Array | null, ReadError>>;
-	/** Replace the whole file. */
-	write(path: string, data: Data): Saved;
+	/** Replace the whole file, or merge it at its turn against the exact base it was edited from. */
+	write(path: string, data: Data, options?: { base?: Data | null }): Saved;
 	/** Set fields and the body on a Markdown file at any path; `schema` orders its declared keys first. */
 	update(
 		path: string,
@@ -109,7 +110,7 @@ type Entry = {
 	stamp: string | undefined;
 };
 type Op =
-	| { kind: 'write'; data: Data | null }
+	| { kind: 'write'; data: Data | null; base?: Data | null }
 	| { kind: 'move'; to: string }
 	| { kind: 'create' | 'update'; patch: RowPatch; keys: readonly string[] };
 type PendingWrite = {
@@ -120,13 +121,16 @@ type PendingWrite = {
 type WaitingWrite = { turn: PendingWrite; saved: Saved };
 
 /**
- * A waiting write absorbs a newer one for the same file when landing the
- * newer alone gives the same file: a whole-file write keeps the newest data,
- * and two updates through the same schema apply their patches together.
+ * A waiting write absorbs a newer one for the same file: whole-file writes
+ * keep the newest data and the oldest supplied base; two updates through the
+ * same schema combine their patches.
  * Anything else waits its own turn.
  */
 function absorb(waiting: Op, next: Op): Op | undefined {
-	if (waiting.kind === 'write' && next.kind === 'write') return next;
+	if (waiting.kind === 'write' && next.kind === 'write')
+		return waiting.base !== undefined && next.base !== undefined
+			? { ...next, base: waiting.base }
+			: next;
 	if (
 		waiting.kind === 'update' &&
 		next.kind === 'update' &&
@@ -480,6 +484,35 @@ export async function createFolder<const T extends Tables>(
 
 	async function send(path: string, op: Op): Saved {
 		if (op.kind === 'move') return sendMove(path, op.to);
+		if (op.kind === 'write' && op.base !== undefined && op.data !== null) {
+			const change = typeof op.data === 'string' ? op.data.toWellFormed() : op.data;
+			for (let attempt = 0; ; attempt++) {
+				const results = await host.read([path]);
+				const fresh = results.get(path);
+				if (fresh === undefined)
+					return SaveError.StorageFailed({ cause: `No read answered ${path}` });
+				if (fresh.error !== null)
+					return SaveError.StorageFailed({ cause: fresh.error });
+				applyRead(path, fresh);
+				publish();
+				const current = fresh.data?.bytes ?? null;
+				const next = sameContent(current, op.base)
+					? change
+					: (await merge(path, { base: op.base, current, change })).content;
+				const put = await host.put(
+					path,
+					encode(next),
+					attempt < 3 ? current ?? 'absent' : undefined,
+				);
+				if (put.error?.name === 'Changed') {
+					if (attempt < 3) continue;
+					return SaveError.StorageFailed({ cause: put.error });
+				}
+				if (put.error !== null) return Err(put.error);
+				landedPut(path, next, put.data?.stamp ?? null);
+				return Ok(undefined);
+			}
+		}
 		let next: Data | null;
 		let expect: 'absent' | Uint8Array | undefined;
 		switch (op.kind) {
@@ -657,7 +690,8 @@ export async function createFolder<const T extends Tables>(
 				? Err(result.error)
 				: Ok(result.data?.bytes ?? null);
 		},
-		write: (path, data) => enqueue(path, { kind: 'write', data }),
+		write: (path, data, options) =>
+			enqueue(path, { kind: 'write', data, base: options?.base }),
 		update: (path, patch, options) =>
 			enqueue(path, {
 				kind: 'update',
