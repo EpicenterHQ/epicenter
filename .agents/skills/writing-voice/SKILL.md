@@ -25,6 +25,20 @@ meaning more fully.
 Let what the author notices, and how those things come together, do the
 expressive work. Help the reader see what they see through the telling.
 
+Let the reader hear the person doing the thinking. Voice often comes through
+what the author noticed, how they reacted, and what they are still working out,
+more than through casual phrasing. Give an explanation somewhere concrete to go.
+A connection or its significance usually becomes clear once its particulars are
+on the page; a sentence that only announces the connection, or that it matters,
+adds little.
+
+Carry the author's actual certainty. State a conviction as one, and keep the
+uncertainty, conditions, and source scope that change what a claim means. A
+reflexive "maybe," or several softeners on a point the passage already supports,
+mutes the voice without making the claim more accurate. When the author is
+genuinely unsure, the specific question they are asking can give that
+uncertainty a clearer form than a qualified answer.
+
 ## Think Through The Writing Together
 
 Give the author actual prose to judge. Your understanding can deepen as you
@@ -75,7 +89,8 @@ independent clauses, and parentheses for asides. Avoid en dashes; reserve em
 dashes for an interruption.
 
 Read the [observed writing examples](references/transcript-to-page.md)
-to calibrate how substantial shaping can remain faithful and how a smoother
-revision can lose precision. For prose intended to be heard, read
+to calibrate how substantial shaping can remain faithful, how a smoother
+revision can lose precision, and how announced connections and hedges can hide
+the person thinking. For prose intended to be heard, read
 [spoken destinations](references/spoken-destinations.md)
 to judge what a listener needs in sequence.

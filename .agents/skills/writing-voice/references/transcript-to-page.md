@@ -264,3 +264,42 @@ amount” did not, and “but it still needs to receive it” turns on the probl
 one clause where the pass spends two sentences. One preferred version does not
 show that a saved draft's wording should usually stand; it shows that sounding
 more conversational is not what makes a pass sound like him.
+
+## Let the Reader Hear the Person Thinking
+
+From a Vault page session on October 27, 2026, about being Chinese American in
+Singapore and its parallels to racialized dating conversations in America.
+After an anecdote and the compliments "You're so articulate" and "You have
+personality," the saved prose read:
+
+> Sometimes I wonder whether part of what makes me interesting to them is that
+> I go against their idea of what local men, or Asian men, are like. That is
+> another part of the parallel for me. Even the compliments can remind me of the
+> same comparisons I hear in America.
+
+Earlier, "That is something I need to be cognizant of" followed a paragraph
+that had already explained the interest attached to being American. Braden
+said the writing lacked personality and singled out "That is another part of
+the parallel for me" as unnecessary and overly difficult. He recognized the
+agent's reading: "Keep the thinking, but let me hear the person doing it. The
+uncertainty, the recognition, the slightly uncomfortable feeling. Give the
+explanation somewhere concrete to go."
+
+Of three alternatives, he asked for A without its last sentence, "Maybe part of
+what makes me appealing is that I go against those stereotypes," saying he did
+not like "this sort of maybe qualifier" in general. He called B's questions
+"really, really well done." The parts he selected:
+
+> I've also heard the same sorts of compliments from Singaporean women. "You're
+> so articulate." "You have personality." And sometimes it reminds me of the way
+> people talk about Asian men in America.
+
+> And I wonder what I'm being compared to. Singaporean men? Asian men generally?
+
+This is the combination he requested for one passage, not a tested general
+improvement. The rest is a craft reading. The rejected sentences name a
+parallel or a lesson the reader can already see. A's "maybe" turns his
+uncertainty into a tentative conclusion; B's questions say what he is unsure
+about and make the comparison concrete. Neither the questions nor the sequence
+of compliments and wondering are templates; elsewhere a conviction, a condition,
+or an explicit explanation may be what the thought needs.
