@@ -889,3 +889,4 @@ When you add an ADR, add its row here.
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (Whispering desktop caller implemented) |
 | [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Superseded by 0689 |
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Proposed (implemented; supersedes the working-document model) |
+| [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
