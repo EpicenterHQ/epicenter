@@ -4,6 +4,7 @@
 - **Date:** 2026-10-23
 - **Supersedes as a direction:** The proposed source-install runner in [ADR-0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md). The legacy bundled-app path remains during migration.
 - **Unbuilt:** Published first-party URLs, migration of every bundled app, and Windows/Linux origin and activation probes.
+- **Amended by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) at window close: the host asks the page over the Folder channel; the page answers after its writes land; a second request asks natively.
 
 ## Context
 
@@ -36,9 +37,7 @@ and remembers that association only to reject silent recreation if it later
 disappears. Files, agents, and CLI may still inspect multiple areas; an
 ordinary hosted app receives only its bound Folder plugin. Folder observation and close requests use channels owned by the
 calling WebView; the site receives no application-wide Tauri event or window
-permission. The host owns the window and sends close requests over the Folder
-plugin's channel. `<OpenFolder>` answers after `folder.idle()`; closing again
-while it waits asks natively whether to close anyway.
+permission. The native host handles unfinished-save close confirmation.
 
 The site may use ordinary HTTPS/WSS browser networking. Its executable
 scripts and workers must come from the installed release. WebView CORS,
