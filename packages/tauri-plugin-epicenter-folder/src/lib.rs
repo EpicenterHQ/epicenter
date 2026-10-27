@@ -88,6 +88,8 @@ fn raw_handler<R: Runtime>() -> impl Fn(tauri::ipc::Invoke<R>) -> bool + Send + 
     tauri::generate_handler![commands::put_folder_file, commands::read_folder_file]
 }
 
+/// Register alongside `tauri_plugin_dialog::init()`: a second unanswered
+/// window-close request asks for native confirmation through that plugin.
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     let contract = specta_builder::<R>();
     let typed = contract.invoke_handler();

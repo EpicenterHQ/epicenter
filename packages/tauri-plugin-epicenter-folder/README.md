@@ -30,7 +30,10 @@ This crate has no JavaScript package of its own. A page reaches it through
 
 ## Binding a window's folder
 
-Install the plugin once. A shell decides which directory a window edits in
+Install the folder plugin once alongside `tauri_plugin_dialog::init()`.
+The folder plugin uses the dialog plugin for its native confirmation after a
+second unanswered window-close request; omitting it makes that path panic.
+A shell decides which directory a window edits in
 trusted Rust and resolves it. The shared opener chooses its identity and binds
 the directory before building the WebView:
 
@@ -39,6 +42,7 @@ use tauri::{Manager, WebviewUrl};
 use tauri_plugin_epicenter_folder::{defaults::DesktopPaths, library::TODOS, FolderExt};
 
 tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .plugin(tauri_plugin_epicenter_folder::init())
     .setup(|app| {
         let paths = DesktopPaths::resolve(app.handle())?;
