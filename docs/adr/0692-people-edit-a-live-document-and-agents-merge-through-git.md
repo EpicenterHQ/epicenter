@@ -24,76 +24,97 @@ schemas are an app's lens, never enforced by the server.
 ## Decision
 
 **Git is the record, and one server object per repository orders every
-write.** People, apps and agents send writes against a known base: this file,
-from this version, now reads like this. The server merges each one into the
+write.** People, apps and agents send batches of writes against a known base:
+this file, from this version, now reads like this. The server merges each one into the
 current text, broadcasts the result, and commits changed files to `main` once
 they are a minute old or when asked. Devices keep the files' text and their
 own unsent edits, so apps work offline. Clones read Git directly and may lag
 the server by that minute.
 
-- **Files.** A note is `<top-level folder>/<name>.md`; settings are root
-  `kv.json`; any other path is kept in Git, merged there as a whole file, and
-  never sent to devices. Identity is the path, and a move log lets a write aimed
-  at a moved note find it. A device may be offline for up to a week; after that
-  the server answers `expired`, the device resyncs, and a write applies only if
-  its file is unchanged since its base, otherwise it is saved as an offline
-  copy. An app that needs a permanent id declares one in its own schema.
-- **Operations.** `write(path, base, text)` covers creating, editing and (with
-  no text) deleting; `move(from, to)` carries identity; `append(path, text)`
-  adds at the end with no base and never conflicts, for conversations, logs and
-  journals. Each carries its device's id and a per-device number, so a retry
-  returns the same outcome; its base is the server sequence and content hash
-  it started from, and a device keeps its base text until the write is
-  acknowledged, sending it when the server answers `need-base`. The server
-  stamps each operation with the signed-in user, for permissions, history and
-  `Co-authored-by` lines. A reply streamed by an assistant is relayed live
-  without being stored, then written as one append.
+- **Files.** The repository's data is its Markdown files and Git LFS pointers.
+  An app selects files with named path templates such as
+  `projects/{project}/tasks/{stem}.md` or `settings.md`: each segment is a
+  literal or one parameter with an optional suffix, a parameter never spans a
+  `/`, a template without parameters names one file, and an app whose
+  templates could claim the same file is refused when it is defined. Parameters
+  become typed columns, and apps never write a path string. A Markdown file no
+  template names (a README, say) is synced and never validated. Binary files
+  are always LFS objects in R2, declared by blob templates that also write the
+  repository's `.gitattributes`; a push carrying a binary outside LFS is
+  refused. Other text files stay in Git and are not downloaded to app devices.
+  Identity is the path; the server keeps a week of each path's history
+  (creates, moves, deletes), so an edit follows a move and never lands on a
+  different note recreated at the same path. A device may be offline for up to
+  a week; past that the server answers `expired`, and an edit applies only if
+  its file is unchanged since its base, otherwise it is kept as an offline copy.
+- **Operations.** Every request is one batch, `{ device, n, changes }`, applied
+  all or nothing, with one outcome per change; a `git push` is the same batch.
+  A change is `write(path, base, text)` (create, edit, or, with no text,
+  delete), `move(from, to)`, which is refused if the destination is taken, or
+  `append(path, text)`, which needs no base and can still be stale after a
+  delete or an untraceable move. A base is the device's repository position
+  and the file's hash; the device keeps the base text and sends it when the
+  server answers `need-base`. Setting a value, for example
+  `repo.settings.set('theme', 'dark')`, is a write that changes one frontmatter
+  field. A batch's outcome is `applied`, `need-base`, `expired` or, for agents,
+  `refused`; within `applied`, each file reports its overlaps, dropped values,
+  an edit kept over a delete, and its text when that differs from what was
+  sent. The per-device number makes a retry return its recorded outcome within
+  the window; the server stamps each batch with the signed-in user, for
+  permissions, history and `Co-authored-by` lines. A blob is uploaded to R2
+  first and its pointer written second, so a pointer never names missing
+  bytes. A reply streamed by an assistant is relayed live without being stored,
+  then written as one append.
 - **The Epicenter merge.** One pure function, used by the server, by devices
   replaying unsent edits, and by the CLI, merges a write against its base:
-  frontmatter and `kv.json` by key, where on a clash the current value wins and
-  the other is recorded in the outcome; the body by line, where changes on
-  neighboring lines do not conflict, then by word within overlapping lines, so
-  letters never blend; two insertions at the same point are both kept, in server
-  order; two creates at one path become one file, frontmatter merged by key and
-  both bodies kept. For people, a delete loses to an edit it had not seen.
+  frontmatter by key, where on a clash the current value wins and the other is
+  recorded in the outcome; the body by line, where changes on neighboring lines
+  do not conflict, then by word within overlapping lines, so letters never
+  blend; two insertions at the same point are both kept, in server order; two
+  creates at one path become one file, frontmatter merged by key and both
+  bodies kept. For people, a delete loses to an edit it had not seen. A
+  prototype passes 15,000 random cases for these rules and merges cleanly five
+  of six cases where `git merge-file` conflicts.
 - **Overlaps.** What still overlaps is decided by who wrote: for people, Git
   conflict markers with a base section, in server order, labeled with who, when
   and the sequence; editors such as VS Code show accept and compare actions for
   them, and the app renders each block as a card. The server keeps each block's
   identity, never nests blocks, and removes markers only from a block it created
   once one side is gone. For agents, a refusal naming the file and the overlap.
-- **Agents.** `epicenter` commands send the same operations. A `git push` is not
-  replayed: its net change since its merge base becomes one batch of writes and
-  moves, applied all or nothing, with the pushed commit as a parent of the
-  result. It is refused, with the file and reason, if it overlaps changes since
-  that base, if frontmatter does not parse, or if a note exceeds 1 MB stored; a
-  refusal commits the overlay first, so the agent's next pull is current.
-  `epicenter pull` asks the server to commit first.
+- **Agents.** `epicenter` commands send the same batches. A `git push` is not
+  replayed: its net change since its merge base becomes one batch, with the
+  pushed commit as a parent of the result. It is refused, with the file and
+  reason, if it overlaps changes since that base, if frontmatter does not
+  parse, if a note exceeds 1 MB stored, or if a binary bypasses LFS; a refusal
+  commits the overlay first, so the agent's next pull is current. `epicenter
+  pull` asks the server to commit first.
 - **Schemas.** The app brings its own schema, published with its release;
   `epicenter check --schema <url>` validates a clone. The server reads none.
 - **The server object.** It holds only an overlay: files changed since the last
-  commit, the operations since then, the last number applied per device, and
-  the week's moves. Each commit records the server sequence it includes; `main`
-  moves only by compare-and-swap, and the overlay is cleared only up to what
-  Git holds. At rest it holds almost nothing.
+  commit, the batches since then, the last number applied per device, recent
+  outcomes, and the week's path history. Each commit records the server
+  sequence it includes; `main` moves only by compare-and-swap, and the overlay
+  is cleared only up to what Git holds. At rest it holds almost nothing.
 - **Reading.** Devices read committed files without the server object: the head
   commit and its sequence, a diff between two commits, and files by content
   hash in batches. They ask the object only for changes after that sequence, or
-  are told to resync from the head.
+  are told to resync from the head. Blob bytes are fetched on demand through
+  short-lived URLs and cached by hash.
 - **Devices.** Each repository is one SQLite file per device: in the browser's
   storage (OPFS) through a worker owned by one leader tab, natively on desktop,
   and through Bun in the CLI, behind one driver interface and one shared engine.
-  Three engine tables, named with a `/` so no folder can collide with them:
-  `"epicenter/files"` holds each synced file's folder, name, text, sequence and,
-  while edits are unsent, the acknowledged text they started from; its path,
-  body, parsed fields and Git hash are generated columns, so only text is ever
-  written. `"epicenter/log"` orders moves and appends; `"epicenter/local"` holds
-  sync state and this device's own settings. Each app's lens is a set of
-  read-only views and indexes over these, recreated on every start; apps query
-  them in plain SQL. Writes go only through the API. Any change re-runs live
-  queries, whose results are compared before re-rendering; the file being edited
-  is held open and read synchronously. Without a server, an app works fully,
-  with no history.
+  Three strict engine tables, named with a `/` so no app view can collide with
+  them: `"epicenter/files"` holds each synced file's path, text (an LFS pointer
+  for a blob), sequence and the hash the server reported, with parsed fields
+  and body generated from the text; `"epicenter/outbox"` holds every unsent
+  batch in order, with its bases and the exact text sent; `"epicenter/meta"`
+  holds the device's id, its next number, its repository position, the parser
+  version and this device's own settings. Each app's templates become
+  temporary read-only views on the leader's connection, with saved indexes and
+  full-text search on the files table itself; apps query them in plain SQL and
+  write only through the API. Any change re-runs live queries, whose results
+  are compared before re-rendering; the file being edited is held open and read
+  synchronously. Without a server, an app works fully, with no history.
 
 ## Consequences
 
