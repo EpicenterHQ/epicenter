@@ -136,7 +136,7 @@ verdict. Schema selection is independent of storage, identity, and credentials.
 | --- | --- |
 | Edit or unsaved input | Text an editor holds after the person typed it and until its save lands. The folder shows only what landed; a failed save keeps the edit on screen for retry, discard, or copy. |
 | Save | Acknowledged local persistence of an edit. It does not promise a Git commit or remote receipt. |
-| Write | A file or storage operation, as in `files.write`. It is not a second kind of dataset or an automatic upload. |
+| Write | A file or storage operation. A based whole-file write names the content it was edited from so the Folder can merge it with storage at its turn. It is not a second kind of dataset or an automatic upload. |
 | Commit or version | A fixed Git snapshot. Prefer commit in technical text; version can explain it in a UI. |
 | Sync | Exchange commits with the remote and merge changes. It can run after local saves. |
 | Merge | Combine base, current, and change by frontmatter field or text region. Schemas do not choose merge behavior. |
@@ -154,11 +154,15 @@ landed values. Each `write`, `update`, `create`, or `delete` joins one serial
 queue and answers after its put lands and the mirror shows it,
 or with a `WriteError`. A row update composes over the file as it stands when
 the operation runs. It preserves unrelated values but rewrites frontmatter
-canonically. Local writes do not merge against outside writers. Git sync
-retains its separate three-way merge and conditional storage publication.
+canonically. A whole-file write with a base merges with outside changes at its
+turn, with the newer text winning overlapping regions. Direct writes without a
+base remain unconditional, as do deletes. Git sync retains its separate
+three-way merge and conditional storage publication.
 
-A Svelte editor creates one `edit(source, save)` for its input. The edit
-shows typed text until the corresponding write answers, then follows the
+A Svelte editor creates one `edit(source, save)` for its input. Its
+`save(value, base)` receives the previous sent value, or the source shown when
+a new typing run began. The edit shows typed text until the corresponding
+write answers, then follows the
 Folder again. A failed save retains that text and its error beside the
 control for retry or discard. Each typed value enters the queue immediately;
 teardown sends nothing more. The Folder has no working document or aggregate
@@ -190,7 +194,7 @@ of local saving. The Folder exposes only local `saving()`; it does not expose th
 | --- | --- |
 | App | A program using its own read schemas. Qualify a web app or desktop app when runtime or native capabilities matter. |
 | CLI | The `epicenter` executable. Its package entry points and commands are documented by the CLI package. |
-| Agent or person | A direct file writer. Apps and external writers follow last whole-file publication wins; the folder retains accepted app input independently of outside changes. |
+| Agent or person | A direct file writer. Based whole-file edits merge against current storage; overlapping regions use the newer text. Unconditional replacements still follow last publication wins. |
 | Epicenter desktop app | The app in `apps/epicenter`: a folder launcher, generic Files/grid/board/SQL editor with saved views, Settings, and host for fixed bundled apps. Host app, desktop host, and launcher are not additional products. It is optional to standalone apps and the CLI. |
 | Runner | A deferred capability of the Epicenter desktop app: opening built local websites over selected disk data. It is not another app or required platform layer. |
 | Web origin | The web app's storage and OAuth client boundary. It is distinct from Git's remote named `origin`. |

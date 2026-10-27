@@ -21,10 +21,13 @@ for the current page flow and verify it against the code.
   the mirror. A failed save keeps the typed value and shows `<UnsavedEdit>`
   beside its editor with Save again,
   Discard, and Copy. Command callers report their own failed writes.
-- Row patches use `tables.x.update(id, { fields?, body? })`; whole-file edits
-  use `folder.write(path, text)`. A patch saves over the file as it is when
-  sent. Canonical frontmatter keeps declared keys in schema order, then other
-  keys sorted; comments and original key order do not survive a patch.
+- Row patches use `tables.x.update(id, { fields?, body? })`; their `save` callback
+  ignores the edit's base. Whole-file editors use `fileEdit`, which calls
+  `folder.write(path, text, { base })`. A patch composes over storage at its
+  turn; a based whole-file write merges outside changes there, with newer text
+  winning overlapping regions. Canonical frontmatter keeps declared keys in
+  schema order, then other keys sorted; comments and original key order do not
+  survive a patch.
 - A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
 - The folder writes lone surrogates as U+FFFD, and its copy shows the same
   text. The rich editor also replaces them in its transaction, so its undo
@@ -53,8 +56,8 @@ for the current page flow and verify it against the code.
 - The rich editor mount effect depends only on its element and `editable`
   boolean. Reading save or row changes there recreates it and loses history.
 - Switching between note fields and the whole-file editor waits for the
-  current view's edits to land. A failed save keeps that view and its
-  UnsavedEdit visible.
+  current view's edits to land so a failed save keeps that view and its
+  UnsavedEdit visible. Write ordering and merging stay in the Folder.
 
 ## Lifecycle and boundary
 

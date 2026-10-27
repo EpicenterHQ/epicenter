@@ -74,16 +74,23 @@ repair view.
 
 ## Writes
 
-`write(path, data)` replaces a whole file. `update(path, patch, { schema? })`
-reads the file from storage at its queue turn, then sets fields or body on
+`write(path, data, { base })` replaces a whole file from the bytes it was edited
+from. At its queue turn, a matching base is a checked write. A stale base
+three-way merges with current storage, then puts the result checked; overlapping
+regions use the newer text. If a based write fails, a later write based on its
+text inherits its original base, including across repeated failures.
+`write(path, data)` remains an unconditional replacement for direct commands.
+`update(path, patch, { schema? })` reads the file from storage at its queue
+turn, then sets fields or body on
 those fresh bytes. The put is checked against the bytes read. If another
 writer changes the file before the put, the update rereads and reapplies the
 patch for three checked attempts, then puts unconditionally.
 A table has `create(id, { fields, body? })`, `update(id, patch)`, and
 `delete(id)`; the folder also has `delete(path)` and `move(from, to)`.
 `create` expects an absent path, including files the mirror has not heard
-about. `move` reads the source when its turn runs, creates the destination
-only if absent, then removes the source. A failed removal leaves both files
+about, and refuses matching bytes already there. `move` reads the source when
+its turn runs, creates the destination only if absent, then removes the source.
+A failed removal leaves both files
 and returns `MoveIncomplete` with both paths. Setting a field to
 `undefined` removes it. A patch that changes no value writes nothing.
 Updated frontmatter is canonical: declared keys first, then other keys in
@@ -91,14 +98,16 @@ sorted order. Comments and original key order are not preserved by a patch.
 
 Writes take turns in one serial queue. Waiting writes to the same path merge
 even across unrelated queued turns, as long as no operation for that path sits
-between them: whole-file writes keep the newest data, and updates combine their
-fields and newest body when their table keys match. A merged update reads
+between them: successive based whole-file writes keep the newest data and the
+oldest base, while updates combine their fields and newest body when their
+table keys match. A merged update reads
 storage at its one turn, preserving outside changes to fields it does not name.
 An unchanged update makes no put.
 Every merged caller receives the same `Saved` answer after the mirror shows
 what landed, or a `WriteError`. `Changed` is handled inside the Folder; it is not a public `WriteError`. A failed put leaves the last read value in the
-mirror. A later whole-file write can still replace those bytes; the last
-publication to land wins.
+mirror. A later based whole-file write merges with those bytes; a direct
+unconditional replacement can still replace them. Same-region overlap and
+failed text discarded on leaving can still be lost.
 Git sync retains its separate three-way merge and conditional storage rules.
 
 `idle()` waits for every queued turn, including immediately queued typing.

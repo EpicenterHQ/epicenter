@@ -31,16 +31,27 @@ Discard, and Copy while the editor is mounted; leaving discards it. The page
 never holds unsent text. How often the queue touches storage belongs to the
 queue. An editor can await `edit.landed()` when its next action needs the
 newest typed value to have landed; that answer is an error if its write failed.
+The edit calls `save(value, base)`: the first send in a typing run uses the
+source the edit showed when that run began, and later sends use the previous
+sent value. A retry after failure uses the value that landed. `fileEdit`
+converts its LF text to the base file's newline style and sends that base with
+the whole-file write.
 
 **Every local write enters one serial queue and answers after the Folder shows
 its result.** Waiting writes for one path merge even when unrelated turns sit
 between them, provided that path has no intervening operation. `update` reads
 the file as storage holds it at its turn, applies the patch, and puts only if
 the file still holds the bytes it read. On a conflict it rereads and reapplies,
-up to three checked attempts, then puts unconditionally. `create` expects an
-absent path and answers `Exists` if another writer created it. Whole-file
-`write` and `delete` remain last-write-wins. `move(from, to)` reads the source
-at its queue turn, creates the destination only if absent, then removes the
+up to three checked attempts, then puts unconditionally. A based whole-file
+`write` carries its base. At its turn, a matching base makes a plain checked
+write; a stale base three-way merges with storage through `shared/merge.ts` and puts
+the result checked. On overlapping regions the newer text wins. If an earlier
+based write failed, a later write based on its text inherits its base, even
+across consecutive failures. Successful writes clear that chain. `create`
+expects an absent path and answers `Exists` if a file is there, even if its
+bytes match. A direct write without a base and `delete` are unconditional.
+`move(from, to)` reads the source at its queue turn, creates the destination
+only if absent, then removes the
 source. If removal fails, both paths remain and the error names both. A
 write's `Saved` promise returns after storage and the Folder agree, or returns
 its `WriteError`. An outside writer can still land a later whole-file
@@ -70,9 +81,11 @@ A list and an editor can read the same landed row without sharing pending
 input. An app awaiting `Saved` or a successful `edit.landed()` can read the
 landed value immediately. A failed put leaves the last read value in the
 Folder; a failed edit retains the typed input in its component until it
-unmounts. Crash recovery cannot recover an edit that never landed. Checked
-updates preserve outside field changes that arrive between read and put; after
-repeated contention the fourth attempt accepts last-write-wins. One serial
+unmounts. Same-region overlapping writes can still lose the older change.
+Leaving after a failed save loses that failed text. Crash recovery cannot
+recover an edit that never landed. Checked updates preserve outside field
+changes that arrive between read and put; after repeated contention the fourth
+attempt accepts last-write-wins. One serial
 queue orders unrelated file writes too, trading concurrency for a single
 understandable publication order.
 

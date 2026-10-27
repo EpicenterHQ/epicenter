@@ -79,8 +79,11 @@ is queued or active and “On this device” otherwise.
 
 ## Keep typed text in an edit
 
-Create one `edit(source, save)` per mounted editor component. Its `value`
-getter shows what the person typed until that save answers, then follows
+Create one `edit(source, save)` per mounted editor component. `save(value, base)`
+receives the value this edit last sent as `base`, or the source shown at the
+start of a new typing run. A retry after failure uses the value that landed.
+Field update callbacks can ignore `base`. The edit's `value` getter shows what
+the person typed until that save answers, then follows
 `source()` again. Its setter and `set(value)` send each value immediately.
 An older answer cannot clear newer typing. A failed save keeps the typed value
 and its error for retry or discard while the editor is mounted.
@@ -118,9 +121,10 @@ remains on `editor.error` for `<UnsavedEdit>` and is also returned to stop the
 action. After teardown, `landed()` succeeds without saving.
 
 `fileEdit(folder, path)` from `@epicenter/svelte/folder` edits a
-whole text file. It shows LF line endings and, when sending, reads the current
-landed file to restore its newline style with `withFileNewlines`. If the file's
-data is not text, the edit starts empty and writes LF text. It has the same
+whole text file. It shows LF line endings and sends each value with its base
+through `folder.write(path, data, { base })`, restoring the base file's newline
+style with `withFileNewlines`. If the file's data is not text, the edit starts
+empty and writes LF text. It has the same
 `value`, `error`, `set`, `retry`, `discard`, and `landed` API as `edit`.
 
 The package also exports agent conversation bindings and status display
