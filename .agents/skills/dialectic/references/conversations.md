@@ -84,85 +84,100 @@ should work.
 The move from rediscovery to preserving personal context is a design judgment
 to examine. Another concrete approach might fulfill the vision better.
 
-## API design: make the caller's choices visible
+## API design: develop a resource-ownership model from a felt mismatch
 
-This hypothetical example draws on Epicenter's independent-resource API design.
-The caller code makes acquisition and cleanup visible so the human can judge
-using the design. These are sketches, not a runnable application or a claim
-about current package exports. Unrelated setup is omitted.
+The conversation, replies, and API names are hypothetical. Dialectic has
+already been invoked within an API-design task. The caller code is a proposal
+to examine, not a claim about current package exports or behavior.
 
-> **Human:** Opening an entire app just to read an audio file feels wrong.
->
-> **Agent:** I'd let the caller open file storage directly. Reading bytes
-> doesn't require table definitions or an account:
->
-> ```ts
-> import { openLocalBlobs } from '@epicenter/app/blobs';
->
-> const blobs = await openLocalBlobs({ id: 'audio-preview' });
-> try {
->   const result = await blobs.get(blobId);
->   // Preview the audio from the result.
-> } finally {
->   await blobs.close();
-> }
-> ```
->
-> **Agent:** The cost is that callers opening several resources now own their
-> cleanup. I'd keep that responsibility in the screen or product using them,
-> rather than make every resource belong to an app again.
->
-> **Human:** Yes. What if I add recording? Could the recorder take the same ID?
->
-> **Agent:** It could. The difference is whether it opens its own storage or
-> uses storage you've already opened. Here's what the caller would write.
->
-> **1. The recorder opens its storage**
->
-> ```ts
-> // An alternative API sketch, not an existing constructor.
-> const recorder = await openRecorder({ id: 'audio-preview' });
-> try {
->   // Capture audio into the recorder's own storage.
-> } finally {
->   await recorder.close();
-> }
-> ```
->
-> **2. Pass the storage to the recorder**
->
-> Storage is an independent resource. The recorder uses it without owning its
-> lifetime, so recording can stop while storage stays available for preview.
->
-> ```ts
-> import { openLocalBlobs } from '@epicenter/app/blobs';
-> import { createRecorder } from '@epicenter/app/recorder';
->
-> const blobs = await openLocalBlobs({ id: 'audio-preview' });
-> try {
->   const recorder = createRecorder({ blobs });
->   try {
->     // Capture audio into this storage; preview can use it too.
->   } finally {
->     await recorder.close();
->   }
-> } finally {
->   await blobs.close();
-> }
-> ```
->
-> **Agent:** I'd use 2 here. Recording and preview already need the same
-> storage. Passing it makes that sharing explicit, and closing the recorder
-> can leave preview usable. Version 1 is convenient for a recorder that owns
-> the whole session, but sharing its storage would need another decision.
->
-> **Human:** That's the part I care about. Recording can stop while preview
-> stays open. The nested cleanup still looks heavy.
->
-> **Agent:** Keep that lifetime distinction. The recording screen can manage
-> these handles once, so its event handlers just use them. I'd check that
-> actual caller before adding a shared helper; the smaller preview-only tool
-> shouldn't inherit a recording session it doesn't need.
+**User:** Opening an entire app just to read an audio file feels wrong. I'm
+struggling to explain why.
+
+**Agent:** Reading a file seems like a small, understandable operation. Opening
+the app brings in a larger set of concepts before you can do it. My first
+reading of the expectation underneath your reaction is:
+
+> Accessing a file should require understanding only the resources that
+> operation actually needs.
+
+That could explain why opening the whole app feels disproportionate. Does that
+name what bothers you?
+
+**User:** Partly. It's also that storage seems like its own thing. Why does it
+have to belong to an app?
+
+**Agent:** Then the concern reaches beyond the amount of setup. The current
+design makes the app the owner of something you see as independently useful.
+
+I'd articulate the intent as:
+
+> Let features use independently meaningful resources without requiring those
+> resources to belong to an entire app.
+
+**User:** That's right.
+
+**Agent:** Starting from that intent, I'd imagine storage as something a caller
+can open directly. A preview feature could use it without acquiring tables, an
+account, or a recording session.
+
+The vision is:
+
+> Features assemble the resources they need. Each resource has an understandable
+> purpose and lifetime.
+
+**User:** What if I add recording? Recording and preview would need the same files.
+
+**Agent:** Then independently useful resources also need to support sharing.
+Making storage belong to the recorder could create another problem: stopping
+recording might end access that preview still needs.
+
+I'd develop the vision to:
+
+> Resources can be used independently and shared between features. Their
+> lifetimes follow who still needs them, so stopping one feature leaves the
+> others' resources available.
+
+**User:** That's right. Recording should be able to stop while preview stays open.
+
+**Agent:** Working backward, that gives us a concrete ownership decision: the
+screen using recording and preview can own their shared storage. The recorder
+uses that storage; closing the recorder ends its own work.
+
+Here's a caller sketch to examine:
+
+```ts
+const blobs = await openLocalBlobs({ id: 'audio-preview' });
+
+try {
+  const recorder = createRecorder({ blobs });
+
+  try {
+    // Record audio into the shared storage.
+  } finally {
+    await recorder.close();
+  }
+
+  // Preview can still use blobs after recording closes.
+} finally {
+  await blobs.close();
+}
+```
+
+The placement of cleanup makes the proposed lifetimes visible: storage
+surrounds both recording and preview.
+
+**User:** That's the model I mean. But the nested cleanup still looks heavy.
+
+**Agent:** We can carry forward the ownership model while developing how callers
+express it. I'd examine the recording screen's actual operations next: when
+recording starts and stops, when preview opens, and when the screen releases
+storage. That would let us judge where cleanup belongs and whether a helper
+earns its place.
+
+The consequential movement is from “this feels wrong” to independent resources,
+shared lifetimes, and a caller that exposes ownership. The user's corrections
+develop the model, and recognizing that model still leaves its implementation
+open to improvement.
 
 ## Agent skills: inspect instructions and behavior
 
