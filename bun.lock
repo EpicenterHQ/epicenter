@@ -605,6 +605,19 @@
         "typescript": "catalog:",
       },
     },
+    "packages/repository": {
+      "name": "@epicenter/repository",
+      "version": "0.0.1",
+      "dependencies": {
+        "typebox": "catalog:",
+        "wellcrafted": "catalog:",
+        "yaml": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/server": {
       "name": "@epicenter/server",
       "version": "0.1.1",
@@ -978,6 +991,8 @@
     "@epicenter/principal": ["@epicenter/principal@workspace:packages/principal"],
 
     "@epicenter/recorder": ["@epicenter/recorder@workspace:packages/recorder"],
+
+    "@epicenter/repository": ["@epicenter/repository@workspace:packages/repository"],
 
     "@epicenter/server": ["@epicenter/server@workspace:packages/server"],
 
