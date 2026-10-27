@@ -1,0 +1,26 @@
+{
+	"name": "@epicenter/repository",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./server": "./src/server/index.ts",
+		"./merge": "./src/merge.ts",
+		"./bun": "./src/bun/index.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:",
+		"yaml": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}
