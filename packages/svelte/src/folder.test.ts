@@ -241,6 +241,138 @@ test('fileEdit edits LF text and sends with current file newline style', async (
 	target.remove();
 });
 
+test('fileEdit keeps one inserted line when typing continues during a held put', async () => {
+	const memory = memoryHost({ 'note.txt': 'Body.\n' });
+	const owner = expectOk(await createFolder(memory.storage, { tables }));
+	const folder = svelteFolder(owner);
+	const target = document.createElement('div');
+	document.body.append(target);
+	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
+	const view = mount(FileEditHost, {
+		target,
+		props: { folder, path: 'note.txt', expose: (value) => { editor = value; } },
+	});
+	const gate = Promise.withResolvers<void>();
+	try {
+		flushSync();
+		if (editor === undefined) throw new Error('File edit did not mount');
+		memory.control.putGate = gate.promise;
+		editor.value = 'Body.\nh\n';
+		await until(() => memory.log.puts.length === 1);
+		editor.value = 'Body.\nhe\n';
+		expect(folder.saving).toBe(true);
+		const idle = owner.idle();
+		memory.control.putGate = undefined;
+		gate.resolve();
+		await idle;
+		expect(memory.text('note.txt')).toBe('Body.\nhe\n');
+	} finally {
+		memory.control.putGate = undefined;
+		gate.resolve();
+		await unmount(view);
+		await owner.close();
+		target.remove();
+	}
+});
+
+test('fileEdit merges an outside field update between typed writes', async () => {
+	const initial = text('First');
+	const memory = memoryHost({ 'notes/a.md': initial });
+	const owner = expectOk(await createFolder(memory.storage, { tables }));
+	const folder = svelteFolder(owner);
+	const target = document.createElement('div');
+	document.body.append(target);
+	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
+	const view = mount(FileEditHost, {
+		target,
+		props: { folder, path: 'notes/a.md', expose: (value) => { editor = value; } },
+	});
+	const gate = Promise.withResolvers<void>();
+	try {
+		flushSync();
+		if (editor === undefined) throw new Error('File edit did not mount');
+		memory.control.putGate = gate.promise;
+		editor.value = `${initial}h`;
+		await until(() => memory.log.puts.length === 1);
+		const field = folder.tables.notes.update('a', { fields: { title: 'Outside' } });
+		editor.value = `${initial}he`;
+		memory.control.putGate = undefined;
+		gate.resolve();
+		await owner.idle();
+		expectOk(await field);
+		expect(memory.text('notes/a.md')).toBe(`${text('Outside')}he`);
+	} finally {
+		memory.control.putGate = undefined;
+		gate.resolve();
+		await unmount(view);
+		await owner.close();
+		target.remove();
+	}
+});
+
+test('delete after file typing removes the file after every queued edit', async () => {
+	const memory = memoryHost({ 'note.txt': 'Body.\n' });
+	const owner = expectOk(await createFolder(memory.storage, { tables }));
+	const folder = svelteFolder(owner);
+	const target = document.createElement('div');
+	document.body.append(target);
+	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
+	const view = mount(FileEditHost, {
+		target,
+		props: { folder, path: 'note.txt', expose: (value) => { editor = value; } },
+	});
+	const gate = Promise.withResolvers<void>();
+	try {
+		flushSync();
+		if (editor === undefined) throw new Error('File edit did not mount');
+		memory.control.putGate = gate.promise;
+		editor.value = 'Body.\nh\n';
+		await until(() => memory.log.puts.length === 1);
+		editor.value = 'Body.\nhe\n';
+		const deleted = folder.delete('note.txt');
+		memory.control.putGate = undefined;
+		gate.resolve();
+		expectOk(await deleted);
+		await owner.idle();
+		expect(memory.text('note.txt')).toBeUndefined();
+	} finally {
+		memory.control.putGate = undefined;
+		gate.resolve();
+		await unmount(view);
+		await owner.close();
+		target.remove();
+	}
+});
+
+test('fileEdit can retry a failed based write', async () => {
+	const memory = memoryHost({ 'note.txt': 'Body.\n' });
+	const owner = expectOk(await createFolder(memory.storage, { tables }));
+	const folder = svelteFolder(owner);
+	const target = document.createElement('div');
+	document.body.append(target);
+	let editor: ReturnType<typeof import('./folder.js').fileEdit> | undefined;
+	const view = mount(FileEditHost, {
+		target,
+		props: { folder, path: 'note.txt', expose: (value) => { editor = value; } },
+	});
+	try {
+		flushSync();
+		if (editor === undefined) throw new Error('File edit did not mount');
+		memory.control.failPut.set('note.txt', expectErr(SaveError.StorageFailed({ cause: 'full' })));
+		editor.value = 'Body.\nTyped\n';
+		await owner.idle();
+		expect(editor.error).not.toBeNull();
+		memory.control.failPut.clear();
+		editor.retry();
+		await owner.idle();
+		expect(memory.text('note.txt')).toBe('Body.\nTyped\n');
+	} finally {
+		await unmount(view);
+		await owner.close();
+		target.remove();
+	}
+});
+
 test('fileEdit keeps a byte order mark and starts empty for non-text data', async () => {
 	const memory = memoryHost({
 		'bom.txt': '\ufeffFirst\r\n',
