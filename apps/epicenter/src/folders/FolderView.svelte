@@ -24,15 +24,11 @@
 	const tree = $derived(fileTree(folder.files.map((file) => file.path)));
 	let selected = $state<string | undefined>(undefined);
 	let view = $state('files');
-	let tablesView: TablesView | undefined = $state();
 	function show(next: string, path?: string) {
 		if (path !== undefined) selected = path;
 		view = next;
 	}
-	async function openSource(path: string) {
-		if (tablesView && !await tablesView.landed(path)) return;
-		show('files', path);
-	}
+	const openSource = (path: string) => show('files', path);
 	const declaration = $derived(folder.file('epicenter.json'));
 	const source = $derived(declaration?.data);
 	const loadProblem = $derived(declaration?.readError?.message ?? (source instanceof Uint8Array ? 'epicenter.json is not UTF-8 text' : undefined));
@@ -200,7 +196,6 @@
 				{views}
 				viewKey={view}
 			/>{:else}<TablesView
-				bind:this={tablesView}
 				{folder}
 				{openSource}
 				view={recipe}

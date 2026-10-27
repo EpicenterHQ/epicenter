@@ -408,16 +408,16 @@ when its turn comes, so adjacent cell edits do not overwrite one another.
 A file read failure can be retried with `folder.refresh()`. Failed edits keep
 their value and offer Save again, Discard, and Copy beside the editor.
 Checkboxes and board moves write directly and report failures beside the action.
-Opening a row's source from Tables waits for that row's cell saves to answer.
-A failed cell save keeps the row and its recovery controls visible. Other file
-navigation keeps its ordinary behavior.
+Opening a row's source from Tables is immediate. Whole-file edits in Files
+merge over cell changes that land after their base was read. A failed cell edit
+that unmounts when its source opens loses its recovery controls.
 
 The folder owner refreshes on focus, visibility, and connectivity. Closing the
 folder drains writes already queued by its editors.
 Closing an editor window waits for writes in flight before destroying it.
 Saved-view submissions compose from the latest submitted declaration text while
-a write is waiting. Whole-file edits in Files and saved-view saves use last
-write wins when they race.
+a write is waiting. Files edits carry their base and merge at their turn;
+saved-view saves use last write wins when they race.
 
 The SQL console uses `documents(path, directory, stem, fields, body, issues)`.
 `fields` and `issues` contain JSON. Each run reads saved files into disposable
