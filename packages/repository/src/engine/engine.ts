@@ -55,11 +55,6 @@ const EngineDiagnostic = defineErrors({
 		message: 'A sync step failed; it will run again on the next change or reconnect',
 		cause,
 	}),
-	DeviceMismatch: ({ stored, given }: { stored: string; given: string }) => ({
-		message: `This database belongs to device '${stored}', not '${given}'`,
-		stored,
-		given,
-	}),
 });
 
 /** One change as kept in the outbox: what was sent and what this device then showed. */
@@ -111,7 +106,9 @@ export function openRepository<const TDefs extends Definitions>({
 	const setMeta = (key: string, value: string) =>
 		driver.run('INSERT OR REPLACE INTO "epicenter/meta" (key, value) VALUES (?, ?)', [key, value]);
 	const stored = meta('device');
-	if (stored !== undefined && stored !== device) throw new Error(EngineDiagnostic.DeviceMismatch({ stored, given: device }).error.message);
+	// Opening another device's database is a wiring mistake, not a runtime condition.
+	if (stored !== undefined && stored !== device)
+		throw new Error(`This database belongs to device '${stored}', not '${device}'`);
 	if (stored === undefined) {
 		setMeta('device', device);
 		setMeta('next', '1');
