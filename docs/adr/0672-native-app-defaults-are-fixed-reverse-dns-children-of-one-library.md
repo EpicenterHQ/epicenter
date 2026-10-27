@@ -2,6 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-22
+- **Related proposal:** [Launcher grouping by pin, library membership, and recency](0679-the-launcher-groups-folders-by-pin-library-membership-then-recency.md) changes navigation preferences, leaving this allocation policy unchanged. Its pins and recents are unbuilt; the bookmark-based listing described here is the current implementation.
 - **Amends:** [ADR-0670](0670-native-shells-share-explicit-machine-local-app-homes.md) by replacing saved app-home selection with fixed defaults, and [ADR-0671](0671-the-launcher-lists-directories-from-all-current-references.md) by removing selected homes as a listing source.
 
 ## Context
@@ -65,6 +66,13 @@ library children, bookmarks, and accepted directories available only for the
 current run; an existing default in it is labelled with its app's title.
 Explicit folder opening changes the opened window's directory, never the
 app's default. Epicenter's own records are always at `<library>/so.epicenter`.
+
+Folder selection is an optional native shell capability, not an app contract.
+Epicenter owns Choose Folder for hosted apps. Standalone Todos remains a
+single-window app on its fixed default and requires no picker implementation.
+Both shells bind the directory before loading the same app page. A future
+standalone picker would be a separate product capability, not a requirement
+imposed on every app.
 
 **This is a clean break from saved homes.**
 

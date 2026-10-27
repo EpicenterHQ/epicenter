@@ -1,153 +1,130 @@
-# 0678. App storage openers use runtime-bound scopes
+# 0678. App databases open within runtime-bound scopes
 
 - **Status:** Proposed
 - **Date:** 2026-10-22
-- **Relates:** [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) proposes persistent database handles, SQL operations, and asynchronous connection disposal.
-- **Unbuilt:** Production `openDeviceStorage`, shared native app-to-device-storage bindings, production browser device files and SQLite over OPFS, raw-access coordination, cross-tab contention handling, and parent-handle cleanup; implementations remain fictional-data prototypes. The existing `openFolder` already uses the browser origin or native window binding.
+- **Amends:** [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) at requiring `sqlite/<name>.sqlite` for hosted app databases. The named database capability puts `<name>.sqlite` directly in the app-owned private root; this does not restore the retired source installer or define another asset lifecycle.
+- **Relates:** [ADR-0660](0660-native-apps-default-authored-work-to-the-epicenter-root.md) keeps authored Folders shared and app-managed state in each shell's AppData; [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md) defines database admission, deletion, SQL operations, and connection lifetime; [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md) gives Epicenter and standalone apps independent releases.
+- **Unbuilt:** `openDeviceDatabase` and `deleteDeviceDatabase`, native per-installation bindings, browser SQLite storage, and production connection cleanup. The existing `openFolder` already uses the browser origin or native window binding. SQLite adapters remain fictional-data prototypes.
 
 ## Context
 
-Apps currently call `openFolder({ tables })`. The browser opens
-`epicenter.folder.default` in IndexedDB; the desktop opens the directory
-bound to the calling window. Neither app call supplies an app identifier,
-account, remote, or native path. Bun tools instead supply an explicit
-`directory`. These behaviors are implemented in
-[`packages/folder`](../../packages/folder/README.md).
+Apps currently call `openFolder({ tables })`. The browser opens its existing
+IndexedDB Folder; a native window opens the authored directory its shell bound
+before the page loaded. Neither app call supplies an app identifier or path.
+The Folder can be the same directory in Epicenter and a standalone shell.
 
-Device-local files and SQLite need a stable app scope too. Requiring every
-page to pass its app identifier would repeat a choice the native shell already
-makes when launching that app. Deriving device storage from the selected Folder
-would instead give one app different preferences and caches whenever it opens
-another directory, while different apps editing that directory would share
-their device state.
+An application's private database has a different owner: the installed product
+that updates its schema. Epicenter updates its bundled app pages as one product;
+standalone Todos updates independently. Sharing a database between those
+installations would make each release compatible with the other's private schema
+and migrations. Sharing authored files already requires a portable file format,
+but does not require sharing that private database.
 
 ## Decision
 
-**Ordinary app code opens its runtime-bound Folder and device storage without
-supplying an identifier.**
+**An app opens a named private database in its current installation without
+supplying a root or app identifier.** The app-facing operations are:
 
-`openFolder({ tables })` keeps its name and existing selection rules.
-`Folder` names rooted paths and contents, including table interpretations;
-`authored` describes the intended use rather than a second resource type.
-The proposed `openDeviceStorage()` opens this app's device-local storage.
-Neither opener selects storage from an account, Git remote, display title,
-or caller-supplied app identifier.
+```ts
+const db = await openDeviceDatabase('state');
+await db.close();
 
-The two bindings remain independent:
+// Explicit maintenance after all owners have closed the database:
+await deleteDeviceDatabase('search');
+```
 
-| Binding | Browser | Native app |
+These examples express the proposed contract, not implemented package exports.
+Both functions return Promises. `openDeviceDatabase(name)`
+returns the `SqliteDatabase` of ADR-0673. Opening creates the database if it
+is absent; the app owns schema initialization and migrations.
+`deleteDeviceDatabase(name)` removes that database under ADR-0673's
+quiescence and failure rules. There is no parent device handle or generic
+device-file API. A later need for assets or arbitrary private files can earn a
+separate capability with its own lifetime and browser backing.
+
+The name is one lowercase ASCII segment matching
+`^[a-z0-9][a-z0-9.-]{0,63}$`. Periods and hyphens are naming punctuation;
+neither creates a directory or a framework-parsed namespace. Callers supply a
+logical name without the runtime's `.sqlite` extension. The native runtime
+maps `state` to `state.sqlite` and `google.abc` to `google.abc.sqlite` in the
+bound private root, including each database's SQLite journal and WAL companions.
+The runtime always appends `.sqlite`; it does not parse a name as a filename or
+strip an apparent extension.
+The page cannot pass an absolute path, traverse directories, or select another
+installation. A name identifies one database within one installation; the
+runtime assigns it no account, Folder, remote, or person semantics. Applications
+may keep multiple accounts in one database or choose stable names for
+independently managed databases. The framework requires no account tree or
+database catalog.
+
+| Runtime | Private database root | Authored Folder |
 | --- | --- | --- |
-| Folder | This origin's existing default IndexedDB folder | The existing directory bound to the calling window |
-| Device storage | This origin's device-local storage, backed by OPFS for files and SQLite | An app-scoped location beneath the shell's configured AppData root |
+| Standalone native app | That product's own AppData directory, for example `<OS AppData>/so.epicenter.todos/state.sqlite` | Its selected directory, defaulting to the shared Epicenter library child |
+| App bundled in Epicenter | An app-owned child under Epicenter's AppData, for example `<OS AppData>/so.epicenter/apps/so.epicenter.todos/state.sqlite` | The directory bound to its window, which can be the same one opened standalone |
+| Browser app | This app's origin-local database storage; exact SQLite backend remains undecided | Its existing origin-local IndexedDB Folder |
+| Native CLI or tool | A private root chosen explicitly by the tool's composition boundary | A directory chosen explicitly by the tool |
 
-The browser model assumes one ordinary app per origin. Different URL paths
-do not establish different app scopes. Several same-origin apps would require
-an explicit new selection and isolation design, rather than inferring identity
-from the current route. Browser scope also depends on the browser profile and
-storage partition; it does not identify a physical device or person.
+These are logical examples; the runtime resolves the platform-specific AppData
+base. A development installation must have its own private root. A standalone
+shell's Folder-path resolver may still use Epicenter's shared library policy;
+that resolver does not make the standalone database part of Epicenter's AppData.
 
-The native shell binds a stable logical app identifier before exposing device
-storage to a page. A standalone shell supplies it from its app configuration;
-Epicenter supplies it from the app it launches. Standalone and hosted versions
-of the same app resolve the same device scope in the same storage environment.
-The shell's own bundle identifier, a window instance, and the chosen Folder
-path do not substitute for that app identifier. Missing bindings refuse opening
-rather than selecting shared or browser storage. Tools outside an app runtime
-must supply the scope or directory explicitly at their composition boundary.
-Identity is bound once, not rediscovered from names on each operation.
+For example, the native database layout on macOS is:
 
-**Device file access and SQLite opening address the same rooted file namespace.**
-
-The proposed device handle offers `files` for ordinary relative-path file
-operations and `openSqlite(path)` for database connections. The path
-`search.sqlite` names the same file through both capabilities. The runtime
-applies the app binding to both; a relative path selects a file within that
-root, not another app or an arbitrary native path. Native SQLite uses native
-storage; browser SQLite uses a filesystem-transparent OPFS implementation.
-SQLite need not run through the whole-file `files.read` and `files.write`
-operations to address those same files.
-
-Paths are relative to the admitted root. Absolute paths, traversal outside that
-root, and native aliases escaping it are refused by the backend. An app can name
-account databases such as `messages-demo-a.sqlite` or arrange subdirectories;
-the account does not select the app's scope. The scratch file prototype accepts
-only one filename; subdirectory admission is not established by its tests.
-
-Raw reads, writes, replacements, and deletion of a database or its SQLite
-journal companions require every connection to be closed and competing access
-excluded for the operation's duration. Closing one tab's connection does not
-establish exclusivity if another tab or process still has the file open. The
-raw file API does not establish this quiescence by virtue of returning bytes.
-
-After a crash, SQLite must recover any hot journal or WAL before a standalone
-main-file copy is treated as complete. A live consistent snapshot is a
-database-aware operation outside this initial API; raw byte reads are not
-backups. See [SQLite's file-access guidance](https://sqlite.org/howtocorrupt.html).
-
-A fictional-data [official OPFS prototype](../../packages/folder/evidence/device-opfs/NOTES.md)
-observes this shared namespace in a browser. With the `opfs` adapter of
-`@sqlite.org/sqlite-wasm` 3.54.1-build1, SQLite creates the literal
-`search.sqlite`. After its connection closes, file access reads the database
-bytes, and another tab writes a copy and opens that copy as a database.
-Headless Chromium, Firefox, and Playwright WebKit on macOS also complete two
-tabs' concurrent atomic batches against one file and keep the last committed
-value after an orderly page close mid-transaction. The adapter needs a
-cross-origin-isolated page; without COOP and COEP headers the prototype refuses
-to open rather than falling back to other storage.
-
-This is feasibility evidence, not production behavior. Forced contention
-exceeded application retry budgets, failing after about 31.7 s in Chromium and
-Firefox and 4.5 s in WebKit with different SQLite errors. Each engine also
-returned bytes from a raw read of a database copy held in an exclusive
-transaction, so browser enforcement does not supply the quiescence required
-above. The prototype's cooperating main-file Web Lock lease refused raw access
-while any tab held a connection. It does not protect sidecars, native clients,
-or OPFS callers that bypass it. Forced renderer or browser termination, mobile
-browsers, and origin retention were not tested.
-
-**A device handle owns the connections it opens and supports asynchronous disposal.**
-
-`device.openSqlite(path)` returns the persistent database handle defined in
-ADR-0673. Opening the same path again creates an independent connection to the
-same file. Closing one connection does not close another connection or remove
-the file.
-
-`device.close()` refuses new file operations and database opens, closes that
-handle's database connections, and releases its resources. An admitted open
-cannot publish a usable connection after closing begins: it fails or its
-connection is closed before device cleanup completes. Other device handles,
-tabs, windows, and CLI connections remain independent. Closing removes no files.
-
-`device[Symbol.asyncDispose]()` invokes the same cleanup as `device.close()`.
-Repeated calls await the same cleanup outcome. The session owner stops and
-awaits its application work before closing; cleanup does not promise to cancel
-or drain unawaited SQL or file operations. Every child close is attempted even
-if another fails, and cleanup failures remain observable. Per-connection
-`close` and disposal follow ADR-0673.
-
-These examples are proposed API calls with opening errors abbreviated:
-
-```ts
-async function inspectFictionalMessages() {
-  await using device = await openDeviceStorage();
-  await using db = await device.openSqlite('messages-demo-a.sqlite');
-  return await db.all('SELECT id, text FROM fictional_messages LIMIT 50');
-}
+```text
+~/Library/Application Support/
+  so.epicenter.todos/                  standalone Todos
+    state.sqlite
+    search.sqlite
+  so.epicenter/                        Epicenter host
+    apps/so.epicenter.todos/
+      state.sqlite
+      search.sqlite
+  so.epicenter.todos.dev/              standalone development
+    state.sqlite
+  so.epicenter.dev/                    hosted development
+    apps/so.epicenter.todos/
+      state.sqlite
 ```
 
-A long-lived UI session keeps `device` and its connections until teardown;
-closing the device after awaiting its work closes the remaining connections.
-The authored Folder stays independent:
+These files are outside the authored Folder. Both Todos installations may open
+the same `~/Epicenter/so.epicenter.todos/` without sharing a private database.
 
-```ts
-const folder = await openFolder({ tables });
-const device = await openDeviceStorage();
-const db = await device.openSqlite('messages-demo-a.sqlite');
-```
+The host needs `apps/<app-id>/` because it serves several apps beneath one
+AppData root. The standalone product's AppData directory already names its
+owner, so its default database can sit directly there. No `sqlite/` or
+`device/` level is required inside either app-owned root. A product can create
+other directories for an independently owned lifecycle, but the opener does not
+require them. AppData may also hold non-database runtime state; this decision
+does not promise that the directory contains only SQLite files. WebView caches
+and credentials follow their own platform locations.
 
-Folder selection does not select the device root, and `Folder` gains no SQLite
-method. No second top-level app-facing `openSqlite({ account })` is introduced.
-Package placement is independent of these resource lifetimes.
+**The runtime binds identity before exposing the opener.** A standalone shell
+uses its installed product identity and own AppData root; Epicenter binds the
+hosted app's stable identifier beneath its AppData root. An installed source app,
+if later granted this capability, receives a distinct host-issued installation
+scope as proposed by ADR-0680. A browser origin is one app scope under this
+decision; URL paths alone are not separate scopes. Missing native bindings
+refuse opening. Changing the selected Folder or signing into an account does
+not relocate a database.
+
+The native shell resolves the root when it assembles the installation binding;
+the page never invokes a path resolver. Standalone database binding must use the
+product's own AppData scope, separately from `DesktopPaths.data_dir`, whose
+existing shared scope serves library/navigation machinery. Hosted binding uses
+the admitted app identity beneath the host's configured AppData root. The
+runtime may create a missing admitted private directory; creation failure must
+not select another root. A directory left by the retired source-app installer
+does not establish a database grant and must not be reused as a new hosted
+partition merely because its name matches the app ID.
+
+The browser implementation need not expose literal OPFS filenames. The
+fictional-data [OPFS prototype](../../packages/folder/evidence/device-opfs/NOTES.md)
+proves that one file-backed adapter can support SQL operations, but its
+cross-origin-isolation requirement and contention behavior are not a production
+selection. A pooled adapter may be considered because physical file transparency
+is no longer promised. Browser origin retention, multi-tab contention,
+interrupted work, and cleanup must be verified before shipping either backend.
 
 ## Mail database names and data ownership
 
@@ -203,50 +180,67 @@ each database records its schema version internally, and the app owns upgrades
 without renaming the database. Resetting one mirror resets its sync position
 and preserves other mirrors, authored records, and retained private intent.
 
+`PRAGMA user_version` is a candidate for that internal format marker. This
+decision does not require it or grant that PRAGMA through the proposed SQL
+handle; the fictional-data adapters currently reject app-issued access to it.
+Choosing it would require a narrow read and write allowance. The app decides
+whether a version mismatch warrants migration or a rebuild, and must establish
+quiescence before deleting a mirror under ADR-0673.
+
 This is an app layout decision, not a required database catalog or account
 hierarchy for every app. Keeping connection definitions in the Folder does not
 make the database file part of Folder synchronization.
 
 ## Consequences
 
-Pages stop repeating app identifiers, native paths, and browser storage choices
-at file and database call sites. The runtime must still establish a stable
-binding; removing an argument does not remove identity. A native app may open
-several Folders while retaining its device-local preferences and caches.
+The same `openDeviceDatabase('state')` call can run in both native shells while
+resolving to different files. Each installation migrates its own private schema
+at its own release pace. Both still read and edit the same authored Folder, so
+the shared file format must remain compatible across released readers and
+writers. A private database cannot be the only place another installation must
+look to understand those authored files.
 
-The app-facing distinction is Folder versus device storage. Public access,
-sharing, and Git synchronization remain policies independent of either name.
-Device-local state can contain durable recovery information and is not
-automatically disposable cache. Credentials remain a separate capability.
+Each app decides whether data in AppData can be rebuilt, needs backup, or
+contains pending user intent. AppData is private placement, not a disposable
+cache guarantee. The Mail example discovers connections from authored records
+and this installation's activation state; the opener does not list databases or
+interpret provider prefixes. Removing mirrors requires their exact names, so
+the app must retain or recover the identity needed to name them until cleanup
+succeeds, including when an authored connection definition disappears.
 
-The existing browser Folder database name and stored bytes stay unchanged.
-Native path allocation must select a shared app scope without reusing old
-installed-app clones under AppData. Device-storage paths, creation policy,
-initialization, retention, raw-access coordination across tabs and native CLI
-processes, browser contention deadlines, cross-origin isolation, and cleanup
-must be specified and verified before the new opener ships. A refused open does
-not select another path, device scope, or storage engine. No database
-initialization or migration runner is added to the shared handle; apps own
-their schemas.
+A database that must move between installations needs an
+explicit export/import or other app-level transfer; a live SQLite file is not
+shared through a symlink or raw copy. A database-aware snapshot would be a
+separate capability. Credentials remain in an appropriate secret store.
+
+No production SQLite opener, physical allocation, or browser backend is
+implemented by this decision. A failed open never
+silently chooses another database or storage engine.
 
 ## Considered alternatives
 
-- **Require an app ID on both openers.** Repeats runtime identity in page code
-  and incorrectly associates a portable Folder with one app owner.
-- **Derive device storage from the Folder.** Couples app-local state to a
-  movable directory and shares it across unrelated apps opening that directory.
-- **Infer app identity from the Tauri bundle ID or browser URL path.** The
-  desktop host serves several apps, and browser paths share origin storage.
-- **Rename `openFolder` to `openAuthoredStorage` or `openStorage`.** Adds an
-  abstract name without changing its rooted-file behavior; the latter also
-  hides the distinction from device storage.
-- **Keep databases in a separate managed namespace.** Hides the expected
-  relationship between `files` and `openSqlite` and requires a separate byte
-  import/export path even when all connections are cleanly closed.
-- **Use a pooled OPFS adapter with private filename mappings.** Does not meet
-  the shared-path contract. The prototype shows the official transparent OPFS
-  adapter meeting that contract without a custom VFS; its concurrency and
-  deployment requirements still need production decisions.
-- **A SQLite method on the authored `Folder`.** Changes the selected data
-  folder's authority and needs a database backing beyond the browser's existing
-  IndexedDB Git-object engine.
+- **Share one private root between standalone and hosted copies.** Reduces
+  duplicate local state, but couples independent releases to one schema and
+  migration schedule. Shared authored files already supply the intended
+  cross-installation work.
+- **Use a neutral third AppData root.** Relocates the same database ownership
+  problem without providing a service that owns the schema and versioned API.
+- **Derive private storage from the selected Folder.** Gives one app different
+  preferences and caches for each opened Folder and can make unrelated apps
+  opening that Folder share private state.
+- **Keep `openDeviceStorage()` with `files` and `sqlite`.** Adds raw-file and
+  parent-handle contracts with no current app caller. It also constrains the
+  browser backend solely to preserve file transparency.
+- **Require `sqlite/` inside each app-owned root.** Adds a directory level
+  without changing naming authority or lifetime. The database file already
+  identifies its format; an app may add nesting when it has a real partition.
+- **Allow hyphens but forbid periods in logical names.** Both are punctuation
+  in one flat name. Periods make provider account names readable without
+  introducing path or namespace operations.
+- **Expose hierarchical database names or account storage scopes.** A validated
+  relative database path need not expose a general filesystem, but one database
+  per account does not require hierarchy. Grouping several databases and
+  attachment files under an account, or removing that group together, can earn
+  a separate scope and lifecycle decision.
+- **Put SQLite inside the authored Folder.** Couples app-managed schemas to
+  shared work and requires every tool or sync path to understand those files.

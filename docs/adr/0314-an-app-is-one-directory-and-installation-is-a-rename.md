@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Unbuilt:** all of it, and the shape it replaced is gone too. `app-catalog/`, its generations, its `current` pointer, `promoteAppCatalogCandidate`, and `loadActiveAppCatalog` were deleted rather than superseded, so the host now has neither model: `applications.ts` lists three compiled applications and says installed-application discovery is not part of the host. An application is not yet one directory, and there is no catalog either.
 - **Date:** 2026-08-31
+- **Amended by:** [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md) at requiring `sqlite/<name>.sqlite` for hosted app databases. Its named database capability places `<name>.sqlite` directly in the app-owned private root and gives standalone installations separate roots. This bounded amendment does not restore the source installer or redefine bundle and asset lifecycles; the production database capability remains unbuilt.
 - **Amends:** [ADR-0201](0201-epicenter-owns-one-app-data-root-and-an-app-partitions-its-one-directory-by-a-stable-authority-identifier.md)
   at everything below `apps/<app-id>/`. Its `<kind>/<partition-id>` levels are
   withdrawn and replaced by the four directories drawn below. Its one root and
