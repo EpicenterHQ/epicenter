@@ -72,11 +72,12 @@ evict. A client that only adds entries may append through the remote instead
 of holding a replica. Agents edit desktop files directly or issue the same
 Folder instructions through `epicenter`; browser data reaches them through sync.
 
-**Device-only data is whatever the area's `.gitignore` names.** An app writes
-its own patterns to `.gitignore` in its area, like any other file, and a
-person or agent may edit them. Desktop Git leaves ignored paths out of commits
-under [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md);
-browser sync leaves the same paths out of what it sends. Apps name no paths.
+**Device-only data is whatever the area's `.gitignore` names.** Apps never ask
+the host for a path; an app lists device-only patterns in its area's
+`.gitignore`, like any other file, and a person or agent may edit them. Desktop
+Git leaves ignored paths out of commits under
+[ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md);
+browser sync leaves the same paths out of what it sends.
 
 ## Consequences
 
