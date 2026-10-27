@@ -57,7 +57,7 @@
 		text.set(typing);
 	}
 	async function openCapture() {
-		// Navigation checks the landed row before opening the structured view.
+		// Navigation checks that the saved file reads as a capture.
 		if ((await text.landed()).error !== null) return;
 		if (!active) return;
 		captures.open(stem, 'capture');

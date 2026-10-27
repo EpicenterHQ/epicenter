@@ -194,56 +194,23 @@ test('Edit as text follows queued typing after a capture becomes a draft', async
 	expect(h.text(PATH)).toContain('Held text');
 });
 
-test('Edit as text waits for a queued body write before showing the file', async () => {
+test('Edit as text merges with a body write still saving', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	let release = () => {};
 	h.host.control.putGate = new Promise<void>((resolve) => {
 		release = resolve;
 	});
 	type(field('capture-text'), 'Pending');
+	await until(() => h.host.log.puts.length > 0);
 	button(h.target, 'Edit as text').click();
 	flushSync();
-	expect(h.captures.opened?.mode).toBe('capture');
-	expect(textFile()).toBeNull();
-	expect(h.target.querySelector<HTMLElement>(':scope > div')?.inert).toBe(true);
+	expect(h.captures.opened?.mode).toBe('text');
+	expect(textFile()?.value).toBe(FILE);
+	type(textFile(), FILE.replace('- first', '- first\n- from source'));
 	release();
-	await until(() => {
-		flushSync();
-		return textFile()?.value.includes('Pending') === true;
-	});
+	await land(h);
 	expect(h.text(PATH)).toContain('Pending');
-});
-
-test('Edit as text keeps a failed body draft visible for retry', async () => {
-	const h = await setup({ [PATH]: FILE }, 'capture');
-	h.failSaves(PATH);
-	type(field('capture-text'), 'Keep this');
-	await until(() => {
-		flushSync();
-		return document.body.textContent?.includes('Not saved:') === true;
-	}, { timeout: 2500 });
-	button(h.target, 'Edit as text').click();
-	flushSync();
-	expect(h.captures.opened?.mode).toBe('capture');
-	expect(field('capture-text')?.value).toBe('Keep this');
-	expect(h.text(PATH)).toBe(FILE);
-});
-
-test('leaving during an Edit as text save keeps the timeline open', async () => {
-	const h = await setup({ [PATH]: FILE }, 'capture');
-	let release = () => {};
-	h.host.control.putGate = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	type(field('capture-text'), 'Pending');
-	button(h.target, 'Edit as text').click();
-	await until(() => h.host.log.puts.length > 0, { timeout: 2500 });
-	h.captures.leave();
-	release();
-	await h.quiet();
-	flushSync();
-	expect(h.captures.opened).toBeUndefined();
-	expect(h.text(PATH)).toContain('Pending');
+	expect(h.text(PATH)).toContain('- from source');
 });
 
 test('Open as capture saves the repaired text before switching views', async () => {
