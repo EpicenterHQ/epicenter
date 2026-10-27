@@ -5,9 +5,8 @@ description: Work out an unsettled idea together through its intent, proposed fo
 
 # Dialectic
 
-Standalone dialectic begins with the user's explicit request. Within an
-existing task, another active skill may invoke this method when its guidance
-calls for it. Keep that use within the task the user requested.
+Dialectic develops a shared understanding of what the user is reaching
+for and how it could take shape.
 
 Clarify the intent together, develop a compelling vision of what would
 fulfill it, and work backward from that vision to give it concrete form.
@@ -20,6 +19,10 @@ articulate it themselves; seeing something specific gives them a way to
 recognize, correct, or extend the emerging thought. Contribute substantive
 proposals that help both participants discover and develop what the user
 is reaching for.
+
+Standalone dialectic begins with the user's explicit request. Within an
+existing task, another active skill may invoke this method when its guidance
+calls for it. Keep that use within the task the user requested.
 
 **Develop the discussion through what the user needs to examine next.
 Articulate the intent or idea when our understanding needs to become clearer.
