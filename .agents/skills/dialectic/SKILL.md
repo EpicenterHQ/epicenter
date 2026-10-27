@@ -24,6 +24,13 @@ Standalone dialectic begins with the user's explicit request. Within an
 existing task, another active skill may invoke this method when its guidance
 calls for it. Keep that use within the task the user requested.
 
+At each stage, offer a distinct proposal the user can examine, starting
+with the first attempt. Put articulations of intent and vision in
+blockquotes, with explanation and questions outside them. Show other
+proposed work in the form that lets the user judge it directly. Give
+enough context for the proposal to be understood on its own, and bold
+the parts that need particular attention.
+
 **Develop the discussion through what the user needs to examine next.
 Articulate the intent or idea when our understanding needs to become clearer.
 Show the proposed work itself when its wording, structure, or design needs
@@ -93,13 +100,6 @@ respond to the thought.
 **Make the proposal easy to find and react to.** This may be your current
 reading of the user's intent, the actual wording or design you propose,
 or an example that exposes how it would work in practice.
-
-Put a proposed articulation or passage in a blockquote when that helps separate
-it from commentary; use the appropriate form for other expressions. **Bold what
-the user needs to notice**, such as the key interpretation, a choice, or the
-exact words changed in a revision. Keep the surrounding explanation brief,
-expanding it when the user needs more to judge the proposal. The user should
-be able to read the proposal on its own.
 
 Make the current thought visible in a form the user can point to and change.
 A small map can expose connections and omissions; a list, passage, or caller
