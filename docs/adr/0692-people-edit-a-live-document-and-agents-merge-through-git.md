@@ -37,7 +37,9 @@ the server by that minute.
   literal or one parameter with an optional suffix, a parameter never spans a
   `/`, a template without parameters names one file, and an app whose
   templates could claim the same file is refused when it is defined. Parameters
-  become typed columns, and apps never write a path string. A Markdown file no
+  become typed columns, and apps never write a path string; every call passes
+  every segment, including the stem, which a template never generates (apps may
+  use plain helpers such as `slug` or `timestamp`). A Markdown file no
   template names (a README, say) is synced and never validated. Binary files
   are always LFS objects in R2, declared by blob templates that also write the
   repository's `.gitattributes`; a push carrying a binary outside LFS is
