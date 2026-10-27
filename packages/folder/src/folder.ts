@@ -10,11 +10,11 @@ import { OpenFolderError } from './errors.js';
 import { applyPatch, declaredKeysOf, type RowPatch } from './patch.js';
 import { invalidTable } from './paths.js';
 import { ReadError, SaveError } from './shared/errors.js';
-import { merge, sameContent } from './shared/merge.js';
 import {
 	type Issue as MarkdownIssue,
 	readMarkdown,
 } from './shared/markdown-codec.js';
+import { merge, sameContent } from './shared/merge.js';
 import type { Fetched, FolderHost, Listed } from './storage.js';
 import { type WriteError, WriteRefusal } from './write-refusal.js';
 
@@ -196,6 +196,10 @@ export async function createFolder<const T extends Tables>(
 	let phase: 'open' | 'closing' | 'closed' = 'open';
 	let lastTurn = Promise.resolve();
 	const waitingWrites = new Map<string, WaitingWrite>();
+	const failedBasedWrites = new Map<
+		string,
+		{ data: Data; base: Data | null }
+	>();
 	let closing: Promise<void> | undefined;
 	const look = { queued: false, relist: false, paths: new Set<string>() };
 
@@ -410,9 +414,25 @@ export async function createFolder<const T extends Tables>(
 		const saved = takeTurn(async (): Promise<Result<void, WriteError>> => {
 			turn.started = true;
 			if (waitingWrites.get(path)?.turn === turn) waitingWrites.delete(path);
+			const op = turn.op;
+			if (op.kind === 'write' && op.data !== null && op.base !== undefined) {
+				const failed = failedBasedWrites.get(path);
+				if (failed !== undefined && sameContent(op.base, failed.data))
+					op.base = failed.base;
+			}
 			try {
-				return await send(path, turn.op);
+				const result = await send(path, op);
+				if (result.error === null) failedBasedWrites.delete(path);
+				else if (
+					op.kind === 'write' &&
+					op.data !== null &&
+					op.base !== undefined
+				)
+					failedBasedWrites.set(path, { data: op.data, base: op.base });
+				return result;
 			} catch (cause) {
+				if (op.kind === 'write' && op.data !== null && op.base !== undefined)
+					failedBasedWrites.set(path, { data: op.data, base: op.base });
 				return SaveError.StorageFailed({ cause });
 			} finally {
 				pendingWrites--;
@@ -487,7 +507,8 @@ export async function createFolder<const T extends Tables>(
 	async function send(path: string, op: Op): Saved {
 		if (op.kind === 'move') return sendMove(path, op.to);
 		if (op.kind === 'write' && op.base !== undefined && op.data !== null) {
-			const change = typeof op.data === 'string' ? op.data.toWellFormed() : op.data;
+			const change =
+				typeof op.data === 'string' ? op.data.toWellFormed() : op.data;
 			for (let attempt = 0; ; attempt++) {
 				const results = await host.read([path]);
 				const fresh = results.get(path);
@@ -501,11 +522,7 @@ export async function createFolder<const T extends Tables>(
 				const next = sameContent(current, op.base)
 					? change
 					: (await merge(path, { base: op.base, current, change })).content;
-				const put = await host.put(
-					path,
-					encode(next),
-					attempt < 3 ? current ?? 'absent' : undefined,
-				);
+				const put = await host.put(path, encode(next), current ?? 'absent');
 				if (put.error?.name === 'Changed') {
 					if (attempt < 3) continue;
 					return SaveError.StorageFailed({ cause: put.error });
@@ -571,14 +588,7 @@ export async function createFolder<const T extends Tables>(
 		const put = await host.put(path, sent, expect);
 		if (put.error?.name === 'Changed') {
 			if (op.kind === 'create') {
-				const current = await rereadAfterChanged(path);
-				if (
-					current?.error === null &&
-					current.data !== null &&
-					sent !== null &&
-					sameData(current.data.bytes, sent)
-				)
-					return Ok(undefined);
+				await rereadAfterChanged(path);
 				return WriteRefusal.Exists({ path });
 			}
 			return SaveError.StorageFailed({ cause: put.error });
