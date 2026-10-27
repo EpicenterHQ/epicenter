@@ -55,7 +55,7 @@
 	const note = $derived(noteRow?.issues === null ? noteRow : undefined);
 	const text = $derived(typeof file?.data === 'string' && file.data.length <= LARGE ? file.data : undefined);
 	const raw = fileEdit(folder, path);
-	let switching = $state(false);
+	let noteDetail: NoteDetail | undefined = $state();
 	/** Why the text does not read as its row, apart from the file's own state. */
 	const issues = $derived(
 		text === undefined || (noteId === undefined && folderId === undefined)
@@ -67,18 +67,6 @@
 	async function report(action: string, result: ReturnType<Notes['patchNote']>) {
 		const problem = await result;
 		if (problem) toast.error(`Could not ${action}`, { description: problem });
-	}
-
-	export async function openAsNote() {
-		if (switching || notes.selected?.path !== path) return;
-		switching = true;
-		const { error } = await raw.landed();
-		if (error !== null || issues.length > 0 || notes.selected?.path !== path) {
-			switching = false;
-			return;
-		}
-		notes.open(path, 'note');
-		switching = false;
 	}
 
 	/** A file shown as details: its extension names the type, then its size. */
@@ -96,11 +84,16 @@
 	{#if noteId !== undefined}
 		<!-- Hidden and inert, rather than unmounted: this file's rich-text history stays here. -->
 		<div class="min-h-0 flex-1" hidden={as !== 'note'} inert={as !== 'note'}>
-			<NoteDetail {notes} {path} />
+			<NoteDetail bind:this={noteDetail} {notes} {path} />
+		</div>
+	{/if}
+	{#if as === 'text' && noteDetail?.hasFailedEdit()}
+		<div class="border-b px-4 py-2 text-xs" role="status">
+			A note edit was not saved. <Button size="sm" variant="outline" onclick={() => notes.open(path, 'note')}>Return to note</Button>
 		</div>
 	{/if}
 	{#if as === 'text'}
-		<section class="flex min-h-0 flex-1 flex-col" aria-label="File" inert={switching}>
+		<section class="flex min-h-0 flex-1 flex-col" aria-label="File">
 			<div class="flex items-center gap-2 border-b px-3 py-3 sm:px-4">
 				<FileIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 				<div class="min-w-0 flex-1">
@@ -113,7 +106,7 @@
 						variant="outline"
 						disabled={issues.length > 0}
 						tooltip={issues.length > 0 ? 'Fix the text first' : undefined}
-						onclick={openAsNote}
+						onclick={() => notes.open(path, 'note')}
 					>
 						Open as note
 					</Button>

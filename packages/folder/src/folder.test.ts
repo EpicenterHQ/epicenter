@@ -207,6 +207,107 @@ describe('opening and rows', () => {
 	});
 });
 
+describe('based whole-file writes', () => {
+	test('matching base puts the replacement after one fresh read', async () => {
+		const base = note('title: A');
+		const { folder, log, text } = await setup({ 'notes/a.md': base });
+		expectOk(await folder.write('notes/a.md', note('title: B'), { base }));
+		expect(text('notes/a.md')).toBe(note('title: B'));
+		expect(log.reads).toEqual([['notes/a.md'], ['notes/a.md']]);
+		expect(log.puts).toEqual([{ path: 'notes/a.md' }]);
+	});
+
+	test('stale base merges independent title and body changes', async () => {
+		const base = note('title: A');
+		const { folder, outside, text } = await setup({ 'notes/a.md': base });
+		outside('notes/a.md', note('title: Outside'), { hint: false });
+		expectOk(await folder.write('notes/a.md', note('title: A', 'Typed\n'), { base }));
+		expect(text('notes/a.md')).toBe(note('title: Outside', 'Typed\n'));
+	});
+
+	test('overlapping changes use the newer whole-file text', async () => {
+		const base = note('title: A');
+		const { folder, outside, text } = await setup({ 'notes/a.md': base });
+		outside('notes/a.md', note('title: Outside'), { hint: false });
+		expectOk(await folder.write('notes/a.md', note('title: Typed'), { base }));
+		expect(text('notes/a.md')).toBe(note('title: Typed'));
+	});
+
+	test('a null base merges a file created before the turn', async () => {
+		const { folder, outside, text } = await setup();
+		outside('note.txt', 'Outside\n', { hint: false });
+		expectOk(await folder.write('note.txt', 'Typed\n', { base: null }));
+		expect(text('note.txt')).toBe('Outside\nTyped\n');
+	});
+
+	test('a changed checked put rereads and merges a concurrent update', async () => {
+		const base = note('title: A');
+		const { folder, control, outside, log, text } = await setup({ 'notes/a.md': base });
+		let raced = false;
+		control.beforePut = (path) => {
+			if (path !== 'notes/a.md' || raced) return;
+			raced = true;
+			outside(path, note('title: Outside'), { hint: false });
+		};
+		expectOk(await folder.write('notes/a.md', note('title: A', 'Typed\n'), { base }));
+		expect(log.puts).toHaveLength(2);
+		expect(text('notes/a.md')).toBe(note('title: Outside', 'Typed\n'));
+	});
+
+	test('absorbed writes retain the older base', async () => {
+		const base = 'A\nB\n';
+		const { folder, control, outside, log, text } = await setup({ 'note.txt': base });
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const first = folder.write('note.txt', 'A1\nB\n', { base });
+		const second = folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' });
+		expect(first).toBe(second);
+		outside('note.txt', 'A\nB\nC\n', { hint: false });
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await first);
+		expect(text('note.txt')).toBe('A1\nB2\nC\n');
+	});
+
+	test('independent based writes wait for separate turns and preserve both edits', async () => {
+		const base = note('title: A');
+		const { folder, control, log, text } = await setup({ 'notes/a.md': base });
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const title = folder.write('notes/a.md', note('title: First'), { base });
+		const body = folder.write('notes/a.md', note('title: A', 'Second\n'), { base });
+		expect(title).not.toBe(body);
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await title);
+		expectOk(await body);
+		expect(text('notes/a.md')).toBe(note('title: First', 'Second\n'));
+	});
+
+	test('a based write after a waiting plain write keeps their order', async () => {
+		const { folder, control, log, text } = await setup({ 'note.txt': 'A\nB\n' });
+		const gate = Promise.withResolvers<void>();
+		control.putGate = gate.promise;
+		const blocker = folder.write('blocker.txt', 'Block');
+		await until(() => log.puts.length === 1);
+		const plain = folder.write('note.txt', 'A1\nB\n');
+		const based = folder.write('note.txt', 'A1\nB2\n', { base: 'A1\nB\n' });
+		expect(plain).not.toBe(based);
+		control.putGate = undefined;
+		gate.resolve();
+		expectOk(await blocker);
+		expectOk(await plain);
+		expectOk(await based);
+		expect(text('note.txt')).toBe('A1\nB2\n');
+	});
+});
+
 describe('ordered writes with waiting path merge', () => {
 	test('idle waits for the last queued write to land', async () => {
 		const { folder, control, text } = await setup();

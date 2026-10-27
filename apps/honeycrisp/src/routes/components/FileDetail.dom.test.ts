@@ -80,19 +80,20 @@ test('Edit as file switches while queued title and body saves land', async () =>
     expect(get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toBe(saved);
 });
 
-test('Edit as file keeps a failed title draft visible in the note', async () => {
+test('a failed title save stays visible after returning from the file view', async () => {
     const { target, get, render, notes, failSaves, folder } = await view();
     failSaves();
     type(get<HTMLInputElement>('input[aria-label="Title"]'), 'Unsaved title');
     click(target, 'Edit as file');
-    await until(() => { render(); return target.textContent?.includes('Not saved:') ?? false; }, 'failed title save');
-    expect(notes.selected?.as).toBe('note');
-    expect(target.querySelector('section[aria-label="File"]')).toBeNull();
+    await until(() => { render(); return target.textContent?.includes('A note edit was not saved.') ?? false; }, 'visible failed title');
+    expect(notes.selected?.as).toBe('text');
     expect(folder.tables.notes.row('a')?.fields?.title).toBe('Alpha');
+    click(target, 'Return to note'); render();
     expect(get<HTMLInputElement>('input[aria-label="Title"]').value).toBe('Unsaved title');
+    expect(target.textContent).toContain('Not saved:');
 });
 
-test('same-file presentation waits for the field write before opening whole-file text', async () => {
+test('title and file typing merge when the title write was held during the switch', async () => {
     const memory = memoryHost({ 'notes/a.md': noteText({ title: 'Alpha' }) });
     const owner = expectOk(await createFolder(memory.storage, { tables: honeycrispTables }));
     const folder = svelteFolder(owner);
@@ -112,27 +113,51 @@ test('same-file presentation waits for the field write before opening whole-file
         await until(() => memory.log.puts.length === 1, 'queued title');
         click(target, 'Edit as file');
         flushSync();
-        expect(notes.selected?.as).toBe('note');
-        expect(target.querySelector<HTMLElement>('section[aria-label="Note"]')?.inert).toBe(true);
+        expect(notes.selected?.as).toBe('text');
+        const source = target.querySelector<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]');
+        type(source, noteText({ title: 'Alpha', body: 'File typ\n' }));
+        type(source, noteText({ title: 'Alpha', body: 'File typing.\n' }));
         release?.();
         memory.control.putGate = undefined;
-        await until(() => { flushSync(); return notes.selected?.as === 'text'; }, 'file presentation');
-        const source = target.querySelector<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]');
-        expect(source?.value).toContain('title: Landed');
-        memory.control.putGate = new Promise<void>((resolve) => { release = resolve; });
-        type(source, noteText({ title: 'From source' }));
-        await until(() => memory.log.puts.length === 2, 'queued source');
+        await owner.idle();
+        expect(memory.text('notes/a.md')).toContain('title: Landed');
+        expect(memory.text('notes/a.md')).toContain('File typing.\n');
         click(target, 'Open as note');
         flushSync();
-        expect(notes.selected?.as).toBe('text');
-        expect(target.querySelector<HTMLElement>('section[aria-label="File"]')?.inert).toBe(true);
-        release?.();
-        memory.control.putGate = undefined;
-        await until(() => { flushSync(); return notes.selected?.as === 'note'; }, 'note presentation');
-        expect(target.querySelector<HTMLInputElement>('input[aria-label="Title"]')?.value).toBe('From source');
+        expect(notes.selected?.as).toBe('note');
+        expect(target.querySelector<HTMLInputElement>('input[aria-label="Title"]')?.value).toBe('Landed');
     } finally {
         release?.();
         memory.control.putGate = undefined;
+        await unmount(component);
+        await owner.close();
+        target.remove();
+    }
+});
+
+test('file typing merges an outside same-size edit missed by hints', async () => {
+    const base = noteText({ title: 'Alpha' });
+    const memory = memoryHost({ 'notes/a.md': base });
+    const owner = expectOk(await createFolder(memory.storage, { tables: honeycrispTables }));
+    const folder = svelteFolder(owner);
+    const notes = createNotes(folder);
+    notes.open('notes/a.md', 'text');
+    const target = document.createElement('div');
+    document.body.append(target);
+    // SAFETY: Host receives FileDetail's required props through its props object.
+    const component = mount(Host, { target, props: { component: FileDetail as never, props: {
+        notes, path: 'notes/a.md', get as() { return notes.selected?.as ?? 'text'; },
+    } } });
+    try {
+        await until(() => { flushSync(); return target.querySelector('textarea[aria-label="Contents of a.md"]') !== null; }, 'file editor');
+        const outside = noteText({ title: 'Bravo' });
+        expect(outside.length).toBe(base.length);
+        memory.outside('notes/a.md', outside, { hint: false });
+        type(target.querySelector('textarea[aria-label="Contents of a.md"]'), noteText({ title: 'Alpha', body: 'File typing.\n' }));
+        await owner.idle();
+        expect(memory.text('notes/a.md')).toContain('title: "Bravo"');
+        expect(memory.text('notes/a.md')).toContain('File typing.\n');
+    } finally {
         await unmount(component);
         await owner.close();
         target.remove();

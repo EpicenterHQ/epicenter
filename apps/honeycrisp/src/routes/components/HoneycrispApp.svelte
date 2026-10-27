@@ -4,7 +4,6 @@
 	import * as Resizable from '@epicenter/ui/resizable';
 	import { toast } from '@epicenter/ui/sonner';
 	import { createNotes } from '$lib/notes.svelte.js';
-	import { noteIdOf } from '$lib/data.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileDetail from './FileDetail.svelte';
@@ -19,15 +18,7 @@
 	const notes = createNotes(setFolder(folder));
 
 	let filesOpen = $state(false);
-	let detail: FileDetail | undefined = $state();
-
 	function openListed(path: string) {
-		const id = noteIdOf(path);
-		if (detail && notes.selected?.path === path && notes.selected.as === 'text' &&
-			id !== undefined && notes.folder.tables.notes.row(id)?.issues === null) {
-			void detail.openAsNote();
-			return;
-		}
 		notes.open(path);
 	}
 
@@ -68,7 +59,7 @@
 			{#if shown !== undefined}
 				<!-- Changing presentation keeps this file's editors and their undo history alive. -->
 				{#key shown.path}
-					<FileDetail bind:this={detail} {notes} path={shown.path} as={shown.as} />
+					<FileDetail {notes} path={shown.path} as={shown.as} />
 				{/key}
 			{:else}
 				<Empty.Root class="h-full">

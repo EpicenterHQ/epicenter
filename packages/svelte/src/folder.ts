@@ -16,22 +16,32 @@ import { edit } from './edit.svelte.js';
 
 export { edit } from './edit.svelte.js';
 
-/** A whole-file text edit, edited as LF and sent in the file's current newline style. */
+/** A whole-file text edit, edited as LF and sent in its base's newline style. */
 export function fileEdit<T extends Tables>(
 	folder: SvelteFolder<T>,
 	path: string,
 ) {
+	let base: Data | null = folder.file(path)?.data ?? null;
+	let submitted = 0;
 	return edit(
 		() => {
 			const data = folder.file(path)?.data;
+			base = data ?? null;
 			return typeof data === 'string' ? data.replace(/\r\n?/g, '\n') : '';
 		},
 		(typed) => {
-			const data = folder.file(path)?.data;
-			return folder.write(
-				path,
-				withFileNewlines(typed, typeof data === 'string' ? data : ''),
+			const sequence = ++submitted;
+			const data = withFileNewlines(
+				typed,
+				typeof base === 'string' ? base : '',
 			);
+			const sent = base;
+			base = data;
+			const saved = folder.write(path, data, { base: sent });
+			void saved.then(() => {
+				if (sequence === submitted) base = folder.file(path)?.data ?? null;
+			});
+			return saved;
 		},
 	);
 }
@@ -49,7 +59,7 @@ export type SvelteFolder<T extends Tables = Tables> = {
 	readonly saving: boolean;
 	idle(): Promise<void>;
 	read: Folder<T>['read'];
-	write(path: string, data: Data): Saved;
+	write: Folder<T>['write'];
 	update: Folder<T>['update'];
 	move: Folder<T>['move'];
 	delete(path: string): Saved;
