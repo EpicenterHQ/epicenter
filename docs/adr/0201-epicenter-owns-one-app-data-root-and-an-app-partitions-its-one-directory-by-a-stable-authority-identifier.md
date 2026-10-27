@@ -13,15 +13,15 @@
   (`mail-<sub>.sqlite`, ADR-0319). `intent.db` and `mail.db` no longer exist.
   What stands: one application-data root per machine, one directory per trusted
   app named by its id, and the rule that the directory is a place and never an
-  inter-app API. For the named database capability, ADR-0678 subsequently amends
-  ADR-0314's `sqlite/` level: database files sit directly in the app-owned root.
-- **Amended by:** [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md)
-  at forbidding host access to app-private databases: the native host may execute
-  app-requested SQLite operations within the installation binding of
-  [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md). It still does
-  not enumerate, inspect, reclaim, or migrate app databases on its own. Browser
-  SQLite runs in the page's worker and needs no host exception. This amendment
-  is accepted as a design; its production implementation remains unbuilt.
+  inter-app API. [ADR-0678](0678-app-storage-openers-use-runtime-bound-scopes.md)
+  proposes to amend ADR-0314's `sqlite/` level for a named database capability:
+  database files would sit directly in the app-owned root.
+- **Proposed amendment:** [ADR-0673](0673-a-sqlite-handle-owns-one-connection-until-asynchronous-disposal.md)
+  would let the native host execute SQL that an app requests through its own
+  scoped database handle. The host would still not enumerate, inspect, reclaim,
+  or migrate app databases on its own. Browser SQLite runs in the page's own
+  worker and needs no host exception. The amendment is unaccepted and unbuilt;
+  its fictional-data prototypes do not change this record.
 - **Amended by:** [ADR-0349](0349-local-blobs-belong-to-the-app-on-this-device.md) at the open question this record left, "a
   separate question about who tells the recorder where blobs live, and it is not
   decided here": [ADR-0366](0366-a-recorder-captures-into-its-explicit-local-blob-destination.md)
