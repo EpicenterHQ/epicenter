@@ -4,6 +4,7 @@
 - **Date:** 2026-10-19
 - **Supersedes:** [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md) (a folder has one write, a merge by unit where the writer acting wins): the edit that reaches `main` last wins each unit both sides changed, an edit beats a delete it never saw, and Epicenter writes no conflict marker or conflict file.
 - **Amends:** [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) at "one region of body lines", "other UTF-8 text | one region of lines", the line merge `rowTextWins`, "a `.json` file, `epicenter.json` included | one key of an object", "binary, or a side absent | the whole file" for a side absent: all text, `.json` included, merges by diff3 region, and an edit beats a delete it never saw.
+- **Amended by:** [ADR-0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) at the `a save` role: a local save no longer merges.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`epicenter sync`), [ADR-0620](0620-history-in-a-repository-only-grows.md) (history only grows), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (`set` and its `from`).
 - **Unbuilt:** `check` listing conflict markers left by plain Git.
 

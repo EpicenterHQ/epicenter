@@ -2,7 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-27
-- **Relates:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) for the local write queue; [ADR-0534](0534-data-folders-are-the-only-data-model.md) for folders as the only data model.
+- **Amends:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) at its `a save` role: a local save no longer merges; the sync role is unchanged.
+- **Relates:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) for the local write queue; [ADR-0534](0534-data-folders-are-the-only-data-model.md) for folders as the only data model; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) and [ADR-0530](0530-applications-record-a-version-at-natural-moments.md) for when commits happen.
 - **Unbuilt:** no app commits automatically or turns on sync; no merge notice reaches an editor; no live body session or capture-only client exists.
 
 ## Context
@@ -49,14 +50,15 @@ write into a newer one of the same kind for the same path; create, delete, and
 move keep their order. No local write merges text.
 
 **Across devices, sync three-way merges against the last shared commit.** A
-device commits its folder after the queue has been quiet briefly and on
-close, then exchanges commits with a Git remote: Epicenter's hosted Git at
+commit happens when sync checkpoints or a person saves a version (ADR-0529),
+at the natural moments ADR-0530 names; sync then exchanges commits with a Git
+remote: Epicenter's hosted Git at
 `git.epicenter.so/<namespace>/<name>.git` (`mountGitHost` in
 `apps/api/worker/index.ts`, stored by `apps/api/worker/git-repositories.ts`) or a
 server the person chooses. `merge` in `packages/folder/src/shared/merge.ts`
 merges frontmatter by field and the body by line; where both sides changed the
-same field or line, one side's change is kept and the region is reported as
-overridden. History keeps
+same field or line, the edit that reaches `main` last wins and the losing edit
+stays a parent of the merge commit (ADR-0622). History keeps
 every committed state, so a value replaced on any device stays recoverable.
 
 **A live collaboration layer is a session over the body only.** It persists
