@@ -1,11 +1,10 @@
 /**
- * Design B Benchmarks (revised: live commits)
+ * Design B Benchmarks (collapsed: live commits, no note identity)
  *
  * 1. A busy note: 2, 5 and 10 people type into their own line of one note
  *    at 5 keystrokes a second, saved every 300 ms, at 150 ms one-way latency,
- *    with no loss. Each device commits on the design's cadence (after a
- *    0.5 s pause, at most every 2 s while typing); for comparison, also
- *    committing every save. Reports requests per applied commit (pushes,
+ *    with no loss. Each save commits (amending while a commit is in
+ *    flight). Reports requests per applied commit (pushes,
  *    catch-ups, reads by hash), how long until typing is on the server and
  *    on every device, the longest any typist's text stays off the server,
  *    and the live history written per minute. Virtual time; the server
@@ -31,14 +30,13 @@ const percentile = (values: number[], p: number) => {
 	return sorted[Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))] ?? Number.NaN;
 };
 
-function typists(count: number, { seconds = 20, latency = 150, seed = 1, cadence = 'design' as 'design' | 'every save' } = {}) {
+function typists(count: number, { seconds = 20, latency = 150, seed = 1 } = {}) {
 	const world = createWorld({ seed, latency: { min: latency - 10, max: latency + 10 } });
-	const options = cadence === 'design' ? {} : { pause: 0, most: 0 };
-	const devices = Array.from({ length: count }, (_, i) => world.device(`typist${i}`, options));
+	const devices = Array.from({ length: count }, (_, i) => world.device(`typist${i}`));
 	const first = devices[0];
 	if (first === undefined) throw new Error('no typists');
 	world.net.runFor(1_000);
-	first.replica.write({ [PATH]: `---\ntitle: Shared\n---\n${devices.map((d) => `${d.name}:`).join('\n')}\n` }, { now: true });
+	first.replica.write({ [PATH]: `---\ntitle: Shared\n---\n${devices.map((d) => `${d.name}:`).join('\n')}\n` });
 	world.net.runFor(3_000);
 	const baseline = world.counts();
 	const history0 = world.server.history();
@@ -107,7 +105,6 @@ function typists(count: number, { seconds = 20, latency = 150, seed = 1, cadence
 	const minutes = (world.net.now() - start) / 60_000;
 	return {
 		typists: count,
-		commits: cadence,
 		saves: chunks.length,
 		'applied commits': total,
 		'per typist min/max': `${Math.min(...applied)}/${Math.max(...applied)}`,
@@ -127,7 +124,7 @@ function typists(count: number, { seconds = 20, latency = 150, seed = 1, cadence
 }
 
 console.log('\n1. A busy note, 150 ms one-way, 5 keys/s saved every 300 ms, 20 s of typing\n');
-console.table((['design', 'every save'] as const).flatMap((cadence) => [2, 5, 10].map((n) => typists(n, { cadence }))));
+console.table([2, 5, 10].map((n) => typists(n)));
 
 // ============================================================================
 // 2. Catch-up by walking history
