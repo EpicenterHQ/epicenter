@@ -84,7 +84,8 @@ export async function receivePush(
 			}
 		if (from !== undefined) renamed.set(from, to);
 	}
-	for (const [from, to] of renamed) changes.push({ kind: 'move', from, to });
+	for (const [from, to] of renamed)
+		changes.push({ kind: 'move', from, to, base: { hash: baseTree.get(from)?.oid ?? '', text: (await baseText(from)) ?? '' } });
 	for (const [from, to] of renamed) {
 		if (baseTree.get(from)?.oid === pushedTree.get(to)?.oid) continue;
 		const before = (await baseText(from)) ?? '';

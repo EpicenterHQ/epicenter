@@ -41,9 +41,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
 	seq INTEGER NOT NULL,
-	changes TEXT NOT NULL,
-	state TEXT NOT NULL DEFAULT 'pending',
-	outcome TEXT
+	changes TEXT NOT NULL
 ) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
@@ -55,19 +53,18 @@ const EngineDiagnostic = defineErrors({
 		message: 'A sync step failed; it will run again on the next change or reconnect',
 		cause,
 	}),
+	/** A batch the server did not apply; its local changes were reverted. */
+	BatchNotApplied: ({ n, outcome }: { n: number; outcome: BatchOutcome }) => ({
+		message: `Batch ${n} was not applied (${outcome.kind}); its local changes were reverted`,
+		n,
+		outcome,
+	}),
 });
 
 /** One change as kept in the outbox: what was sent and what this device then showed. */
 type Entry = { change: Change; local: string | null };
 
 type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number };
-
-/** An unsent batch the server did not apply, kept on this device. */
-export type OfflineCopy = {
-	n: number;
-	reason: 'expired' | 'refused' | 'stale';
-	changes: { path: string; text: string | null }[];
-};
 
 export type Repository<TDefs extends Definitions> = Handles<TDefs> & {
 	/** Build one batch from write-only handles; it lands all or nothing. */
@@ -78,7 +75,6 @@ export type Repository<TDefs extends Definitions> = Handles<TDefs> & {
 	live<TRow = Record<string, SqlValue>>(sql: string, params: SqlValue[], onChange: (rows: TRow[]) => void): () => void;
 	/** Resolves when queued sync work has run: the outbox is sent, or the server is unreachable. */
 	flush(): Promise<void>;
-	offlineCopies(): OfflineCopy[];
 	close(): void;
 };
 
@@ -234,20 +230,22 @@ export function openRepository<const TDefs extends Definitions>({
 
 	/** Apply one change on this device and say what to send. Runs inside the batch's transaction. */
 	function applyLocal(change: Local): Entry {
+		// A move or append is made only to a file this device holds, so its base is that text.
+		const baseOf = (text: string) => ({ hash: gitBlobHash(text), text });
 		if (change.kind === 'move') {
 			const source = keep(change.from);
 			const destination = keep(change.to);
 			put(change.from, { ...source, text: null });
 			put(change.to, { ...destination, text: source.text });
-			return { change, local: source.text };
+			return { change: { ...change, base: baseOf(source.text ?? '') }, local: source.text };
 		}
 		const current = keep(change.path);
 		if (change.kind === 'append') {
 			const text = (current.text ?? '') + change.text;
 			put(change.path, { ...current, text });
-			return { change, local: text };
+			return { change: { ...change, base: baseOf(current.text ?? '') }, local: text };
 		}
-		const base = current.text === null ? null : { hash: gitBlobHash(current.text), text: current.text };
+		const base = current.text === null ? null : baseOf(current.text);
 		put(change.path, { ...current, text: change.text });
 		return { change: { kind: 'write', path: change.path, base, text: change.text }, local: change.text };
 	}
@@ -290,7 +288,7 @@ export function openRepository<const TDefs extends Definitions>({
 
 	/** Whether an unsent batch other than `except` touches `path`. */
 	function isPending(path: string, except: number) {
-		const pending = driver.all<{ changes: string }>('SELECT changes FROM "epicenter/outbox" WHERE state = \'pending\' AND n <> ?', [except]);
+		const pending = driver.all<{ changes: string }>('SELECT changes FROM "epicenter/outbox" WHERE n <> ?', [except]);
 		return pending.some((p) => (JSON.parse(p.changes) as Entry[]).some((e) => pathsOf(e).includes(path)));
 	}
 
@@ -311,6 +309,15 @@ export function openRepository<const TDefs extends Definitions>({
 		const rebase = (path: string, local: string | null, server: string | null) =>
 			isPending(path, n) ? rebaseLocal(sent, local, server) : server;
 		const serverText = outcome.text !== undefined ? outcome.text : change.kind === 'write' ? change.text : null;
+		const clash = outcome.overlaps.find((overlap) => overlap.unit === 'path');
+		if (clash !== undefined && clash.clash !== 'taken') {
+			// The change did not land where it was aimed, which may now hold a
+			// different note: show the server's text there again, and the change
+			// in the sibling the server made for it.
+			for (const path of pathsOf(entry)) revert(path, n);
+			if (outcome.at !== null) put(outcome.at, { text: serverText, synced: serverText, hash: outcome.hash, seq });
+			return;
+		}
 		if (change.kind === 'move') {
 			const source = keep(change.from);
 			put(change.from, { ...source, synced: null, hash: null, seq });
@@ -318,8 +325,12 @@ export function openRepository<const TDefs extends Definitions>({
 				const origin = keep(outcome.movedTo);
 				if (origin.text === origin.synced) put(outcome.movedTo, { ...origin, text: null, synced: null, hash: null, seq });
 			}
-			const destination = keep(change.to);
-			put(change.to, { text: rebase(change.to, destination.text, serverText), synced: serverText, hash: outcome.hash, seq });
+			// Onto a taken destination the note went to a sibling, and `to` holds the other note.
+			const at = outcome.at ?? change.to;
+			if (at !== change.to) revert(change.to, n);
+			const destination = keep(at);
+			const text = at === change.to ? rebase(at, destination.text, serverText) : serverText;
+			put(at, { text, synced: serverText, hash: outcome.hash, seq });
 			return;
 		}
 		if (outcome.at === null) {
@@ -328,9 +339,11 @@ export function openRepository<const TDefs extends Definitions>({
 			return;
 		}
 		const current = keep(change.path);
-		if (outcome.at !== change.path) {
-			// The edit followed a move made elsewhere: the file lives at `at` now.
-			put(change.path, { text: null, synced: null, hash: null, seq });
+		if (outcome.movedTo !== null) {
+			// The edit followed its note to `at`, by a move made elsewhere or to a
+			// sibling the server made for it. The path it named shows the server's
+			// text again: nothing after a move, a different note after a reuse.
+			revert(change.path, n);
 			put(outcome.at, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
 			return;
 		}
@@ -340,22 +353,17 @@ export function openRepository<const TDefs extends Definitions>({
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
 		let settled: Settled[];
 		driver.transaction(() => {
+			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
 			if (outcome.kind === 'applied') {
-				const stale: Entry[] = [];
 				for (const [index, entry] of entries.entries()) {
 					const change = outcome.changes[index];
-					if (change === undefined) continue;
-					// A path clash with nowhere to go found nothing to apply to.
-					if (change.overlaps.some((o) => o.unit === 'path' && o.relocatedTo === null)) stale.push(entry);
-					else acknowledge(n, entry, change, outcome.seq);
+					if (change !== undefined) acknowledge(n, entry, change, outcome.seq);
 				}
-				driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
-				for (const entry of stale) for (const path of pathsOf(entry)) revert(path, n);
-				if (stale.length > 0) keepCopy(stale, 'stale');
 				advance(outcome.seq);
 				return;
 			}
-			driver.run('UPDATE "epicenter/outbox" SET state = ?, outcome = ? WHERE n = ?', [outcome.kind, JSON.stringify(outcome), n]);
+			// Nothing landed. A 'refuse' caller is told and still holds what it
+			// wrote; the device shows the server's text again.
 			for (const entry of entries) for (const path of pathsOf(entry)) revert(path, n);
 		});
 		switch (outcome.kind) {
@@ -370,16 +378,10 @@ export function openRepository<const TDefs extends Definitions>({
 				settled = entries.map(() => ({ kind: 'expired', paths: outcome.paths }));
 				break;
 		}
+		if (outcome.kind !== 'applied') log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
 		notify();
 		waiters.get(n)?.(Ok(settled));
 		waiters.delete(n);
-	}
-
-	/** Stale changes are kept as their own offline copy, outside the send order. */
-	function keepCopy(entries: Entry[], reason: 'stale') {
-		const n = -Number(meta('copies') ?? '1');
-		setMeta('copies', String(-n + 1));
-		driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes, state) VALUES (?, ?, ?, ?)', [n, position(), JSON.stringify(entries), reason]);
 	}
 
 	// ------------------------------------------------------------------------
@@ -434,7 +436,7 @@ export function openRepository<const TDefs extends Definitions>({
 			if (closed) return;
 			const next = first<{ n: number; seq: number; changes: string }>(
 				driver,
-				'SELECT n, seq, changes FROM "epicenter/outbox" WHERE state = \'pending\' ORDER BY n LIMIT 1',
+				'SELECT n, seq, changes FROM "epicenter/outbox" ORDER BY n LIMIT 1',
 			);
 			if (next === undefined) return;
 			const entries = JSON.parse(next.changes) as Entry[];
@@ -442,8 +444,8 @@ export function openRepository<const TDefs extends Definitions>({
 				device,
 				n: next.n,
 				seq: next.seq,
-				changes: entries.map(({ change }) =>
-					withBases || change.kind !== 'write' || change.base === null ? change : { ...change, base: { hash: change.base.hash } },
+				changes: entries.map(({ change }): Change =>
+					withBases || change.base === null ? change : { ...change, base: { hash: change.base.hash } },
 				),
 			});
 			let answer = await link.push(send(false));
@@ -693,19 +695,6 @@ export function openRepository<const TDefs extends Definitions>({
 			};
 		},
 		flush: () => running,
-		offlineCopies: () =>
-			driver
-				.all<{ n: number; state: OfflineCopy['reason']; changes: string }>(
-					'SELECT n, state, changes FROM "epicenter/outbox" WHERE state <> \'pending\' ORDER BY n',
-				)
-				.map(({ n, state, changes }) => ({
-					n,
-					reason: state,
-					changes: (JSON.parse(changes) as Entry[]).map(({ change, local }) => ({
-						path: change.kind === 'move' ? change.to : change.path,
-						text: local,
-					})),
-				})),
 		close() {
 			closed = true;
 			link.close();

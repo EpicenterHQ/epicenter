@@ -33,7 +33,6 @@ const RESERVED = new Set([
 	'query',
 	'flush',
 	'close',
-	'offlineCopies',
 	'app',
 ]);
 
@@ -241,7 +240,10 @@ export type WriteError = InferErrors<typeof WriteError>;
 export type Settled =
 	| { kind: 'applied'; seq: number; change: ChangeOutcome }
 	| { kind: 'refused'; path: string; reason: string }
-	/** Kept on this device as an offline copy; see `repo.offlineCopies()`. */
+	/**
+	 * For a `'refuse'` connection: the change is older than the server's
+	 * history window and its file changed since, so nothing was applied.
+	 */
 	| { kind: 'expired'; paths: string[] };
 
 export type Pending<T = Settled> = Promise<Result<T, WriteError>>;

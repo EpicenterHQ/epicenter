@@ -9,9 +9,10 @@
  * Key behaviors:
  * - Edits appear on other devices; offline edits merge on reconnect
  * - Overlaps become marker blocks for people and refusals for agents
- * - Creates at one path merge; moves carry stale edits; taken paths refuse
+ * - Creates at one path merge; moves carry stale edits
+ * - A change whose path no longer holds its note becomes a sibling note everyone sees
  * - Delete versus edit keeps the edit; root-record sets merge by key; appends keep server order
- * - Retries, need-base and expiry; a note and its blob land together
+ * - Retries and need-base; a note and its blob land together
  * - Commits clear the overlay with the right sequence; agent pushes merge or refuse
  */
 import { expect, test } from 'bun:test';
@@ -122,8 +123,9 @@ test('a true overlap becomes a marker block for people and a refusal for an agen
 
 	agent.transport.setOnline(true);
 	expect(expectOk(await agentWrite)).toMatchObject({ kind: 'refused', path: 'notes/pet.md' });
+	// The agent awaited the refusal and still holds what it wrote; its device shows the server's text.
 	expect(text(agent.repo, 'pet')).toBe(marked);
-	expect(agent.repo.offlineCopies()).toMatchObject([{ reason: 'refused', changes: [{ path: 'notes/pet.md', text: 'cut\n' }] }]);
+	expect(agent.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
 	await t.cleanup();
 });
 
@@ -194,7 +196,7 @@ test('a setting deleted on one device and changed on another keeps the change', 
 	await t.cleanup();
 });
 
-test('an edit made before a move follows it, and a move onto a taken path is refused', async () => {
+test('an edit made before a move follows it, and a move onto a taken path goes to a sibling', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));
 	t.bob.transport.setOnline(false);
@@ -211,9 +213,17 @@ test('an edit made before a move follows it, and a move onto a taken path is ref
 	expectOk(await t.alice.repo.notes.create({ stem: 'taken' }, { body: 'mine\n' }));
 	const move = t.bob.repo.notes.move({ stem: 'final' }, { stem: 'taken' });
 	t.bob.transport.setOnline(true);
-	expect(expectOk(await move)).toMatchObject({ kind: 'refused', reason: 'the destination is taken' });
-	expect(text(t.bob.repo, 'final')).toBe('one\ntwo\n');
-	expect(text(t.bob.repo, 'taken')).toBe('mine\n');
+	const sibling = 'taken (bob, 2026-10-28)';
+	expect(expectOk(await move)).toMatchObject({
+		kind: 'applied',
+		change: { at: `notes/${sibling}.md`, overlaps: [{ unit: 'path', clash: 'taken', settled: 'relocated' }] },
+	});
+	await t.settle(t.alice, t.bob);
+	for (const repo of [t.alice.repo, t.bob.repo]) {
+		expect(text(repo, 'final')).toBeNull();
+		expect(text(repo, 'taken')).toBe('mine\n');
+		expect(text(repo, sibling)).toBe('one\ntwo\n');
+	}
 	await t.cleanup();
 });
 
@@ -299,7 +309,7 @@ test('a base the server no longer has round-trips through need-base', async () =
 	await t.cleanup();
 });
 
-test('an edit offline past the window is expired and kept as an offline copy', async () => {
+test('an edit offline past the window whose file changed becomes a sibling note', async () => {
 	const t = await setup({ windowMs: 60_000 });
 	expectOk(await t.alice.repo.notes.create({ stem: 'old' }, { body: 'base\n' }));
 	t.bob.transport.setOnline(false);
@@ -308,9 +318,34 @@ test('an edit offline past the window is expired and kept as an offline copy', a
 	t.advance(120_000);
 	expectOk(await t.server.tick());
 	t.bob.transport.setOnline(true);
-	expect(expectOk(await edit)).toMatchObject({ kind: 'expired', paths: ['notes/old.md'] });
-	expect(text(t.bob.repo, 'old')).toBe('alice online\n');
-	expect(t.bob.repo.offlineCopies()).toEqual([{ n: 1, reason: 'expired', changes: [{ path: 'notes/old.md', text: 'bob offline\n' }] }]);
+	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { at: 'notes/old (bob, 2026-10-28).md' } });
+	await t.settle(t.alice, t.bob);
+	for (const repo of [t.alice.repo, t.bob.repo]) {
+		expect(text(repo, 'old')).toBe('alice online\n');
+		expect(text(repo, 'old (bob, 2026-10-28)')).toBe('bob offline\n');
+	}
+	expect(t.bob.repo.notes.list().map((note) => note.params)).toEqual([{ stem: 'old (bob, 2026-10-28)' }, { stem: 'old' }]);
+	await t.cleanup();
+});
+
+test('an edit to a note deleted and replaced meanwhile becomes a sibling, and the new note stays', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'plan' }, { body: 'old plan\n' }));
+	await t.settle(t.alice, t.bob);
+	t.bob.transport.setOnline(false);
+	void t.bob.repo.notes.write({ stem: 'plan' }, { body: 'old plan\nbob one\n' });
+	const second = t.bob.repo.notes.append({ stem: 'plan' }, 'bob two\n');
+	expectOk(await t.alice.repo.notes.delete({ stem: 'plan' }));
+	expectOk(await t.alice.repo.notes.create({ stem: 'plan' }, { body: 'a different plan\n' }));
+	t.bob.transport.setOnline(true);
+	// Both of Bob's batches still name the old path, and both land in one sibling.
+	expect(expectOk(await second)).toMatchObject({ kind: 'applied', change: { at: 'notes/plan (bob, 2026-10-28).md' } });
+	await t.settle(t.alice, t.bob);
+	for (const repo of [t.alice.repo, t.bob.repo]) {
+		expect(text(repo, 'plan')).toBe('a different plan\n');
+		expect(text(repo, 'plan (bob, 2026-10-28)')).toBe('old plan\nbob one\nbob two\n');
+		expect(repo.notes.list()).toHaveLength(2);
+	}
 	await t.cleanup();
 });
 

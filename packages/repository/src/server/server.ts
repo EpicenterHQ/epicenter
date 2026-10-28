@@ -12,6 +12,7 @@ import { gitBlobHash } from '../hash.js';
 import { merge, withMarkers } from '../merge.js';
 import { type OnOverlap, settle } from '../policy.js';
 import type {
+	Base,
 	Batch,
 	BatchOutcome,
 	Broadcast,
@@ -24,6 +25,7 @@ import type {
 } from '../protocol.js';
 import { first, type SqlDriver } from '../sql.js';
 import { type GitStore, MAIN, type Signature, sequenceOf, type Tree } from './git-store.js';
+import { createPathHistory, type PathEvent } from './history.js';
 import { receivePush } from './push.js';
 
 const WEEK = 7 * 24 * 60 * 60 * 1000;
@@ -44,6 +46,26 @@ const ServerDiagnostic = defineErrors({
 	}),
 });
 
+/**
+ * A free sibling of `path` for a change `user` made that cannot land there,
+ * named for the user and the server's day: `fix-login (bob, 2026-10-28).md`,
+ * then `fix-login (bob, 2026-10-28, 2).md`. It sits in the same folder, so the
+ * same templates match it.
+ */
+export function siblingPath(path: string, user: string, at: number, exists: (path: string) => boolean) {
+	const cut = path.lastIndexOf('/') + 1;
+	const name = path.slice(cut);
+	const ext = name.endsWith('.md') ? '.md' : '';
+	const stem = name.slice(0, name.length - ext.length);
+	// A user id never adds a folder, a hidden name or a control character.
+	const who = user.replace(/[/\\\u0000-\u001f\u007f]/g, '-').replace(/^\./, '-');
+	const day = new Date(at).toISOString().slice(0, 10);
+	for (let k = 1; ; k++) {
+		const candidate = `${path.slice(0, cut)}${stem} (${who}, ${day}${k === 1 ? '' : `, ${k}`})${ext}`;
+		if (!exists(candidate)) return candidate;
+	}
+}
+
 /** Who is connected: the server stamps every batch with `user`. */
 export type Peer = {
 	device: string;
@@ -62,7 +84,11 @@ export type ServerOptions = {
 	driver: SqlDriver;
 	git: GitStore;
 	now?: () => number;
-	/** How long path history, receipts and bases are kept. A week by default. */
+	/**
+	 * How long path history and receipts are kept. A week by default. A
+	 * `'mark'` change older than that whose file changed since is relocated to
+	 * a sibling note; a `'refuse'` one is `expired`.
+	 */
 	windowMs?: number;
 	/** How old an overlay change is before `tick` commits it. A minute by default. */
 	commitAfterMs?: number;
@@ -83,8 +109,7 @@ CREATE TABLE IF NOT EXISTS batches (seq INTEGER PRIMARY KEY, device TEXT NOT NUL
 CREATE TABLE IF NOT EXISTS devices (device TEXT PRIMARY KEY, last_n INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS receipts (device TEXT NOT NULL, n INTEGER NOT NULL, at INTEGER NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY (device, n)) STRICT;
 CREATE TABLE IF NOT EXISTS timeline (seq INTEGER PRIMARY KEY, at INTEGER NOT NULL) STRICT;
-CREATE TABLE IF NOT EXISTS history (seq INTEGER NOT NULL, kind TEXT NOT NULL, path TEXT NOT NULL, dest TEXT) STRICT;
-INSERT OR IGNORE INTO state VALUES ('seq', 0), ('committed', 0), ('horizon', 0);
+INSERT OR IGNORE INTO state VALUES ('seq', 0), ('committed', 0);
 `;
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -142,9 +167,10 @@ export function createRepositoryServer({
 		return run;
 	}
 
-	const state = (key: 'seq' | 'committed' | 'horizon') =>
+	const history = createPathHistory(driver);
+	const state = (key: 'seq' | 'committed') =>
 		first<{ value: number }>(driver, 'SELECT value FROM state WHERE key = ?', [key])?.value ?? 0;
-	const setState = (key: 'seq' | 'committed' | 'horizon', value: number) =>
+	const setState = (key: 'seq' | 'committed', value: number) =>
 		driver.run('UPDATE state SET value = ? WHERE key = ?', [value, key]);
 
 	// ------------------------------------------------------------------------
@@ -198,26 +224,6 @@ export function createRepositoryServer({
 		return gitText(hash);
 	}
 
-	/**
-	 * Where `path` went after `since`: followed through moves, and whether it was
-	 * deleted, and then whether another file took the path.
-	 */
-	function trace(path: string, since: number) {
-		const rows = driver.all<{ kind: string; path: string; dest: string | null }>(
-			'SELECT kind, path, dest FROM history WHERE seq > ? ORDER BY seq, rowid',
-			[since],
-		);
-		let at = path;
-		let deleted = false;
-		for (const row of rows) {
-			if (!deleted && row.kind === 'move' && row.path === at && row.dest !== null) at = row.dest;
-			else if (!deleted && row.kind === 'delete' && row.path === at) deleted = true;
-			else if (deleted && ((row.kind === 'create' && row.path === at) || (row.kind === 'move' && row.dest === at)))
-				return { path: at, deleted, recreated: true };
-		}
-		return { path: at, deleted, recreated: false };
-	}
-
 	/** Who last wrote `path` in the overlay, for marker labels. */
 	function writerOf(path: string) {
 		const row = first<{ user: string; at: number; seq: number }>(
@@ -239,22 +245,30 @@ export function createRepositoryServer({
 	async function prepare(batch: Batch): Promise<Prepared> {
 		const currents = new Map<string, string | null>();
 		const bases = new Map<string, string>();
+		const covered = history.covers(batch.seq);
 		const load = async (path: string) => {
 			if (!currents.has(path)) currents.set(path, await current(path));
 		};
+		const loadBase = async (base: Base) => {
+			if (bases.has(base.hash)) return;
+			const text = base.text ?? (await textByHash(base.hash));
+			if (text !== null) bases.set(base.hash, text);
+		};
 		for (const change of batch.changes) {
 			if (change.kind === 'move') {
-				await load(trace(change.from, batch.seq).path);
+				await load(history.trace(change.from, batch.seq).path);
 				await load(change.from);
 				await load(change.to);
 				continue;
 			}
-			await load(trace(change.path, batch.seq).path);
+			const traced = history.trace(change.path, batch.seq);
+			await load(traced.path);
 			await load(change.path);
-			if (change.kind === 'write' && change.base !== null && !bases.has(change.base.hash)) {
-				const text = change.base.text ?? (await textByHash(change.base.hash));
-				if (text !== null) bases.set(change.base.hash, text);
+			if (change.kind === 'write') {
+				if (change.base !== null) await loadBase(change.base);
 			}
+			// An append needs its base only when its note may be gone.
+			else if (!covered || traced.deleted || currents.get(traced.path) === null) await loadBase(change.base);
 		}
 		return { currents, bases };
 	}
@@ -264,12 +278,18 @@ export function createRepositoryServer({
 	function applyPrepared(batch: Batch, peer: Peer, { currents, bases }: Prepared): Applied {
 		const work = new Map(currents);
 		const read = (path: string) => (work.has(path) ? (work.get(path) ?? null) : null);
-		const isExpired = batch.seq < state('horizon');
+		/** Whether a file is at `path`, answered synchronously so a sibling is named inside the transaction. */
+		const exists = (path: string) => {
+			if (work.has(path)) return work.get(path) !== null;
+			const row = first<{ text: string | null }>(driver, 'SELECT text FROM overlay WHERE path = ?', [path]);
+			return row === undefined ? main.tree.has(path) : row.text !== null;
+		};
+		const covered = history.covers(batch.seq);
 		const seq = state('seq') + 1;
 		const at = now();
 		const incomingLabel = label(peer.user, at, seq);
 		const outcomes: ChangeOutcome[] = [];
-		const history: { kind: string; path: string; dest: string | null }[] = [];
+		const events: PathEvent[] = [];
 		const moves: Move[] = [];
 		const seenTexts = new Set<string>();
 		const needBase: string[] = [];
@@ -285,83 +305,133 @@ export function createRepositoryServer({
 			overlaps: [],
 			...change,
 		});
+		const known = (base: Base | null) => (base === null ? null : (bases.get(base.hash) ?? null));
+		// A later change in this batch follows this batch's relocations too.
+		const trace = (path: string) => history.trace(path, batch.seq, events.filter((event) => event.kind === 'relocate'));
+		const sibling = (path: string) => siblingPath(path, peer.user, at, exists);
 
 		for (const change of batch.changes) {
 			if (change.kind === 'move') {
-				const from = trace(change.from, batch.seq);
-				const text = from.recreated ? null : read(from.path);
+				const from = trace(change.from);
+				const text = from.deleted ? null : read(from.path);
 				if (text === null) {
 					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], peer.onOverlap);
 					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
 					outcomes.push(outcome({ path: change.from, overlaps: decision.overlaps }));
 					continue;
 				}
-				if (read(change.to) !== null)
-					return refuse(change.to, 'the destination is taken', [{ unit: 'path', clash: 'taken', relocatedTo: null }]);
+				let to = change.to;
+				let overlaps: SettledOverlap[] = [];
+				if (exists(change.to)) {
+					const dest = sibling(change.to);
+					const decision = settle([{ unit: 'path', clash: 'taken', relocatedTo: dest }], peer.onOverlap);
+					if (decision.kind === 'refuse') return refuse(change.to, decision.reason, decision.overlaps);
+					// Changes made before the other note took `to` that address it mean the moved note.
+					const before = history.arrivedAt(change.to) ?? history.horizon() + 1;
+					events.push({ kind: 'relocate', path: change.to, dest, before });
+					to = dest;
+					overlaps = decision.overlaps;
+				}
 				work.set(from.path, null);
-				work.set(change.to, text);
-				history.push({ kind: 'move', path: from.path, dest: change.to });
-				moves.push({ from: from.path, to: change.to });
+				work.set(to, text);
+				events.push({ kind: 'move', path: from.path, dest: to });
+				moves.push({ from: from.path, to });
 				outcomes.push(
 					outcome({
 						path: change.from,
-						at: change.to,
+						at: to,
 						hash: gitBlobHash(text),
 						text,
 						movedTo: from.path === change.from ? null : from.path,
+						overlaps,
 					}),
 				);
 				continue;
 			}
 
-			const traced = trace(change.path, batch.seq);
-			const movedTo = traced.path === change.path ? null : traced.path;
+			const traced = trace(change.path);
 			const target = traced.path;
-			const existing = traced.recreated ? null : read(target);
-			if (traced.recreated || (change.kind === 'append' && existing === null)) {
-				const clash = traced.recreated ? 'reused' : 'gone';
-				const decision = settle([{ unit: 'path', clash, relocatedTo: null }], peer.onOverlap);
+			const movedTo = target === change.path ? null : target;
+			const existing = traced.reused ? null : read(target);
+			// Past the window, the history cannot say whether a changed file is still this note.
+			const unknown =
+				!covered &&
+				change.kind === 'write' &&
+				change.base !== null &&
+				existing !== null &&
+				gitBlobHash(existing) !== change.base.hash;
+			if (traced.reused || unknown) {
+				if (!traced.reused && peer.onOverlap === 'refuse') {
+					expired.push(change.path);
+					continue;
+				}
+				// The change's own version of its note goes to a sibling.
+				let text: string | null = change.kind === 'write' ? change.text : null;
+				if (change.kind === 'append') {
+					const base = known(change.base);
+					if (base === null) {
+						needBase.push(change.path);
+						continue;
+					}
+					text = base + change.text;
+				}
+				const dest = text === null ? null : sibling(target);
+				const decision = settle([{ unit: 'path', clash: 'reused', relocatedTo: dest }], peer.onOverlap);
 				if (decision.kind === 'refuse') return refuse(change.path, decision.reason, decision.overlaps);
-				outcomes.push(outcome({ path: change.path, overlaps: decision.overlaps }));
+				if (dest !== null && text !== null) {
+					work.set(dest, text);
+					events.push(
+						{ kind: 'create', path: dest },
+						{ kind: 'relocate', path: target, dest, before: traced.vacatedAt ?? batch.seq + 1 },
+					);
+				}
+				outcomes.push(
+					outcome({
+						path: change.path,
+						at: dest,
+						hash: text === null ? null : gitBlobHash(text),
+						...(dest === null ? {} : { text }),
+						movedTo,
+						overlaps: decision.overlaps,
+					}),
+				);
 				continue;
 			}
 
-			if (change.kind === 'append') {
-				const text = (existing ?? '') + change.text;
+			if (change.kind === 'append' && existing !== null) {
+				const text = existing + change.text;
 				work.set(target, text);
 				outcomes.push(outcome({ path: change.path, at: target, hash: gitBlobHash(text), text, movedTo }));
 				continue;
 			}
 
+			// A write, or an append whose note was deleted: an edit of its base, which beats the delete.
 			let baseText: string | null = null;
-			if (change.base !== null) {
-				const known = bases.get(change.base.hash);
-				if (known === undefined) {
+			const base = change.base;
+			if (base !== null) {
+				baseText = known(base);
+				if (baseText === null) {
 					needBase.push(change.path);
 					continue;
 				}
-				baseText = known;
-				if (isExpired && (existing === null ? null : gitBlobHash(existing)) !== change.base.hash) {
-					expired.push(change.path);
-					continue;
-				}
 			}
-			if (change.text !== null) seenTexts.add(change.text);
-			const result = merge(baseText, existing, change.text);
+			const incoming = change.kind === 'append' ? (baseText ?? '') + change.text : change.text;
+			if (incoming !== null) seenTexts.add(incoming);
+			const result = merge(baseText, existing, incoming);
 			const decision = settle(result.overlaps, peer.onOverlap);
 			if (decision.kind === 'refuse') return refuse(change.path, decision.reason, decision.overlaps);
 			const text = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block')
 				? withMarkers(result, { current: writerOf(target), incoming: incomingLabel })
 				: result.text;
-			if (existing === null && text !== null) history.push({ kind: 'create', path: target, dest: null });
-			if (existing !== null && text === null) history.push({ kind: 'delete', path: target, dest: null });
+			if (existing === null && text !== null) events.push({ kind: 'create', path: target });
+			if (existing !== null && text === null) events.push({ kind: 'delete', path: target });
 			work.set(target, text);
 			outcomes.push(
 				outcome({
 					path: change.path,
 					at: text === null ? null : target,
 					hash: text === null ? null : gitBlobHash(text),
-					...(text === change.text ? {} : { text }),
+					...(change.kind === 'write' && text === change.text ? {} : { text }),
 					movedTo,
 					overlaps: decision.overlaps,
 				}),
@@ -381,8 +451,7 @@ export function createRepositoryServer({
 		}
 		for (const text of seenTexts)
 			driver.run('INSERT OR REPLACE INTO texts (hash, text, seq) VALUES (?, ?, ?)', [gitBlobHash(text), text, seq]);
-		for (const row of history)
-			driver.run('INSERT INTO history (seq, kind, path, dest) VALUES (?, ?, ?, ?)', [seq, row.kind, row.path, row.dest]);
+		history.record(seq, events);
 		const recorded: RecordedOverlap[] = outcomes.flatMap((change) =>
 			change.overlaps.map((overlap) => ({
 				path: overlap.unit === 'path' ? (change.movedTo ?? change.path) : (change.at ?? change.path),
@@ -505,9 +574,8 @@ export function createRepositoryServer({
 		driver.transaction(() => {
 			const old = first<{ seq: number | null }>(driver, 'SELECT max(seq) AS seq FROM timeline WHERE at < ?', [cutoff])?.seq ?? null;
 			if (old !== null) {
-				driver.run('DELETE FROM history WHERE seq <= ?', [old]);
+				history.prune(old);
 				driver.run('DELETE FROM timeline WHERE seq <= ?', [old]);
-				if (old > state('horizon')) setState('horizon', old);
 			}
 			driver.run('DELETE FROM receipts WHERE at < ?', [cutoff]);
 		});

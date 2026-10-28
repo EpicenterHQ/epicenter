@@ -10,8 +10,9 @@
  * - `'mark'` overlaps become marker blocks in server order; `'refuse'` refuses the batch
  * - A retried batch returns its recorded outcome; a gap is refused
  * - An unknown base answers need-base, and the resent base applies
- * - Bases older than the window answer expired unless the file is unchanged
- * - Edits follow moves; a move onto a taken path is refused
+ * - Past the window, a changed file's edit is relocated ('mark') or expired ('refuse')
+ * - Edits follow moves; a change whose path no longer holds its note goes to a
+ *   sibling note, and later changes from the same position follow it
  * - Commits carry `Epicenter-Seq` and an `Epicenter-Overlap` per settled overlap,
  *   clear the overlay and land on a timer
  * - Agent pushes: overlap and bad files refused, a clean push is a merge parent
@@ -26,7 +27,7 @@ import { openBunSqlite } from '../bun/sqlite.js';
 import { gitBlobHash } from '../hash.js';
 import type { Batch, Broadcast, Change } from '../protocol.js';
 import { type GitStore, MAIN, sequenceOf } from './git-store.js';
-import { createRepositoryServer, type ServerOptions } from './server.js';
+import { createRepositoryServer, type ServerOptions, siblingPath } from './server.js';
 
 const encoder = new TextEncoder();
 
@@ -56,6 +57,18 @@ async function setup(options: Partial<ServerOptions> = {}) {
 		base: base === null ? null : { hash: gitBlobHash(base), text: base },
 		text,
 	});
+	const append = (path: string, base: string, text: string): Change => ({
+		kind: 'append',
+		path,
+		text,
+		base: { hash: gitBlobHash(base), text: base },
+	});
+	const move = (from: string, to: string, base: string): Change => ({
+		kind: 'move',
+		from,
+		to,
+		base: { hash: gitBlobHash(base), text: base },
+	});
 	return {
 		server,
 		git,
@@ -65,6 +78,8 @@ async function setup(options: Partial<ServerOptions> = {}) {
 		heard,
 		batch,
 		write,
+		append,
+		move,
 		advance: (ms: number) => {
 			clock += ms;
 		},
@@ -160,7 +175,7 @@ describe('batches', () => {
 		const t = await setup();
 		const batch = t.batch('alice-laptop', 0, { kind: 'write', path: 'log.md', base: null, text: 'one\n' });
 		const first = await t.alice.push(batch);
-		const again = await t.alice.push({ ...batch, changes: [{ kind: 'append', path: 'log.md', text: 'two\n' }] });
+		const again = await t.alice.push({ ...batch, changes: [t.append('log.md', 'one\n', 'two\n')] });
 		expect(again).toEqual(first);
 		expect(await t.server.read('log.md')).toBe('one\n');
 		expect(await t.alice.push({ device: 'alice-laptop', n: 5, seq: 1, changes: [] })).toMatchObject({ kind: 'refused' });
@@ -180,44 +195,131 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
-	test('a base older than the window is expired unless the file is unchanged', async () => {
+	test("past the window, a changed file's edit is relocated for 'mark' and expired for 'refuse'", async () => {
 		const t = await setup({ windowMs: 1000 });
 		const seq = await seed(t, 'notes/a.md', 'a\n');
 		await seed(t, 'notes/b.md', 'b\n');
 		await t.alice.push(t.batch('alice-laptop', seq + 1, t.write('notes/a.md', 'a\n', 'a by alice\n')));
 		t.advance(5000);
-		const stale = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'a\n', 'a by bob\n')));
-		expect(stale).toEqual({ kind: 'expired', paths: ['notes/a.md'] });
+		const expired = await t.agent.push(t.batch('agent-1', seq, t.write('notes/a.md', 'a\n', 'a by agent\n')));
+		expect(expired).toEqual({ kind: 'expired', paths: ['notes/a.md'] });
+		const relocated = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'a\n', 'a by bob\n')));
+		const sibling = 'notes/a (bob, 2026-10-28).md';
+		expect(relocated).toMatchObject({
+			kind: 'applied',
+			changes: [{ path: 'notes/a.md', at: sibling, overlaps: [{ unit: 'path', clash: 'reused', relocatedTo: sibling, settled: 'relocated' }] }],
+		});
+		expect(await t.server.read('notes/a.md')).toBe('a by alice\n');
+		expect(await t.server.read(sibling)).toBe('a by bob\n');
 		const unchanged = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/b.md', 'b\n', 'b by bob\n')));
 		expect(unchanged.kind).toBe('applied');
+		expect(await t.server.read('notes/b.md')).toBe('b by bob\n');
 		await t.cleanup();
 	});
 
-	test('an edit follows a move, and a move onto a taken path is refused', async () => {
+	test("an edit follows a move; a move onto a taken path goes to a sibling for 'mark' and is refused for 'refuse'", async () => {
 		const t = await setup();
 		await seed(t, 'notes/a.md', 'A\n');
 		const seq = await seed(t, 'notes/b.md', 'B\n');
-		await t.alice.push(t.batch('alice-laptop', seq, { kind: 'move', from: 'notes/a.md', to: 'notes/renamed.md' }));
+		await t.alice.push(t.batch('alice-laptop', seq, t.move('notes/a.md', 'notes/renamed.md', 'A\n')));
 		const edit = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'A\n', 'A edited\n')));
 		expect(edit).toMatchObject({ kind: 'applied', changes: [{ path: 'notes/a.md', at: 'notes/renamed.md', movedTo: 'notes/renamed.md' }] });
 		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
 		expect(await t.server.read('notes/a.md')).toBeNull();
-		const taken = await t.bob.push(t.batch('bob-phone', t.server.sequence(), { kind: 'move', from: 'notes/b.md', to: 'notes/renamed.md' }));
-		expect(taken).toMatchObject({ kind: 'refused', path: 'notes/renamed.md', reason: 'the destination is taken' });
+		const now = t.server.sequence();
+		const refused = await t.agent.push(t.batch('agent-1', now, t.move('notes/b.md', 'notes/renamed.md', 'B\n')));
+		expect(refused).toMatchObject({
+			kind: 'refused',
+			path: 'notes/renamed.md',
+			reason: 'the destination is taken',
+			overlaps: [{ unit: 'path', clash: 'taken', relocatedTo: null }],
+		});
+		const taken = await t.alice.push(t.batch('alice-laptop', now, t.move('notes/b.md', 'notes/renamed.md', 'B\n')));
+		const sibling = 'notes/renamed (alice, 2026-10-28).md';
+		expect(taken).toMatchObject({
+			kind: 'applied',
+			changes: [{ path: 'notes/b.md', at: sibling, overlaps: [{ unit: 'path', clash: 'taken', relocatedTo: sibling, settled: 'relocated' }] }],
+		});
+		expect(t.heard.at(-1)?.moves).toEqual([{ from: 'notes/b.md', to: sibling }]);
+		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
+		expect(await t.server.read(sibling)).toBe('B\n');
+		// A later edit alice made to the moved note, from before the move landed, follows it.
+		const later = await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/renamed.md', 'B\n', 'B edited\n')));
+		expect(later).toMatchObject({ kind: 'applied', changes: [{ at: sibling }] });
+		expect(await t.server.read(sibling)).toBe('B edited\n');
+		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
 		await t.cleanup();
 	});
 
-	test('an edit to a deleted path that was reused is stale, not misapplied', async () => {
+	test('an edit to a deleted path that was reused becomes a sibling, and later edits follow it', async () => {
 		const t = await setup();
 		const seq = await seed(t, 'notes/a.md', 'old\n');
 		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'old\n', null)));
 		await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('notes/a.md', null, 'different note\n')));
+		const sibling = 'notes/a (bob, 2026-10-28).md';
 		const edit = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'old\n', 'old edited\n')));
 		expect(edit).toMatchObject({
 			kind: 'applied',
-			changes: [{ at: null, overlaps: [{ unit: 'path', clash: 'reused', relocatedTo: null, settled: 'dropped' }] }],
+			changes: [{ at: sibling, text: 'old edited\n', overlaps: [{ unit: 'path', clash: 'reused', relocatedTo: sibling, settled: 'relocated' }] }],
 		});
+		// Bob's next batch, still from the old position, lands on the same sibling.
+		const next = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'old edited\n', 'old edited twice\n')));
+		expect(next).toMatchObject({ kind: 'applied', changes: [{ at: sibling, movedTo: sibling, overlaps: [] }] });
+		// Another device's stale edit of the same note converges on that sibling.
+		const carol = t.server.connect({ device: 'carol-tablet', user: 'carol', onOverlap: 'mark' });
+		await carol.push({ device: 'carol-tablet', n: 1, seq, changes: [t.write('notes/a.md', 'old\n', 'old\ncarol\n')] });
 		expect(await t.server.read('notes/a.md')).toBe('different note\n');
+		expect(await t.server.read(sibling)).toBe('old edited twice\ncarol\n');
+		expectOk(await t.server.commit());
+		expect((await mainCommit(t.git))?.message).toContain(
+			'Epicenter-Overlap: "notes/a.md" path reused relocated -> "notes/a (bob, 2026-10-28).md"; seq 4 by bob\n',
+		);
+		await t.cleanup();
+	});
+
+	test('a later change in the same batch follows that batch\'s relocation', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'notes/c.md', 'old\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/c.md', 'old\n', null)));
+		await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('notes/c.md', null, 'different note\n')));
+		await t.bob.push(t.batch('bob-phone', seq, t.write('notes/c.md', 'old\n', 'bob\n'), t.append('notes/c.md', 'bob\n', 'more\n')));
+		expect(await t.server.read('notes/c (bob, 2026-10-28).md')).toBe('bob\nmore\n');
+		expect(await t.server.read('notes/c (bob, 2026-10-28, 2).md')).toBeNull();
+		await t.cleanup();
+	});
+
+	test('an append to a reused path keeps its base and the append in a sibling', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'log.md', 'old log\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('log.md', 'old log\n', null)));
+		await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('log.md', null, 'new log\n')));
+		const outcome = await t.bob.push(t.batch('bob-phone', seq, t.append('log.md', 'old log\n', 'bob\n')));
+		expect(outcome).toMatchObject({ kind: 'applied', changes: [{ at: 'log (bob, 2026-10-28).md' }] });
+		expect(await t.server.read('log (bob, 2026-10-28).md')).toBe('old log\nbob\n');
+		expect(await t.server.read('log.md')).toBe('new log\n');
+		await t.cleanup();
+	});
+
+	test('an append to a deleted note brings it back as its base and the append', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'log.md', 'log\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('log.md', 'log\n', null)));
+		const outcome = await t.bob.push(t.batch('bob-phone', seq, t.append('log.md', 'log\n', 'bob\n')));
+		expect(outcome).toMatchObject({
+			kind: 'applied',
+			changes: [{ at: 'log.md', text: 'log\nbob\n', overlaps: [{ unit: 'file', clash: 'deleted', side: 'current', settled: 'edit-kept' }] }],
+		});
+		expect(await t.server.read('log.md')).toBe('log\nbob\n');
+		await t.cleanup();
+	});
+
+	test('a move whose note was deleted is dropped', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'notes/a.md', 'A\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'A\n', null)));
+		const outcome = await t.bob.push(t.batch('bob-phone', seq, t.move('notes/a.md', 'notes/b.md', 'A\n')));
+		expect(outcome).toMatchObject({ kind: 'applied', changes: [{ at: null, overlaps: [{ unit: 'path', clash: 'gone', settled: 'dropped' }] }] });
+		expect(await t.server.read('notes/b.md')).toBeNull();
 		await t.cleanup();
 	});
 
@@ -232,6 +334,20 @@ describe('batches', () => {
 		});
 		expect(await t.server.read('notes/a.md')).toBe('v2\n');
 		await t.cleanup();
+	});
+});
+
+describe('siblingPath', () => {
+	const at = Date.parse('2026-10-28T23:59:00Z');
+	test('names the user and the day, and counts past taken names', () => {
+		const taken = new Set(['tasks/fix-login (bob, 2026-10-28).md', 'tasks/fix-login (bob, 2026-10-28, 2).md']);
+		expect(siblingPath('tasks/fix-login.md', 'bob', at, () => false)).toBe('tasks/fix-login (bob, 2026-10-28).md');
+		expect(siblingPath('tasks/fix-login.md', 'bob', at, (p) => taken.has(p))).toBe('tasks/fix-login (bob, 2026-10-28, 3).md');
+		expect(siblingPath('settings.md', 'bob', at, () => false)).toBe('settings (bob, 2026-10-28).md');
+	});
+
+	test('a user id never adds a folder or a hidden name', () => {
+		expect(siblingPath('a/b.md', '.x/y\\z', at, () => false)).toBe('a/b (-x-y-z, 2026-10-28).md');
 	});
 });
 

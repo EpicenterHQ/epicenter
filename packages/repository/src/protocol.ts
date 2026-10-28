@@ -24,8 +24,10 @@ export type Overlap =
 	| { unit: 'file'; clash: 'created' }
 	/**
 	 * The path a change named no longer holds its note: it was deleted and
-	 * `reused` by another, a move's destination is `taken`, or a move's note is
-	 * `gone`. `relocatedTo` is where the server put the change instead.
+	 * `reused` by another (or, past the history window, may have been), a
+	 * move's destination is `taken`, or a move's note is `gone`. `relocatedTo`
+	 * is the sibling note the server put the change in instead, or null when
+	 * nothing was left to put there.
 	 */
 	| { unit: 'path'; clash: 'reused' | 'taken' | 'gone'; relocatedTo: string | null };
 
@@ -38,18 +40,22 @@ export type SettledOverlap = Overlap & {
 };
 
 /**
- * What a write was based on: the hash the device held for the file. `text` is
- * that base's text, sent only when the server answers `need-base`.
+ * What a change was based on: the hash of the text the device showed for the
+ * file. `text` is that base's text, sent only when the server answers
+ * `need-base`.
  */
 export type Base = { hash: string; text?: string };
 
 export type Change =
 	/** Create (base null), edit, or, with `text` null, delete. */
 	| { kind: 'write'; path: string; base: Base | null; text: string | null }
-	/** Refused when `to` is taken. */
-	| { kind: 'move'; from: string; to: string }
-	/** Needs no base; stale after a delete or an untraceable move. */
-	| { kind: 'append'; path: string; text: string };
+	/** Onto a taken `to`, the note moves to a sibling of `to` instead. */
+	| { kind: 'move'; from: string; to: string; base: Base }
+	/**
+	 * Adds to whatever the file holds. The base is needed only when the note
+	 * is gone: the append is then an edit of its base.
+	 */
+	| { kind: 'append'; path: string; text: string; base: Base };
 
 /**
  * `seq` is the device's repository position when the batch was made: the
@@ -61,7 +67,7 @@ export type Batch = { device: string; n: number; seq: number; changes: Change[] 
 export type ChangeOutcome = {
 	/** The path the change addressed (a move's `from`). */
 	path: string;
-	/** Where the file is now, or null when it no longer exists. */
+	/** Where the file is now (a relocated change's sibling), or null when it no longer exists. */
 	at: string | null;
 	/** The server's hash for the file at `at`, or null. */
 	hash: string | null;
@@ -76,7 +82,11 @@ export type BatchOutcome =
 	| { kind: 'applied'; seq: number; changes: ChangeOutcome[] }
 	/** The server lacks these bases' texts; resend the batch with them. */
 	| { kind: 'need-base'; paths: string[] }
-	/** These bases are older than the server's history window. */
+	/**
+	 * For a `'refuse'` peer: these bases are older than the server's history
+	 * window and their files changed since. A `'mark'` peer's such changes
+	 * are relocated instead.
+	 */
 	| { kind: 'expired'; paths: string[] }
 	| { kind: 'refused'; path: string; reason: string; overlaps: Overlap[] };
 
