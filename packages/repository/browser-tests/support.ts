@@ -28,6 +28,15 @@ export async function launchProfile(browser: BrowserType) {
 	};
 }
 
+/** Load the harness in `page` (a new tab by default). */
+export async function loadTab(context: BrowserContext, site: string, { page }: { page?: Page } = {}) {
+	const opened = page ?? (await context.newPage());
+	opened.on('pageerror', (error) => console.error('page error:', error));
+	await opened.goto(site);
+	await opened.waitForFunction(() => globalThis.harness !== undefined);
+	return opened;
+}
+
 /** Load the harness in `page` (a new tab by default) and open the repository `name`. */
 export async function openTab(
 	context: BrowserContext,
@@ -35,15 +44,13 @@ export async function openTab(
 	name: string,
 	{ page, server }: { page?: Page; server?: string } = {},
 ) {
-	const opened = page ?? (await context.newPage());
-	opened.on('pageerror', (error) => console.error('page error:', error));
-	await opened.goto(site);
+	const opened = await loadTab(context, site, { page });
 	await reopen(opened, name, server);
 	return opened;
 }
 
-/** After a reload: wait for the harness and open the repository again. */
+/** After a reload: wait for the harness and open the repository again; answers whether this tab owns it. */
 export async function reopen(page: Page, name: string, server?: string) {
 	await page.waitForFunction(() => globalThis.harness !== undefined);
-	await page.evaluate(([name, server]) => harness.open(name, server), [name, server] as const);
+	return page.evaluate(([name, server]) => harness.open(name, server), [name, server] as const);
 }

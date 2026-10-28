@@ -6,8 +6,9 @@
  * reports other devices' changes.
  *
  * Everything it takes and returns is plain data (`EngineRequest`, `WriteOp`),
- * so it runs in the caller's thread (`openRepository`) or in a browser worker
- * that serves several tabs; `createRepository` turns it into the app API.
+ * so it runs in the caller's thread (`openRepository`) or in the worker of
+ * the one browser tab that owns the repository; `createRepository` turns it
+ * into the app API.
  */
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
@@ -38,23 +39,10 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
 	seq INTEGER NOT NULL,
-	changes TEXT NOT NULL,
-	outcome TEXT
+	changes TEXT NOT NULL
 ) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/commands" (
-	command TEXT NOT NULL,
-	n INTEGER NOT NULL,
-	PRIMARY KEY (command, n)
-) STRICT;
-CREATE INDEX IF NOT EXISTS "epicenter/commands_n" ON "epicenter/commands" (n);
 CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
-
-/**
- * How many settled outbox rows stay, so that a command retried after its
- * answer was lost (a leader tab closing) is found rather than repeated.
- */
-const KEEP_SETTLED = 500;
 
 const PARSER_VERSION = '1';
 
@@ -396,10 +384,9 @@ export function openEngine<const TDefs extends Definitions>({
 	const wait = (n: number) =>
 		new Promise<Result<Settled[], WriteError>>((resolve) => waiters.set(n, [...(waiters.get(n) ?? []), resolve]));
 
-	/** One answer for a command from its outbox rows, settled or still waiting. */
-	function settledOf(rows: { n: number; outcome: string | null }[]): Promise<Result<Settled[], WriteError>> {
-		const parts = rows.map(({ n, outcome }) => (outcome === null ? wait(n) : Promise.resolve(Ok(JSON.parse(outcome) as Settled[]))));
-		return Promise.all(parts).then((results) => {
+	/** One answer for a command from the batches it queued. */
+	function settledOf(numbers: number[]): Promise<Result<Settled[], WriteError>> {
+		return Promise.all(numbers.map(wait)).then((results) => {
 			const settled: Settled[] = [];
 			for (const result of results) {
 				if (result.error !== null) return result;
@@ -408,12 +395,6 @@ export function openEngine<const TDefs extends Definitions>({
 			return Ok(settled);
 		});
 	}
-
-	const commandRows = (command: string) =>
-		driver.all<{ n: number; outcome: string | null }>(
-			'SELECT o.n, o.outcome FROM "epicenter/commands" c JOIN "epicenter/outbox" o ON o.n = c.n WHERE c.command = ? ORDER BY o.n',
-			[command],
-		);
 
 	/** The highest batch number ever handed to the transport: a batch at or below it may have reached the server. */
 	const sentThrough = () => Number(meta('sent') ?? '0');
@@ -425,11 +406,8 @@ export function openEngine<const TDefs extends Definitions>({
 	 * delete and a recreate never become one edit.
 	 */
 	function coalescible(path: string): { n: number; entry: Entry } | undefined {
-		const last = first<{ n: number; changes: string; outcome: string | null }>(
-			driver,
-			'SELECT n, changes, outcome FROM "epicenter/outbox" ORDER BY n DESC LIMIT 1',
-		);
-		if (last === undefined || last.outcome !== null || last.n <= sentThrough()) return undefined;
+		const last = first<{ n: number; changes: string }>(driver, 'SELECT n, changes FROM "epicenter/outbox" ORDER BY n DESC LIMIT 1');
+		if (last === undefined || last.n <= sentThrough()) return undefined;
 		const entries = JSON.parse(last.changes) as Entry[];
 		const [entry] = entries;
 		if (entries.length !== 1 || entry === undefined) return undefined;
@@ -439,42 +417,36 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	/**
-	 * Queue a command's batches under its id and answer their numbers. A
-	 * command that is one write leaving text, to the path the last unsent
-	 * write names, replaces that write's text instead of adding a row; the
-	 * base stays the text the first write started from. Typing then sends one
-	 * batch per send rather than one per keystroke, and a retry of any of
-	 * those commands is answered by the one row.
+	 * Queue a command's batches and answer their numbers. A command that is
+	 * one write leaving text, to the path the last unsent write names,
+	 * replaces that write's text instead of adding a row; the base stays the
+	 * text the first write started from. Typing then sends one batch per send
+	 * rather than one per keystroke.
 	 */
-	function queue(command: string, batches: Entry[][]): number[] {
+	function queue(batches: Entry[][]): number[] {
 		const only = batches.length === 1 && batches[0]?.length === 1 ? batches[0][0] : undefined;
 		const into = only?.change.kind === 'write' && only.change.text !== null ? coalescible(only.change.path) : undefined;
 		if (only !== undefined && into !== undefined && into.entry.change.kind === 'write') {
 			const replaced: Entry = { change: { ...into.entry.change, text: only.local }, local: only.local };
 			driver.run('UPDATE "epicenter/outbox" SET changes = ? WHERE n = ?', [JSON.stringify([replaced]), into.n]);
-			driver.run('INSERT INTO "epicenter/commands" (command, n) VALUES (?, ?)', [command, into.n]);
 			return [into.n];
 		}
 		return batches.map((entries) => {
 			const n = Number(meta('next') ?? '1');
 			setMeta('next', String(n + 1));
 			driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes) VALUES (?, ?, ?)', [n, position(), JSON.stringify(entries)]);
-			driver.run('INSERT INTO "epicenter/commands" (command, n) VALUES (?, ?)', [command, n]);
 			return n;
 		});
 	}
 
 	/**
-	 * Apply ops locally and queue them, in one transaction, under the
-	 * caller's command id: a command already in the outbox is answered from
-	 * there and never applied twice. A move is sent as a batch of its own: the
-	 * server refuses it when its destination is taken, and that refusal should
-	 * undo only the move, not the changes around it.
+	 * Apply ops locally and queue them, in one transaction. A move is sent as
+	 * a batch of its own: the server refuses it when its destination is
+	 * taken, and that refusal should undo only the move, not the changes
+	 * around it.
 	 */
-	function apply(command: string, ops: Ready[]): Submitted {
+	function apply(ops: Ready[]): Submitted {
 		if (closed) return { local: Promise.resolve(WriteError.Closed()), settled: Promise.resolve(WriteError.Closed()) };
-		const known = commandRows(command);
-		if (known.length > 0) return { local: Promise.resolve(Ok(undefined)), settled: settledOf(known) };
 		let failure: WriteError | null = null;
 		let numbers: number[] = [];
 		try {
@@ -491,7 +463,7 @@ export function openEngine<const TDefs extends Definitions>({
 					if (last === undefined || entry.change.kind === 'move' || last[0]?.change.kind === 'move') batches.push([entry]);
 					else last.push(entry);
 				}
-				numbers = queue(command, batches);
+				numbers = queue(batches);
 			});
 		} catch (cause) {
 			if (cause !== ROLLBACK) throw cause;
@@ -499,13 +471,13 @@ export function openEngine<const TDefs extends Definitions>({
 		}
 		if (failure !== null) return { local: Promise.resolve(Err(failure)), settled: Promise.resolve(Err(failure)) };
 		notify();
-		const settled = settledOf(numbers.map((n) => ({ n, outcome: null })));
+		const settled = settledOf(numbers);
 		kick();
 		return { local: Promise.resolve(Ok(undefined)), settled };
 	}
 
-	function submit(command: string, ops: WriteOp[]): Submitted {
-		if (!ops.some((op) => op.kind === 'put')) return apply(command, ops as Ready[]);
+	function submit(ops: WriteOp[]): Submitted {
+		if (!ops.some((op) => op.kind === 'put')) return apply(ops as Ready[]);
 		const ready = (async (): Promise<Result<Ready[], WriteError>> => {
 			const out: Ready[] = [];
 			for (const op of ops) {
@@ -519,7 +491,7 @@ export function openEngine<const TDefs extends Definitions>({
 			}
 			return Ok(out);
 		})();
-		const submitted = ready.then((result) => (result.error !== null ? { local: Promise.resolve(result), settled: Promise.resolve(result) } : apply(command, result.data)));
+		const submitted = ready.then((result) => (result.error !== null ? { local: Promise.resolve(result), settled: Promise.resolve(result) } : apply(result.data)));
 		return {
 			local: submitted.then((s) => s.local).then((r) => (r.error !== null ? Err(r.error) : Ok(undefined))),
 			settled: submitted.then((s) => s.settled),
@@ -530,7 +502,7 @@ export function openEngine<const TDefs extends Definitions>({
 	const pathsOf = ({ change }: Entry) => (change.kind === 'move' ? [change.from, change.to] : [change.path]);
 
 	const unsent = (except = -1) =>
-		driver.all<{ n: number; changes: string }>('SELECT n, changes FROM "epicenter/outbox" WHERE outcome IS NULL AND n <> ? ORDER BY n', [except]);
+		driver.all<{ n: number; changes: string }>('SELECT n, changes FROM "epicenter/outbox" WHERE n <> ? ORDER BY n', [except]);
 
 	/** Whether an unsent batch other than `except` touches `path`. */
 	const isPending = (path: string, except: number) =>
@@ -615,11 +587,7 @@ export function openEngine<const TDefs extends Definitions>({
 		put(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
 	}
 
-	/**
-	 * Settle one batch. Its row stays, holding the outcome, so a command
-	 * retried by id after its answer was lost gets that outcome again; the
-	 * oldest settled rows are dropped.
-	 */
+	/** Settle one batch: fold its outcome into this device's files and drop its row. */
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
 		let settled: Settled[];
 		switch (outcome.kind) {
@@ -634,9 +602,7 @@ export function openEngine<const TDefs extends Definitions>({
 				break;
 		}
 		driver.transaction(() => {
-			driver.run('UPDATE "epicenter/outbox" SET outcome = ? WHERE n = ?', [JSON.stringify(settled), n]);
-			driver.run('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL AND n <= ?', [n - KEEP_SETTLED]);
-			driver.run('DELETE FROM "epicenter/commands" WHERE n <= ?', [n - KEEP_SETTLED]);
+			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
 			if (outcome.kind === 'applied') {
 				// With no seq the batch landed long ago, and the hello that came first
 				// already brought what it did.
@@ -713,7 +679,7 @@ export function openEngine<const TDefs extends Definitions>({
 			if (closed) return;
 			const next = first<{ n: number; seq: number; changes: string }>(
 				driver,
-				'SELECT n, seq, changes FROM "epicenter/outbox" WHERE outcome IS NULL ORDER BY n LIMIT 1',
+				'SELECT n, seq, changes FROM "epicenter/outbox" ORDER BY n LIMIT 1',
 			);
 			if (next === undefined) return;
 			const entries = JSON.parse(next.changes) as Entry[];
@@ -794,7 +760,7 @@ export function openEngine<const TDefs extends Definitions>({
 		/** This device's id, as its database records it. */
 		device,
 		read,
-		/** Apply a command's writes here now and send them; see `apply`. */
+		/** Apply writes here now and send them; see `apply`. */
 		submit,
 		/** Called with the paths whose shown text changed, after every change. */
 		onChange(listener: (paths: string[]) => void) {

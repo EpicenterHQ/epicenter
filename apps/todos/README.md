@@ -1,6 +1,6 @@
 # Todos
 
-Todos keeps each todo as a Markdown file, `todos/<id>.md`, in a repository on this device ([`@epicenter/repository`](../../packages/repository)). The page opens it with the repository's browser host: one SQLite file in this origin's private storage (OPFS), owned by one leader tab's worker, which every tab of the origin calls. It opens without an account. When the build names a server, the repository syncs through it; without one, Todos keeps everything on this device.
+Todos keeps each todo as a Markdown file, `todos/<id>.md`, in a repository on this device ([`@epicenter/repository`](../../packages/repository)). The page opens it with the repository's browser host: one SQLite file in this origin's private storage (OPFS), owned by one tab's worker. A second tab offers Use here, which moves the repository to it; the first tab then says it moved. It opens without an account. When the build names a server, the repository syncs through it; without one, Todos keeps everything on this device.
 
 A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name stay in the file when a todo is edited. A file that does not read as a todo stays listed with its source and why.
 

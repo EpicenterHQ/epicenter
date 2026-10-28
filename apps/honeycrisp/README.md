@@ -4,8 +4,9 @@ Honeycrisp is a Markdown notes app. Every note is one Markdown file,
 `notes/<stem>.md`, in a repository on this device
 ([`@epicenter/repository`](../../packages/repository)). The page opens it
 with the repository's browser host: one SQLite file in this origin's private
-storage (OPFS), owned by one leader tab's worker, which every tab of the
-origin calls. It opens without an account. When the build names a server,
+storage (OPFS), owned by one tab's worker. A second tab offers Use here,
+which moves the repository to it; the first tab then says it moved. It opens
+without an account. When the build names a server,
 the repository syncs through it; without one, Honeycrisp keeps everything on
 this device.
 
@@ -74,8 +75,9 @@ not read or migrate either; their bytes stay where they are.
 Every edit applies on this device at once and shows at once: the lists are
 live queries, and the open note is held open, so its controls read the note
 synchronously and write through it. Nothing waits for a save, and there is no
-close guard: an edit reaches the leader tab's worker and its SQLite file a
-moment after it is typed, so only a keystroke made in the same instant as
+close guard: an edit reaches the tab's worker and its SQLite file a moment
+after it is typed, and the tab lets its worker finish those writes when the
+page is hidden or frozen, so only a keystroke made in the same instant as
 closing the tab can be lost. Edits made offline wait in the
 repository's outbox and are sent when the server is reachable; while an edit
 to a note is unsent, later ones replace it, so typing sends one batch per send.

@@ -16,9 +16,8 @@
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { EditorView } from '@codemirror/view';
-import { Ok } from 'wellcrafted/result';
 import { type } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { type Device, folderText, noteText, openDevice, until as poll } from '../lib/repository.test-support.js';
+import { type Device, folderText, noteText, openDevice, owningTab, until as poll } from '../lib/repository.test-support.js';
 
 // SAFETY: jsdom has no layout; the empty list supplies only the geometry these tests need.
 Range.prototype.getClientRects ??= () => ({ length: 0, item: () => null, [Symbol.iterator]: function* () {} }) as DOMRectList;
@@ -49,7 +48,7 @@ async function device(files: Record<string, string> = {}) {
 async function openPage(on: Device) {
 	const target = document.createElement('div');
 	document.body.append(target);
-	const component = mount(PageHost, { target, props: { open: async () => Ok(on.tab()) } });
+	const component = mount(PageHost, { target, props: { open: () => owningTab(on.tab()) } });
 	let mounted = true;
 	const close = async () => {
 		if (!mounted) return;

@@ -23,7 +23,7 @@
 	let { pendingNewTodo, syncsTo }: { pendingNewTodo: boolean; syncsTo?: string } = $props();
 
 	/** Edits applied here that the server has not answered yet. */
-	const unsent = live(repo.live<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL'));
+	const unsent = live(repo.live<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox"'));
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };

@@ -109,7 +109,7 @@ test('a local edit writes exactly the typed characters, and its undo restores th
 	await device.repo.flush();
 	expect(device.text('notes/a.md')).toBe(handwritten);
 	// Typing more adds no batch: each write replaces the unsent one.
-	const unsent = () => device.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL');
+	const unsent = () => device.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"');
 	const before = await unsent();
 	for (const letter of 'abc') type(editor, letter);
 	await device.repo.flush();

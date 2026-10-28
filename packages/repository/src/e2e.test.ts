@@ -128,7 +128,7 @@ test('a true overlap becomes a marker block for people and a refusal for an agen
 	expect(expectOk(await agentWrite)).toMatchObject({ kind: 'refused', path: 'notes/pet.md' });
 	// The agent awaited the refusal and still holds what it wrote; its device shows the server's text.
 	expect(await text(agent.repo, 'pet')).toBe(marked);
-	expect(await agent.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 0 }]);
+	expect(await agent.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
 	await t.cleanup();
 });
 
@@ -355,7 +355,7 @@ test('a retry whose reply was lost and whose receipt left with its commit settle
 	expect(expectOk(await appended)).toEqual({ kind: 'applied', seq: null, change: null });
 	expect(await text(t.alice.repo, 'once')).toBe('x\ny\n');
 	expect(await t.server.read('notes/once.md')).toBe('x\ny\n');
-	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 0 }]);
+	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
 	await t.cleanup();
 });
 

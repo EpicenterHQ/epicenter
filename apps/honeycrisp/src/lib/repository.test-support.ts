@@ -3,14 +3,27 @@
  * scripted server behind it. The server starts the device with `files`,
  * exactly as their text reads, and `theirs` delivers a change another device
  * made. It answers no batch, so this device's writes wait in its outbox, as
- * they do offline. Every `tab()` shares the one engine, as a browser's tabs
- * share their leader's.
+ * they do offline. Every `tab()` is another client of the one engine, which
+ * stands in for a change made elsewhere on this device.
  */
 import { createRepository, type EnginePort, openEngine, type Transport, TransportError, WriteError } from '@epicenter/repository';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { Ok } from 'wellcrafted/result';
 import { honeycrispApp } from './data.js';
-import type { HoneycrispRepository } from './repository.js';
+import type { HoneycrispRepository, HoneycrispTab } from './repository.js';
+
+/** A tab that owns `repository`, as the browser host reports one. */
+export function owningTab(repository: HoneycrispRepository): HoneycrispTab {
+	const state = { status: 'open', repository } as const;
+	return {
+		state: () => state,
+		subscribe(onChange) {
+			onChange(state);
+			return () => {};
+		},
+		close() {},
+	};
+}
 
 export async function openDevice(files: Record<string, string> = {}) {
 	let deliver: Parameters<Transport['connect']>[0]['onBroadcast'] | undefined;
@@ -32,20 +45,20 @@ export async function openDevice(files: Record<string, string> = {}) {
 	let refuse = false;
 	const port: EnginePort = {
 		read: (request) => engine.read(request),
-		submit(command, ops) {
-			if (!refuse) return engine.submit(command, ops);
+		submit(ops) {
+			if (!refuse) return engine.submit(ops);
 			const failed = WriteError.Unparseable({ path: 'notes/', reason: 'the disk is full' });
 			return { local: Promise.resolve(failed), settled: Promise.resolve(failed) };
 		},
 		onChange: (listener) => engine.onChange(listener),
-		// A tab closing leaves the engine to the others.
+		// A client closing leaves the engine to the others.
 		close() {},
 	};
 	const first = createRepository(honeycrispApp, port);
 	await first.flush();
 	return {
 		repo: first,
-		/** Another tab of this device. */
+		/** Another client of this device's engine. */
 		tab: (): HoneycrispRepository => createRepository(honeycrispApp, port),
 		/** The file's text as this device holds it, read from SQLite itself. */
 		text: (path: string) =>

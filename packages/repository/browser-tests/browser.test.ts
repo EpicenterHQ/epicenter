@@ -3,18 +3,19 @@
  *
  * Real Chromium and WebKit with persistent profiles, so OPFS behaves as it
  * does for a person: the repository lives in SQLite through the
- * `opfs-sahpool` VFS in the leader tab's worker, and other tabs call it over
- * the BroadcastChannel. No server runs here; `sync.test.ts` adds one.
+ * `opfs-sahpool` VFS in the owning tab's worker. No server runs here;
+ * `sync.test.ts` adds one.
  *
  * Key behaviors:
  * - A reload keeps data and unsent edits
- * - Two tabs share one leader and see each other's edits, in reads and open notes
- * - Closing the leader mid-command hands over without losing or repeating the command
+ * - A second tab offers Use here; taking over moves the repository, and the old tab never takes it back by itself
+ * - Freezing the page saves the last keystroke and releases the database
+ * - Use here waits for an old worker to release the database, however long it takes
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chromium, webkit } from 'playwright';
 import { startSite } from './site.js';
-import { launchProfile, openTab, reopen, TIMEOUT, uniqueName } from './support.js';
+import { launchProfile, loadTab, openTab, reopen, TIMEOUT, uniqueName } from './support.js';
 
 let site: Awaited<ReturnType<typeof startSite>>;
 beforeAll(async () => {
@@ -54,20 +55,22 @@ for (const [engine, browser] of [
 		);
 
 		test(
-			"two tabs share one leader and see each other's edits",
+			'a second tab offers Use here, which takes the repository; the first tab shows it moved',
 			async () => {
 				const { context, cleanup } = await launchProfile(browser);
 				try {
-					const name = uniqueName('shared');
-					const a = await openTab(context, site.url, name, { page: context.pages()[0] });
-					const b = await openTab(context, site.url, name);
-					expect(await a.evaluate(() => harness.locks())).toEqual({ held: 1, pending: 1 });
-					await b.evaluate(() => harness.hold('plan'));
-					await a.evaluate(() => harness.write('plan', 'from a\n'));
-					await b.evaluate(() => harness.untilHeld('plan', 'from a\n'));
-					await b.evaluate(() => harness.append('plan', 'from b\n'));
-					expect(await b.evaluate(() => harness.heldText('plan'))).toBe('from a\nfrom b\n');
-					await a.evaluate(() => harness.untilText('plan', 'from a\nfrom b\n'));
+					const name = uniqueName('takeover');
+					const first = await openTab(context, site.url, name, { page: context.pages()[0] });
+					await first.evaluate(() => harness.write('plan', 'from the first tab\n'));
+					const second = await loadTab(context, site.url);
+					expect(await reopen(second, name)).toBe('elsewhere');
+
+					await second.evaluate(() => harness.useHere());
+					await second.evaluate(() => harness.untilStatus('open'));
+					expect(await second.evaluate(() => harness.text('plan'))).toBe('from the first tab\n');
+					await first.evaluate(() => harness.untilStatus('moved'));
+					await second.evaluate(() => harness.append('plan', 'from the second tab\n'));
+					expect(await second.evaluate(() => harness.text('plan'))).toBe('from the first tab\nfrom the second tab\n');
 				} finally {
 					await cleanup();
 				}
@@ -76,29 +79,81 @@ for (const [engine, browser] of [
 		);
 
 		test(
-			'closing the leader mid-command hands over without losing or repeating the command',
+			'a tab that lost the repository never takes it back by itself',
 			async () => {
 				const { context, cleanup } = await launchProfile(browser);
 				try {
-					const name = uniqueName('handover');
-					const leader = await openTab(context, site.url, name, { page: context.pages()[0] });
-					const follower = await openTab(context, site.url, name);
-					await follower.evaluate(() => harness.write('log', 'one\n'));
-					// The leader applies the next write but never answers it, as a
-					// leader whose tab closes between the two would.
-					await follower.evaluate(() => harness.dropSubmitAnswers());
-					const appended = await follower.evaluate(() => harness.append('log', 'two\n', { wait: false }));
-					await leader.evaluate(() => harness.untilText('log', 'one\ntwo\n'));
-					await leader.close();
-					// Sent while no tab leads: the next leader receives it.
-					await follower.evaluate(() => harness.append('log', 'three\n', { wait: false }));
-					await follower.evaluate(() => harness.untilText('log', 'one\ntwo\nthree\n'));
-					expect(await follower.evaluate(() => harness.locks())).toEqual({ held: 1, pending: 0 });
-					expect(await follower.evaluate(() => harness.unsent())).toBe(3);
-					// The retried command was found in the outbox, not applied again.
-					await follower.evaluate(() => harness.flush());
-					expect(await follower.evaluate(() => harness.text('log'))).toBe('one\ntwo\nthree\n');
-					expect(appended).toBe(1);
+					const name = uniqueName('retake');
+					const first = await openTab(context, site.url, name, { page: context.pages()[0] });
+					const second = await openTab(context, site.url, name);
+					await second.evaluate(() => harness.useHere());
+					await second.evaluate(() => harness.untilStatus('open'));
+					await second.evaluate(() => harness.write('plan', 'second\n'));
+					await first.evaluate(() => harness.untilStatus('moved'));
+					// The owner goes away and the lock is free; the first tab stays moved.
+					await second.close();
+					await first.evaluate(() => harness.untilReleased());
+					await Bun.sleep(500);
+					expect(await first.evaluate(() => harness.status())).toBe('moved');
+					await first.evaluate(() => harness.useHere());
+					await first.evaluate(() => harness.untilStatus('open'));
+					expect(await first.evaluate(() => harness.text('plan'))).toBe('second\n');
+				} finally {
+					await cleanup();
+				}
+			},
+			TIMEOUT,
+		);
+
+		test(
+			'freezing the page saves the last keystroke and lets the database go',
+			async () => {
+				const { context, cleanup } = await launchProfile(browser);
+				try {
+					const name = uniqueName('freeze');
+					const first = await openTab(context, site.url, name, { page: context.pages()[0] });
+					await first.evaluate(() => harness.write('log', 'ab'));
+					// The keystroke and the freeze in one task: the write is only posted to the worker.
+					await first.evaluate(() => harness.writeThenFreeze('log', 'abc'));
+					await first.evaluate(() => harness.untilReleased());
+
+					// With no owner, another tab opens the repository without asking.
+					const second = await loadTab(context, site.url);
+					expect(await reopen(second, name)).toBe('open');
+					expect(await second.evaluate(() => harness.text('log'))).toBe('abc');
+					// Back from the freeze, the first tab finds the repository taken.
+					await first.evaluate(() => harness.resume());
+					await first.evaluate(() => harness.untilStatus('elsewhere'));
+					expect(await second.evaluate(() => harness.status())).toBe('open');
+				} finally {
+					await cleanup();
+				}
+			},
+			TIMEOUT,
+		);
+
+		test(
+			'Use here waits, past five seconds, until the old worker lets the database go',
+			async () => {
+				const { context, cleanup } = await launchProfile(browser);
+				try {
+					const name = uniqueName('waiting');
+					const first = await openTab(context, site.url, name, { page: context.pages()[0] });
+					await first.evaluate(() => harness.write('log', 'kept\n'));
+					await first.close();
+					// An old owner that keeps the lock and the storage, as a frozen tab would.
+					const stale = await loadTab(context, site.url);
+					await stale.evaluate((name) => harness.holdAsStaleOwner(name), name);
+					const next = await loadTab(context, site.url);
+					expect(await reopen(next, name)).toBe('elsewhere');
+
+					await next.evaluate(() => harness.useHere());
+					await next.evaluate(() => harness.untilStatus('waiting'));
+					await Bun.sleep(6_000);
+					expect(await next.evaluate(() => harness.status())).toBe('waiting');
+					await stale.evaluate(() => harness.releaseStorage());
+					await next.evaluate(() => harness.untilStatus('open'));
+					expect(await next.evaluate(() => harness.text('log'))).toBe('kept\n');
 				} finally {
 					await cleanup();
 				}

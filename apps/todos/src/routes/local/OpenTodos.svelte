@@ -1,51 +1,68 @@
 <!--
-	Open this device's Todos repository, show it, and close it when
-	unmounted. A repository applies every edit on the device at once, so
+	Open this device's Todos repository in this tab, show it, and close it
+	when unmounted. One tab owns the repository at a time: another tab
+	offers Use here, and a tab whose repository was taken says so and waits
+	to be asked. A repository applies every edit on the device at once, so
 	leaving the page never waits for or asks about a save.
 -->
 <script lang="ts">
+	import { live } from '@epicenter/repository/svelte';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';
+	import AppWindowIcon from '@lucide/svelte/icons/app-window';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy } from 'svelte';
-	import type { Result } from 'wellcrafted/result';
-	import type { TodosRepository } from '$lib/repository.js';
+	import type { TodosTab } from '$lib/repository.js';
 	import TodosApp from './TodosApp.svelte';
 
 	let {
 		open,
 		syncsTo,
 	}: {
-		/** Open the repository on mount and on each Try again. */
-		open: () => Promise<Result<TodosRepository, { message: string }>>;
+		/** Open the repository in this tab, once, on mount. */
+		open: () => TodosTab;
 		/** The server this build syncs with, if any. */
 		syncsTo?: string;
 	} = $props();
 
 	// svelte-ignore state_referenced_locally
-	let opening = $state(open());
+	const tab = open();
+	const held = live(tab);
 
-	onDestroy(() => {
-		void opening.then((result) => result.data?.close());
-	});
+	onDestroy(() => tab.close());
 </script>
 
-{#await opening}
+{#if held.current === undefined || held.current.status === 'opening' || held.current.status === 'closed'}
 	<Loading class="h-dvh" label="Opening…" />
-{:then result}
-	{#if result.error}
-		<Empty.Root class="h-dvh">
-			<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
-			<Empty.Header>
-				<Empty.Title>Could not open storage</Empty.Title>
-				<Empty.Description role="alert">{result.error.message}</Empty.Description>
-			</Empty.Header>
-			<Empty.Content>
-				<Button variant="outline" size="sm" onclick={() => { opening = open(); }}>Try again</Button>
-			</Empty.Content>
-		</Empty.Root>
-	{:else}
-		<TodosApp repo={result.data} {syncsTo} />
-	{/if}
-{/await}
+{:else if held.current.status === 'waiting'}
+	<Loading class="h-dvh" label="Waiting for the other tab to let go…" />
+{:else if held.current.status === 'elsewhere' || held.current.status === 'moved'}
+	{@const useHere = held.current.useHere}
+	<Empty.Root class="h-dvh">
+		<Empty.Media><AppWindowIcon class="size-8 text-muted-foreground" /></Empty.Media>
+		<Empty.Header>
+			<Empty.Title>{held.current.status === 'moved' ? 'Todos moved to another tab' : 'Todos is open in another tab'}</Empty.Title>
+			<Empty.Description>Todos works in one tab at a time. Use it here, and the other tab stops.</Empty.Description>
+		</Empty.Header>
+		<Empty.Content>
+			<Button size="sm" onclick={() => useHere()}>Use here</Button>
+		</Empty.Content>
+	</Empty.Root>
+{:else if held.current.status === 'unavailable'}
+	{@const retry = held.current.retry}
+	<Empty.Root class="h-dvh">
+		<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
+		<Empty.Header>
+			<Empty.Title>Could not open storage</Empty.Title>
+			<Empty.Description role="alert">{held.current.error.message}</Empty.Description>
+		</Empty.Header>
+		<Empty.Content>
+			<Button variant="outline" size="sm" onclick={() => retry()}>Try again</Button>
+		</Empty.Content>
+	</Empty.Root>
+{:else}
+	{#key held.current.repository}
+		<TodosApp repo={held.current.repository} {syncsTo} />
+	{/key}
+{/if}

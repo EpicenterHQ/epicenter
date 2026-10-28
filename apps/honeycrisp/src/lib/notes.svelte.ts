@@ -83,7 +83,7 @@ export function createNotes(repo: HoneycrispRepository) {
 	const noteFiles = live(repo.notes.live());
 	const folderFiles = live(repo.folders.live());
 	const fileList = live(repo.live<{ path: string }>('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL ORDER BY path'));
-	const unsent = live(repo.live<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL'));
+	const unsent = live(repo.live<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox"'));
 
 	/** Which notes the list shows; input not yet committed, like a search. */
 	let view = $state<{ folderId: string | null; deleted: boolean; query: string }>({

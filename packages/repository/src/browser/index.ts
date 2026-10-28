@@ -1,34 +1,33 @@
 /**
  * The browser host. Each repository is one SQLite file in this origin's
- * private storage, owned by one leader tab's worker; every tab, the leader
- * included, calls that worker over the repository's BroadcastChannel.
+ * private storage, and one tab owns it: that tab holds the repository's Web
+ * Lock and runs the worker that opens the database and the server
+ * connection. Its repository talks to that worker alone.
  *
- * Every tab stands for leader with the repository's Web Lock. The tab that
- * holds it starts the worker, which opens the database and the server
- * connection and announces itself. When the leader tab closes, its lock and
- * worker go with it; the next tab in line starts its own worker, and each
- * tab sends its unanswered calls again. A write's call id is its command id,
- * stored with its outbox rows in the same transaction, so a write the old
- * leader applied is found by the new one and answered, never applied twice.
+ * Another tab opening the same repository finds the lock taken and shows
+ * `elsewhere`; its Use here takes the lock (`steal`), which rejects the old
+ * tab's lock request: that rejection is how the old tab learns it has
+ * `moved`. The old tab closes its worker after the writes it already sent,
+ * and never takes the repository back unless the person asks. The new tab's
+ * worker waits (`waiting`) until the old one has released the database.
+ *
+ * An owning tab also closes its worker when the page is hidden for good or
+ * frozen (`pagehide`, `freeze`), so a background tab never holds the
+ * database, and opens it again when the page comes back, if no other tab
+ * took it meanwhile. Nothing is resent between tabs: a batch the old worker
+ * sent without hearing back is resent by the next one under its number, and
+ * the server answers it from its receipt.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
-import { type App, type Definitions, type Settled, WriteError } from '../define.js';
-import type { EngineAnswers, EngineRequest, Submitted, WriteOp } from '../engine/engine.js';
+import type { Result } from 'wellcrafted/result';
+import { type App, type Definitions, type Live, type Settled, WriteError } from '../define.js';
+import type { EngineAnswers, EngineRequest, Submitted } from '../engine/engine.js';
 import { createRepository, type EnginePort, type Repository } from '../repository.js';
-import {
-	channelName,
-	type Described,
-	type Init,
-	type LeaderMessage,
-	lockName,
-	REPOSITORY_NAME,
-	type TabMessage,
-} from './messages.js';
+import { type Described, type Init, lockName, REPOSITORY_NAME, type TabMessage, type WorkerMessage } from './messages.js';
 
 export const BrowserRepositoryError = defineErrors({
-	/** The leader could not open the database in this origin's private storage. */
+	/** The worker could not open the database in this origin's private storage. */
 	Unavailable: ({ reason }: { reason: string }) => ({
 		message: `This browser could not open the repository: ${reason}`,
 		reason,
@@ -38,13 +37,37 @@ export type BrowserRepositoryError = InferErrors<typeof BrowserRepositoryError>;
 
 export type BrowserRepositoryOptions<TDefs extends Definitions> = {
 	app: App<TDefs>;
-	/** The repository's name in this origin: one database, one lock and one leader per name. */
+	/** The repository's name in this origin: one database, one lock and one owning tab per name. */
 	name: string;
 	/** The server to sync with; without one the repository works on this device alone. */
 	server?: { url: string };
-	/** Start the leader's worker; by default the package's own worker module. */
+	/** Start the owning tab's worker; by default the package's own worker module. */
 	worker?: () => Worker;
 	log?: Logger;
+};
+
+/** Where this tab stands with its repository. */
+export type TabState<TDefs extends Definitions> =
+	| { status: 'opening' }
+	/** This tab owns the repository, but another tab's worker has not released the database yet. */
+	| { status: 'waiting'; reason: string }
+	| { status: 'open'; repository: Repository<TDefs> }
+	/** Another tab owns the repository. `useHere` takes it from that tab. */
+	| { status: 'elsewhere'; useHere(): void }
+	/** Another tab took the repository from this one. It stays there until `useHere`. */
+	| { status: 'moved'; useHere(): void }
+	| { status: 'unavailable'; error: BrowserRepositoryError; retry(): void }
+	| { status: 'closed' };
+
+/**
+ * One tab's hold on a repository. `subscribe` calls back with the current
+ * state and then with every change, so it is a `Live` and the Svelte `live`
+ * adapter renders it.
+ */
+export type RepositoryTab<TDefs extends Definitions> = Live<TabState<TDefs>> & {
+	state(): TabState<TDefs>;
+	/** Close the repository in this tab and give the lock up. */
+	close(): void;
 };
 
 const describe = (app: App): Described =>
@@ -68,152 +91,237 @@ const deferred = <T>(): Deferred<T> => {
 	return { promise, resolve, reject };
 };
 
+const closedError = () => new Error('The repository is closed');
+const closedSubmit = (): Submitted => ({ local: Promise.resolve(WriteError.Closed()), settled: Promise.resolve(WriteError.Closed()) });
+
 /**
- * Open a repository in this tab. Resolves once a leader, this tab's or
- * another's, answers; until a leader exists calls wait.
+ * Open a repository in this tab. The tab takes the repository when no other
+ * tab owns it; otherwise it stands `elsewhere` until the person chooses Use
+ * here.
  */
-export async function openBrowserRepository<const TDefs extends Definitions>({
+export function openBrowserRepository<const TDefs extends Definitions>({
 	app,
 	name,
 	server,
 	worker = () => new Worker(new URL('./repository.worker.ts', import.meta.url), { type: 'module' }),
 	log = createLogger('repository/browser'),
-}: BrowserRepositoryOptions<TDefs>): Promise<Result<Repository<TDefs>, BrowserRepositoryError>> {
+}: BrowserRepositoryOptions<TDefs>): RepositoryTab<TDefs> {
 	// A bad name is a mistake in the app's source.
 	if (!REPOSITORY_NAME.test(name)) throw new Error(`'${name}' is not a usable repository name`);
-	const tab = crypto.randomUUID();
-	const channel = new BroadcastChannel(channelName(name));
-	const post = (message: TabMessage) => channel.postMessage(message);
 
-	const reads = new Map<string, { request: EngineRequest; answer: Deferred<unknown> }>();
-	const writes = new Map<string, { ops: WriteOp[]; local: Deferred<Result<undefined, WriteError>> | null; settled: Deferred<Result<Settled[], WriteError>> }>();
-	const listeners = new Set<(paths: string[] | null) => void>();
-	const ready = deferred<Result<undefined, BrowserRepositoryError>>();
-	let leader: string | null = null;
-	let unavailable: BrowserRepositoryError | null = null;
-
-	const sendRead = (id: string, request: EngineRequest) => post({ type: 'read', tab, id, request });
-	const sendWrite = (id: string, ops: WriteOp[]) => post({ type: 'submit', tab, id, ops });
-
-	channel.onmessage = (event: MessageEvent<LeaderMessage>) => {
-		const message = event.data;
-		switch (message.type) {
-			case 'leader': {
-				if (message.leader === leader) return;
-				const first = leader === null;
-				leader = message.leader;
-				ready.resolve(Ok(undefined));
-				// A new leader never saw what the old one left unanswered: ask again.
-				for (const [id, { request }] of reads) sendRead(id, request);
-				for (const [id, { ops }] of writes) sendWrite(id, ops);
-				if (!first) for (const listener of listeners) listener(null);
-				return;
-			}
-			case 'unavailable': {
-				const { error } = BrowserRepositoryError.Unavailable({ reason: message.reason });
-				unavailable = error;
-				ready.resolve(BrowserRepositoryError.Unavailable({ reason: message.reason }));
-				for (const { answer } of reads.values()) answer.reject(error);
-				reads.clear();
-				return;
-			}
-			case 'changed':
-				for (const listener of listeners) listener(message.paths);
-				return;
-			case 'answer':
-			case 'failed': {
-				if (message.tab !== tab) return;
-				const read = reads.get(message.id);
-				if (read === undefined) return;
-				reads.delete(message.id);
-				if (message.type === 'answer') read.answer.resolve(message.value);
-				else read.answer.reject(new Error(message.reason));
-				return;
-			}
-			case 'local': {
-				if (message.tab !== tab) return;
-				const write = writes.get(message.id);
-				if (write?.local == null) return;
-				write.local.resolve(message.result);
-				write.local = null;
-				return;
-			}
-			case 'settled': {
-				if (message.tab !== tab) return;
-				const write = writes.get(message.id);
-				if (write === undefined) return;
-				writes.delete(message.id);
-				write.local?.resolve(message.result.error === null ? Ok(undefined) : message.result);
-				write.settled.resolve(message.result);
-				return;
-			}
-			default:
-				message satisfies never;
-		}
+	let state: TabState<TDefs> = { status: 'opening' };
+	const watchers = new Set<(state: TabState<TDefs>) => void>();
+	const set = (next: TabState<TDefs>) => {
+		state = next;
+		for (const watcher of watchers) watcher(next);
 	};
 
-	// Stand for leader. The callback holds the lock until this tab closes the
-	// repository or closes itself, which ends the worker too.
+	/** The worker this tab runs while it owns the repository, and how to end it. */
+	type Session = { ended: Promise<void>; end(): void };
+	let session: Session | null = null;
 	let closed = false;
-	const released = deferred<undefined>();
-	let started: Worker | null = null;
-	void navigator.locks.request(lockName(name), async () => {
-		if (closed) return;
-		started = worker();
-		started.addEventListener('error', (event) => {
-			log.error({ name: 'WorkerFailed', message: event.message || 'The repository worker failed to start' });
-			channel.postMessage({ type: 'unavailable', reason: event.message || 'the worker failed to start' } satisfies LeaderMessage);
-			ready.resolve(BrowserRepositoryError.Unavailable({ reason: event.message || 'the worker failed to start' }));
-		});
-		started.postMessage({ type: 'init', name, definitions: describe(app), server: server ?? null } satisfies Init);
-		await released.promise;
-		started.terminate();
-	});
-	post({ type: 'hello' });
+	/** Whether the page was hidden while owning, so showing it again opens the repository again. */
+	let reopen = false;
+	/** The latest lock request, which settles once its lock is released. */
+	let held: Promise<unknown> = Promise.resolve();
 
-	const port: EnginePort = {
-		read<TRequest extends EngineRequest>(request: TRequest) {
-			if (unavailable !== null) return Promise.reject(unavailable);
-			if (closed) return Promise.reject(new Error('The repository is closed'));
-			const id = crypto.randomUUID();
-			const answer = deferred<unknown>();
-			reads.set(id, { request, answer });
-			sendRead(id, request);
-			return answer.promise as Promise<EngineAnswers[TRequest['kind']]>;
-		},
-		submit(command, ops): Submitted {
-			if (closed) return { local: Promise.resolve(WriteError.Closed()), settled: Promise.resolve(WriteError.Closed()) };
-			const local = deferred<Result<undefined, WriteError>>();
-			const settled = deferred<Result<Settled[], WriteError>>();
-			writes.set(command, { ops, local, settled });
-			sendWrite(command, ops);
-			return { local: local.promise, settled: settled.promise };
-		},
-		onChange(listener) {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
-		},
-		close() {
-			closed = true;
-			released.resolve(undefined);
-			channel.close();
-			listeners.clear();
+	function startSession(): Session {
+		const running = worker();
+		let next = 1;
+		const reads = new Map<number, Deferred<unknown>>();
+		const writes = new Map<number, { local: Deferred<Result<undefined, WriteError>>; settled: Deferred<Result<Settled[], WriteError>> }>();
+		const changes = new Set<(paths: string[] | null) => void>();
+		const ended = deferred<undefined>();
+		let ending = false;
+		let finished = false;
+		const post = (message: TabMessage) => running.postMessage(message);
+		/** Whether this session still decides what the tab shows. */
+		const current = () => session === me && !ending;
+
+		/** The worker is gone: every call still waiting is answered as closed. */
+		function finish() {
+			if (finished) return;
+			finished = true;
+			running.terminate();
+			for (const read of reads.values()) read.reject(closedError());
+			reads.clear();
 			for (const write of writes.values()) {
-				write.local?.resolve(WriteError.Closed());
+				write.local.resolve(WriteError.Closed());
 				write.settled.resolve(WriteError.Closed());
 			}
 			writes.clear();
-			for (const { answer } of reads.values()) answer.reject(new Error('The repository is closed'));
-			reads.clear();
+			changes.clear();
+			ended.resolve(undefined);
+		}
+
+		const port: EnginePort = {
+			read<TRequest extends EngineRequest>(request: TRequest) {
+				if (ending) return Promise.reject(closedError());
+				const id = next++;
+				const answer = deferred<unknown>();
+				reads.set(id, answer);
+				post({ type: 'read', id, request });
+				return answer.promise as Promise<EngineAnswers[TRequest['kind']]>;
+			},
+			submit(ops): Submitted {
+				if (ending) return closedSubmit();
+				const id = next++;
+				const write = { local: deferred<Result<undefined, WriteError>>(), settled: deferred<Result<Settled[], WriteError>>() };
+				writes.set(id, write);
+				post({ type: 'submit', id, ops });
+				return { local: write.local.promise, settled: write.settled.promise };
+			},
+			onChange(listener) {
+				changes.add(listener);
+				return () => {
+					changes.delete(listener);
+				};
+			},
+			close: () => tab.close(),
+		};
+
+		running.onmessage = (event: MessageEvent<WorkerMessage>) => {
+			const message = event.data;
+			switch (message.type) {
+				case 'waiting':
+					if (current()) set({ status: 'waiting', reason: message.reason });
+					return;
+				case 'ready':
+					if (current()) set({ status: 'open', repository: createRepository(app, port, { log }) });
+					return;
+				case 'unavailable': {
+					const { error } = BrowserRepositoryError.Unavailable({ reason: message.reason });
+					if (current()) set({ status: 'unavailable', error, retry: () => take('available') });
+					finish();
+					return;
+				}
+				case 'answer':
+				case 'failed': {
+					const read = reads.get(message.id);
+					reads.delete(message.id);
+					if (message.type === 'answer') read?.resolve(message.value);
+					else read?.reject(new Error(message.reason));
+					return;
+				}
+				case 'local':
+					writes.get(message.id)?.local.resolve(message.result);
+					return;
+				case 'settled': {
+					const write = writes.get(message.id);
+					writes.delete(message.id);
+					write?.local.resolve(message.result.error === null ? { data: undefined, error: null } : message.result);
+					write?.settled.resolve(message.result);
+					return;
+				}
+				case 'changed':
+					for (const listener of changes) listener(message.paths);
+					return;
+				case 'closed':
+					finish();
+					return;
+				default:
+					message satisfies never;
+			}
+		};
+		running.addEventListener('error', (event) => {
+			const reason = event.message || 'the worker failed to start';
+			log.error({ name: 'WorkerFailed', message: reason });
+			if (current()) set({ status: 'unavailable', error: BrowserRepositoryError.Unavailable({ reason }).error, retry: () => take('available') });
+			finish();
+		});
+		post({ type: 'init', name, definitions: describe(app), server: server ?? null } satisfies Init);
+
+		const me: Session = {
+			ended: ended.promise,
+			/** Refuse new calls, let the worker finish the ones already sent, then let it go. */
+			end() {
+				if (ending) return;
+				ending = true;
+				if (finished) return;
+				post({ type: 'close' });
+			},
+		};
+		return me;
+	}
+
+	/** Ask for the lock: only if no tab holds it, or by taking it from the tab that does. */
+	function take(how: 'available' | 'steal') {
+		if (closed) return;
+		set({ status: 'opening' });
+		let mine: Session | null = null;
+		held = navigator.locks
+			.request(lockName(name), how === 'steal' ? { steal: true } : { ifAvailable: true }, async (lock) => {
+				if (lock === null) {
+					set({ status: 'elsewhere', useHere: () => take('steal') });
+					return;
+				}
+				if (closed) return;
+				mine = startSession();
+				session = mine;
+				// Held until this tab closes the repository, hides, or loses it.
+				await mine.ended;
+			})
+			.catch((cause: unknown) => {
+				if (mine === null) {
+					// The request itself failed; no worker ran.
+					const reason = cause instanceof Error ? cause.message : String(cause);
+					set({ status: 'unavailable', error: BrowserRepositoryError.Unavailable({ reason }).error, retry: () => take('available') });
+					return;
+				}
+				// Another tab took the repository with Use here. This tab stops,
+				// after the writes it already sent, and takes the repository back
+				// only when the person asks.
+				const lost = mine;
+				lost.end();
+				if (session === lost) {
+					session = null;
+					set({ status: 'moved', useHere: () => take('steal') });
+				}
+			});
+	}
+
+	/** The page is going away or freezing: save what was sent and let the database go. */
+	const hide = () => {
+		if (session === null) return;
+		const hidden = session;
+		session = null;
+		reopen = true;
+		hidden.end();
+		set({ status: 'opening' });
+	};
+	/** The page is back: open the repository again once the old worker has let it go. */
+	const show = () => {
+		if (!reopen) return;
+		reopen = false;
+		void held.finally(() => take('available'));
+	};
+	addEventListener('pagehide', hide);
+	addEventListener('pageshow', show);
+	document.addEventListener('freeze', hide);
+	document.addEventListener('resume', show);
+
+	const tab: RepositoryTab<TDefs> = {
+		state: () => state,
+		subscribe(onChange) {
+			watchers.add(onChange);
+			onChange(state);
+			return () => {
+				watchers.delete(onChange);
+			};
+		},
+		close() {
+			if (closed) return;
+			closed = true;
+			removeEventListener('pagehide', hide);
+			removeEventListener('pageshow', show);
+			document.removeEventListener('freeze', hide);
+			document.removeEventListener('resume', show);
+			session?.end();
+			session = null;
+			set({ status: 'closed' });
+			watchers.clear();
 		},
 	};
-
-	const opened = await ready.promise;
-	if (opened.error !== null) {
-		port.close();
-		return opened;
-	}
-	return Ok(createRepository(app, port, { log }));
+	take('available');
+	return tab;
 }

@@ -3,9 +3,9 @@
  *
  * Mounts the real Todos views in jsdom, as the page mounts them, over the
  * repository engine running in this process on `bun:sqlite` with no server.
- * A second client of the same engine stands in for another tab, as tabs in
- * a browser share their leader's engine; the browser host itself is covered
- * by the Playwright smoke test (`scripts/smoke.ts`). jsdom matches no media
+ * A second client of the same engine stands in for a change made elsewhere
+ * on this device; the browser host itself, which gives the repository to one
+ * tab at a time, is covered by the Playwright smoke test. jsdom matches no media
  * query, so the view lays out as on a narrow screen.
  *
  * Key behaviors:
@@ -15,15 +15,15 @@
  * - A write the engine refuses is reported, and the controls follow the stored note
  * - A note that does not fit is listed with its source, and an edit keeps unnamed fields
  * - A failed open shows the error, and Try again opens again
+ * - Open in another tab offers Use here; waiting and moved say so
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
 import { createRepository, type EnginePort, offlineTransport, openEngine, WriteError } from '@epicenter/repository';
 import { openBunSqlite } from '@epicenter/repository/bun';
-import { Ok, type Result } from 'wellcrafted/result';
 import { blur, button, click, setWide, type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { todosApp } from '../../lib/definition.js';
-import type { TodosRepository } from '../../lib/repository.js';
+import type { TodosRepository, TodosTab } from '../../lib/repository.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const state = await import('../../lib/app-state.test-support.svelte.ts');
@@ -48,7 +48,7 @@ const NOTES = `${DETAIL} textarea[aria-label="Notes"]`;
 const DONE = `${DETAIL} button[aria-label="Done"]`;
 const SUMMARY = '[data-testid="status-summary"]';
 
-/** A fresh device: one engine, which every tab of the test shares. */
+/** A fresh device: one engine, which every client of the test shares. */
 function freshDevice() {
 	const engine = openEngine({ app: todosApp, driver: openBunSqlite(), transport: offlineTransport });
 	cleanup.push(() => engine.close());
@@ -56,17 +56,17 @@ function freshDevice() {
 	let refuse = false;
 	const port: EnginePort = {
 		read: (request) => engine.read(request),
-		submit(command, ops) {
-			if (!refuse) return engine.submit(command, ops);
+		submit(ops) {
+			if (!refuse) return engine.submit(ops);
 			const failed = WriteError.Unparseable({ path: 'todos/', reason: 'the disk is full' });
 			return { local: Promise.resolve(failed), settled: Promise.resolve(failed) };
 		},
 		onChange: (listener) => engine.onChange(listener),
-		// A tab closing leaves the engine to the others.
+		// A client closing leaves the engine to the others.
 		close() {},
 	};
 	return {
-		/** Another tab of this device. */
+		/** Another client of this device's engine. */
 		tab: (): TodosRepository => createRepository(todosApp, port),
 		refuseWrites(value: boolean) {
 			refuse = value;
@@ -74,8 +74,35 @@ function freshDevice() {
 	};
 }
 
-/** Mount the page over what `open` opens; `close` unmounts it. */
-function mountPage(open: () => Promise<Result<TodosRepository, { message: string }>>) {
+type TabState = ReturnType<TodosTab['state']>;
+
+/** A tab whose state the test sets, as the browser host would report it. */
+function tabOf(first: TabState) {
+	let state = first;
+	const watchers = new Set<(state: TabState) => void>();
+	const tab: TodosTab = {
+		state: () => state,
+		subscribe(onChange) {
+			watchers.add(onChange);
+			onChange(state);
+			return () => watchers.delete(onChange);
+		},
+		close() {},
+	};
+	return {
+		tab,
+		set(next: TabState) {
+			state = next;
+			for (const watcher of watchers) watcher(next);
+		},
+	};
+}
+
+/** A tab that owns `repository`. */
+const owning = (repository: TodosRepository) => tabOf({ status: 'open', repository }).tab;
+
+/** Mount the page over the tab `open` opens; `close` unmounts it. */
+function mountPage(open: () => TodosTab) {
 	const target = document.createElement('div');
 	document.body.append(target);
 	const view = mount(PageHost, { target, props: { open } });
@@ -114,7 +141,7 @@ async function until(check: () => boolean, what: string) {
 
 /** Mount the page over a tab of `device` and wait until it lists the todos. */
 async function openPage(device: ReturnType<typeof freshDevice>) {
-	const opened = mountPage(async () => Ok(device.tab()));
+	const opened = mountPage(() => owning(device.tab()));
 	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
 	return opened;
 }
@@ -298,14 +325,30 @@ test('a note that does not fit is listed with its source, and an edit keeps unna
 
 test('a failed open shows the error, and Try again opens again', async () => {
 	const device = freshDevice();
-	let blocked = true;
-	const opened = mountPage(async () => {
-		if (blocked) return { data: null, error: { message: 'Storage access is blocked' } };
-		return Ok(device.tab());
-	});
+	const held = tabOf({ status: 'opening' });
+	const error = { name: 'Unavailable', message: 'Storage access is blocked', reason: 'blocked' } as const;
+	held.set({ status: 'unavailable', error, retry: () => held.set({ status: 'open', repository: device.tab() }) });
+	const opened = mountPage(() => held.tab);
 	await until(() => opened.text('[role="alert"]')?.includes('Storage access is blocked') ?? false, 'the refusal');
 	expect(opened.target.querySelector(LIST)).toBeNull();
-	blocked = false;
 	press(button(opened.target, 'Try again'));
 	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
+});
+
+test('a repository open in another tab offers Use here, and a moved one says so', async () => {
+	const device = freshDevice();
+	const held = tabOf({ status: 'opening' });
+	let used = 0;
+	held.set({ status: 'elsewhere', useHere: () => used++ });
+	const opened = mountPage(() => held.tab);
+	await until(() => opened.target.textContent?.includes('Todos is open in another tab') ?? false, 'the takeover offer');
+	press(button(opened.target, 'Use here'));
+	expect(used).toBe(1);
+	held.set({ status: 'waiting', reason: 'busy' });
+	await until(() => opened.target.textContent?.includes('Waiting for the other tab') ?? false, 'the wait');
+	held.set({ status: 'open', repository: device.tab() });
+	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
+	held.set({ status: 'moved', useHere: () => used++ });
+	await until(() => opened.target.textContent?.includes('Todos moved to another tab') ?? false, 'the moved notice');
+	expect(opened.target.querySelector(LIST)).toBeNull();
 });

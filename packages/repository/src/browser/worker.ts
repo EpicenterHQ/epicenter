@@ -1,21 +1,23 @@
 /**
- * The leader's worker: it owns the repository's SQLite database and its
- * connection to the server, runs the whole engine, and answers every tab on
- * the repository's BroadcastChannel. A tab starts it only after taking the
- * repository's Web Lock, so one runs per repository per origin.
+ * The owning tab's worker: it holds the repository's SQLite database and its
+ * connection to the server, runs the whole engine, and answers its one tab.
+ * The tab starts it only while holding the repository's Web Lock, and tells
+ * it to close before giving the lock up, so one runs per repository per
+ * origin, apart from the moments when an old one is still letting go.
  */
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { type Definitions, defineApp } from '../define.js';
-import { openEngine } from '../engine/engine.js';
+import { type Engine, openEngine } from '../engine/engine.js';
 import { offlineTransport } from '../engine/ports.js';
+import type { SqlDriver } from '../sql.js';
 import { createWebSocketTransport } from '../ws/client.js';
-import { channelName, type Described, type Init, type LeaderMessage, type TabMessage } from './messages.js';
+import type { Described, Init, TabMessage, WorkerMessage } from './messages.js';
 import { openOpfsDatabase } from './sqlite.js';
 
 const log = createLogger('repository/browser-worker');
 
-/** The engine reads only field names from a schema; validation stays in the tabs. */
+/** The engine reads only field names from a schema; validation stays in the tab. */
 function definitionsOf(described: Described): Definitions {
 	return Object.fromEntries(
 		Object.entries(described).map(([name, definition]) => [
@@ -27,60 +29,95 @@ function definitionsOf(described: Described): Definitions {
 	);
 }
 
+const post = (message: WorkerMessage) => postMessage(message);
+
+/** Outcomes are JSON; an error's `cause` may not be cloneable, so it goes as JSON too. */
+const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+
 /** Serve one repository from this worker once its tab sends `Init`. */
 export function serveRepositoryWorker() {
-	addEventListener('message', (event: MessageEvent<Init>) => {
-		if (event.data?.type === 'init') void start(event.data);
-	});
-}
+	let engine: Engine | null = null;
+	let driver: SqlDriver | null = null;
+	let closing = false;
+	/** Calls that arrived before the database opened, answered in order once it does. */
+	const early: Extract<TabMessage, { type: 'read' | 'submit' }>[] = [];
+	/** Writes still storing blob bytes, which a close waits for. */
+	const writing = new Set<Promise<unknown>>();
 
-async function start({ name, definitions, server }: Init) {
-	const channel = new BroadcastChannel(channelName(name));
-	let dropSubmitAnswers = false;
-	const post = (message: LeaderMessage) => channel.postMessage(message);
-	const driver = await openOpfsDatabase(name);
-	if (driver.error !== null) {
-		log.error(driver.error);
-		post({ type: 'unavailable', reason: driver.error.message });
-		return;
-	}
-	const engine = openEngine({
-		app: defineApp(definitionsOf(definitions)),
-		driver: driver.data,
-		transport: server === null ? offlineTransport : createWebSocketTransport(server),
-		log,
-	});
-	const leader = crypto.randomUUID();
-	engine.onChange((paths) => post({ type: 'changed', paths }));
-	channel.onmessage = (event: MessageEvent<TabMessage>) => {
-		const message = event.data;
+	function handle(message: TabMessage) {
 		switch (message.type) {
-			case 'hello':
-				post({ type: 'leader', leader });
+			case 'init':
+				void start(message);
 				return;
-			case 'read': {
-				const { tab, id } = message;
-				engine.read(message.request).then(
-					(value) => post({ type: 'answer', tab, id, value }),
-					(cause: unknown) => post({ type: 'failed', tab, id, reason: String(cause) }),
-				);
+			case 'close':
+				closing = true;
+				// Before the database opens, `start` sees `closing` and closes it.
+				if (engine !== null) void close();
 				return;
-			}
-			case 'submit': {
-				const { tab, id } = message;
-				const submitted = engine.submit(id, message.ops);
-				// Outcomes are JSON; an error's `cause` may not be cloneable, so it goes as JSON too.
-				const plain = <T>(result: T): T => JSON.parse(JSON.stringify(result));
-				void submitted.local.then((result) => dropSubmitAnswers || post({ type: 'local', tab, id, result: plain(result) }));
-				void submitted.settled.then((result) => dropSubmitAnswers || post({ type: 'settled', tab, id, result: plain(result) }));
-				return;
-			}
-			case 'test:drop-submit-answers':
-				dropSubmitAnswers = true;
+			case 'read':
+			case 'submit':
+				if (engine === null) {
+					early.push(message);
+					return;
+				}
+				call(engine, message);
 				return;
 			default:
 				message satisfies never;
 		}
-	};
-	post({ type: 'leader', leader });
+	}
+
+	function call(engine: Engine, message: Extract<TabMessage, { type: 'read' | 'submit' }>) {
+		const { id } = message;
+		if (message.type === 'read') {
+			engine.read(message.request).then(
+				(value) => post({ type: 'answer', id, value }),
+				(cause: unknown) => post({ type: 'failed', id, reason: String(cause) }),
+			);
+			return;
+		}
+		const submitted = engine.submit(message.ops);
+		const local = submitted.local.then((result) => post({ type: 'local', id, result: plain(result) }));
+		writing.add(local);
+		void local.finally(() => writing.delete(local));
+		void submitted.settled.then((result) => post({ type: 'settled', id, result: plain(result) }));
+	}
+
+	async function start({ name, definitions, server }: Init) {
+		const opened = await openOpfsDatabase(name, {
+			onWaiting: (reason) => post({ type: 'waiting', reason }),
+			cancelled: () => closing,
+		});
+		if (closing) {
+			if (opened.error === null) opened.data.close();
+			post({ type: 'closed' });
+			return;
+		}
+		if (opened.error !== null) {
+			log.error(opened.error);
+			post({ type: 'unavailable', reason: opened.error.message });
+			return;
+		}
+		driver = opened.data;
+		engine = openEngine({
+			app: defineApp(definitionsOf(definitions)),
+			driver,
+			transport: server === null ? offlineTransport : createWebSocketTransport(server),
+			log,
+		});
+		engine.onChange((paths) => post({ type: 'changed', paths }));
+		post({ type: 'ready' });
+		for (const message of early.splice(0)) call(engine, message);
+	}
+
+	async function close() {
+		await Promise.all(writing);
+		engine?.close();
+		driver?.close();
+		engine = null;
+		driver = null;
+		post({ type: 'closed' });
+	}
+
+	addEventListener('message', (event: MessageEvent<TabMessage>) => handle(event.data));
 }

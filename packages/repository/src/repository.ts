@@ -4,8 +4,8 @@
  * when the server answers, and an open note reads synchronously.
  *
  * `createRepository` builds it over an `EnginePort`: the engine itself in
- * the caller's thread (`openRepository`, used by Bun and tests), or a browser
- * tab's connection to the leader's worker (`openBrowserRepository`).
+ * the caller's thread (`openRepository`, used by Bun and tests), or the
+ * owning browser tab's connection to its worker (`openBrowserRepository`).
  */
 import { Check, Errors } from 'typebox/value';
 import { defineErrors } from 'wellcrafted/error';
@@ -39,8 +39,8 @@ import { buildPath, matchTemplate } from './templates.js';
 /** What the app API needs from wherever the engine runs. */
 export type EnginePort = {
 	read<TRequest extends EngineRequest>(request: TRequest): Promise<EngineAnswers[TRequest['kind']]>;
-	/** Run a command's writes under its id; a command id already seen is answered, not repeated. */
-	submit(command: string, ops: WriteOp[]): Submitted;
+	/** Apply writes on the device and send them. */
+	submit(ops: WriteOp[]): Submitted;
 	/** Called with the paths whose shown text changed, after every change; null when any may have. */
 	onChange(listener: (paths: string[] | null) => void): () => void;
 	close(): void;
@@ -138,7 +138,7 @@ export function createRepository<const TDefs extends Definitions>(
 		};
 	}
 
-	const submit = (ops: WriteOp[]) => port.submit(crypto.randomUUID(), ops);
+	const submit = (ops: WriteOp[]) => port.submit(ops);
 	const first = async (pending: Pending<Settled[]>): Pending => {
 		const result = await pending;
 		if (result.error !== null) return result;

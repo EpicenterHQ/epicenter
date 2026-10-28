@@ -4,12 +4,11 @@
  * The app API every host shares, over the in-process engine on `bun:sqlite`
  * and the in-process server. The end-to-end scenarios in `e2e.test.ts` run
  * through the same API; these cover what is new to it: open notes, handle
- * live queries, and command ids that make a retried command land once.
+ * live queries, and how unsent writes coalesce.
  *
  * Key behaviors:
  * - An open note reads synchronously, shows its own writes at once, and follows other devices
  * - Live queries emit only when their result differs
- * - A command submitted twice under one id is applied once and answered twice
  * - An open note's edit keeps a change it had not shown yet; a whole-body write replaces it
  * - Unsent writes to one path coalesce into one batch; a sent write is never changed
  * - Without a server, writes apply and wait in the outbox
@@ -126,30 +125,6 @@ test('live queries emit only when their result differs', async () => {
 	await t.cleanup();
 });
 
-test('a command submitted twice under one id is applied once and answered twice', async () => {
-	const t = await setup();
-	expectOk(await t.alice.repo.todos.create({ stem: 'log' }, { fields: { title: 'Log', done: false }, body: 'one\n' }));
-	const transport = createInProcessTransport(t.server, { user: 'bob' });
-	transport.setOnline(false);
-	const engine = openEngine({ app, driver: openBunSqlite(), transport, device: 'bob-2' });
-	transport.setOnline(true);
-	await engine.read({ kind: 'flush' });
-	const op = { kind: 'append', name: 'todos', params: { stem: 'log' }, text: 'two\n' } as const;
-	const first = engine.submit('command-1', [op]);
-	const again = engine.submit('command-1', [op]);
-	expectOk(await first.local);
-	expectOk(await again.local);
-	const [settled, retried] = await Promise.all([first.settled, again.settled]);
-	expect(expectOk(retried)).toEqual(expectOk(settled));
-	// After it settled, the outcome is answered from its outbox row.
-	const late = engine.submit('command-1', [op]);
-	expect(expectOk(await late.settled)).toEqual(expectOk(settled));
-	expect((await engine.read({ kind: 'get', name: 'todos', params: { stem: 'log' } }))?.body).toBe('one\ntwo\n');
-	expect(await t.server.read('todos/log.md')).toBe('---\ntitle: Log\ndone: false\n---\none\ntwo\n');
-	engine.close();
-	await t.cleanup();
-});
-
 /** A device whose transport records every batch that leaves it. */
 function recordingDevice(t: Awaited<ReturnType<typeof setup>>, name: string) {
 	const inner = createInProcessTransport(t.server, { user: name });
@@ -187,7 +162,7 @@ test('a burst of writes to one path while unsent sends one batch with the latest
 		// Each write is tried while offline; a batch that never left the device still takes the next write.
 		await bob.repo.flush();
 	}
-	expect(await bob.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 1 }]);
+	expect(await bob.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 1 }]);
 
 	bob.inner.setOnline(true);
 	const settled = await Promise.all(typed);
@@ -212,7 +187,7 @@ test('a write already handed to the transport is never changed; later writes get
 	await bob.repo.flush();
 	const two = bob.repo.todos.write({ stem: 'log' }, { body: 'two\n' });
 	await bob.repo.flush();
-	expect(await bob.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 2 }]);
+	expect(await bob.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 2 }]);
 
 	bob.inner.setOnline(true);
 	expect(expectOk(await one).kind).toBe('applied');
@@ -226,25 +201,12 @@ test('a write already handed to the transport is never changed; later writes get
 	await t.cleanup();
 });
 
-test('a retried command whose write was coalesced is answered, not applied again', async () => {
-	const engine = openEngine({ app, driver: openBunSqlite(), transport: offlineTransport });
-	const write = (body: string) => ({ kind: 'write', name: 'todos', params: { stem: 'a' }, input: { fields: { title: 'A', done: false }, body } }) as const;
-	expectOk(await engine.submit('c1', [write('a')]).local);
-	expectOk(await engine.submit('c2', [write('ab')]).local);
-	// A new leader resends both after the first leader lost their answers.
-	expectOk(await engine.submit('c1', [write('a')]).local);
-	expectOk(await engine.submit('c2', [write('ab')]).local);
-	expect((await engine.read({ kind: 'get', name: 'todos', params: { stem: 'a' } }))?.body).toBe('ab');
-	expect(await engine.read({ kind: 'query', sql: 'SELECT count(*) AS n FROM "epicenter/outbox"', params: [] })).toEqual([{ n: 1 }]);
-	engine.close();
-});
-
 test('without a server, writes apply and wait in the outbox', async () => {
 	const repo = openRepository({ app, driver: openBunSqlite(), transport: offlineTransport });
 	const created = repo.todos.create({ stem: 'a' }, { fields: { title: 'A', done: false } });
 	expect(await repo.todos.list()).toMatchObject([{ path: 'todos/a.md', valid: true }]);
 	await repo.flush();
-	expect(await repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 1 }]);
+	expect(await repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 1 }]);
 	repo.close();
 	expect((await created).error?.name).toBe('Closed');
 });
