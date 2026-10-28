@@ -10,6 +10,7 @@
  * - An open note reads synchronously, shows its own writes at once, and follows other devices
  * - Live queries emit only when their result differs
  * - A command submitted twice under one id is applied once and answered twice
+ * - An open note's edit keeps a change it had not shown yet; a whole-body write replaces it
  * - Unsent writes to one path coalesce into one batch; a sent write is never changed
  * - Without a server, writes apply and wait in the outbox
  */
@@ -85,6 +86,27 @@ test('typing through an open note never shows an older text while writes apply',
 	expect(shown).toEqual(['a', 'ab', 'abc']);
 	expect((await t.bob.repo.todos.get({ stem: 'list' }))?.body).toBe('abc');
 	await t.cleanup();
+});
+
+test("an open note's edit keeps a change it had not shown yet; a whole-body write replaces it", async () => {
+	const repo = openRepository({ app, driver: openBunSqlite(), transport: offlineTransport });
+	// Without a server a write never settles; it applies at once.
+	void repo.todos.create({ stem: 'a' }, { fields: { title: 'A', done: false }, body: 'one\ntwo\nthree\n' });
+	const note = await repo.todos.open({ stem: 'a' });
+	// Another tab changes the last line; the note shows it only once it reads again.
+	void repo.todos.write({ stem: 'a' }, { body: 'one\ntwo\nTHREE\n' });
+	expect(note.read()?.body).toBe('one\ntwo\nthree\n');
+	void note.edit('ONE\ntwo\nthree\n');
+	await repo.flush();
+	expect((await repo.todos.get({ stem: 'a' }))?.body).toBe('ONE\ntwo\nTHREE\n');
+	expect(note.read()?.body).toBe('ONE\ntwo\nTHREE\n');
+
+	void repo.todos.write({ stem: 'a' }, { body: 'ONE\ntwo!\nTHREE\n' });
+	void note.write({ body: 'ONE\ntwo\nTHREE.\n' });
+	await repo.flush();
+	expect((await repo.todos.get({ stem: 'a' }))?.body).toBe('ONE\ntwo\nTHREE.\n');
+	note.close();
+	repo.close();
 });
 
 test('live queries emit only when their result differs', async () => {

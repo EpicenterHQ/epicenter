@@ -252,6 +252,8 @@ export function createRepository<const TDefs extends Definitions>(
 				};
 			},
 			write: (input: NoteChange) => through(ops.write(...args(input)), written(input)),
+			edit: (body: string) =>
+				through({ kind: 'edit', name: lens.name, params, from: shown?.body ?? '', body }, written({ body })),
 			set: (key: string, value: unknown) => through(ops.set(...args(key, value)), written({ fields: { [key]: value } })),
 			append: (text: string) => through(ops.append(...args(text)), shown === null ? null : shown.text + text),
 			delete: () => through(ops.delete(...args()), null),

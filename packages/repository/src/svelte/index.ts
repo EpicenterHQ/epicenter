@@ -48,6 +48,7 @@ export function opened<TPath extends string, TNoteSchema extends TSchema>(note: 
 			return note.read();
 		},
 		write: note.write,
+		edit: note.edit,
 		set: note.set,
 		append: note.append,
 		delete: note.delete,

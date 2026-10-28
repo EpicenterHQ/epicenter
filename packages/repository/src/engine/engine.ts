@@ -15,7 +15,7 @@ import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { App, Definitions, Lens, Settled } from '../define.js';
 import { WriteError } from '../define.js';
 import { gitBlobHash, sha256 } from '../hash.js';
-import { BODY_SQL, parseMarkdown, parsePointer, writeMarkdown, writePointer } from '../markdown.js';
+import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../markdown.js';
 import { merge } from '../merge.js';
 import type { Batch, BatchOutcome, Broadcast, Change, ChangeOutcome, FileState, Move } from '../protocol.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
@@ -88,6 +88,8 @@ type Params = Record<string, unknown>;
 export type WriteOp =
 	| { kind: 'create' | 'write'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string } }
 	| { kind: 'set'; name: string; params: Params; key: string; value: unknown }
+	/** The body edited from `from`, the body the editor last showed, to `body`. */
+	| { kind: 'edit'; name: string; params: Params; from: string; body: string }
 	| { kind: 'append'; name: string; params: Params; text: string }
 	| { kind: 'move'; name: string; from: Params; to: Params }
 	| { kind: 'delete'; name: string; params: Params }
@@ -353,6 +355,15 @@ export function openEngine<const TDefs extends Definitions>({
 				if (op.kind === 'create' && current !== null) return WriteError.Exists({ path: path.data });
 				const change = op.kind === 'set' ? { fields: { [op.key]: op.value } } : op.input;
 				const text = writeMarkdown(current, change);
+				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });
+				return Ok({ kind: 'write', path: path.data, text: text.data });
+			}
+			case 'edit': {
+				// What changed here since the editor last showed the body stays: the
+				// edit is merged onto it, and the person's text wins an overlap.
+				const shown = current === null ? '' : current.slice(splitMarkdown(current).bodyStart);
+				const body = shown === op.from ? op.body : (merge(op.from, op.body, shown).text ?? op.body);
+				const text = writeMarkdown(current, { body });
 				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });
 				return Ok({ kind: 'write', path: path.data, text: text.data });
 			}

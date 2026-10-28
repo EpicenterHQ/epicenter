@@ -286,6 +286,14 @@ export type OpenNote<TPath extends string, TSchema extends TSchema_> = {
 	subscribe(onChange: (note: Note<TPath, TSchema> | null) => void): () => void;
 	/** Change some fields and or the body; creates the note when it is absent. */
 	write(input: NoteInput<TSchema>): Pending;
+	/**
+	 * Replace the body with `body`, an edit of the body this handle last
+	 * showed. A change that reached this device meanwhile, but that the
+	 * handle had not shown yet, is kept: the edit is merged onto it. An
+	 * editor writes each change this way, so text typed while a change from
+	 * elsewhere was arriving never takes that change back.
+	 */
+	edit(body: string): Pending;
 	set<TKey extends keyof Static<TSchema> & string>(key: TKey, value: Static<TSchema>[TKey]): Pending;
 	append(text: string): Pending;
 	delete(): Pending;
