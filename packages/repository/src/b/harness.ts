@@ -1,14 +1,19 @@
 /**
  * Test support for design B: one server, a seeded network, and devices with
- * two channels each: requests (writes, catch-ups, reads by hash), each
+ * two channels each: requests (pushes, catch-ups, reads by hash), each
  * delayed on its own, lost, or answered with a reply that is lost; and a
  * notification stream, delayed and reordered per message, which a lost
  * message closes and which reopens and resumes by catching up. Devices go
- * offline and restart from what they persisted.
+ * offline and restart from what they persisted. The server flushes live
+ * history after 60 s of quiet, at most every 5 minutes while busy, and on
+ * demand.
  */
 import { createNet, type LinkOptions } from './net.js';
 import { createMemoryStore, createReplica, type MergeAudit, type Reply, type Request } from './replica.js';
-import { type Applied, createServer, type Event } from './server.js';
+import { type Committed, createServer, type Event } from './server.js';
+
+export const QUIET = 60_000;
+export const BUSY = 5 * 60_000;
 
 export function createWorld({
 	seed = 1,
@@ -17,7 +22,6 @@ export function createWorld({
 	streamLoss = 0,
 	stall,
 	timeout = 2_000,
-	yieldAfter,
 	trace,
 }: {
 	seed?: number;
@@ -29,21 +33,37 @@ export function createWorld({
 	/** Chance a request, reply or notification stalls, and for up to how long. */
 	stall?: LinkOptions['stall'];
 	timeout?: number;
-	/** Passed to every replica: how long to wait after an applied write. */
-	yieldAfter?: (random: ReturnType<typeof createNet>['random']) => number;
 	/** Called with a line for every request, reply and notification. */
 	trace?: (line: string) => void;
 } = {}) {
 	const net = createNet(seed);
 	const requests: LinkOptions = { ordered: false, lossCloses: false, latency, loss: { ...loss }, ...(stall === undefined ? {} : { stall }) };
 	const stream: LinkOptions = { ordered: false, lossCloses: true, latency, loss: { up: 0, down: streamLoss }, ...(stall === undefined ? {} : { stall }) };
-	const appliedHooks: ((applied: Applied) => void)[] = [];
+	const commitHooks: ((committed: Committed) => void)[] = [];
 	const mergeHooks: ((audit: MergeAudit & { device: string }) => void)[] = [];
 	const requestHooks: ((device: string, request: Request, reply: Reply) => void)[] = [];
-	const server = createServer({ onApplied: (applied) => appliedHooks.forEach((hook) => hook(applied)) });
-	const counts = { write: 0, 'catch-up': 0, fetch: 0, compared: 0, notifications: 0 };
+	const server = createServer({ now: net.now, onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)) });
+	const counts = { push: 0, 'catch-up': 0, fetch: 0, walked: 0, notifications: 0, flushes: 0 };
+	let lastPush = 0;
+	let lastFlush = 0;
 
-	function device(name: string, { mode = 'person' as 'person' | 'agent' } = {}) {
+	function flush() {
+		const flushed = server.flush();
+		lastFlush = net.now();
+		if (flushed !== null) counts.flushes++;
+		return flushed;
+	}
+	/** The quiet-time trigger: 60 s after the last push with none since, or 5 minutes after the last flush. */
+	function pushed() {
+		lastPush = net.now();
+		if (lastPush - lastFlush >= BUSY) flush();
+		const at = lastPush;
+		net.after(QUIET, () => {
+			if (lastPush === at) flush();
+		});
+	}
+
+	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward', pause, most }: { mode?: 'merge' | 'fast-forward'; pause?: number; most?: number } = {}) {
 		const store = createMemoryStore();
 		const make = () =>
 			createReplica({
@@ -52,8 +72,9 @@ export function createWorld({
 				store,
 				after: net.after,
 				now: net.now,
-				...(yieldAfter === undefined ? {} : { yieldAfter: () => yieldAfter(net.random) }),
 				timeout,
+				...(pause === undefined ? {} : { pause }),
+				...(most === undefined ? {} : { most }),
 				onMerge: (audit) => mergeHooks.forEach((hook) => hook({ ...audit, device: name })),
 			});
 		let replica = make();
@@ -63,19 +84,16 @@ export function createWorld({
 		let reopening = false;
 
 		function answer(request: Request): Reply {
-			const reply = respond(request);
-			for (const hook of requestHooks) hook(name, request, reply);
-			trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
-			return reply;
-		}
-		function respond(request: Request): Reply {
 			counts[request.type]++;
 			switch (request.type) {
-				case 'write':
-					return { type: 'answer', rid: request.rid, answer: server.write(name, request.files) };
+				case 'push': {
+					const answer = server.push(request.commit);
+					if (answer.kind === 'applied' || answer.kind === 'merged') pushed();
+					return { type: 'answer', rid: request.rid, answer };
+				}
 				case 'catch-up': {
 					const catchUp = server.catchUp(request);
-					counts.compared += catchUp.compared;
+					counts.walked += catchUp.walked;
 					return { type: 'caught-up', rid: request.rid, catchUp };
 				}
 				case 'fetch':
@@ -85,7 +103,12 @@ export function createWorld({
 
 		function openRequests() {
 			const current = net.connect<Request, Reply>(requests, {
-				server: (request) => current.down(answer(request)),
+				server: (request) => {
+					const reply = answer(request);
+					for (const hook of requestHooks) hook(name, request, reply);
+					trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
+					current.down(reply);
+				},
 				client: (reply) => {
 					trace?.(`${net.now()} ${name} receives reply ${reply.rid}`);
 					replica.reply(reply);
@@ -164,6 +187,8 @@ export function createWorld({
 		net,
 		server,
 		device,
+		/** Flush live history into one snapshot commit now (`epicenter pull`, `git fetch`). */
+		flush,
 		/** Turn all loss and stalls off (the quiescence phase). */
 		calm() {
 			requests.loss = { up: 0, down: 0 };
@@ -171,7 +196,7 @@ export function createWorld({
 			delete requests.stall;
 			delete stream.stall;
 		},
-		onApplied: (hook: (applied: Applied) => void) => appliedHooks.push(hook),
+		onCommit: (hook: (committed: Committed) => void) => commitHooks.push(hook),
 		onMerge: (hook: (audit: MergeAudit & { device: string }) => void) => mergeHooks.push(hook),
 		/** Every request the server answered, with its reply. */
 		onRequest: (hook: (device: string, request: Request, reply: Reply) => void) => requestHooks.push(hook),

@@ -7,7 +7,8 @@
  * frontmatter, breaking and repairing frontmatter, setting one field from
  * several devices, renames (delete plus write), deletes, deleting a path and
  * creating it again (sometimes with the very text it had before), agent
- * writes, lost replies, offline periods and restarts. Then everyone comes
+ * commits (fast-forward, sometimes merge), lost replies, offline periods,
+ * restarts and flushes, also between a lost reply and its resend. Then everyone comes
  * online, repairs what they hold back, and the network goes quiet.
  *
  * Every step is a word token (`t<n>z`), so the test can say exactly what was
@@ -25,7 +26,7 @@
  * - Nothing owed is ever unreachable, after any step or at quiescence
  * - No server file ever goes from parsing to not parsing
  * - At quiescence every device's mine and base equal the server's text for every path
- * - No edit made on one note is applied to, or merged into, another note at its path
+ * - No edit made on one note is merged into another note at its path, on the server or a device (the test follows note identity through history itself)
  *
  * Set B_SEED=n to replay one sequence, B_RUNS=n to run n seeds from B_FROM (default 1).
  * A failure names its seed and the steps.
@@ -67,13 +68,11 @@ function run(seed: number) {
 		loss: { up: 0.05, down: 0.08 },
 		streamLoss: 0.04,
 		stall: { chance: 0.03, ms: 4_000 },
-		// Half the seeds yield after each applied write, as the benchmark's fairness rule does.
-		...(seed % 2 === 0 ? { yieldAfter: (r: { int: (min: number, max: number) => number }) => r.int(0, 300) } : {}),
 		timeout: 1_500,
 		...(process.env.B_TRACE === undefined ? {} : { trace: (line: string) => log.push(line) }),
 	});
 	const people = ['alice', 'bob', 'carol'].map((name) => world.device(name));
-	const agent = world.device('agent', { mode: 'agent' });
+	const agent = world.device('agent', { mode: 'fast-forward', pause: 0, most: 0 });
 	const everyone: Device[] = [...people, agent];
 	const log: string[] = [];
 	const owed = new Set<string>();
@@ -82,19 +81,37 @@ function run(seed: number) {
 	let next = 1;
 	const token = () => `t${next++}z`;
 
-	world.onApplied((applied) => {
-		for (const file of applied.files) {
+	/**
+	 * The test's own account of which note each path holds at each commit: a
+	 * create starts a new note, a restore brings back the note its change was
+	 * made on, a delete ends one. The server decides by walking history; this
+	 * follows the same history another way.
+	 */
+	const notes = new Map<string, Map<string, number>>();
+	let nextNote = 1;
+	const noteAt = (commit: string | undefined, path: string) => (commit === undefined ? undefined : notes.get(commit)?.get(path));
+	world.onCommit((committed) => {
+		const map = new Map(notes.get(committed.parents[0] ?? '') ?? []);
+		for (const file of committed.files) {
 			if (file.path.endsWith('.md') && file.before !== null && file.after !== null && parses(file.before) && !parses(file.after))
-				violations.push(`server: ${file.path} stopped parsing (by ${applied.by})`);
-			if (file.note !== undefined && file.incarnation !== null && file.note !== file.incarnation && !file.revived)
-				violations.push(`server: ${applied.by}'s edit of note ${file.note} was applied to note ${file.incarnation} at ${file.path}`);
-			if (applied.by === 'agent') for (const t of tokensIn(file.after)) if (!tokensIn(file.before).has(t)) owed.add(t);
+				violations.push(`server: ${file.path} stopped parsing (by ${committed.author.user})`);
+			const made = noteAt(file.from, file.path);
+			const there = map.get(file.path);
+			if (file.before !== null && made !== undefined && there !== undefined && made !== there)
+				violations.push(`server: ${committed.author.user}'s edit of note ${made} was merged into note ${there} at ${file.path}`);
+			if (file.kind === 'delete') map.delete(file.path);
+			else if (file.kind === 'restore') map.set(file.path, made ?? nextNote++);
+			else if (file.kind === 'create' || there === undefined) map.set(file.path, nextNote++);
+			if (committed.author.user === 'agent') for (const t of tokensIn(file.after)) if (!tokensIn(file.before).has(t)) owed.add(t);
 		}
+		notes.set(committed.id, map);
 	});
 	world.onMerge((audit) => {
-		if (audit.note !== undefined && audit.incoming !== null && audit.note !== audit.incoming) {
+		const made = noteAt(audit.baseAt, audit.path);
+		const into = noteAt(audit.incomingAt, audit.path);
+		if (made !== undefined && into !== undefined && made !== into) {
 			log.push(`${world.net.now()} VIOLATION merge ${audit.device} ${audit.path}`);
-			violations.push(`${audit.device}: an edit of note ${audit.note} was merged into note ${audit.incoming} at ${audit.path}`);
+			violations.push(`${audit.device}: an edit of note ${made} was merged into note ${into} at ${audit.path}`);
 		}
 	});
 
@@ -235,6 +252,17 @@ function run(seed: number) {
 		[1, (d) => (d.setOnline(!d.isOnline()), `${d.name} goes ${d.isOnline() ? 'online' : 'offline'}`)],
 		[1, (d) => (d.loseNextReply(), `${d.name} will lose its next reply`)],
 		[1, (d) => (d.restart(), `${d.name} restarts`)],
+		[1, () => (world.flush(), 'the server flushes')],
+		// A reply lost, then a flush before the resend: the outcome is gone, the trailers remain.
+		[
+			1,
+			(d) => {
+				d.loseNextReply();
+				world.net.runFor(random.int(50, 400));
+				world.flush();
+				return `${d.name} loses a reply, and the server flushes`;
+			},
+		],
 	];
 	const total = steps.reduce((sum, [weight]) => sum + weight, 0);
 
@@ -243,8 +271,9 @@ function run(seed: number) {
 		const text = agent.replica.read(path);
 		if (text === null) return null;
 		const t = token();
-		agent.replica.write({ [path]: `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n` });
-		return `agent appends ${t} to ${path}`;
+		const commitMode = random.chance(0.3) ? 'merge' : 'fast-forward';
+		agent.replica.write({ [path]: `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n` }, { commitMode });
+		return `agent appends ${t} to ${path} (${commitMode})`;
 	};
 
 	const check = (step: string, quiet: boolean) => {
@@ -293,11 +322,12 @@ function run(seed: number) {
 	check('at quiescence', true);
 	const server = world.server.snapshot();
 	for (const d of everyone) {
+		if (d.replica.busy()) violations.push(`quiet: ${d.name} is still busy`);
 		const files = d.replica.files();
 		for (const path of new Set([...server.keys(), ...files.keys()])) {
 			const file = files.get(path);
 			const want = server.get(path) ?? null;
-			if (file?.gone || (file?.mine ?? null) !== want || (file?.base ?? null) !== want)
+			if ((file !== undefined && !file.settled) || (file?.mine ?? null) !== want || (file?.base ?? null) !== want)
 				violations.push(`quiet: ${d.name} ${path}: mine ${JSON.stringify(file?.mine)} base ${JSON.stringify(file?.base)} server ${JSON.stringify(want)}`);
 		}
 	}
