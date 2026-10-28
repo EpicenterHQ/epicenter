@@ -10,9 +10,8 @@
  *
  * Resending a commit is answered with its recorded outcome. A flush turns
  * the live commits since the last flush into one snapshot commit with
- * trailers; live commits and outcomes are kept one flush longer, then
- * pruned, and a position or parent older than that is caught up by a full
- * snapshot.
+ * trailers and prunes them: a position or parent older than that is caught
+ * up by a full snapshot.
  *
  * Rules the collapsed design does not state are marked `RULE:`.
  */
@@ -209,7 +208,7 @@ export function createServer({ now = () => 0, onCommit }: { now?: () => number; 
 	const trees = createTreeStore();
 	/** Every text ever held, by hash (Git's object store). */
 	const blobs = new Map<string, string>();
-	/** Live commits kept: those on `main` since the flush before last, and the devices' commits they merged. */
+	/** Live commits kept: those on `main` since the last flush, and the devices' commits they merged. */
 	const commits = new Map<string, Stored>();
 	/** `main`'s first-parent chain, by absolute place; places below `offset` were pruned. */
 	let chain: string[] = [];
@@ -400,8 +399,7 @@ export function createServer({ now = () => 0, onCommit }: { now?: () => number; 
 		},
 		/**
 		 * Turn the live commits since the last flush into one snapshot commit
-		 * with the design's message, then prune the live commits (and their
-		 * outcomes) that the flush before this one took in.
+		 * with the design's message, then prune them and their outcomes.
 		 */
 		flush() {
 			const last = flushes.at(-1);
@@ -434,9 +432,9 @@ export function createServer({ now = () => 0, onCommit }: { now?: () => number; 
 			const id = createHash('sha1').update(`${last?.id ?? ''}\n${head.tree}\n${author}\n${message}`).digest('hex');
 			flushes.push({ id, tree: head.tree, message, through: top() });
 			for (const live of taken) flushedInto.set(live, id);
-			// RULE: live commits outlive their flush by one more flush, so positions and resends from just before it still resolve.
-			const prune = last?.through;
-			if (prune !== undefined && prune > offset) {
+			// Live commits and their outcomes are pruned at their flush; an older position or parent falls back to a full snapshot.
+			const prune = top();
+			if (prune > offset) {
 				for (let i = offset; i < prune; i++) {
 					const commit = at(i);
 					for (const id_ of [commit.id, ...commit.parents.slice(1)]) {

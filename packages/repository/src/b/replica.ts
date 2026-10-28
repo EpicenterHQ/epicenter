@@ -53,12 +53,6 @@ type FileRecord = {
 	mine: string | null;
 	sent?: Level;
 	committed?: Level;
-	/**
-	 * RULE: this device does not know the path's text (an agent's refused
-	 * commit dropped it); nothing at the path is committed until a catch-up
-	 * brings it, so no commit claims to write over a text it never saw.
-	 */
-	unknown?: true;
 };
 
 type Persisted = {
@@ -70,8 +64,6 @@ type Persisted = {
 	inflight: LiveCommit | null;
 	/** A commit answered `flushed`: the next catch-up brings its texts. */
 	landing: LiveCommit | null;
-	/** Paths the next catch-up names, besides what history walks to. */
-	refresh: string[];
 	notices: Notice[];
 	refusals: { paths: string[]; reason: string }[];
 	next: number;
@@ -120,18 +112,16 @@ export function createReplica({
 	const loaded = store.load();
 	const state: Persisted =
 		loaded === null
-			? { position: null, passed: [], files: {}, inflight: null, landing: null, refresh: [], notices: [], refusals: [], next: 1 }
+			? { position: null, passed: [], files: {}, inflight: null, landing: null, notices: [], refusals: [], next: 1 }
 			: (JSON.parse(loaded) as Persisted);
 	const files = new Map(Object.entries(state.files));
 	const passed = new Set(state.passed);
 	/** Notifications not yet placed, by the commit they follow. */
 	const waiting = new Map<string, Event>();
-	/** The refresh paths the catch-up in flight named. */
-	let asked = new Set<string>();
 	let send: ((request: Request) => void) | null = null;
 	let pending: { rid: number; kind: Request['type'] } | null = null;
-	/** A catch-up or notification whose texts are being read, with the texts held when the read was asked. */
-	let reading: (({ catchUp: CatchUp } | { event: Event }) & { have: Map<string, string> }) | null = null;
+	/** A catch-up or notification whose texts are being read. */
+	let reading: { catchUp: CatchUp } | { event: Event } | null = null;
 	// A process starts by catching up.
 	let needCatchUp = true;
 	let gapArmed = false;
@@ -153,7 +143,7 @@ export function createReplica({
 	};
 	const record = (path: string): FileRecord => files.get(path) ?? { base: null, mine: null };
 	const set = (path: string, next: FileRecord) => {
-		const empty = next.base === null && next.mine === null && next.sent === undefined && next.committed === undefined && next.unknown === undefined;
+		const empty = next.base === null && next.mine === null && next.sent === undefined && next.committed === undefined;
 		if (empty) files.delete(path);
 		else files.set(path, next);
 	};
@@ -171,7 +161,7 @@ export function createReplica({
 	function commit() {
 		dirty = false;
 		for (const [path, f] of [...files]) {
-			if (f.unknown || f.mine === tip(f) || !passesParseGate(path, tip(f), f.mine)) continue;
+			if (f.mine === tip(f) || !passesParseGate(path, tip(f), f.mine)) continue;
 			const under = (f.sent ?? { text: f.base }).text;
 			if (f.mine === under) {
 				const { committed: _, ...rest } = f;
@@ -202,8 +192,7 @@ export function createReplica({
 	function catchUp() {
 		stats.catchUps++;
 		needCatchUp = false;
-		asked = new Set(state.refresh);
-		const paths = [...new Set([...state.refresh, ...(state.landing?.files.map((f) => f.path) ?? [])])];
+		const paths = state.landing?.files.map((f) => f.path) ?? [];
 		request({ type: 'catch-up', rid: state.next++, from: state.position, paths });
 	}
 
@@ -267,8 +256,7 @@ export function createReplica({
 	 * device's sent commit, whose text the local work above it was made on.
 	 */
 	function integrate(path: string, text: string | null, landed: boolean) {
-		// The path's text is known from here on.
-		const { unknown: _, ...f } = record(path);
+		const f = record(path);
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
 		if (f.sent !== undefined && !own) return;
@@ -351,10 +339,9 @@ export function createReplica({
 				const reason = answer.kind === 'precondition-required' ? 'no parent' : answer.reason;
 				state.refusals.push({ paths: sent?.files.map((f) => f.path) ?? [], reason });
 				// The change is dropped: an agent reads again and redoes its task. (A person's commit is never refused.)
-				// RULE: a refusal brings no texts, and notifications for these paths waited for the answer, so ask for them again.
 				for (const file of sent?.files ?? []) {
-					set(file.path, { base: null, mine: null, unknown: true });
-					state.refresh.push(file.path);
+					const { sent: _, committed: __, ...rest } = record(file.path);
+					set(file.path, { ...rest, mine: rest.base });
 				}
 				needCatchUp = true;
 				return;
@@ -374,12 +361,7 @@ export function createReplica({
 	const missing = (hashes: (string | null)[], have: Map<string, string>) => [...new Set(hashes.filter((h): h is string => h !== null && !have.has(h)))];
 
 	function applyCatchUp(reply: CatchUp, texts: Map<string, string>) {
-		// RULE: notifications can move the position past what a catch-up answered while it was in flight: an answer already passed is old.
-		if (state.position !== null && reply.main !== state.position && passed.has(reply.main)) {
-			if (state.landing !== null || state.refresh.length > 0) needCatchUp = true;
-			return;
-		}
-		// RULE: a text that cannot be found is never taken as a delete: ask again.
+		// RULE (kept by reasoning, no seed reaches it): a text that cannot be found is never taken as a delete, or a later save would write over a text this device never saw.
 		if (reply.files.some((f) => f.hash !== null && !texts.has(f.hash))) {
 			needCatchUp = true;
 			return;
@@ -389,12 +371,7 @@ export function createReplica({
 		for (const file of reply.files) integrate(file.path, file.hash === null ? null : (texts.get(file.hash) ?? null), landed.has(file.path));
 		if (reply.full) for (const [path, f] of [...files]) if (!named.has(path) && f.base !== null) integrate(path, null, landed.has(path));
 		for (const id of reply.commits) pass(id);
-		// Every landed path is settled now, named in the reply or not.
-		for (const path of landed) if (record(path).sent !== undefined) integrate(path, record(path).sent?.text ?? null, true);
 		state.landing = null;
-		// Only the paths this catch-up named are known now.
-		state.refresh = state.refresh.filter((path) => !asked.has(path));
-		if (state.refresh.length > 0) needCatchUp = true;
 		state.position = reply.main;
 		pass(reply.main);
 		prune();
@@ -417,14 +394,13 @@ export function createReplica({
 	/** Apply waiting notifications that follow the position, reading their texts first. */
 	function place() {
 		const next = () => (state.position === null ? undefined : waiting.get(state.position));
-		// RULE: nothing is applied while a commit is in flight; its answer brings everything since its parent.
-		for (let event = next(); event !== undefined && state.inflight === null; event = next()) {
+		for (let event = next(); event !== undefined; event = next()) {
 			const have = known();
 			const lacking = missing(event.files.map((f) => f.hash), have);
 			if (lacking.length > 0) {
 				// A ready commit goes first (see `pump`).
 				if (pending !== null || send === null || [...files.values()].some((f) => f.committed !== undefined)) break;
-				reading = { event, have };
+				reading = { event };
 				stats.fetches++;
 				request({ type: 'fetch', rid: state.next++, hashes: lacking });
 				return;
@@ -452,10 +428,7 @@ export function createReplica({
 		/** Every path this device shows. */
 		paths: () => [...files].filter(([, f]) => f.mine !== null).map(([path]) => path).sort(),
 		/** Every file's base and mine, and whether it has nothing unsent, for checks. */
-		files: () =>
-			new Map(
-				[...files].map(([path, f]) => [path, { base: f.base, mine: f.mine, settled: f.sent === undefined && f.committed === undefined && f.unknown === undefined }]),
-			),
+		files: () => new Map([...files].map(([path, f]) => [path, { base: f.base, mine: f.mine, settled: f.sent === undefined && f.committed === undefined }])),
 		/**
 		 * Save texts at once (null deletes) and commit them together; a rename
 		 * is a delete of the old path and a write of the new one. `commitMode`
@@ -474,7 +447,7 @@ export function createReplica({
 			needCatchUp ||
 			state.inflight !== null ||
 			state.landing !== null ||
-			[...files].some(([path, f]) => f.committed !== undefined || (!f.unknown && f.mine !== tip(f) && passesParseGate(path, tip(f), f.mine))),
+			[...files].some(([path, f]) => f.committed !== undefined || (f.mine !== tip(f) && passesParseGate(path, tip(f), f.mine))),
 		notices: () => [...state.notices],
 		refusals: () => [...state.refusals],
 		position: () => state.position,
@@ -525,7 +498,7 @@ export function createReplica({
 					const lacking = missing(reply.files.map((f) => f.hash), have);
 					if (lacking.length === 0) applyCatchUp(reply, have);
 					else {
-						reading = { catchUp: reply, have };
+						reading = { catchUp: reply };
 						stats.fetches++;
 						request({ type: 'fetch', rid: state.next++, hashes: lacking });
 					}
@@ -534,8 +507,7 @@ export function createReplica({
 				case 'fetched': {
 					const was = reading;
 					reading = null;
-					// RULE: the texts held when the read was asked, not now: a record dropped meanwhile took its text with it.
-					const texts = new Map([...(was?.have ?? []), ...known(), ...Object.entries(message.texts)]);
+					const texts = new Map([...known(), ...Object.entries(message.texts)]);
 					if (was !== null && 'catchUp' in was) applyCatchUp(was.catchUp, texts);
 					else if (was !== null && state.position === was.event.parents[0]) applyEvent(was.event, texts);
 					place();
