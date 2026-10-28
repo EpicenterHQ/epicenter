@@ -1,6 +1,6 @@
 /**
- * The test site: the harness, the repository worker and the storage holder
- * built for the browser, and SQLite's wasm, served from 127.0.0.1.
+ * The test site: the harness, the repository worker, the storage holder and
+ * the blob store checks built for the browser, and SQLite's wasm, served from 127.0.0.1.
  */
 import { join } from 'node:path';
 
@@ -9,7 +9,7 @@ const wasm = join(root, 'node_modules/@sqlite.org/sqlite-wasm/dist/sqlite3.wasm'
 
 export async function startSite() {
 	const build = await Bun.build({
-		entrypoints: [join(import.meta.dir, 'harness.ts'), join(import.meta.dir, 'holder.worker.ts'), join(root, 'src/browser/repository.worker.ts')],
+		entrypoints: [join(import.meta.dir, 'harness.ts'), join(import.meta.dir, 'holder.worker.ts'), join(import.meta.dir, 'blobs.worker.ts'), join(root, 'src/browser/repository.worker.ts')],
 		target: 'browser',
 		format: 'esm',
 		naming: '[name].[ext]',
@@ -18,7 +18,7 @@ export async function startSite() {
 	const scripts = new Map<string, string>();
 	for (const output of build.outputs) {
 		const file = output.path.split('/').at(-1) ?? '';
-		const route = { 'repository.worker.js': '/worker.js', 'holder.worker.js': '/holder.js' }[file] ?? `/${file}`;
+		const route = { 'repository.worker.js': '/worker.js', 'holder.worker.js': '/holder.js', 'blobs.worker.js': '/blobs.js' }[file] ?? `/${file}`;
 		scripts.set(route, await output.text());
 	}
 	const server = Bun.serve({

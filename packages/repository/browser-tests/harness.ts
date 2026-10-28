@@ -6,10 +6,12 @@ import { Type } from 'typebox';
 import { openBrowserRepository, type RepositoryTab, type TabState } from '../src/browser/index.js';
 import { lockName } from '../src/browser/messages.js';
 import { defineApp } from '../src/define.js';
+import { sha256 } from '../src/hash.js';
 import type { Repository } from '../src/repository.js';
 
 const app = defineApp({
 	notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.Optional(Type.String()) }) },
+	photos: { path: 'photos/{stem}.png', blob: { types: ['image/png', 'text/plain'] } },
 });
 type Defs = typeof app.definitions;
 
@@ -45,6 +47,10 @@ const untilStatus = (status: TabState<Defs>['status'], timeout?: number) =>
 	until(() => state().status === status, `the tab to be ${status} (it is ${tab?.state().status})`, timeout);
 const message = (worker: Worker) => new Promise((resolve) => worker.addEventListener('message', (event) => resolve(event.data), { once: true }));
 const plainResult = <T>(result: T) => JSON.parse(JSON.stringify(result)) as T;
+/** `size` bytes that differ from one `seed` to the next, so each names its own object. */
+const bytesOf = (size: number, seed: number) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + seed) % 251);
+/** What a test compares of a blob: its size and oid, which stand for its bytes. */
+const summary = async (bytes: Uint8Array | null) => (bytes === null ? null : { size: bytes.length, oid: await sha256(bytes) });
 const heldLocks = async () => ((await navigator.locks.query()).held ?? []).filter((lock) => lock.name === lockName(name)).length;
 
 const api = {
@@ -155,6 +161,41 @@ const api = {
 		stale.releaseLock();
 	},
 	flush: () => current().flush(),
+	/** Store a blob of `size` bytes and answer its summary and the outcome, as plain data. */
+	async putBlob(stem: string, size: number, seed: number, type = 'image/png') {
+		const bytes = bytesOf(size, seed);
+		const result = plainResult(await current().photos.put({ stem }, bytes, { type }));
+		return { result, blob: await summary(bytes) };
+	},
+	/** Start a blob put and, in the same task, freeze the page; `settled` awaits it. */
+	putBlobThenFreeze(stem: string, size: number, seed: number) {
+		writes.push(current().photos.put({ stem }, bytesOf(size, seed), { type: 'image/png' }));
+		document.dispatchEvent(new Event('freeze'));
+		return writes.length - 1;
+	},
+	/** The summary of the bytes `putBlob` stores for `size` and `seed`. */
+	blobSummary: (size: number, seed: number) => summary(bytesOf(size, seed)),
+	blob: async (stem: string) => summary(await current().photos.get({ stem })),
+	blobUrl: (stem: string) => current().photos.url({ stem }),
+	/** Fetch a blob URL from this page, as an `<img>` would load it. */
+	async fetchUrl(url: string) {
+		try {
+			const response = await fetch(url);
+			const bytes = new Uint8Array(await response.arrayBuffer());
+			return { fetched: true as const, type: response.headers.get('content-type'), blob: await summary(bytes) };
+		} catch {
+			return { fetched: false as const };
+		}
+	},
+	/** Run one store check in a worker of its own, against this repository's blob directory. */
+	async checkStore(repository: string, check: 'wrong-oid' | 'partial-temp') {
+		const worker = new Worker('/blobs.js', { type: 'module' });
+		const answered = message(worker);
+		worker.postMessage({ name: repository, check });
+		const answer = await answered;
+		worker.terminate();
+		return answer as Record<string, unknown>;
+	},
 };
 
 export type Harness = typeof api;

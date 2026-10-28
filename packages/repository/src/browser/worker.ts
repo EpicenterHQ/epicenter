@@ -1,19 +1,22 @@
 /**
- * The owning tab's worker: it holds the repository's SQLite database and its
- * connection to the server, runs the whole engine, and answers its one tab.
+ * The owning tab's worker: it holds the repository's SQLite database, its
+ * blob bytes and its connection to the server, runs the whole engine, and
+ * answers its one tab.
  * The tab starts it only while holding the repository's Web Lock, and tells
  * it to close before giving the lock up, so one runs per repository per
  * origin, apart from the moments when an old one is still letting go.
  */
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
+import { tryAsync } from 'wellcrafted/result';
 import { type Definitions, defineApp } from '../define.js';
 import { type Engine, openEngine } from '../engine/engine.js';
 import { offlineTransport } from '../engine/ports.js';
 import type { SqlDriver } from '../sql.js';
 import { createWebSocketTransport } from '../ws/client.js';
+import { createOpfsBlobStore, type OpfsBlobStore, opfsBlobDirectory } from './blob-store.js';
 import type { Described, Init, TabMessage, WorkerMessage } from './messages.js';
-import { openOpfsDatabase } from './sqlite.js';
+import { BrowserStorageError, openOpfsDatabase } from './sqlite.js';
 
 const log = createLogger('repository/browser-worker');
 
@@ -38,6 +41,7 @@ const plain = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export function serveRepositoryWorker() {
 	let engine: Engine | null = null;
 	let driver: SqlDriver | null = null;
+	let blobs: OpfsBlobStore | null = null;
 	let closing = false;
 	/** Calls that arrived before the database opened, answered in order once it does. */
 	const early: Extract<TabMessage, { type: 'read' | 'submit' | 'send' | 'dismiss' }>[] = [];
@@ -112,10 +116,27 @@ export function serveRepositoryWorker() {
 			post({ type: 'unavailable', reason: opened.error.message });
 			return;
 		}
+		const directory = await tryAsync({
+			try: () => opfsBlobDirectory(name),
+			catch: (cause) => BrowserStorageError.Unavailable({ cause }),
+		});
+		if (closing) {
+			opened.data.close();
+			post({ type: 'closed' });
+			return;
+		}
+		if (directory.error !== null) {
+			opened.data.close();
+			log.error(directory.error);
+			post({ type: 'unavailable', reason: directory.error.message });
+			return;
+		}
 		driver = opened.data;
+		blobs = createOpfsBlobStore(directory.data);
 		engine = openEngine({
 			app: defineApp(definitionsOf(definitions)),
 			driver,
+			blobs,
 			transport: server === null ? offlineTransport : createWebSocketTransport(server),
 			log,
 		});
@@ -128,9 +149,12 @@ export function serveRepositoryWorker() {
 		await Promise.all(writing);
 		engine?.close();
 		await Promise.all(sending);
+		// No put is left half-written, and the URLs it answered end with it.
+		await blobs?.close();
 		driver?.close();
 		engine = null;
 		driver = null;
+		blobs = null;
 		post({ type: 'closed' });
 	}
 
