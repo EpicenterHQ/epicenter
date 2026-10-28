@@ -17,6 +17,7 @@ let tab: RepositoryTab<Defs> | null = null;
 let name = '';
 const writes: Promise<unknown>[] = [];
 const opened = new Map<string, Awaited<ReturnType<Repository<Defs>['notes']['open']>>>();
+const reads = new Map<string, NonNullable<Awaited<ReturnType<Repository<Defs>['notes']['get']>>>>();
 /** What stands in for an old owner tab that has not let go: its lock request and a worker holding the storage. */
 let stale: { holder: Worker; releaseLock(): void } | null = null;
 
@@ -89,14 +90,18 @@ const api = {
 		document.dispatchEvent(new Event('freeze'));
 	},
 	resume: () => document.dispatchEvent(new Event('resume')),
-	/** The server version of the note as this tab shows it. */
-	version: async (stem: string) => (await current().notes.get({ stem }))?.version ?? null,
-	/** Send a whole-body write, from `base` if given, and answer the verdict as plain data. */
-	async sendBody(stem: string, body: string, base?: string | null) {
-		return plainResult(await current().send((b) => b.notes.write({ stem }, { body }, { base })));
+	/** Read a note and keep it, as a caller holding what it read; `sendBody` can start from it. */
+	async read(stem: string) {
+		const note = await current().notes.get({ stem });
+		if (note !== null) reads.set(stem, note);
+	},
+	/** Send a whole-body write from the note `read` kept, or from the server's latest, and answer the verdict as plain data. */
+	async sendBody(stem: string, body: string, from: 'read' | 'latest') {
+		const read = from === 'read' ? (reads.get(stem) ?? 'latest') : 'latest';
+		return plainResult(await current().send((b) => b.notes.write({ stem }, { body }, { from: read })));
 	},
 	async sendAppend(stem: string, more: string) {
-		return plainResult(await current().send((b) => b.notes.append({ stem }, more)));
+		return plainResult(await current().send((b) => b.notes.append({ stem }, more, { from: 'latest' })));
 	},
 	query: (sql: string) => current().query(sql),
 	/** Run a read and say whether it ran or was refused, as plain data. */

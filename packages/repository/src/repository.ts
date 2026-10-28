@@ -29,6 +29,7 @@ import type {
 	Saved,
 	SendError,
 	SendHandles,
+	SendOptions,
 	TextStatus,
 	Verdict,
 } from './define.js';
@@ -41,6 +42,7 @@ import {
 	openEngine,
 	type WriteOp,
 } from './engine/engine.js';
+import { gitBlobHash } from './hash.js';
 import { parseMarkdown, parsePointer, splitMarkdown, writeMarkdown } from './markdown.js';
 import type { SqlValue } from './sql.js';
 import { buildPath, matchTemplate } from './templates.js';
@@ -93,7 +95,7 @@ function fileOf(path: string, text: string): FileRead {
 		text,
 		fields: parsed.error === null ? JSON.stringify(parsed.data.fields) : null,
 		body: text.slice(splitMarkdown(text).bodyStart),
-		version: null,
+		version: gitBlobHash(text),
 	};
 }
 
@@ -160,8 +162,12 @@ export function createRepository<const TDefs extends Definitions>(
 	const split = (lens: Lens, args: unknown[]): [Params, unknown[]] =>
 		lens.template.params.length === 0 ? [{}, args] : [(args[0] ?? {}) as Params, args.slice(1)];
 
-	/** The version a `send` change names as its base, from its options argument. */
-	const baseOf = (options: unknown) => (options as { base?: string | null } | undefined)?.base;
+	/** What a `send` change starts from, from its options argument; a direct call or a batch passes none. */
+	const baseOf = (options: unknown) => {
+		const from = (options as Partial<SendOptions> | undefined)?.from;
+		// A Note carries more than the send needs; only what crosses to the engine goes.
+		return from === undefined || from === 'latest' ? from : { path: from.path, text: from.text, version: from.version };
+	};
 
 	/** The ops a note handle builds: the same for a direct call, inside a batch, and inside a send. */
 	function noteOps(lens: Extract<Lens, { kind: 'note' }>) {
@@ -195,8 +201,8 @@ export function createRepository<const TDefs extends Definitions>(
 		return {
 			put: (...args: unknown[]): WriteOp => {
 				const [params, [bytes, options]] = split(lens, args);
-				const { type = '', base } = (options ?? {}) as { type?: string; base?: string | null };
-				return { kind: 'put', name: lens.name, params, bytes: bytes as Uint8Array, type, base };
+				const { type = '' } = (options ?? {}) as { type?: string };
+				return { kind: 'put', name: lens.name, params, bytes: bytes as Uint8Array, type, base: baseOf(options) };
 			},
 			delete: (...args: unknown[]): WriteOp => {
 				const [params, [options]] = split(lens, args);
@@ -414,12 +420,14 @@ export function createRepository<const TDefs extends Definitions>(
 		},
 		/**
 		 * Send one batch and wait for the server's verdict, for a caller that
-		 * can read again and retry, such as an agent. It is refused if it
-		 * overlaps a change made since its base: the `version` each change
-		 * names, or the text the server last acknowledged. Offline it fails at
-		 * once with `Offline` and nothing is queued. It waits for earlier
-		 * writes to its paths to be answered, changes nothing on this device
-		 * before the verdict, and shows an applied one at once.
+		 * can read again and retry, such as an agent. Each change to an
+		 * existing path names what it starts from: `{ from: note }`, the note
+		 * as read, or `{ from: 'latest' }`. It is refused if it overlaps a
+		 * change the server holds that its start lacks, including a change of
+		 * this device's that did not land as read. Offline it fails at once
+		 * with `Offline` and nothing is queued. It waits for earlier writes to
+		 * its paths to be answered, changes nothing on this device before the
+		 * verdict, and shows an applied one at once.
 		 */
 		send(build: (handles: SendHandles<TDefs>) => void): Promise<Result<Verdict, WriteError | SendError>> {
 			if (closed) return Promise.resolve(WriteError.Closed());

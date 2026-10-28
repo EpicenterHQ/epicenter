@@ -173,7 +173,7 @@ test('a true overlap becomes a marker block for people and a refusal for an agen
 	expect(await text(t.bob.repo, 'pet')).toBe(marked);
 
 	// The agent changes the note it read; it changed since, so the send is refused and changes nothing.
-	const verdict = expectOk(await agent.repo.send((b) => b.notes.write({ stem: 'pet' }, { body: 'cut\n' }, { base: read?.version })));
+	const verdict = expectOk(await agent.repo.send((b) => b.notes.write({ stem: 'pet' }, { body: 'cut\n' }, { from: read ?? 'latest' })));
 	expect(verdict).toMatchObject({ kind: 'refused', path: 'notes/pet.md' });
 	expect(await text(agent.repo, 'pet')).toBe(marked);
 	expect(await t.server.read('notes/pet.md')).toBe(marked);
@@ -191,7 +191,7 @@ test('an applied send shows on its own device at once, though the server echoes 
 	const agent = t.device('agent-1', 'claude');
 	await agent.repo.flush();
 	const read = await agent.repo.notes.get({ stem: 'task' });
-	const verdict = expectOk(await agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'mood', 'done', { base: read?.version })));
+	const verdict = expectOk(await agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'mood', 'done', { from: read ?? 'latest' })));
 	expect(verdict).toMatchObject({ kind: 'applied', seq: 2, changes: [{ path: 'notes/task.md', at: 'notes/task.md' }] });
 	const shown = '---\ntitle: Fix login\nmood: done\n---\nSteps.\n';
 	expect(await text(agent.repo, 'task')).toBe(shown);
@@ -202,15 +202,67 @@ test('an applied send shows on its own device at once, though the server echoes 
 	await t.cleanup();
 });
 
-test('a send without a base starts from the text the server last acknowledged', async () => {
+test("a send from 'latest' starts from the text the server last acknowledged", async () => {
 	const t = await setup();
 	await landed(t.alice, t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'A' } }));
 	const agent = t.device('agent-1', 'claude');
 	await agent.repo.flush();
 	await landed(t.alice, t.alice.repo.notes.set({ stem: 'task' }, 'title', 'B'));
 	await agent.repo.flush();
-	expect(expectOk(await agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'mood', 'calm')))).toMatchObject({ kind: 'applied' });
+	expect(expectOk(await agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'mood', 'calm', { from: 'latest' })))).toMatchObject({ kind: 'applied' });
 	expect(await t.server.read('notes/task.md')).toBe('---\ntitle: B\nmood: calm\n---\n');
+	await t.cleanup();
+});
+
+test("a note's version is the hash of its text, unsent changes and all", async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'task' }, { body: 'one\n' }));
+	t.alice.transport.setOnline(false);
+	expectOk(await t.alice.repo.notes.write({ stem: 'task' }, { body: 'two\n' }));
+	const read = await t.alice.repo.notes.get({ stem: 'task' });
+	expect(read?.version).toBe(gitBlobHash('two\n'));
+	const open = await t.alice.repo.notes.open({ stem: 'task' });
+	void open.write({ body: 'three\n' });
+	expect(open.read()?.version).toBe(gitBlobHash('three\n'));
+	open.close();
+	await t.cleanup();
+});
+
+test("a send from a read keeps the person's view: a change it did not read is refused, one beside it applies", async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'day' }, { fields: { title: 'A' }, body: 'one\ntwo\nthree\nfour\n' }));
+	await t.bob.repo.flush();
+	// Alice's title and second line wait unsent while Bob's land first, so hers are kept out (a field) or marked (a line).
+	t.alice.transport.setOnline(false);
+	expectOk(await t.alice.repo.notes.write({ stem: 'day' }, { fields: { title: 'X' }, body: 'one\nTWO\nthree\nfour\n' }));
+	const read = await t.alice.repo.notes.get({ stem: 'day' });
+	if (read === null) throw new Error('no note');
+	await landed(t.bob, t.bob.repo.notes.write({ stem: 'day' }, { fields: { title: 'Y' }, body: 'one\n2\nthree\nfour\n' }));
+	t.alice.transport.setOnline(true);
+	await t.alice.repo.flush();
+	const landedText = (await t.server.read('notes/day.md')) ?? '';
+	expect(landedText).toContain('title: Y');
+
+	// Another field and another line, from what she read, apply with the current title and line.
+	const beside = expectOk(await t.alice.repo.send((b) => b.notes.set({ stem: 'day' }, 'mood', 'calm', { from: read })));
+	expect(beside).toMatchObject({ kind: 'applied' });
+	const line = expectOk(
+		await t.alice.repo.send((b) => b.notes.write({ stem: 'day' }, { body: 'one\nTWO\nthree\nFOUR\n' }, { from: read })),
+	);
+	expect(line).toMatchObject({ kind: 'applied' });
+	const after = (await t.server.read('notes/day.md')) ?? '';
+	expect(after).toContain('title: Y\nmood: calm');
+	expect(after).toContain('FOUR\n');
+	expect(after).not.toContain('title: X');
+
+	// The title, and the second line, which she read as hers, are refused: they did not land as she read them.
+	const title = expectOk(await t.alice.repo.send((b) => b.notes.set({ stem: 'day' }, 'title', 'Z', { from: read })));
+	expect(title).toMatchObject({ kind: 'refused', path: 'notes/day.md' });
+	const second = expectOk(
+		await t.alice.repo.send((b) => b.notes.write({ stem: 'day' }, { body: 'one\nzwei\nthree\nfour\n' }, { from: read })),
+	);
+	expect(second).toMatchObject({ kind: 'refused', path: 'notes/day.md' });
+	expect(await t.server.read('notes/day.md')).toBe(after);
 	await t.cleanup();
 });
 
@@ -219,7 +271,7 @@ test('a send while offline fails at once and queues nothing', async () => {
 	await landed(t.alice, t.alice.repo.notes.create({ stem: 'task' }, { body: 'x\n' }));
 	t.alice.transport.setOnline(false);
 	await t.alice.repo.flush();
-	expect(expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'task' }, 'y\n'))).name).toBe('Offline');
+	expect(expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'task' }, 'y\n', { from: 'latest' }))).name).toBe('Offline');
 	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
 	expect(await text(t.alice.repo, 'task')).toBe('x\n');
 	await t.cleanup();
@@ -229,7 +281,7 @@ test('a send whose reply was lost is unknown to its caller, then resent under it
 	const t = await setup();
 	await landed(t.alice, t.alice.repo.notes.create({ stem: 'log' }, { body: 'x\n' }));
 	t.alice.transport.dropNextReply();
-	const lost = expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'y\n')));
+	const lost = expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'y\n', { from: 'latest' })));
 	expect(lost).toMatchObject({ name: 'Unknown', n: 2 });
 	expect(await t.server.read('notes/log.md')).toBe('x\ny\n');
 	// Nothing changed here before the verdict.
@@ -247,7 +299,7 @@ test('a send whose reply was lost is unknown to its caller, then resent under it
 test('a send waits for earlier writes to its paths, so it starts from what they left', async () => {
 	const t = await setup();
 	void t.alice.repo.notes.create({ stem: 'log' }, { body: 'one\n' });
-	const verdict = expectOk(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'two\n')));
+	const verdict = expectOk(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'two\n', { from: 'latest' })));
 	expect(verdict).toMatchObject({ kind: 'applied', seq: 2 });
 	expect(await t.server.read('notes/log.md')).toBe('one\ntwo\n');
 	await t.cleanup();
@@ -259,7 +311,7 @@ test('a write to a path with a send in flight waits for the verdict and starts f
 	const agent = t.gated('agent-1', 'claude');
 	await agent.repo.flush();
 	agent.hold();
-	const sent = agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'title', 'B'));
+	const sent = agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'title', 'B', { from: 'latest' }));
 	let written = false;
 	const write = agent.repo.notes.set({ stem: 'task' }, 'title', 'C').then((result) => {
 		written = true;

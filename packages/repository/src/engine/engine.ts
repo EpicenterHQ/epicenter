@@ -21,7 +21,7 @@
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { App, Definitions, Lens, Notice, Verdict } from '../define.js';
+import type { App, Definitions, Lens, Notice, SendOptions, Verdict } from '../define.js';
 import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, sha256 } from '../hash.js';
 import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, storageRefusal, writeMarkdown, writePointer } from '../markdown.js';
@@ -100,34 +100,38 @@ type FileRow = { path: string; text: string | null; synced: string | null; hash:
 
 /**
  * A file as reads return it: its text, the parsed fields as JSON (null when
- * they do not parse), the body, and the server's hash of the text, or null
- * while this device holds changes the server has not acknowledged.
+ * they do not parse), the body, and `version`, the hash of the text.
  */
-export type FileRead = { path: string; text: string; fields: string | null; body: string; version: string | null };
+export type FileRead = { path: string; text: string; fields: string | null; body: string; version: string };
 
-/** The columns a read selects for a `FileRead`. */
+/** The columns a read selects; `version` is the server's hash where the text is the server's, else null until `withVersion` hashes it. */
 const READ_COLUMNS = (f: string) => `${f}.path, ${f}.text, ${f}.fields, ${f}.body, CASE WHEN ${f}.text IS ${f}.synced THEN ${f}.hash END AS version`;
 
-/** How many superseded server texts stay in memory, so a `send` can start from a version a broadcast replaced. */
-const RECENT_TEXTS = 256;
+/** A read row with its version: the stored hash when the text is the server's, otherwise the text's own hash. */
+type ReadRow = Omit<FileRead, 'version'> & { version: string | null };
+const withVersion = (file: ReadRow): FileRead => ({
+	...file,
+	version: file.version ?? gitBlobHash(file.text),
+});
 
 type Params = Record<string, unknown>;
 
 /**
  * One write an app asks for, as data, so it can cross to a worker. `base` is
- * the server version a `send` change starts from; a person's write ignores
- * it, since it starts from what the device shows.
+ * what a `send` change starts from (the note as the caller read it, or
+ * `'latest'`); a person's write has none, since it starts from what the
+ * server will have once this device's queued writes land.
  */
 export type WriteOp =
 	| { kind: 'create'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string } }
-	| { kind: 'write'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string }; base?: string | null }
-	| { kind: 'set'; name: string; params: Params; key: string; value: unknown; base?: string | null }
+	| { kind: 'write'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string }; base?: SendBase }
+	| { kind: 'set'; name: string; params: Params; key: string; value: unknown; base?: SendBase }
 	/** The body edited from `from`, the body the editor last showed, to `body`. */
 	| { kind: 'edit'; name: string; params: Params; from: string; body: string }
-	| { kind: 'append'; name: string; params: Params; text: string; base?: string | null }
+	| { kind: 'append'; name: string; params: Params; text: string; base?: SendBase }
 	| { kind: 'move'; name: string; from: Params; to: Params }
-	| { kind: 'delete'; name: string; params: Params; base?: string | null }
-	| { kind: 'put'; name: string; params: Params; bytes: Uint8Array; type: string; base?: string | null }
+	| { kind: 'delete'; name: string; params: Params; base?: SendBase }
+	| { kind: 'put'; name: string; params: Params; bytes: Uint8Array; type: string; base?: SendBase }
 	/**
 	 * A Markdown file's whole text replaced, frontmatter included, at any
 	 * path, whether or not a template names it. With `from`, the text the
@@ -135,6 +139,9 @@ export type WriteOp =
 	 * kept: the text is merged onto it, and this text wins an overlap.
 	 */
 	| { kind: 'text'; path: string; text: string; from?: string | null };
+
+/** What a `send` change to an existing path starts from. */
+type SendBase = SendOptions['from'];
 
 /** A read, as data. */
 export type EngineRequest =
@@ -245,15 +252,6 @@ export function openEngine<const TDefs extends Definitions>({
 	/** Paths whose shown text changed since the last notification. */
 	const changed = new Set<string>();
 
-	/** Server texts a newer one replaced, by hash, newest last. */
-	const recent = new Map<string, string>();
-	function remember(hash: string | null, text: string | null) {
-		if (hash === null || text === null) return;
-		recent.delete(hash);
-		recent.set(hash, text);
-		if (recent.size > RECENT_TEXTS) recent.delete(recent.keys().next().value as string);
-	}
-
 	/**
 	 * The one write path: text and its parsed fields in the same statement.
 	 * `held` stays what it was unless `next` says.
@@ -262,7 +260,6 @@ export function openEngine<const TDefs extends Definitions>({
 		const previous = row(path);
 		const held = nextHeld ?? previous?.held ?? 0;
 		if ((previous?.text ?? null) !== next.text) changed.add(path);
-		if (previous !== undefined && previous.hash !== next.hash) remember(previous.hash, previous.synced);
 		if (next.text === null && next.synced === null) {
 			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
 			return;
@@ -418,7 +415,7 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	/** Every op but a blob put, whose bytes are stored first and which then writes its pointer's text. */
-	type Ready = Exclude<WriteOp, { kind: 'put' }> | { kind: 'pointer'; name: string; params: Params; text: string; base?: string | null };
+	type Ready = Exclude<WriteOp, { kind: 'put' }> | { kind: 'pointer'; name: string; params: Params; text: string; base?: SendBase };
 
 	function pathOf(lens: Lens, params: Params): Result<string, WriteError> {
 		const built = buildPath(lens.template, params);
@@ -680,25 +677,24 @@ export function openEngine<const TDefs extends Definitions>({
 	type SendResult = Result<Verdict, WriteError | SendError>;
 	const verdicts = new Map<number, (result: SendResult) => void>();
 
-	/** The text with server hash `hash` at `path`: the acknowledged text, or one a newer one replaced. */
-	function textOf(file: FileRow, hash: string): string | undefined {
-		if (file.hash === hash && file.synced !== null) return file.synced;
-		return recent.get(hash);
-	}
-
 	/**
-	 * What one `send` op sends, read against the server's text as this device
-	 * last heard it, or against the version the caller named. Nothing on the
-	 * device changes.
+	 * What one `send` op sends, read against what it names it starts from:
+	 * the note as the caller read it, whose text goes along, or `'latest'`,
+	 * the server's text as this device last heard it. Nothing on the device
+	 * changes.
 	 */
 	function resolveSend(op: Ready): Result<Entry, WriteError | SendError> {
-		const based = (path: string): Result<{ hash: string; text: string } | null, SendError> => {
-			const file = keep(path);
+		const based = (path: string): Result<{ hash: string; text: string } | null, WriteError> => {
 			const requested = 'base' in op ? op.base : undefined;
-			if (requested === undefined || requested === null)
-				return Ok(file.synced === null || file.hash === null ? null : { hash: file.hash, text: file.synced });
-			const text = textOf(file, requested);
-			return text === undefined ? SendError.UnknownBase({ path, base: requested }) : Ok({ hash: requested, text });
+			if (op.kind === 'create') {
+				const file = keep(path);
+				return file.synced !== null || file.text !== null ? WriteError.Exists({ path }) : Ok(null);
+			}
+			// The handle types require it; a caller that bypasses them made a mistake in its source.
+			if (requested === undefined) throw new Error(`A send's change to '${path}' names what it starts from: { from: note } or { from: 'latest' }`);
+			if (requested !== 'latest') return Ok({ hash: requested.version, text: requested.text });
+			const file = keep(path);
+			return Ok(file.synced === null || file.hash === null ? null : { hash: file.hash, text: file.synced });
 		};
 		if (op.kind === 'move') {
 			const lens = lensOf(op.name);
@@ -736,7 +732,6 @@ export function openEngine<const TDefs extends Definitions>({
 			case 'write':
 			case 'set':
 			case 'edit': {
-				if (op.kind === 'create' && (from !== null || localText(path.data) !== null)) return WriteError.Exists({ path: path.data });
 				const change = op.kind === 'set' ? { fields: { [op.key]: op.value } } : op.kind === 'edit' ? { body: op.body } : op.input;
 				const text = writeMarkdown(from, change);
 				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });
@@ -1209,14 +1204,18 @@ export function openEngine<const TDefs extends Definitions>({
 	function listRows(lens: Lens, filter: Params) {
 		const keys = Object.entries(filter).filter(([key, value]) => lens.template.params.includes(key) && value !== undefined);
 		const where = keys.map(([key]) => `v."${key}" = ?`);
-		return driver.all<FileRead>(
-			`SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f JOIN temp."${lens.name}" v ON v.path = f.path${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY f.path`,
-			keys.map(([, value]) => String(value)),
-		);
+		return driver
+			.all<ReadRow>(
+				`SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f JOIN temp."${lens.name}" v ON v.path = f.path${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY f.path`,
+				keys.map(([, value]) => String(value)),
+			)
+			.map(withVersion);
 	}
 
-	const fileRow = (path: string) =>
-		first<FileRead>(driver, `SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f WHERE f.path = ? AND f.text IS NOT NULL`, [path]) ?? null;
+	function fileRow(path: string): FileRead | null {
+		const found = first<ReadRow>(driver, `SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f WHERE f.path = ? AND f.text IS NOT NULL`, [path]);
+		return found === undefined ? null : withVersion(found);
+	}
 
 	function getRow(lens: Lens, params: Params): FileRead | null {
 		const path = split(lens, params);

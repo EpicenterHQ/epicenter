@@ -107,15 +107,15 @@ for (const [engine, browser] of [
 		}
 
 		test(
-			'a send that overlaps a change since the version it read is refused and changes nothing',
+			'a send that overlaps a change since the note it read is refused and changes nothing',
 			() =>
 				world(async ({ a, b }) => {
 					await a.evaluate(() => harness.write('task', 'open\n'));
 					await b.evaluate(() => harness.untilText('task', 'open\n'));
-					const read = await b.evaluate(() => harness.version('task'));
+					await b.evaluate(() => harness.read('task'));
 					await a.evaluate(() => harness.write('task', 'started\n'));
 					await b.evaluate(() => harness.untilText('task', 'started\n'));
-					const verdict = await b.evaluate((base) => harness.sendBody('task', 'done\n', base), read);
+					const verdict = await b.evaluate(() => harness.sendBody('task', 'done\n', 'read'));
 					expect(verdict).toMatchObject({ error: null, data: { kind: 'refused', path: 'notes/task.md' } });
 					expect(await b.evaluate(() => harness.text('task'))).toBe('started\n');
 					expect(await b.evaluate(() => harness.unsent())).toBe(0);

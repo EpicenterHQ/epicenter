@@ -266,12 +266,6 @@ export const SendError = defineErrors({
 		message: `Batch ${n} may have reached the server; its verdict will be known when it is sent again`,
 		n,
 	}),
-	/** The version a change names as its base is not one this device holds. */
-	UnknownBase: ({ path, base }: { path: string; base: string }) => ({
-		message: `The version ${base} of '${path}' is not on this device; read it again`,
-		path,
-		base,
-	}),
 });
 export type SendError = InferErrors<typeof SendError>;
 
@@ -337,12 +331,11 @@ export type Note<TPath extends string, TSchema extends TSchema_> = {
 	text: string;
 	body: string;
 	/**
-	 * The server's version of this text (its Git blob hash), or null while
-	 * this device holds changes to it the server has not acknowledged. A
-	 * `send` names it as its base so that it is refused if the note changed
-	 * since it was read.
+	 * The hash of `text` (its Git blob hash), whatever the server holds. A
+	 * `send` names the note as read, `{ from: note }`, so that a change is
+	 * refused where the note is no longer what was read.
 	 */
-	version: string | null;
+	version: string;
 } & (
 	| { valid: true; fields: Static<TSchema> }
 	| { valid: false; fields: Record<string, unknown>; issues: string[] }
@@ -471,28 +464,32 @@ export type BatchBlobHandle<TPath extends string> = {
 	delete(...params: ParamsArg<TPath>): void;
 };
 
-/**
- * What a `send` change starts from: the `version` of the note the caller
- * read. Without one (or with null), it starts from the text the server last
- * acknowledged.
- */
-export type SendOptions = { base?: string | null };
+/** A file as read: a `Note`, or any `{ path, text, version }` with `version` the hash of `text`. */
+export type Snapshot = { path: string; text: string; version: string };
 
-/** Write-only note handles inside `repo.send`; each change may name the version it starts from. */
+/**
+ * What a `send` change to an existing path starts from: the note as the
+ * caller read it, whose text is sent along so the server merges from exactly
+ * that, or `'latest'`, the text the server last acknowledged to this device,
+ * named explicitly because it can hold changes the caller never saw.
+ */
+export type SendOptions = { from: Snapshot | 'latest' };
+
+/** Write-only note handles inside `repo.send`; each change to an existing path names what it starts from. */
 export type SendNoteHandle<TPath extends string, TSchema extends TSchema_> = {
 	create(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): void;
-	write(...args: [...ParamsArg<TPath>, NoteInput<TSchema>, options?: SendOptions]): void;
+	write(...args: [...ParamsArg<TPath>, NoteInput<TSchema>, options: SendOptions]): void;
 	set<TKey extends keyof Static<TSchema> & string>(
-		...args: [...ParamsArg<TPath>, key: TKey, value: Static<TSchema>[TKey], options?: SendOptions]
+		...args: [...ParamsArg<TPath>, key: TKey, value: Static<TSchema>[TKey], options: SendOptions]
 	): void;
-	append(...args: [...ParamsArg<TPath>, text: string, options?: SendOptions]): void;
+	append(...args: [...ParamsArg<TPath>, text: string, options: SendOptions]): void;
 	move(from: Params<TPath>, to: Params<TPath>): void;
-	delete(...args: [...ParamsArg<TPath>, options?: SendOptions]): void;
+	delete(...args: [...ParamsArg<TPath>, options: SendOptions]): void;
 };
 
 export type SendBlobHandle<TPath extends string> = {
 	put(...args: [...ParamsArg<TPath>, bytes: Uint8Array, options: { type: string } & SendOptions]): void;
-	delete(...args: [...ParamsArg<TPath>, options?: SendOptions]): void;
+	delete(...args: [...ParamsArg<TPath>, options: SendOptions]): void;
 };
 
 export type Handles<TDefs extends Definitions> = {

@@ -242,6 +242,8 @@ export function createRepositoryServer({
 	type Prepared = {
 		currents: Map<string, string | null>;
 		bases: Map<string, string>;
+		/** A path whose change sent a base text that does not hash to its hash, if one did. */
+		forged: string | null;
 		/** The path events after the batch's position. */
 		events: SequencedEvent[];
 	};
@@ -251,10 +253,14 @@ export function createRepositoryServer({
 		const events = await eventsAfter(batch.seq);
 		const currents = new Map<string, string | null>();
 		const bases = new Map<string, string>();
+		let forged: string | null = null;
 		const load = async (path: string) => {
 			if (!currents.has(path)) currents.set(path, await current(path));
 		};
-		const loadBase = async (base: Base) => {
+		const loadBase = async (base: Base, path: string) => {
+			// A base text is trusted only as the text its hash names: a merge from
+			// any other text would undo or invent changes.
+			if (base.text !== undefined && gitBlobHash(base.text) !== base.hash) forged ??= path;
 			if (bases.has(base.hash)) return;
 			const text = base.text ?? (await textByHash(base.hash));
 			if (text !== null) bases.set(base.hash, text);
@@ -270,17 +276,18 @@ export function createRepositoryServer({
 			await load(traced.path);
 			await load(change.path);
 			if (change.kind === 'write') {
-				if (change.base !== null) await loadBase(change.base);
+				if (change.base !== null) await loadBase(change.base, change.path);
 			}
 			// An append needs its base only when its note may be gone.
-			else if (traced.deleted || currents.get(traced.path) === null) await loadBase(change.base);
+			else if (traced.deleted || currents.get(traced.path) === null) await loadBase(change.base, change.path);
 		}
-		return { currents, bases, events };
+		return { currents, bases, forged, events };
 	}
 
 	type Applied = { outcome: BatchOutcome; broadcast: Broadcast | null };
 
-	function applyPrepared(batch: Batch, peer: Peer, { currents, bases, events: past }: Prepared): Applied {
+	function applyPrepared(batch: Batch, peer: Peer, { currents, bases, forged, events: past }: Prepared): Applied {
+		if (forged !== null) return { outcome: { kind: 'refused', path: forged, reason: 'the base text sent does not match its hash', overlaps: [] }, broadcast: null };
 		const work = new Map(currents);
 		const read = (path: string) => (work.has(path) ? (work.get(path) ?? null) : null);
 		/** Whether a file is at `path`, answered synchronously so a sibling is named inside the transaction. */

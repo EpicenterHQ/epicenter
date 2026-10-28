@@ -21,6 +21,7 @@ export {
 	type SendHandles,
 	type SendOptions,
 	slug,
+	type Snapshot,
 	type TextStatus,
 	timestamp,
 	type Verdict,

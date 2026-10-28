@@ -244,6 +244,16 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
+	test('a base text that does not hash to its hash is refused, under either policy', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'notes/a.md', 'one\n');
+		const forged: Change = { kind: 'write', path: 'notes/a.md', base: { hash: gitBlobHash('one\n'), text: 'not one\n' }, text: 'two\n' };
+		expect(await t.bob.push(t.batch('bob-phone', seq, forged))).toMatchObject({ kind: 'refused', path: 'notes/a.md' });
+		expect(await t.agent.push(t.batch('agent-1', seq, forged))).toMatchObject({ kind: 'refused', path: 'notes/a.md' });
+		expect(await t.server.read('notes/a.md')).toBe('one\n');
+		await t.cleanup();
+	});
+
 	test('an edit made any number of commits ago merges into the file, with no window', async () => {
 		const t = await setup();
 		const seq = await seed(t, 'notes/a.md', 'a\nb\n');

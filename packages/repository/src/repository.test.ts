@@ -441,7 +441,7 @@ test('a send refused after its caller stopped waiting becomes a notice holding w
 	t.bob.transport.setOnline(true);
 	await t.bob.repo.flush();
 	t.bob.transport.dropNextReply();
-	const sent = await t.bob.repo.send((b) => b.todos.set({ stem: 'a' }, 'title', 'Bob', { base: read?.version }));
+	const sent = await t.bob.repo.send((b) => b.todos.set({ stem: 'a' }, 'title', 'Bob', { from: read ?? 'latest' }));
 	expect(expectErr(sent).name).toBe('Unknown');
 	t.bob.transport.setOnline(true);
 	await t.bob.repo.flush();
