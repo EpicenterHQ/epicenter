@@ -617,8 +617,15 @@
       "devDependencies": {
         "@types/bun": "catalog:",
         "playwright": "^1.61.1",
+        "svelte": "catalog:",
         "typescript": "catalog:",
       },
+      "peerDependencies": {
+        "svelte": "catalog:",
+      },
+      "optionalPeers": [
+        "svelte",
+      ],
     },
     "packages/server": {
       "name": "@epicenter/server",

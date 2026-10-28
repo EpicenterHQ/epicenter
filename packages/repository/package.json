@@ -10,7 +10,8 @@
 		"./bun": "./src/bun/index.ts",
 		"./browser": "./src/browser/index.ts",
 		"./ws": "./src/ws/index.ts",
-		"./ws/server": "./src/ws/server.ts"
+		"./ws/server": "./src/ws/server.ts",
+		"./svelte": "./src/svelte/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json",
@@ -24,9 +25,16 @@
 		"wellcrafted": "catalog:",
 		"yaml": "catalog:"
 	},
+	"peerDependencies": {
+		"svelte": "catalog:"
+	},
+	"peerDependenciesMeta": {
+		"svelte": { "optional": true }
+	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"playwright": "^1.61.1",
+		"svelte": "catalog:",
 		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
