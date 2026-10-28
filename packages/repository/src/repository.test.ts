@@ -10,6 +10,7 @@
  * - An open note reads synchronously, shows its own writes at once, and follows other devices
  * - Live queries emit only when their result differs
  * - A command submitted twice under one id is applied once and answered twice
+ * - Unsent writes to one path coalesce into one batch; a sent write is never changed
  * - Without a server, writes apply and wait in the outbox
  */
 import { expect, test } from 'bun:test';
@@ -21,10 +22,12 @@ import { expectOk } from 'wellcrafted/testing';
 import { openBunGitStore } from './bun/git.js';
 import { openBunSqlite } from './bun/sqlite.js';
 import { createInProcessTransport } from './bun/transport.js';
+import type { Transport } from './engine/ports.js';
+import type { Batch } from './protocol.js';
 import { defineApp } from './define.js';
 import { openEngine } from './engine/engine.js';
 import { offlineTransport } from './engine/ports.js';
-import { openRepository } from './repository.js';
+import { createRepository, openRepository } from './repository.js';
 import { createRepositoryServer } from './server/server.js';
 
 const app = defineApp({
@@ -123,6 +126,90 @@ test('a command submitted twice under one id is applied once and answered twice'
 	expect(await t.server.read('todos/log.md')).toBe('---\ntitle: Log\ndone: false\n---\none\ntwo\n');
 	engine.close();
 	await t.cleanup();
+});
+
+/** A device whose transport records every batch it pushes. */
+function recordingDevice(t: Awaited<ReturnType<typeof setup>>, name: string) {
+	const inner = createInProcessTransport(t.server, { user: name });
+	const pushed: Batch[] = [];
+	const transport: Transport = {
+		connect(handlers) {
+			const link = inner.connect(handlers);
+			return {
+				...link,
+				push(batch) {
+					pushed.push(structuredClone(batch));
+					return link.push(batch);
+				},
+			};
+		},
+	};
+	const engine = openEngine({ app, driver: openBunSqlite(), transport, device: name });
+	return { engine, inner, pushed, repo: createRepository(app, engine) };
+}
+
+const sentTexts = (pushed: Batch[]) => pushed.map((batch) => batch.changes.map((change) => (change.kind === 'write' ? change.text : change.kind)));
+
+test('a burst of writes to one path while unsent sends one batch with the latest text', async () => {
+	const t = await setup();
+	const bob = recordingDevice(t, 'bob-2');
+	await bob.repo.flush();
+	bob.inner.setOnline(false);
+	const note = await bob.repo.todos.open({ stem: 'list' });
+	const typed = ['a', 'ab', 'abc', 'abcd'].map((body) => note.write({ fields: { title: 'List', done: false }, body }));
+	await bob.repo.flush();
+	expect(await bob.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 1 }]);
+
+	bob.inner.setOnline(true);
+	const settled = await Promise.all(typed);
+	expect(settled.map((result) => expectOk(result).kind)).toEqual(['applied', 'applied', 'applied', 'applied']);
+	// Sending was tried once while offline and again on reconnect: the same one batch.
+	const distinct = [...new Set(bob.pushed.map((batch) => JSON.stringify(batch)))].map((json) => JSON.parse(json) as Batch);
+	expect(sentTexts(distinct)).toEqual([['---\ntitle: List\ndone: false\n---\nabcd']]);
+	// The batch is the create, so its base is still none.
+	expect(distinct[0]?.changes[0]).toMatchObject({ kind: 'write', base: null });
+	expect(await t.server.read('todos/list.md')).toBe('---\ntitle: List\ndone: false\n---\nabcd');
+	note.close();
+	bob.engine.close();
+	await t.cleanup();
+});
+
+test('a write already handed to the transport is never changed; later writes get their own batch', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.todos.create({ stem: 'log' }, { fields: { title: 'Log', done: false }, body: 'zero\n' }));
+	const bob = recordingDevice(t, 'bob-2');
+	await bob.repo.flush();
+	// The server applies the first write, but its reply is lost.
+	bob.inner.dropNextReply();
+	const one = bob.repo.todos.write({ stem: 'log' }, { body: 'one\n' });
+	await bob.repo.flush();
+	const two = bob.repo.todos.write({ stem: 'log' }, { body: 'two\n' });
+	await bob.repo.flush();
+	expect(await bob.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 2 }]);
+
+	bob.inner.setOnline(true);
+	expect(expectOk(await one).kind).toBe('applied');
+	expect(expectOk(await two).kind).toBe('applied');
+	const body = (text: string) => `---\ntitle: Log\ndone: false\n---\n${text}`;
+	// The first batch is resent exactly as it was first sent.
+	expect(sentTexts(bob.pushed)).toEqual([[body('one\n')], [body('one\n')], [body('two\n')]]);
+	expect(bob.pushed[0]).toEqual(bob.pushed[1] as Batch);
+	expect(await t.server.read('todos/log.md')).toBe(body('two\n'));
+	bob.engine.close();
+	await t.cleanup();
+});
+
+test('a retried command whose write was coalesced is answered, not applied again', async () => {
+	const engine = openEngine({ app, driver: openBunSqlite(), transport: offlineTransport });
+	const write = (body: string) => ({ kind: 'write', name: 'todos', params: { stem: 'a' }, input: { fields: { title: 'A', done: false }, body } }) as const;
+	expectOk(await engine.submit('c1', [write('a')]).local);
+	expectOk(await engine.submit('c2', [write('ab')]).local);
+	// A new leader resends both after the first leader lost their answers.
+	expectOk(await engine.submit('c1', [write('a')]).local);
+	expectOk(await engine.submit('c2', [write('ab')]).local);
+	expect((await engine.read({ kind: 'get', name: 'todos', params: { stem: 'a' } }))?.body).toBe('ab');
+	expect(await engine.read({ kind: 'query', sql: 'SELECT count(*) AS n FROM "epicenter/outbox"', params: [] })).toEqual([{ n: 1 }]);
+	engine.close();
 });
 
 test('without a server, writes apply and wait in the outbox', async () => {

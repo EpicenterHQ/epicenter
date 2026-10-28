@@ -2,7 +2,7 @@
  * What tabs and the leader's worker say on a repository's BroadcastChannel.
  * Every tab, the leader's own included, talks to the worker the same way: a
  * call carries the tab's id and a call id, and a write's call id is its
- * command id, which the engine stores with its outbox rows.
+ * command id, which the engine stores with the outbox rows it queued.
  */
 import type { Result } from 'wellcrafted/result';
 import type { Settled, WriteError } from '../define.js';

@@ -39,10 +39,14 @@ CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
 	seq INTEGER NOT NULL,
 	changes TEXT NOT NULL,
-	command TEXT,
 	outcome TEXT
 ) STRICT;
-CREATE INDEX IF NOT EXISTS "epicenter/outbox_command" ON "epicenter/outbox" (command);
+CREATE TABLE IF NOT EXISTS "epicenter/commands" (
+	command TEXT NOT NULL,
+	n INTEGER NOT NULL,
+	PRIMARY KEY (command, n)
+) STRICT;
+CREATE INDEX IF NOT EXISTS "epicenter/commands_n" ON "epicenter/commands" (n);
 CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
 
@@ -395,7 +399,59 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	const commandRows = (command: string) =>
-		driver.all<{ n: number; outcome: string | null }>('SELECT n, outcome FROM "epicenter/outbox" WHERE command = ? ORDER BY n', [command]);
+		driver.all<{ n: number; outcome: string | null }>(
+			'SELECT o.n, o.outcome FROM "epicenter/commands" c JOIN "epicenter/outbox" o ON o.n = c.n WHERE c.command = ? ORDER BY o.n',
+			[command],
+		);
+
+	/** The highest batch number ever handed to the transport: a batch at or below it may have reached the server. */
+	const sentThrough = () => Number(meta('sent') ?? '0');
+
+	/**
+	 * The last outbox row, when a write to `path` can take its place: the row
+	 * is unsent and was never handed to the transport, and it holds exactly
+	 * one write to `path` that leaves text. A delete keeps its own row, so a
+	 * delete and a recreate never become one edit.
+	 */
+	function coalescible(path: string): { n: number; entry: Entry } | undefined {
+		const last = first<{ n: number; changes: string; outcome: string | null }>(
+			driver,
+			'SELECT n, changes, outcome FROM "epicenter/outbox" ORDER BY n DESC LIMIT 1',
+		);
+		if (last === undefined || last.outcome !== null || last.n <= sentThrough()) return undefined;
+		const entries = JSON.parse(last.changes) as Entry[];
+		const [entry] = entries;
+		if (entries.length !== 1 || entry === undefined) return undefined;
+		const { change } = entry;
+		if (change.kind !== 'write' || change.path !== path || change.text === null) return undefined;
+		return { n: last.n, entry };
+	}
+
+	/**
+	 * Queue a command's batches under its id and answer their numbers. A
+	 * command that is one write leaving text, to the path the last unsent
+	 * write names, replaces that write's text instead of adding a row; the
+	 * base stays the text the first write started from. Typing then sends one
+	 * batch per send rather than one per keystroke, and a retry of any of
+	 * those commands is answered by the one row.
+	 */
+	function queue(command: string, batches: Entry[][]): number[] {
+		const only = batches.length === 1 && batches[0]?.length === 1 ? batches[0][0] : undefined;
+		const into = only?.change.kind === 'write' && only.change.text !== null ? coalescible(only.change.path) : undefined;
+		if (only !== undefined && into !== undefined && into.entry.change.kind === 'write') {
+			const replaced: Entry = { change: { ...into.entry.change, text: only.local }, local: only.local };
+			driver.run('UPDATE "epicenter/outbox" SET changes = ? WHERE n = ?', [JSON.stringify([replaced]), into.n]);
+			driver.run('INSERT INTO "epicenter/commands" (command, n) VALUES (?, ?)', [command, into.n]);
+			return [into.n];
+		}
+		return batches.map((entries) => {
+			const n = Number(meta('next') ?? '1');
+			setMeta('next', String(n + 1));
+			driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes) VALUES (?, ?, ?)', [n, position(), JSON.stringify(entries)]);
+			driver.run('INSERT INTO "epicenter/commands" (command, n) VALUES (?, ?)', [command, n]);
+			return n;
+		});
+	}
 
 	/**
 	 * Apply ops locally and queue them, in one transaction, under the
@@ -409,7 +465,7 @@ export function openEngine<const TDefs extends Definitions>({
 		const known = commandRows(command);
 		if (known.length > 0) return { local: Promise.resolve(Ok(undefined)), settled: settledOf(known) };
 		let failure: WriteError | null = null;
-		const numbers: number[] = [];
+		let numbers: number[] = [];
 		try {
 			driver.transaction(() => {
 				const batches: Entry[][] = [];
@@ -424,17 +480,7 @@ export function openEngine<const TDefs extends Definitions>({
 					if (last === undefined || entry.change.kind === 'move' || last[0]?.change.kind === 'move') batches.push([entry]);
 					else last.push(entry);
 				}
-				for (const entries of batches) {
-					const n = Number(meta('next') ?? '1');
-					setMeta('next', String(n + 1));
-					driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes, command) VALUES (?, ?, ?, ?)', [
-						n,
-						position(),
-						JSON.stringify(entries),
-						command,
-					]);
-					numbers.push(n);
-				}
+				numbers = queue(command, batches);
 			});
 		} catch (cause) {
 			if (cause !== ROLLBACK) throw cause;
@@ -579,6 +625,7 @@ export function openEngine<const TDefs extends Definitions>({
 		driver.transaction(() => {
 			driver.run('UPDATE "epicenter/outbox" SET outcome = ? WHERE n = ?', [JSON.stringify(settled), n]);
 			driver.run('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL AND n <= ?', [n - KEEP_SETTLED]);
+			driver.run('DELETE FROM "epicenter/commands" WHERE n <= ?', [n - KEEP_SETTLED]);
 			if (outcome.kind === 'applied') {
 				// With no seq the batch landed long ago, and the hello that came first
 				// already brought what it did.
@@ -667,6 +714,8 @@ export function openEngine<const TDefs extends Definitions>({
 					withBases || change.kind === 'move' || change.base === null ? change : { ...change, base: { hash: change.base.hash } },
 				),
 			});
+			// From here the batch may reach the server, so it is never changed again.
+			if (next.n > sentThrough()) setMeta('sent', String(next.n));
 			let answer = await link.push(send(false));
 			if (answer.error === null && answer.data.kind === 'need-base') answer = await link.push(send(true));
 			if (answer.error !== null) {
