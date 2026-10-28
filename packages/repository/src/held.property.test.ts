@@ -268,11 +268,17 @@ async function run(seed: number) {
 			offline = false;
 			if (m.lands !== null && m.path !== null)
 				m.server = { path: m.path, mine: m.lands.mine, bob: m.server !== null ? m.server.bob : m.lands.bob };
+			// Her hello brought what Bob changed while she was away.
+			if (m.server !== null && m.shown.whole === null) m.shown = { ...m.shown, bob: m.server.bob };
 			m.queued = null;
 			m.lands = null;
 		},
+		/**
+		 * Bob edits his line. While Alice is offline after a lost reply, she
+		 * hears it only at her hello, which also tells her that batch landed:
+		 * the retry's answer from its receipt is then older than what she heard.
+		 */
 		async bobEdit() {
-			if (offline) return;
 			if (m.server === null || m.shown.whole !== null) return;
 			const line = pick(['b1', 'b2', 'b3', 'b4']);
 			log.push(`bob edits ${line}`);
@@ -281,7 +287,7 @@ async function run(seed: number) {
 			expectOk(await w.bob.files.writeText(m.server.path, text.text.replace(/\n[^\n]*\n$/, `\n${line}\n`)));
 			m.server = { ...m.server, bob: line };
 			// Alice shows the same note, at the server's path or where her queued rename took it.
-			if (m.path !== null) m.shown = { ...m.shown, bob: line };
+			if (m.path !== null && !offline) m.shown = { ...m.shown, bob: line };
 		},
 		async ack() {
 			if (offline) return;

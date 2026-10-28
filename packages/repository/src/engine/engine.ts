@@ -1102,13 +1102,24 @@ export function openEngine<const TDefs extends Definitions>({
 	 */
 	function acknowledge(n: number, entry: Entry, outcome: ChangeOutcome, seq: number, later: Entry[]) {
 		const { change, local: sent } = entry;
+		/**
+		 * The answer at `path`, unless this device already heard the server's
+		 * text there at a later seq: a hello or a broadcast after the batch
+		 * landed, as when a retry is answered from its receipt. That text holds
+		 * this change, and this device's text was rebased onto it then, so an
+		 * answer never moves a file's synced text or seq backwards.
+		 */
+		const answer = (path: string, next: Parameters<typeof put>[1]) => {
+			if (keep(path).seq <= seq) put(path, next);
+		};
 		// This device's own text beyond what it sent stays, rebased onto the server's answer.
 		const rebase = (path: string, local: string | null, server: string | null) =>
 			keepsOwn(path, n, later) ? rebaseLocal(sent, local, server) : server;
 		const serverText = outcome.text !== undefined ? outcome.text : change.kind === 'write' ? change.text : null;
 		if (change.kind === 'move' && keptInPlace(outcome)) {
 			// The current path won: the note stays where the server has it.
-			putBack({ from: outcome.at ?? change.from, to: change.to }, sent, { text: serverText, hash: outcome.hash, seq });
+			const from = outcome.at ?? change.from;
+			putBack({ from, to: change.to }, sent, keep(from).seq > seq ? undefined : { text: serverText, hash: outcome.hash, seq });
 			return;
 		}
 		const clash = outcome.overlaps.find((overlap) => overlap.unit === 'path');
@@ -1117,23 +1128,23 @@ export function openEngine<const TDefs extends Definitions>({
 			// different note: show the server's text there again, and the change
 			// in the sibling the server made for it.
 			for (const path of pathsOf(entry)) revert(path, leftAt(entry, path), n, later);
-			if (outcome.at !== null) put(outcome.at, { text: serverText, synced: serverText, hash: outcome.hash, seq });
+			if (outcome.at !== null) answer(outcome.at, { text: serverText, synced: serverText, hash: outcome.hash, seq });
 			return;
 		}
 		if (change.kind === 'move') {
 			const source = keep(change.from);
-			put(change.from, { ...source, synced: null, hash: null, seq });
+			answer(change.from, { ...source, synced: null, hash: null, seq });
 			if (outcome.movedTo !== null) {
 				const origin = keep(outcome.movedTo);
-				if (origin.text === origin.synced) put(outcome.movedTo, { ...origin, text: null, synced: null, hash: null, seq });
+				if (origin.text === origin.synced) answer(outcome.movedTo, { ...origin, text: null, synced: null, hash: null, seq });
 			}
 			const destination = keep(change.to);
-			put(change.to, { text: rebase(change.to, destination.text, serverText), synced: serverText, hash: outcome.hash, seq });
+			answer(change.to, { text: rebase(change.to, destination.text, serverText), synced: serverText, hash: outcome.hash, seq });
 			return;
 		}
 		if (outcome.at === null) {
 			const current = keep(change.path);
-			put(change.path, { text: rebase(change.path, current.text, null), synced: null, hash: null, seq });
+			answer(change.path, { text: rebase(change.path, current.text, null), synced: null, hash: null, seq });
 			return;
 		}
 		const current = keep(change.path);
@@ -1147,20 +1158,22 @@ export function openEngine<const TDefs extends Definitions>({
 			const source = current.text === null && current.synced === null ? keep(outcome.at) : current;
 			const own = keepsOwn(source.path, n, later) ? rebaseLocal(sent, source.text, serverText) : serverText;
 			if (!isPending(change.path, n) && !later.some((entry) => pathsOf(entry).includes(change.path)))
-				put(change.path, { ...current, text: current.synced, held: null });
-			put(outcome.at, { text: own, synced: serverText, hash: outcome.hash, seq, held: source.held });
+				answer(change.path, { ...current, text: current.synced, held: null });
+			answer(outcome.at, { text: own, synced: serverText, hash: outcome.hash, seq, held: source.held });
 			return;
 		}
 		const away = movedAwayTo(change.path, later);
 		if (away !== null) {
 			// A later queued rename took the note away: what the server's answer
 			// holds beyond what was sent goes with it, and nothing shows here.
+			// Heard later, that text already went with it.
+			if (current.seq > seq) return;
 			put(change.path, { ...current, synced: serverText, hash: outcome.hash, seq });
 			const destination = keep(away);
 			put(away, { ...destination, text: rebaseLocal(sent, destination.text, serverText) });
 			return;
 		}
-		put(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
+		answer(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
 	}
 
 	/**

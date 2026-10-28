@@ -15,6 +15,7 @@
  * - A broadcast rebases kept text; it survives a restart and is never sent
  * - A write after a broadcast starts from the queued write rebased onto it, which the server made, so it never asks for a base
  * - A write never sends back as its own an edit made elsewhere that it showed
+ * - A retry answered from its receipt after a hello never moves the synced text back
  * - A rename put back keeps the text typed at the new name, and the note at the new name is untouched
  * - A database an earlier build made gets the held column and keeps its files, and a held flag becomes its reason
  */
@@ -228,6 +229,31 @@ test('writes that join one unsent batch start from what is below it now, so edit
 	expect([...new Set(alice.pushed.map((batch) => batch.n))]).toEqual([1, 2, 3]);
 	expect(await t.server.read(PATH)).toBe(note(body('b3'), 'T3'));
 	expect(await alice.repo.notices.list()).toEqual([]);
+	await t.cleanup();
+});
+
+test('a retry answered from its receipt after a hello never moves the synced text back to before a change made elsewhere', async () => {
+	const t = await setup();
+	const alice = t.device('alice');
+	const bob = t.device('bob');
+	expectOk(await alice.repo.notes.create({ stem: 'a' }, { fields: { title: 'A' }, body: 'one\ntwo\n' }));
+	await alice.repo.flush();
+	await bob.repo.flush();
+	// Alice's batch lands, but its reply is lost and she goes offline.
+	alice.transport.dropNextReply();
+	expectOk(await alice.repo.notes.set({ stem: 'a' }, 'title', 'B'));
+	await alice.repo.flush();
+	expectOk(await bob.repo.notes.write({ stem: 'a' }, { body: 'one\ntwo\nbob\n' }));
+	await bob.repo.flush();
+	// Her hello brings Bob's change; the retry is then answered from the older receipt.
+	alice.transport.setOnline(true);
+	await alice.repo.flush();
+	await alice.repo.flush();
+	const server = await t.server.read(PATH);
+	expect(server).toBe(note('one\ntwo\nbob\n', 'B'));
+	expect(shown(alice.driver, PATH)).toBe(server);
+	expect(alice.driver.all('SELECT synced, seq FROM "epicenter/files" WHERE path = ?', [PATH])).toEqual([{ synced: server, seq: t.server.sequence() }]);
+	expect(outbox(alice.driver)).toBe(0);
 	await t.cleanup();
 });
 
