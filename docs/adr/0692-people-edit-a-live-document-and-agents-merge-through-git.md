@@ -67,8 +67,8 @@ the server by that minute.
   when the caller is waiting for the answer, and for anyone on a structural
   refusal such as a move onto a taken path or a batch out of order); within `applied`, each file reports its overlaps, dropped values,
   an edit kept over a delete, and its text when that differs from what was
-  sent. The per-device number makes a retry return its recorded outcome within
-  the window; the server stamps each batch with the signed-in user, for
+  sent. The per-device number makes a retry return its recorded outcome, and a
+  number at or below the last one applied is never applied twice; the server stamps each batch with the signed-in user, for
   permissions, history and `Co-authored-by` lines. A blob is uploaded to R2
   first and its pointer written second, so a pointer never names missing
   bytes. A reply streamed by an assistant is relayed live without being stored,
@@ -119,7 +119,7 @@ the server by that minute.
   `epicenter check --schema <url>` validates a clone. The server reads none.
 - **The server object.** It holds only an overlay: files changed since the last
   commit, the batches since then, the last number applied per device, recent
-  outcomes, and the week's path history. Each commit records the server
+  outcomes, and the sibling paths it created since the last commit. Each commit records the server
   sequence it includes; `main` moves only by compare-and-swap, and the overlay
   is cleared only up to what Git holds. At rest it holds almost nothing.
 - **Reading.** Devices read committed files without the server object: the head
