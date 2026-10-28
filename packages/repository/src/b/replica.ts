@@ -272,9 +272,12 @@ export function createReplica({
 			return save();
 		}
 		if (reading !== null) return;
-		if (waiting.has(parent)) return place();
 		const ready = [...files].filter(([, f]) => f.committed !== undefined);
-		if (ready.length === 0) return;
+		// RULE: a ready commit goes before reading notifications: its answer brings everything since its parent, and on a busy note there is always another notification.
+		if (ready.length === 0) {
+			if (waiting.has(parent)) place();
+			return;
+		}
 		const body = {
 			parent,
 			mode: nextMode,
@@ -517,7 +520,8 @@ export function createReplica({
 			const have = known();
 			const lacking = missing(event.files.map((f) => f.hash), have);
 			if (lacking.length > 0) {
-				if (pending !== null || send === null) break;
+				// A ready commit goes first (see `pump`).
+				if (pending !== null || send === null || [...files.values()].some((f) => f.committed !== undefined)) break;
 				reading = { event, have };
 				stats.fetches++;
 				request({ type: 'fetch', rid: state.next++, hashes: lacking });
