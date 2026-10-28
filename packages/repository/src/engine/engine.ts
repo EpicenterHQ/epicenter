@@ -94,9 +94,10 @@ const EngineDiagnostic = defineErrors({
 
 /**
  * One change as kept in the outbox: what was sent, and the text it leaves
- * at its path (a move's destination) once it lands as made. A person's
- * write starts from the last of these for its path, the queued projection;
- * a `send`'s shows here only after an applied verdict.
+ * at its path (a move's destination) once it lands as made. Replayed in
+ * order onto the server's text, these make the promised level a person's
+ * write starts from (`promised`); a `send`'s shows here only after an
+ * applied verdict.
  */
 type Entry = { change: Change; local: string | null };
 
@@ -479,18 +480,33 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	/** A person's queued entries, oldest first. */
-	const queuedEntries = () => unsent().flatMap((batch) => JSON.parse(batch.changes) as Entry[]);
+	const queuedEntries = (except = -1) => unsent(except).flatMap((batch) => JSON.parse(batch.changes) as Entry[]);
 
 	/**
 	 * The promised level: what the server will have at `path` once every
-	 * queued change of a person lands as made, and then `earlier`, the
-	 * changes before it in its own batch: what the last of them touching it
-	 * leaves (nothing at a move's source), or the server's text.
+	 * queued change of a person lands (but batch `except`), and then
+	 * `earlier`, the changes before it in its own batch. Each change is replayed, as the server will merge
+	 * it, onto the server's text as this device last heard it: a write merged
+	 * from the base it was made on, an append added to the end, a move taking
+	 * its source's text along. So the promised level holds every change from
+	 * elsewhere this device already shows, and a write started from it sends
+	 * only this device's own change; it is often text the server never
+	 * stored, which the server then asks for as a base.
 	 */
-	function promised(path: string, earlier: Entry[] = []): string | null {
-		const last = [...queuedEntries(), ...earlier].findLast((entry) => pathsOf(entry).includes(path));
-		if (last === undefined) return row(path)?.synced ?? null;
-		return last.change.kind === 'move' && last.change.from === path ? null : last.local;
+	function promised(path: string, earlier: Entry[] = [], except = -1): string | null {
+		const level = new Map<string, string | null>();
+		const at = (where: string) => (level.has(where) ? (level.get(where) ?? null) : (row(where)?.synced ?? null));
+		for (const { change, local } of [...queuedEntries(except), ...earlier]) {
+			if (change.kind === 'move') {
+				level.set(change.to, at(change.from));
+				level.set(change.from, null);
+				continue;
+			}
+			const below = at(change.path);
+			if (change.kind === 'append') level.set(change.path, (below ?? '') + change.text);
+			else level.set(change.path, change.base === null ? (below === null ? change.text : merge(null, below, change.text).text) : rebaseLocal(change.base.text ?? below, local, below));
+		}
+		return at(path);
 	}
 
 	/**
@@ -691,15 +707,19 @@ export function openEngine<const TDefs extends Definitions>({
 	/**
 	 * Queue a person's batch and answer its number. A batch that is
 	 * one write leaving text, to the path the last unsent write names,
-	 * replaces that write's text instead of adding a row; the base stays the
-	 * text the first write started from. Typing then sends one batch per send
-	 * rather than one per keystroke.
+	 * replaces that write instead of adding a row, from the promised level
+	 * below that row now: its text holds every change from elsewhere this
+	 * device heard since the first write, so the base does too. A create
+	 * stays a create while nothing is below. Typing then sends one batch per
+	 * send rather than one per keystroke.
 	 */
 	function queue(entries: Entry[]): number {
 		const only = entries.length === 1 ? entries[0] : undefined;
 		const into = only?.change.kind === 'write' && only.change.text !== null ? coalescible(only.change.path) : undefined;
 		if (only !== undefined && into !== undefined && into.entry.change.kind === 'write') {
-			const replaced: Entry = { change: { ...into.entry.change, text: only.local }, local: only.local };
+			const below = promised(into.entry.change.path, [], into.n);
+			const base = below === null ? null : baseOf(below);
+			const replaced: Entry = { change: { ...into.entry.change, base, text: only.local }, local: only.local };
 			driver.run('UPDATE "epicenter/outbox" SET changes = ? WHERE n = ?', [JSON.stringify([replaced]), into.n]);
 			return into.n;
 		}

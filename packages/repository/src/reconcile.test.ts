@@ -13,7 +13,8 @@
  * - An acknowledgment keeps text typed after the write it answers
  * - A write after kept text starts from what the server has, so the server gets exactly its text
  * - A broadcast rebases kept text; it survives a restart and is never sent
- * - A write after a broadcast starts from the queued write, so the server never asks for a base
+ * - A write after a broadcast starts from the queued write rebased onto it, which the server made, so it never asks for a base
+ * - A write never sends back as its own an edit made elsewhere that it showed
  * - A rename put back keeps the text typed at the new name, and the note at the new name is untouched
  * - A database an earlier build made gets the held column and keeps its files, and a held flag becomes its reason
  */
@@ -145,7 +146,7 @@ test('a broadcast rebases kept text; it survives a restart and is never sent', a
 	await t.cleanup();
 });
 
-test('a write after a broadcast starts from the queued write, so the server never asks for a base', async () => {
+test('a write after a broadcast starts from the queued write rebased onto it, which is what the server made, so it never asks for a base', async () => {
 	const t = await setup();
 	const alice = t.device('alice');
 	const bob = t.device('bob');
@@ -162,12 +163,71 @@ test('a write after a broadcast starts from the queued write, so the server neve
 	alice.release();
 	await alice.repo.flush();
 	expect(await t.server.read(PATH)).toBe(note('ONE\ntwo\nthree\nfour\nfive\n'));
-	const [first, second] = alice.pushed.slice(-2);
-	// The second write's base is the first write's text, which the server saw: one push each, no resend with base texts.
-	const sent = first?.changes[0];
-	expect(second?.changes).toMatchObject([{ kind: 'write', base: { hash: gitBlobHash(sent?.kind === 'write' ? (sent.text ?? '') : '') } }]);
+	const second = alice.pushed.at(-1);
+	// The second write's base is the first write merged onto Bob's, the text the server made of it: one push each, no resend with base texts.
+	expect(second?.changes).toMatchObject([{ kind: 'write', base: { hash: gitBlobHash(note('ONE\ntwo\nthree\nfour\n')) } }]);
 	expect(alice.pushed.map((batch) => batch.n)).toEqual([1, 2, 3]);
 	expect(alice.pushed.some((batch) => batch.changes.some((change) => change.kind === 'write' && change.base?.text !== undefined))).toBe(false);
+	await t.cleanup();
+});
+
+test('a write starts from what this device promised rebased onto the server, so an edit elsewhere that it showed is never sent back as its own', async () => {
+	const t = await setup();
+	const alice = t.device('alice');
+	const bob = t.device('bob');
+	const body = (line: string) => `one\n.\n.\n${line}\n`;
+	expectOk(await alice.repo.notes.create({ stem: 'a' }, { fields: { title: 'A' }, body: body('b0') }));
+	await alice.repo.flush();
+	await bob.repo.flush();
+	alice.hold();
+	expectOk(await alice.repo.notes.set({ stem: 'a' }, 'title', 'T1'));
+	await Bun.sleep(5);
+	// Bob's edit lands and reaches Alice while hers is in flight; she shows it, then writes again.
+	expectOk(await bob.repo.notes.write({ stem: 'a' }, { body: body('b1') }));
+	await bob.repo.flush();
+	expectOk(await alice.repo.notes.set({ stem: 'a' }, 'title', 'T2'));
+	// Bob changes the same line again before Alice's second write lands.
+	expectOk(await bob.repo.notes.write({ stem: 'a' }, { body: body('b2') }));
+	await bob.repo.flush();
+	alice.release();
+	await alice.repo.flush();
+	await bob.repo.flush();
+	expect(await t.server.read(PATH)).toBe(note(body('b2'), 'T2'));
+	expect(shown(alice.driver, PATH)).toBe(note(body('b2'), 'T2'));
+	expect(await alice.repo.notices.list()).toEqual([]);
+	// The second write's base held Bob's first edit, which the server applied under Alice's first write.
+	const second = alice.pushed.at(-1)?.changes[0];
+	expect(second).toMatchObject({ kind: 'write', base: { hash: gitBlobHash(note(body('b1'), 'T1')) } });
+	await t.cleanup();
+});
+
+test('writes that join one unsent batch start from what is below it now, so edits elsewhere they showed are never sent back as theirs', async () => {
+	const t = await setup();
+	const alice = t.device('alice');
+	const bob = t.device('bob');
+	const body = (line: string) => `one\n.\n.\n${line}\n`;
+	const bobWrites = async (line: string) => {
+		expectOk(await bob.repo.notes.write({ stem: 'a' }, { body: body(line) }));
+		await bob.repo.flush();
+	};
+	expectOk(await alice.repo.notes.create({ stem: 'a' }, { fields: { title: 'A' }, body: body('b0') }));
+	await alice.repo.flush();
+	await bob.repo.flush();
+	alice.hold();
+	expectOk(await alice.repo.notes.set({ stem: 'a' }, 'title', 'T1'));
+	await Bun.sleep(5);
+	await bobWrites('b1');
+	// The first write is in flight, so these two join one batch behind it.
+	expectOk(await alice.repo.notes.set({ stem: 'a' }, 'title', 'T2'));
+	await bobWrites('b2');
+	expectOk(await alice.repo.notes.set({ stem: 'a' }, 'title', 'T3'));
+	await bobWrites('b3');
+	alice.release();
+	await alice.repo.flush();
+	// The create, the first write, and one batch for the two that joined it.
+	expect([...new Set(alice.pushed.map((batch) => batch.n))]).toEqual([1, 2, 3]);
+	expect(await t.server.read(PATH)).toBe(note(body('b3'), 'T3'));
+	expect(await alice.repo.notices.list()).toEqual([]);
 	await t.cleanup();
 });
 

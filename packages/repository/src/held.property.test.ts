@@ -11,7 +11,10 @@
  *
  * The file keeps Alice's and Bob's changes apart, so every merge is clean
  * and the model can say exactly what each level holds: Alice changes the
- * title (breaking it by giving it twice), Bob changes the last body line.
+ * title (breaking it by giving it twice), Bob changes the last body line,
+ * as often as he likes, also while Alice's writes that show his earlier
+ * edits wait: each of her writes starts from what she promised rebased
+ * onto what she heard, so it never sends his edit back as hers.
  *
  * Set HELD_SEED to replay one sequence; a failure names its seed and steps.
  */
@@ -27,6 +30,7 @@ import { createInProcessTransport } from './bun/transport.js';
 import { defineApp } from './define.js';
 import type { Transport } from './engine/ports.js';
 import { parses } from './markdown.js';
+import { merge } from './merge.js';
 import type { Batch, Change } from './protocol.js';
 import { openRepository } from './repository.js';
 import { createRepositoryServer } from './server/server.js';
@@ -50,7 +54,7 @@ type Model = {
 	/** What Alice shows: her part and Bob's line as she last heard it, or a text the model knows only whole. */
 	shown: { mine: Mine; bob: string; whole: string | null };
 	held: boolean;
-	/** What Alice promised the server: the text of her last queued change, or null when none is queued. */
+	/** The text of Alice's last queued change, or null when none is queued. */
 	queued: string | null;
 	/** Her part and Bob's line as of her last queued write, which lands on acknowledgment. */
 	lands: { mine: Mine; bob: string } | null;
@@ -59,8 +63,12 @@ type Model = {
 };
 const shownText = (m: Model) => m.shown.whole ?? render(m.shown.mine, m.shown.bob);
 const serverText = (m: Model) => (m.server === null ? null : render(m.server.mine, m.server.bob));
-/** The promised level: the last queued change's text, else the server's. */
-const promisedText = (m: Model) => m.queued ?? serverText(m);
+/**
+ * The promised level: Alice's last queued part over Bob's line as she shows
+ * it, since what she promised is rebased onto every change of Bob's she has
+ * heard; else the server's text.
+ */
+const promisedText = (m: Model) => (m.queued === null || m.lands === null ? serverText(m) : render(m.lands.mine, m.shown.bob));
 
 function rng(seed: number) {
 	let a = seed >>> 0;
@@ -125,14 +133,35 @@ async function world() {
 	};
 }
 
-/** The engine's promised level at `path`: the last queued person's change touching it, else the server's text. */
+/**
+ * The engine's promised level at `path`, as it computes it from its outbox:
+ * each queued person's change replayed onto the server's text as the device
+ * last heard it.
+ */
 function enginePromised(driver: SqlDriver, path: string): string | null {
 	const entries = driver
-		.all<{ changes: string }>(`SELECT changes FROM "epicenter/outbox" WHERE policy = 'mark' ORDER BY n`)
+		.all<{ changes: string }>(`SELECT changes FROM "epicenter/outbox" WHERE policy = 'mark' AND outcome IS NULL ORDER BY n`)
 		.flatMap((row) => JSON.parse(row.changes) as { change: Change; local: string | null }[]);
-	const last = entries.findLast(({ change }) => (change.kind === 'move' ? [change.from, change.to] : [change.path]).includes(path));
-	if (last === undefined) return driver.all<{ synced: string | null }>('SELECT synced FROM "epicenter/files" WHERE path = ?', [path])[0]?.synced ?? null;
-	return last.change.kind === 'move' && last.change.from === path ? null : last.local;
+	const level = new Map<string, string | null>();
+	const at = (where: string) =>
+		level.has(where)
+			? (level.get(where) ?? null)
+			: (driver.all<{ synced: string | null }>('SELECT synced FROM "epicenter/files" WHERE path = ?', [where])[0]?.synced ?? null);
+	for (const { change, local } of entries) {
+		if (change.kind === 'move') {
+			level.set(change.to, at(change.from));
+			level.set(change.from, null);
+			continue;
+		}
+		const below = at(change.path);
+		if (change.kind === 'append') level.set(change.path, (below ?? '') + change.text);
+		else if (change.base === null) level.set(change.path, below === null ? change.text : merge(null, below, change.text).text);
+		else {
+			const base = change.base.text ?? below;
+			level.set(change.path, local === base ? below : merge(base, local, below).text);
+		}
+	}
+	return at(path);
 }
 
 // ----------------------------------------------------------------------------
@@ -157,7 +186,6 @@ async function run(seed: number) {
 		server: { path: 'notes/a.md', mine: start, bob: 'b0' },
 	};
 	let lastPath = 'notes/a.md';
-	let bobEdits = 0;
 	/** Alice lost a reply and is offline: only she acts until she reconnects. */
 	let offline = false;
 	let stems = 0;
@@ -242,15 +270,10 @@ async function run(seed: number) {
 				m.server = { path: m.path, mine: m.lands.mine, bob: m.server !== null ? m.server.bob : m.lands.bob };
 			m.queued = null;
 			m.lands = null;
-			bobEdits = 0;
 		},
 		async bobEdit() {
 			if (offline) return;
-			// One edit of Bob's at most while Alice's writes wait: a write of hers sends the text she shows,
-			// which holds Bob's edit merged in, from what she promised before it, so a second edit of the
-			// same line would overlap that copy at the server, which the model does not describe.
-			if (m.server === null || m.shown.whole !== null || (m.queued !== null && bobEdits > 0)) return;
-			if (m.queued !== null) bobEdits++;
+			if (m.server === null || m.shown.whole !== null) return;
 			const line = pick(['b1', 'b2', 'b3', 'b4']);
 			log.push(`bob edits ${line}`);
 			const text = await w.bob.files.readText(m.server.path);
@@ -271,7 +294,6 @@ async function run(seed: number) {
 				m.server = { path: m.path, mine: m.lands.mine, bob: m.server !== null ? m.server.bob : m.lands.bob };
 			m.queued = null;
 			m.lands = null;
-			bobEdits = 0;
 		},
 		async rename() {
 			if (offline) return;
