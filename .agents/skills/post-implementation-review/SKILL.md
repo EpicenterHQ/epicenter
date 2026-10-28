@@ -134,6 +134,12 @@ the repair, because a misleading name wants a rename and a wrong owner wants a
 move; collapsing both into "delete it" loses the difference and usually picks
 the wrong one.
 
+Treat each new conditional branch or special case as an "except when" in the
+design, and ask which kind it is, using
+[one-sentence-test](../one-sentence-test/SKILL.md#explain-it-from-its-parts).
+A branch added to make one failing case pass is the common way exceptions
+enter code.
+
 Do not fix a real parse boundary at a JSON, file, or network edge, runtime
 validation over unsafe input, a contract that genuinely belongs in one place, or
 repetition that is cheaper than the abstraction replacing it. Those read as

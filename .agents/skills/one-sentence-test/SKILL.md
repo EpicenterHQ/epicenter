@@ -132,6 +132,30 @@ Caller-need check: wrapping the singleton openFuji with this.
 
 The reduction did the work. The JSDoc had been hiding that the defaults neuter the main feature, and the caller didn't need the main feature anyway.
 
+## Explain It From Its Parts
+
+Describe the design using only its building blocks and how they combine. When
+the explanation needs "except when," treat that as a signal and find out why:
+
+- **The explanation promises more than the design does.** Restate the actual
+  promise; the case may not be an exception at all.
+- **One concept is doing two jobs.** Pull out the part both cases share and
+  make each case its own combination of it.
+- **A rule for one thing was never defined for a group of them.** Say how it
+  combines instead of excluding the group.
+- **The case really is different.** Give it its own name and reason, so it is
+  visible rather than hidden inside something else.
+
+Then check the replacement as hard as the exception. If combining the rule
+spreads state, holds unrelated things, or brings back machinery you removed,
+the named exception is the better design.
+
+For example, "a batch is sent as one, except when it contains a move" meant
+moves were not followed within a batch; following them removed the exception.
+"A person's write is never refused, except a batch with broken text" only
+promised too much: the real promise, never refused because of someone else's
+change, has no exception.
+
 ## Common Reveals
 
 - **Inert knobs**: a default (`Infinity`, `false`, `null`) disables the mechanism the docs advertise.
@@ -139,6 +163,7 @@ The reduction did the work. The JSDoc had been hiding that the defaults neuter t
 - **Ceremony with no payoff**: "lifecycle management" that reduces to "call close when done", which the underlying type already supports.
 - **Docs describing aspirations**: prose describes what the abstraction *could* do under other configs, not what it does here.
 - **Orphaned surfaces**: commands / endpoints that don't map to any verb in the thesis.
+- **Hidden exceptions**: the explanation needs "except when"; see [Explain It From Its Parts](#explain-it-from-its-parts).
 - **Drifting thesis**: when you can't finish the sentence without contradicting yourself, the design hasn't converged.
 
 ## Anti-Patterns

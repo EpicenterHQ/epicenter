@@ -171,7 +171,9 @@ inspection; it does not initiate another independent review.
 Ask what the local complexity is compensating for. Would moving an invariant
 to construction, giving one object the lifecycle, or removing a stale promise
 make a family of adapters, flags, callbacks, checks, or future tasks disappear?
-Challenge new abstractions as readily as inherited ones.
+Challenge new abstractions as readily as inherited ones. List every "except
+when" the design's explanation needs and find out why each exists, using
+[one-sentence-test](../one-sentence-test/SKILL.md#explain-it-from-its-parts).
 
 Make the prize concrete: name the methods, types, modules, states, tests, docs
 branches, or planned work that becomes unnecessary. Explain the replacement
