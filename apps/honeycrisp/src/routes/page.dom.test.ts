@@ -4,11 +4,12 @@
  * Mounts the real page in jsdom over the repository engine running in this
  * process, with a scripted server that seeds files and delivers other
  * devices' changes (`repository.test-support.ts`). A second client of the
- * same engine stands in for another tab.
+ * same engine stands in for a change made elsewhere on this device.
  *
  * Key behaviors:
  * - A new note's title and body persist across close and reopen, and every field stays
  * - A change from elsewhere updates the open note without replacing its controls
+ * - A change the server could not take is a notice until dismissed
  * - A note that does not read as one is listed for repair and opens as its text
  * - A write the engine refuses is reported, and the controls follow the stored note
  * - Deleting a folder moves its notes out in the same batch
@@ -16,7 +17,7 @@
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { EditorView } from '@codemirror/view';
-import { type } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { button, type } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { type Device, folderText, noteText, openDevice, owningTab, until as poll } from '../lib/repository.test-support.js';
 
 // SAFETY: jsdom has no layout; the empty list supplies only the geometry these tests need.
@@ -132,6 +133,19 @@ test('a write the engine refuses is reported, and the controls follow the stored
 	await until(() => document.body.textContent?.includes('Could not save the title') ?? false, 'the title error');
 	await until(() => page.get<HTMLInputElement>(TITLE).value === 'Disk', 'the stored title');
 	expect(on.text('notes/a.md')).toBe(noteText({ title: 'Disk' }));
+});
+
+test('a change the server could not take is shown as a notice until dismissed, and the note shows the server again', async () => {
+	const on = await device({ 'notes/a.md': noteText({ title: 'Disk' }) });
+	const page = await openPage(on);
+	await openNote(page, 'notes/a.md');
+	on.serverAnswers({ kind: 'refused', path: '', reason: 'batch 1 arrived after 3', overlaps: [] });
+	type(page.get<HTMLInputElement>(TITLE), 'Typed');
+	await until(() => page.text('[aria-label="Notices"]')?.includes('could not be saved to the server') ?? false, 'the notice');
+	expect(page.text('[aria-label="Notices"]')).toContain('notes/a.md');
+	await until(() => page.get<HTMLInputElement>(TITLE).value === 'Disk', 'the server title');
+	button(document.body, 'Dismiss').click();
+	await until(() => page.target.querySelector('[aria-label="Notices"]') === null, 'the notice to go');
 });
 
 test('deleting a folder moves its notes out in the same batch', async () => {

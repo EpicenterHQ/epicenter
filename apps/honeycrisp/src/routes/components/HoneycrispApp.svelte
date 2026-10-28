@@ -8,6 +8,7 @@
 	import FileDetail from './FileDetail.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import NoteList from './NoteList.svelte';
+	import Notices from './Notices.svelte';
 
 	// The notes over the repository `OpenHoneycrisp` opened.
 	let { repo, syncsTo }: { repo: HoneycrispRepository; syncsTo?: string } = $props();
@@ -42,6 +43,7 @@
 		{filesOpen}
 		onToggleFiles={() => (filesOpen = !filesOpen)}
 	/>
+	<Notices notices={repo.notices} />
 
 	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 		<Resizable.Pane id="folders" order={1} defaultSize={16} minSize={10} maxSize={30}>

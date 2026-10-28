@@ -16,6 +16,7 @@
 	import { page } from '$app/state';
 	import { todoPath } from '$lib/local-todos.js';
 	import AppHeader from './AppHeader.svelte';
+	import Notices from './Notices.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
@@ -69,6 +70,7 @@
 
 <div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader pendingNewTodo={newTitle.trim() !== ''} {syncsTo} />
+	<Notices notices={repo.notices} />
 
 	{#if wide.current}
 		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">

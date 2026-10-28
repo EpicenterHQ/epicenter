@@ -2,11 +2,19 @@
  * Honeycrisp's repository in a test: the real engine on `bun:sqlite`, with a
  * scripted server behind it. The server starts the device with `files`,
  * exactly as their text reads, and `theirs` delivers a change another device
- * made. It answers no batch, so this device's writes wait in its outbox, as
- * they do offline. Every `tab()` is another client of the one engine, which
+ * made. It answers no batch until `serverAnswers`, so this device's writes
+ * wait in its outbox, as they do offline. Every `tab()` is another client of the one engine, which
  * stands in for a change made elsewhere on this device.
  */
-import { createRepository, type EnginePort, openEngine, type Transport, TransportError, WriteError } from '@epicenter/repository';
+import {
+	type BatchOutcome,
+	createRepository,
+	type EnginePort,
+	openEngine,
+	type Transport,
+	TransportError,
+	WriteError,
+} from '@epicenter/repository';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { Ok } from 'wellcrafted/result';
 import { honeycrispApp } from './data.js';
@@ -29,13 +37,17 @@ export async function openDevice(files: Record<string, string> = {}) {
 	let deliver: Parameters<Transport['connect']>[0]['onBroadcast'] | undefined;
 	let seq = 1;
 	const state = (path: string, text: string | null) => ({ path, text, hash: text === null ? null : `hash-${seq}` });
+	/** What the server answers every batch with, once `serverAnswers` sets it. */
+	let answer: BatchOutcome | null = null;
+	let reconnect = () => {};
 	const transport: Transport = {
 		connect(handlers) {
 			deliver = handlers.onBroadcast;
+			reconnect = handlers.onOnline;
 			return {
-				connected: () => false,
+				connected: () => answer !== null,
 				hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, files: Object.entries(files).map(([path, text]) => state(path, text)) }),
-				push: async () => TransportError.Offline({ sent: false }),
+				push: async () => (answer === null ? TransportError.Offline({ sent: false }) : Ok(answer)),
 				close() {},
 			};
 		},
@@ -74,6 +86,11 @@ export async function openDevice(files: Record<string, string> = {}) {
 		},
 		refuseWrites(value: boolean) {
 			refuse = value;
+		},
+		/** Connect the server, which answers every batch with `outcome`. */
+		serverAnswers(outcome: BatchOutcome) {
+			answer = outcome;
+			reconnect();
 		},
 		close() {
 			engine.close();

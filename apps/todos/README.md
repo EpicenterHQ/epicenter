@@ -4,7 +4,7 @@ Todos keeps each todo as a Markdown file, `todos/<id>.md`, in a repository on th
 
 A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name stay in the file when a todo is edited. A file that does not read as a todo stays listed with its source and why.
 
-Every edit applies on this device at once and shows at once: the list is a live query, and the open todo is held open, so its controls read the note synchronously and write through it. Nothing waits for a save, and nothing is left unsaved when the page closes. Edits made offline wait in the repository's outbox and are sent when the server is reachable; edits from elsewhere merge with them. If the engine refuses a write, Todos says so in a toast and the controls show the stored todo again.
+Every edit applies on this device at once and shows at once: the list is a live query, and the open todo is held open, so its controls read the note synchronously and write through it. Nothing waits for a save, and nothing is left unsaved when the page closes. Edits made offline wait in the repository's outbox and are sent when the server is reachable; edits from elsewhere merge with them. An edit resolves once it is saved on this device; if the engine cannot save it, Todos says so in a toast and the controls show the stored todo again. What the server later does with a saved edit that the person should know appears under the header as a notice until dismissed; a change the server could not take keeps the text this device showed, to copy.
 
 ## Run the browser app
 
@@ -93,7 +93,7 @@ Earlier Todos builds kept their folder in IndexedDB, and before that in OPFS. Th
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts `OpenTodos` with `openBrowserRepository({ app: todosApp, name: 'todos', server })`; it owns opening, Try again, and close. `src/routes/local/` reads the repository through Svelte context with `live` and `opened` from `@epicenter/repository/svelte`, and reports refused writes. `apps/todos/scripts/native.ts` still uses `@epicenter/folder` over a directory, with the same schema; it does not read the repository. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts `OpenTodos` with `openBrowserRepository({ app: todosApp, name: 'todos', server })`; it owns opening, Try again, and close. `src/routes/local/` reads the repository through Svelte context with `live` and `opened` from `@epicenter/repository/svelte`, reports writes it could not save, and shows the repository's notices (`Notices.svelte`). `apps/todos/scripts/native.ts` still uses `@epicenter/folder` over a directory, with the same schema; it does not read the repository. Todos has no account, inference, or sync action.
 
 From the repository root:
 

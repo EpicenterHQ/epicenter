@@ -16,10 +16,12 @@
  * - A note that does not fit is listed with its source, and an edit keeps unnamed fields
  * - A failed open shows the error, and Try again opens again
  * - Open in another tab offers Use here; waiting and moved say so
+ * - A change the server could not take is a notice, with its text, until dismissed
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
-import { createRepository, type EnginePort, offlineTransport, openEngine, WriteError } from '@epicenter/repository';
+import { createRepository, type EnginePort, offlineTransport, openEngine, type Transport, WriteError } from '@epicenter/repository';
+import { Ok } from 'wellcrafted/result';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { blur, button, click, setWide, type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { todosApp } from '../../lib/definition.js';
@@ -353,4 +355,27 @@ test('a repository open in another tab offers Use here, and a moved one says so'
 	held.set({ status: 'moved', useHere: () => used++ });
 	await until(() => opened.target.textContent?.includes('Todos moved to another tab') ?? false, 'the moved notice');
 	expect(opened.target.querySelector(LIST)).toBeNull();
+});
+
+test('a change the server could not take is shown as a notice, with its text to copy, until dismissed', async () => {
+	const transport: Transport = {
+		connect: () => ({
+			connected: () => true,
+			hello: async () => Ok({ kind: 'changes' as const, seq: 0, files: [] }),
+			push: async () => Ok({ kind: 'refused' as const, path: '', reason: 'batch 1 arrived after 3', overlaps: [] }),
+			close() {},
+		}),
+	};
+	const engine = openEngine({ app: todosApp, driver: openBunSqlite(), transport });
+	cleanup.push(() => engine.close());
+	const opened = mountPage(() => owning(createRepository(todosApp, engine)));
+	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
+	type(opened.get('[aria-label="New todo title"]'), 'Buy tea');
+	flushSync();
+	click(opened.get(LIST), 'Add');
+	await until(() => opened.text('[aria-label="Notices"]')?.includes('could not be saved to the server') ?? false, 'the notice');
+	expect(opened.text('[aria-label="Notices"]')).toContain('batch 1 arrived after 3');
+	expect(button(opened.target, 'Copy text')).toBeDefined();
+	press(button(opened.target, 'Dismiss'));
+	await until(() => opened.target.querySelector('[aria-label="Notices"]') === null, 'the notice to go');
 });

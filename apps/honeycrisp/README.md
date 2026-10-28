@@ -81,8 +81,13 @@ page is hidden or frozen, so only a keystroke made in the same instant as
 closing the tab can be lost. Edits made offline wait in the
 repository's outbox and are sent when the server is reachable; while an edit
 to a note is unsent, later ones replace it, so typing sends one batch per send.
-Edits from elsewhere merge with them. If the engine refuses a write, Honeycrisp
-says so in a toast and the controls show the stored note again.
+Edits from elsewhere merge with them. An edit resolves once it is saved on this
+device; if the engine cannot save it, Honeycrisp says so in a toast and the
+controls show the stored note again. What the server later does with a saved
+edit that the person should know, such as a rename onto a name another note
+took, or an edit saved as a copy because its note was deleted and its name
+reused, appears under the header as a notice until dismissed. A change the
+server could not take keeps the text this device showed, to copy.
 
 A note's fields are controls above its body: title, folder, and pin. The
 body is edited in CodeMirror 6 as the Markdown text itself, in a live-preview
