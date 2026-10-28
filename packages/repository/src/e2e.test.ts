@@ -26,6 +26,7 @@ import { createInProcessTransport } from './bun/transport.js';
 import { defineApp } from './define.js';
 import { openRepository } from './engine/engine.js';
 import { createMemoryBlobStore } from './engine/ports.js';
+import type { OnOverlap } from './policy.js';
 import { MAIN, sequenceOf } from './server/git-store.js';
 import { createRepositoryServer, type ServerOptions } from './server/server.js';
 
@@ -47,8 +48,8 @@ async function setup(options: Partial<ServerOptions> = {}) {
 	let clock = Date.parse('2026-10-28T12:00:00Z');
 	const server = createRepositoryServer({ driver: openBunSqlite(), git, now: () => clock, ...options });
 	const blobs = createMemoryBlobStore();
-	const device = (name: string, user: string, agent = false) => {
-		const transport = createInProcessTransport(server, { user, agent });
+	const device = (name: string, user: string, onOverlap: OnOverlap = 'mark') => {
+		const transport = createInProcessTransport(server, { user, onOverlap });
 		const repo = openRepository({ app, driver: openBunSqlite(), transport, device: name, blobs });
 		return { repo, transport };
 	};
@@ -105,7 +106,7 @@ test('an offline edit on each device merges on reconnect', async () => {
 test('a true overlap becomes a marker block for people and a refusal for an agent', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'pet' }, { body: 'cat\n' }));
-	const agent = t.device('agent-1', 'claude', true);
+	const agent = t.device('agent-1', 'claude', 'refuse');
 	await agent.repo.flush();
 	t.bob.transport.setOnline(false);
 	agent.transport.setOnline(false);
@@ -172,7 +173,10 @@ test('for people, a delete versus an edit keeps the edit', async () => {
 	expect(text(t.alice.repo, 'keep')).toBeNull();
 	expectOk(await t.bob.repo.notes.write({ stem: 'keep' }, { body: 'v2\n' }));
 	t.alice.transport.setOnline(true);
-	expect(expectOk(await deleted)).toMatchObject({ kind: 'applied', change: { editKept: true } });
+	expect(expectOk(await deleted)).toMatchObject({
+		kind: 'applied',
+		change: { overlaps: [{ unit: 'file', clash: 'deleted', settled: 'edit-kept' }] },
+	});
 	expect(text(t.alice.repo, 'keep')).toBe('v2\n');
 	expect(text(t.bob.repo, 'keep')).toBe('v2\n');
 	await t.cleanup();

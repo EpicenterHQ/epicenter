@@ -32,9 +32,10 @@ export type {
 	Broadcast,
 	Change,
 	ChangeOutcome,
-	Dropped,
+	ContentOverlap,
 	FileState,
 	Overlap,
+	SettledOverlap,
 	Welcome,
 } from './protocol.js';
 export type { SqlDriver, SqlValue } from './sql.js';

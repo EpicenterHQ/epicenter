@@ -10,6 +10,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { gitBlobHash } from '../hash.js';
 import { merge, withMarkers } from '../merge.js';
+import { type OnOverlap, settle } from '../policy.js';
 import type {
 	Batch,
 	BatchOutcome,
@@ -46,8 +47,11 @@ const ServerDiagnostic = defineErrors({
 export type Peer = {
 	device: string;
 	user: string;
-	/** Agents get refusals instead of conflict markers. */
-	agent?: boolean;
+	/**
+	 * What an overlap does to this peer's batches: a device's optimistic writes
+	 * are `'mark'`ed and always land; a push or an awaited call is `'refuse'`d.
+	 */
+	onOverlap: OnOverlap;
 	onBroadcast?: (broadcast: Broadcast) => void;
 };
 
@@ -63,7 +67,7 @@ export type ServerOptions = {
 	commitAfterMs?: number;
 	/**
 	 * When an applied batch is acknowledged: right away from the overlay, or
-	 * after its commit lands in Git. See `settle`.
+	 * after its commit lands in Git. See `beforeAck`.
 	 */
 	durability?: 'overlay' | 'commit-before-ack';
 	identify?: (user: string) => Signature;
@@ -245,25 +249,23 @@ export function createRepositoryServer({
 		const outcome = (change: Partial<ChangeOutcome> & { path: string }): ChangeOutcome => ({
 			at: null,
 			hash: null,
-			overlaps: [],
-			dropped: [],
-			editKept: false,
 			movedTo: null,
-			stale: false,
+			overlaps: [],
 			...change,
 		});
-		const stale = (path: string) => outcome({ path, stale: true });
 
 		for (const change of batch.changes) {
 			if (change.kind === 'move') {
 				const from = trace(change.from, batch.seq);
 				const text = from.recreated ? null : read(from.path);
 				if (text === null) {
-					if (peer.agent) return refuse(change.from, 'the file to move is gone');
-					outcomes.push(stale(change.from));
+					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], peer.onOverlap);
+					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
+					outcomes.push(outcome({ path: change.from, overlaps: decision.overlaps }));
 					continue;
 				}
-				if (read(change.to) !== null) return refuse(change.to, 'the destination is taken');
+				if (read(change.to) !== null)
+					return refuse(change.to, 'the destination is taken', [{ unit: 'path', clash: 'taken', relocatedTo: null }]);
 				work.set(from.path, null);
 				work.set(change.to, text);
 				history.push({ kind: 'move', path: from.path, dest: change.to });
@@ -282,21 +284,18 @@ export function createRepositoryServer({
 
 			const traced = trace(change.path, batch.seq);
 			const movedTo = traced.path === change.path ? null : traced.path;
-			if (traced.recreated) {
-				if (peer.agent) return refuse(change.path, 'the file was deleted and its path reused');
-				outcomes.push(stale(change.path));
+			const target = traced.path;
+			const existing = traced.recreated ? null : read(target);
+			if (traced.recreated || (change.kind === 'append' && existing === null)) {
+				const clash = traced.recreated ? 'reused' : 'gone';
+				const decision = settle([{ unit: 'path', clash, relocatedTo: null }], peer.onOverlap);
+				if (decision.kind === 'refuse') return refuse(change.path, decision.reason, decision.overlaps);
+				outcomes.push(outcome({ path: change.path, overlaps: decision.overlaps }));
 				continue;
 			}
-			const target = traced.path;
-			const existing = read(target);
 
 			if (change.kind === 'append') {
-				if (existing === null) {
-					if (peer.agent) return refuse(change.path, 'the file to append to is gone');
-					outcomes.push(stale(change.path));
-					continue;
-				}
-				const text = existing + change.text;
+				const text = (existing ?? '') + change.text;
 				work.set(target, text);
 				outcomes.push(outcome({ path: change.path, at: target, hash: gitBlobHash(text), text, movedTo }));
 				continue;
@@ -317,16 +316,11 @@ export function createRepositoryServer({
 			}
 			if (change.text !== null) seenTexts.add(change.text);
 			const result = merge(baseText, existing, change.text);
-			let text = result.text;
-			let editKept = false;
-			if (result.deleteEdit !== null) {
-				if (peer.agent) return refuse(change.path, 'a delete and an edit of the same file');
-				editKept = true;
-			}
-			if (result.overlaps.length > 0) {
-				if (peer.agent) return refuse(change.path, 'the change overlaps changes since its base', result.overlaps);
-				text = withMarkers(result, { current: writerOf(target), incoming: incomingLabel });
-			}
+			const decision = settle(result.overlaps, peer.onOverlap);
+			if (decision.kind === 'refuse') return refuse(change.path, decision.reason, decision.overlaps);
+			const text = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block')
+				? withMarkers(result, { current: writerOf(target), incoming: incomingLabel })
+				: result.text;
 			if (existing === null && text !== null) history.push({ kind: 'create', path: target, dest: null });
 			if (existing !== null && text === null) history.push({ kind: 'delete', path: target, dest: null });
 			work.set(target, text);
@@ -336,10 +330,8 @@ export function createRepositoryServer({
 					at: text === null ? null : target,
 					hash: text === null ? null : gitBlobHash(text),
 					...(text === change.text ? {} : { text }),
-					overlaps: result.overlaps,
-					dropped: result.dropped,
-					editKept,
 					movedTo,
+					overlaps: decision.overlaps,
 				}),
 			);
 		}
@@ -415,7 +407,7 @@ export function createRepositoryServer({
 	 * deployed spike is measuring whether committing every batch before its
 	 * acknowledgment keeps up; if it does, the overlay can go.
 	 */
-	async function settle() {
+	async function beforeAck() {
 		if (durability === 'commit-before-ack') await commitNow();
 	}
 
@@ -502,7 +494,7 @@ export function createRepositoryServer({
 		return { kind: 'snapshot', seq: serverSeq, files };
 	}
 
-	const core: ServerCore = { git, loadMain, gitText, applyBatch, commitNow, settle, broadcast };
+	const core: ServerCore = { git, loadMain, gitText, applyBatch, commitNow, broadcast };
 
 	return {
 		/** Connect a device or agent; batches it sends are stamped with its user. */
@@ -515,7 +507,7 @@ export function createRepositoryServer({
 						prune();
 						const { outcome, broadcast: message } = await applyBatch(batch, peer);
 						if (message !== null) {
-							await settle();
+							await beforeAck();
 							broadcast(message, peer);
 						}
 						return outcome;
@@ -554,6 +546,5 @@ export type ServerCore = {
 	gitText(oid: string): Promise<string | null>;
 	applyBatch(batch: Batch, peer: Peer, numbered?: boolean): Promise<{ outcome: BatchOutcome; broadcast: Broadcast | null }>;
 	commitNow(extraParents?: string[]): Promise<Result<Committed | null, CommitError>>;
-	settle(): Promise<void>;
 	broadcast(message: Broadcast, from: Peer | null): void;
 };

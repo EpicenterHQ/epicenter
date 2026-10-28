@@ -337,7 +337,7 @@ export function openRepository<const TDefs extends Definitions>({
 		put(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
 	}
 
-	function settle(n: number, entries: Entry[], outcome: BatchOutcome) {
+	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
 		let settled: Settled[];
 		driver.transaction(() => {
 			if (outcome.kind === 'applied') {
@@ -345,7 +345,8 @@ export function openRepository<const TDefs extends Definitions>({
 				for (const [index, entry] of entries.entries()) {
 					const change = outcome.changes[index];
 					if (change === undefined) continue;
-					if (change.stale) stale.push(entry);
+					// A path clash with nowhere to go found nothing to apply to.
+					if (change.overlaps.some((o) => o.unit === 'path' && o.relocatedTo === null)) stale.push(entry);
 					else acknowledge(n, entry, change, outcome.seq);
 				}
 				driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
@@ -456,7 +457,7 @@ export function openRepository<const TDefs extends Definitions>({
 				answer.data.kind === 'need-base'
 					? { kind: 'refused', path: answer.data.paths[0] ?? '', reason: 'the server has no base for this change', overlaps: [] }
 					: answer.data;
-			settle(next.n, entries, outcome);
+			conclude(next.n, entries, outcome);
 		}
 	}
 

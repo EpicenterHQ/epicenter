@@ -5,19 +5,37 @@
  */
 
 /**
- * A span both sides changed. `start` and `end` are offsets in the merged text,
- * which holds `current` there; `base` and `incoming` are the competing spans.
+ * Something both sides changed, and how the merge left it. Every kind of
+ * clash is one of these, so one policy (`settle`) decides them all.
  */
-export type Overlap = {
-	base: string;
-	current: string;
-	incoming: string;
-	start: number;
-	end: number;
-};
+export type Overlap =
+	/**
+	 * Lines or words both sides changed. `start` and `end` are offsets in the
+	 * merged text, which holds `current` there.
+	 */
+	| { unit: 'body'; base: string; current: string; incoming: string; start: number; end: number }
+	/** The same, where a side's span holds an existing conflict block. */
+	| { unit: 'block'; base: string; current: string; incoming: string; start: number; end: number }
+	/** A frontmatter key both sides changed. A missing value means the key was absent. */
+	| { unit: 'field'; key: string; base?: unknown; current?: unknown; incoming?: unknown }
+	/** One side deleted the file and the other edited it. */
+	| { unit: 'file'; clash: 'deleted'; side: 'current' | 'incoming' }
+	/** Both sides created the file. */
+	| { unit: 'file'; clash: 'created' }
+	/**
+	 * The path a change named no longer holds its note: it was deleted and
+	 * `reused` by another, a move's destination is `taken`, or a move's note is
+	 * `gone`. `relocatedTo` is where the server put the change instead.
+	 */
+	| { unit: 'path'; clash: 'reused' | 'taken' | 'gone'; relocatedTo: string | null };
 
-/** A frontmatter key both sides set: `current` was kept, `incoming` dropped. */
-export type Dropped = { key: string; current: unknown; incoming: unknown };
+/** What the merge itself reports: every overlap but a path clash, which the server finds. */
+export type ContentOverlap = Exclude<Overlap, { unit: 'path' }>;
+
+/** How an overlap was settled when the change landed, so the record says what happened. */
+export type SettledOverlap = Overlap & {
+	settled: 'marked' | 'current-kept' | 'edit-kept' | 'joined' | 'relocated' | 'dropped';
+};
 
 /**
  * What a write was based on: the hash the device held for the file. `text` is
@@ -49,14 +67,9 @@ export type ChangeOutcome = {
 	hash: string | null;
 	/** The file's text when it differs from a write's text; always for a move or append. */
 	text?: string | null;
-	overlaps: Overlap[];
-	dropped: Dropped[];
-	/** A delete lost to an edit it had not seen. */
-	editKept: boolean;
 	/** The path followed a move made after the batch's position. */
 	movedTo: string | null;
-	/** The change found nothing to apply to (an append or move after a delete). */
-	stale: boolean;
+	overlaps: SettledOverlap[];
 };
 
 export type BatchOutcome =

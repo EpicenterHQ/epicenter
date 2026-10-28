@@ -9,14 +9,17 @@
  * Key behaviors:
  * - Neighboring line edits, separate sentence edits and same-point appends merge
  * - A true overlap is reported, never blended (cat/cart/coat)
- * - Frontmatter merges by parsed key; a clash keeps current and records incoming
- * - Two creates merge fields and keep both bodies; delete versus edit is signalled
+ * - Frontmatter merges by parsed key; a clash keeps current and reports a field overlap
+ * - Two creates merge fields and keep both bodies; delete versus edit is a file overlap
  * - Large notes merge in bounded memory
  */
 import { describe, expect, test } from 'bun:test';
-import { merge, parseConflicts, withMarkers } from './merge.js';
+import { type ContentOverlap, merge, parseConflicts, withMarkers } from './merge.js';
 
 const labels = { current: 'current', incoming: 'incoming' };
+/** Body and block overlaps: the ones with spans in the text. */
+const spans = (overlaps: ContentOverlap[]) =>
+	overlaps.flatMap((o) => (o.unit === 'body' || o.unit === 'block' ? [o] : []));
 
 describe('examples', () => {
 	test('adjacent checkbox edits both survive', () => {
@@ -56,21 +59,20 @@ describe('examples', () => {
 		expect(r.text).not.toContain('coart');
 	});
 
-	test('a frontmatter clash keeps current and records incoming', () => {
+	test('a frontmatter clash keeps current and reports a field overlap', () => {
 		const r = merge(
 			'---\ntitle: Old\ntags: a\n---\nBody\n',
 			'---\ntitle: Current\ntags: a\n---\nBody\n',
 			'---\ntitle: Incoming\ntags: b\n---\nBody\n',
 		);
 		expect(r.text).toBe('---\ntitle: Current\ntags: b\n---\nBody\n');
-		expect(r.dropped).toEqual([{ key: 'title', current: 'Current', incoming: 'Incoming' }]);
-		expect(r.overlaps).toHaveLength(0);
+		expect(r.overlaps).toEqual([{ unit: 'field', key: 'title', base: 'Old', current: 'Current', incoming: 'Incoming' }]);
 	});
 
 	test('frontmatter compares parsed values, so formatting is not a clash', () => {
 		const r = merge('---\na: 1\nb: x\n---\n', "---\na: 1\nb: 'x'  # quoted\n---\n", '---\na: 2\nb: x\n---\n');
 		expect(r.text).toBe("---\na: 2\nb: 'x'  # quoted\n---\n");
-		expect(r.dropped).toEqual([]);
+		expect(r.overlaps).toEqual([]);
 	});
 
 	test('a settings-style set on each side merges by key', () => {
@@ -94,13 +96,19 @@ describe('examples', () => {
 		expect(merge(null, 'Same\n', 'Same\n').text).toBe('Same\n');
 	});
 
-	test('delete versus edit signals the deleted side and returns the edit', () => {
-		expect(merge('before', null, 'edited')).toMatchObject({ text: 'edited', deleteEdit: { deleted: 'current' } });
-		expect(merge('before', 'edited', null)).toMatchObject({ text: 'edited', deleteEdit: { deleted: 'incoming' } });
+	test('delete versus edit returns the edit and names the deleted side', () => {
+		expect(merge('before', null, 'edited')).toEqual({
+			text: 'edited',
+			overlaps: [{ unit: 'file', clash: 'deleted', side: 'current' }],
+		});
+		expect(merge('before', 'edited', null)).toEqual({
+			text: 'edited',
+			overlaps: [{ unit: 'file', clash: 'deleted', side: 'incoming' }],
+		});
 	});
 
-	test('a one-sided create has no delete-versus-edit signal', () => {
-		expect(merge(null, null, 'New\n')).toMatchObject({ text: 'New\n', deleteEdit: null });
+	test('a one-sided create is no overlap', () => {
+		expect(merge(null, null, 'New\n')).toEqual({ text: 'New\n', overlaps: [] });
 	});
 
 	test('CRLF output follows current for independent edits', () => {
@@ -116,7 +124,7 @@ describe('examples', () => {
 	test('an overlap in a body after frontmatter has offsets past the header', () => {
 		const r = merge('---\na: 1\n---\ncat\n', '---\na: 1\n---\ncart\n', '---\na: 2\n---\ncoat\n');
 		expect(r.text).toBe('---\na: 2\n---\ncart\n');
-		const [overlap] = r.overlaps;
+		const [overlap] = spans(r.overlaps);
 		expect(r.text?.slice(overlap?.start, overlap?.end)).toBe('cart');
 		expect(withMarkers(r, labels)).toBe(
 			'---\na: 2\n---\n<<<<<<< current\ncart\n||||||| base\ncat\n=======\ncoat\n>>>>>>> incoming\n',
@@ -205,7 +213,7 @@ describe('properties', () => {
 		for (const [b, c, i] of CASES) {
 			const r = merge(b, c, i);
 			for (const token of new Set([...tokens(c), ...tokens(i)].filter((t) => !tokens(b).includes(t)))) {
-				if (r.overlaps.some((o) => tokens(o.current).includes(token) || tokens(o.incoming).includes(token)))
+				if (spans(r.overlaps).some((o) => tokens(o.current).includes(token) || tokens(o.incoming).includes(token)))
 					continue;
 				expect(count(r.text ?? '', token)).toBe(1);
 			}
@@ -216,7 +224,7 @@ describe('properties', () => {
 		for (const [b, c, i] of CASES) {
 			const r = merge(b, c, i);
 			for (const token of tokens(b).filter((t) => tokens(c).includes(t) && tokens(i).includes(t))) {
-				if (r.overlaps.some((o) => tokens(o.base).includes(token))) continue;
+				if (spans(r.overlaps).some((o) => tokens(o.base).includes(token))) continue;
 				expect(count(r.text ?? '', token)).toBe(1);
 			}
 		}

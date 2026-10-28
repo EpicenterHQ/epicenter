@@ -1,7 +1,7 @@
 /**
  * An agent's `git push`. The pushed commits are not replayed: the net change
  * from the merge base with `main` to the pushed commit becomes one batch under
- * the agent policy, and the result is committed with the pushed commit as a
+ * the `'refuse'` policy, and the result is committed with the pushed commit as a
  * parent, so the agent's history stays in `main`.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
@@ -108,7 +108,7 @@ export async function receivePush(
 	if (changes.length === 0) return Ok({ kind: 'unchanged' });
 
 	const batch = { device: 'git-push', n: 0, seq: baseOid === null ? 0 : await sequenceAt(core, baseOid), changes };
-	const peer = { device: 'git-push', user, agent: true };
+	const peer = { device: 'git-push', user, onOverlap: 'refuse' as const };
 	const { outcome, broadcast } = await core.applyBatch(batch, peer, false);
 	if (outcome.kind === 'refused') return refuse(core, outcome.path, outcome.reason, outcome.overlaps);
 	if (outcome.kind !== 'applied' || broadcast === null)

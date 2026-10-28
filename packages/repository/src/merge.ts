@@ -2,29 +2,27 @@
  * The Epicenter merge: one pure function that merges a write against its base.
  * The server, devices replaying unsent edits, and the CLI all use it.
  *
- * - Frontmatter merges by key. On a clash the current value wins and the
- *   incoming one is recorded in `dropped`; no markers ever go into frontmatter.
+ * - Frontmatter merges by key. On a clash the current value wins; no markers
+ *   ever go into frontmatter.
  * - The body merges by line, so edits on neighboring lines do not conflict;
  *   lines both sides changed merge again by word, so letters never blend.
  *   Two insertions at one point are both kept, current first.
  * - Two creates at one path merge fields and keep both bodies.
- * - A delete against an edit returns the edit and names the deleted side.
+ * - A delete against an edit returns the edit.
  *
- * What still overlaps is reported, not decided: `withMarkers` is the people
- * policy, and an agent batch is refused when `overlaps` is not empty.
+ * The text is already settled the people's way, except that body overlaps hold
+ * `current`. Every clash is reported in `overlaps`, and `settle` decides what
+ * they mean: `withMarkers` writes the body ones as conflict blocks.
  */
 import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
-import type { Dropped, Overlap } from './protocol.js';
+import type { ContentOverlap } from './protocol.js';
 
-export type { Dropped, Overlap } from './protocol.js';
+export type { ContentOverlap, Overlap } from './protocol.js';
 
 export type MergeResult = {
 	/** The merged text; null when the file ends up deleted. */
 	text: string | null;
-	overlaps: Overlap[];
-	dropped: Dropped[];
-	/** Set when one side deleted the file and the other edited it. */
-	deleteEdit: { deleted: 'current' | 'incoming' } | null;
+	overlaps: ContentOverlap[];
 };
 
 const lf = (text: string) => text.replaceAll('\r\n', '\n');
@@ -32,12 +30,9 @@ const styled = (text: string, current: string | null) =>
 	current?.includes('\r\n') ? text.replaceAll('\n', '\r\n') : text;
 const same = (a: string[], b: string[]) =>
 	a.length === b.length && a.every((item, index) => item === b[index]);
-const clean = (text: string | null): MergeResult => ({
-	text,
-	overlaps: [],
-	dropped: [],
-	deleteEdit: null,
-});
+const clean = (text: string | null): MergeResult => ({ text, overlaps: [] });
+type SpanOverlap = Extract<ContentOverlap, { unit: 'body' | 'block' }>;
+const isSpan = (overlap: ContentOverlap): overlap is SpanOverlap => overlap.unit === 'body' || overlap.unit === 'block';
 
 /**
  * Merge `incoming` into `current`, both descended from `base`. null means no
@@ -55,7 +50,10 @@ export function merge(
 	if (base === null && (current === null || incoming === null))
 		return clean(current ?? incoming);
 	if (current === null || incoming === null)
-		return { ...clean(current ?? incoming), deleteEdit: { deleted: current === null ? 'current' : 'incoming' } };
+		return {
+			text: current ?? incoming,
+			overlaps: [{ unit: 'file', clash: 'deleted', side: current === null ? 'current' : 'incoming' }],
+		};
 
 	const result = markdown(base === null ? null : lf(base), lf(current), lf(incoming));
 	if (!current.includes('\r\n')) return result;
@@ -65,13 +63,18 @@ export function merge(
 	return {
 		...result,
 		text: styled(merged, current),
-		overlaps: result.overlaps.map((overlap) => ({
-			start: overlap.start + crsBefore(overlap.start),
-			end: overlap.end + crsBefore(overlap.end),
-			base: styled(overlap.base, current),
-			current: styled(overlap.current, current),
-			incoming: styled(overlap.incoming, current),
-		})),
+		overlaps: result.overlaps.map((overlap) =>
+			isSpan(overlap)
+				? {
+						...overlap,
+						start: overlap.start + crsBefore(overlap.start),
+						end: overlap.end + crsBefore(overlap.end),
+						base: styled(overlap.base, current),
+						current: styled(overlap.current, current),
+						incoming: styled(overlap.incoming, current),
+					}
+				: overlap,
+		),
 	};
 }
 
@@ -84,7 +87,7 @@ function markdown(base: string | null, current: string, incoming: string): Merge
 		return finish(bodyParts(base ?? '', current, incoming), []);
 	}
 	const baseFields = b?.data.fields ?? {};
-	const { chosen, dropped } = chooseFields(baseFields, c.data.fields, i.data.fields);
+	const { chosen, clashes } = chooseFields(baseFields, c.data.fields, i.data.fields);
 	const parts: Part[] =
 		b === null
 			? [{ text: joinCreates(c.data.body, i.data.body) }]
@@ -97,7 +100,7 @@ function markdown(base: string | null, current: string, incoming: string): Merge
 	// Current parsed, so writing its own fields back cannot fail.
 	if (written.error !== null) return finish(bodyParts(base ?? '', current, incoming), []);
 	const header = written.data.slice(0, splitMarkdown(written.data).bodyStart);
-	return finish(parts, dropped, header);
+	return finish(parts, clashes, header);
 }
 
 function chooseFields(
@@ -106,7 +109,7 @@ function chooseFields(
 	incoming: Record<string, unknown>,
 ) {
 	const chosen: Record<string, unknown> = {};
-	const dropped: Dropped[] = [];
+	const clashes: ContentOverlap[] = [];
 	for (const key of new Set([...Object.keys(current), ...Object.keys(incoming), ...Object.keys(base)])) {
 		const b = base[key];
 		const c = current[key];
@@ -116,11 +119,17 @@ function chooseFields(
 		else if (sameValue(c, b)) value = i;
 		else {
 			value = c;
-			dropped.push({ key, current: c ?? null, incoming: i ?? null });
+			clashes.push({
+				unit: 'field',
+				key,
+				...(b === undefined ? {} : { base: b }),
+				...(c === undefined ? {} : { current: c }),
+				...(i === undefined ? {} : { incoming: i }),
+			});
 		}
 		if (value !== undefined) chosen[key] = value;
 	}
-	return { chosen, dropped };
+	return { chosen, clashes };
 }
 
 /** Two creates at one path keep both bodies, current first, a blank line apart. */
@@ -132,9 +141,9 @@ function joinCreates(current: string, incoming: string) {
 
 type Part = { text: string } | { overlap: { base: string; current: string; incoming: string } };
 
-function finish(parts: Part[], dropped: Dropped[], header = ''): MergeResult {
+function finish(parts: Part[], fields: ContentOverlap[], header = ''): MergeResult {
 	let text = header;
-	const overlaps: Overlap[] = [];
+	const overlaps: ContentOverlap[] = [...fields];
 	for (const part of parts) {
 		if ('text' in part) {
 			text += part.text;
@@ -142,9 +151,11 @@ function finish(parts: Part[], dropped: Dropped[], header = ''): MergeResult {
 		}
 		const start = text.length;
 		text += part.overlap.current;
-		overlaps.push({ ...part.overlap, start, end: text.length });
+		const { base, current, incoming } = part.overlap;
+		const unit = current.includes('<<<<<<< ') || incoming.includes('<<<<<<< ') ? 'block' : 'body';
+		overlaps.push({ unit, base, current, incoming, start, end: text.length });
 	}
-	return { text, overlaps, dropped, deleteEdit: null };
+	return { text, overlaps };
 }
 
 // ============================================================================
@@ -384,7 +395,7 @@ function uniqueAnchors(
 export type MarkerLabels = { current: string; incoming: string };
 
 /**
- * Write each overlap as a Git conflict block with a base section, current
+ * Write each body overlap as a Git conflict block with a base section, current
  * (earlier in server order) first. A block already in the text is left as is,
  * so blocks never nest.
  */
@@ -396,8 +407,9 @@ export function withMarkers(result: MergeResult, labels: MarkerLabels): string |
 	let out = '';
 	let at = 0;
 	for (const overlap of result.overlaps) {
+		if (!isSpan(overlap)) continue;
 		out += result.text.slice(at, overlap.start);
-		if (overlap.current.includes('<<<<<<< ') || overlap.incoming.includes('<<<<<<< ')) {
+		if (overlap.unit === 'block') {
 			out += overlap.current;
 			at = overlap.end;
 			continue;

@@ -7,7 +7,7 @@
  * `e2e.test.ts`; these pin the server's own contract.
  *
  * Key behaviors:
- * - People's overlaps become marker blocks in server order; agents are refused
+ * - `'mark'` overlaps become marker blocks in server order; `'refuse'` refuses the batch
  * - A retried batch returns its recorded outcome; a gap is refused
  * - An unknown base answers need-base, and the resent base applies
  * - Bases older than the window answer expired unless the file is unchanged
@@ -40,9 +40,9 @@ async function setup(options: Partial<ServerOptions> = {}) {
 		...options,
 	});
 	const heard: Broadcast[] = [];
-	const alice = server.connect({ device: 'alice-laptop', user: 'alice' });
-	const bob = server.connect({ device: 'bob-phone', user: 'bob', onBroadcast: (b) => heard.push(b) });
-	const agent = server.connect({ device: 'agent-1', user: 'claude', agent: true });
+	const alice = server.connect({ device: 'alice-laptop', user: 'alice', onOverlap: 'mark' });
+	const bob = server.connect({ device: 'bob-phone', user: 'bob', onOverlap: 'mark', onBroadcast: (b) => heard.push(b) });
+	const agent = server.connect({ device: 'agent-1', user: 'claude', onOverlap: 'refuse' });
 	const numbers = new Map<string, number>();
 	const batch = (device: string, seq: number, ...changes: Change[]): Batch => {
 		const n = (numbers.get(device) ?? 0) + 1;
@@ -104,7 +104,7 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
-	test("an agent's overlap is refused and changes nothing", async () => {
+	test("a 'refuse' peer's overlap is refused and changes nothing", async () => {
 		const t = await setup();
 		const seq = await seed(t, 'notes/a.md', 'cat\n');
 		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'cat\n', 'cart\n')));
@@ -114,6 +114,30 @@ describe('batches', () => {
 		expect(outcome).toMatchObject({ kind: 'refused', path: 'notes/a.md', overlaps: [{ current: 'cart', incoming: 'coat' }] });
 		expect(await t.server.read('notes/b.md')).toBeNull();
 		expect(t.server.sequence()).toBe(2);
+		await t.cleanup();
+	});
+
+	test("a field both sides changed keeps current for 'mark' and refuses 'refuse'", async () => {
+		const t = await setup();
+		const seq = await seed(t, 'notes/a.md', '---\nstatus: todo\n---\nx\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', '---\nstatus: todo\n---\nx\n', '---\nstatus: done\n---\nx\n')));
+		const refused = await t.agent.push(
+			t.batch('agent-1', seq, t.write('notes/a.md', '---\nstatus: todo\n---\nx\n', '---\nstatus: wontfix\n---\nx\n')),
+		);
+		expect(refused).toMatchObject({
+			kind: 'refused',
+			path: 'notes/a.md',
+			reason: "the field 'status' changed on both sides",
+			overlaps: [{ unit: 'field', key: 'status', base: 'todo', current: 'done', incoming: 'wontfix' }],
+		});
+		const marked = await t.bob.push(
+			t.batch('bob-phone', seq, t.write('notes/a.md', '---\nstatus: todo\n---\nx\n', '---\nstatus: wontfix\n---\nx\n')),
+		);
+		expect(marked).toMatchObject({
+			kind: 'applied',
+			changes: [{ overlaps: [{ unit: 'field', key: 'status', current: 'done', incoming: 'wontfix', settled: 'current-kept' }] }],
+		});
+		expect(await t.server.read('notes/a.md')).toBe('---\nstatus: done\n---\nx\n');
 		await t.cleanup();
 	});
 
@@ -174,7 +198,10 @@ describe('batches', () => {
 		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'old\n', null)));
 		await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('notes/a.md', null, 'different note\n')));
 		const edit = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'old\n', 'old edited\n')));
-		expect(edit).toMatchObject({ kind: 'applied', changes: [{ stale: true }] });
+		expect(edit).toMatchObject({
+			kind: 'applied',
+			changes: [{ at: null, overlaps: [{ unit: 'path', clash: 'reused', relocatedTo: null, settled: 'dropped' }] }],
+		});
 		expect(await t.server.read('notes/a.md')).toBe('different note\n');
 		await t.cleanup();
 	});
@@ -184,7 +211,10 @@ describe('batches', () => {
 		const seq = await seed(t, 'notes/a.md', 'v1\n');
 		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'v1\n', 'v2\n')));
 		const outcome = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'v1\n', null)));
-		expect(outcome).toMatchObject({ kind: 'applied', changes: [{ editKept: true, at: 'notes/a.md', text: 'v2\n' }] });
+		expect(outcome).toMatchObject({
+			kind: 'applied',
+			changes: [{ at: 'notes/a.md', text: 'v2\n', overlaps: [{ unit: 'file', clash: 'deleted', side: 'incoming', settled: 'edit-kept' }] }],
+		});
 		expect(await t.server.read('notes/a.md')).toBe('v2\n');
 		await t.cleanup();
 	});
