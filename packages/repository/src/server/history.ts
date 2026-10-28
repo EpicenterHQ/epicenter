@@ -13,7 +13,8 @@
 import { first, type SqlDriver } from '../sql.js';
 
 export type PathEvent =
-	| { kind: 'create' | 'delete'; path: string }
+	/** `restore`: an edit brought back the deleted note at its own path. */
+	| { kind: 'create' | 'restore' | 'delete'; path: string }
 	| { kind: 'move'; path: string; dest: string }
 	/**
 	 * A change made before sequence `before` that addresses `path` means the
@@ -77,7 +78,8 @@ export function createPathHistory(driver: SqlDriver) {
 				}
 				if (reused) continue;
 				if (deleted) {
-					if ((row.kind === 'create' && row.path === at) || (row.kind === 'move' && row.dest === at)) reused = true;
+					if (row.kind === 'restore' && row.path === at) deleted = false;
+					else if ((row.kind === 'create' && row.path === at) || (row.kind === 'move' && row.dest === at)) reused = true;
 					continue;
 				}
 				if (row.kind === 'move' && row.path === at && row.dest !== null) at = row.dest;
@@ -94,7 +96,7 @@ export function createPathHistory(driver: SqlDriver) {
 			return (
 				first<{ seq: number }>(
 					driver,
-					"SELECT seq FROM history WHERE (kind = 'create' AND path = ?) OR (kind IN ('move', 'relocate') AND dest = ?) ORDER BY seq DESC, id DESC LIMIT 1",
+					"SELECT seq FROM history WHERE (kind IN ('create', 'restore') AND path = ?) OR (kind IN ('move', 'relocate') AND dest = ?) ORDER BY seq DESC, id DESC LIMIT 1",
 					[path, path],
 				)?.seq ?? null
 			);

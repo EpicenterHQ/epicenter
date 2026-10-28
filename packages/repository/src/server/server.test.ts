@@ -313,6 +313,71 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
+	test('an edit that brought a deleted note back is the same note to later edits (bug A)', async () => {
+		// Probe A: Alice deletes; Bob's unseen edit resurrects; Carol's unseen
+		// edit used to be treated as aimed at a different note.
+		const t = await setup();
+		const seq = await seed(t, 'n.md', 'v1\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('n.md', 'v1\n', null)));
+		await t.bob.push(t.batch('bob-phone', seq, t.write('n.md', 'v1\n', 'v1 bob\n')));
+		const carol = t.server.connect({ device: 'carol-tablet', user: 'carol', onOverlap: 'mark' });
+		const outcome = await carol.push({ device: 'carol-tablet', n: 1, seq, changes: [t.write('n.md', 'v1\n', 'carol v1\n')] });
+		expect(outcome).toMatchObject({ kind: 'applied', changes: [{ at: 'n.md', overlaps: [] }] });
+		expect(await t.server.read('n.md')).toBe('carol v1 bob\n');
+		expect(await t.server.read('n (carol, 2026-10-28).md')).toBeNull();
+		await t.cleanup();
+	});
+
+	test('past the window, an append aimed at a path a different note took becomes a sibling (bug B)', async () => {
+		// Probe B: the append used to land on the different note.
+		const t = await setup();
+		const seq = await seed(t, 'n.md', 'old note\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('n.md', 'old note\n', null)));
+		await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('n.md', null, 'different note\n')));
+		t.advance(8 * 24 * 3600e3);
+		await seed(t, 'x.md', 'x\n'); // prunes the window
+		const refused = await t.agent.push(t.batch('agent-1', seq, t.append('n.md', 'old note\n', 'agent reply\n')));
+		expect(refused).toEqual({ kind: 'expired', paths: ['n.md'] });
+		const outcome = await t.bob.push(t.batch('bob-phone', seq, t.append('n.md', 'old note\n', 'bob reply\n')));
+		expect(outcome).toMatchObject({ kind: 'applied', changes: [{ at: 'n (bob, 2026-11-05).md' }] });
+		expect(await t.server.read('n.md')).toBe('different note\n');
+		expect(await t.server.read('n (bob, 2026-11-05).md')).toBe('old note\nbob reply\n');
+		await t.cleanup();
+	});
+
+	test('past the window, a move of a path a different note took becomes a sibling of its destination (bug B)', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'n.md', 'old note\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('n.md', 'old note\n', null)));
+		await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('n.md', null, 'different note\n')));
+		t.advance(8 * 24 * 3600e3);
+		await seed(t, 'x.md', 'x\n');
+		const outcome = await t.bob.push(t.batch('bob-phone', seq, t.move('n.md', 'm.md', 'old note\n')));
+		expect(outcome).toMatchObject({
+			kind: 'applied',
+			changes: [{ path: 'n.md', at: 'm (bob, 2026-11-05).md', overlaps: [{ unit: 'path', clash: 'reused', settled: 'relocated' }] }],
+		});
+		expect(await t.server.read('n.md')).toBe('different note\n');
+		expect(await t.server.read('m.md')).toBeNull();
+		expect(await t.server.read('m (bob, 2026-11-05).md')).toBe('old note\n');
+		// A later edit Bob made at the destination follows the moved note.
+		await t.bob.push(t.batch('bob-phone', seq, t.write('m.md', 'old note\n', 'old note, moved\n')));
+		expect(await t.server.read('m (bob, 2026-11-05).md')).toBe('old note, moved\n');
+		await t.cleanup();
+	});
+
+	test('past the window, an append or move of an unchanged file applies', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'a.md', 'a\n');
+		await seed(t, 'b.md', 'b\n');
+		t.advance(8 * 24 * 3600e3);
+		await seed(t, 'x.md', 'x\n');
+		await t.bob.push(t.batch('bob-phone', seq, t.append('a.md', 'a\n', 'more\n'), t.move('b.md', 'c.md', 'b\n')));
+		expect(await t.server.read('a.md')).toBe('a\nmore\n');
+		expect(await t.server.read('c.md')).toBe('b\n');
+		await t.cleanup();
+	});
+
 	test('a move whose note was deleted is dropped', async () => {
 		const t = await setup();
 		const seq = await seed(t, 'notes/a.md', 'A\n');

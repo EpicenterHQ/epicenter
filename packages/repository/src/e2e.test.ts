@@ -244,6 +244,47 @@ test('for people, a delete versus an edit keeps the edit', async () => {
 	await t.cleanup();
 });
 
+test('a note brought back by an unseen edit takes later unseen edits too (bug A)', async () => {
+	const t = await setup();
+	const carol = t.device('carol-tablet', 'carol');
+	expectOk(await t.alice.repo.notes.create({ stem: 'n' }, { body: 'v1\n' }));
+	await t.settle(t.alice, t.bob, carol);
+	t.bob.transport.setOnline(false);
+	carol.transport.setOnline(false);
+	void t.bob.repo.notes.write({ stem: 'n' }, { body: 'v1 bob\n' });
+	void carol.repo.notes.write({ stem: 'n' }, { body: 'carol v1\n' });
+	expectOk(await t.alice.repo.notes.delete({ stem: 'n' }));
+	t.bob.transport.setOnline(true);
+	await t.settle(t.bob, t.alice);
+	carol.transport.setOnline(true);
+	await t.settle(carol, t.alice, t.bob);
+	for (const repo of [t.alice.repo, t.bob.repo, carol.repo]) {
+		expect(text(repo, 'n')).toBe('carol v1 bob\n');
+		expect(repo.notes.list()).toHaveLength(1);
+	}
+	await t.cleanup();
+});
+
+test('past the window, an offline append to a note replaced meanwhile becomes a sibling (bug B)', async () => {
+	const t = await setup({ windowMs: 60_000 });
+	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'old log\n' }));
+	await t.settle(t.alice, t.bob);
+	t.bob.transport.setOnline(false);
+	const appended = t.bob.repo.notes.append({ stem: 'log' }, 'bob\n');
+	expectOk(await t.alice.repo.notes.delete({ stem: 'log' }));
+	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'new log\n' }));
+	t.advance(120_000);
+	expectOk(await t.server.tick());
+	t.bob.transport.setOnline(true);
+	expect(expectOk(await appended)).toMatchObject({ kind: 'applied', change: { at: 'notes/log (bob, 2026-10-28).md' } });
+	await t.settle(t.alice, t.bob);
+	for (const repo of [t.alice.repo, t.bob.repo]) {
+		expect(text(repo, 'log')).toBe('new log\n');
+		expect(text(repo, 'log (bob, 2026-10-28)')).toBe('old log\nbob\n');
+	}
+	await t.cleanup();
+});
+
 test('settings set on two devices merges by key', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.settings.set('theme', 'light'));

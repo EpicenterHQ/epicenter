@@ -259,6 +259,8 @@ export function createRepositoryServer({
 				await load(history.trace(change.from, batch.seq).path);
 				await load(change.from);
 				await load(change.to);
+				// Past the window, a move may be relocated with its base.
+				if (!covered) await loadBase(change.base);
 				continue;
 			}
 			const traced = history.trace(change.path, batch.seq);
@@ -314,6 +316,26 @@ export function createRepositoryServer({
 			if (change.kind === 'move') {
 				const from = trace(change.from);
 				const text = from.deleted ? null : read(from.path);
+				// Past the window, a changed file may be a different note: never move
+				// it. The moved note, as this device had it, goes to a sibling of `to`.
+				if (!covered && text !== null && gitBlobHash(text) !== change.base.hash) {
+					if (peer.onOverlap === 'refuse') {
+						expired.push(change.from);
+						continue;
+					}
+					const base = known(change.base);
+					if (base === null) {
+						needBase.push(change.from);
+						continue;
+					}
+					const dest = sibling(change.to);
+					const decision = settle([{ unit: 'path', clash: 'reused', relocatedTo: dest }], peer.onOverlap);
+					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
+					work.set(dest, base);
+					events.push({ kind: 'create', path: dest }, { kind: 'relocate', path: change.to, dest, before: batch.seq + 1 });
+					outcomes.push(outcome({ path: change.from, at: dest, hash: gitBlobHash(base), text: base, overlaps: decision.overlaps }));
+					continue;
+				}
 				if (text === null) {
 					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], peer.onOverlap);
 					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
@@ -354,12 +376,7 @@ export function createRepositoryServer({
 			const movedTo = target === change.path ? null : target;
 			const existing = traced.reused ? null : read(target);
 			// Past the window, the history cannot say whether a changed file is still this note.
-			const unknown =
-				!covered &&
-				change.kind === 'write' &&
-				change.base !== null &&
-				existing !== null &&
-				gitBlobHash(existing) !== change.base.hash;
+			const unknown = !covered && change.base !== null && existing !== null && gitBlobHash(existing) !== change.base.hash;
 			if (traced.reused || unknown) {
 				if (!traced.reused && peer.onOverlap === 'refuse') {
 					expired.push(change.path);
@@ -423,7 +440,11 @@ export function createRepositoryServer({
 			const text = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block')
 				? withMarkers(result, { current: writerOf(target), incoming: incomingLabel })
 				: result.text;
-			if (existing === null && text !== null) events.push({ kind: 'create', path: target });
+			if (existing === null && text !== null) {
+				// An edit that beat a delete brings the same note back; it is not a new note.
+				const restored = result.overlaps.some((o) => o.unit === 'file' && o.clash === 'deleted');
+				events.push({ kind: restored ? 'restore' : 'create', path: target });
+			}
 			if (existing !== null && text === null) events.push({ kind: 'delete', path: target });
 			work.set(target, text);
 			outcomes.push(
