@@ -40,9 +40,11 @@ export function serveRepositoryWorker() {
 	let driver: SqlDriver | null = null;
 	let closing = false;
 	/** Calls that arrived before the database opened, answered in order once it does. */
-	const early: Extract<TabMessage, { type: 'read' | 'submit' }>[] = [];
+	const early: Extract<TabMessage, { type: 'read' | 'submit' | 'send' }>[] = [];
 	/** Writes still storing blob bytes, which a close waits for. */
 	const writing = new Set<Promise<unknown>>();
+	/** Sends whose verdict the tab is still waiting for; a close answers them before it reports `closed`. */
+	const sending = new Set<Promise<unknown>>();
 
 	function handle(message: TabMessage) {
 		switch (message.type) {
@@ -56,6 +58,7 @@ export function serveRepositoryWorker() {
 				return;
 			case 'read':
 			case 'submit':
+			case 'send':
 				if (engine === null) {
 					early.push(message);
 					return;
@@ -67,13 +70,20 @@ export function serveRepositoryWorker() {
 		}
 	}
 
-	function call(engine: Engine, message: Extract<TabMessage, { type: 'read' | 'submit' }>) {
+	function call(engine: Engine, message: Extract<TabMessage, { type: 'read' | 'submit' | 'send' }>) {
 		const { id } = message;
 		if (message.type === 'read') {
 			engine.read(message.request).then(
 				(value) => post({ type: 'answer', id, value }),
 				(cause: unknown) => post({ type: 'failed', id, reason: String(cause) }),
 			);
+			return;
+		}
+		if (message.type === 'send') {
+			// A send's row is durable once queued: a close tells the caller its verdict is unknown.
+			const verdict = engine.send(message.ops).then((result) => post({ type: 'verdict', id, result: plain(result) }));
+			sending.add(verdict);
+			void verdict.finally(() => sending.delete(verdict));
 			return;
 		}
 		const submitted = engine.submit(message.ops);
@@ -113,6 +123,7 @@ export function serveRepositoryWorker() {
 	async function close() {
 		await Promise.all(writing);
 		engine?.close();
+		await Promise.all(sending);
 		driver?.close();
 		engine = null;
 		driver = null;

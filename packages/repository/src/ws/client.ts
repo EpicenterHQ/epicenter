@@ -67,6 +67,7 @@ export function createWebSocketTransport({ url, retry = { minMs: 250, maxMs: 5_0
 			}
 
 			return {
+				connected: () => socket !== null && socket.readyState === WebSocket.OPEN,
 				hello: (seq) => call({ type: 'hello', seq }) as Promise<Result<Welcome, TransportError>>,
 				push: (batch) => call({ type: 'push', batch }) as Promise<Result<BatchOutcome, TransportError>>,
 				close() {

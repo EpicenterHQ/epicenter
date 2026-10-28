@@ -5,12 +5,11 @@
  */
 import { Ok } from 'wellcrafted/result';
 import { type Transport, TransportError } from '../engine/ports.js';
-import type { OnOverlap } from '../policy.js';
 import type { RepositoryServer } from '../server/server.js';
 
 export function createInProcessTransport(
 	server: RepositoryServer,
-	{ user, onOverlap = 'mark' }: { user: string; onOverlap?: OnOverlap },
+	{ user }: { user: string },
 ) {
 	let online = true;
 	let dropReplies = 0;
@@ -20,13 +19,13 @@ export function createInProcessTransport(
 			const connection = server.connect({
 				device,
 				user,
-				onOverlap,
 				onBroadcast: (broadcast) => {
 					if (online) onBroadcast(broadcast);
 				},
 			});
 			reconnects.add(onOnline);
 			return {
+				connected: () => online,
 				async hello(seq) {
 					if (!online) return TransportError.Offline({ sent: false });
 					return Ok(await connection.hello(seq));

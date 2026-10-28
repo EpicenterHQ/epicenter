@@ -43,6 +43,7 @@ const text = async (stem: string) => (await current().notes.get({ stem }))?.text
 const untilStatus = (status: TabState<Defs>['status'], timeout?: number) =>
 	until(() => state().status === status, `the tab to be ${status} (it is ${tab?.state().status})`, timeout);
 const message = (worker: Worker) => new Promise((resolve) => worker.addEventListener('message', (event) => resolve(event.data), { once: true }));
+const plainResult = <T>(result: T) => JSON.parse(JSON.stringify(result)) as T;
 const heldLocks = async () => ((await navigator.locks.query()).held ?? []).filter((lock) => lock.name === lockName(name)).length;
 
 const api = {
@@ -88,6 +89,15 @@ const api = {
 		document.dispatchEvent(new Event('freeze'));
 	},
 	resume: () => document.dispatchEvent(new Event('resume')),
+	/** The server version of the note as this tab shows it. */
+	version: async (stem: string) => (await current().notes.get({ stem }))?.version ?? null,
+	/** Send a whole-body write, from `base` if given, and answer the verdict as plain data. */
+	async sendBody(stem: string, body: string, base?: string | null) {
+		return plainResult(await current().send((b) => b.notes.write({ stem }, { body }, { base })));
+	},
+	async sendAppend(stem: string, more: string) {
+		return plainResult(await current().send((b) => b.notes.append({ stem }, more)));
+	},
 	query: (sql: string) => current().query(sql),
 	settled: async (index: number) => (await writes[index]) as { data: Settled | null; error: { name: string } | null },
 	text,

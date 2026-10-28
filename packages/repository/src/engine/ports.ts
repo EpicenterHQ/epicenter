@@ -19,6 +19,8 @@ export type TransportError = InferErrors<typeof TransportError>;
 
 /** One device's connection. Calls fail with `Offline` while disconnected. */
 export type Link = {
+	/** Whether a call made now would leave this device; a `send` is queued only then. */
+	connected(): boolean;
 	hello(seq: number): Promise<Result<Welcome, TransportError>>;
 	push(batch: Batch): Promise<Result<BatchOutcome, TransportError>>;
 	close(): void;
@@ -37,6 +39,7 @@ export type Transport = {
 /** No server: the device works fully on its own and its outbox waits. */
 export const offlineTransport: Transport = {
 	connect: () => ({
+		connected: () => false,
 		hello: async () => TransportError.Offline({ sent: false }),
 		push: async () => TransportError.Offline({ sent: false }),
 		close() {},

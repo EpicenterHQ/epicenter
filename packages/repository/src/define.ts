@@ -7,7 +7,7 @@
 import type { Static, TSchema } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
-import type { ChangeOutcome } from './protocol.js';
+import type { ChangeOutcome, Overlap } from './protocol.js';
 import {
 	compileTemplate,
 	IDENTIFIER,
@@ -29,6 +29,7 @@ export type Definitions = Record<string, NoteDefinition | BlobDefinition>;
 /** Names the repository object itself uses, so no handle can shadow them. */
 const RESERVED = new Set([
 	'batch',
+	'send',
 	'live',
 	'query',
 	'flush',
@@ -236,6 +237,33 @@ export const WriteError = defineErrors({
 });
 export type WriteError = InferErrors<typeof WriteError>;
 
+export const SendError = defineErrors({
+	/** The server is not reachable. Nothing was queued, so the caller may do the change another way. */
+	Offline: () => ({ message: 'The server is not reachable; nothing was sent' }),
+	/**
+	 * The batch may have reached the server, but its verdict did not arrive
+	 * here. Its numbered row stays, and the device sends it again when it can;
+	 * the server answers that retry from its receipt, so it never lands twice.
+	 */
+	Unknown: ({ n }: { n: number }) => ({
+		message: `Batch ${n} may have reached the server; its verdict will be known when it is sent again`,
+		n,
+	}),
+	/** The version a change names as its base is not one this device holds. */
+	UnknownBase: ({ path, base }: { path: string; base: string }) => ({
+		message: `The version ${base} of '${path}' is not on this device; read it again`,
+		path,
+		base,
+	}),
+});
+export type SendError = InferErrors<typeof SendError>;
+
+/** The server's verdict on a `send`: an expected answer, so it is data, not an error. */
+export type Verdict =
+	/** `seq` is null and `changes` empty for a retry whose receipt left with its commit. */
+	| { kind: 'applied'; seq: number | null; changes: ChangeOutcome[] }
+	| { kind: 'refused'; path: string; reason: string; overlaps: Overlap[] };
+
 /** How the server settled one change. */
 export type Settled =
 	/** `seq` and `change` are null for a retry of a batch whose receipt left with its commit. */
@@ -268,6 +296,13 @@ export type Note<TPath extends string, TSchema extends TSchema_> = {
 	params: Params<TPath>;
 	text: string;
 	body: string;
+	/**
+	 * The server's version of this text (its Git blob hash), or null while
+	 * this device holds changes to it the server has not acknowledged. A
+	 * `send` names it as its base so that it is refused if the note changed
+	 * since it was read.
+	 */
+	version: string | null;
 } & (
 	| { valid: true; fields: Static<TSchema> }
 	| { valid: false; fields: Record<string, unknown>; issues: string[] }
@@ -356,6 +391,30 @@ export type BatchBlobHandle<TPath extends string> = {
 	delete(...params: ParamsArg<TPath>): void;
 };
 
+/**
+ * What a `send` change starts from: the `version` of the note the caller
+ * read. Without one (or with null), it starts from the text the server last
+ * acknowledged.
+ */
+export type SendOptions = { base?: string | null };
+
+/** Write-only note handles inside `repo.send`; each change may name the version it starts from. */
+export type SendNoteHandle<TPath extends string, TSchema extends TSchema_> = {
+	create(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): void;
+	write(...args: [...ParamsArg<TPath>, NoteInput<TSchema>, options?: SendOptions]): void;
+	set<TKey extends keyof Static<TSchema> & string>(
+		...args: [...ParamsArg<TPath>, key: TKey, value: Static<TSchema>[TKey], options?: SendOptions]
+	): void;
+	append(...args: [...ParamsArg<TPath>, text: string, options?: SendOptions]): void;
+	move(from: Params<TPath>, to: Params<TPath>): void;
+	delete(...args: [...ParamsArg<TPath>, options?: SendOptions]): void;
+};
+
+export type SendBlobHandle<TPath extends string> = {
+	put(...args: [...ParamsArg<TPath>, bytes: Uint8Array, options: { type: string } & SendOptions]): void;
+	delete(...args: [...ParamsArg<TPath>, options?: SendOptions]): void;
+};
+
 export type Handles<TDefs extends Definitions> = {
 	[K in keyof TDefs]: TDefs[K] extends { path: infer TPath extends string; schema: infer TSchema extends TSchema_ }
 		? NoteHandle<TPath, TSchema>
@@ -369,6 +428,14 @@ export type BatchHandles<TDefs extends Definitions> = {
 		? BatchNoteHandle<TPath, TSchema>
 		: TDefs[K] extends { path: infer TPath extends string }
 			? BatchBlobHandle<TPath>
+			: never;
+};
+
+export type SendHandles<TDefs extends Definitions> = {
+	[K in keyof TDefs]: TDefs[K] extends { path: infer TPath extends string; schema: infer TSchema extends TSchema_ }
+		? SendNoteHandle<TPath, TSchema>
+		: TDefs[K] extends { path: infer TPath extends string }
+			? SendBlobHandle<TPath>
 			: never;
 };
 

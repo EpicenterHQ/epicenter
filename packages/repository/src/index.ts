@@ -14,9 +14,13 @@ export {
 	type NoteInput,
 	type OpenNote,
 	type Pending,
+	SendError,
+	type SendHandles,
+	type SendOptions,
 	type Settled,
 	slug,
 	timestamp,
+	type Verdict,
 	WriteError,
 } from './define.js';
 export { type Engine, type EngineAnswers, type EngineOptions, type EngineRequest, type FileRead, openEngine, type Submitted, type WriteOp } from './engine/engine.js';

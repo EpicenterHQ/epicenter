@@ -108,8 +108,8 @@ export async function receivePush(
 	}
 	if (changes.length === 0) return Ok({ kind: 'unchanged' });
 
-	const batch = { device: 'git-push', n: 0, seq: baseOid === null ? 0 : await sequenceAt(core, baseOid), changes };
-	const peer = { device: 'git-push', user, onOverlap: 'refuse' as const };
+	const batch = { device: 'git-push', n: 0, seq: baseOid === null ? 0 : await sequenceAt(core, baseOid), policy: 'refuse' as const, changes };
+	const peer = { device: 'git-push', user };
 	const { outcome, broadcast } = await core.applyBatch(batch, peer, false);
 	if (outcome.kind === 'refused') return refuse(core, outcome.path, outcome.reason, outcome.overlaps);
 	// A push is not numbered and sends its bases, so an applied one always has

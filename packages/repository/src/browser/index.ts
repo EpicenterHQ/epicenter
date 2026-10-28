@@ -21,7 +21,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
-import { type App, type Definitions, type Live, type Settled, WriteError } from '../define.js';
+import { type App, type Definitions, type Live, type SendError, type Settled, type Verdict, WriteError } from '../define.js';
 import type { EngineAnswers, EngineRequest, Submitted } from '../engine/engine.js';
 import { createRepository, type EnginePort, type Repository } from '../repository.js';
 import { type Described, type Init, lockName, REPOSITORY_NAME, type TabMessage, type WorkerMessage } from './messages.js';
@@ -130,6 +130,7 @@ export function openBrowserRepository<const TDefs extends Definitions>({
 		let next = 1;
 		const reads = new Map<number, Deferred<unknown>>();
 		const writes = new Map<number, { local: Deferred<Result<undefined, WriteError>>; settled: Deferred<Result<Settled[], WriteError>> }>();
+		const sends = new Map<number, Deferred<Result<Verdict, WriteError | SendError>>>();
 		const changes = new Set<(paths: string[] | null) => void>();
 		const ended = deferred<undefined>();
 		let ending = false;
@@ -150,6 +151,9 @@ export function openBrowserRepository<const TDefs extends Definitions>({
 				write.settled.resolve(WriteError.Closed());
 			}
 			writes.clear();
+			// The worker answers every send before it closes; these never reached it.
+			for (const send of sends.values()) send.resolve(WriteError.Closed());
+			sends.clear();
 			changes.clear();
 			ended.resolve(undefined);
 		}
@@ -170,6 +174,14 @@ export function openBrowserRepository<const TDefs extends Definitions>({
 				writes.set(id, write);
 				post({ type: 'submit', id, ops });
 				return { local: write.local.promise, settled: write.settled.promise };
+			},
+			send(ops) {
+				if (ending) return Promise.resolve(WriteError.Closed());
+				const id = next++;
+				const verdict = deferred<Result<Verdict, WriteError | SendError>>();
+				sends.set(id, verdict);
+				post({ type: 'send', id, ops });
+				return verdict.promise;
 			},
 			onChange(listener) {
 				changes.add(listener);
@@ -213,6 +225,10 @@ export function openBrowserRepository<const TDefs extends Definitions>({
 					write?.settled.resolve(message.result);
 					return;
 				}
+				case 'verdict':
+					sends.get(message.id)?.resolve(message.result);
+					sends.delete(message.id);
+					return;
 				case 'changed':
 					for (const listener of changes) listener(message.paths);
 					return;

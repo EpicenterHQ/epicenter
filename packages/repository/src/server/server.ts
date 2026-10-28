@@ -10,7 +10,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { gitBlobHash } from '../hash.js';
 import { merge, withMarkers } from '../merge.js';
-import { describe, type OnOverlap, settle } from '../policy.js';
+import { describe, settle } from '../policy.js';
 import type {
 	Base,
 	Batch,
@@ -64,15 +64,10 @@ export function siblingPath(path: string, user: string, at: number, exists: (pat
 	}
 }
 
-/** Who is connected: the server stamps every batch with `user`. */
+/** Who is connected: the server stamps every batch with `user`. Each batch names its own overlap policy. */
 export type Peer = {
 	device: string;
 	user: string;
-	/**
-	 * What an overlap does to this peer's batches: a device's optimistic writes
-	 * are `'mark'`ed and always land; a push or an awaited call is `'refuse'`d.
-	 */
-	onOverlap: OnOverlap;
 	onBroadcast?: (broadcast: Broadcast) => void;
 };
 
@@ -326,7 +321,7 @@ export function createRepositoryServer({
 				const from = traceNow(change.from);
 				const text = from.deleted ? null : read(from.path);
 				if (text === null) {
-					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], peer.onOverlap);
+					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], batch.policy);
 					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
 					outcomes.push(outcome({ path: change.from, overlaps: decision.overlaps }));
 					continue;
@@ -368,7 +363,7 @@ export function createRepositoryServer({
 					text = base + change.text;
 				}
 				const dest = text === null ? null : sibling(target);
-				const decision = settle([{ unit: 'path', clash: 'reused', relocatedTo: dest }], peer.onOverlap);
+				const decision = settle([{ unit: 'path', clash: 'reused', relocatedTo: dest }], batch.policy);
 				if (decision.kind === 'refuse') return refuse(change.path, decision.reason, decision.overlaps);
 				if (dest !== null && text !== null) {
 					work.set(dest, text);
@@ -410,7 +405,7 @@ export function createRepositoryServer({
 			const incoming = change.kind === 'append' ? (baseText ?? '') + change.text : change.text;
 			if (incoming !== null) seenTexts.add(incoming);
 			const result = merge(baseText, existing, incoming);
-			const decision = settle(result.overlaps, peer.onOverlap);
+			const decision = settle(result.overlaps, batch.policy);
 			if (decision.kind === 'refuse') return refuse(change.path, decision.reason, decision.overlaps);
 			const text = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block')
 				? withMarkers(result, { current: writerOf(target), incoming: incomingLabel })

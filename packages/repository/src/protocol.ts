@@ -59,9 +59,11 @@ export type Change =
 
 /**
  * `seq` is the device's repository position when the batch was made: the
- * server traces each path's moves and deletes after it.
+ * server traces each path's moves and deletes after it. `policy` settles its
+ * overlaps: `'mark'` for a person's write, which always lands, `'refuse'`
+ * for a caller that waits for the verdict (see `settle`).
  */
-export type Batch = { device: string; n: number; seq: number; changes: Change[] };
+export type Batch = { device: string; n: number; seq: number; policy: 'mark' | 'refuse'; changes: Change[] };
 
 /** What one change did, in an applied batch. */
 export type ChangeOutcome = {

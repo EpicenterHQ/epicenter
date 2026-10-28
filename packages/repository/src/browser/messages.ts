@@ -4,7 +4,7 @@
  * tab: nothing is resent, and nothing outlives the pair.
  */
 import type { Result } from 'wellcrafted/result';
-import type { Settled, WriteError } from '../define.js';
+import type { SendError, Settled, Verdict, WriteError } from '../define.js';
 import type { EngineRequest, WriteOp } from '../engine/engine.js';
 
 /** Repository names become an OPFS directory, a VFS name and a lock name. */
@@ -28,6 +28,7 @@ export type TabMessage =
 	| Init
 	| { type: 'read'; id: number; request: EngineRequest }
 	| { type: 'submit'; id: number; ops: WriteOp[] }
+	| { type: 'send'; id: number; ops: WriteOp[] }
 	/**
 	 * Finish every call sent before this one, close the database, release
 	 * its storage, and answer `closed`. Writes apply in the order they
@@ -46,6 +47,7 @@ export type WorkerMessage =
 	| { type: 'failed'; id: number; reason: string }
 	| { type: 'local'; id: number; result: Result<undefined, WriteError> }
 	| { type: 'settled'; id: number; result: Result<Settled[], WriteError> }
+	| { type: 'verdict'; id: number; result: Result<Verdict, WriteError | SendError> }
 	| { type: 'changed'; paths: string[] }
 	/** The database is closed and its storage released. */
 	| { type: 'closed' };

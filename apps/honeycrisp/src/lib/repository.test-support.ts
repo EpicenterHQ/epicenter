@@ -33,6 +33,7 @@ export async function openDevice(files: Record<string, string> = {}) {
 		connect(handlers) {
 			deliver = handlers.onBroadcast;
 			return {
+				connected: () => false,
 				hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, files: Object.entries(files).map(([path, text]) => state(path, text)) }),
 				push: async () => TransportError.Offline({ sent: false }),
 				close() {},
@@ -50,6 +51,7 @@ export async function openDevice(files: Record<string, string> = {}) {
 			const failed = WriteError.Unparseable({ path: 'notes/', reason: 'the disk is full' });
 			return { local: Promise.resolve(failed), settled: Promise.resolve(failed) };
 		},
+		send: (ops) => engine.send(ops),
 		onChange: (listener) => engine.onChange(listener),
 		// A client closing leaves the engine to the others.
 		close() {},

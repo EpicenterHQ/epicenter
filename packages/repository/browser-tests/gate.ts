@@ -1,10 +1,13 @@
 /**
  * A WebSocket gate in front of the repository server: it passes frames both
  * ways until it is shut, then drops its connections and refuses new ones, so
- * a test can take one browser profile offline while the others stay on.
+ * a test can take one browser profile offline while the others stay on. It
+ * can also lose one reply: the server answers, and the gate drops the
+ * connection instead of passing the answer on.
  */
 export function startGate(upstream: string) {
 	let open = true;
+	let dropReply = false;
 	type Data = { target: string; upstream?: WebSocket; buffered: (string | Buffer)[] };
 	const clients = new Set<Bun.ServerWebSocket<Data>>();
 	const server = Bun.serve<Data>({
@@ -25,7 +28,15 @@ export function startGate(upstream: string) {
 				socket.onopen = () => {
 					for (const frame of client.data.buffered.splice(0)) socket.send(frame);
 				};
-				socket.onmessage = (event) => client.send(String(event.data));
+				socket.onmessage = (event) => {
+					const frame = String(event.data);
+					if (dropReply && (JSON.parse(frame) as { type: string }).type === 'reply') {
+						dropReply = false;
+						client.close();
+						return;
+					}
+					client.send(frame);
+				};
 				socket.onclose = () => client.close();
 			},
 			message(client, frame) {
@@ -45,6 +56,10 @@ export function startGate(upstream: string) {
 		setOpen(value: boolean) {
 			open = value;
 			if (!value) for (const client of clients) client.close();
+		},
+		/** Drop the connection in place of the next reply the server sends. */
+		dropNextReply() {
+			dropReply = true;
 		},
 		stop: () => server.stop(true),
 	};

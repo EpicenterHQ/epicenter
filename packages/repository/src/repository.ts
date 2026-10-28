@@ -1,7 +1,8 @@
 /**
  * The app API, the same for every host: reads and live queries are
  * asynchronous, writes apply on the device before they return and resolve
- * when the server answers, and an open note reads synchronously.
+ * when the server answers, `send` waits for the server's verdict and changes
+ * nothing here before it, and an open note reads synchronously.
  *
  * `createRepository` builds it over an `EnginePort`: the engine itself in
  * the caller's thread (`openRepository`, used by Bun and tests), or the
@@ -10,7 +11,7 @@
 import { Check, Errors } from 'typebox/value';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Ok } from 'wellcrafted/result';
+import { Ok, type Result } from 'wellcrafted/result';
 import type {
 	App,
 	BatchHandles,
@@ -20,7 +21,10 @@ import type {
 	Lens,
 	Live,
 	Pending,
+	SendError,
+	SendHandles,
 	Settled,
+	Verdict,
 } from './define.js';
 import { WriteError } from './define.js';
 import {
@@ -41,6 +45,8 @@ export type EnginePort = {
 	read<TRequest extends EngineRequest>(request: TRequest): Promise<EngineAnswers[TRequest['kind']]>;
 	/** Apply writes on the device and send them. */
 	submit(ops: WriteOp[]): Submitted;
+	/** Send ops as one batch that refuses on overlap, and answer the verdict. */
+	send(ops: WriteOp[]): Promise<Result<Verdict, WriteError | SendError>>;
 	/** Called with the paths whose shown text changed, after every change; null when any may have. */
 	onChange(listener: (paths: string[] | null) => void): () => void;
 	close(): void;
@@ -59,7 +65,7 @@ type NoteChange = { fields?: Record<string, unknown>; body?: string };
 /** A note read from a file row. Fields that fail the schema are returned raw, with issues. */
 function noteOf(lens: Extract<Lens, { kind: 'note' }>, file: FileRead) {
 	const params = matchTemplate(lens.template, file.path) ?? {};
-	const base = { path: file.path, params, text: file.text, body: file.body };
+	const base = { path: file.path, params, text: file.text, body: file.body, version: file.version };
 	if (file.fields === null) return { ...base, valid: false, fields: {}, issues: ['The frontmatter does not parse'] };
 	const fields = JSON.parse(file.fields) as Record<string, unknown>;
 	if (Check(lens.schema, fields)) return { ...base, valid: true, fields };
@@ -79,6 +85,7 @@ function fileOf(path: string, text: string): FileRead {
 		text,
 		fields: parsed.error === null ? JSON.stringify(parsed.data.fields) : null,
 		body: text.slice(splitMarkdown(text).bodyStart),
+		version: null,
 	};
 }
 
@@ -145,13 +152,16 @@ export function createRepository<const TDefs extends Definitions>(
 		const [settled] = result.data;
 		return settled === undefined ? WriteError.Closed() : Ok(settled);
 	};
-	const send = (op: WriteOp) => first(submit([op]).settled);
+	const save = (op: WriteOp) => first(submit([op]).settled);
 
 	/** A handle call's parameters and the rest of its arguments. */
 	const split = (lens: Lens, args: unknown[]): [Params, unknown[]] =>
 		lens.template.params.length === 0 ? [{}, args] : [(args[0] ?? {}) as Params, args.slice(1)];
 
-	/** The ops a note handle builds: the same for a direct call and inside a batch. */
+	/** The version a `send` change names as its base, from its options argument. */
+	const baseOf = (options: unknown) => (options as { base?: string | null } | undefined)?.base;
+
+	/** The ops a note handle builds: the same for a direct call, inside a batch, and inside a send. */
 	function noteOps(lens: Extract<Lens, { kind: 'note' }>) {
 		const name = lens.name;
 		return {
@@ -160,19 +170,22 @@ export function createRepository<const TDefs extends Definitions>(
 				return { kind: 'create', name, params, input: (input ?? {}) as NoteChange };
 			},
 			write: (...args: unknown[]): WriteOp => {
-				const [params, [input]] = split(lens, args);
-				return { kind: 'write', name, params, input: (input ?? {}) as NoteChange };
+				const [params, [input, options]] = split(lens, args);
+				return { kind: 'write', name, params, input: (input ?? {}) as NoteChange, base: baseOf(options) };
 			},
 			set: (...args: unknown[]): WriteOp => {
-				const [params, [key, value]] = split(lens, args);
-				return { kind: 'set', name, params, key: String(key), value };
+				const [params, [key, value, options]] = split(lens, args);
+				return { kind: 'set', name, params, key: String(key), value, base: baseOf(options) };
 			},
 			append: (...args: unknown[]): WriteOp => {
-				const [params, [text]] = split(lens, args);
-				return { kind: 'append', name, params, text: String(text) };
+				const [params, [text, options]] = split(lens, args);
+				return { kind: 'append', name, params, text: String(text), base: baseOf(options) };
 			},
 			move: (...[from, to]: unknown[]): WriteOp => ({ kind: 'move', name, from: from as Params, to: to as Params }),
-			delete: (...args: unknown[]): WriteOp => ({ kind: 'delete', name, params: split(lens, args)[0] }),
+			delete: (...args: unknown[]): WriteOp => {
+				const [params, [options]] = split(lens, args);
+				return { kind: 'delete', name, params, base: baseOf(options) };
+			},
 		};
 	}
 
@@ -180,10 +193,28 @@ export function createRepository<const TDefs extends Definitions>(
 		return {
 			put: (...args: unknown[]): WriteOp => {
 				const [params, [bytes, options]] = split(lens, args);
-				return { kind: 'put', name: lens.name, params, bytes: bytes as Uint8Array, type: (options as { type?: string } | undefined)?.type ?? '' };
+				const { type = '', base } = (options ?? {}) as { type?: string; base?: string | null };
+				return { kind: 'put', name: lens.name, params, bytes: bytes as Uint8Array, type, base };
 			},
-			delete: (...args: unknown[]): WriteOp => ({ kind: 'delete', name: lens.name, params: split(lens, args)[0] }),
+			delete: (...args: unknown[]): WriteOp => {
+				const [params, [options]] = split(lens, args);
+				return { kind: 'delete', name: lens.name, params, base: baseOf(options) };
+			},
 		};
+	}
+
+	/** Write-only handles whose calls collect ops, for `batch` and `send`. */
+	function collect(build: (handles: never) => void): WriteOp[] {
+		const ops: WriteOp[] = [];
+		const handles: Record<string, Record<string, (...args: never[]) => void>> = {};
+		for (const lens of app.lenses) {
+			const made: Record<string, (...args: unknown[]) => WriteOp> = lens.kind === 'note' ? noteOps(lens) : blobOps(lens);
+			handles[lens.name] = Object.fromEntries(
+				Object.entries(made).map(([verb, make]) => [verb, (...args: unknown[]) => void ops.push(make(...args))]),
+			);
+		}
+		build(handles as never);
+		return ops;
 	}
 
 	/**
@@ -279,12 +310,12 @@ export function createRepository<const TDefs extends Definitions>(
 				list,
 				live: (filter?: Params) => liveOf(() => list(filter)),
 				open: (...args: unknown[]) => open(lens, split(lens, args)[0]),
-				create: (...args: unknown[]) => send(ops.create(...args)),
-				write: (...args: unknown[]) => send(ops.write(...args)),
-				set: (...args: unknown[]) => send(ops.set(...args)),
-				append: (...args: unknown[]) => send(ops.append(...args)),
-				move: (from: Params, to: Params) => send(ops.move(from, to)),
-				delete: (...args: unknown[]) => send(ops.delete(...args)),
+				create: (...args: unknown[]) => save(ops.create(...args)),
+				write: (...args: unknown[]) => save(ops.write(...args)),
+				set: (...args: unknown[]) => save(ops.set(...args)),
+				append: (...args: unknown[]) => save(ops.append(...args)),
+				move: (from: Params, to: Params) => save(ops.move(from, to)),
+				delete: (...args: unknown[]) => save(ops.delete(...args)),
 			};
 			continue;
 		}
@@ -295,12 +326,12 @@ export function createRepository<const TDefs extends Definitions>(
 				return pointer === null ? [] : [{ path: file.path, params: matchTemplate(lens.template, file.path) ?? {}, ...pointer }];
 			});
 		handles[name] = {
-			put: (...args: unknown[]) => send(ops.put(...args)),
+			put: (...args: unknown[]) => save(ops.put(...args)),
 			get: (...args: unknown[]) => port.read({ kind: 'blob', name, params: split(lens, args)[0], as: 'bytes' }),
 			url: (...args: unknown[]) => port.read({ kind: 'blob', name, params: split(lens, args)[0], as: 'url' }),
 			list,
 			live: (filter?: Params) => liveOf(() => list(filter)),
-			delete: (...args: unknown[]) => send(ops.delete(...args)),
+			delete: (...args: unknown[]) => save(ops.delete(...args)),
 		};
 	}
 
@@ -311,16 +342,20 @@ export function createRepository<const TDefs extends Definitions>(
 		 * that each move is sent as a batch of its own.
 		 */
 		batch(build: (handles: BatchHandles<TDefs>) => void): Pending<Settled[]> {
-			const ops: WriteOp[] = [];
-			const batchHandles: Record<string, Record<string, (...args: never[]) => void>> = {};
-			for (const lens of app.lenses) {
-				const made: Record<string, (...args: unknown[]) => WriteOp> = lens.kind === 'note' ? noteOps(lens) : blobOps(lens);
-				batchHandles[lens.name] = Object.fromEntries(
-					Object.entries(made).map(([verb, make]) => [verb, (...args: unknown[]) => void ops.push(make(...args))]),
-				);
-			}
-			build(batchHandles as BatchHandles<TDefs>);
-			return submit(ops).settled;
+			return submit(collect(build)).settled;
+		},
+		/**
+		 * Send one batch and wait for the server's verdict, for a caller that
+		 * can read again and retry, such as an agent. It is refused if it
+		 * overlaps a change made since its base: the `version` each change
+		 * names, or the text the server last acknowledged. Offline it fails at
+		 * once with `Offline` and nothing is queued. It waits for earlier
+		 * writes to its paths to be answered, changes nothing on this device
+		 * before the verdict, and shows an applied one at once.
+		 */
+		send(build: (handles: SendHandles<TDefs>) => void): Promise<Result<Verdict, WriteError | SendError>> {
+			if (closed) return Promise.resolve(WriteError.Closed());
+			return port.send(collect(build));
 		},
 		/** Run a read-only statement over the app's views and the engine's tables. */
 		query: <TRow = Record<string, SqlValue>>(sql: string, params: SqlValue[] = []) =>

@@ -5,6 +5,12 @@
  * unsent edits with the Epicenter merge when the server acknowledges them or
  * reports other devices' changes.
  *
+ * Batches share one numbered lane to the server. A person's write is applied
+ * here first and sent with the `'mark'` policy; a `send` is sent with
+ * `'refuse'`, changes nothing here until its verdict, and folds an applied
+ * verdict into the files, since the server never echoes a batch to its
+ * sender.
+ *
  * Everything it takes and returns is plain data (`EngineRequest`, `WriteOp`),
  * so it runs in the caller's thread (`openRepository`) or in the worker of
  * the one browser tab that owns the repository; `createRepository` turns it
@@ -13,11 +19,12 @@
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { App, Definitions, Lens, Settled } from '../define.js';
-import { WriteError } from '../define.js';
+import type { App, Definitions, Lens, Settled, Verdict } from '../define.js';
+import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, sha256 } from '../hash.js';
 import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../markdown.js';
 import { merge } from '../merge.js';
+import type { Policy } from '../policy.js';
 import type { Batch, BatchOutcome, Broadcast, Change, ChangeOutcome, FileState, Move } from '../protocol.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
 import { buildPath } from '../templates.js';
@@ -39,6 +46,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
 	seq INTEGER NOT NULL,
+	policy TEXT NOT NULL,
 	changes TEXT NOT NULL
 ) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
@@ -67,21 +75,36 @@ type Entry = { change: Change; local: string | null };
 
 type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number };
 
-/** A file as reads return it: its text, the parsed fields as JSON (null when they do not parse) and the body. */
-export type FileRead = { path: string; text: string; fields: string | null; body: string };
+/**
+ * A file as reads return it: its text, the parsed fields as JSON (null when
+ * they do not parse), the body, and the server's hash of the text, or null
+ * while this device holds changes the server has not acknowledged.
+ */
+export type FileRead = { path: string; text: string; fields: string | null; body: string; version: string | null };
+
+/** The columns a read selects for a `FileRead`. */
+const READ_COLUMNS = (f: string) => `${f}.path, ${f}.text, ${f}.fields, ${f}.body, CASE WHEN ${f}.text IS ${f}.synced THEN ${f}.hash END AS version`;
+
+/** How many superseded server texts stay in memory, so a `send` can start from a version a broadcast replaced. */
+const RECENT_TEXTS = 256;
 
 type Params = Record<string, unknown>;
 
-/** One write an app asks for, as data, so it can cross to a worker and be retried. */
+/**
+ * One write an app asks for, as data, so it can cross to a worker. `base` is
+ * the server version a `send` change starts from; a person's write ignores
+ * it, since it starts from what the device shows.
+ */
 export type WriteOp =
-	| { kind: 'create' | 'write'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string } }
-	| { kind: 'set'; name: string; params: Params; key: string; value: unknown }
+	| { kind: 'create'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string } }
+	| { kind: 'write'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string }; base?: string | null }
+	| { kind: 'set'; name: string; params: Params; key: string; value: unknown; base?: string | null }
 	/** The body edited from `from`, the body the editor last showed, to `body`. */
 	| { kind: 'edit'; name: string; params: Params; from: string; body: string }
-	| { kind: 'append'; name: string; params: Params; text: string }
+	| { kind: 'append'; name: string; params: Params; text: string; base?: string | null }
 	| { kind: 'move'; name: string; from: Params; to: Params }
-	| { kind: 'delete'; name: string; params: Params }
-	| { kind: 'put'; name: string; params: Params; bytes: Uint8Array; type: string };
+	| { kind: 'delete'; name: string; params: Params; base?: string | null }
+	| { kind: 'put'; name: string; params: Params; bytes: Uint8Array; type: string; base?: string | null };
 
 /** A read, as data. */
 export type EngineRequest =
@@ -175,9 +198,20 @@ export function openEngine<const TDefs extends Definitions>({
 	/** Paths whose shown text changed since the last notification. */
 	const changed = new Set<string>();
 
+	/** Server texts a newer one replaced, by hash, newest last. */
+	const recent = new Map<string, string>();
+	function remember(hash: string | null, text: string | null) {
+		if (hash === null || text === null) return;
+		recent.delete(hash);
+		recent.set(hash, text);
+		if (recent.size > RECENT_TEXTS) recent.delete(recent.keys().next().value as string);
+	}
+
 	/** The one write path: text and its parsed fields in the same statement. */
 	function put(path: string, next: Omit<FileRow, 'path'>) {
-		if ((row(path)?.text ?? null) !== next.text) changed.add(path);
+		const previous = row(path);
+		if ((previous?.text ?? null) !== next.text) changed.add(path);
+		if (previous !== undefined && previous.hash !== next.hash) remember(previous.hash, previous.synced);
 		if (next.text === null && next.synced === null) {
 			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
 			return;
@@ -299,7 +333,7 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	/** Every op but a blob put, whose bytes are stored first and which then writes its pointer's text. */
-	type Ready = Exclude<WriteOp, { kind: 'put' }> | { kind: 'pointer'; name: string; params: Params; text: string };
+	type Ready = Exclude<WriteOp, { kind: 'put' }> | { kind: 'pointer'; name: string; params: Params; text: string; base?: string | null };
 
 	function pathOf(lens: Lens, params: Params): Result<string, WriteError> {
 		const built = buildPath(lens.template, params);
@@ -377,7 +411,7 @@ export function openEngine<const TDefs extends Definitions>({
 			catch: (cause) => WriteError.BlobUploadFailed({ path: path.data, cause }),
 		});
 		if (stored.error !== null) return stored;
-		return Ok({ kind: 'pointer', name: op.name, params: op.params, text: writePointer({ oid, size: op.bytes.length }) });
+		return Ok({ kind: 'pointer', name: op.name, params: op.params, text: writePointer({ oid, size: op.bytes.length }), base: op.base });
 	}
 
 	const waiters = new Map<number, ((result: Result<Settled[], WriteError>) => void)[]>();
@@ -406,8 +440,11 @@ export function openEngine<const TDefs extends Definitions>({
 	 * delete and a recreate never become one edit.
 	 */
 	function coalescible(path: string): { n: number; entry: Entry } | undefined {
-		const last = first<{ n: number; changes: string }>(driver, 'SELECT n, changes FROM "epicenter/outbox" ORDER BY n DESC LIMIT 1');
-		if (last === undefined || last.n <= sentThrough()) return undefined;
+		const last = first<{ n: number; policy: Policy; changes: string }>(
+			driver,
+			'SELECT n, policy, changes FROM "epicenter/outbox" ORDER BY n DESC LIMIT 1',
+		);
+		if (last === undefined || last.policy !== 'mark' || last.n <= sentThrough()) return undefined;
 		const entries = JSON.parse(last.changes) as Entry[];
 		const [entry] = entries;
 		if (entries.length !== 1 || entry === undefined) return undefined;
@@ -431,12 +468,15 @@ export function openEngine<const TDefs extends Definitions>({
 			driver.run('UPDATE "epicenter/outbox" SET changes = ? WHERE n = ?', [JSON.stringify([replaced]), into.n]);
 			return [into.n];
 		}
-		return batches.map((entries) => {
-			const n = Number(meta('next') ?? '1');
-			setMeta('next', String(n + 1));
-			driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes) VALUES (?, ?, ?)', [n, position(), JSON.stringify(entries)]);
-			return n;
-		});
+		return batches.map((entries) => enqueue('mark', entries));
+	}
+
+	/** Add one batch to the end of the lane under the next number. */
+	function enqueue(policy: Policy, entries: Entry[]): number {
+		const n = Number(meta('next') ?? '1');
+		setMeta('next', String(n + 1));
+		driver.run('INSERT INTO "epicenter/outbox" (n, seq, policy, changes) VALUES (?, ?, ?, ?)', [n, position(), policy, JSON.stringify(entries)]);
+		return n;
 	}
 
 	/**
@@ -476,33 +516,215 @@ export function openEngine<const TDefs extends Definitions>({
 		return { local: Promise.resolve(Ok(undefined)), settled };
 	}
 
-	function submit(ops: WriteOp[]): Submitted {
-		if (!ops.some((op) => op.kind === 'put')) return apply(ops as Ready[]);
-		const ready = (async (): Promise<Result<Ready[], WriteError>> => {
-			const out: Ready[] = [];
-			for (const op of ops) {
-				if (op.kind !== 'put') {
-					out.push(op);
-					continue;
-				}
-				const uploaded = await upload(op);
-				if (uploaded.error !== null) return uploaded;
-				out.push(uploaded.data);
+	/** Store each blob's bytes and turn its put into a pointer write. */
+	async function uploadAll(ops: WriteOp[]): Promise<Result<Ready[], WriteError>> {
+		const out: Ready[] = [];
+		for (const op of ops) {
+			if (op.kind !== 'put') {
+				out.push(op);
+				continue;
 			}
-			return Ok(out);
+			const uploaded = await upload(op);
+			if (uploaded.error !== null) return uploaded;
+			out.push(uploaded.data);
+		}
+		return Ok(out);
+	}
+
+	/** The paths ops name; ops whose parameters build no path name none, and fail when they run. */
+	function opPaths(ops: (WriteOp | Ready)[]): string[] {
+		return ops.flatMap((op) => {
+			const lens = lensOf(op.name);
+			const named = op.kind === 'move' ? [op.from, op.to] : [op.params];
+			return named.flatMap((params) => {
+				const path = pathOf(lens, params);
+				return path.error === null ? [path.data] : [];
+			});
+		});
+	}
+
+	/**
+	 * Sends waiting for their verdict, by the paths they touch. A person's
+	 * write to one of those paths waits for the verdict before it applies, so
+	 * it starts from the send's result instead of racing it at the server.
+	 */
+	const inFlight = new Map<string, Promise<void>>();
+	const blockersOf = (paths: string[]) => paths.flatMap((path) => inFlight.get(path) ?? []);
+
+	/**
+	 * Apply a person's writes here and queue them. Blob bytes are stored
+	 * first, and writes to a path a `send` is waiting on wait for its verdict.
+	 */
+	function submit(ops: WriteOp[]): Submitted {
+		const blockers = blockersOf(opPaths(ops));
+		if (blockers.length === 0 && !ops.some((op) => op.kind === 'put')) return apply(ops as Ready[]);
+		const submitted = (async (): Promise<Submitted> => {
+			await Promise.all(blockers);
+			const ready = await uploadAll(ops);
+			if (ready.error !== null) return { local: Promise.resolve(ready), settled: Promise.resolve(ready) };
+			return apply(ready.data);
 		})();
-		const submitted = ready.then((result) => (result.error !== null ? { local: Promise.resolve(result), settled: Promise.resolve(result) } : apply(result.data)));
 		return {
-			local: submitted.then((s) => s.local).then((r) => (r.error !== null ? Err(r.error) : Ok(undefined))),
+			local: submitted.then((s) => s.local),
 			settled: submitted.then((s) => s.settled),
 		};
+	}
+
+	// ------------------------------------------------------------------------
+	// Send: one batch that waits for the server's verdict
+	// ------------------------------------------------------------------------
+
+	type SendResult = Result<Verdict, WriteError | SendError>;
+	const verdicts = new Map<number, (result: SendResult) => void>();
+
+	/** The text with server hash `hash` at `path`: the acknowledged text, or one a newer one replaced. */
+	function textOf(file: FileRow, hash: string): string | undefined {
+		if (file.hash === hash && file.synced !== null) return file.synced;
+		return recent.get(hash);
+	}
+
+	/**
+	 * What one `send` op sends, read against the server's text as this device
+	 * last heard it, or against the version the caller named. Nothing on the
+	 * device changes.
+	 */
+	function resolveSend(op: Ready): Result<Entry, WriteError | SendError> {
+		const lens = lensOf(op.name);
+		const based = (path: string): Result<{ hash: string; text: string } | null, SendError> => {
+			const file = keep(path);
+			const requested = 'base' in op ? op.base : undefined;
+			if (requested === undefined || requested === null)
+				return Ok(file.synced === null || file.hash === null ? null : { hash: file.hash, text: file.synced });
+			const text = textOf(file, requested);
+			return text === undefined ? SendError.UnknownBase({ path, base: requested }) : Ok({ hash: requested, text });
+		};
+		if (op.kind === 'move') {
+			const from = pathOf(lens, op.from);
+			if (from.error !== null) return from;
+			const to = pathOf(lens, op.to);
+			if (to.error !== null) return to;
+			const source = keep(from.data);
+			if (source.synced === null) return WriteError.NotFound({ path: from.data });
+			if (keep(to.data).synced !== null) return WriteError.Exists({ path: to.data });
+			return Ok({ change: { kind: 'move', from: from.data, to: to.data }, local: source.synced });
+		}
+		const path = pathOf(lens, op.params);
+		if (path.error !== null) return path;
+		const base = based(path.data);
+		if (base.error !== null) return base;
+		const from = base.data?.text ?? null;
+		const write = (text: string | null): Result<Entry, WriteError> =>
+			Ok({ change: { kind: 'write', path: path.data, base: base.data, text }, local: text });
+		switch (op.kind) {
+			case 'pointer':
+				return write(op.text);
+			case 'delete':
+				if (from === null) return WriteError.NotFound({ path: path.data });
+				return write(null);
+			case 'append':
+				if (base.data === null) return WriteError.NotFound({ path: path.data });
+				return Ok({ change: { kind: 'append', path: path.data, text: op.text, base: base.data }, local: base.data.text + op.text });
+			case 'create':
+			case 'write':
+			case 'set':
+			case 'edit': {
+				if (op.kind === 'create' && (from !== null || localText(path.data) !== null)) return WriteError.Exists({ path: path.data });
+				const change = op.kind === 'set' ? { fields: { [op.key]: op.value } } : op.kind === 'edit' ? { body: op.body } : op.input;
+				const text = writeMarkdown(from, change);
+				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });
+				return write(text.data);
+			}
+		}
+	}
+
+	/** Whether a batch still in the lane touches any of `paths`. */
+	const laneTouches = (paths: string[]) =>
+		driver
+			.all<{ changes: string }>('SELECT changes FROM "epicenter/outbox"')
+			.some((batch) => (JSON.parse(batch.changes) as Entry[]).some((entry) => pathsOf(entry).some((path) => paths.includes(path))));
+
+	/**
+	 * Send ops as one batch with the `'refuse'` policy and wait for the
+	 * server's verdict. Offline, it fails at once and queues nothing. Its
+	 * paths are claimed at once, so a person's write to them made from now on
+	 * waits for the verdict. It waits for earlier sends and batches touching
+	 * its paths to be answered, so it starts from what the server
+	 * acknowledged, then queues one durable, numbered row, and changes
+	 * nothing here until the verdict.
+	 */
+	function send(ops: WriteOp[]): Promise<SendResult> {
+		if (closed) return Promise.resolve(WriteError.Closed());
+		if (!online || !link.connected()) return Promise.resolve(SendError.Offline());
+		const paths = opPaths(ops);
+		const earlier = blockersOf(paths);
+		const result = sendAfter(earlier, ops, paths);
+		const claim = result.then(() => undefined);
+		for (const path of paths) inFlight.set(path, claim);
+		void claim.then(() => {
+			for (const path of paths) if (inFlight.get(path) === claim) inFlight.delete(path);
+		});
+		return result;
+	}
+
+	async function sendAfter(earlier: Promise<void>[], ops: WriteOp[], paths: string[]): Promise<SendResult> {
+		await Promise.all(earlier);
+		const ready = await uploadAll(ops);
+		if (ready.error !== null) return ready;
+		const head = () => first<{ n: number }>(driver, 'SELECT n FROM "epicenter/outbox" ORDER BY n LIMIT 1')?.n;
+		while (!closed && online && laneTouches(paths)) {
+			const before = head();
+			await kick();
+			// A lane that made no progress is a sync step failing over and over.
+			if (online && head() === before) return SendError.Offline();
+		}
+		if (closed) return WriteError.Closed();
+		if (!online || !link.connected()) return SendError.Offline();
+		const entries: Entry[] = [];
+		for (const op of ready.data) {
+			const entry = resolveSend(op);
+			if (entry.error !== null) return entry;
+			entries.push(entry.data);
+		}
+		const n = driver.transaction(() => enqueue('refuse', entries));
+		const verdict = new Promise<SendResult>((resolve) => verdicts.set(n, resolve));
+		kick();
+		return verdict;
+	}
+
+	/** Answer a `send` waiting on batch `n`, if one is. */
+	function answerSend(n: number, result: SendResult) {
+		const resolve = verdicts.get(n);
+		verdicts.delete(n);
+		resolve?.(result);
+	}
+	/** Tell a `send` waiting on batch `n` that its verdict is not known here; the row stays. */
+	const verdictUnknown = (n: number) => answerSend(n, SendError.Unknown({ n }));
+
+	/**
+	 * Write an applied `send`'s result into the files, as a broadcast of it
+	 * would: the server sends its sender no broadcast.
+	 */
+	function fold(entries: Entry[], outcome: Extract<BatchOutcome, { kind: 'applied' }>, seq: number) {
+		for (const [index, { change }] of entries.entries()) {
+			const result = outcome.changes[index];
+			if (result === undefined) continue;
+			const text = result.text !== undefined ? result.text : change.kind === 'write' ? change.text : null;
+			const named = change.kind === 'move' ? change.from : change.path;
+			const left = result.movedTo ?? named;
+			if (change.kind === 'move' || result.at !== left) serverFile({ path: left, text: null, hash: null }, seq);
+			if (result.at !== null) serverFile({ path: result.at, text, hash: result.hash }, seq);
+		}
 	}
 
 	/** The paths an outbox entry touches. */
 	const pathsOf = ({ change }: Entry) => (change.kind === 'move' ? [change.from, change.to] : [change.path]);
 
+	/** A person's batches still in the lane; a `send` shows nothing here, so it covers no path. */
 	const unsent = (except = -1) =>
-		driver.all<{ n: number; changes: string }>('SELECT n, changes FROM "epicenter/outbox" WHERE n <> ? ORDER BY n', [except]);
+		driver.all<{ n: number; changes: string }>(
+			`SELECT n, changes FROM "epicenter/outbox" WHERE policy = 'mark' AND n <> ? ORDER BY n`,
+			[except],
+		);
 
 	/** Whether an unsent batch other than `except` touches `path`. */
 	const isPending = (path: string, except: number) =>
@@ -587,7 +809,32 @@ export function openEngine<const TDefs extends Definitions>({
 		put(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
 	}
 
-	/** Settle one batch: fold its outcome into this device's files and drop its row. */
+	/**
+	 * Settle a `send`'s batch: an applied verdict is written into the files,
+	 * a refusal changes nothing, and the caller, if still waiting, is told.
+	 */
+	function concludeSend(n: number, entries: Entry[], outcome: BatchOutcome) {
+		driver.transaction(() => {
+			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
+			if (outcome.kind !== 'applied' || outcome.seq === null) return;
+			fold(entries, outcome, outcome.seq);
+			advance(outcome.seq);
+		});
+		notify();
+		switch (outcome.kind) {
+			case 'applied':
+				answerSend(n, Ok({ kind: 'applied', seq: outcome.seq, changes: outcome.changes }));
+				return;
+			case 'refused':
+				answerSend(n, Ok({ kind: 'refused', path: outcome.path, reason: outcome.reason, overlaps: outcome.overlaps }));
+				return;
+			case 'need-base':
+				answerSend(n, Ok({ kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE, overlaps: [] }));
+				return;
+		}
+	}
+
+	/** Settle a person's batch: fold its outcome into this device's files and drop its row. */
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
 		let settled: Settled[];
 		switch (outcome.kind) {
@@ -677,16 +924,17 @@ export function openEngine<const TDefs extends Definitions>({
 		}
 		for (;;) {
 			if (closed) return;
-			const next = first<{ n: number; seq: number; changes: string }>(
+			const next = first<{ n: number; seq: number; policy: Policy; changes: string }>(
 				driver,
-				'SELECT n, seq, changes FROM "epicenter/outbox" ORDER BY n LIMIT 1',
+				'SELECT n, seq, policy, changes FROM "epicenter/outbox" ORDER BY n LIMIT 1',
 			);
 			if (next === undefined) return;
 			const entries = JSON.parse(next.changes) as Entry[];
-			const send = (withBases: boolean): Batch => ({
+			const batchOf = (withBases: boolean): Batch => ({
 				device,
 				n: next.n,
 				seq: next.seq,
+				policy: next.policy,
 				changes: entries.map(({ change }): Change =>
 					withBases || change.kind === 'move' || change.base === null ? change : { ...change, base: { hash: change.base.hash } },
 				),
@@ -695,16 +943,19 @@ export function openEngine<const TDefs extends Definitions>({
 			// again, unless the transport says it never left this device.
 			const before = sentThrough();
 			if (next.n > before) setMeta('sent', String(next.n));
-			let answer = await link.push(send(false));
+			let answer = await link.push(batchOf(false));
 			if (answer.error !== null && !answer.error.sent && sentThrough() === next.n) setMeta('sent', String(before));
-			if (answer.error === null && answer.data.kind === 'need-base') answer = await link.push(send(true));
+			if (answer.error === null && answer.data.kind === 'need-base') answer = await link.push(batchOf(true));
 			if (answer.error !== null) {
 				online = false;
 				needsHello = true;
+				// Every waiting send's row stays and is sent again; its caller cannot know the verdict now.
+				for (const n of [...verdicts.keys()]) verdictUnknown(n);
 				return;
 			}
 			if (closed) return;
-			conclude(next.n, entries, answer.data);
+			if (next.policy === 'refuse') concludeSend(next.n, entries, answer.data);
+			else conclude(next.n, entries, answer.data);
 		}
 	}
 
@@ -720,7 +971,7 @@ export function openEngine<const TDefs extends Definitions>({
 		const keys = Object.entries(filter).filter(([key, value]) => lens.template.params.includes(key) && value !== undefined);
 		const where = keys.map(([key]) => `v."${key}" = ?`);
 		return driver.all<FileRead>(
-			`SELECT f.path, f.text, f.fields, f.body FROM "epicenter/files" f JOIN temp."${lens.name}" v ON v.path = f.path${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY f.path`,
+			`SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f JOIN temp."${lens.name}" v ON v.path = f.path${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY f.path`,
 			keys.map(([, value]) => String(value)),
 		);
 	}
@@ -729,7 +980,7 @@ export function openEngine<const TDefs extends Definitions>({
 		const path = split(lens, params);
 		if (path.error !== null) return null;
 		return (
-			first<FileRead>(driver, 'SELECT path, text, fields, body FROM "epicenter/files" WHERE path = ? AND text IS NOT NULL', [
+			first<FileRead>(driver, `SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f WHERE f.path = ? AND f.text IS NOT NULL`, [
 				path.data,
 			]) ?? null
 		);
@@ -762,6 +1013,8 @@ export function openEngine<const TDefs extends Definitions>({
 		read,
 		/** Apply writes here now and send them; see `apply`. */
 		submit,
+		/** Send one batch that refuses on overlap and wait for the verdict; see `send`. */
+		send,
 		/** Called with the paths whose shown text changed, after every change. */
 		onChange(listener: (paths: string[]) => void) {
 			listeners.add(listener);
@@ -775,6 +1028,7 @@ export function openEngine<const TDefs extends Definitions>({
 			listeners.clear();
 			for (const resolvers of waiters.values()) for (const resolve of resolvers) resolve(WriteError.Closed());
 			waiters.clear();
+			for (const n of [...verdicts.keys()]) verdictUnknown(n);
 		},
 	};
 }

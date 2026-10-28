@@ -7,7 +7,7 @@
  * `e2e.test.ts`; these pin the server's own contract.
  *
  * Key behaviors:
- * - `'mark'` overlaps become marker blocks in server order; `'refuse'` refuses the batch
+ * - A batch names its policy: `'mark'` overlaps become marker blocks in server order; `'refuse'` refuses the batch
  * - A retried batch returns its recorded outcome, or `applied` once its commit cleared it; a gap is refused
  * - An unknown base answers need-base, and the resent base applies
  * - A change made any number of commits ago is traced exactly, with no window
@@ -46,14 +46,15 @@ async function setup(options: Partial<ServerOptions> = {}) {
 		...options,
 	});
 	const heard: Broadcast[] = [];
-	const alice = server.connect({ device: 'alice-laptop', user: 'alice', onOverlap: 'mark' });
-	const bob = server.connect({ device: 'bob-phone', user: 'bob', onOverlap: 'mark', onBroadcast: (b) => heard.push(b) });
-	const agent = server.connect({ device: 'agent-1', user: 'claude', onOverlap: 'refuse' });
+	const alice = server.connect({ device: 'alice-laptop', user: 'alice' });
+	const bob = server.connect({ device: 'bob-phone', user: 'bob', onBroadcast: (b) => heard.push(b) });
+	const agent = server.connect({ device: 'agent-1', user: 'claude' });
 	const numbers = new Map<string, number>();
+	/** A device's next batch; the agent waits for its verdicts, so its batches refuse on overlap. */
 	const batch = (device: string, seq: number, ...changes: Change[]): Batch => {
 		const n = (numbers.get(device) ?? 0) + 1;
 		numbers.set(device, n);
-		return { device, n, seq, changes };
+		return { device, n, seq, policy: device === 'agent-1' ? 'refuse' : 'mark', changes };
 	};
 	const write = (path: string, base: string | null, text: string | null): Change => ({
 		kind: 'write',
@@ -119,7 +120,18 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
-	test("a 'refuse' peer's overlap is refused and changes nothing", async () => {
+	test('one device can send a marked batch and a refused one: the policy is the batch\'s', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'notes/a.md', 'cat\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'cat\n', 'cart\n')));
+		const refused = await t.bob.push({ ...t.batch('bob-phone', seq, t.write('notes/a.md', 'cat\n', 'coat\n')), policy: 'refuse' });
+		expect(refused).toMatchObject({ kind: 'refused', path: 'notes/a.md' });
+		const marked = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'cat\n', 'coat\n')));
+		expect(marked).toMatchObject({ kind: 'applied', changes: [{ overlaps: [{ unit: 'body', settled: 'marked' }] }] });
+		await t.cleanup();
+	});
+
+	test("a 'refuse' batch's overlap is refused and changes nothing", async () => {
 		const t = await setup();
 		const seq = await seed(t, 'notes/a.md', 'cat\n');
 		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'cat\n', 'cart\n')));
@@ -177,7 +189,7 @@ describe('batches', () => {
 		const again = await t.alice.push({ ...batch, changes: [t.append('log.md', 'one\n', 'two\n')] });
 		expect(again).toEqual(first);
 		expect(await t.server.read('log.md')).toBe('one\n');
-		expect(await t.alice.push({ device: 'alice-laptop', n: 5, seq: 1, changes: [] })).toMatchObject({ kind: 'refused' });
+		expect(await t.alice.push({ device: 'alice-laptop', n: 5, seq: 1, policy: 'mark', changes: [] })).toMatchObject({ kind: 'refused' });
 		await t.cleanup();
 	});
 
@@ -270,8 +282,8 @@ describe('batches', () => {
 		const next = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'old edited\n', 'old edited twice\n')));
 		expect(next).toMatchObject({ kind: 'applied', changes: [{ at: sibling, movedTo: sibling, overlaps: [] }] });
 		// Another device's stale edit of the same note converges on that sibling.
-		const carol = t.server.connect({ device: 'carol-tablet', user: 'carol', onOverlap: 'mark' });
-		await carol.push({ device: 'carol-tablet', n: 1, seq, changes: [t.write('notes/a.md', 'old\n', 'old\ncarol\n')] });
+		const carol = t.server.connect({ device: 'carol-tablet', user: 'carol' });
+		await carol.push({ device: 'carol-tablet', n: 1, seq, policy: 'mark', changes: [t.write('notes/a.md', 'old\n', 'old\ncarol\n')] });
 		expect(await t.server.read('notes/a.md')).toBe('different note\n');
 		expect(await t.server.read(sibling)).toBe('old edited twice\ncarol\n');
 		expectOk(await t.server.commit());
@@ -355,8 +367,8 @@ describe('batches', () => {
 		const seq = await seed(t, 'n.md', 'v1\n');
 		await t.alice.push(t.batch('alice-laptop', seq, t.write('n.md', 'v1\n', null)));
 		await t.bob.push(t.batch('bob-phone', seq, t.write('n.md', 'v1\n', 'v1 bob\n')));
-		const carol = t.server.connect({ device: 'carol-tablet', user: 'carol', onOverlap: 'mark' });
-		const outcome = await carol.push({ device: 'carol-tablet', n: 1, seq, changes: [t.write('n.md', 'v1\n', 'carol v1\n')] });
+		const carol = t.server.connect({ device: 'carol-tablet', user: 'carol' });
+		const outcome = await carol.push({ device: 'carol-tablet', n: 1, seq, policy: 'mark', changes: [t.write('n.md', 'v1\n', 'carol v1\n')] });
 		expect(outcome).toMatchObject({ kind: 'applied', changes: [{ at: 'n.md', overlaps: [] }] });
 		expect(await t.server.read('n.md')).toBe('carol v1 bob\n');
 		expect(await t.server.read('n (carol, 2026-10-28).md')).toBeNull();

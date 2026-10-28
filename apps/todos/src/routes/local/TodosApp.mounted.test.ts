@@ -61,6 +61,7 @@ function freshDevice() {
 			const failed = WriteError.Unparseable({ path: 'todos/', reason: 'the disk is full' });
 			return { local: Promise.resolve(failed), settled: Promise.resolve(failed) };
 		},
+		send: (ops) => engine.send(ops),
 		onChange: (listener) => engine.onChange(listener),
 		// A client closing leaves the engine to the others.
 		close() {},

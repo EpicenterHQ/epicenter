@@ -27,8 +27,9 @@ import { openBunSqlite } from './bun/sqlite.js';
 import { createInProcessTransport } from './bun/transport.js';
 import { defineApp } from './define.js';
 import { openRepository } from './repository.js';
-import { createMemoryBlobStore } from './engine/ports.js';
-import type { OnOverlap } from './policy.js';
+import { createMemoryBlobStore, type Transport } from './engine/ports.js';
+import { gitBlobHash } from './hash.js';
+import type { Batch } from './protocol.js';
 import { MAIN, sequenceOf } from './server/git-store.js';
 import { createRepositoryServer, type ServerOptions } from './server/server.js';
 
@@ -50,10 +51,45 @@ async function setup(options: Partial<ServerOptions> = {}) {
 	let clock = Date.parse('2026-10-28T12:00:00Z');
 	const server = createRepositoryServer({ driver: openBunSqlite(), git, now: () => clock, ...options });
 	const blobs = createMemoryBlobStore();
-	const device = (name: string, user: string, onOverlap: OnOverlap = 'mark') => {
-		const transport = createInProcessTransport(server, { user, onOverlap });
+	const device = (name: string, user: string) => {
+		const transport = createInProcessTransport(server, { user });
 		const repo = openRepository({ app, driver: openBunSqlite(), transport, device: name, blobs });
 		return { repo, transport };
+	};
+	/** A device whose pushes are recorded, and held while `hold` is set until `release`. */
+	const gated = (name: string, user: string) => {
+		const inner = createInProcessTransport(server, { user });
+		const pushed: Batch[] = [];
+		let gate: Promise<void> | null = null;
+		let open = () => {};
+		const transport: Transport = {
+			connect(handlers) {
+				const link = inner.connect(handlers);
+				return {
+					...link,
+					async push(batch) {
+						pushed.push(structuredClone(batch));
+						await gate;
+						return link.push(batch);
+					},
+				};
+			},
+		};
+		const repo = openRepository({ app, driver: openBunSqlite(), transport, device: name, blobs });
+		return {
+			repo,
+			transport: inner,
+			pushed,
+			hold() {
+				gate = new Promise((resolve) => {
+					open = resolve;
+				});
+			},
+			release() {
+				gate = null;
+				open();
+			},
+		};
 	};
 	const alice = device('alice-laptop', 'alice');
 	const bob = device('bob-phone', 'bob');
@@ -64,6 +100,7 @@ async function setup(options: Partial<ServerOptions> = {}) {
 		alice,
 		bob,
 		device,
+		gated,
 		advance: (ms: number) => {
 			clock += ms;
 		},
@@ -110,25 +147,122 @@ test('an offline edit on each device merges on reconnect', async () => {
 test('a true overlap becomes a marker block for people and a refusal for an agent', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'pet' }, { body: 'cat\n' }));
-	const agent = t.device('agent-1', 'claude', 'refuse');
+	const agent = t.device('agent-1', 'claude');
 	await agent.repo.flush();
+	const read = await agent.repo.notes.get({ stem: 'pet' });
+	expect(read?.version).toBe(gitBlobHash('cat\n'));
 	t.bob.transport.setOnline(false);
-	agent.transport.setOnline(false);
 	void t.bob.repo.notes.write({ stem: 'pet' }, { body: 'coat\n' });
-	const agentWrite = agent.repo.notes.write({ stem: 'pet' }, { body: 'cut\n' });
 	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: 'cart\n' }));
 	t.bob.transport.setOnline(true);
-	await t.settle(t.bob, t.alice);
+	await t.settle(t.bob, t.alice, agent);
 	const marked = (await text(t.alice.repo, 'pet')) ?? '';
 	expect(marked).toContain('<<<<<<< alice');
 	expect(marked).toContain('cart\n||||||| base\ncat\n=======\ncoat\n>>>>>>> bob');
 	expect(await text(t.bob.repo, 'pet')).toBe(marked);
 
-	agent.transport.setOnline(true);
-	expect(expectOk(await agentWrite)).toMatchObject({ kind: 'refused', path: 'notes/pet.md' });
-	// The agent awaited the refusal and still holds what it wrote; its device shows the server's text.
+	// The agent changes the note it read; it changed since, so the send is refused and changes nothing.
+	const verdict = expectOk(await agent.repo.send((b) => b.notes.write({ stem: 'pet' }, { body: 'cut\n' }, { base: read?.version })));
+	expect(verdict).toMatchObject({ kind: 'refused', path: 'notes/pet.md' });
 	expect(await text(agent.repo, 'pet')).toBe(marked);
+	expect(await t.server.read('notes/pet.md')).toBe(marked);
 	expect(await agent.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	await t.cleanup();
+});
+
+// ============================================================================
+// send: one batch that waits for the server's verdict
+// ============================================================================
+
+test('an applied send shows on its own device at once, though the server echoes nothing back', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'Fix login' }, body: 'Steps.\n' }));
+	const agent = t.device('agent-1', 'claude');
+	await agent.repo.flush();
+	const read = await agent.repo.notes.get({ stem: 'task' });
+	const verdict = expectOk(await agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'mood', 'done', { base: read?.version })));
+	expect(verdict).toMatchObject({ kind: 'applied', seq: 2, changes: [{ path: 'notes/task.md', at: 'notes/task.md' }] });
+	const shown = '---\ntitle: Fix login\nmood: done\n---\nSteps.\n';
+	expect(await text(agent.repo, 'task')).toBe(shown);
+	expect((await agent.repo.notes.get({ stem: 'task' }))?.version).toBe(gitBlobHash(shown));
+	expect(await agent.repo.query('SELECT value FROM "epicenter/meta" WHERE key = \'seq\'')).toEqual([{ value: '2' }]);
+	await t.alice.repo.flush();
+	expect(await text(t.alice.repo, 'task')).toBe(shown);
+	await t.cleanup();
+});
+
+test('a send without a base starts from the text the server last acknowledged', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'A' } }));
+	const agent = t.device('agent-1', 'claude');
+	await agent.repo.flush();
+	expectOk(await t.alice.repo.notes.set({ stem: 'task' }, 'title', 'B'));
+	await agent.repo.flush();
+	expect(expectOk(await agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'mood', 'calm')))).toMatchObject({ kind: 'applied' });
+	expect(await t.server.read('notes/task.md')).toBe('---\ntitle: B\nmood: calm\n---\n');
+	await t.cleanup();
+});
+
+test('a send while offline fails at once and queues nothing', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { body: 'x\n' }));
+	t.alice.transport.setOnline(false);
+	await t.alice.repo.flush();
+	expect(expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'task' }, 'y\n'))).name).toBe('Offline');
+	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	expect(await text(t.alice.repo, 'task')).toBe('x\n');
+	await t.cleanup();
+});
+
+test('a send whose reply was lost is unknown to its caller, then resent under its number and lands once', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'x\n' }));
+	t.alice.transport.dropNextReply();
+	const lost = expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'y\n')));
+	expect(lost).toMatchObject({ name: 'Unknown', n: 2 });
+	expect(await t.server.read('notes/log.md')).toBe('x\ny\n');
+	// Nothing changed here before the verdict.
+	expect(await text(t.alice.repo, 'log')).toBe('x\n');
+	t.alice.transport.setOnline(true);
+	await t.alice.repo.flush();
+	// The retry is answered from the server's receipt, and its result is written here.
+	expect(await text(t.alice.repo, 'log')).toBe('x\ny\n');
+	expect(await t.server.read('notes/log.md')).toBe('x\ny\n');
+	expect(t.server.sequence()).toBe(2);
+	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	await t.cleanup();
+});
+
+test('a send waits for earlier writes to its paths, so it starts from what they left', async () => {
+	const t = await setup();
+	void t.alice.repo.notes.create({ stem: 'log' }, { body: 'one\n' });
+	const verdict = expectOk(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'two\n')));
+	expect(verdict).toMatchObject({ kind: 'applied', seq: 2 });
+	expect(await t.server.read('notes/log.md')).toBe('one\ntwo\n');
+	await t.cleanup();
+});
+
+test('a write to a path with a send in flight waits for the verdict and starts from its result', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'A' } }));
+	const agent = t.gated('agent-1', 'claude');
+	await agent.repo.flush();
+	agent.hold();
+	const sent = agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'title', 'B'));
+	let written = false;
+	const write = agent.repo.notes.set({ stem: 'task' }, 'title', 'C').then((result) => {
+		written = true;
+		return result;
+	});
+	await Bun.sleep(10);
+	expect(written).toBe(false);
+	expect(await text(agent.repo, 'task')).toBe('---\ntitle: A\n---\n');
+	agent.release();
+	expect(expectOk(await sent)).toMatchObject({ kind: 'applied' });
+	expect(expectOk(await write)).toMatchObject({ kind: 'applied', change: { overlaps: [] } });
+	const [, after] = agent.pushed.map((batch) => batch.changes[0]);
+	expect(after).toMatchObject({ kind: 'write', base: { hash: gitBlobHash('---\ntitle: B\n---\n') } });
+	expect(await t.server.read('notes/task.md')).toBe('---\ntitle: C\n---\n');
 	await t.cleanup();
 });
 
@@ -170,19 +304,6 @@ test('an overlap touching an existing conflict block keeps both sides as separat
 	expect(await text(t.bob.repo, 'pet')).toBe(final);
 	for (const kept of ['intro by alice', 'CART', 'intro by bob\ncoat\n']) expect(final).toContain(kept);
 	expect(final.match(/^<<<<<<< /gm)).toHaveLength(2);
-	await t.cleanup();
-});
-
-test("two creates at one path are refused for a 'refuse' device", async () => {
-	const t = await setup();
-	const agent = t.device('agent-1', 'claude', 'refuse');
-	await agent.repo.flush();
-	agent.transport.setOnline(false);
-	const created = agent.repo.notes.create({ stem: 'daily' }, { fields: { weather: 'rain' }, body: 'Agent\n' });
-	expectOk(await t.alice.repo.notes.create({ stem: 'daily' }, { fields: { weather: 'sun' }, body: 'Alice\n' }));
-	agent.transport.setOnline(true);
-	expect(expectOk(await created)).toMatchObject({ kind: 'refused', path: 'notes/daily.md', reason: 'both sides created the file' });
-	expect(await t.server.read('notes/daily.md')).toBe('---\nweather: sun\n---\nAlice\n');
 	await t.cleanup();
 });
 
