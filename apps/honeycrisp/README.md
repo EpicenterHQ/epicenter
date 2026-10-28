@@ -38,8 +38,8 @@ Checks, from `apps/honeycrisp`:
 | Command | What it checks |
 | --- | --- |
 | `bun run typecheck` | The page, the tests, and the browser tests. |
-| `bun run test` | The editor, the bundle contents, then `test:dom`. |
-| `bun run test:dom` | The whole page, mounted over the repository engine in this process. |
+| `bun run test` | The bundle contents, then `test:dom`. |
+| `bun run test:dom` | The editor and the whole page, mounted over the repository engine in this process. |
 | `bun run test:browser` | The built site in Chromium and WebKit with persistent profiles, syncing through a local server. |
 
 ## Where notes live
@@ -73,12 +73,36 @@ not read or migrate either; their bytes stay where they are.
 
 Every edit applies on this device at once and shows at once: the lists are
 live queries, and the open note is held open, so its controls read the note
-synchronously and write through it. Nothing waits for a save, and nothing is
-left unsaved when the page closes. Edits made offline wait in the
+synchronously and write through it. Nothing waits for a save, and there is no
+close guard: an edit reaches the leader tab's worker and its SQLite file a
+moment after it is typed, so only a keystroke made in the same instant as
+closing the tab can be lost. Edits made offline wait in the
 repository's outbox and are sent when the server is reachable; while an edit
 to a note is unsent, later ones replace it, so typing sends one batch per send.
 Edits from elsewhere merge with them. If the engine refuses a write, Honeycrisp
 says so in a toast and the controls show the stored note again.
+
+A note's fields are controls above its body: title, folder, and pin. The
+body is edited in CodeMirror 6 as the Markdown text itself, in a live-preview
+style: headings, bold, italic, strikethrough, inline code, links, and task
+checkboxes render in place, and the line holding the cursor shows its
+Markdown. Clicking a task's checkbox toggles the one character between its
+brackets. Images and tables show as plain Markdown. Frontmatter is never in
+the text. Because the editor edits the text and not a document converted from
+it, every edit changes exactly the characters typed: opening a note writes
+nothing, and the file keeps its spacing and line endings (a CRLF body stays
+CRLF).
+
+A change from elsewhere is applied to the editor as the smallest text
+changes. The cursor stays where it was, and Undo takes back only what was
+typed here. Typing while such a change arrives keeps it: each edit is sent as
+an edit of the body the editor last showed (`note.edit`), and the repository
+merges it onto what it holds.
+
+When two people's edits overlap, the server writes Git conflict markers with
+a base section into the note. Honeycrisp shows each block as a card with
+**Keep this**, **Keep that**, and **Keep both**; choosing is one edit that
+removes the markers, and Undo brings them back.
 
 Deleting a logical folder moves its notes out (`folderId: null`) and removes
 the folder file in one batch, which lands all or nothing. It refuses while a
@@ -97,6 +121,7 @@ note cannot say which folder it is in.
 | --- | --- |
 | `src/lib/data.ts` | The lens: `notes` and `folders`, with each file's schema. |
 | `src/lib/notes.svelte.ts` | The notes over the repository: live lists, what the detail shows, and every action. |
+| `src/lib/editor/` | The CodeMirror editor: `note-editor.ts` composes it, `live-preview.ts`, `conflicts.ts`, `binding.ts`, and `NoteEditor.svelte` mounts it over a body source. It knows nothing of Honeycrisp's UI. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/routes/+page.svelte` | `OpenHoneycrisp` over `openBrowserRepository`, with `HoneycrispApp` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |

@@ -39,6 +39,12 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
+		"@codemirror/commands": "^6.11.1",
+		"@codemirror/lang-markdown": "^6.5.2",
+		"@codemirror/language": "^6.13.1",
+		"@codemirror/merge": "^6.12.3",
+		"@codemirror/state": "^6.7.6",
+		"@codemirror/view": "^6.43.15",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/repository": "workspace:*",

@@ -2,7 +2,8 @@
 	The note presentation of one open file. The note is held open in the
 	repository: its controls read it synchronously and write through it, so
 	what a person types shows at once and changes from elsewhere arrive while
-	it is open. FileDetail keeps this mounted while the file's text shows.
+	it is open. Its fields are controls here; its body is the editor's text.
+	FileDetail keeps this mounted while the file's text shows.
 -->
 <script lang="ts">
 	import { opened } from '@epicenter/repository/svelte';
@@ -10,15 +11,12 @@
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { Textarea } from '@epicenter/ui/textarea';
-	import * as Tabs from '@epicenter/ui/tabs';
-	import { toast } from '@epicenter/ui/sonner';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import { onDestroy } from 'svelte';
 	import { folderLabel, noteStemOf } from '$lib/data.js';
+	import NoteEditor from '$lib/editor/NoteEditor.svelte';
 	import { foldersOf, type Notes, report } from '$lib/notes.svelte.js';
-	import RichEditor from './RichEditor.svelte';
 
 	let {
 		notes,
@@ -42,7 +40,15 @@
 	const opening = notes.repo.notes.open({ stem }).then((note) => {
 		if (destroyed) note.close();
 		else held = note;
-		return opened(note);
+		return {
+			note: opened(note),
+			/** The body the editor shows and writes; its fields stay out of the text. */
+			body: {
+				read: () => note.read()?.body ?? '',
+				subscribe: note.subscribe,
+				edit: (body: string) => void report(note.edit(body), 'Could not save the note'),
+			},
+		};
 	});
 	onDestroy(() => {
 		destroyed = true;
@@ -51,16 +57,13 @@
 
 	const folders = $derived(foldersOf(notes.folderFiles));
 
-	/** Which view of the note shows. Switching writes nothing and discards nothing. */
-	let tab = $state<'rich' | 'source'>('rich');
-
 	/** A folder's option value. No folder is the empty value, so a folder id never is. */
 	const optionOf = (id: string | null) => (id === null ? '' : `folder:${id}`);
 	const idOf = (option: string) => (option === '' ? null : option.slice('folder:'.length));
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#await opening then note}
+	{#await opening then { note, body }}
 		{@const shown = note.current}
 		{#if shown?.valid}
 			{@const folderId = shown.fields.folderId}
@@ -99,33 +102,7 @@
 				<Button size="sm" variant="ghost" tooltip="Show the whole file, including keys Honeycrisp does not show" onclick={() => notes.open(path, 'text')}>Show file</Button>
 			</div>
 
-			<Tabs.Root bind:value={tab} class="flex min-h-0 flex-1 flex-col">
-				<Tabs.List class="mx-3">
-					<Tabs.Trigger value="rich">Rich text</Tabs.Trigger>
-					<Tabs.Trigger value="source">Source</Tabs.Trigger>
-				</Tabs.List>
-				<Tabs.Content value="rich" forceMount class="min-h-0 flex-1">
-					<RichEditor
-						note={{
-							read: () => (note.current?.valid ? note.current.body.replace(/\r\n?/g, '\n') : undefined),
-							write: (body) => void report(note.write({ body }), 'Could not save the note'),
-						}}
-						focusRequest={notes.focusRequest}
-						onOpenSource={() => (tab = 'source')}
-						onRefuse={(reason) => toast.warning('That edit was not made', { description: reason })}
-					/>
-				</Tabs.Content>
-				<Tabs.Content value="source" class="flex min-h-0 flex-1 flex-col">
-					<div class="flex min-h-0 flex-1 flex-col p-3">
-						<Textarea
-							class="min-h-40 flex-1 resize-none font-mono text-xs"
-							bind:value={() => shown.body, (body) => void report(note.write({ body }), 'Could not save the note')}
-							aria-label="Markdown source"
-							spellcheck={false}
-						/>
-					</div>
-				</Tabs.Content>
-			</Tabs.Root>
+			<NoteEditor source={body} focusRequest={notes.focusRequest} class="flex-1" />
 		{:else if shown === null}
 			<Empty.Root class="flex-1">
 				<Empty.Title>This note is no longer here</Empty.Title>

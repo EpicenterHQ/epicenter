@@ -20,6 +20,17 @@ current page flow and verify it against the code.
   note to change part of it.
 - A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
 
+## Editor ownership
+
+- `src/lib/editor/` owns the CodeMirror editor and imports nothing from
+  Honeycrisp's UI; `NoteDetail` gives `NoteEditor` a body source.
+- The editor's state owns the cursor and the undo history. Its mount depends
+  on nothing reactive; changes from elsewhere arrive through `follow`, as
+  `Transaction.remote` changes outside the history.
+- Local changes write with `note.edit(body)`, never `write({ body })`, so a
+  change that arrived while typing is merged, not replaced. Write the text
+  with `state.sliceDoc()`, which keeps the body's line breaks.
+
 ## Lifecycle and boundary
 
 - `OpenHoneycrisp` opens the repository, shows Try again on failure, and

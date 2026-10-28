@@ -15,8 +15,9 @@
  */
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
+import { EditorView } from '@codemirror/view';
 import { Ok } from 'wellcrafted/result';
-import { button, type } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { type } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { type Device, folderText, noteText, openDevice, until as poll } from '../lib/repository.test-support.js';
 
 // SAFETY: jsdom has no layout; the empty list supplies only the geometry these tests need.
@@ -35,7 +36,6 @@ afterEach(async () => {
 
 const NOTE = 'section[aria-label="Note"]';
 const TITLE = `${NOTE} input[aria-label="Title"]`;
-const SOURCE = `${NOTE} textarea[aria-label="Markdown source"]`;
 const LIST = 'section[aria-label="Notes"]';
 
 const until = (check: () => boolean, what: string) => poll(check, what, flushSync);
@@ -81,9 +81,9 @@ test("a new note's title and body persist across close and reopen", async () => 
 	await until(() => page.target.querySelector(TITLE) !== null, 'the new note');
 	type(page.get<HTMLInputElement>(TITLE), 'Groceries');
 	await until(() => page.text(LIST).includes('Groceries'), 'the title in the list');
-	button(page.target, 'Source').click();
-	flushSync();
-	type(page.get<HTMLTextAreaElement>(SOURCE), 'Milk\n');
+	const editor = EditorView.findFromDOM(page.get<HTMLElement>(`${NOTE} .cm-editor`));
+	if (editor === null) throw new Error('No editor');
+	editor.dispatch(editor.state.replaceSelection('Milk\n'), { userEvent: 'input.type' });
 	await until(() => page.text(LIST).includes('Milk'), 'the body in the list');
 	expect(page.get('[data-testid="status-summary"]').getAttribute('aria-label')).toContain('On this device');
 	await page.close();

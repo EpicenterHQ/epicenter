@@ -32,9 +32,11 @@ for (const [engine, browser] of [
 					await page.getByRole('button', { name: 'New note' }).click();
 					const title = page.getByLabel('Title', { exact: true });
 					await title.fill(`Groceries ${engine}`);
-					await page.getByRole('tab', { name: 'Source' }).click();
-					await page.getByLabel('Markdown source').fill('Milk\n');
-					await page.getByRole('region', { name: 'Notes' }).getByText(`Groceries ${engine}`).waitFor();
+					await page.getByRole('region', { name: 'Note' }).locator('.cm-content').click();
+					await page.keyboard.type('Milk');
+					await page.keyboard.press('Enter');
+					// The list shows what the leader's worker stored; a reload before that can lose the last keystrokes.
+					await page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: `Groceries ${engine}` }).filter({ hasText: 'Milk' }).waitFor();
 					await page.reload();
 					await opened(page);
 					await page.getByRole('region', { name: 'Notes' }).getByText(`Groceries ${engine}`).click();
