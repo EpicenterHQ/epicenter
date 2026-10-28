@@ -6,7 +6,7 @@
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import type { StatusLine } from '@epicenter/svelte/status-line';
+	import { type StatusLine, syncLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import FolderTreeIcon from '@lucide/svelte/icons/folder-tree';
@@ -26,8 +26,7 @@
 
 	const status = $derived.by((): StatusLine => {
 		if (syncsTo === undefined) return { label: 'On this device', tone: 'neutral' };
-		const waiting = notes.unsent;
-		return waiting === 0 ? { label: 'Synced', tone: 'good' } : { label: 'Sending…', detail: `${waiting} not sent yet`, tone: 'busy' };
+		return syncLine(notes.sync);
 	});
 </script>
 

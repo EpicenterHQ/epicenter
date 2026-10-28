@@ -106,10 +106,10 @@ function tabOf(first: TabState) {
 const owning = (repository: TodosRepository) => tabOf({ status: 'open', repository }).tab;
 
 /** Mount the page over the tab `open` opens; `close` unmounts it. */
-function mountPage(open: () => TodosTab) {
+function mountPage(open: () => TodosTab, syncsTo?: string) {
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(PageHost, { target, props: { open } });
+	const view = mount(PageHost, { target, props: { open, syncsTo } });
 	let mounted = true;
 	const close = () => {
 		if (!mounted) return;
@@ -334,6 +334,20 @@ test('a note that does not fit opens into its source with its schema issue, and 
 	type(opened.get(TITLE), 'Extra, renamed');
 	expect((await other.todos.get({ stem: 'extra' }))?.fields).toEqual({ title: 'Extra, renamed', done: false, owner: 'sam' });
 	expect((await other.todos.get({ stem: 'odd' }))?.text).toBe('---\ntitle: Odd\ndone: soon\n---\nNotes\n');
+});
+
+test('the header says a held file is not sent, and never Synced while one waits', async () => {
+	const device = freshDevice();
+	const other = device.tab();
+	void other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false } });
+	const opened = mountPage(() => owning(device.tab()), 'https://sync.example');
+	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
+	// Offline, the create is still sending.
+	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Sending') ?? false, 'sending');
+	void other.files.writeText('todos/milk.md', '---\ntitle: [Milk\ndone: false\n---\n');
+	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Not sent') ?? false, 'the held file');
+	void other.files.writeText('todos/milk.md', '---\ntitle: Milk\ndone: false\n---\n');
+	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Sending') ?? false, 'the repair sending');
 });
 
 test('a failed open shows the error, and Try again opens again', async () => {

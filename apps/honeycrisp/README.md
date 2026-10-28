@@ -30,8 +30,9 @@ VITE_HONEYCRISP_SERVER='ws://127.0.0.1:8787/?user=me' bun dev:honeycrisp
 ```
 
 Use a second browser profile, with another `user`, as a second person. The
-header says **Sending…** while edits wait for the server and **Synced** once it
-has them. The server commits to `/tmp/notes.git` a minute after a change, so
+header says **Sending…** while edits wait for the server, **Not sent** while a
+note's text is held on this device until its frontmatter parses, and **Synced**
+once the server has everything. The server commits to `/tmp/notes.git` a minute after a change, so
 `git clone /tmp/notes.git` shows the notes as files.
 
 Checks, from `apps/honeycrisp`:
@@ -70,8 +71,8 @@ file that does not read as one is listed apart. Files deletes them.
 the source editor (`<SourceEditor>` from `@epicenter/svelte`), which saves as
 you type. Its status line says whether the frontmatter parses, with the line
 where it breaks, and whether the note matches Honeycrisp's schema, with each
-issue. A note whose frontmatter parses never saves text that does not: that
-text waits in the editor until it parses again. A note whose frontmatter does
+issue. A note whose frontmatter parses never syncs text that does not: that
+text is saved on this device and held, not sent, until it parses again. A note whose frontmatter does
 not parse saves every step of its repair, and lists as a note once it reads
 as one, on every device.
 

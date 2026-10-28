@@ -80,7 +80,8 @@ export function createNotes(repo: HoneycrispRepository) {
 	const noteFiles = live(repo.notes.live());
 	const folderFiles = live(repo.folders.live());
 	const fileList = live(repo.live<{ path: string }>('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL ORDER BY path'));
-	const unsent = live(repo.live<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox"'));
+	const sending = live(repo.files.live({ sync: 'sending' }));
+	const held = live(repo.files.live({ sync: 'held' }));
 
 	/** Which notes the list shows; input not yet committed, like a search. */
 	let view = $state<{ folderId: string | null; deleted: boolean; query: string }>({
@@ -167,9 +168,9 @@ export function createNotes(repo: HoneycrispRepository) {
 		get files() {
 			return (fileList.current ?? []).map((file) => file.path);
 		},
-		/** Writes applied here that the server has not answered yet. */
-		get unsent() {
-			return unsent.current?.[0]?.n ?? 0;
+		/** How many files have edits the server has not answered yet, and how many are held here until they parse. */
+		get sync() {
+			return { sending: sending.current?.length ?? 0, held: held.current?.length ?? 0 };
 		},
 		expanded,
 		get view() {
