@@ -150,11 +150,9 @@ export function createReplica({
 			: (JSON.parse(loaded) as Persisted);
 	const files = new Map(Object.entries(state.files));
 	const passed = new Set(state.passed);
-	/** Notifications not yet placed, by the commit they follow, with when they arrived. */
-	const waiting = new Map<string, Event & { arrived: number }>();
-	let arrivals = 0;
-	/** Arrivals counted when the catch-up in flight was asked, and the paths it named. */
-	let askedAt = 0;
+	/** Notifications not yet placed, by the commit they follow. */
+	const waiting = new Map<string, Event>();
+	/** The refresh paths the catch-up in flight named. */
 	let asked = new Set<string>();
 	let send: ((request: Request) => void) | null = null;
 	let pending: { rid: number; kind: Request['type'] } | null = null;
@@ -190,8 +188,6 @@ export function createReplica({
 	/** What the server will have once this device's commits land. */
 	const tip = (f: FileRecord) => (f.committed ?? f.sent ?? { text: f.gone ? null : f.base }).text;
 	const hasWork = (f: FileRecord) => f.sent !== undefined || f.committed !== undefined || f.gone !== undefined || f.mine !== f.base;
-	/** Work worth keeping on a replaced note: a text, not only its delete. */
-	const keeps = (f: FileRecord) => f.committed?.text != null || f.mine !== null;
 
 	// ==========================================================================
 	// Committing and sending
@@ -254,7 +250,6 @@ export function createReplica({
 	function catchUp() {
 		stats.catchUps++;
 		needCatchUp = false;
-		askedAt = arrivals;
 		const named = [...new Set([...state.refresh, ...(state.landing?.files.map((f) => f.path) ?? [])])];
 		asked = new Set(state.refresh);
 		const paths = named.map((path) => {
@@ -285,11 +280,7 @@ export function createReplica({
 			mode: nextMode,
 			author: { user, device },
 			time: new Date(Date.UTC(2026, 9, 28) + now()).toISOString(),
-			// RULE: every file names the commit its text was made on, which is not always the position.
-			files: ready.map(([path, f]) => {
-				const from = f.gone?.from ?? f.at;
-				return { path, text: f.committed?.text ?? null, ...(from === undefined || from === parent ? {} : { from }) };
-			}),
+			files: ready.map(([path, f]) => ({ path, text: f.committed?.text ?? null, ...(f.gone === undefined ? {} : { from: f.gone.from }) })),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
 		for (const [path, f] of ready) {
@@ -382,13 +373,13 @@ export function createReplica({
 			moved.add(from).add(to);
 		}
 		for (const id of answer.commits) pass(id);
+		prune();
 		for (const file of answer.files) {
 			if (moved.has(file.path)) continue;
 			const f = record(file.path);
 			if (file.replaced && !f.unknown && f.sent === undefined && f.gone === undefined && hasWork(f) && state.position !== null) {
-				// History says the path holds another note now: the work here stays on the old one (a delete of it is moot).
-				if (keeps(f)) set(file.path, { ...f, gone: { from: f.at ?? state.position } });
-				else set(file.path, { base: file.text, mine: file.text, at: answer.main });
+				// History says the path holds another note now: the work here stays on the old one.
+				set(file.path, { ...f, gone: { from: f.at ?? state.position } });
 				continue;
 			}
 			integrate(file.path, file.text, answer.main, true);
@@ -481,9 +472,8 @@ export function createReplica({
 		for (const file of reply.files) {
 			const f = record(file.path);
 			if (file.replaced && !f.unknown && !landed.has(file.path) && hasWork(f) && f.gone === undefined && f.sent === undefined && from !== null) {
-				// RULE: history says the path holds another note now: the work here stays on the old one, for the server to put beside it (a delete of it is moot).
-				if (keeps(f)) set(file.path, { ...f, gone: { from: f.at ?? from } });
-				else set(file.path, { base: lookup(file.path), mine: lookup(file.path), at: reply.main });
+				// RULE: history says the path holds another note now: the work here stays on the old one, for the server to put beside it.
+				set(file.path, { ...f, gone: { from: f.at ?? from } });
 				continue;
 			}
 			if (file.replaced && landed.has(file.path) && from !== null) {
@@ -502,8 +492,7 @@ export function createReplica({
 		if (state.refresh.length > 0) needCatchUp = true;
 		state.position = reply.main;
 		pass(reply.main);
-		// RULE: a notification that arrived before this catch-up was asked and still does not follow is older than its answer.
-		for (const [parent, event] of [...waiting]) if (event.arrived < askedAt && parent !== state.position) waiting.delete(parent);
+		prune();
 	}
 
 	function applyEvent(event: Event, texts: Map<string, string>) {
@@ -513,6 +502,11 @@ export function createReplica({
 		state.position = event.commit;
 		pass(event.commit);
 		stats.placed++;
+	}
+
+	/** Drop waiting notifications for commits already passed: an answer or a catch-up covered them. */
+	function prune() {
+		for (const [parent, event] of [...waiting]) if (passed.has(event.commit)) waiting.delete(parent);
 	}
 
 	/** Apply waiting notifications that follow the position, reading their texts first. */
@@ -614,7 +608,7 @@ export function createReplica({
 			// This device's commit in flight, or the merge that takes it in (as second parent), is answered by the push.
 			const sent = state.inflight;
 			if (sent !== null && (event.commit === sent.id || event.parents.slice(1).includes(sent.id))) return;
-			waiting.set(parent, { ...event, arrived: arrivals++ });
+			waiting.set(parent, event);
 			place();
 			save();
 			pump();

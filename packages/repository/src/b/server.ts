@@ -32,8 +32,8 @@ export type CommitFile = {
 	text: string | null;
 	/**
 	 * RULE: the commit this file's text was made on, when not the commit's
-	 * parent: a file the device had no news of since an older commit, or kept
-	 * through a remote delete, so the server merges from there and can tell a
+	 * parent: a device that kept unsent work through a remote delete names the
+	 * commit before the delete, so the server merges from there and can tell a
 	 * restore from a replacement.
 	 */
 	from?: string;
