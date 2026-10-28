@@ -67,7 +67,10 @@ type Entry = { change: Change; local: string | null };
 type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number };
 
 export type Repository<TDefs extends Definitions> = Handles<TDefs> & {
-	/** Build one batch from write-only handles; it lands all or nothing. */
+	/**
+	 * Build one batch from write-only handles; it lands all or nothing, except
+	 * that each move is sent as a batch of its own.
+	 */
 	batch(build: (handles: BatchHandles<TDefs>) => void): Pending<Settled[]>;
 	/** Run a read-only statement over the app's views. */
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): TRow[];
@@ -253,34 +256,52 @@ export function openRepository<const TDefs extends Definitions>({
 	type Op = () => Result<Local, WriteError>;
 	const waiters = new Map<number, (result: Result<Settled[], WriteError>) => void>();
 
-	/** Apply ops locally and queue them as one batch, in one transaction. */
+	/**
+	 * Apply ops locally and queue them, in one transaction. A move is sent as
+	 * a batch of its own: the server may relocate or drop it, and later
+	 * changes aimed at its destination should then follow it as their own
+	 * batch, not ride along in its.
+	 */
 	function submit(ops: Op[]): Pending<Settled[]> {
 		if (closed) return Promise.resolve(WriteError.Closed());
 		let failure: WriteError | null = null;
-		let n = 0;
+		const numbers: number[] = [];
 		try {
 			driver.transaction(() => {
-				const entries: Entry[] = [];
+				const batches: Entry[][] = [];
 				for (const op of ops) {
 					const local = op();
 					if (local.error !== null) {
 						failure = local.error;
 						throw ROLLBACK;
 					}
-					entries.push(applyLocal(local.data));
+					const entry = applyLocal(local.data);
+					const last = batches.at(-1);
+					if (last === undefined || entry.change.kind === 'move' || last[0]?.change.kind === 'move') batches.push([entry]);
+					else last.push(entry);
 				}
-				n = Number(meta('next') ?? '1');
-				setMeta('next', String(n + 1));
-				driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes) VALUES (?, ?, ?)', [n, position(), JSON.stringify(entries)]);
+				for (const entries of batches) {
+					const n = Number(meta('next') ?? '1');
+					setMeta('next', String(n + 1));
+					driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes) VALUES (?, ?, ?)', [n, position(), JSON.stringify(entries)]);
+					numbers.push(n);
+				}
 			});
 		} catch (cause) {
 			if (cause !== ROLLBACK) throw cause;
 		}
 		if (failure !== null) return Promise.resolve(Err(failure));
 		notify();
-		const settled = new Promise<Result<Settled[], WriteError>>((resolve) => waiters.set(n, resolve));
+		const parts = numbers.map((n) => new Promise<Result<Settled[], WriteError>>((resolve) => waiters.set(n, resolve)));
 		kick();
-		return settled;
+		return Promise.all(parts).then((results) => {
+			const settled: Settled[] = [];
+			for (const result of results) {
+				if (result.error !== null) return result;
+				settled.push(...result.data);
+			}
+			return Ok(settled);
+		});
 	}
 
 	/** Paths an outbox entry touches. */
@@ -355,6 +376,9 @@ export function openRepository<const TDefs extends Definitions>({
 		driver.transaction(() => {
 			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
 			if (outcome.kind === 'applied') {
+				// With no seq the batch landed long ago, and the hello that came first
+				// already brought what it did.
+				if (outcome.seq === null) return;
 				for (const [index, entry] of entries.entries()) {
 					const change = outcome.changes[index];
 					if (change !== undefined) acknowledge(n, entry, change, outcome.seq);
@@ -368,7 +392,7 @@ export function openRepository<const TDefs extends Definitions>({
 		});
 		switch (outcome.kind) {
 			case 'applied':
-				settled = outcome.changes.map((change) => ({ kind: 'applied', seq: outcome.seq, change }));
+				settled = entries.map((_, index) => ({ kind: 'applied', seq: outcome.seq, change: outcome.changes[index] ?? null }));
 				break;
 			case 'refused':
 				settled = entries.map(() => ({ kind: 'refused', path: outcome.path, reason: outcome.reason }));

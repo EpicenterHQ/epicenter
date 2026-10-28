@@ -8,7 +8,7 @@
  *
  * Key behaviors:
  * - `'mark'` overlaps become marker blocks in server order; `'refuse'` refuses the batch
- * - A retried batch returns its recorded outcome; a gap is refused
+ * - A retried batch returns its recorded outcome, or `applied` once that is pruned; a gap is refused
  * - An unknown base answers need-base, and the resent base applies
  * - Past the window, a changed file's edit is relocated ('mark') or expired ('refuse')
  * - Edits follow moves; a change whose path no longer holds its note goes to a
@@ -179,6 +179,20 @@ describe('batches', () => {
 		expect(again).toEqual(first);
 		expect(await t.server.read('log.md')).toBe('one\n');
 		expect(await t.alice.push({ device: 'alice-laptop', n: 5, seq: 1, changes: [] })).toMatchObject({ kind: 'refused' });
+		await t.cleanup();
+	});
+
+	test('a retry whose receipt was pruned is applied with no detail; a refusal keeps its receipt', async () => {
+		const t = await setup();
+		const landed = t.batch('alice-laptop', 0, t.write('a.md', null, 'A\n'));
+		expect((await t.alice.push(landed)).kind).toBe('applied');
+		const refused = t.batch('agent-1', 0, t.write('a.md', null, 'agent\n'));
+		expect((await t.agent.push(refused)).kind).toBe('refused');
+		t.advance(8 * 24 * 3600e3);
+		expectOk(await t.server.tick());
+		expect(await t.alice.push(landed)).toEqual({ kind: 'applied', seq: null, changes: [] });
+		expect(await t.agent.push(refused)).toMatchObject({ kind: 'refused', reason: 'both sides created the file' });
+		expect(await t.server.read('a.md')).toBe('A\n');
 		await t.cleanup();
 	});
 

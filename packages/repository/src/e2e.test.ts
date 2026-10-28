@@ -332,6 +332,39 @@ test('a batch whose reply was lost is retried and returns its recorded outcome',
 	await t.cleanup();
 });
 
+test('a retry whose reply was lost and whose receipt was pruned settles as applied', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'once' }, { body: 'x\n' }));
+	t.alice.transport.dropNextReply();
+	const appended = t.alice.repo.notes.append({ stem: 'once' }, 'y\n');
+	await t.alice.repo.flush();
+	t.advance(8 * 24 * 3600e3);
+	expectOk(await t.server.tick());
+	t.alice.transport.setOnline(true);
+	expect(expectOk(await appended)).toEqual({ kind: 'applied', seq: null, change: null });
+	expect(text(t.alice.repo, 'once')).toBe('x\ny\n');
+	expect(await t.server.read('notes/once.md')).toBe('x\ny\n');
+	expect(t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	await t.cleanup();
+});
+
+test('a move in a batch is sent as a batch of its own', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'a' }, { body: 'A\n' }));
+	const settled = expectOk(
+		await t.alice.repo.batch((b) => {
+			b.notes.create({ stem: 'b' }, { body: 'B\n' });
+			b.notes.create({ stem: 'c' }, { body: 'C\n' });
+			b.notes.move({ stem: 'a' }, { stem: 'moved' });
+			b.notes.append({ stem: 'b' }, 'more\n');
+		}),
+	);
+	expect(settled.map((s) => (s.kind === 'applied' ? s.seq : null))).toEqual([2, 2, 3, 4]);
+	expect(text(t.bob.repo, 'moved')).toBe('A\n');
+	expect(text(t.bob.repo, 'b')).toBe('B\nmore\n');
+	await t.cleanup();
+});
+
 test('a base the server no longer has round-trips through need-base', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'n' }, { body: 'one\ntwo\nthree\n' }));

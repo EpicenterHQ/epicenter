@@ -112,7 +112,8 @@ export async function receivePush(
 	const peer = { device: 'git-push', user, onOverlap: 'refuse' as const };
 	const { outcome, broadcast } = await core.applyBatch(batch, peer, false);
 	if (outcome.kind === 'refused') return refuse(core, outcome.path, outcome.reason, outcome.overlaps);
-	if (outcome.kind !== 'applied' || broadcast === null)
+	// A push is not numbered, so an applied one always has its sequence.
+	if (outcome.kind !== 'applied' || outcome.seq === null || broadcast === null)
 		// Bases are sent with the batch, so neither need-base nor a window miss
 		// can stop it except by expiry, which an agent repairs by pulling.
 		return refuse(core, '', 'the push is based on history older than the server keeps');

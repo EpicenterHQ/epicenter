@@ -107,7 +107,7 @@ CREATE TABLE IF NOT EXISTS overlay (path TEXT PRIMARY KEY, text TEXT, hash TEXT,
 CREATE TABLE IF NOT EXISTS texts (hash TEXT PRIMARY KEY, text TEXT NOT NULL, seq INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS batches (seq INTEGER PRIMARY KEY, device TEXT NOT NULL, n INTEGER NOT NULL, user TEXT NOT NULL, at INTEGER NOT NULL, changes TEXT NOT NULL, overlaps TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS devices (device TEXT PRIMARY KEY, last_n INTEGER NOT NULL) STRICT;
-CREATE TABLE IF NOT EXISTS receipts (device TEXT NOT NULL, n INTEGER NOT NULL, at INTEGER NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY (device, n)) STRICT;
+CREATE TABLE IF NOT EXISTS receipts (device TEXT NOT NULL, n INTEGER NOT NULL, at INTEGER NOT NULL, applied INTEGER NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY (device, n)) STRICT;
 CREATE TABLE IF NOT EXISTS timeline (seq INTEGER PRIMARY KEY, at INTEGER NOT NULL) STRICT;
 INSERT OR IGNORE INTO state VALUES ('seq', 0), ('committed', 0);
 `;
@@ -503,7 +503,8 @@ export function createRepositoryServer({
 			if (batch.n <= last) {
 				const receipt = first<{ outcome: string }>(driver, 'SELECT outcome FROM receipts WHERE device = ? AND n = ?', [batch.device, batch.n]);
 				if (receipt !== undefined) return { outcome: JSON.parse(receipt.outcome) as BatchOutcome, broadcast: null };
-				return { outcome: { kind: 'expired', paths: [] }, broadcast: null };
+				// Only applied receipts are pruned, so a missing one was applied.
+				return { outcome: { kind: 'applied', seq: null, changes: [] }, broadcast: null };
 			}
 			if (batch.n !== last + 1)
 				return {
@@ -516,10 +517,11 @@ export function createRepositoryServer({
 			const applied = applyPrepared(batch, peer, prepared);
 			if (numbered && applied.outcome.kind !== 'need-base') {
 				driver.run('INSERT OR REPLACE INTO devices (device, last_n) VALUES (?, ?)', [batch.device, batch.n]);
-				driver.run('INSERT OR REPLACE INTO receipts (device, n, at, outcome) VALUES (?, ?, ?, ?)', [
+				driver.run('INSERT OR REPLACE INTO receipts (device, n, at, applied, outcome) VALUES (?, ?, ?, ?, ?)', [
 					batch.device,
 					batch.n,
 					now(),
+					applied.outcome.kind === 'applied' ? 1 : 0,
 					JSON.stringify(applied.outcome),
 				]);
 			}
@@ -589,7 +591,11 @@ export function createRepositoryServer({
 		return Ok({ oid, seq });
 	}
 
-	/** Drop history, receipts and the timeline older than the window. */
+	/**
+	 * Drop history, applied receipts and the timeline older than the window.
+	 * A receipt for a batch that did not apply is kept, so a retry of it is
+	 * never mistaken for one that did.
+	 */
 	function prune() {
 		const cutoff = now() - windowMs;
 		driver.transaction(() => {
@@ -598,7 +604,7 @@ export function createRepositoryServer({
 				history.prune(old);
 				driver.run('DELETE FROM timeline WHERE seq <= ?', [old]);
 			}
-			driver.run('DELETE FROM receipts WHERE at < ?', [cutoff]);
+			driver.run('DELETE FROM receipts WHERE at < ? AND applied = 1', [cutoff]);
 		});
 	}
 

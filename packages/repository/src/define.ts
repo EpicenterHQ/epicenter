@@ -238,7 +238,8 @@ export type WriteError = InferErrors<typeof WriteError>;
 
 /** How the server settled one change. */
 export type Settled =
-	| { kind: 'applied'; seq: number; change: ChangeOutcome }
+	/** `seq` and `change` are null for a retry of a batch applied so long ago its receipt is gone. */
+	| { kind: 'applied'; seq: number | null; change: ChangeOutcome | null }
 	| { kind: 'refused'; path: string; reason: string }
 	/**
 	 * For a `'refuse'` connection: the change is older than the server's

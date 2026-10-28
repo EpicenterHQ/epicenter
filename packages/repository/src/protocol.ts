@@ -79,7 +79,11 @@ export type ChangeOutcome = {
 };
 
 export type BatchOutcome =
-	| { kind: 'applied'; seq: number; changes: ChangeOutcome[] }
+	/**
+	 * `seq` is null and `changes` empty for a retry of a batch applied so long
+	 * ago that its receipt was pruned: it landed, but its details are gone.
+	 */
+	| { kind: 'applied'; seq: number | null; changes: ChangeOutcome[] }
 	/** The server lacks these bases' texts; resend the batch with them. */
 	| { kind: 'need-base'; paths: string[] }
 	/**
