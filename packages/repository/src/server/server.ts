@@ -19,6 +19,7 @@ import type {
 	FileState,
 	Move,
 	Overlap,
+	SettledOverlap,
 	Welcome,
 } from '../protocol.js';
 import { first, type SqlDriver } from '../sql.js';
@@ -78,7 +79,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS overlay (path TEXT PRIMARY KEY, text TEXT, hash TEXT, seq INTEGER NOT NULL, at INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS texts (hash TEXT PRIMARY KEY, text TEXT NOT NULL, seq INTEGER NOT NULL) STRICT;
-CREATE TABLE IF NOT EXISTS batches (seq INTEGER PRIMARY KEY, device TEXT NOT NULL, n INTEGER NOT NULL, user TEXT NOT NULL, at INTEGER NOT NULL, changes TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS batches (seq INTEGER PRIMARY KEY, device TEXT NOT NULL, n INTEGER NOT NULL, user TEXT NOT NULL, at INTEGER NOT NULL, changes TEXT NOT NULL, overlaps TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS devices (device TEXT PRIMARY KEY, last_n INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS receipts (device TEXT NOT NULL, n INTEGER NOT NULL, at INTEGER NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY (device, n)) STRICT;
 CREATE TABLE IF NOT EXISTS timeline (seq INTEGER PRIMARY KEY, at INTEGER NOT NULL) STRICT;
@@ -87,6 +88,37 @@ INSERT OR IGNORE INTO state VALUES ('seq', 0), ('committed', 0), ('horizon', 0);
 `;
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
+
+/** A settled overlap and the file it is in, as a batch row keeps it until its commit. */
+type RecordedOverlap = { path: string; overlap: SettledOverlap };
+
+/**
+ * The commit trailer that names one settled overlap, so the record outlives
+ * the outcome a device received. Agents find unmarked clashes with
+ * `git log --grep '^Epicenter-Overlap:'` and marked ones by their markers.
+ * Paths and keys are JSON strings, since they may hold spaces.
+ *
+ *     Epicenter-Overlap: "notes/a.md" field "status" current-kept; seq 3 by bob
+ */
+export function overlapTrailer(seq: number, user: string, { path, overlap }: RecordedOverlap) {
+	const quote = (text: string) => JSON.stringify(text);
+	let what: string;
+	switch (overlap.unit) {
+		case 'body':
+		case 'block':
+			what = `${overlap.unit} ${overlap.settled}`;
+			break;
+		case 'field':
+			what = `field ${quote(overlap.key)} ${overlap.settled}`;
+			break;
+		case 'file':
+			what = `file ${overlap.clash} ${overlap.settled}`;
+			break;
+		case 'path':
+			what = `path ${overlap.clash} ${overlap.settled}${overlap.relocatedTo === null ? '' : ` -> ${quote(overlap.relocatedTo)}`}`;
+	}
+	return `Epicenter-Overlap: ${quote(path)} ${what}; seq ${seq} by ${user}`;
+}
 
 export function createRepositoryServer({
 	driver,
@@ -351,13 +383,20 @@ export function createRepositoryServer({
 			driver.run('INSERT OR REPLACE INTO texts (hash, text, seq) VALUES (?, ?, ?)', [gitBlobHash(text), text, seq]);
 		for (const row of history)
 			driver.run('INSERT INTO history (seq, kind, path, dest) VALUES (?, ?, ?, ?)', [seq, row.kind, row.path, row.dest]);
-		driver.run('INSERT INTO batches (seq, device, n, user, at, changes) VALUES (?, ?, ?, ?, ?, ?)', [
+		const recorded: RecordedOverlap[] = outcomes.flatMap((change) =>
+			change.overlaps.map((overlap) => ({
+				path: overlap.unit === 'path' ? (change.movedTo ?? change.path) : (change.at ?? change.path),
+				overlap,
+			})),
+		);
+		driver.run('INSERT INTO batches (seq, device, n, user, at, changes, overlaps) VALUES (?, ?, ?, ?, ?, ?, ?)', [
 			seq,
 			batch.device,
 			batch.n,
 			peer.user,
 			at,
 			JSON.stringify(batch.changes),
+			JSON.stringify(recorded),
 		]);
 		driver.run('INSERT INTO timeline (seq, at) VALUES (?, ?)', [seq, at]);
 		setState('seq', seq);
@@ -442,7 +481,11 @@ export function createRepositoryServer({
 			const who = identify(user);
 			return `Co-authored-by: ${who.name} <${who.email}>`;
 		});
-		const message = `Update ${rows.length} ${rows.length === 1 ? 'file' : 'files'}\n\nEpicenter-Seq: ${seq}\n${coauthors.map((line) => `${line}\n`).join('')}`;
+		const overlaps = driver
+			.all<{ seq: number; user: string; overlaps: string }>('SELECT seq, user, overlaps FROM batches WHERE seq <= ? ORDER BY seq', [seq])
+			.flatMap((row) => (JSON.parse(row.overlaps) as RecordedOverlap[]).map((recorded) => overlapTrailer(row.seq, row.user, recorded)));
+		const trailers = [`Epicenter-Seq: ${seq}`, ...overlaps, ...coauthors];
+		const message = `Update ${rows.length} ${rows.length === 1 ? 'file' : 'files'}\n\n${trailers.map((line) => `${line}\n`).join('')}`;
 		const oid = await git.writeCommit({
 			tree: await git.writeTree(tree),
 			parents: [...(head.oid === null ? [] : [head.oid]), ...extraParents],

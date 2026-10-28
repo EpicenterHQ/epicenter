@@ -12,7 +12,8 @@
  * - An unknown base answers need-base, and the resent base applies
  * - Bases older than the window answer expired unless the file is unchanged
  * - Edits follow moves; a move onto a taken path is refused
- * - Commits carry `Epicenter-Seq`, clear the overlay and land on a timer
+ * - Commits carry `Epicenter-Seq` and an `Epicenter-Overlap` per settled overlap,
+ *   clear the overlay and land on a timer
  * - Agent pushes: overlap and bad files refused, a clean push is a merge parent
  */
 import { describe, expect, test } from 'bun:test';
@@ -258,6 +259,29 @@ describe('commits', () => {
 		expect([...tree.keys()].sort()).toEqual(['notes/a.md', 'notes/b.md']);
 		expect(t.server.overlaySize()).toBe(0);
 		expect(await t.server.read('notes/a.md')).toBe('A\n');
+		await t.cleanup();
+	});
+
+	test('every settled overlap is named in the commit by an Epicenter-Overlap trailer', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'notes/a.md', '---\nstatus: todo\n---\ncat\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', '---\nstatus: todo\n---\ncat\n', '---\nstatus: done\n---\ncart\n')));
+		await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', '---\nstatus: todo\n---\ncat\n', '---\nstatus: wontfix\n---\ncoat\n')));
+		await seed(t, 'notes/b.md', 'clean\n');
+		expectOk(await t.server.commit());
+		const head = await mainCommit(t.git);
+		expect(head?.message).toBe(
+			[
+				'Update 2 files',
+				'',
+				'Epicenter-Seq: 4',
+				'Epicenter-Overlap: "notes/a.md" field "status" current-kept; seq 3 by bob',
+				'Epicenter-Overlap: "notes/a.md" body marked; seq 3 by bob',
+				'Co-authored-by: alice <alice@users.epicenter.invalid>',
+				'Co-authored-by: bob <bob@users.epicenter.invalid>',
+				'',
+			].join('\n'),
+		);
 		await t.cleanup();
 	});
 
