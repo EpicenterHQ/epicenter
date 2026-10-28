@@ -174,6 +174,7 @@ export async function openBrowserRepository<const TDefs extends Definitions>({
 	const port: EnginePort = {
 		read<TRequest extends EngineRequest>(request: TRequest) {
 			if (unavailable !== null) return Promise.reject(unavailable);
+			if (closed) return Promise.reject(new Error('The repository is closed'));
 			const id = crypto.randomUUID();
 			const answer = deferred<unknown>();
 			reads.set(id, { request, answer });
@@ -181,6 +182,7 @@ export async function openBrowserRepository<const TDefs extends Definitions>({
 			return answer.promise as Promise<EngineAnswers[TRequest['kind']]>;
 		},
 		submit(command, ops): Submitted {
+			if (closed) return { local: Promise.resolve(WriteError.Closed()), settled: Promise.resolve(WriteError.Closed()) };
 			const local = deferred<Result<undefined, WriteError>>();
 			const settled = deferred<Result<Settled[], WriteError>>();
 			writes.set(command, { ops, local, settled });

@@ -196,8 +196,8 @@ export function createRepository<const TDefs extends Definitions>(
 		const path = built.error === null ? built.data : null;
 		const ops = noteOps(lens);
 		const readFile = () => (path === null ? Promise.resolve(null) : port.read({ kind: 'get', name: lens.name, params }));
-		let shown: FileRead | null = await readFile();
-		let note = shown === null ? null : noteOf(lens, shown);
+		let shown: FileRead | null = null;
+		let note: ReturnType<typeof noteOf> | null = null;
 		/** Writes through this handle not yet applied by the engine. */
 		let applying = 0;
 		/** Bumped by every write, so a read that a write overtook is dropped. */
@@ -214,9 +214,11 @@ export function createRepository<const TDefs extends Definitions>(
 			const next = await readFile();
 			if (at === generation && applying === 0) show(next);
 		};
+		// Listening before the first read, so a change while it runs reads again.
 		const stop = port.onChange((paths) => {
 			if (path !== null && (paths === null || paths.includes(path)) && applying === 0) track(refresh());
 		});
+		await refresh();
 
 		/** Show the write's text now, then the engine's once it has applied every write made here. */
 		function through(op: WriteOp, text: string | null): Pending {
