@@ -457,7 +457,12 @@ export function createRepository<const TDefs extends Definitions>(
 			live: (): Live<Notice[]> => liveOf(listNotices),
 			dismiss: (id: number) => (closed ? Promise.resolve() : port.dismiss(id)),
 		},
-		/** Run a read-only statement over the app's views and the engine's tables. */
+		/**
+		 * Run one statement over the app's views and the engine's tables. It
+		 * reads only: more than one statement, or one that could change the
+		 * database or the connection (a write, a transaction, ATTACH, a
+		 * PRAGMA), is refused, so every change goes through the engine.
+		 */
 		query: <TRow = Record<string, SqlValue>>(sql: string, params: SqlValue[] = []) =>
 			port.read({ kind: 'query', sql, params }) as Promise<TRow[]>,
 		/** `query`, re-run after every change. */

@@ -1168,7 +1168,7 @@ export function openEngine<const TDefs extends Definitions>({
 			case 'list':
 				return listRows(lensOf(request.name), request.filter) as Answer;
 			case 'query':
-				return driver.all(request.sql, request.params) as Answer;
+				return driver.read(request.sql, request.params) as Answer;
 			case 'blob': {
 				const file = getRow(lensOf(request.name), request.params);
 				const pointer = file === null ? null : parsePointer(file.text);

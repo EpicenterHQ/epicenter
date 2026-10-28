@@ -11,9 +11,11 @@
  * - A second tab offers Use here; taking over moves the repository, and the old tab never takes it back by itself
  * - Freezing the page saves the last keystroke and releases the database
  * - Use here waits for an old worker to release the database, however long it takes
+ * - SQL reads refuse anything that could change the database or the connection
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chromium, webkit } from 'playwright';
+import { ALLOWED_READS, REFUSED_READS } from '../src/read-only.test-support.js';
 import { startSite } from './site.js';
 import { launchProfile, loadTab, openTab, reopen, TIMEOUT, uniqueName } from './support.js';
 
@@ -47,6 +49,33 @@ for (const [engine, browser] of [
 					expect(await page.evaluate(() => harness.query('SELECT stem, title FROM notes'))).toEqual([{ stem: 'trip', title: 'Trip' }]);
 					const [table] = await page.evaluate(() => harness.query(`SELECT sql FROM sqlite_master WHERE name = 'epicenter/files'`));
 					expect(String(table?.sql)).toContain('GENERATED ALWAYS AS (epicenter_fields(text)) STORED');
+				} finally {
+					await cleanup();
+				}
+			},
+			TIMEOUT,
+		);
+
+		test(
+			'a SQL read refuses writes, more than one statement, ATTACH, transactions and PRAGMAs',
+			async () => {
+				const { context, cleanup } = await launchProfile(browser);
+				try {
+					const page = await openTab(context, site.url, uniqueName('read-only'), { page: context.pages()[0] });
+					await page.evaluate(() => harness.write('a', 'one\n'));
+					for (const [what, sql] of Object.entries(REFUSED_READS)) {
+						const result = await page.evaluate((sql) => harness.tryQuery(sql), sql);
+						expect({ what, ran: result.ran }).toEqual({ what, ran: false });
+					}
+					for (const [what, sql] of Object.entries(ALLOWED_READS)) {
+						const result = await page.evaluate((sql) => harness.tryQuery(sql), sql);
+						expect({ what, result }).toEqual({ what, result: { ran: true, rows: 1 } });
+					}
+					// Nothing changed, no transaction was left open, and the engine still writes.
+					expect(await page.evaluate(() => harness.text('a'))).toBe('one\n');
+					await page.evaluate(() => harness.write('a', 'two\n'));
+					expect(await page.evaluate(() => harness.text('a'))).toBe('two\n');
+					expect(await page.evaluate(() => harness.query('SELECT count(*) AS n FROM "epicenter/files"'))).toEqual([{ n: 1 }]);
 				} finally {
 					await cleanup();
 				}

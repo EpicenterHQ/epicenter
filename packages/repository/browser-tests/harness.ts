@@ -99,6 +99,14 @@ const api = {
 		return plainResult(await current().send((b) => b.notes.append({ stem }, more)));
 	},
 	query: (sql: string) => current().query(sql),
+	/** Run a read and say whether it ran or was refused, as plain data. */
+	async tryQuery(sql: string): Promise<{ ran: true; rows: number } | { ran: false; reason: string }> {
+		try {
+			return { ran: true, rows: (await current().query(sql)).length };
+		} catch (cause) {
+			return { ran: false, reason: String(cause) };
+		}
+	},
 	settled: async (index: number) => (await writes[index]) as { data: undefined; error: { name: string } | null },
 	text,
 	untilText: (stem: string, expected: string | null) => until(async () => (await text(stem)) === expected, `${stem} to read ${JSON.stringify(expected)}`),
