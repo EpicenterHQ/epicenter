@@ -412,8 +412,9 @@ export function createRepository<const TDefs extends Definitions>(
 	return {
 		...(handles as Handles<TDefs>),
 		/**
-		 * Build one batch from write-only handles; it lands all or nothing, except
-		 * that each move is sent as a batch of its own.
+		 * Build one batch from write-only handles: one server batch, which lands
+		 * all or nothing. A change after a rename in it follows the rename,
+		 * whether it names the note's old path or its new one.
 		 */
 		batch(build: (handles: BatchHandles<TDefs>) => void): Saved {
 			return submit(collect(build));

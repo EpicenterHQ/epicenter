@@ -316,12 +316,25 @@ export function createRepositoryServer({
 			...change,
 		});
 		const known = (base: Base | null) => (base === null ? null : (bases.get(base.hash) ?? null));
-		// A later change in this batch follows this batch's relocations too.
+		/**
+		 * Where a move earlier in this batch that did not apply left its note:
+		 * a later change aimed at the move's destination means that note.
+		 */
+		const keptAt = new Map<string, string>();
+		/**
+		 * Where the note a change addresses is: after the events since the
+		 * batch's position, then this batch's own moves and relocations, so a
+		 * later change follows an earlier one in the same batch.
+		 */
 		const traceNow = (path: string) =>
-			trace(path, batch.seq, [
+			trace(keptAt.get(path) ?? path, batch.seq, [
 				...past,
-				...events.filter((event) => event.kind === 'relocate').map((event) => ({ ...event, seq: Number.MAX_SAFE_INTEGER })),
+				...events
+					.filter((event) => event.kind === 'relocate' || event.kind === 'move')
+					.map((event) => ({ ...event, seq: Number.MAX_SAFE_INTEGER })),
 			]);
+		/** Whether a change elsewhere, since the batch's position, moved the note: this batch's own moves do not count. */
+		const movedElsewhere = (path: string) => trace(keptAt.get(path) ?? path, batch.seq, past).moved;
 		const sibling = (path: string) => siblingPath(path, peer.user, at, exists);
 		/**
 		 * A change that would leave a note's frontmatter unparseable keeps its
@@ -342,6 +355,7 @@ export function createRepositoryServer({
 					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], batch.policy);
 					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
 					outcomes.push(outcome({ path: change.from, overlaps: decision.overlaps }));
+					keptAt.set(change.to, from.path);
 					continue;
 				}
 				const to = change.to;
@@ -354,7 +368,7 @@ export function createRepositoryServer({
 				// The path is one of the note's fields, and the current one wins: a
 				// rename of a note renamed since, or onto another note's path, leaves
 				// the note where it is. No sibling is made for a move.
-				const kept: Overlap | null = from.moved
+				const kept: Overlap | null = movedElsewhere(change.from)
 					? { unit: 'field', key: 'path', base: change.from, current: from.path, incoming: to }
 					: exists(to)
 						? { unit: 'path', clash: 'taken', relocatedTo: null }
@@ -363,6 +377,7 @@ export function createRepositoryServer({
 					const decision = settle([kept], batch.policy);
 					if (decision.kind === 'refuse') return refuse(kept.unit === 'path' ? to : change.from, decision.reason, decision.overlaps);
 					outcomes.push(outcome({ path: change.from, at: from.path, hash: gitBlobHash(text), text, movedTo, overlaps: decision.overlaps }));
+					keptAt.set(to, from.path);
 					continue;
 				}
 				work.set(from.path, null);

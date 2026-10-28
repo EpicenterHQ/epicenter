@@ -14,7 +14,7 @@
  * - A path is a note's field: a rename of a renamed note, or onto a taken name, keeps the current path and tells the person; a send is refused
  * - A change whose path no longer holds its note becomes a sibling note everyone sees
  * - Delete versus edit keeps the edit; root-record sets merge by key; a field set on both keeps the current value and tells the other device; appends keep server order
- * - Retries and need-base; a note and its blob land together
+ * - Retries and need-base; a note and its blob land together; a batch with a move is one server batch
  * - Commits clear the overlay with the right sequence; agent pushes merge or refuse
  */
 import { expect, test } from 'bun:test';
@@ -652,7 +652,7 @@ test('a retry whose reply was lost and whose receipt left with its commit settle
 	await t.cleanup();
 });
 
-test('a move in a batch is sent as a batch of its own', async () => {
+test('a batch with a move in it is one server batch, all or nothing', async () => {
 	const t = await setup();
 	await landed(t.alice, t.alice.repo.notes.create({ stem: 'a' }, { body: 'A\n' }));
 	await landed(
@@ -664,8 +664,8 @@ test('a move in a batch is sent as a batch of its own', async () => {
 			b.notes.append({ stem: 'b' }, 'more\n');
 		}),
 	);
-	// The two creates, the move, then the append: three batches after the first.
-	expect(t.server.sequence()).toBe(4);
+	// The creates, the move and the append: one batch after the first.
+	expect(t.server.sequence()).toBe(2);
 	expect(await text(t.bob.repo, 'moved')).toBe('A\n');
 	expect(await text(t.bob.repo, 'b')).toBe('B\nmore\n');
 	await t.cleanup();
