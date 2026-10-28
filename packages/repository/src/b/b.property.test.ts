@@ -67,6 +67,8 @@ function run(seed: number) {
 		loss: { up: 0.05, down: 0.08 },
 		streamLoss: 0.04,
 		stall: { chance: 0.03, ms: 4_000 },
+		// Half the seeds yield after each applied write, as the benchmark's fairness rule does.
+		...(seed % 2 === 0 ? { yieldAfter: (r: { int: (min: number, max: number) => number }) => r.int(0, 300) } : {}),
 		timeout: 1_500,
 		...(process.env.B_TRACE === undefined ? {} : { trace: (line: string) => log.push(line) }),
 	});
