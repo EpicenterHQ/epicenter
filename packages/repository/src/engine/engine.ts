@@ -21,7 +21,7 @@
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { App, Definitions, HoldReason, Lens, Notice, SendOptions, Sync, Verdict } from '../define.js';
+import type { App, Definitions, HoldReason, LaterVerdict, Lens, Notice, SendOptions, Sync, Verdict } from '../define.js';
 import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, sha256 } from '../hash.js';
 import {
@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
 	seq INTEGER NOT NULL,
 	policy TEXT NOT NULL,
-	changes TEXT NOT NULL
+	changes TEXT NOT NULL,
+	outcome TEXT
 ) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/notices" (
 	id INTEGER PRIMARY KEY,
@@ -161,6 +162,8 @@ export type EngineRequest =
 	| { kind: 'files'; sync?: Sync['state'] }
 	| { kind: 'query'; sql: string; params: SqlValue[] }
 	| { kind: 'blob'; name: string; params: Params; as: 'bytes' | 'url' }
+	/** The later verdict of the send numbered `id`. */
+	| { kind: 'verdict'; id: number }
 	/** Resolves when queued sync work has run: the outbox is sent, or the server is unreachable. */
 	| { kind: 'flush' };
 
@@ -172,6 +175,7 @@ export type EngineAnswers = {
 	files: FileRead[];
 	query: Record<string, SqlValue>[];
 	blob: Uint8Array | string | null;
+	verdict: LaterVerdict | null;
 	flush: undefined;
 };
 
@@ -191,9 +195,9 @@ const ROLLBACK = Symbol('rollback');
 /**
  * Bring a database an earlier build made up to this schema, keeping its
  * data: its files had no `held` column, or one that was a flag (1 for held
- * text, which could only be text that did not parse); its outbox kept
- * settled rows with their outcome for retried command ids, and had no
- * policy, since every batch it sent was a person's.
+ * text, which could only be text that did not parse); its outbox had no
+ * policy, since every batch it sent was a person's, and kept settled rows
+ * with their outcome for retried command ids, or had no outcome column.
  */
 function upgrade(driver: SqlDriver) {
 	const columnsOf = (table: string) =>
@@ -207,11 +211,12 @@ function upgrade(driver: SqlDriver) {
 			driver.exec(`UPDATE "epicenter/files" SET held = 'unparseable' WHERE held_flag = 1`);
 			driver.exec('ALTER TABLE "epicenter/files" DROP COLUMN held_flag');
 		} else if (!fileColumns.has('held')) driver.exec('ALTER TABLE "epicenter/files" ADD COLUMN held TEXT');
-		if (!columns.has('policy')) driver.exec(`ALTER TABLE "epicenter/outbox" ADD COLUMN policy TEXT NOT NULL DEFAULT 'mark'`);
-		if (columns.has('outcome')) {
-			driver.exec('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL');
-			driver.exec('ALTER TABLE "epicenter/outbox" DROP COLUMN outcome');
+		// The build before policies kept every settled person's row, with its outcome, for command ids.
+		if (!columns.has('policy')) {
+			driver.exec(`ALTER TABLE "epicenter/outbox" ADD COLUMN policy TEXT NOT NULL DEFAULT 'mark'`);
+			if (columns.has('outcome')) driver.exec('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL');
 		}
+		if (!columns.has('outcome')) driver.exec('ALTER TABLE "epicenter/outbox" ADD COLUMN outcome TEXT');
 		driver.exec('DROP TABLE IF EXISTS "epicenter/commands"');
 	});
 }
@@ -647,7 +652,7 @@ export function openEngine<const TDefs extends Definitions>({
 	function coalescible(path: string): { n: number; entry: Entry } | undefined {
 		const last = first<{ n: number; policy: Policy; changes: string }>(
 			driver,
-			'SELECT n, policy, changes FROM "epicenter/outbox" ORDER BY n DESC LIMIT 1',
+			'SELECT n, policy, changes FROM "epicenter/outbox" WHERE outcome IS NULL ORDER BY n DESC LIMIT 1',
 		);
 		if (last === undefined || last.policy !== 'mark' || last.n <= sentThrough()) return undefined;
 		const entries = JSON.parse(last.changes) as Entry[];
@@ -879,7 +884,7 @@ export function openEngine<const TDefs extends Definitions>({
 	/** Whether a batch still in the lane touches any of `paths`. */
 	const laneTouches = (paths: string[]) =>
 		driver
-			.all<{ changes: string }>('SELECT changes FROM "epicenter/outbox"')
+			.all<{ changes: string }>('SELECT changes FROM "epicenter/outbox" WHERE outcome IS NULL')
 			.some((batch) => (JSON.parse(batch.changes) as Entry[]).some((entry) => pathsOf(entry).some((path) => paths.includes(path))));
 
 	/**
@@ -911,7 +916,7 @@ export function openEngine<const TDefs extends Definitions>({
 		await Promise.all(earlier);
 		const ready = await uploadAll(ops);
 		if (ready.error !== null) return ready;
-		const head = () => first<{ n: number }>(driver, 'SELECT n FROM "epicenter/outbox" ORDER BY n LIMIT 1')?.n;
+		const head = () => first<{ n: number }>(driver, 'SELECT n FROM "epicenter/outbox" WHERE outcome IS NULL ORDER BY n LIMIT 1')?.n;
 		while (!closed && online && laneTouches(paths)) {
 			const before = head();
 			await kick();
@@ -942,7 +947,7 @@ export function openEngine<const TDefs extends Definitions>({
 		return resolve !== undefined;
 	}
 	/** Tell a `send` waiting on batch `n` that its verdict is not known here; the row stays. */
-	const verdictUnknown = (n: number) => answerSend(n, SendError.Unknown({ n }));
+	const verdictUnknown = (n: number) => answerSend(n, SendError.Unknown({ id: n }));
 
 	/**
 	 * Write an applied `send`'s result into the files, as a broadcast of it
@@ -966,7 +971,7 @@ export function openEngine<const TDefs extends Definitions>({
 	/** A person's batches still in the lane; a `send` shows nothing here, so it covers no path. */
 	const unsent = (except = -1) =>
 		driver.all<{ n: number; changes: string }>(
-			`SELECT n, changes FROM "epicenter/outbox" WHERE policy = 'mark' AND n <> ? ORDER BY n`,
+			`SELECT n, changes FROM "epicenter/outbox" WHERE policy = 'mark' AND outcome IS NULL AND n <> ? ORDER BY n`,
 			[except],
 		);
 
@@ -1116,27 +1121,43 @@ export function openEngine<const TDefs extends Definitions>({
 	/**
 	 * Settle a `send`'s batch: an applied verdict is written into the files,
 	 * a refusal changes nothing, and the caller, if still waiting, is told.
+	 * The verdict is stored on the batch's row first, in the same
+	 * transaction, and the row is removed once a waiting caller has it; a
+	 * verdict nobody waited for any more, after a lost reply or a closed tab,
+	 * stays for `verdict(n)`, and a refusal of one is also kept as a notice.
 	 */
 	function concludeSend(n: number, entries: Entry[], outcome: BatchOutcome) {
-		driver.transaction(() => {
-			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
-			if (outcome.kind !== 'applied' || outcome.seq === null) return;
-			fold(entries, outcome, outcome.seq);
-			advance(outcome.seq);
-			settle();
-		});
 		const verdict: Verdict =
 			outcome.kind === 'applied'
 				? { kind: 'applied', seq: outcome.seq, changes: outcome.changes }
 				: outcome.kind === 'refused'
 					? { kind: 'refused', path: outcome.path, reason: outcome.reason, overlaps: outcome.overlaps }
 					: { kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE, overlaps: [] };
-		// A refusal nobody is waiting for any more, after a lost reply or a closed tab, is kept as a notice.
-		if (!answerSend(n, Ok(verdict)) && verdict.kind === 'refused') {
+		driver.transaction(() => {
+			driver.run('UPDATE "epicenter/outbox" SET outcome = ? WHERE n = ?', [JSON.stringify(verdict), n]);
+			if (outcome.kind !== 'applied' || outcome.seq === null) return;
+			fold(entries, outcome, outcome.seq);
+			advance(outcome.seq);
+			settle();
+		});
+		if (answerSend(n, Ok(verdict))) driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
+		else if (verdict.kind === 'refused') {
 			const sent = entries.find(({ change }) => (change.kind === 'move' ? change.from : change.path) === verdict.path);
 			notice('refused', verdict.path, verdict.reason, sent?.local ?? null);
 		}
 		notify();
+	}
+
+	/**
+	 * The later verdict of send `n`: its stored outcome once the server
+	 * answered it, unanswered while its row waits to be sent again, or null
+	 * for a number this device keeps no send under (a person's batch, a send
+	 * whose caller had its verdict, or none at all).
+	 */
+	function storedVerdict(n: number): LaterVerdict | null {
+		const found = first<{ outcome: string | null }>(driver, `SELECT outcome FROM "epicenter/outbox" WHERE n = ? AND policy = 'refuse'`, [n]);
+		if (found === undefined) return null;
+		return found.outcome === null ? { kind: 'unanswered' } : (JSON.parse(found.outcome) as Verdict);
 	}
 
 	/** Settle a person's batch: fold its outcome into this device's files, note what they should know, and drop its row. */
@@ -1326,7 +1347,7 @@ export function openEngine<const TDefs extends Definitions>({
 			if (closed) return;
 			const next = first<{ n: number; seq: number; policy: Policy; changes: string }>(
 				driver,
-				'SELECT n, seq, policy, changes FROM "epicenter/outbox" ORDER BY n LIMIT 1',
+				'SELECT n, seq, policy, changes FROM "epicenter/outbox" WHERE outcome IS NULL ORDER BY n LIMIT 1',
 			);
 			if (next === undefined) return;
 			const entries = JSON.parse(next.changes) as Entry[];
@@ -1429,6 +1450,8 @@ export function openEngine<const TDefs extends Definitions>({
 				if (pointer === null) return null as Answer;
 				return (request.as === 'bytes' ? await blobs.get(pointer.oid) : await blobs.url(pointer.oid)) as Answer;
 			}
+			case 'verdict':
+				return storedVerdict(request.id) as Answer;
 			case 'flush':
 				await running;
 				return undefined as Answer;

@@ -30,6 +30,7 @@ export type Definitions = Record<string, NoteDefinition | BlobDefinition>;
 const RESERVED = new Set([
 	'batch',
 	'send',
+	'verdict',
 	'notices',
 	'files',
 	'live',
@@ -261,11 +262,13 @@ export const SendError = defineErrors({
 	/**
 	 * The batch may have reached the server, but its verdict did not arrive
 	 * here. Its numbered row stays, and the device sends it again when it can;
-	 * the server answers that retry from its receipt, so it never lands twice.
+	 * the server answers that retry from its receipt, so it never lands twice,
+	 * and the device stores the outcome: `repo.verdict(id)` answers it later,
+	 * across restarts.
 	 */
-	Unknown: ({ n }: { n: number }) => ({
-		message: `Batch ${n} may have reached the server; its verdict will be known when it is sent again`,
-		n,
+	Unknown: ({ id }: { id: number }) => ({
+		message: `Send ${id} may have reached the server; repo.verdict(${id}) answers once it is sent again`,
+		id,
 	}),
 	/**
 	 * This device holds text of its own for the path that the server does
@@ -283,9 +286,16 @@ export type SendError = InferErrors<typeof SendError>;
 
 /** The server's verdict on a `send`: an expected answer, so it is data, not an error. */
 export type Verdict =
-	/** `seq` is null and `changes` empty for a retry whose receipt left with its commit. */
+	/**
+	 * `seq` is null and `changes` empty for a retry whose receipt left with
+	 * its commit: such a verdict promises only that the send applied, not
+	 * where its changes landed or what they overlapped.
+	 */
 	| { kind: 'applied'; seq: number | null; changes: ChangeOutcome[] }
 	| { kind: 'refused'; path: string; reason: string; overlaps: Overlap[] };
+
+/** What `repo.verdict(id)` answers for a send that failed with `Unknown`: its verdict, or that the server has not answered it yet. */
+export type LaterVerdict = Verdict | { kind: 'unanswered' };
 
 /**
  * A person's write: it resolves once the change is saved in this device's

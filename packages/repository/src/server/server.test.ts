@@ -39,8 +39,9 @@ async function setup(options: Partial<ServerOptions> = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'repository-server-'));
 	const git = await openBunGitStore(join(dir, 'repo.git'));
 	let clock = Date.parse('2026-10-28T12:00:00Z');
+	const driver = openBunSqlite();
 	const server = createRepositoryServer({
-		driver: openBunSqlite(),
+		driver,
 		git,
 		now: () => clock,
 		...options,
@@ -71,6 +72,7 @@ async function setup(options: Partial<ServerOptions> = {}) {
 	const move = (from: string, to: string): Change => ({ kind: 'move', from, to });
 	return {
 		server,
+		driver,
 		git,
 		alice,
 		bob,
@@ -239,6 +241,25 @@ describe('batches', () => {
 		expect(await t.alice.push(landed)).toEqual({ kind: 'applied', seq: null, changes: [] });
 		expect(await t.agent.push(refused)).toMatchObject({ kind: 'refused', reason: 'both sides created the file' });
 		expect(await t.server.read('a.md')).toBe('A\n');
+		await t.cleanup();
+	});
+
+	test("a refused receipt stays through commits until the device's next batch shows it has the answer", async () => {
+		const t = await setup();
+		expect((await t.alice.push(t.batch('alice-laptop', 0, t.write('a.md', null, 'A\n')))).kind).toBe('applied');
+		const refused = t.batch('agent-1', 0, t.write('a.md', null, 'agent\n'));
+		expect((await t.agent.push(refused)).kind).toBe('refused');
+		const receipts = () => t.driver.all<{ n: number }>("SELECT n FROM receipts WHERE device = 'agent-1'").map((row) => row.n);
+		for (const _ of [1, 2]) {
+			t.advance(8 * 24 * 3600e3);
+			expectOk(await t.server.tick());
+			expect(receipts()).toEqual([1]);
+		}
+		// The device sends its next batch only once it holds the answer to this one.
+		expect((await t.agent.push(t.batch('agent-1', 0, t.write('b.md', null, 'B\n')))).kind).toBe('applied');
+		t.advance(8 * 24 * 3600e3);
+		expectOk(await t.server.tick());
+		expect(receipts()).toEqual([]);
 		await t.cleanup();
 	});
 

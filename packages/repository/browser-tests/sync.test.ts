@@ -165,12 +165,17 @@ for (const [engine, browser] of [
 					await a.evaluate(() => harness.write('log', 'one\n'));
 					await b.evaluate(() => harness.untilText('log', 'one\n'));
 					gates.bob.dropNextReply();
-					expect(await b.evaluate(() => harness.sendAppend('log', 'two\n'))).toMatchObject({ error: { name: 'Unknown' } });
+					const lost = await b.evaluate(() => harness.sendAppend('log', 'two\n'));
+					const id = lost.error?.name === 'Unknown' ? lost.error.id : 0;
+					expect(lost.error?.name).toBe('Unknown');
+					expect(id).toBeGreaterThan(0);
 					expect(await served.repository.read('notes/log.md')).toBe('one\ntwo\n');
 					// The socket reconnects, the row is sent again, and the receipt answers it.
 					await b.evaluate(() => harness.untilText('log', 'one\ntwo\n'));
 					await b.evaluate(() => harness.flush());
 					expect(await b.evaluate(() => harness.unsent())).toBe(0);
+					// The outcome the caller never heard is stored on the device.
+					expect(await b.evaluate((sent) => harness.verdict(sent), id)).toMatchObject({ kind: 'applied', changes: [{ path: 'notes/log.md' }] });
 					expect(await served.repository.read('notes/log.md')).toBe('one\ntwo\n');
 					await a.evaluate(() => harness.untilText('log', 'one\ntwo\n'));
 				}),

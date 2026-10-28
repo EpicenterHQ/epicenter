@@ -21,6 +21,7 @@ import type {
 	BlobEntry,
 	Definitions,
 	Handles,
+	LaterVerdict,
 	Lens,
 	Live,
 	NoteName,
@@ -458,6 +459,13 @@ export function createRepository<const TDefs extends Definitions>(
 			if (closed) return Promise.resolve(WriteError.Closed());
 			return port.send(collect(build));
 		},
+		/**
+		 * The later verdict of a send that failed with `Unknown`, by its id:
+		 * the outcome this device stored once the server answered the send
+		 * again, `{ kind: 'unanswered' }` until then, or null for an id this
+		 * device keeps no such send under. Stored outcomes survive restarts.
+		 */
+		verdict: (id: number): Promise<LaterVerdict | null> => port.read({ kind: 'verdict', id }),
 		/**
 		 * Any synced Markdown file by its path, as text: one a template names
 		 * or not, and one whose frontmatter parses or not. This is how a

@@ -8,6 +8,7 @@ export {
 	defineApp,
 	type Handles,
 	type HoldReason,
+	type LaterVerdict,
 	type Live,
 	type Note,
 	type NoteDefinition,

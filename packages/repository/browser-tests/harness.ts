@@ -120,7 +120,9 @@ const api = {
 	settled: async (index: number) => (await writes[index]) as { data: undefined; error: { name: string } | null },
 	text,
 	untilText: (stem: string, expected: string | null) => until(async () => (await text(stem)) === expected, `${stem} to read ${JSON.stringify(expected)}`),
-	unsent: async () => (await current().query<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox"'))[0]?.n,
+	/** Batches still in the lane; a send's stored verdict is not one. */
+	unsent: async () => (await current().query<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL'))[0]?.n,
+	verdict: (id: number) => current().verdict(id),
 	async hold(stem: string) {
 		opened.set(stem, await current().notes.open({ stem }));
 	},

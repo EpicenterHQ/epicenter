@@ -282,7 +282,7 @@ test('a send whose reply was lost is unknown to its caller, then resent under it
 	await landed(t.alice, t.alice.repo.notes.create({ stem: 'log' }, { body: 'x\n' }));
 	t.alice.transport.dropNextReply();
 	const lost = expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'y\n', { from: 'latest' })));
-	expect(lost).toMatchObject({ name: 'Unknown', n: 2 });
+	expect(lost).toMatchObject({ name: 'Unknown', id: 2 });
 	expect(await t.server.read('notes/log.md')).toBe('x\ny\n');
 	// Nothing changed here before the verdict.
 	expect(await text(t.alice.repo, 'log')).toBe('x\n');
@@ -292,7 +292,8 @@ test('a send whose reply was lost is unknown to its caller, then resent under it
 	expect(await text(t.alice.repo, 'log')).toBe('x\ny\n');
 	expect(await t.server.read('notes/log.md')).toBe('x\ny\n');
 	expect(t.server.sequence()).toBe(2);
-	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 0 }]);
+	expect(await t.alice.repo.verdict(lost.name === 'Unknown' ? lost.id : 0)).toMatchObject({ kind: 'applied', seq: 2 });
 	await t.cleanup();
 });
 
