@@ -63,7 +63,7 @@ export function createWorld({
 	}
 
 	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward' } = {}) {
-		const store = createMemoryStore();
+		let store = createMemoryStore();
 		const make = () => createReplica({ device: name, mode, store, after: net.after, now: net.now, timeout });
 		let replica = make();
 		let online = true;
@@ -164,6 +164,13 @@ export function createWorld({
 			/** Drop the replica and build it again from what it persisted. */
 			restart() {
 				replica.close();
+				replica = make();
+				if (link !== null) replica.attach(link.up);
+			},
+			/** The device's storage is gone for good: it comes back as a fresh replica that knows nothing. */
+			lose() {
+				replica.close();
+				store = createMemoryStore();
 				replica = make();
 				if (link !== null) replica.attach(link.up);
 			},
