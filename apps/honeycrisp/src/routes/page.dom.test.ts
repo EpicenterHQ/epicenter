@@ -10,7 +10,7 @@
  * - A new note's title and body persist across close and reopen, and every field stays
  * - A change from elsewhere updates the open note without replacing its controls
  * - A change the server could not take is a notice until dismissed
- * - A note that does not read as one is listed for repair and opens as its text
+ * - A note that does not read as one is listed for repair and opens straight into its source
  * - A write the engine refuses is reported, and the controls follow the stored note
  * - Deleting a folder moves its notes out in the same batch
  */
@@ -112,15 +112,16 @@ test('a change from elsewhere updates the open note without replacing its contro
 	expect(on.text('notes/a.md')).toContain('owner:\n  name: one\n  tags: [two]\n');
 });
 
-test('a note that does not read as one is listed for repair and opens as its text', async () => {
+test('a note that does not read as one is listed for repair and opens straight into its source', async () => {
 	const on = await device({ 'notes/a.md': 'plain text\n', 'folders/f.md': 'not a folder\n' });
 	const page = await openPage(on);
 	await until(() => page.text(LIST).includes('Needs repair'), 'the repair listing');
 	expect(page.text(LIST)).toContain('folders/f.md');
 	page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-	await until(() => page.target.querySelector('pre[aria-label="Text of a.md"]') !== null, 'the text view');
-	expect(page.text('pre[aria-label="Text of a.md"]')).toBe('plain text\n');
-	expect(page.target.querySelector('[data-testid="row-issues"]')).not.toBeNull();
+	const SOURCE = '[aria-label="Source of a.md"]';
+	await until(() => page.target.querySelector(SOURCE) !== null, 'the source editor');
+	expect(page.text(SOURCE)).toBe('plain text');
+	await until(() => page.text('[data-testid="source-status"]').includes("Doesn't match the schema"), 'the schema status');
 	expect(on.text('notes/a.md')).toBe('plain text\n');
 });
 

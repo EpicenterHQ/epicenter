@@ -84,6 +84,8 @@ export async function startWorld(people: readonly string[]) {
 		sites.set(person, site.url.origin);
 		return site;
 	});
+	const agent = served.repository.connect({ device: 'agent', user: 'agent' });
+	let agentBatches = 0;
 	return {
 		/** The site `person` opens. */
 		url: (person: string) => `${sites.get(person)}/`,
@@ -97,6 +99,20 @@ export async function startWorld(people: readonly string[]) {
 		},
 		/** The note's text as the server holds it. */
 		read: (path: string) => served.repository.read(path),
+		/**
+		 * Create a file on the server as an agent would, with any text: one
+		 * whose frontmatter does not parse included, as Git can hold one.
+		 */
+		async createFile(path: string, text: string) {
+			const outcome = await agent.push({
+				device: 'agent',
+				n: ++agentBatches,
+				seq: served.repository.sequence(),
+				policy: 'refuse',
+				changes: [{ kind: 'write', path, base: null, text }],
+			});
+			if (outcome.kind !== 'applied') throw new Error(`The server did not create ${path}: ${JSON.stringify(outcome)}`);
+		},
 		async stop() {
 			for (const site of statics) site.stop(true);
 			router.stop(true);

@@ -1,18 +1,19 @@
 <!--
 	One selected path and its presentations. The note presentation stays
-	mounted while the file's text shows, so its editor keeps its undo
-	history. The text presentation shows the file exactly as this device
-	holds it; Honeycrisp writes a note only through its fields and body.
+	mounted while the file's source shows, so its editor keeps its undo
+	history. The source presentation edits a Markdown file's whole text,
+	frontmatter included, which is how a note or folder that does not read
+	as one is repaired; any other file shows exactly as this device holds it.
 -->
 <script lang="ts">
 	import { basename } from '@epicenter/folder/file-browser';
 	import { live } from '@epicenter/repository/svelte';
-	import { Badge } from '@epicenter/ui/badge';
+	import SourceEditor from '@epicenter/svelte/source-editor';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
-	import { noteStemOf } from '$lib/data.js';
+	import { folderStemOf, noteStemOf } from '$lib/data.js';
 	import { type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import NoteDetail from './NoteDetail.svelte';
@@ -34,6 +35,8 @@
 	const path = shownPath;
 	const name = basename(path);
 	const noteStem = noteStemOf(path);
+	/** The name whose schema the source is checked against. */
+	const lens = noteStem !== undefined ? 'notes' : folderStemOf(path) !== undefined ? 'folders' : undefined;
 
 	// svelte-ignore state_referenced_locally
 	const file = live(notes.repo.live<{ text: string }>('SELECT text FROM "epicenter/files" WHERE path = ? AND text IS NOT NULL', [path]));
@@ -64,20 +67,9 @@
 				</Button>
 			</div>
 
-			{#if note !== undefined && !note.valid}
-				<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="row-issues">
-					<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
-						<Badge variant="destructive">Needs repair</Badge>
-						This file does not read as a note. Honeycrisp keeps its text as it is.
-					</p>
-					<ul class="space-y-0.5 text-muted-foreground">
-						{#each note.issues as issue}
-							<li>{issue}</li>
-						{/each}
-					</ul>
-				</div>
-			{/if}
-			{#if text !== undefined}
+			{#if text !== undefined && path.endsWith('.md')}
+				<SourceEditor repo={notes.repo} {path} {lens} label="Source of {name}" class="flex-1" />
+			{:else if text !== undefined}
 				<pre class="min-h-40 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap" aria-label="Text of {name}">{text}</pre>
 			{:else if file.current !== undefined}
 				<Empty.Root class="flex-1">

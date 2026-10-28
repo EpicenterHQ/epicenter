@@ -13,7 +13,7 @@
  * - Another tab's change updates a clean todo without replacing its controls
  * - Typing shows at once and keeps fields written elsewhere
  * - A write the engine refuses is reported, and the controls follow the stored note
- * - A note that does not fit is listed with its source, and an edit keeps unnamed fields
+ * - A note that does not fit opens into its source with its schema issue, and an edit keeps unnamed fields
  * - A failed open shows the error, and Try again opens again
  * - Open in another tab offers Use here; waiting and moved say so
  * - A change the server could not take is a notice, with its text, until dismissed
@@ -304,7 +304,7 @@ test('a new title not added does not prompt before a browser reload', async () =
 	expect(opened.get('[aria-label="New todo title"]').value).toBe('Buy tea');
 });
 
-test('a note that does not fit is listed with its source, and an edit keeps unnamed fields', async () => {
+test('a note that does not fit opens into its source with its schema issue, and an edit keeps unnamed fields', async () => {
 	const device = freshDevice();
 	const other = device.tab();
 	// Written as another program might: `done` is not a boolean, and `owner` is not in the schema.
@@ -316,9 +316,18 @@ test('a note that does not fit is listed with its source, and an edit keeps unna
 	await until(() => opened.target.querySelector('[aria-label="Needs repair"]') !== null, 'the repair list');
 	expect(opened.text('[aria-label="Needs repair"]')).toContain('todos/odd.md');
 
-	click(opened.get('[aria-label="Needs repair"]'), 'Show');
-	await until(() => opened.target.querySelector('[data-testid="needs-repair"]') !== null, 'the source');
-	expect(opened.text(`${DETAIL} pre`)).toBe('---\ntitle: Odd\ndone: soon\n---\nNotes');
+	click(opened.get('[aria-label="Needs repair"]'), 'Repair');
+	const SOURCE = `${DETAIL} [aria-label="Source of todos/odd.md"]`;
+	await until(() => opened.target.querySelector(SOURCE) !== null, 'the source');
+	expect([...opened.get(SOURCE).querySelectorAll('.cm-line')].map((line) => line.textContent)).toEqual([
+		'---',
+		'title: Odd',
+		'done: soon',
+		'---',
+		'Notes',
+		'',
+	]);
+	await until(() => opened.text('[data-testid="source-status"]')?.includes('/done must be boolean') ?? false, 'the schema issue');
 
 	press(opened.get('[data-todo="todos/extra.md"]'));
 	await until(() => opened.get(TITLE).value === 'Extra', 'extra to open');

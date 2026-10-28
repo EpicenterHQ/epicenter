@@ -72,11 +72,11 @@
 		</ul>
 
 		{#if repairs.length > 0}
-			<!-- Not todos the list can edit: each opens with its text and what does not fit. -->
+			<!-- Not todos the list can edit: each opens into its source, to repair. -->
 			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Needs repair">
 				<p class="flex items-center gap-2 font-medium">
 					<Badge variant="destructive">Needs repair</Badge>
-					{repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Todos keeps {repairs.length === 1 ? 'its' : 'their'} text as it is.
+					{repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo.
 				</p>
 				<ul class="mt-1 space-y-1.5">
 					{#each repairs as repair (repair.path)}
@@ -91,7 +91,7 @@
 								aria-current={open === repair.params.stem ? 'true' : undefined}
 								onclick={() => onOpen?.(repair.params.stem)}
 							>
-								Show
+								Repair
 							</Button>
 						</li>
 					{/each}

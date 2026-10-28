@@ -99,7 +99,7 @@
 				>
 					<PinIcon class={pinned ? 'fill-current' : ''} />
 				</Button>
-				<Button size="sm" variant="ghost" tooltip="Show the whole file, including keys Honeycrisp does not show" onclick={() => notes.open(path, 'text')}>Show file</Button>
+				<Button size="sm" variant="ghost" tooltip="Edit the whole file, including keys Honeycrisp does not show" onclick={() => notes.open(path, 'text')}>Edit source</Button>
 			</div>
 
 			<NoteEditor source={body} focusRequest={notes.focusRequest} class="flex-1" />
@@ -115,7 +115,7 @@
 				<Empty.Description>
 					<code class="font-mono">{path}</code>: {shown.issues.join('; ')}
 				</Empty.Description>
-				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Show its text</Button>
+				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Edit source</Button>
 			</Empty.Root>
 		{/if}
 	{/await}

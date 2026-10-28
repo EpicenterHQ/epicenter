@@ -63,8 +63,17 @@ folders changes one field and never moves its file.
 The schemas only interpret. A write changes only the fields and body it
 names, so keys Honeycrisp does not name, their order, and their comments stay
 as their writer left them. A note file that does not read as a note is listed
-under **Needs repair** with why, and opens as its text, read-only. A folder
+under **Needs repair** with why, and opens straight into its source. A folder
 file that does not read as one is listed apart. Files deletes them.
+
+**Edit source** on every note opens its whole text, frontmatter included, in
+the source editor (`<SourceEditor>` from `@epicenter/svelte`), which saves as
+you type. Its status line says whether the frontmatter parses, with the line
+where it breaks, and whether the note matches Honeycrisp's schema, with each
+issue. A note whose frontmatter parses never saves text that does not: that
+text waits in the editor until it parses again. A note whose frontmatter does
+not parse saves every step of its repair, and lists as a note once it reads
+as one, on every device.
 
 Earlier Honeycrisp builds kept notes in a local folder in IndexedDB, and
 before that in OPFS. This build opens its repository independently and does
@@ -120,7 +129,7 @@ note cannot say which folder it is in.
 | Control | What it does |
 | --- | --- |
 | Status | Where notes are kept, and whether edits are waiting for the server. |
-| Files (Ctrl+B) | The files this device holds: open any as text, and delete a note or folder file. |
+| Files (Ctrl+B) | The files this device holds: open any as its source, and delete a note or folder file. |
 
 ## Layout
 
@@ -140,11 +149,7 @@ This version moves Honeycrisp to the repository engine. It drops these
 promises of the version before it:
 
 - Notes saved by earlier browser builds are not shown.
-- **Edit as file** is gone: the repository writes a note only through its
-  fields and body, so a file's whole text cannot be replaced, and a note whose
-  frontmatter does not parse cannot be repaired here. Its text is shown
-  read-only, and it can be deleted.
 - Files cannot be created from the file browser, and only note and folder
-  files can be deleted; the repository writes no path an app does not name.
+  files can be deleted.
 - The host build keeps notes in the WebView's storage, as a browser does, not
   in the directory the desktop shell grants.

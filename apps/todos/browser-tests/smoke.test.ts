@@ -10,6 +10,7 @@
  * Key behaviors:
  * - Create, edit, complete, and delete a todo
  * - Each survives a reload
+ * - A todo's source shows a schema mismatch as it is typed, and it clears when fixed
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -85,6 +86,45 @@ for (const [engine, browser] of [
 					await opened(page);
 					await page.getByText('No todos yet').waitFor();
 					await expect(page.getByRole('checkbox', { name: 'Reopen Buy oat milk' }).count()).resolves.toBe(0);
+				} finally {
+					await context.close();
+					await rm(dir, { recursive: true, force: true });
+				}
+			},
+			90_000,
+		);
+
+		test(
+			"a todo's source shows a schema mismatch as it is typed, and the issue clears when fixed",
+			async () => {
+				const dir = await mkdtemp(join(tmpdir(), 'todos-smoke-'));
+				const context = await browser.launchPersistentContext(dir, { headless: true, viewport: { width: 1280, height: 800 } });
+				try {
+					const page = context.pages()[0] ?? (await context.newPage());
+					page.on('pageerror', (error) => console.error('page error:', error));
+					await page.goto(server.url.href);
+					await opened(page);
+					await page.getByLabel('New todo title').fill('Water plants');
+					await page.getByRole('button', { name: 'Add', exact: true }).click();
+					await page.getByRole('button', { name: 'Edit source' }).click();
+
+					const source = page.getByRole('textbox', { name: /^Source of todos\// });
+					const status = page.getByTestId('source-status');
+					await status.getByText('Matches the schema').waitFor();
+					await source.locator('.cm-line', { hasText: 'done: false' }).click();
+					await page.keyboard.press('End');
+					for (let n = 0; n < 'false'.length; n++) await page.keyboard.press('Backspace');
+					await page.keyboard.type('maybe');
+					await status.getByText('/done must be boolean').waitFor();
+					// The todo no longer reads as one, so the list asks for its repair.
+					await page.getByRole('region', { name: 'Needs repair' }).waitFor();
+
+					for (let n = 0; n < 'maybe'.length; n++) await page.keyboard.press('Backspace');
+					await page.keyboard.type('true');
+					await status.getByText('Matches the schema').waitFor();
+					await page.getByRole('button', { name: 'Open as todo' }).click();
+					await expect(page.getByRole('checkbox', { name: 'Done' }).getAttribute('aria-checked')).resolves.toBe('true');
+					await expect(page.getByRole('region', { name: 'Needs repair' }).count()).resolves.toBe(0);
 				} finally {
 					await context.close();
 					await rm(dir, { recursive: true, force: true });

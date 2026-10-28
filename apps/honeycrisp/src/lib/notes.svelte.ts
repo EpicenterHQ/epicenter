@@ -31,7 +31,7 @@ import type { HoneycrispRepository } from './repository.js';
 
 export type Notes = ReturnType<typeof createNotes>;
 
-/** How a path opens: as the note it is, or as its text. */
+/** How a path opens: as the note it is, or as its source text. */
 export type OpenAs = 'note' | 'text';
 
 /** The selected path and its presentation. The path owns the detail view's lifetime. */
@@ -61,7 +61,7 @@ export const foldersOf = (files: readonly FolderFile[]): FolderEntry[] =>
 
 const problemsOf = (files: readonly (NoteFile | FolderFile)[]): Problem[] =>
 	files.flatMap((file) => (file.valid ? [] : [{ path: file.path, message: file.issues.join('; ') }]));
-/** Note files whose text does not read as a note: each opens as its text, with why. */
+/** Note files whose text does not read as a note: each opens as its source, to repair. */
 export const repairsOf = (files: readonly NoteFile[]) => problemsOf(files);
 /** Folder files that do not read as folders. */
 export const unreadableOf = (folders: readonly FolderFile[]) => problemsOf(folders);
