@@ -21,10 +21,19 @@
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { App, Definitions, Lens, Notice, SendOptions, Verdict } from '../define.js';
+import type { App, Definitions, HoldReason, Lens, Notice, SendOptions, Sync, Verdict } from '../define.js';
 import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, sha256 } from '../hash.js';
-import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, storageRefusal, writeMarkdown, writePointer } from '../markdown.js';
+import {
+	BODY_SQL,
+	parseMarkdown,
+	parsePointer,
+	passesParseGate,
+	splitMarkdown,
+	storageRefusal,
+	writeMarkdown,
+	writePointer,
+} from '../markdown.js';
 import { merge } from '../merge.js';
 import { describe } from '../policy.js';
 import type { Policy } from '../policy.js';
@@ -45,7 +54,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	synced TEXT,
 	hash TEXT,
 	seq INTEGER NOT NULL DEFAULT 0,
-	held INTEGER NOT NULL DEFAULT 0
+	held TEXT
 ) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
@@ -91,28 +100,27 @@ const EngineDiagnostic = defineErrors({
 type Entry = { change: Change; local: string | null };
 
 /**
- * A file on this device: the text it shows, the server's text and hash as
- * this device last heard them, and `held`, 1 while `text` holds text this
- * device keeps to itself beyond its queued changes, which no outbox row
- * carries, so every reconciliation keeps it.
+ * A file on this device, on three levels: `text`, what it shows; what it
+ * promised the server, the queued projection (`promised`); and `synced`,
+ * the server's text as this device last heard it, with its hash. `held` is
+ * why `text` holds a change of this device's that waits to move down to the
+ * promised level, in no outbox row, so every reconciliation keeps it: today
+ * only `'unparseable'`, a text whose frontmatter does not parse over one
+ * that does (`passesParseGate`).
  */
-type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number; held: number };
+type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number; held: HoldReason | null };
 
 /**
  * A file as reads return it: its text, the parsed fields as JSON (null when
- * they do not parse), the body, and `version`, the hash of the text.
+ * they do not parse), the body, `version`, the hash of the text, and where
+ * it stands with the server.
  */
-export type FileRead = { path: string; text: string; fields: string | null; body: string; version: string };
+export type FileRead = { path: string; text: string; fields: string | null; body: string; version: string; sync: Sync };
 
-/** The columns a read selects; `version` is the server's hash where the text is the server's, else null until `withVersion` hashes it. */
-const READ_COLUMNS = (f: string) => `${f}.path, ${f}.text, ${f}.fields, ${f}.body, CASE WHEN ${f}.text IS ${f}.synced THEN ${f}.hash END AS version`;
-
-/** A read row with its version: the stored hash when the text is the server's, otherwise the text's own hash. */
-type ReadRow = Omit<FileRead, 'version'> & { version: string | null };
-const withVersion = (file: ReadRow): FileRead => ({
-	...file,
-	version: file.version ?? gitBlobHash(file.text),
-});
+/** The columns a read selects; `version` is the server's hash where the text is the server's, else null until `readOf` hashes it. */
+const READ_COLUMNS = (f: string) =>
+	`${f}.path, ${f}.text, ${f}.fields, ${f}.body, ${f}.held, CASE WHEN ${f}.text IS ${f}.synced THEN ${f}.hash END AS version`;
+type ReadRow = Omit<FileRead, 'version' | 'sync'> & { version: string | null; held: HoldReason | null };
 
 type Params = Record<string, unknown>;
 
@@ -149,6 +157,8 @@ export type EngineRequest =
 	/** Any synced file by its path, whether or not a template names it. */
 	| { kind: 'file'; path: string }
 	| { kind: 'list'; name: string; filter: Params }
+	/** Every file this device shows, whether or not a template names it, or only those in one sync state. */
+	| { kind: 'files'; sync?: Sync['state'] }
 	| { kind: 'query'; sql: string; params: SqlValue[] }
 	| { kind: 'blob'; name: string; params: Params; as: 'bytes' | 'url' }
 	/** Resolves when queued sync work has run: the outbox is sent, or the server is unreachable. */
@@ -159,6 +169,7 @@ export type EngineAnswers = {
 	get: FileRead | null;
 	file: FileRead | null;
 	list: FileRead[];
+	files: FileRead[];
 	query: Record<string, SqlValue>[];
 	blob: Uint8Array | string | null;
 	flush: undefined;
@@ -179,16 +190,23 @@ const ROLLBACK = Symbol('rollback');
 
 /**
  * Bring a database an earlier build made up to this schema, keeping its
- * data: its files had no `held` column, its outbox kept settled rows with
- * their outcome for retried command ids, and had no policy, since every
- * batch it sent was a person's.
+ * data: its files had no `held` column, or one that was a flag (1 for held
+ * text, which could only be text that did not parse); its outbox kept
+ * settled rows with their outcome for retried command ids, and had no
+ * policy, since every batch it sent was a person's.
  */
 function upgrade(driver: SqlDriver) {
-	const columnsOf = (table: string) => new Set(driver.all<{ name: string }>('SELECT name FROM pragma_table_info(?)', [table]).map((c) => c.name));
+	const columnsOf = (table: string) =>
+		new Map(driver.all<{ name: string; type: string }>('SELECT name, type FROM pragma_table_info(?)', [table]).map((c) => [c.name, c.type]));
 	const columns = columnsOf('epicenter/outbox');
 	const fileColumns = columnsOf('epicenter/files');
 	driver.transaction(() => {
-		if (!fileColumns.has('held')) driver.exec('ALTER TABLE "epicenter/files" ADD COLUMN held INTEGER NOT NULL DEFAULT 0');
+		if (fileColumns.get('held') === 'INTEGER') {
+			driver.exec('ALTER TABLE "epicenter/files" RENAME COLUMN held TO held_flag');
+			driver.exec('ALTER TABLE "epicenter/files" ADD COLUMN held TEXT');
+			driver.exec(`UPDATE "epicenter/files" SET held = 'unparseable' WHERE held_flag = 1`);
+			driver.exec('ALTER TABLE "epicenter/files" DROP COLUMN held_flag');
+		} else if (!fileColumns.has('held')) driver.exec('ALTER TABLE "epicenter/files" ADD COLUMN held TEXT');
 		if (!columns.has('policy')) driver.exec(`ALTER TABLE "epicenter/outbox" ADD COLUMN policy TEXT NOT NULL DEFAULT 'mark'`);
 		if (columns.has('outcome')) {
 			driver.exec('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL');
@@ -254,12 +272,12 @@ export function openEngine<const TDefs extends Definitions>({
 
 	/**
 	 * The one write path: text and its parsed fields in the same statement.
-	 * `held` stays what it was unless `next` says.
+	 * `held` stays what it was unless `next` says, and goes with the text.
 	 */
-	function put(path: string, { held: nextHeld, ...next }: Omit<FileRow, 'path' | 'held'> & { held?: number }) {
+	function put(path: string, { held: nextHeld, ...next }: Omit<FileRow, 'path' | 'held'> & { held?: HoldReason | null }) {
 		const previous = row(path);
-		const held = nextHeld ?? previous?.held ?? 0;
-		if ((previous?.text ?? null) !== next.text) changed.add(path);
+		const held = next.text === null ? null : nextHeld !== undefined ? nextHeld : (previous?.held ?? null);
+		if ((previous?.text ?? null) !== next.text || (previous?.held ?? null) !== held) changed.add(path);
 		if (next.text === null && next.synced === null) {
 			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
 			return;
@@ -279,7 +297,7 @@ export function openEngine<const TDefs extends Definitions>({
 				[path, next.text, fieldsOf(next.text), next.synced, next.hash, next.seq, held],
 			);
 	}
-	const keep = (path: string): FileRow => row(path) ?? { path, text: null, synced: null, hash: null, seq: 0, held: 0 };
+	const keep = (path: string): FileRow => row(path) ?? { path, text: null, synced: null, hash: null, seq: 0, held: null };
 
 	/** Only Markdown files and LFS pointers live on devices. */
 	const isDeviceFile = (path: string, text: string | null) =>
@@ -328,12 +346,22 @@ export function openEngine<const TDefs extends Definitions>({
 	// ------------------------------------------------------------------------
 
 	/** A file a move made elsewhere took along: this device's text of it, what that text was based on, and whether it was held. */
-	type Carried = { base: string | null; local: string | null; held: number };
+	type Carried = { base: string | null; local: string | null; held: HoldReason | null };
 
 	function serverFile(file: FileState, seq: number, carried?: Carried) {
 		if (!isDeviceFile(file.path, file.text)) return;
 		const current = keep(file.path);
 		if (current.seq > seq) return;
+		// A note this device renamed, its rename still queued, takes a change made
+		// elsewhere along, as the server will once the rename lands; the old path
+		// shows nothing meanwhile.
+		const away = carried === undefined ? movedAwayTo(file.path) : null;
+		if (away !== null) {
+			put(file.path, { ...current, synced: file.text, hash: file.hash, seq });
+			const destination = keep(away);
+			put(away, { ...destination, text: rebaseLocal(current.synced, destination.text, file.text) });
+			return;
+		}
 		const base = carried?.base ?? current.synced;
 		const local = carried?.local ?? current.text;
 		// A note this device moved here, unacknowledged, is not what the server
@@ -344,13 +372,15 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	function receive(broadcast: Broadcast) {
-		driver.transaction(() => {
+		const released = driver.transaction(() => {
 			const carried = new Map<string, Carried>();
 			for (const move of broadcast.moves) carryMove(move, carried);
 			for (const file of broadcast.files) serverFile(file, broadcast.seq, carried.get(file.path));
 			advance(broadcast.seq);
+			return settle();
 		});
 		notify();
+		if (released) kick();
 	}
 
 	/** A move made elsewhere takes this device's unsent edits of the file along. */
@@ -358,7 +388,7 @@ export function openEngine<const TDefs extends Definitions>({
 		const source = row(from);
 		if (source === undefined || source.text === source.synced) return;
 		carried.set(to, { base: source.synced, local: source.text, held: source.held });
-		put(from, { ...source, text: null, synced: null, hash: null, held: 0 });
+		put(from, { ...source, text: null, synced: null, hash: null });
 	}
 
 	// ------------------------------------------------------------------------
@@ -367,46 +397,101 @@ export function openEngine<const TDefs extends Definitions>({
 
 	type Local = { kind: 'write'; path: string; text: string | null } | { kind: 'move'; from: string; to: string } | { kind: 'append'; path: string; text: string };
 
+	const baseOf = (text: string) => ({ hash: gitBlobHash(text), text });
+
 	/**
-	 * Apply one change on this device and say what to send. Runs inside the
-	 * batch's transaction. The change starts from the queued projection,
-	 * what the server will have once this device's queued writes land, never
-	 * from the text shown here, which can hold changes merged in from
-	 * elsewhere or text this device keeps to itself.
+	 * Apply one change on this device and say what to send, or null when it
+	 * is held. Runs inside the batch's transaction. The change starts from
+	 * the promised level, what the server will have once this device's
+	 * queued writes land, never from the text shown here, which can hold
+	 * changes merged in from elsewhere or held text. A whole text whose gate
+	 * is closed (`passesParseGate`) is shown and held, and nothing is sent.
 	 */
-	function applyLocal(change: Local, earlier: Entry[]): Entry {
-		const baseOf = (text: string) => ({ hash: gitBlobHash(text), text });
+	function applyLocal(change: Local, earlier: Entry[]): Result<Entry | null, WriteError> {
 		if (change.kind === 'move') {
 			const source = keep(change.from);
 			const destination = keep(change.to);
-			const moved = projection(change.from, earlier);
+			const moved = promised(change.from, earlier);
 			put(change.from, { ...source, text: null });
-			put(change.to, { ...destination, text: source.text });
-			return { change, local: moved };
+			put(change.to, { ...destination, text: source.text, held: source.held });
+			return Ok({ change, local: moved });
 		}
 		const current = keep(change.path);
-		const from = projection(change.path, earlier);
+		const from = promised(change.path, earlier);
 		if (change.kind === 'append') {
-			put(change.path, { ...current, text: (current.text ?? '') + change.text });
-			return { change: { ...change, base: baseOf(from ?? '') }, local: (from ?? '') + change.text };
+			const shown = (current.text ?? '') + change.text;
+			// What is appended to goes to the server: it must not break that text.
+			const checked = storable(change.path, from ?? '', (from ?? '') + change.text);
+			if (checked.error !== null) return checked;
+			const stored = storable(change.path, null, shown);
+			if (stored.error !== null) return stored;
+			put(change.path, { ...current, text: shown });
+			return Ok({ change: { ...change, base: baseOf(from ?? '') }, local: (from ?? '') + change.text });
 		}
-		put(change.path, { ...current, text: change.text });
-		return { change: { kind: 'write', path: change.path, base: from === null ? null : baseOf(from), text: change.text }, local: change.text };
+		const stored = storable(change.path, null, change.text);
+		if (stored.error !== null) return stored;
+		if (!passesParseGate(change.path, from, change.text)) {
+			put(change.path, { ...current, text: change.text, held: 'unparseable' });
+			return Ok(null);
+		}
+		put(change.path, { ...current, text: change.text, held: null });
+		return Ok({ change: { kind: 'write', path: change.path, base: from === null ? null : baseOf(from), text: change.text }, local: change.text });
+	}
+
+	/**
+	 * Move every held text whose gate opened down to the promised level:
+	 * queue it, as a person's write from what the server will have, in a
+	 * batch of its own. A held text that a merge left equal to what is below
+	 * is held no longer. Runs at the end of every transaction that can
+	 * change a level, so a text a merge made parse is queued at once; says
+	 * whether it queued any.
+	 */
+	function settle(): boolean {
+		let released = false;
+		for (const file of driver.all<FileRow>('SELECT path, text, synced, hash, seq, held FROM "epicenter/files" WHERE held IS NOT NULL')) {
+			const below = promised(file.path);
+			if (file.text === below) {
+				put(file.path, { ...file, held: null });
+				continue;
+			}
+			if (!passesParseGate(file.path, below, file.text)) continue;
+			put(file.path, { ...file, held: null });
+			queue([{ change: { kind: 'write', path: file.path, base: below === null ? null : baseOf(below), text: file.text }, local: file.text }]);
+			released = true;
+		}
+		return released;
 	}
 
 	/** A person's queued entries, oldest first. */
 	const queuedEntries = () => unsent().flatMap((batch) => JSON.parse(batch.changes) as Entry[]);
 
 	/**
-	 * What the server will have at `path` once every queued change of a
-	 * person lands as made, and then `earlier`, the changes before it in its
-	 * own batch: what the last of them touching it leaves (nothing at a
-	 * move's source), or the server's text.
+	 * The promised level: what the server will have at `path` once every
+	 * queued change of a person lands as made, and then `earlier`, the
+	 * changes before it in its own batch: what the last of them touching it
+	 * leaves (nothing at a move's source), or the server's text.
 	 */
-	function projection(path: string, earlier: Entry[] = []): string | null {
+	function promised(path: string, earlier: Entry[] = []): string | null {
 		const last = [...queuedEntries(), ...earlier].findLast((entry) => pathsOf(entry).includes(path));
 		if (last === undefined) return row(path)?.synced ?? null;
 		return last.change.kind === 'move' && last.change.from === path ? null : last.local;
+	}
+
+	/**
+	 * Where this device's queued renames took the note at `path`, when the
+	 * last queued change touching `path` moved it away; null otherwise.
+	 * `later` are changes queued before every queued batch, the rest of the
+	 * batch being answered.
+	 */
+	function movedAwayTo(path: string, later: Entry[] = []): string | null {
+		const entries = [...later, ...queuedEntries()];
+		let at = path;
+		for (let hops = 0; hops <= entries.length; hops++) {
+			const last = entries.findLast((entry) => pathsOf(entry).includes(at));
+			if (last?.change.kind !== 'move' || last.change.from !== at) return at === path ? null : at;
+			at = last.change.to;
+		}
+		return at;
 	}
 
 	/** Whether this device moved a note to `path` and the move is still queued: the last change touching `path` is that move. */
@@ -433,7 +518,8 @@ export function openEngine<const TDefs extends Definitions>({
 	/**
 	 * The checks a push is refused for, run before a write resolves, so a
 	 * person learns at once instead of in a notice later. `previous` is the
-	 * text the write replaces: a note that parses never stops parsing.
+	 * text the write replaces, null to check only what the text itself can
+	 * be: a note that parses never stops parsing.
 	 */
 	function storable(path: string, previous: string | null, text: string | null): Result<undefined, WriteError> {
 		const refusal = text === null ? null : storageRefusal(path, previous, text);
@@ -460,17 +546,6 @@ export function openEngine<const TDefs extends Definitions>({
 				moved.delete(to);
 			},
 		};
-	}
-
-	/** What one op does on this device, read against what the device shows now, if it can be stored. */
-	function resolve(op: Ready, follow: Follow): Result<Local, WriteError> {
-		const local = resolveOp(op, follow);
-		if (local.error !== null || local.data.kind === 'move') return local;
-		const { path } = local.data;
-		const previous = localText(path);
-		const text = local.data.kind === 'append' ? (previous ?? '') + local.data.text : local.data.text;
-		const checked = storable(path, previous, text);
-		return checked.error !== null ? checked : local;
 	}
 
 	/** The path a text op names, if a synced Markdown file can be there. */
@@ -598,8 +673,9 @@ export function openEngine<const TDefs extends Definitions>({
 		return enqueue('mark', entries);
 	}
 
-	/** Add one batch to the end of the lane under the next number. */
+	/** Add one batch to the end of the lane under the next number. A person's batch makes its paths `sending`. */
 	function enqueue(policy: Policy, entries: Entry[]): number {
+		if (policy === 'mark') for (const entry of entries) for (const path of pathsOf(entry)) changed.add(path);
 		const n = Number(meta('next') ?? '1');
 		setMeta('next', String(n + 1));
 		driver.run('INSERT INTO "epicenter/outbox" (n, seq, policy, changes) VALUES (?, ?, ?, ?)', [n, position(), policy, JSON.stringify(entries)]);
@@ -609,6 +685,8 @@ export function openEngine<const TDefs extends Definitions>({
 	/**
 	 * Apply ops locally and queue them as one batch, in one transaction. A
 	 * change after a move in the batch follows it, here and at the server.
+	 * A whole text whose gate is closed is held instead, and the batch goes
+	 * without it.
 	 */
 	function apply(ops: Ready[]): Result<undefined, WriteError> {
 		if (closed) return WriteError.Closed();
@@ -618,16 +696,19 @@ export function openEngine<const TDefs extends Definitions>({
 				const entries: Entry[] = [];
 				const moves = batchMoves();
 				for (const op of ops) {
-					const local = resolve(op, moves.follow);
-					if (local.error !== null) {
-						failure = local.error;
+					const local = resolveOp(op, moves.follow);
+					const entry = local.error !== null ? local : applyLocal(local.data, entries);
+					if (entry.error !== null) {
+						failure = entry.error;
 						throw ROLLBACK;
 					}
-					const entry = applyLocal(local.data, entries);
-					if (entry.change.kind === 'move') moves.moved(entry.change.from, entry.change.to);
-					entries.push(entry);
+					// A held change waits on its own; the rest go together.
+					if (entry.data === null) continue;
+					if (entry.data.change.kind === 'move') moves.moved(entry.data.change.from, entry.data.change.to);
+					entries.push(entry.data);
 				}
-				queue(entries);
+				if (entries.length > 0) queue(entries);
+				settle();
 			});
 		} catch (cause) {
 			if (cause !== ROLLBACK) throw cause;
@@ -760,8 +841,12 @@ export function openEngine<const TDefs extends Definitions>({
 		if (base.error !== null) return base;
 		const from = base.data?.text ?? null;
 		const write = (text: string | null): Result<Entry, WriteError> => {
-			const checked = storable(path.data, from, text);
-			return checked.error !== null ? checked : Ok({ change: { kind: 'write', path: path.data, base: base.data, text }, local: text });
+			const checked = storable(path.data, null, text);
+			if (checked.error !== null) return checked;
+			// A send is never held: one whose text could not reach the server is refused before it is numbered.
+			if (!passesParseGate(path.data, from, text))
+				return WriteError.Unparseable({ path: path.data, reason: text === null ? '' : (parseMarkdown(text).error?.reason ?? 'it does not parse') });
+			return Ok({ change: { kind: 'write', path: path.data, base: base.data, text }, local: text });
 		};
 		switch (op.kind) {
 			case 'text':
@@ -795,7 +880,8 @@ export function openEngine<const TDefs extends Definitions>({
 
 	/**
 	 * Send ops as one batch with the `'refuse'` policy and wait for the
-	 * server's verdict. Offline, it fails at once and queues nothing. Its
+	 * server's verdict. Naming a path this device holds text for, or
+	 * offline, it fails at once and queues nothing. Its
 	 * paths are claimed at once, so a person's write to them made from now on
 	 * waits for the verdict. It waits for earlier sends and batches touching
 	 * its paths to be answered, so it starts from what the server
@@ -804,8 +890,9 @@ export function openEngine<const TDefs extends Definitions>({
 	 */
 	function send(ops: WriteOp[]): Promise<SendResult> {
 		if (closed) return Promise.resolve(WriteError.Closed());
-		if (!online || !link.connected()) return Promise.resolve(SendError.Offline());
 		const paths = opPaths(ops);
+		for (const file of paths.map(keep)) if (file.held !== null) return Promise.resolve(SendError.Held({ path: file.path, reason: file.held }));
+		if (!online || !link.connected()) return Promise.resolve(SendError.Offline());
 		const earlier = blockersOf(paths);
 		const result = sendAfter(earlier, ops, paths);
 		const claim = result.then(() => undefined);
@@ -891,7 +978,7 @@ export function openEngine<const TDefs extends Definitions>({
 	 * already holds that.
 	 */
 	const keepsOwn = (path: string, n: number, later: Entry[] = []) =>
-		keep(path).held === 1 || later.some((entry) => pathsOf(entry).includes(path)) || isPending(path, n);
+		keep(path).held !== null || later.some((entry) => pathsOf(entry).includes(path)) || isPending(path, n);
 
 	/**
 	 * Show the server's text again where a change of batch `n` did not land,
@@ -899,6 +986,8 @@ export function openEngine<const TDefs extends Definitions>({
 	 * here, rebased onto the server's.
 	 */
 	function revert(path: string, sent: string | null, n: number, later: Entry[] = []) {
+		// A note a later queued rename took away is shown where it went.
+		if (movedAwayTo(path, later) !== null) return;
 		const current = keep(path);
 		put(path, { ...current, text: keepsOwn(path, n, later) ? rebaseLocal(sent, current.text, current.synced) : current.synced });
 	}
@@ -932,10 +1021,11 @@ export function openEngine<const TDefs extends Definitions>({
 		// text at `from`: what the last queued change to it left, or what the
 		// move carried, or the text this device holds for it.
 		const later = entries.flatMap((batch) => batch.entries).findLast((entry) => pathsOf(entry).includes(to));
-		const own = moved.held === 1 ? moved.text : (later?.local ?? sent);
+		const own = moved.held !== null ? moved.text : (later?.local ?? sent);
 		put(from, { ...here, text: rebaseLocal(sent, own, here.synced), held: moved.held });
-		put(to, { ...moved, text: moved.synced, held: 0 });
+		put(to, { ...moved, text: moved.synced, held: null });
 		const aimed = (path: string) => (path === to ? from : path);
+		changed.add(from).add(to);
 		for (const batch of entries) {
 			const retargeted = batch.entries.map(({ change, local }): Entry => ({
 				local,
@@ -1003,8 +1093,17 @@ export function openEngine<const TDefs extends Definitions>({
 			const source = current.text === null && current.synced === null ? keep(outcome.at) : current;
 			const own = keepsOwn(source.path, n, later) ? rebaseLocal(sent, source.text, serverText) : serverText;
 			if (!isPending(change.path, n) && !later.some((entry) => pathsOf(entry).includes(change.path)))
-				put(change.path, { ...current, text: current.synced, held: 0 });
+				put(change.path, { ...current, text: current.synced, held: null });
 			put(outcome.at, { text: own, synced: serverText, hash: outcome.hash, seq, held: source.held });
+			return;
+		}
+		const away = movedAwayTo(change.path, later);
+		if (away !== null) {
+			// A later queued rename took the note away: what the server's answer
+			// holds beyond what was sent goes with it, and nothing shows here.
+			put(change.path, { ...current, synced: serverText, hash: outcome.hash, seq });
+			const destination = keep(away);
+			put(away, { ...destination, text: rebaseLocal(sent, destination.text, serverText) });
 			return;
 		}
 		put(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
@@ -1020,6 +1119,7 @@ export function openEngine<const TDefs extends Definitions>({
 			if (outcome.kind !== 'applied' || outcome.seq === null) return;
 			fold(entries, outcome, outcome.seq);
 			advance(outcome.seq);
+			settle();
 		});
 		const verdict: Verdict =
 			outcome.kind === 'applied'
@@ -1039,30 +1139,37 @@ export function openEngine<const TDefs extends Definitions>({
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
 		driver.transaction(() => {
 			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
-			switch (outcome.kind) {
-				case 'applied':
-					// With no seq the batch landed long ago, and the hello that came
-					// first already brought what it did.
-					if (outcome.seq === null) return;
-					for (const [index, entry] of entries.entries()) {
-						const change = outcome.changes[index];
-						if (change === undefined) continue;
-						acknowledge(n, entry, change, outcome.seq, entries.slice(index + 1));
-						noteLanding(entry, change);
-					}
-					advance(outcome.seq);
-					return;
-				// The server never refuses a person's batch but for a fault.
-				case 'refused':
-					fault(entries, outcome.reason);
-					return;
-				case 'need-base':
-					fault(entries, NO_BASE);
-					return;
-			}
+			for (const entry of entries) for (const path of pathsOf(entry)) changed.add(path);
+			reconcile(n, entries, outcome);
+			settle();
 		});
 		if (outcome.kind !== 'applied') log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
 		notify();
+	}
+
+	/** Fold a person's batch's outcome into this device's files. */
+	function reconcile(n: number, entries: Entry[], outcome: BatchOutcome) {
+		switch (outcome.kind) {
+			case 'applied':
+				// With no seq the batch landed long ago, and the hello that came
+				// first already brought what it did.
+				if (outcome.seq === null) return;
+				for (const [index, entry] of entries.entries()) {
+					const change = outcome.changes[index];
+					if (change === undefined) continue;
+					acknowledge(n, entry, change, outcome.seq, entries.slice(index + 1));
+					noteLanding(entry, change);
+				}
+				advance(outcome.seq);
+				return;
+			// The server never refuses a person's batch but for a fault.
+			case 'refused':
+				fault(entries, outcome.reason);
+				return;
+			case 'need-base':
+				fault(entries, NO_BASE);
+				return;
+		}
 	}
 
 	/** A path's last segment without `.md`: the name a person knows a note by. */
@@ -1207,6 +1314,7 @@ export function openEngine<const TDefs extends Definitions>({
 				}
 				for (const file of files) serverFile(file, seq);
 				jumpTo(seq);
+				settle();
 			});
 			notify();
 		}
@@ -1254,20 +1362,43 @@ export function openEngine<const TDefs extends Definitions>({
 
 	const split = (lens: Lens, params: Params) => buildPath(lens.template, params);
 
+	/** The paths a person's queued change touches: their text is on its way to the server. */
+	const sendingPaths = () => new Set(queuedEntries().flatMap(pathsOf));
+
+	/**
+	 * A read row as reads return it: its version, the stored hash when the
+	 * text is the server's, otherwise the text's own hash; and its sync
+	 * state, held winning over sending.
+	 */
+	function readOf({ held, version, ...file }: ReadRow, sending: Set<string>): FileRead {
+		const sync: Sync = held !== null ? { state: 'held', reason: held } : sending.has(file.path) ? { state: 'sending' } : { state: 'synced' };
+		return { ...file, version: version ?? gitBlobHash(file.text), sync };
+	}
+	const readAll = (rows: ReadRow[]) => {
+		const sending = sendingPaths();
+		return rows.map((file) => readOf(file, sending));
+	};
+
 	function listRows(lens: Lens, filter: Params) {
 		const keys = Object.entries(filter).filter(([key, value]) => lens.template.params.includes(key) && value !== undefined);
 		const where = keys.map(([key]) => `v."${key}" = ?`);
-		return driver
-			.all<ReadRow>(
+		return readAll(
+			driver.all<ReadRow>(
 				`SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f JOIN temp."${lens.name}" v ON v.path = f.path${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY f.path`,
 				keys.map(([, value]) => String(value)),
-			)
-			.map(withVersion);
+			),
+		);
+	}
+
+	/** Every file this device shows, or only those in one sync state. */
+	function fileRows(sync: Sync['state'] | undefined) {
+		const files = readAll(driver.all<ReadRow>(`SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f WHERE f.text IS NOT NULL ORDER BY f.path`));
+		return sync === undefined ? files : files.filter((file) => file.sync.state === sync);
 	}
 
 	function fileRow(path: string): FileRead | null {
 		const found = first<ReadRow>(driver, `SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f WHERE f.path = ? AND f.text IS NOT NULL`, [path]);
-		return found === undefined ? null : withVersion(found);
+		return found === undefined ? null : readOf(found, sendingPaths());
 	}
 
 	function getRow(lens: Lens, params: Params): FileRead | null {
@@ -1284,6 +1415,8 @@ export function openEngine<const TDefs extends Definitions>({
 				return fileRow(request.path) as Answer;
 			case 'list':
 				return listRows(lensOf(request.name), request.filter) as Answer;
+			case 'files':
+				return fileRows(request.sync) as Answer;
 			case 'query':
 				return driver.read(request.sql, request.params) as Answer;
 			case 'blob': {

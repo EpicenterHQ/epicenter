@@ -238,3 +238,38 @@ test("a person's batch of an edit then a rename that the server cannot apply put
 	]);
 	repo.close();
 });
+
+test('an edit made elsewhere to a note this device renamed, before its rename lands, follows the rename and leaves no copy behind', async () => {
+	const t = await setup();
+	t.alice.hold();
+	expectOk(await t.alice.repo.notes.move({ stem: 'trip' }, { stem: 'japan' }));
+	await Bun.sleep(5);
+	expectOk(await t.bob.repo.notes.write({ stem: 'trip' }, { body: 'Trip by Bob\n' }));
+	await t.bob.repo.flush();
+	const edited = '---\ntitle: T\n---\nTrip by Bob\n';
+	expect(Object.fromEntries((await t.alice.repo.notes.list()).map((note) => [note.path, note.text]))).toEqual({ 'notes/japan.md': edited });
+	t.alice.release();
+	await t.alice.repo.flush();
+	expect(await where(t)).toEqual({
+		server: { trip: null, japan: edited },
+		alice: { 'notes/japan.md': edited },
+		bob: { 'notes/japan.md': edited },
+	});
+	await t.cleanup();
+});
+
+test('an acknowledged edit of a note this device then renamed leaves no copy at the old path, though the server merged in another edit', async () => {
+	const t = await setup();
+	t.alice.hold();
+	expectOk(await t.alice.repo.notes.set({ stem: 'trip' }, 'title', 'J'));
+	await Bun.sleep(5);
+	// Bob's edit lands first, so the server's answer to Alice's holds it too.
+	expectOk(await t.bob.repo.notes.write({ stem: 'trip' }, { body: 'Trip by Bob\n' }));
+	await t.bob.repo.flush();
+	expectOk(await t.alice.repo.notes.move({ stem: 'trip' }, { stem: 'japan' }));
+	t.alice.release();
+	await t.alice.repo.flush();
+	const both = '---\ntitle: J\n---\nTrip by Bob\n';
+	expect(await where(t)).toEqual({ server: { trip: null, japan: both }, alice: { 'notes/japan.md': both }, bob: { 'notes/japan.md': both } });
+	await t.cleanup();
+});

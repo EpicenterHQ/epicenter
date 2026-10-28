@@ -240,6 +240,20 @@ export function breaksParsing(path: string, previous: string | null, text: strin
 }
 
 /**
+ * Whether a device may send `text` over `below`, what the server will have
+ * at `path` once the device's queued changes land (null for no file): the
+ * text parses, or what is below exists and does not parse either. A text
+ * that fails it stays on the device, held, until it parses or what is below
+ * stops parsing. It is stricter than `breaksParsing`, which a server
+ * applies: a device never creates a note that does not parse, so a remote
+ * delete under held text keeps it held.
+ */
+export function passesParseGate(path: string, below: string | null, text: string | null) {
+	if (text === null || !isNote(path, text)) return true;
+	return parses(text) || (below !== null && isNote(path, below) && !parses(below));
+}
+
+/**
  * Why a file's text cannot be stored in the repository over `previous`, the
  * text it replaces (null for no file), or null when it can: binary text
  * belongs in Git LFS, a note is at most 1 MB, and a write never breaks a

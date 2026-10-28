@@ -60,10 +60,8 @@ export type SourceEditorOptions = {
 	parent: HTMLElement;
 	/** The file held open; the editor writes through it and follows it. */
 	file: OpenFile;
-	/** Whether a text's frontmatter parses. */
-	parses: (text: string) => boolean;
-	/** Called with the text the editor shows after every change, local or not, and whether saving it is held back. */
-	onText: (text: string, held: boolean) => void;
+	/** Called with the text the editor shows after every change, local or not, and after the file's sync state changes. */
+	onText: (text: string) => void;
 	/** Called with each save, so its owner can report one that failed. */
 	onSave?: (saved: Saved) => void;
 	/** The editor's accessible name. */
@@ -72,59 +70,60 @@ export type SourceEditorOptions = {
 
 /**
  * A file's whole text, frontmatter included, in CodeMirror. Every change is
- * saved through the open file as it is typed, except one that would turn
- * frontmatter that parses into frontmatter that does not: that text stays
- * in the editor, held back, and is saved once it parses again. A file that
- * does not parse saves every step of its repair.
+ * saved through the open file as it is typed. One that would turn
+ * frontmatter that parses into frontmatter that does not is saved on this
+ * device and held there, not sent, until it parses again; the repository
+ * keeps it through changes from elsewhere, and the file's sync state says
+ * so. A file that does not parse saves every step of its repair.
  *
- * A change from elsewhere is merged under what the editor shows but has not
- * saved, the editor's text winning an overlap, so held-back typing survives
- * it.
+ * A save the repository refuses, for its size, its bytes or its path,
+ * leaves its text in the editor, unsent until it changes; a change from
+ * elsewhere merges under it, the editor's text winning an overlap.
  */
-export function createSourceEditor({ parent, file, parses, onText, onSave, label = 'File source' }: SourceEditorOptions) {
-	/** The file's text as the editor last read or wrote it. */
-	let synced = file.read() ?? '';
+export function createSourceEditor({ parent, file, onText, onSave, label = 'File source' }: SourceEditorOptions) {
+	/** The file's text as the editor last read or saved it. */
+	let stored = file.read()?.text ?? '';
 	/** While a write is made, its own echo arrives; the editor already shows it. */
 	let writing = false;
 	/** A text whose save failed: it stays in the editor and is not sent again until it changes. */
 	let refused: string | null = null;
 
-	/** Save `text` unless it would break a file that parses; answers whether it was held back. */
 	function save(text: string) {
-		if (text === synced || text === refused) return false;
-		if (parses(synced) && !parses(text)) return true;
-		const before = synced;
-		synced = text;
+		if (text === stored || text === refused) return;
+		const before = stored;
+		stored = text;
 		writing = true;
 		try {
 			const saved = file.writeText(text);
 			onSave?.(saved);
-			// The file then shows its stored text again; with `synced` back, that merges under the text kept here.
+			// The file then shows its stored text again; with `stored` back, that merges under the text kept here.
 			void saved.then(({ error }) => {
 				if (error === null) return;
 				refused = text;
-				if (synced === text) synced = before;
+				if (stored === text) stored = before;
 			});
 		} finally {
 			writing = false;
 		}
-		return false;
 	}
 
 	const view = new EditorView({
 		parent,
 		state: EditorState.create({
-			doc: synced,
+			doc: stored,
 			extensions: [
 				// Split only on the text's own line break, so it is written back as it was.
-				EditorState.lineSeparator.of(lineBreakOf(synced)),
+				EditorState.lineSeparator.of(lineBreakOf(stored)),
 				lineNumbers(),
 				history(),
 				keymap.of([...defaultKeymap, ...historyKeymap]),
 				markdown({ base: markdownLanguage }),
 				EditorView.lineWrapping,
 				EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'false' }),
-				textBinding((text) => onText(text, save(text))),
+				textBinding((text) => {
+					save(text);
+					onText(text);
+				}),
 			],
 		}),
 	});
@@ -133,12 +132,13 @@ export function createSourceEditor({ parent, file, parses, onText, onSave, label
 		// A deleted file keeps its last text here; the editor's owner decides what to show.
 		if (writing || next === null) return;
 		const shown = view.state.sliceDoc();
-		const text = shown === synced ? next : (merge(synced, shown, next).text ?? shown);
-		synced = next;
+		const text = shown === stored ? next.text : (merge(stored, shown, next.text).text ?? shown);
+		stored = next.text;
 		applyExternal(view, text);
-		onText(text, save(text));
+		save(text);
+		onText(text);
 	});
-	onText(synced, false);
+	onText(stored);
 
 	return {
 		view,

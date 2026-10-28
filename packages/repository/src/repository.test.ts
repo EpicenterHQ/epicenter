@@ -69,7 +69,7 @@ test('an open note reads synchronously, shows its own writes at once, and follow
 	const note = await t.bob.repo.todos.open({ stem: 'milk' });
 	expect(note.read()).toMatchObject({ valid: true, fields: { title: 'Milk', done: false } });
 	const seen: unknown[] = [];
-	note.subscribe((next) => seen.push(next?.fields));
+	note.subscribe((next) => seen.push([next?.fields, next?.sync.state]));
 
 	const done = note.set('done', true);
 	expect(note.read()?.fields).toEqual({ title: 'Milk', done: true });
@@ -78,7 +78,12 @@ test('an open note reads synchronously, shows its own writes at once, and follow
 	await landed(t.alice, t.alice.repo.todos.set({ stem: 'milk' }, 'title', 'Oat milk'));
 	await t.bob.repo.flush();
 	expect(note.read()?.fields).toEqual({ title: 'Oat milk', done: true });
-	expect(seen).toEqual([{ title: 'Milk', done: true }, { title: 'Oat milk', done: true }]);
+	// Its own write shows at once, then is acknowledged, which changes only its sync state.
+	expect(seen).toEqual([
+		[{ title: 'Milk', done: true }, 'sending'],
+		[{ title: 'Milk', done: true }, 'synced'],
+		[{ title: 'Oat milk', done: true }, 'synced'],
+	]);
 
 	await landed(t.alice, t.alice.repo.todos.delete({ stem: 'milk' }));
 	await t.bob.repo.flush();
@@ -330,12 +335,11 @@ async function agentCreates(server: ReturnType<typeof createRepositoryServer>, p
 	expect(outcome.kind).toBe('applied');
 }
 
-test('a raw write never turns a file that parses into one that does not, and nothing is queued for it', async () => {
+test('a raw write that would break a file that parses is saved and held, and nothing is queued for it', async () => {
 	const repo = openRepository({ app, driver: openBunSqlite(), transport: offlineTransport });
 	expectOk(await repo.todos.create({ stem: 'ok' }, { fields: { title: 'Ok', done: false } }));
-	const sound = await repo.files.readText('todos/ok.md');
-	expect(expectErr(await repo.files.writeText('todos/ok.md', '---\ntitle: [\n---\n'))).toMatchObject({ name: 'Unparseable', path: 'todos/ok.md' });
-	expect(await repo.files.readText('todos/ok.md')).toBe(sound);
+	expectOk(await repo.files.writeText('todos/ok.md', '---\ntitle: [\n---\n'));
+	expect(await repo.files.readText('todos/ok.md')).toMatchObject({ text: '---\ntitle: [\n---\n', sync: { state: 'held', reason: 'unparseable' } });
 	expect(await repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 1 }]);
 	// Still parsing, it saves, and may stop matching the schema.
 	expectOk(await repo.files.writeText('todos/ok.md', '---\ntitle: Ok\ndone: maybe\n---\n'));
@@ -349,7 +353,7 @@ test('a broken file saves every step of its repair and becomes a row once it par
 	const t = await setup();
 	await agentCreates(t.server, 'todos/broken.md', BROKEN);
 	await t.alice.repo.flush();
-	expect(await t.alice.repo.files.readText('todos/broken.md')).toBe(BROKEN);
+	expect((await t.alice.repo.files.readText('todos/broken.md'))?.text).toBe(BROKEN);
 	expect(await t.alice.repo.todos.get({ stem: 'broken' })).toMatchObject({ valid: false, issues: ['The frontmatter does not parse'] });
 	for (const step of ['---\ntitle: [Fi\ndone: false\n---\nBody\n', '---\ntitle: Fi\ndone: false\n---\nBody\n'])
 		expectOk(await t.alice.repo.files.writeText('todos/broken.md', step));
@@ -371,7 +375,7 @@ test('a raw write merges with a field edit made elsewhere by key and body, or by
 	await t.bob.repo.flush();
 	await t.alice.repo.flush();
 	for (const repo of [t.alice.repo, t.bob.repo])
-		expect(await repo.files.readText('todos/a.md')).toBe('---\ntitle: A\ndone: true\ntag: home\n---\none\nTWO\n');
+		expect((await repo.files.readText('todos/a.md'))?.text).toBe('---\ntitle: A\ndone: true\ntag: home\n---\none\nTWO\n');
 
 	// While the file does not parse, the two edits merge line by line.
 	await agentCreates(t.server, 'todos/b.md', BROKEN);
@@ -384,7 +388,7 @@ test('a raw write merges with a field edit made elsewhere by key and body, or by
 	await t.bob.repo.flush();
 	await t.alice.repo.flush();
 	for (const repo of [t.alice.repo, t.bob.repo])
-		expect(await repo.files.readText('todos/b.md')).toBe('---\ntitle: [\ndone: true\n---\nBody by Bob\n');
+		expect((await repo.files.readText('todos/b.md'))?.text).toBe('---\ntitle: [\ndone: true\n---\nBody by Bob\n');
 	await t.cleanup();
 });
 
@@ -400,7 +404,7 @@ test('a repair step that a repair made elsewhere would break again keeps that re
 	await landed(t.alice, t.alice.repo.files.writeText('todos/b.md', fixed));
 	t.bob.transport.setOnline(true);
 	await t.bob.repo.flush();
-	expect(await t.bob.repo.files.readText('todos/b.md')).toBe(fixed);
+	expect((await t.bob.repo.files.readText('todos/b.md'))?.text).toBe(fixed);
 	expect((await t.bob.repo.notices.list()).map(({ kind, path, kept }) => ({ kind, path, kept }))).toEqual([
 		{ kind: 'refused', path: 'todos/b.md', kept: step },
 	]);
@@ -411,13 +415,13 @@ test("an open file's raw write keeps a change it had not shown yet", async () =>
 	const repo = openRepository({ app, driver: openBunSqlite(), transport: offlineTransport });
 	void repo.files.writeText('notes/loose.md', 'one\ntwo\nthree\n');
 	const file = await repo.files.open('notes/loose.md');
-	expect(file.read()).toBe('one\ntwo\nthree\n');
+	expect(file.read()?.text).toBe('one\ntwo\nthree\n');
 	void repo.files.writeText('notes/loose.md', 'one\ntwo\nTHREE\n');
 	void file.writeText('ONE\ntwo\nthree\n');
-	expect(file.read()).toBe('ONE\ntwo\nthree\n');
+	expect(file.read()?.text).toBe('ONE\ntwo\nthree\n');
 	await repo.flush();
-	expect(await repo.files.readText('notes/loose.md')).toBe('ONE\ntwo\nTHREE\n');
-	expect(file.read()).toBe('ONE\ntwo\nTHREE\n');
+	expect((await repo.files.readText('notes/loose.md'))?.text).toBe('ONE\ntwo\nTHREE\n');
+	expect(file.read()?.text).toBe('ONE\ntwo\nTHREE\n');
 	file.close();
 	repo.close();
 });

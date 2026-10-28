@@ -2,9 +2,10 @@
 	A repository file's whole text, frontmatter included, in CodeMirror, with
 	a status line that says as you type whether the frontmatter parses and,
 	given a note name, whether the note matches its schema. It saves through
-	`repo.files` as you type, except a text that would break frontmatter that
-	parses, which it holds until it parses again; a file that does not parse
-	saves every step of its repair.
+	`repo.files` as you type. A text that would break frontmatter that parses
+	is saved on this device and held, not sent, until it parses again, and
+	the status says so; a file that does not parse saves every step of its
+	repair.
 
 	It holds the file open for as long as it is mounted; key it by the path.
 
@@ -43,7 +44,7 @@
 	let element: HTMLDivElement;
 	let editor = $state.raw<SourceEditor>();
 	let status = $state.raw<TextStatus>();
-	/** Whether the text shown is held back, since saving it would break frontmatter that parses. */
+	/** Whether the file's text is saved here and held, not sent, until its frontmatter parses. */
 	let held = $state(false);
 	/** Why the last save failed, until one succeeds. */
 	let failure = $state<string>();
@@ -60,10 +61,9 @@
 			created = createSourceEditor({
 				parent: element,
 				file: opened,
-				parses: (text) => files.status(text).parses,
-				onText(text, isHeld) {
+				onText(text) {
 					status = files.status(text, name);
-					held = isHeld;
+					held = opened.read()?.sync.state === 'held';
 				},
 				onSave(saved) {
 					void saved.then(({ error }) => {
@@ -97,9 +97,6 @@
 					<Badge variant="destructive">Frontmatter doesn't parse (line {status.line})</Badge>
 					<span class="text-muted-foreground">{status.message}</span>
 				</p>
-				{#if held}
-					<p class="text-muted-foreground">Not saved until it parses again; the file keeps its last saved text.</p>
-				{/if}
 			{:else if status.matches === false}
 				<p class="flex flex-wrap items-center gap-2">
 					<Badge variant="destructive">Doesn't match the schema</Badge>
@@ -113,6 +110,9 @@
 				<p class="flex items-center gap-2">
 					<Badge variant="secondary">{status.matches ? 'Matches the schema' : 'Frontmatter parses'}</Badge>
 				</p>
+			{/if}
+			{#if held}
+				<p class="text-muted-foreground" data-testid="source-held">Saved on this device; waiting for the frontmatter to parse.</p>
 			{/if}
 			{#if failure !== undefined}
 				<p class="text-destructive">Not saved: {failure}</p>

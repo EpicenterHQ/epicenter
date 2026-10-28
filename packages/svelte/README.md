@@ -156,11 +156,15 @@ frontmatter included, in CodeMirror. It holds the file open through
 
 Its status line says, for the text on screen, whether the frontmatter parses
 (and the line where it breaks) and, given `lens`, whether the note matches
-that name's schema, with each issue. A write may never turn frontmatter that
-parses into frontmatter that does not, so a text that would is held in the
-editor, unsaved, until it parses again. A file whose frontmatter does not
-parse saves every step of its repair. A change from elsewhere merges under
-held-back typing, which survives it.
+that name's schema, with each issue. Every keystroke is saved on the device.
+No synced file ever goes from parsing to not parsing, so a text that would
+break frontmatter that parses is saved on the device and held, not sent,
+and the status says "Saved on this device; waiting for the frontmatter to
+parse" until it parses again. The repository keeps held text through
+changes from elsewhere and sends it as soon as it parses. A file whose
+frontmatter does not parse saves every step of its repair. A save the
+repository refuses, for its size, its bytes or its path, shows its error and
+stays in the editor, unsent until the text changes.
 
 `@epicenter/svelte/codemirror` exports the editor behind it,
 `createSourceEditor`, and the binding it shares with editors an app composes

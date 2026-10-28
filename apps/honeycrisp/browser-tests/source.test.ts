@@ -67,11 +67,11 @@ for (const [engine, browser] of [
 					await until(statusSays(alice.page, '/title must be string'), 'the schema issue');
 					await until(serverHas(path, 'title: [Broken]\n'), 'the repair step on the server');
 
-					// Retyping the line passes through text that does not parse; it waits in the editor.
+					// Retyping the line passes through text that does not parse; it is saved here and held, not sent.
 					await alice.page.keyboard.press('Home');
 					await alice.page.keyboard.press('Shift+End');
 					await alice.page.keyboard.type('title');
-					await until(statusSays(alice.page, 'Not saved until it parses again'), 'the held-back text');
+					await until(statusSays(alice.page, 'waiting for the frontmatter to parse'), 'the held text');
 					expect(await world.read(path)).toContain('title: [Broken]\n');
 					await alice.page.keyboard.type(': Fixed');
 					await until(statusSays(alice.page, 'Matches the schema'), 'the schema to match');

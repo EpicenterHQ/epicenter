@@ -218,7 +218,8 @@ export const WriteError = defineErrors({
 	}),
 	/**
 	 * The file's frontmatter does not parse, so its fields cannot change; or
-	 * the write would turn frontmatter that parses into frontmatter that does not.
+	 * the change, which is not a whole text a person typed, would turn
+	 * frontmatter that parses into frontmatter that does not.
 	 */
 	Unparseable: ({ path, reason }: { path: string; reason: string }) => ({
 		message: `The frontmatter of '${path}' does not parse: ${reason}`,
@@ -265,6 +266,17 @@ export const SendError = defineErrors({
 	Unknown: ({ n }: { n: number }) => ({
 		message: `Batch ${n} may have reached the server; its verdict will be known when it is sent again`,
 		n,
+	}),
+	/**
+	 * This device holds text of its own for the path that the server does
+	 * not have, which is not sent until its frontmatter parses. A send would
+	 * start from text the person is still repairing, so repair or replace it
+	 * first.
+	 */
+	Held: ({ path, reason }: { path: string; reason: HoldReason }) => ({
+		message: `'${path}' has text saved on this device that waits for its frontmatter to parse`,
+		path,
+		reason,
 	}),
 });
 export type SendError = InferErrors<typeof SendError>;
@@ -324,12 +336,25 @@ export type NoteInput<TSchema extends TSchema_> = {
 };
 type TSchema_ = TSchema;
 
+/** Why this device holds a file's text back from the server: today only that its frontmatter does not parse. */
+export type HoldReason = 'unparseable';
+
+/**
+ * Where this device's text of a file stands with the server: `synced`, the
+ * server has it; `sending`, a change of this device's to it is queued or in
+ * flight; `held`, it is saved here and not sent until `reason` clears (for
+ * `'unparseable'`, until its frontmatter parses, or a merge makes it parse,
+ * when it is queued at once). Held wins over sending.
+ */
+export type Sync = { state: 'synced' } | { state: 'sending' } | { state: 'held'; reason: HoldReason };
+
 /** A note as read. Fields that fail the schema are returned raw, with issues. */
 export type Note<TPath extends string, TSchema extends TSchema_> = {
 	path: string;
 	params: Params<TPath>;
 	text: string;
 	body: string;
+	sync: Sync;
 	/**
 	 * The hash of `text` (its Git blob hash), whatever the server holds. A
 	 * `send` names the note as read, `{ from: note }`, so that a change is
@@ -377,15 +402,15 @@ export type OpenNote<TPath extends string, TSchema extends TSchema_> = {
  */
 export type OpenFile = {
 	path: string;
-	/** The file's whole text as this device shows it, or null when there is none. */
-	read(): string | null;
-	/** Call back whenever `read` would answer differently. */
-	subscribe(onChange: (text: string | null) => void): () => void;
+	/** The file as this device shows it, or null when there is none. */
+	read(): TextFile | null;
+	/** Call back whenever `read` would answer differently, its sync state included. */
+	subscribe(onChange: (file: TextFile | null) => void): () => void;
 	/**
 	 * Replace the whole text with `text`, an edit of the text this handle
 	 * last showed: a change that reached this device meanwhile is kept, merged
-	 * under it. Refused when it would turn frontmatter that parses into
-	 * frontmatter that does not.
+	 * under it. A text that would turn frontmatter that parses into
+	 * frontmatter that does not is saved and held (see `Sync`).
 	 */
 	writeText(text: string): Saved;
 	/** Stop following changes. */
@@ -466,6 +491,9 @@ export type BatchBlobHandle<TPath extends string> = {
 
 /** A file as read: a `Note`, or any `{ path, text, version }` with `version` the hash of `text`. */
 export type Snapshot = { path: string; text: string; version: string };
+
+/** Any synced Markdown file as `repo.files` reads it: its whole text, its version, and where it stands with the server. */
+export type TextFile = Snapshot & { sync: Sync };
 
 /**
  * What a `send` change to an existing path starts from: the note as the

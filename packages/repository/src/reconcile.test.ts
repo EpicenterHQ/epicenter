@@ -15,7 +15,7 @@
  * - A broadcast rebases kept text; it survives a restart and is never sent
  * - A write after a broadcast starts from the queued write, so the server never asks for a base
  * - A rename put back keeps the text typed at the new name, and the note at the new name is untouched
- * - A database an earlier build made gets the held column and keeps its files
+ * - A database an earlier build made gets the held column and keeps its files, and a held flag becomes its reason
  */
 import { expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -86,7 +86,7 @@ async function setup() {
 
 /** Put text in a file's row that this device keeps to itself, as a held text: no outbox row covers it. */
 const keepToItself = (driver: SqlDriver, path: string, text: string) =>
-	driver.run('UPDATE "epicenter/files" SET text = ?, fields = NULL, held = 1 WHERE path = ?', [text, path]);
+	driver.run(`UPDATE "epicenter/files" SET text = ?, fields = NULL, held = 'unparseable' WHERE path = ?`, [text, path]);
 const shown = (driver: SqlDriver, path: string) =>
 	driver.all<{ text: string | null }>('SELECT text FROM "epicenter/files" WHERE path = ?', [path])[0]?.text ?? null;
 const outbox = (driver: SqlDriver) => driver.all<{ n: number }>('SELECT n FROM "epicenter/outbox"').length;
@@ -200,6 +200,17 @@ test('a database an earlier build made gets the held column and keeps its files'
 	driver.run('INSERT INTO "epicenter/files" (path, text, fields, synced, hash, seq) VALUES (?, ?, ?, ?, ?, ?)', [PATH, note('one\n'), '{"title":"A"}', note('one\n'), gitBlobHash(note('one\n')), 1]);
 	const repo = openRepository({ app, driver, transport: offlineTransport });
 	expect((await repo.notes.get({ stem: 'a' }))?.fields).toEqual({ title: 'A' });
-	expect(driver.all('SELECT path, held FROM "epicenter/files"')).toEqual([{ path: PATH, held: 0 }]);
+	expect(driver.all('SELECT path, held FROM "epicenter/files"')).toEqual([{ path: PATH, held: null }]);
+	repo.close();
+});
+
+test('a database whose held column was a flag keeps its held text, held for not parsing', async () => {
+	const driver = openBunSqlite();
+	driver.exec(`
+		CREATE TABLE "epicenter/files" (path TEXT PRIMARY KEY, text TEXT, fields TEXT, body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL, synced TEXT, hash TEXT, seq INTEGER NOT NULL DEFAULT 0, held INTEGER NOT NULL DEFAULT 0) STRICT;
+	`);
+	driver.run('INSERT INTO "epicenter/files" (path, text, fields, synced, hash, seq, held) VALUES (?, ?, ?, ?, ?, ?, ?)', [PATH, broken('one\n'), null, note('one\n'), gitBlobHash(note('one\n')), 1, 1]);
+	const repo = openRepository({ app, driver, transport: offlineTransport });
+	expect(await repo.files.readText(PATH)).toMatchObject({ text: broken('one\n'), sync: { state: 'held', reason: 'unparseable' } });
 	repo.close();
 });

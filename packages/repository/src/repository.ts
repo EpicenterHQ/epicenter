@@ -30,6 +30,8 @@ import type {
 	SendError,
 	SendHandles,
 	SendOptions,
+	Sync,
+	TextFile,
 	TextStatus,
 	Verdict,
 } from './define.js';
@@ -43,7 +45,7 @@ import {
 	type WriteOp,
 } from './engine/engine.js';
 import { gitBlobHash } from './hash.js';
-import { parseMarkdown, parsePointer, splitMarkdown, writeMarkdown } from './markdown.js';
+import { parseMarkdown, parsePointer, parses, splitMarkdown, writeMarkdown } from './markdown.js';
 import type { SqlValue } from './sql.js';
 import { buildPath, matchTemplate } from './templates.js';
 
@@ -80,24 +82,36 @@ function schemaIssues(schema: TSchema, fields: Record<string, unknown>): string[
 /** A note read from a file row. Fields that fail the schema are returned raw, with issues. */
 function noteOf(lens: Extract<Lens, { kind: 'note' }>, file: FileRead) {
 	const params = matchTemplate(lens.template, file.path) ?? {};
-	const base = { path: file.path, params, text: file.text, body: file.body, version: file.version };
+	const base = { path: file.path, params, text: file.text, body: file.body, version: file.version, sync: file.sync };
 	if (file.fields === null) return { ...base, valid: false, fields: {}, issues: ['The frontmatter does not parse'] };
 	const fields = JSON.parse(file.fields) as Record<string, unknown>;
 	const issues = schemaIssues(lens.schema, fields);
 	return issues.length === 0 ? { ...base, valid: true, fields } : { ...base, valid: false, fields, issues };
 }
 
-/** The same row, computed from text this client holds: what an open note shows before the engine answers. */
-function fileOf(path: string, text: string): FileRead {
+/**
+ * The same row, computed from text this client holds: what an open file
+ * shows before the engine answers. Its sync state is the engine's guess
+ * made from what it showed before, `shown`: held while it breaks text that
+ * parsed, or stays broken while held; otherwise sending. The engine's answer
+ * follows.
+ */
+function fileOf(path: string, text: string, shown: FileRead | null): FileRead {
 	const parsed = parseMarkdown(text);
+	const holds = parsed.error !== null && path.endsWith('.md') && (shown === null || shown.sync.state === 'held' || parses(shown.text));
+	const sync: Sync = holds ? { state: 'held', reason: 'unparseable' } : { state: 'sending' };
 	return {
 		path,
 		text,
 		fields: parsed.error === null ? JSON.stringify(parsed.data.fields) : null,
 		body: text.slice(splitMarkdown(text).bodyStart),
 		version: gitBlobHash(text),
+		sync,
 	};
 }
+
+/** A file as `repo.files` returns it. */
+const textFileOf = ({ path, text, version, sync }: FileRead): TextFile => ({ path, text, version, sync });
 
 export function createRepository<const TDefs extends Definitions>(
 	app: App<TDefs>,
@@ -237,7 +251,7 @@ export function createRepository<const TDefs extends Definitions>(
 		/** Bumped by every write, so a read that a write overtook is dropped. */
 		let generation = 0;
 		const show = (next: FileRead | null) => {
-			if ((next?.text ?? null) === (shown?.text ?? null)) return;
+			if ((next?.text ?? null) === (shown?.text ?? null) && next?.sync.state === shown?.sync.state) return;
 			shown = next;
 			onShow(next);
 		};
@@ -259,7 +273,7 @@ export function createRepository<const TDefs extends Definitions>(
 				if (path === null) return Promise.resolve(WriteError.InvalidPath({ path: '', reason: 'the parameters build no path' }));
 				generation++;
 				applying++;
-				show(text === null ? null : fileOf(path, text));
+				show(text === null ? null : fileOf(path, text, shown));
 				const saved = submit([op]);
 				track(
 					saved.then(() => {
@@ -327,17 +341,20 @@ export function createRepository<const TDefs extends Definitions>(
 
 	/** Hold any synced Markdown file open by its path; see `hold`. */
 	async function openFile(path: string): Promise<OpenFile> {
-		const listeners = new Set<(text: string | null) => void>();
+		const listeners = new Set<(file: TextFile | null) => void>();
 		const held = await hold(
 			path,
 			() => port.read({ kind: 'file', path }),
 			(file) => {
-				for (const listener of listeners) listener(file?.text ?? null);
+				for (const listener of listeners) listener(file === null ? null : textFileOf(file));
 			},
 		);
 		return {
 			path,
-			read: () => held.shown()?.text ?? null,
+			read: () => {
+				const file = held.shown();
+				return file === null ? null : textFileOf(file);
+			},
 			subscribe(onChange) {
 				listeners.add(onChange);
 				return () => {
@@ -361,6 +378,8 @@ export function createRepository<const TDefs extends Definitions>(
 		const issues = schemaIssues(lens.schema, parsed.data.fields);
 		return issues.length === 0 ? { parses: true, matches: true } : { parses: true, matches: false, issues };
 	}
+
+	const listFiles = async ({ sync }: { sync?: Sync['state'] } = {}) => (await port.read({ kind: 'files', sync })).map(textFileOf);
 
 	const listNotices = () =>
 		port.read({
@@ -440,15 +459,23 @@ export function createRepository<const TDefs extends Definitions>(
 		 * person repairs a file.
 		 */
 		files: {
-			/** The file's whole text as this device shows it, or null when there is none. */
-			readText: async (path: string) => (await port.read({ kind: 'file', path }))?.text ?? null,
+			/** The file as this device shows it: its whole text, its version, and where it stands with the server; null when there is none. */
+			readText: async (path: string): Promise<TextFile | null> => {
+				const file = await port.read({ kind: 'file', path });
+				return file === null ? null : textFileOf(file);
+			},
+			/** Every file this device shows, or only those in one sync state, such as `{ sync: 'held' }`. */
+			list: listFiles,
+			/** `list`, re-run after every change, its sync states included. */
+			live: (filter: { sync?: Sync['state'] } = {}): Live<TextFile[]> => liveOf(() => listFiles(filter)),
 			/**
 			 * Replace the file's whole text, frontmatter included: a person's
 			 * write, which resolves once saved here and merges at the server by
 			 * frontmatter key and body when both sides parse, and by line when
-			 * either does not. It is refused when it would turn frontmatter that
-			 * parses into frontmatter that does not, so a broken file can be
-			 * repaired one step at a time and a sound one never breaks.
+			 * either does not. A text that would turn frontmatter that parses into
+			 * frontmatter that does not is saved here and held, not sent, until
+			 * it parses (see `Sync`), so no synced note ever stops parsing, and a
+			 * broken file saves every step of its repair.
 			 */
 			writeText: (path: string, text: string): Saved => save({ kind: 'text', path, text }),
 			/** Hold the file open: reads are synchronous and follow every change, as a note's `open`. */
