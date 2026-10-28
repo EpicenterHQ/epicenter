@@ -54,12 +54,15 @@ the server by that minute.
   A change is `write(path, base, text)` (create, edit, or, with no text,
   delete), `move(from, to)`, which is refused if the destination is taken, or
   `append(path, text)`, which needs no base and can still be stale after a
-  delete or an untraceable move. A base is the device's repository position
-  and the file's hash; the device keeps the base text and sends it when the
+  delete or an untraceable move. A batch carries the device's repository
+  position, and each write's base is the hash of the text it started from; the device keeps the base text and sends it when the
   server answers `need-base`. Setting a value, for example
   `repo.settings.set('theme', 'dark')`, is a write that changes one frontmatter
-  field. A batch's outcome is `applied`, `need-base`, `expired` or, for agents,
-  `refused`; within `applied`, each file reports its overlaps, dropped values,
+  field. A batch's outcome is `applied`, `need-base`, `expired` or `refused`
+  (for agents on overlap, and for anyone on a structural refusal such as a move
+  onto a taken path or a batch out of order); an edit whose path was deleted
+  and reused by a different note is stale and kept, never applied to the new
+  note; within `applied`, each file reports its overlaps, dropped values,
   an edit kept over a delete, and its text when that differs from what was
   sent. The per-device number makes a retry return its recorded outcome within
   the window; the server stamps each batch with the signed-in user, for
@@ -118,9 +121,11 @@ the server by that minute.
   storage (OPFS) through a worker owned by one leader tab, natively on desktop,
   and through Bun in the CLI, behind one driver interface and one shared engine.
   Three strict engine tables, named with a `/` so no app view can collide with
-  them: `"epicenter/files"` holds each synced file's path, text (an LFS pointer
-  for a blob), sequence and the hash the server reported, with parsed fields
-  and body generated from the text; `"epicenter/outbox"` holds every unsent
+  them: `"epicenter/files"` holds each synced file's path, the text this device
+  shows (an LFS pointer for a blob), the text the server last acknowledged,
+  the sequence and the hash the server reported; the body is generated from
+  the text, and parsed fields are generated where the driver can register a
+  function and written in the same statement as the text where it cannot; `"epicenter/outbox"` holds every unsent
   batch in order, with its bases and the exact text sent; `"epicenter/meta"`
   holds the device's id, its next number, its repository position, the parser
   version and this device's own settings. Each app's templates become
@@ -142,8 +147,9 @@ sync engines such as Replicache. Two people typing in the same words at the same
 moment produce a conflict block; a live co-editing session can be
 added later if teams need it, replacing only body merging for that note.
 
-Undecided: whether each write is committed to Git before it is acknowledged,
-which would remove the overlay if hosted Git keeps up; when LFS lands.
+Undecided: how a first open reads a commit quickly (a single-pack clone
+through Artifacts, or packed snapshots written to R2 at each commit); when LFS
+lands.
 
 ## Verification
 
@@ -161,3 +167,14 @@ conflict-marker lifecycle; a deployed,
 fault-injected spike against a non-production namespace that kills the server
 object around each SQLite commit, Git update and reply, and retries the same
 mutation and push; and device memory measured on a phone.
+
+A deployed run against a separate Artifacts namespace measured the overlay
+choice. Committing each edit before acknowledging it took 84 ms at 50 files
+but about 15 s at 5,000 files in one folder, and twenty edits in one commit
+cost the same as one, so the overlay stays: an edit is acknowledged after its
+overlay write (38 ms at the client) and committed in the background. Reading
+5,000 files one request each through Artifacts took 28 s even 32 at a time, so
+a first open needs a packed snapshot rather than per-file reads. A first
+implementation of the engine and server core in `packages/repository`
+(branch `claude/repository-engine`) passes 111 tests, including fourteen
+end-to-end scenarios over a real Git repository.
