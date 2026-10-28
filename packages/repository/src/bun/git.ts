@@ -3,7 +3,7 @@
  * commands. For tests and the CLI; the hosted store is a later slice.
  */
 import { mkdir, stat } from 'node:fs/promises';
-import type { GitStore, Tree, TreeEntry } from '../server/git-store.js';
+import { type GitStore, type LoggedCommit, sequenceOf, type Tree, type TreeEntry } from '../server/git-store.js';
 
 const ZERO = '0'.repeat(40);
 const decoder = new TextDecoder();
@@ -146,6 +146,48 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 		async mergeBase(a, b) {
 			const result = await git(['merge-base', a, b]);
 			return result.code === 0 ? decoder.decode(result.stdout).trim() : null;
+		},
+		async commitsAfter(head, seq) {
+			// Streamed, so the walk reads only as far back as the stopping commit.
+			const child = Bun.spawn(['git', '-C', dir, 'log', '--first-parent', '-z', '--format=%H %T %P%n%B', head], {
+				stdin: 'ignore',
+				stdout: 'pipe',
+				stderr: 'pipe',
+				env,
+			});
+			const found: LoggedCommit[] = [];
+			const text = new TextDecoder();
+			const reader = child.stdout.getReader();
+			let buffer = '';
+			let stopped = false;
+			/** Take one record; true when it is the commit the walk stops at. */
+			const take = (record: string) => {
+				const split = record.indexOf('\n');
+				const [oid = '', tree = '', ...parents] = record.slice(0, split < 0 ? record.length : split).split(' ');
+				const message = split < 0 ? '' : record.slice(split + 1);
+				const at = sequenceOf(message);
+				if (at !== null && at <= seq) return true;
+				found.push({ oid, tree, parents: parents.filter((parent) => parent !== ''), message });
+				return false;
+			};
+			read: for (;;) {
+				const { done, value } = await reader.read();
+				buffer += text.decode(value, { stream: !done });
+				for (let cut = buffer.indexOf('\0'); cut >= 0; cut = buffer.indexOf('\0')) {
+					const record = buffer.slice(0, cut);
+					buffer = buffer.slice(cut + 1);
+					if (take(record)) {
+						stopped = true;
+						break read;
+					}
+				}
+				if (done) break;
+			}
+			if (stopped) child.kill();
+			else if (buffer !== '') take(buffer);
+			const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
+			if (!stopped && code !== 0) throw new Error(`git log ${head} failed: ${stderr}`);
+			return found.reverse();
 		},
 	};
 }

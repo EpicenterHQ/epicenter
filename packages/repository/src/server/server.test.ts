@@ -18,6 +18,7 @@
  *   `Epicenter-Overlap` per settled overlap,
  *   clear the overlay and land on a timer
  * - Agent pushes: overlap and bad files refused, a clean push is a merge parent
+ *   whose merge commit records the path events it imported
  */
 import { describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -280,6 +281,37 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
+	describe('a delete and a re-create at one path are a reuse, traced through Git', () => {
+		for (const interval of ['separate commits', 'one commit interval'] as const)
+			test(`in ${interval}, the old edit becomes a sibling note, and later edits follow it there`, async () => {
+				const driver = openBunSqlite();
+				const t = await setup({ driver });
+				const seq = await seed(t, 'notes/a.md', 'old\n');
+				expectOk(await t.server.commit());
+				await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', 'old\n', null)));
+				if (interval === 'separate commits') expectOk(await t.server.commit());
+				await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('notes/a.md', null, 'different note\n')));
+				expectOk(await t.server.commit());
+				expect(driver.all('SELECT * FROM history')).toEqual([]);
+				const sibling = 'notes/a (bob, 2026-10-28).md';
+				const edit = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'old\n', 'old edited\n')));
+				expect(edit).toMatchObject({
+					kind: 'applied',
+					changes: [{ at: sibling, text: 'old edited\n', overlaps: [{ unit: 'path', clash: 'reused', relocatedTo: sibling, settled: 'relocated' }] }],
+				});
+				expect(await t.server.read('notes/a.md')).toBe('different note\n');
+				// Once the sibling is committed, its Epicenter-Relocate trailer sends later stale edits there.
+				expectOk(await t.server.commit());
+				const next = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'old edited\n', 'old edited twice\n')));
+				expect(next).toMatchObject({ kind: 'applied', changes: [{ at: sibling, movedTo: sibling, overlaps: [] }] });
+				expect(await t.server.read(sibling)).toBe('old edited twice\n');
+				// An edit made after the re-create is the new note's.
+				const fresh = await t.alice.push(t.batch('alice-laptop', t.server.sequence(), t.write('notes/a.md', 'different note\n', 'different note!\n')));
+				expect(fresh).toMatchObject({ kind: 'applied', changes: [{ at: 'notes/a.md', movedTo: null }] });
+				await t.cleanup();
+			});
+	});
+
 	test('a later change in the same batch follows that batch\'s relocation', async () => {
 		const t = await setup();
 		const seq = await seed(t, 'notes/c.md', 'old\n');
@@ -502,6 +534,20 @@ describe('commits', () => {
 		await t.cleanup();
 	});
 
+	test('the Git store lists the first-parent commits after a sequence, oldest first', async () => {
+		const t = await setup();
+		const oids: string[] = [];
+		for (const name of ['a', 'b', 'c']) {
+			await seed(t, `${name}.md`, `${name}\n`);
+			oids.push(expectOk(await t.server.commit())?.oid ?? '');
+		}
+		const head = oids.at(-1) ?? '';
+		expect((await t.git.commitsAfter(head, 1)).map((commit) => commit.oid)).toEqual(oids.slice(1));
+		expect((await t.git.commitsAfter(head, 0)).map((commit) => sequenceOf(commit.message))).toEqual([1, 2, 3]);
+		expect(await t.git.commitsAfter(head, 3)).toEqual([]);
+		await t.cleanup();
+	});
+
 	test('the overlay clears only up to what Git holds', async () => {
 		const t = await setup();
 		await seed(t, 'notes/a.md', 'A\n');
@@ -608,6 +654,19 @@ describe('agent push', () => {
 		expect(expectOk(await t.server.receivePush({ commit: pushed, user: 'claude' })).kind).toBe('applied');
 		expect(await t.server.read('archive/b.md')).toBe('B\nmore\n');
 		expect(await t.server.read('notes/b.md')).toBeNull();
+		await t.cleanup();
+	});
+
+	test('the merge commit records the moves it imported, so an older edit follows them later', async () => {
+		const t = await cloned();
+		const pushed = await agentCommit(t.git, t.base, { 'notes/b.md': null, 'archive/b.md': 'B\n' });
+		expect(expectOk(await t.server.receivePush({ commit: pushed, user: 'claude' })).kind).toBe('applied');
+		const head = await mainCommit(t.git);
+		expect(head?.message).toContain('Epicenter-Move: "notes/b.md" -> "archive/b.md"; seq 3\n');
+		expect(t.server.overlaySize()).toBe(0);
+		const edit = await t.bob.push(t.batch('bob-phone', 2, t.write('notes/b.md', 'B\n', 'B\nby bob\n')));
+		expect(edit).toMatchObject({ kind: 'applied', changes: [{ at: 'archive/b.md', movedTo: 'archive/b.md' }] });
+		expect(await t.server.read('archive/b.md')).toBe('B\nby bob\n');
 		await t.cleanup();
 	});
 

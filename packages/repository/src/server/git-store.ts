@@ -11,6 +11,9 @@ export type Tree = Map<string, TreeEntry>;
 
 export type CommitInfo = { tree: string; parents: string[]; message: string };
 
+/** A commit and its object id, as a log lists it. */
+export type LoggedCommit = CommitInfo & { oid: string };
+
 export type Signature = { name: string; email: string };
 
 export type GitStore = {
@@ -30,6 +33,13 @@ export type GitStore = {
 	/** Move `name` to `next` only if it is still `expected` (null: absent). */
 	updateRef(name: string, next: string, expected: string | null): Promise<boolean>;
 	mergeBase(a: string, b: string): Promise<string | null>;
+	/**
+	 * The first-parent commits from `head` back to, not including, the newest
+	 * one whose `Epicenter-Seq` is at or below `seq`, oldest first: the commits
+	 * a device at `seq` has not seen. A commit with no sequence does not stop
+	 * the walk.
+	 */
+	commitsAfter(head: string, seq: number): Promise<LoggedCommit[]>;
 };
 
 export const MAIN = 'refs/heads/main';

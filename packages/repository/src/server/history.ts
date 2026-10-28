@@ -4,8 +4,11 @@
  * move made since its position, sees a delete, and tells a note that was
  * deleted and whose path another note then took from the note itself.
  *
- * Every commit names the path events it includes in trailers, next to
- * `Epicenter-Seq`, so Git keeps the history for as long as it keeps commits.
+ * Git is the history. Every commit names the path events it includes in
+ * trailers, next to `Epicenter-Seq`; the server keeps only the events its
+ * overlay holds, until the commit that includes them lands. A change made
+ * from an older position is traced through the commits after it, then the
+ * overlay, with no window: a device may return after any time offline.
  */
 import type { SqlDriver } from '../sql.js';
 
@@ -107,7 +110,7 @@ export function pathEventsOf(message: string): SequencedEvent[] {
 }
 
 // ----------------------------------------------------------------------------
-// The server's table
+// The overlay's events
 // ----------------------------------------------------------------------------
 
 const SCHEMA = `
@@ -122,7 +125,7 @@ function fromRow({ seq, kind, path, dest, before }: Row): SequencedEvent {
 	return { kind, path, seq };
 }
 
-/** Path history in `driver`. */
+/** The path events of the server's overlay, in `driver`. */
 export function createPathHistory(driver: SqlDriver) {
 	driver.exec(SCHEMA);
 	const between = (after: number, through: number) =>
@@ -134,19 +137,6 @@ export function createPathHistory(driver: SqlDriver) {
 		/** The events after sequence `after` through `through`, in order. */
 		between,
 
-		/**
-		 * Where the note a change made at `since` addressed as `path` is now.
-		 * `pending` holds the relocations of the batch being applied, which a
-		 * later change in the same batch must also follow.
-		 */
-		trace(path: string, since: number, pending: PathEvent[] = []): Traced {
-			const events = [
-				...between(since, Number.MAX_SAFE_INTEGER),
-				...pending.map((event) => ({ ...event, seq: Number.MAX_SAFE_INTEGER })),
-			];
-			return trace(path, since, events);
-		},
-
 		record(seq: number, events: PathEvent[]) {
 			for (const event of events)
 				driver.run('INSERT INTO history (seq, kind, path, dest, before) VALUES (?, ?, ?, ?, ?)', [
@@ -156,6 +146,11 @@ export function createPathHistory(driver: SqlDriver) {
 					'dest' in event ? event.dest : null,
 					'before' in event ? event.before : null,
 				]);
+		},
+
+		/** Drop the events through `seq`: Git's commit trailers now hold them. */
+		clearThrough(seq: number) {
+			driver.run('DELETE FROM history WHERE seq <= ?', [seq]);
 		},
 	};
 }

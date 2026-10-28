@@ -25,7 +25,7 @@ import type {
 } from '../protocol.js';
 import { first, type SqlDriver } from '../sql.js';
 import { type GitStore, MAIN, type Signature, sequenceOf, type Tree } from './git-store.js';
-import { createPathHistory, type PathEvent, pathEventTrailer } from './history.js';
+import { createPathHistory, type PathEvent, pathEventsOf, pathEventTrailer, type SequencedEvent, trace } from './history.js';
 import { receivePush } from './push.js';
 
 export const CommitError = defineErrors({
@@ -229,10 +229,30 @@ export function createRepositoryServer({
 	// Applying a batch
 	// ------------------------------------------------------------------------
 
-	type Prepared = { currents: Map<string, string | null>; bases: Map<string, string> };
+	/**
+	 * Every path event after `since`, in order: from the trailers of the
+	 * commits after it, then from the overlay. Overlay events Git already
+	 * holds (a crash can leave them until the next commit clears them) are
+	 * skipped.
+	 */
+	async function eventsAfter(since: number): Promise<SequencedEvent[]> {
+		const head = await loadMain();
+		const overlay = history.between(Math.max(since, head.seq), Number.MAX_SAFE_INTEGER);
+		if (head.oid === null || since >= head.seq) return overlay;
+		const commits = await git.commitsAfter(head.oid, since);
+		return [...commits.flatMap((commit) => pathEventsOf(commit.message)), ...overlay];
+	}
+
+	type Prepared = {
+		currents: Map<string, string | null>;
+		bases: Map<string, string>;
+		/** The path events after the batch's position. */
+		events: SequencedEvent[];
+	};
 
 	/** Everything the transaction reads asynchronously, fetched first. */
 	async function prepare(batch: Batch): Promise<Prepared> {
+		const events = await eventsAfter(batch.seq);
 		const currents = new Map<string, string | null>();
 		const bases = new Map<string, string>();
 		const load = async (path: string) => {
@@ -245,12 +265,12 @@ export function createRepositoryServer({
 		};
 		for (const change of batch.changes) {
 			if (change.kind === 'move') {
-				await load(history.trace(change.from, batch.seq).path);
+				await load(trace(change.from, batch.seq, events).path);
 				await load(change.from);
 				await load(change.to);
 				continue;
 			}
-			const traced = history.trace(change.path, batch.seq);
+			const traced = trace(change.path, batch.seq, events);
 			await load(traced.path);
 			await load(change.path);
 			if (change.kind === 'write') {
@@ -259,12 +279,12 @@ export function createRepositoryServer({
 			// An append needs its base only when its note may be gone.
 			else if (traced.deleted || currents.get(traced.path) === null) await loadBase(change.base);
 		}
-		return { currents, bases };
+		return { currents, bases, events };
 	}
 
 	type Applied = { outcome: BatchOutcome; broadcast: Broadcast | null };
 
-	function applyPrepared(batch: Batch, peer: Peer, { currents, bases }: Prepared): Applied {
+	function applyPrepared(batch: Batch, peer: Peer, { currents, bases, events: past }: Prepared): Applied {
 		const work = new Map(currents);
 		const read = (path: string) => (work.has(path) ? (work.get(path) ?? null) : null);
 		/** Whether a file is at `path`, answered synchronously so a sibling is named inside the transaction. */
@@ -294,12 +314,16 @@ export function createRepositoryServer({
 		});
 		const known = (base: Base | null) => (base === null ? null : (bases.get(base.hash) ?? null));
 		// A later change in this batch follows this batch's relocations too.
-		const trace = (path: string) => history.trace(path, batch.seq, events.filter((event) => event.kind === 'relocate'));
+		const traceNow = (path: string) =>
+			trace(path, batch.seq, [
+				...past,
+				...events.filter((event) => event.kind === 'relocate').map((event) => ({ ...event, seq: Number.MAX_SAFE_INTEGER })),
+			]);
 		const sibling = (path: string) => siblingPath(path, peer.user, at, exists);
 
 		for (const change of batch.changes) {
 			if (change.kind === 'move') {
-				const from = trace(change.from);
+				const from = traceNow(change.from);
 				const text = from.deleted ? null : read(from.path);
 				if (text === null) {
 					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], peer.onOverlap);
@@ -328,7 +352,7 @@ export function createRepositoryServer({
 				continue;
 			}
 
-			const traced = trace(change.path);
+			const traced = traceNow(change.path);
 			const target = traced.path;
 			const movedTo = target === change.path ? null : target;
 			const existing = traced.reused ? null : read(target);
@@ -504,6 +528,7 @@ export function createRepositoryServer({
 			driver.run('DELETE FROM overlay WHERE seq <= ?', [seq]);
 			driver.run('DELETE FROM texts WHERE seq <= ?', [seq]);
 			driver.run('DELETE FROM batches WHERE seq <= ?', [seq]);
+			history.clearThrough(seq);
 			driver.run('DELETE FROM receipts WHERE seq <= ?', [seq]);
 			driver.run(
 				'DELETE FROM receipts WHERE seq IS NULL AND n < (SELECT last_n FROM devices WHERE devices.device = receipts.device)',
