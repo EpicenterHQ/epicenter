@@ -1,7 +1,9 @@
 /**
  * Blob bytes on this device, in the origin's private storage beside the
- * repository's SQLite pool: `.epicenter/<repository>/blobs/<oid>` holds an
- * object's bytes exactly, and `<oid>.type` its media type. Content
+ * repository's SQLite pool: `.epicenter/<repository>.blobs/<oid>` holds an
+ * object's bytes exactly, and `<oid>.type` its media type. The pool's own
+ * directory, `.epicenter/<repository>`, belongs to the VFS alone, which
+ * deletes it whole when the pool is removed. Content
  * addressing needs no index: an object exists exactly when a file under
  * its oid does.
  *
@@ -30,12 +32,11 @@ export type OpfsBlobStore = BlobStore & {
 	close(): Promise<void>;
 };
 
-/** The blob directory of the repository `name`, created if missing. */
+/** The blob directory of the repository `name`, a sibling of its SQLite pool, created if missing. */
 export async function opfsBlobDirectory(name: string): Promise<FileSystemDirectoryHandle> {
 	const root = await navigator.storage.getDirectory();
 	const epicenter = await root.getDirectoryHandle('.epicenter', { create: true });
-	const repository = await epicenter.getDirectoryHandle(name, { create: true });
-	return repository.getDirectoryHandle('blobs', { create: true });
+	return epicenter.getDirectoryHandle(`${name}.blobs`, { create: true });
 }
 
 /**

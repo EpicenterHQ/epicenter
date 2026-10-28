@@ -188,7 +188,7 @@ const api = {
 		}
 	},
 	/** Run one store check in a worker of its own, against this repository's blob directory. */
-	async checkStore(repository: string, check: 'wrong-oid' | 'partial-temp') {
+	async checkStore(repository: string, check: 'wrong-oid' | 'partial-temp' | 'layout') {
 		const worker = new Worker('/blobs.js', { type: 'module' });
 		const answered = message(worker);
 		worker.postMessage({ name: repository, check });

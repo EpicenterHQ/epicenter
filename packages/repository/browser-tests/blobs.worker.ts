@@ -1,13 +1,13 @@
 /**
  * Checks of the OPFS blob store that no repository call can reach: a put
  * whose oid does not match its bytes, and a temporary file left by a worker
- * that died mid-put. Each runs against a repository's blob directory and
- * answers what it saw.
+ * that died mid-put, and where the store keeps its files. Each runs against
+ * a repository's blob directory and answers what it saw.
  */
 import { createOpfsBlobStore, opfsBlobDirectory } from '../src/browser/blob-store.js';
 import { sha256 } from '../src/hash.js';
 
-type Check = { name: string; check: 'wrong-oid' | 'partial-temp' };
+type Check = { name: string; check: 'wrong-oid' | 'partial-temp' | 'layout' };
 
 const bytes = Uint8Array.from({ length: 4096 }, (_, i) => (i * 7) % 256);
 
@@ -19,6 +19,10 @@ async function names(directory: FileSystemDirectoryHandle) {
 
 async function run({ name, check }: Check) {
 	const directory = await opfsBlobDirectory(name);
+	if (check === 'layout') {
+		const epicenter = await (await navigator.storage.getDirectory()).getDirectoryHandle('.epicenter');
+		return { epicenter: await names(epicenter), pool: await names(await epicenter.getDirectoryHandle(name)), blobs: await names(directory) };
+	}
 	const store = createOpfsBlobStore(directory);
 	const oid = await sha256(bytes);
 	if (check === 'wrong-oid') {

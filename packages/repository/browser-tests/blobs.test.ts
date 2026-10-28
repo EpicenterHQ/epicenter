@@ -3,12 +3,13 @@
  *
  * Blob bytes in the owning tab's worker, stored in OPFS beside the
  * repository's SQLite pool, in real Chromium and WebKit with persistent
- * profiles.
+ * profiles: Playwright's WebKit has no OPFS in its default ephemeral context.
  *
  * Key behaviors:
  * - A blob survives a reload, read as bytes and through a URL with its type
  * - A tab that takes the repository over reads the blob; the old tab's URLs end with its worker
  * - Freezing the page mid-put stores the whole blob before the worker lets go
+ * - Blob files live beside the SQLite pool's directory, never in it, since the VFS deletes that directory whole
  * - A put whose oid does not match its bytes stores nothing
  * - A temporary file left by a worker that died mid-put is never read as the object
  */
@@ -105,6 +106,27 @@ for (const [engine, browser] of [
 					const second = await loadTab(context, site.url);
 					expect(await reopen(second, name)).toBe('open');
 					expect(await second.evaluate(() => harness.blob('big'))).toEqual(await second.evaluate((size) => harness.blobSummary(size, 4), size));
+				} finally {
+					await cleanup();
+				}
+			},
+			TIMEOUT,
+		);
+
+		test(
+			"blob files live beside the SQLite pool's directory, never in it",
+			async () => {
+				const { context, cleanup } = await launchProfile(browser);
+				try {
+					const name = uniqueName('blob-layout');
+					const page = await openTab(context, site.url, name, { page: context.pages()[0] });
+					const { blob } = await page.evaluate(() => harness.putBlob('cat', 1_000, 5));
+					const oid = (blob as { oid: string }).oid;
+					const layout = await page.evaluate((name) => harness.checkStore(name, 'layout'), name);
+					expect(layout.epicenter).toEqual(expect.arrayContaining([name, `${name}.blobs`]));
+					expect(layout.blobs).toEqual([oid, `${oid}.type`]);
+					// The pool's directory holds only what the VFS put there.
+					expect((layout.pool as string[]).some((file) => file.startsWith(oid) || file === 'blobs')).toBe(false);
 				} finally {
 					await cleanup();
 				}
