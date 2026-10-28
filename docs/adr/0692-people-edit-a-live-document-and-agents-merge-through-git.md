@@ -45,8 +45,11 @@ the server by that minute.
   repository's `.gitattributes`; a push carrying a binary outside LFS is
   refused. Other text files stay in Git and are not downloaded to app devices.
   Identity is the path, and Git is its history: every commit records the
-  server sequence it includes, and moves made through the API are recorded
-  exactly in an `Epicenter-Move` trailer. An edit whose base is older than the
+  server sequence it includes, and every path event since the previous commit
+  is recorded in a trailer with its sequence (`Epicenter-Create`,
+  `Epicenter-Move`, `Epicenter-Delete`, `Epicenter-Restore`,
+  `Epicenter-Relocate`); only the server writes `main`, so tracing reads
+  trailers rather than guessing from tree differences. An edit whose base is older than the
   last commit is routed through that history, so it follows a move and never
   lands on a different note recreated at the same path; the server object keeps
   no history table and no window, so a device may return after any time
