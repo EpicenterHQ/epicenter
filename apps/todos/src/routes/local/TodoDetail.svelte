@@ -1,7 +1,9 @@
 <!--
 	The open todo, held open in the repository: its controls read the note
 	synchronously and write through it, so what a person types shows at
-	once and changes from elsewhere arrive while it is open. Edit source
+	once and changes from elsewhere arrive while it is open. The notes are
+	written as an edit of the body shown, so typing while a change from
+	elsewhere arrives keeps that change. Edit source
 	opens the todo's whole file, frontmatter included, in the source editor;
 	a note that does not read as a todo opens straight into it, to repair.
 -->
@@ -115,7 +117,7 @@
 					class="min-h-0 flex-1 field-sizing-fixed resize-none"
 					placeholder="Notes in Markdown"
 					aria-label="Notes"
-					bind:value={() => note.body, (body) => void reportWrite(todo.write({ body }), 'Could not save the notes')}
+					bind:value={() => note.body, (body) => void reportWrite(todo.edit(body), 'Could not save the notes')}
 				/>
 			</div>
 			{@render fileBar(todo, labelOf(note), true)}

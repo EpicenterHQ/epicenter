@@ -228,6 +228,17 @@ test("another tab's change updates a clean todo without replacing its controls",
 	expect(saved?.body).toBe('Three litres, unsweetened');
 });
 
+test('notes typed while a change from elsewhere is arriving keep that change', async () => {
+	const { get, other } = await onMilk();
+	void other.todos.write({ stem: 'milk' }, { body: 'Two litres\n\nfrom the shop\n' });
+	await until(() => get<HTMLTextAreaElement>(NOTES).value === 'Two litres\n\nfrom the shop\n', 'the longer notes');
+	// The other tab's change is saved; before this tab shows it, the person types on another line.
+	void other.todos.write({ stem: 'milk' }, { body: 'Two litres\n\nfrom the market\n' });
+	type(get<HTMLTextAreaElement>(NOTES), 'Three litres\n\nfrom the shop\n');
+	await until(() => get<HTMLTextAreaElement>(NOTES).value === 'Three litres\n\nfrom the market\n', 'both changes');
+	expect((await other.todos.get({ stem: 'milk' }))?.body).toBe('Three litres\n\nfrom the market\n');
+});
+
 test('title typed here and done set elsewhere both survive', async () => {
 	const { get, other } = await onMilk();
 	type(get(TITLE), 'Oat milk');
