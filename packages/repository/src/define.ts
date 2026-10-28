@@ -283,10 +283,11 @@ export type Saved = Promise<Result<undefined, WriteError>>;
  * Something that happened to a person's change after it was saved, kept on
  * this device until the person dismisses it. Notices never sync.
  *
- * - `refused`: the change was not applied: a rename of a note renamed
- *   elsewhere, or onto a name another note holds (the current name wins and
- *   the note stays where the server has it), or a `send` refused after its
- *   caller stopped waiting.
+ * - `refused`: the change, or a value in it, was not applied: a field
+ *   another device changed meanwhile (the current value wins), a rename of a
+ *   note renamed elsewhere, or onto a name another note holds (the current
+ *   name wins and the note stays where the server has it), or a `send`
+ *   refused after its caller stopped waiting.
  * - `dropped`: the change had nothing left to apply to, such as a move of a
  *   note deleted elsewhere.
  * - `relocated`: the note's path was deleted and reused by another note, so

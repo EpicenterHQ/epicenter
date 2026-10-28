@@ -13,7 +13,7 @@
  * - Creates at one path merge; moves carry stale edits
  * - A path is a note's field: a rename of a renamed note, or onto a taken name, keeps the current path and tells the person; a send is refused
  * - A change whose path no longer holds its note becomes a sibling note everyone sees
- * - Delete versus edit keeps the edit; root-record sets merge by key; appends keep server order
+ * - Delete versus edit keeps the edit; root-record sets merge by key; a field set on both keeps the current value and tells the other device; appends keep server order
  * - Retries and need-base; a note and its blob land together
  * - Commits clear the overlay with the right sequence; agent pushes merge or refuse
  */
@@ -532,6 +532,23 @@ test('settings set on two devices merges by key', async () => {
 	for (const repo of [t.alice.repo, t.bob.repo])
 		expect(await repo.settings.get()).toMatchObject({ valid: true, fields: { theme: 'dark', font: 'serif' } });
 	expect(await t.alice.repo.query('SELECT theme, font FROM settings')).toEqual([{ theme: 'dark', font: 'serif' }]);
+	await t.cleanup();
+});
+
+test('a field both devices set keeps the current value, and the device whose value was kept out is told', async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'day' }, { fields: { weather: 'rain' } }));
+	await t.settle(t.alice, t.bob);
+	t.bob.transport.setOnline(false);
+	void t.bob.repo.notes.set({ stem: 'day' }, 'weather', 'sun');
+	await landed(t.alice, t.alice.repo.notes.set({ stem: 'day' }, 'weather', 'snow'));
+	t.bob.transport.setOnline(true);
+	await t.settle(t.bob, t.alice);
+	for (const repo of [t.alice.repo, t.bob.repo]) expect((await repo.notes.get({ stem: 'day' }))?.fields).toEqual({ weather: 'snow' });
+	expect(await notices(t.bob.repo)).toEqual([
+		{ kind: 'refused', path: 'notes/day.md', reason: "'weather' was changed to 'snow' elsewhere; your 'sun' wasn't applied", kept: null },
+	]);
+	expect(await notices(t.alice.repo)).toEqual([]);
 	await t.cleanup();
 });
 

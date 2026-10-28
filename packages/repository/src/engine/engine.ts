@@ -923,7 +923,15 @@ export function openEngine<const TDefs extends Definitions>({
 	/** A path's last segment without `.md`: the name a person knows a note by. */
 	const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/, '');
 
-	/** A person's change that landed somewhere other than where it was aimed, or nowhere. */
+	/** A field value as a person reads it in a notice: a string quoted, anything else as JSON. */
+	const valueOf = (value: unknown) => (typeof value === 'string' ? `'${value}'` : JSON.stringify(value));
+
+	/**
+	 * A person's change that did not land as made: a value it set that the
+	 * current one kept out, or a change that landed somewhere other than where
+	 * it was aimed, or nowhere. Every value a person set that did not land
+	 * shows in a notice.
+	 */
 	function noteLanding({ change }: Entry, result: ChangeOutcome) {
 		const aimed = change.kind === 'move' ? change.from : change.path;
 		if (change.kind === 'move' && keptInPlace(result)) {
@@ -939,6 +947,14 @@ export function openEngine<const TDefs extends Definitions>({
 			return;
 		}
 		for (const overlap of result.overlaps) {
+			if (overlap.unit === 'field' && overlap.settled === 'current-kept') {
+				notice(
+					'refused',
+					result.at ?? aimed,
+					`'${overlap.key}' was changed to ${valueOf(overlap.current)} elsewhere; your ${valueOf(overlap.incoming)} wasn't applied`,
+				);
+				continue;
+			}
 			if (overlap.unit !== 'path') continue;
 			if (overlap.settled === 'relocated' && overlap.relocatedTo !== null)
 				notice('relocated', overlap.relocatedTo, `${describe(overlap)}, so this change to ${aimed} was saved here`);
