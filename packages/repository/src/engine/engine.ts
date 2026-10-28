@@ -151,6 +151,23 @@ export type EngineOptions<TDefs extends Definitions> = {
 
 const ROLLBACK = Symbol('rollback');
 
+/**
+ * Bring a database an earlier build made up to this schema: its outbox kept
+ * settled rows with their outcome for retried command ids, and had no
+ * policy, since every batch it sent was a person's.
+ */
+function upgrade(driver: SqlDriver) {
+	const columns = new Set(driver.all<{ name: string }>('SELECT name FROM pragma_table_info(\'epicenter/outbox\')').map((c) => c.name));
+	driver.transaction(() => {
+		if (!columns.has('policy')) driver.exec(`ALTER TABLE "epicenter/outbox" ADD COLUMN policy TEXT NOT NULL DEFAULT 'mark'`);
+		if (columns.has('outcome')) {
+			driver.exec('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL');
+			driver.exec('ALTER TABLE "epicenter/outbox" DROP COLUMN outcome');
+		}
+		driver.exec('DROP TABLE IF EXISTS "epicenter/commands"');
+	});
+}
+
 export function openEngine<const TDefs extends Definitions>({
 	app,
 	driver,
@@ -172,6 +189,7 @@ export function openEngine<const TDefs extends Definitions>({
 	const computedFields = driver.registerFunction !== undefined;
 	driver.registerFunction?.(FIELDS_FUNCTION, (text) => fieldsOf(typeof text === 'string' ? text : null));
 	driver.exec(schema(computedFields));
+	upgrade(driver);
 
 	const meta = (key: string) => first<{ value: string }>(driver, 'SELECT value FROM "epicenter/meta" WHERE key = ?', [key])?.value;
 	const setMeta = (key: string, value: string) =>

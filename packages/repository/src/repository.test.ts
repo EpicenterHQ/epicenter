@@ -332,3 +332,27 @@ test('a send refused after its caller stopped waiting becomes a notice holding w
 	expect((await t.bob.repo.todos.get({ stem: 'a' }))?.fields.title).toBe('Alice');
 	await t.cleanup();
 });
+
+test('a database an earlier build made drops its settled rows and command ids, and sends what was unsent', async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.todos.create({ stem: 'a' }, { fields: { title: 'A', done: false } }));
+	const driver = openBunSqlite();
+	driver.exec(`
+		CREATE TABLE "epicenter/outbox" (n INTEGER PRIMARY KEY, seq INTEGER NOT NULL, changes TEXT NOT NULL, outcome TEXT) STRICT;
+		CREATE TABLE "epicenter/commands" (command TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (command, n)) STRICT;
+		CREATE TABLE "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
+		INSERT INTO "epicenter/meta" VALUES ('device', 'old'), ('next', '3'), ('seq', '0'), ('ahead', '[]');
+		INSERT INTO "epicenter/outbox" VALUES (1, 0, '[]', '[]');
+	`);
+	const pending = [{ change: { kind: 'append', path: 'todos/a.md', text: 'more\n', base: { hash: 'x', text: '---\ntitle: A\ndone: false\n---\n' } }, local: null }];
+	driver.run('INSERT INTO "epicenter/outbox" VALUES (2, 1, ?, NULL)', [JSON.stringify(pending)]);
+	// The settled batch 1 reached the server long ago.
+	await t.server.connect({ device: 'old', user: 'old' }).push({ device: 'old', n: 1, seq: 0, policy: 'mark', changes: [] });
+	const old = openRepository({ app, driver, transport: createInProcessTransport(t.server, { user: 'old' }) });
+	await old.flush();
+	expect(await t.server.read('todos/a.md')).toBe('---\ntitle: A\ndone: false\n---\nmore\n');
+	expect(await old.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	expect(await old.query(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'epicenter/commands'`)).toEqual([{ n: 0 }]);
+	old.close();
+	await t.cleanup();
+});
