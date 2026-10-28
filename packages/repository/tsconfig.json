@@ -5,5 +5,5 @@
 		"noUnusedLocals": true,
 		"noUnusedParameters": true
 	},
-	"include": ["src/**/*.ts"]
+	"include": ["src/**/*.ts", "browser-tests/**/*.ts", "scripts/**/*.ts"]
 }

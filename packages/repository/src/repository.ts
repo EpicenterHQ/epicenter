@@ -41,8 +41,8 @@ export type EnginePort = {
 	read<TRequest extends EngineRequest>(request: TRequest): Promise<EngineAnswers[TRequest['kind']]>;
 	/** Run a command's writes under its id; a command id already seen is answered, not repeated. */
 	submit(command: string, ops: WriteOp[]): Submitted;
-	/** Called with the paths whose shown text changed, after every change. */
-	onChange(listener: (paths: string[]) => void): () => void;
+	/** Called with the paths whose shown text changed, after every change; null when any may have. */
+	onChange(listener: (paths: string[] | null) => void): () => void;
 	close(): void;
 };
 
@@ -215,7 +215,7 @@ export function createRepository<const TDefs extends Definitions>(
 			if (at === generation && applying === 0) show(next);
 		};
 		const stop = port.onChange((paths) => {
-			if (path !== null && paths.includes(path) && applying === 0) track(refresh());
+			if (path !== null && (paths === null || paths.includes(path)) && applying === 0) track(refresh());
 		});
 
 		/** Show the write's text now, then the engine's once it has applied every write made here. */
