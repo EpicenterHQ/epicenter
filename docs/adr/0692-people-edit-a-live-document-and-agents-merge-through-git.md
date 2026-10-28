@@ -113,8 +113,8 @@ the server by that minute.
   sequence it includes; `main` moves only by compare-and-swap, and the overlay
   is cleared only up to what Git holds. At rest it holds almost nothing.
 - **Reading.** Devices read committed files without the server object: the head
-  commit and its sequence, a diff between two commits, and files by content
-  hash in batches. They ask the object only for changes after that sequence, or
+  commit and its sequence, the whole commit as one Git pack on first open, then
+  a diff between two commits and changed files by content hash. They ask the object only for changes after that sequence, or
   are told to resync from the head. Blob bytes are fetched on demand through
   short-lived URLs and cached by hash.
 - **Devices.** Each repository is one SQLite file per device: in the browser's
@@ -147,9 +147,7 @@ sync engines such as Replicache. Two people typing in the same words at the same
 moment produce a conflict block; a live co-editing session can be
 added later if teams need it, replacing only body merging for that note.
 
-Undecided: how a first open reads a commit quickly (a single-pack clone
-through Artifacts, or packed snapshots written to R2 at each commit); when LFS
-lands.
+Undecided: when LFS lands.
 
 ## Verification
 
@@ -178,3 +176,15 @@ a first open needs a packed snapshot rather than per-file reads. A first
 implementation of the engine and server core in `packages/repository`
 (branch `claude/repository-engine`) passes 111 tests, including fourteen
 end-to-end scenarios over a real Git repository.
+
+A second deployed run settled the read path and showed what commits cost. The
+whole 5,000-file commit arrives as one 478 KB Git pack: a `git clone` from the
+owner's machine took 1.5 s, and the same pack fetched and unpacked through a
+Worker took 3.3 s, against 28 s for per-file reads, so no R2 copies are needed
+for first open. Commit time follows the trees a commit rewrites, not the
+repository's size: one edit took 156 ms with 5,000 files in 100 folders and
+9.9 s with the same files in one folder. Background commits absorb that, but a
+template that puts thousands of notes in one folder makes every commit slow, so
+apps should spread large tables across folders (for example
+`recordings/{year}/{stem}.md`). Two writers racing on `main` always produced
+exactly one winner.
