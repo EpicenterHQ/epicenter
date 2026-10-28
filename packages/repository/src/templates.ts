@@ -57,6 +57,9 @@ function isUsableSegment(value: string) {
 	);
 }
 
+/** Whether `path` is a usable file path: `/`-separated segments, none empty, hidden or relative. */
+export const isFilePath = (path: string) => path.split('/').every(isUsableSegment);
+
 export function compileTemplate(
 	source: string,
 ): Result<Template, TemplateError> {

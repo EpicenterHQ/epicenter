@@ -9,6 +9,7 @@ import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { gitBlobHash } from '../hash.js';
+import { breaksParsing } from '../markdown.js';
 import { merge, withMarkers } from '../merge.js';
 import { settle } from '../policy.js';
 import type {
@@ -315,6 +316,16 @@ export function createRepositoryServer({
 				...events.filter((event) => event.kind === 'relocate').map((event) => ({ ...event, seq: Number.MAX_SAFE_INTEGER })),
 			]);
 		const sibling = (path: string) => siblingPath(path, peer.user, at, exists);
+		/**
+		 * A change that would leave a note's frontmatter unparseable keeps its
+		 * current text: under `'refuse'` the batch is refused, and under
+		 * `'mark'` the change is kept out, as an overlap its device reports.
+		 */
+		const keepParsing = (path: string, target: string, existing: string, movedTo: string | null): Applied | ChangeOutcome => {
+			const decision = settle([{ unit: 'file', clash: 'unparseable' }], batch.policy);
+			if (decision.kind === 'refuse') return refuse(path, decision.reason, decision.overlaps);
+			return outcome({ path, at: target, hash: gitBlobHash(existing), text: existing, movedTo, overlaps: decision.overlaps });
+		};
 
 		for (const change of batch.changes) {
 			if (change.kind === 'move') {
@@ -395,6 +406,12 @@ export function createRepositoryServer({
 
 			if (change.kind === 'append' && existing !== null) {
 				const text = existing + change.text;
+				if (breaksParsing(target, existing, text)) {
+					const kept = keepParsing(change.path, target, existing, movedTo);
+					if ('outcome' in kept) return kept;
+					outcomes.push(kept);
+					continue;
+				}
 				work.set(target, text);
 				outcomes.push(outcome({ path: change.path, at: target, hash: gitBlobHash(text), text, movedTo }));
 				continue;
@@ -418,6 +435,12 @@ export function createRepositoryServer({
 			const text = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block')
 				? withMarkers(result, { current: writerOf(target), incoming: incomingLabel })
 				: result.text;
+			if (existing !== null && breaksParsing(target, existing, text)) {
+				const kept = keepParsing(change.path, target, existing, movedTo);
+				if ('outcome' in kept) return kept;
+				outcomes.push(kept);
+				continue;
+			}
 			if (existing === null && text !== null) {
 				// An edit that beat a delete brings the same note back; it is not a new note.
 				const restored = result.overlaps.some((o) => o.unit === 'file' && o.clash === 'deleted');

@@ -9,10 +9,11 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { type Document, isMap, isScalar, parseDocument, stringify } from 'yaml';
 
 export const MarkdownError = defineErrors({
-	/** The frontmatter is not YAML, or not a mapping. */
-	Unparseable: ({ reason }: { reason: string }) => ({
-		message: `The frontmatter does not parse: ${reason}`,
+	/** The frontmatter is not YAML, or not a mapping. `line` is the file's line, from 1, where it goes wrong. */
+	Unparseable: ({ reason, line }: { reason: string; line: number }) => ({
+		message: `The frontmatter does not parse (line ${line}): ${reason}`,
 		reason,
+		line,
 	}),
 });
 export type MarkdownError = InferErrors<typeof MarkdownError>;
@@ -55,15 +56,20 @@ export function parseMarkdown(text: string): Result<ParsedMarkdown, MarkdownErro
 	return Ok({ fields: document.data.fields, body, hasFrontmatter: true });
 }
 
+/** Whether a text's frontmatter parses: a file without frontmatter does. */
+export const parses = (text: string) => parseMarkdown(text).error === null;
+
+/** The frontmatter YAML read as a mapping. Error lines count from the file's first line, the opening fence. */
 function readYaml(yaml: string) {
 	const document = parseDocument(yaml, { prettyErrors: false, uniqueKeys: true });
+	const lineAt = (offset: number) => 2 + (yaml.slice(0, offset).match(/\n/g)?.length ?? 0);
 	const [first] = document.errors;
-	if (first !== undefined) return MarkdownError.Unparseable({ reason: first.message });
+	if (first !== undefined) return MarkdownError.Unparseable({ reason: first.message, line: lineAt(first.pos[0]) });
 	const contents = document.contents;
 	if (contents === null || (isScalar(contents) && contents.value === null))
 		return Ok({ document, fields: {} as Record<string, unknown> });
 	if (!isMap(contents))
-		return MarkdownError.Unparseable({ reason: 'the frontmatter is not a mapping' });
+		return MarkdownError.Unparseable({ reason: 'the frontmatter is not a mapping', line: lineAt(contents.range?.[0] ?? 0) });
 	const fields = document.toJS() as Record<string, unknown>;
 	return Ok({ document, fields });
 }
@@ -219,17 +225,38 @@ export const MAX_NOTE_BYTES = 1024 * 1024;
 
 const encoder = new TextEncoder();
 
+/** Whether a text is a note: a Markdown file that is not an LFS pointer. */
+const isNote = (path: string, text: string) => path.endsWith('.md') && parsePointer(text) === null;
+
 /**
- * Why a file's text cannot be stored in the repository, or null when it
- * can: binary text belongs in Git LFS, a note is at most 1 MB, and a note's
- * frontmatter must parse. A push is refused for these, and a device checks
- * them before a write resolves, so a person's write never fails later for a
- * reason it could have been told at once.
+ * Whether writing `text` over `previous` (null for no file) would turn a
+ * note whose frontmatter parses into one whose frontmatter does not. That is
+ * the one parse rule: a note that does not parse may take any text, so
+ * repairing it can save every step, and a new note breaks nothing.
  */
-export function storageRefusal(path: string, text: string): { kind: 'binary' | 'size' | 'parse'; reason: string } | null {
+export function breaksParsing(path: string, previous: string | null, text: string | null) {
+	if (previous === null || text === null || !isNote(path, text)) return false;
+	return parses(previous) && !parses(text);
+}
+
+/**
+ * Why a file's text cannot be stored in the repository over `previous`, the
+ * text it replaces (null for no file), or null when it can: binary text
+ * belongs in Git LFS, a note is at most 1 MB, and a write never breaks a
+ * note's frontmatter that parses (`breaksParsing`). A push is refused for
+ * these, the server keeps the current text of a note a batch would break,
+ * and a device checks them before a write resolves, so a person's write
+ * never fails later for a reason it could have been told at once.
+ */
+export function storageRefusal(
+	path: string,
+	previous: string | null,
+	text: string,
+): { kind: 'binary' | 'size' | 'parse'; reason: string } | null {
 	if (text.includes('\0')) return { kind: 'binary', reason: 'a binary file must be stored through Git LFS' };
-	if (parsePointer(text) !== null || !path.endsWith('.md')) return null;
+	if (!isNote(path, text)) return null;
 	if (encoder.encode(text).length > MAX_NOTE_BYTES) return { kind: 'size', reason: 'a note may be at most 1 MB' };
-	const parsed = parseMarkdown(text);
-	return parsed.error === null ? null : { kind: 'parse', reason: parsed.error.message };
+	if (!breaksParsing(path, previous, text)) return null;
+	const { error } = parseMarkdown(text);
+	return { kind: 'parse', reason: error === null ? 'it does not parse' : `${error.reason} (line ${error.line})` };
 }

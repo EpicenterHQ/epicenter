@@ -31,6 +31,7 @@ const RESERVED = new Set([
 	'batch',
 	'send',
 	'notices',
+	'files',
 	'live',
 	'query',
 	'flush',
@@ -215,9 +216,18 @@ export const WriteError = defineErrors({
 		message: `There is no file at '${path}'`,
 		path,
 	}),
-	/** The file's frontmatter does not parse, so its fields cannot change. */
+	/**
+	 * The file's frontmatter does not parse, so its fields cannot change; or
+	 * the write would turn frontmatter that parses into frontmatter that does not.
+	 */
 	Unparseable: ({ path, reason }: { path: string; reason: string }) => ({
 		message: `The frontmatter of '${path}' does not parse: ${reason}`,
+		path,
+		reason,
+	}),
+	/** A path given as a file's path cannot hold a synced Markdown file. */
+	InvalidPath: ({ path, reason }: { path: string; reason: string }) => ({
+		message: `'${path}' cannot be written as text: ${reason}`,
 		path,
 		reason,
 	}),
@@ -365,6 +375,46 @@ export type OpenNote<TPath extends string, TSchema extends TSchema_> = {
 	/** Stop following changes. */
 	close(): void;
 };
+
+/**
+ * Any synced Markdown file held open by its path, as text, for an editor
+ * of its whole source. As with an open note, `read` answers synchronously,
+ * a write shows at once, and changes from elsewhere arrive through
+ * `subscribe`.
+ */
+export type OpenFile = {
+	path: string;
+	/** The file's whole text as this device shows it, or null when there is none. */
+	read(): string | null;
+	/** Call back whenever `read` would answer differently. */
+	subscribe(onChange: (text: string | null) => void): () => void;
+	/**
+	 * Replace the whole text with `text`, an edit of the text this handle
+	 * last showed: a change that reached this device meanwhile is kept, merged
+	 * under it. Refused when it would turn frontmatter that parses into
+	 * frontmatter that does not.
+	 */
+	writeText(text: string): Saved;
+	/** Stop following changes. */
+	close(): void;
+};
+
+/**
+ * Whether a file's text parses, and, checked against a note name, whether
+ * its fields match that name's schema. `line` counts from 1, the opening
+ * `---`; `matches` is null when no name was given.
+ */
+export type TextStatus =
+	| { parses: false; line: number; message: string }
+	| { parses: true; matches: null }
+	| { parses: true; matches: true }
+	| { parses: true; matches: false; issues: string[] };
+
+/** The names of an app's note templates, as opposed to its blob templates. */
+export type NoteName<TDefs extends Definitions> = {
+	[K in keyof TDefs]: TDefs[K] extends { schema: TSchema_ } ? K : never;
+}[keyof TDefs] &
+	string;
 
 export type NoteHandle<TPath extends string, TSchema extends TSchema_> = {
 	get(...params: ParamsArg<TPath>): Promise<Note<TPath, TSchema> | null>;

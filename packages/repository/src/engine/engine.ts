@@ -30,7 +30,7 @@ import { describe } from '../policy.js';
 import type { Policy } from '../policy.js';
 import type { Batch, BatchOutcome, Broadcast, Change, ChangeOutcome, FileState, Move } from '../protocol.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
-import { buildPath } from '../templates.js';
+import { buildPath, isFilePath } from '../templates.js';
 import { type BlobStore, createMemoryBlobStore, type Transport } from './ports.js';
 
 /** The function that parses a file's fields, registered where the driver can. */
@@ -122,11 +122,20 @@ export type WriteOp =
 	| { kind: 'append'; name: string; params: Params; text: string; base?: string | null }
 	| { kind: 'move'; name: string; from: Params; to: Params }
 	| { kind: 'delete'; name: string; params: Params; base?: string | null }
-	| { kind: 'put'; name: string; params: Params; bytes: Uint8Array; type: string; base?: string | null };
+	| { kind: 'put'; name: string; params: Params; bytes: Uint8Array; type: string; base?: string | null }
+	/**
+	 * A Markdown file's whole text replaced, frontmatter included, at any
+	 * path, whether or not a template names it. With `from`, the text the
+	 * editor last showed, a change that reached this device meanwhile is
+	 * kept: the text is merged onto it, and this text wins an overlap.
+	 */
+	| { kind: 'text'; path: string; text: string; from?: string | null };
 
 /** A read, as data. */
 export type EngineRequest =
 	| { kind: 'get'; name: string; params: Params }
+	/** Any synced file by its path, whether or not a template names it. */
+	| { kind: 'file'; path: string }
 	| { kind: 'list'; name: string; filter: Params }
 	| { kind: 'query'; sql: string; params: SqlValue[] }
 	| { kind: 'blob'; name: string; params: Params; as: 'bytes' | 'url' }
@@ -136,6 +145,7 @@ export type EngineRequest =
 /** What each read answers. */
 export type EngineAnswers = {
 	get: FileRead | null;
+	file: FileRead | null;
 	list: FileRead[];
 	query: Record<string, SqlValue>[];
 	blob: Uint8Array | string | null;
@@ -378,10 +388,11 @@ export function openEngine<const TDefs extends Definitions>({
 
 	/**
 	 * The checks a push is refused for, run before a write resolves, so a
-	 * person learns at once instead of in a notice later.
+	 * person learns at once instead of in a notice later. `previous` is the
+	 * text the write replaces: a note that parses never stops parsing.
 	 */
-	function storable(path: string, text: string | null): Result<undefined, WriteError> {
-		const refusal = text === null ? null : storageRefusal(path, text);
+	function storable(path: string, previous: string | null, text: string | null): Result<undefined, WriteError> {
+		const refusal = text === null ? null : storageRefusal(path, previous, text);
 		if (refusal === null) return Ok(undefined);
 		if (refusal.kind === 'parse') return WriteError.Unparseable({ path, reason: refusal.reason });
 		return WriteError.NotStorable({ path, reason: refusal.reason });
@@ -392,12 +403,28 @@ export function openEngine<const TDefs extends Definitions>({
 		const local = resolveOp(op);
 		if (local.error !== null || local.data.kind === 'move') return local;
 		const { path } = local.data;
-		const text = local.data.kind === 'append' ? (localText(path) ?? '') + local.data.text : local.data.text;
-		const checked = storable(path, text);
+		const previous = localText(path);
+		const text = local.data.kind === 'append' ? (previous ?? '') + local.data.text : local.data.text;
+		const checked = storable(path, previous, text);
 		return checked.error !== null ? checked : local;
 	}
 
+	/** The path a text op names, if a synced Markdown file can be there. */
+	function textPath(path: string): Result<string, WriteError> {
+		if (!isFilePath(path)) return WriteError.InvalidPath({ path, reason: 'it has an empty, hidden, relative or unusable segment' });
+		if (!path.endsWith('.md')) return WriteError.InvalidPath({ path, reason: 'only a Markdown file is written as text' });
+		return Ok(path);
+	}
+
 	function resolveOp(op: Ready): Result<Local, WriteError> {
+		if (op.kind === 'text') {
+			const path = textPath(op.path);
+			if (path.error !== null) return path;
+			const current = localText(path.data);
+			// As for an editor's edit: what changed here since it last showed the text stays.
+			const text = op.from === undefined || current === op.from ? op.text : (merge(op.from, op.text, current).text ?? op.text);
+			return Ok({ kind: 'write', path: path.data, text });
+		}
 		const lens = lensOf(op.name);
 		if (op.kind === 'move') {
 			const from = pathOf(lens, op.from);
@@ -564,6 +591,10 @@ export function openEngine<const TDefs extends Definitions>({
 	/** The paths ops name; ops whose parameters build no path name none, and fail when they run. */
 	function opPaths(ops: (WriteOp | Ready)[]): string[] {
 		return ops.flatMap((op) => {
+			if (op.kind === 'text') {
+				const path = textPath(op.path);
+				return path.error === null ? [path.data] : [];
+			}
 			const lens = lensOf(op.name);
 			const named = op.kind === 'move' ? [op.from, op.to] : [op.params];
 			return named.flatMap((params) => {
@@ -615,7 +646,6 @@ export function openEngine<const TDefs extends Definitions>({
 	 * device changes.
 	 */
 	function resolveSend(op: Ready): Result<Entry, WriteError | SendError> {
-		const lens = lensOf(op.name);
 		const based = (path: string): Result<{ hash: string; text: string } | null, SendError> => {
 			const file = keep(path);
 			const requested = 'base' in op ? op.base : undefined;
@@ -625,6 +655,7 @@ export function openEngine<const TDefs extends Definitions>({
 			return text === undefined ? SendError.UnknownBase({ path, base: requested }) : Ok({ hash: requested, text });
 		};
 		if (op.kind === 'move') {
+			const lens = lensOf(op.name);
 			const from = pathOf(lens, op.from);
 			if (from.error !== null) return from;
 			const to = pathOf(lens, op.to);
@@ -634,16 +665,17 @@ export function openEngine<const TDefs extends Definitions>({
 			if (keep(to.data).synced !== null) return WriteError.Exists({ path: to.data });
 			return Ok({ change: { kind: 'move', from: from.data, to: to.data }, local: source.synced });
 		}
-		const path = pathOf(lens, op.params);
+		const path = op.kind === 'text' ? textPath(op.path) : pathOf(lensOf(op.name), op.params);
 		if (path.error !== null) return path;
 		const base = based(path.data);
 		if (base.error !== null) return base;
 		const from = base.data?.text ?? null;
 		const write = (text: string | null): Result<Entry, WriteError> => {
-			const checked = storable(path.data, text);
+			const checked = storable(path.data, from, text);
 			return checked.error !== null ? checked : Ok({ change: { kind: 'write', path: path.data, base: base.data, text }, local: text });
 		};
 		switch (op.kind) {
+			case 'text':
 			case 'pointer':
 				return write(op.text);
 			case 'delete':
@@ -651,7 +683,7 @@ export function openEngine<const TDefs extends Definitions>({
 				return write(null);
 			case 'append':
 				if (base.data === null) return WriteError.NotFound({ path: path.data });
-				const appended = storable(path.data, base.data.text + op.text);
+				const appended = storable(path.data, base.data.text, base.data.text + op.text);
 				if (appended.error !== null) return appended;
 				return Ok({ change: { kind: 'append', path: path.data, text: op.text, base: base.data }, local: base.data.text + op.text });
 			case 'create':
@@ -932,7 +964,7 @@ export function openEngine<const TDefs extends Definitions>({
 	 * it was aimed, or nowhere. Every value a person set that did not land
 	 * shows in a notice.
 	 */
-	function noteLanding({ change }: Entry, result: ChangeOutcome) {
+	function noteLanding({ change, local }: Entry, result: ChangeOutcome) {
 		const aimed = change.kind === 'move' ? change.from : change.path;
 		if (change.kind === 'move' && keptInPlace(result)) {
 			const at = result.at ?? change.from;
@@ -953,6 +985,10 @@ export function openEngine<const TDefs extends Definitions>({
 					result.at ?? aimed,
 					`'${overlap.key}' was changed to ${valueOf(overlap.current)} elsewhere; your ${valueOf(overlap.incoming)} wasn't applied`,
 				);
+				continue;
+			}
+			if (overlap.unit === 'file' && overlap.clash === 'unparseable') {
+				notice('refused', result.at ?? aimed, "merged with a change made elsewhere, its frontmatter would no longer parse, so your change wasn't applied", local);
 				continue;
 			}
 			if (overlap.unit !== 'path') continue;
@@ -1114,14 +1150,12 @@ export function openEngine<const TDefs extends Definitions>({
 		);
 	}
 
+	const fileRow = (path: string) =>
+		first<FileRead>(driver, `SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f WHERE f.path = ? AND f.text IS NOT NULL`, [path]) ?? null;
+
 	function getRow(lens: Lens, params: Params): FileRead | null {
 		const path = split(lens, params);
-		if (path.error !== null) return null;
-		return (
-			first<FileRead>(driver, `SELECT ${READ_COLUMNS('f')} FROM "epicenter/files" f WHERE f.path = ? AND f.text IS NOT NULL`, [
-				path.data,
-			]) ?? null
-		);
+		return path.error === null ? fileRow(path.data) : null;
 	}
 
 	async function read<TRequest extends EngineRequest>(request: TRequest): Promise<EngineAnswers[TRequest['kind']]> {
@@ -1129,6 +1163,8 @@ export function openEngine<const TDefs extends Definitions>({
 		switch (request.kind) {
 			case 'get':
 				return getRow(lensOf(request.name), request.params) as Answer;
+			case 'file':
+				return fileRow(request.path) as Answer;
 			case 'list':
 				return listRows(lensOf(request.name), request.filter) as Answer;
 			case 'query':

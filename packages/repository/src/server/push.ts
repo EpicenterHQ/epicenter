@@ -52,19 +52,19 @@ export async function receivePush(
 	}
 	for (const path of baseTree.keys()) if (!pushedTree.has(path)) deleted.push(path);
 
-	// Read and check every new or changed file before building the batch.
-	const texts = new Map<string, string>();
-	for (const path of [...added, ...modified]) {
-		const oid = pushedTree.get(path)?.oid ?? '';
-		const bytes = (await git.readBlob(oid)) ?? new Uint8Array();
-		const refusal = checkFile(path, bytes);
-		if (refusal !== null) return refuse(core, path, refusal);
-		texts.set(path, utf8.decode(bytes));
-	}
 	const baseText = async (path: string) => {
 		const entry = baseTree.get(path);
 		return entry === undefined ? null : core.gitText(entry.oid);
 	};
+	// Read and check every new or changed file against its base before building the batch.
+	const texts = new Map<string, string>();
+	for (const path of [...added, ...modified]) {
+		const oid = pushedTree.get(path)?.oid ?? '';
+		const bytes = (await git.readBlob(oid)) ?? new Uint8Array();
+		const refusal = checkFile(path, await baseText(path), bytes);
+		if (refusal !== null) return refuse(core, path, refusal);
+		texts.set(path, utf8.decode(bytes));
+	}
 
 	// Rename detection: same blob, or a Markdown file at least half unchanged.
 	const changes: Change[] = [];
@@ -133,14 +133,16 @@ async function refuse(
 	return Ok({ kind: 'refused', path, reason, overlaps });
 }
 
-function checkFile(path: string, bytes: Uint8Array): string | null {
+function checkFile(path: string, previous: string | null, bytes: Uint8Array): string | null {
 	let text: string;
 	try {
 		text = utf8.decode(bytes);
 	} catch {
 		return 'a binary file must be stored through Git LFS';
 	}
-	return storageRefusal(path, text)?.reason ?? null;
+	const refusal = storageRefusal(path, previous, text);
+	if (refusal === null) return null;
+	return refusal.kind === 'parse' ? `the frontmatter would no longer parse: ${refusal.reason}` : refusal.reason;
 }
 
 async function treeOf(core: ServerCore, oid: string): Promise<Tree> {

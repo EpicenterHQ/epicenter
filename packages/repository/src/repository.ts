@@ -10,6 +10,7 @@
  * the caller's thread (`openRepository`, used by Bun and tests), or the
  * owning browser tab's connection to its worker (`openBrowserRepository`).
  */
+import type { TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
@@ -22,10 +23,13 @@ import type {
 	Handles,
 	Lens,
 	Live,
+	NoteName,
 	Notice,
+	OpenFile,
 	Saved,
 	SendError,
 	SendHandles,
+	TextStatus,
 	Verdict,
 } from './define.js';
 import { WriteError } from './define.js';
@@ -65,19 +69,20 @@ const ClientDiagnostic = defineErrors({
 type Params = Record<string, unknown>;
 type NoteChange = { fields?: Record<string, unknown>; body?: string };
 
+/** How `fields` fails `schema`, one line per issue; none when they match. */
+function schemaIssues(schema: TSchema, fields: Record<string, unknown>): string[] {
+	if (Check(schema, fields)) return [];
+	return Errors(schema, fields).map((error) => `${error.instancePath || '/'} ${error.message}`);
+}
+
 /** A note read from a file row. Fields that fail the schema are returned raw, with issues. */
 function noteOf(lens: Extract<Lens, { kind: 'note' }>, file: FileRead) {
 	const params = matchTemplate(lens.template, file.path) ?? {};
 	const base = { path: file.path, params, text: file.text, body: file.body, version: file.version };
 	if (file.fields === null) return { ...base, valid: false, fields: {}, issues: ['The frontmatter does not parse'] };
 	const fields = JSON.parse(file.fields) as Record<string, unknown>;
-	if (Check(lens.schema, fields)) return { ...base, valid: true, fields };
-	return {
-		...base,
-		valid: false,
-		fields,
-		issues: Errors(lens.schema, fields).map((error) => `${error.instancePath || '/'} ${error.message}`),
-	};
+	const issues = schemaIssues(lens.schema, fields);
+	return issues.length === 0 ? { ...base, valid: true, fields } : { ...base, valid: false, fields, issues };
 }
 
 /** The same row, computed from text this client holds: what an open note shows before the engine answers. */
@@ -215,27 +220,20 @@ export function createRepository<const TDefs extends Definitions>(
 	}
 
 	/**
-	 * Hold one note open. It shows writes made through it at once, keeps
+	 * Hold one path open. It shows writes made through it at once, keeps
 	 * showing them while they are applied, and otherwise reads again whenever
-	 * the engine reports its path changed.
+	 * the engine reports its path changed. `onShow` hears every text it shows.
 	 */
-	async function open(lens: Extract<Lens, { kind: 'note' }>, params: Params) {
-		const built = buildPath(lens.template, params);
-		const path = built.error === null ? built.data : null;
-		const ops = noteOps(lens);
-		const readFile = () => (path === null ? Promise.resolve(null) : port.read({ kind: 'get', name: lens.name, params }));
+	async function hold(path: string | null, readFile: () => Promise<FileRead | null>, onShow: (file: FileRead | null) => void) {
 		let shown: FileRead | null = null;
-		let note: ReturnType<typeof noteOf> | null = null;
-		/** Writes through this handle not yet applied by the engine. */
+		/** Writes through this hold not yet applied by the engine. */
 		let applying = 0;
 		/** Bumped by every write, so a read that a write overtook is dropped. */
 		let generation = 0;
-		const listeners = new Set<(note: unknown) => void>();
 		const show = (next: FileRead | null) => {
 			if ((next?.text ?? null) === (shown?.text ?? null)) return;
 			shown = next;
-			note = next === null ? null : noteOf(lens, next);
-			for (const listener of listeners) listener(note);
+			onShow(next);
 		};
 		const refresh = async () => {
 			const at = generation;
@@ -247,26 +245,52 @@ export function createRepository<const TDefs extends Definitions>(
 			if (path !== null && (paths === null || paths.includes(path)) && applying === 0) track(refresh());
 		});
 		await refresh();
+		return {
+			/** The file as this hold shows it now. */
+			shown: () => shown,
+			/** Show the write's text now, then the engine's once it has saved every write made here. */
+			through(op: WriteOp, text: string | null): Saved {
+				if (path === null) return Promise.resolve(WriteError.InvalidPath({ path: '', reason: 'the parameters build no path' }));
+				generation++;
+				applying++;
+				show(text === null ? null : fileOf(path, text));
+				const saved = submit([op]);
+				track(
+					saved.then(() => {
+						applying--;
+						if (applying === 0) return refresh();
+					}),
+				);
+				return saved;
+			},
+			stop,
+		};
+	}
 
-		/** Show the write's text now, then the engine's once it has saved every write made here. */
-		function through(op: WriteOp, text: string | null): Saved {
-			if (path === null) return Promise.resolve(WriteError.InvalidParams({ handle: lens.name, reason: 'the parameters build no path' }));
-			generation++;
-			applying++;
-			show(text === null ? null : fileOf(path, text));
-			const saved = submit([op]);
-			track(
-				saved.then(() => {
-					applying--;
-					if (applying === 0) return refresh();
-				}),
-			);
-			return saved;
-		}
+	/** Hold one note open; see `hold`. */
+	async function open(lens: Extract<Lens, { kind: 'note' }>, params: Params) {
+		const built = buildPath(lens.template, params);
+		const path = built.error === null ? built.data : null;
+		const ops = noteOps(lens);
+		let note: ReturnType<typeof noteOf> | null = null;
+		const listeners = new Set<(note: unknown) => void>();
+		const held = await hold(
+			path,
+			() => (path === null ? Promise.resolve(null) : port.read({ kind: 'get', name: lens.name, params })),
+			(file) => {
+				note = file === null ? null : noteOf(lens, file);
+				for (const listener of listeners) listener(note);
+			},
+		);
+		const through = (op: WriteOp, text: string | null): Saved =>
+			path === null
+				? Promise.resolve(WriteError.InvalidParams({ handle: lens.name, reason: 'the parameters build no path' }))
+				: held.through(op, text);
 		/** The text a write leaves, as the engine computes it; an unparseable note is the engine's to refuse. */
 		const written = (change: Parameters<typeof writeMarkdown>[1]) => {
-			const text = writeMarkdown(shown?.text ?? null, change);
-			return text.error === null ? text.data : (shown?.text ?? null);
+			const shown = held.shown()?.text ?? null;
+			const text = writeMarkdown(shown, change);
+			return text.error === null ? text.data : shown;
 		};
 		const args = (...rest: unknown[]) => (lens.template.params.length === 0 ? rest : [params, ...rest]);
 
@@ -281,15 +305,55 @@ export function createRepository<const TDefs extends Definitions>(
 			},
 			write: (input: NoteChange) => through(ops.write(...args(input)), written(input)),
 			edit: (body: string) =>
-				through({ kind: 'edit', name: lens.name, params, from: shown?.body ?? '', body }, written({ body })),
+				through({ kind: 'edit', name: lens.name, params, from: held.shown()?.body ?? '', body }, written({ body })),
 			set: (key: string, value: unknown) => through(ops.set(...args(key, value)), written({ fields: { [key]: value } })),
-			append: (text: string) => through(ops.append(...args(text)), shown === null ? null : shown.text + text),
+			append: (text: string) => {
+				const shown = held.shown();
+				return through(ops.append(...args(text)), shown === null ? null : shown.text + text);
+			},
 			delete: () => through(ops.delete(...args()), null),
 			close() {
-				stop();
+				held.stop();
 				listeners.clear();
 			},
 		};
+	}
+
+	/** Hold any synced Markdown file open by its path; see `hold`. */
+	async function openFile(path: string): Promise<OpenFile> {
+		const listeners = new Set<(text: string | null) => void>();
+		const held = await hold(
+			path,
+			() => port.read({ kind: 'file', path }),
+			(file) => {
+				for (const listener of listeners) listener(file?.text ?? null);
+			},
+		);
+		return {
+			path,
+			read: () => held.shown()?.text ?? null,
+			subscribe(onChange) {
+				listeners.add(onChange);
+				return () => {
+					listeners.delete(onChange);
+				};
+			},
+			writeText: (text) => held.through({ kind: 'text', path, text, from: held.shown()?.text ?? null }, text),
+			close() {
+				held.stop();
+				listeners.clear();
+			},
+		};
+	}
+
+	/** Whether `text` parses, and, given a note name, whether its fields match that name's schema. */
+	function status(text: string, name?: string): TextStatus {
+		const parsed = parseMarkdown(text);
+		if (parsed.error !== null) return { parses: false, line: parsed.error.line, message: parsed.error.reason };
+		const lens = name === undefined ? undefined : app.lenses.find((candidate) => candidate.name === name);
+		if (lens?.kind !== 'note') return { parses: true, matches: null };
+		const issues = schemaIssues(lens.schema, parsed.data.fields);
+		return issues.length === 0 ? { parses: true, matches: true } : { parses: true, matches: false, issues };
 	}
 
 	const listNotices = () =>
@@ -360,6 +424,28 @@ export function createRepository<const TDefs extends Definitions>(
 		send(build: (handles: SendHandles<TDefs>) => void): Promise<Result<Verdict, WriteError | SendError>> {
 			if (closed) return Promise.resolve(WriteError.Closed());
 			return port.send(collect(build));
+		},
+		/**
+		 * Any synced Markdown file by its path, as text: one a template names
+		 * or not, and one whose frontmatter parses or not. This is how a
+		 * person repairs a file.
+		 */
+		files: {
+			/** The file's whole text as this device shows it, or null when there is none. */
+			readText: async (path: string) => (await port.read({ kind: 'file', path }))?.text ?? null,
+			/**
+			 * Replace the file's whole text, frontmatter included: a person's
+			 * write, which resolves once saved here and merges at the server by
+			 * frontmatter key and body when both sides parse, and by line when
+			 * either does not. It is refused when it would turn frontmatter that
+			 * parses into frontmatter that does not, so a broken file can be
+			 * repaired one step at a time and a sound one never breaks.
+			 */
+			writeText: (path: string, text: string): Saved => save({ kind: 'text', path, text }),
+			/** Hold the file open: reads are synchronous and follow every change, as a note's `open`. */
+			open: openFile,
+			/** Whether a text parses, and, given a note name, whether it matches that name's schema. */
+			status: (text: string, name?: NoteName<TDefs>): TextStatus => status(text, name),
 		},
 		/**
 		 * What happened to this device's saved changes that the person should

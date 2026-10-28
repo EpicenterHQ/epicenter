@@ -17,7 +17,7 @@
  * - Commits carry `Epicenter-Seq`, a trailer per path event and an
  *   `Epicenter-Overlap` per settled overlap,
  *   clear the overlay and land on a timer
- * - Agent pushes: overlap and bad files refused, a clean push is a merge parent
+ * - Agent pushes: overlap, breaking a note that parses, and bad files refused, a clean push is a merge parent
  *   whose merge commit records the path events it imported
  */
 import { describe, expect, test } from 'bun:test';
@@ -165,6 +165,30 @@ describe('batches', () => {
 			changes: [{ overlaps: [{ unit: 'field', key: 'status', current: 'done', incoming: 'wontfix', settled: 'current-kept' }] }],
 		});
 		expect(await t.server.read('notes/a.md')).toBe('---\nstatus: done\n---\nx\n');
+		await t.cleanup();
+	});
+
+	test("a note that does not parse takes any text; a write that would break one that parses keeps current for 'mark' and refuses 'refuse'", async () => {
+		const t = await setup();
+		const broken = '---\ntitle: [\n---\nBody\n';
+		const fixed = '---\ntitle: Fixed\n---\nBody\n';
+		const seq = await seed(t, 'notes/a.md', broken);
+		expect(await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', broken, '---\ntitle: [F\n---\nBody\n')))).toMatchObject({ kind: 'applied' });
+		expect(await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', '---\ntitle: [F\n---\nBody\n', fixed)))).toMatchObject({ kind: 'applied' });
+		// Alice was repairing it too, from the broken text: merged with Bob's repair, the frontmatter would break again.
+		const marked = await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/a.md', broken, '---\ntitle: [A\n---\nBody\n')));
+		expect(marked).toMatchObject({
+			kind: 'applied',
+			changes: [{ at: 'notes/a.md', text: fixed, overlaps: [{ unit: 'file', clash: 'unparseable', settled: 'current-kept' }] }],
+		});
+		const refused = await t.agent.push(t.batch('agent-1', seq, t.write('notes/a.md', fixed, '---\ntitle: [\n---\nBody\n')));
+		expect(refused).toMatchObject({ kind: 'refused', path: 'notes/a.md', reason: "the note's frontmatter would no longer parse" });
+		expect(await t.server.read('notes/a.md')).toBe(fixed);
+		// An append can close a fence and turn an open one into frontmatter that does not parse.
+		const open = '---\na: 1\n';
+		await seed(t, 'notes/b.md', open);
+		const appended = await t.bob.push(t.batch('bob-phone', t.server.sequence(), t.append('notes/b.md', open, 'b: [\n---\n')));
+		expect(appended).toMatchObject({ kind: 'applied', changes: [{ text: open, overlaps: [{ unit: 'file', clash: 'unparseable' }] }] });
 		await t.cleanup();
 	});
 
@@ -709,10 +733,10 @@ describe('agent push', () => {
 		await t.cleanup();
 	});
 
-	test('unparseable frontmatter, oversized notes and binaries outside LFS are refused', async () => {
+	test('breaking frontmatter that parses, oversized notes and binaries outside LFS are refused', async () => {
 		const t = await cloned();
 		const cases: [Record<string, string | Uint8Array>, string][] = [
-			[{ 'notes/bad.md': '---\na: [\n---\n' }, 'notes/bad.md'],
+			[{ 'notes/a.md': '---\na: [\n---\none\n' }, 'notes/a.md'],
 			[{ 'notes/big.md': 'x'.repeat(1024 * 1024 + 1) }, 'notes/big.md'],
 			[{ 'photo.png': new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2]) }, 'photo.png'],
 		];
@@ -720,6 +744,18 @@ describe('agent push', () => {
 			const pushed = await agentCommit(t.git, t.base, files);
 			expect(expectOk(await t.server.receivePush({ commit: pushed, user: 'claude' }))).toMatchObject({ kind: 'refused', path });
 		}
+		await t.cleanup();
+	});
+
+	test('a new note that does not parse lands, and so does each step of its repair', async () => {
+		const t = await cloned();
+		const broken = await agentCommit(t.git, t.base, { 'notes/bad.md': '---\na: [\n---\n' });
+		expect(expectOk(await t.server.receivePush({ commit: broken, user: 'claude' })).kind).toBe('applied');
+		const step = await agentCommit(t.git, broken, { 'notes/bad.md': '---\na: [1\n---\n' });
+		expect(expectOk(await t.server.receivePush({ commit: step, user: 'claude' })).kind).toBe('applied');
+		const fixed = await agentCommit(t.git, step, { 'notes/bad.md': '---\na: [1]\n---\n' });
+		expect(expectOk(await t.server.receivePush({ commit: fixed, user: 'claude' })).kind).toBe('applied');
+		expect(await t.server.read('notes/bad.md')).toBe('---\na: [1]\n---\n');
 		await t.cleanup();
 	});
 

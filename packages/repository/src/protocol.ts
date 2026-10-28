@@ -23,6 +23,11 @@ export type Overlap =
 	/** Both sides created the file. */
 	| { unit: 'file'; clash: 'created' }
 	/**
+	 * The change would turn a note whose frontmatter parses into one whose
+	 * frontmatter does not, which no write may do (`breaksParsing`).
+	 */
+	| { unit: 'file'; clash: 'unparseable' }
+	/**
 	 * The path a change named no longer holds its note: it was deleted and
 	 * `reused` by another, a
 	 * move's destination is `taken` by another note, or a
@@ -31,8 +36,8 @@ export type Overlap =
 	 */
 	| { unit: 'path'; clash: 'reused' | 'taken' | 'gone'; relocatedTo: string | null };
 
-/** What the merge itself reports: every overlap but a path clash, which the server finds. */
-export type ContentOverlap = Exclude<Overlap, { unit: 'path' }>;
+/** What the merge itself reports: every overlap but a path clash or a broken parse, which the server finds. */
+export type ContentOverlap = Exclude<Overlap, { unit: 'path' } | { clash: 'unparseable' }>;
 
 /** How an overlap was settled when the change landed, so the record says what happened. */
 export type SettledOverlap = Overlap & {
