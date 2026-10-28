@@ -2,23 +2,25 @@
  * Design B Scenario Tests
  *
  * The intent of today's engine's held, reconcile, verdict and delete/reuse
- * tests, asserted under revised design B: live commits with parents, the
- * server merging merge-mode commits, identity from history, the commit id
- * as idempotency, the commit cadence, and the flush. Each world has a fixed
- * latency and no loss unless a test loses a reply.
+ * tests, asserted under collapsed design B: live commits with parents, the
+ * server merging merge-mode commits into whatever is at the path, the commit
+ * id as idempotency, a commit on every save, the flush, and pruning live
+ * history after it. Each world has a fixed latency and no loss unless a test
+ * loses a reply.
  *
  * Key behaviors:
  * - A text that would break a parsing note is held, never committed; a repair commits exactly the repaired text
  * - Held text survives a change from elsewhere (rebased) and a restart; a merge that makes it parse commits it
- * - Held text over a remote delete stays held (a missing file below must parse); over a path reused by another note, its repair becomes a sibling
+ * - Held text over a remote delete stays held (a missing file below must parse); over a path reused by another note it joins that note, visibly
  * - A lost reply is answered by resending the same commit, which lands once; typing since never conflicts with itself
  * - A commit whose outcome left with a flush rebuilds its overlap notice from the flush's trailers
  * - A commit meeting a moved `main` is merged by the server in one push; the device never sends an edit made elsewhere back as its own
- * - For people a delete loses to an edit it had not seen; a note brought back that way is the same note, so a later edit of it merges
- * - An edit of a note deleted and replaced (also by one with the very same text) becomes a sibling, once, and the new note stays
+ * - For people a delete loses to an edit it had not seen, and a later unseen edit merges into the note brought back
+ * - Changed: an edit of a note deleted and replaced merges into the note there now (lines or conflict markers); nothing is lost
+ * - A commit whose parent was pruned is merged again on top here and committed once more; a position older than kept history catches up by a full snapshot
  * - A rename racing an edit of the old path leaves both files, with a notice
  * - An agent's fast-forward commit is refused when `main` moved and changes nothing; the server refuses commits with no parent, a bad id, or a path named twice
- * - Commits come after a 0.5 s pause or every 2 s while typing; a sent commit is never rewritten
+ * - Every save commits while online; while a commit is in flight or offline, saves amend one unsent commit; a sent commit is never rewritten
  * - A flush writes the design's commit message
  */
 import { expect, test } from 'bun:test';
@@ -103,27 +105,29 @@ test('changed: held text over a remote delete stays held, because a missing file
 	expect(alice.replica.notices()).toEqual([{ kind: 'restored', path: PATH }]);
 });
 
-test('held text over a path reused by another note stays held, and its repair becomes a sibling; the new note stays', () => {
+test('held text over a path reused by another note stays held, and merges into that note visibly; its repair commits both', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write({ [PATH]: note('one\n') });
 	settle();
 	alice.setOnline(false);
-	alice.replica.write({ [PATH]: broken('one\n') });
+	alice.replica.write({ [PATH]: broken('one\nmine\n') });
 	bob.replica.write({ [PATH]: null });
 	settle();
 	bob.replica.write({ [PATH]: note('reused\n', 'R') });
 	settle();
 	alice.setOnline(true);
 	settle();
+	// Offline, the delete and the new note reach Alice as one change to her note: her own edits stay on top of it.
 	expect(alice.replica.held()).toEqual([PATH]);
-	alice.replica.write({ [PATH]: note('one\nmine\n') });
+	const shown = alice.replica.read(PATH) ?? '';
+	expect(shown).toContain('reused');
+	expect(shown).toContain('mine');
+	alice.replica.write({ [PATH]: shown.replace('title: B\n', '') });
 	settle();
-	expect(world.server.read(PATH)).toBe(note('reused\n', 'R'));
-	expect(world.server.read('notes/a (alice, 2026-10-28).md')).toBe(note('one\nmine\n'));
-	expect(alice.replica.notices()).toEqual([{ kind: 'sibling', path: 'notes/a (alice, 2026-10-28).md', of: PATH }]);
-	expect(alice.replica.read(PATH)).toBe(note('reused\n', 'R'));
+	expect(world.server.read(PATH)).toBe(alice.replica.read(PATH));
+	expect(world.server.read(PATH)).toContain('reused');
+	expect(world.server.read(PATH)).toContain('mine');
 });
-
 test('a merge that makes held text parse commits it', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write({ [PATH]: note('one\n') });
@@ -160,7 +164,7 @@ test('a lost reply, more typing on the same line, and an edit elsewhere merge wi
 	alice.replica.write({ [PATH]: note('one\n.\n.\nbob\n') });
 	settle();
 	alice.loseNextReply();
-	alice.replica.write({ [PATH]: note('one two\n.\n.\nbob\n') }, { now: true });
+	alice.replica.write({ [PATH]: note('one two\n.\n.\nbob\n') });
 	world.net.runFor(100);
 	alice.replica.write({ [PATH]: note('one two three\n.\n.\nbob\n') });
 	bob.replica.write({ [PATH]: (bob.replica.read(PATH) ?? '').replace('bob\n', 'BOB\n') });
@@ -174,14 +178,14 @@ test('a commit whose outcome left with a flush rebuilds its overlap notice from 
 	alice.replica.write({ [PATH]: note('one\n') });
 	settle();
 	alice.setOnline(false);
-	alice.replica.write({ [PATH]: note('three\n') }, { now: true });
+	alice.replica.write({ [PATH]: note('three\n') });
 	bob.replica.write({ [PATH]: note('two\n') });
 	settle();
 	alice.loseNextReply();
 	alice.setOnline(true);
 	world.net.runFor(300);
 	const flushed = world.flush();
-	expect(flushed?.message).toContain('Epicenter-Overlap: notes/a.md body (bob/bob, alice/alice)');
+	expect(flushed?.message).toMatch(/Epicenter-Overlap: notes\/a\.md body \(bob\/bob, alice\/alice\) in [0-9a-f]{7}/);
 	settle();
 	expect(alice.replica.notices()).toEqual([{ kind: 'overlap', path: PATH, unit: 'body' }]);
 	expect(alice.replica.read(PATH)).toBe(world.server.read(PATH));
@@ -192,9 +196,9 @@ test('a commit meeting a moved main is merged by the server in one push, and sen
 	const { world, alice, bob, pushes, settle } = setup();
 	alice.replica.write({ [PATH]: note('one\n.\n.\nb0\n') });
 	settle();
-	bob.replica.write({ [PATH]: note('one\n.\n.\nb1\n') }, { now: true });
+	bob.replica.write({ [PATH]: note('one\n.\n.\nb1\n') });
 	world.net.runFor(5);
-	alice.replica.write({ [PATH]: note('one\n.\n.\nb0\n', 'T1') }, { now: true });
+	alice.replica.write({ [PATH]: note('one\n.\n.\nb0\n', 'T1') });
 	settle();
 	expect(world.server.read(PATH)).toBe(note('one\n.\n.\nb1\n', 'T1'));
 	expect(alice.replica.notices()).toEqual([]);
@@ -205,8 +209,8 @@ test('a commit meeting a moved main is merged by the server in one push, and sen
 
 test('typing while a commit is in flight makes a new commit on top of the answer; the sent one is never rewritten', () => {
 	const { alice, pushes, settle } = setup();
-	alice.replica.write({ [PATH]: note('one\n') }, { now: true });
-	alice.replica.write({ [PATH]: note('one\ntwo\n') }, { now: true });
+	alice.replica.write({ [PATH]: note('one\n') });
+	alice.replica.write({ [PATH]: note('one\ntwo\n') });
 	settle();
 	const [first, second] = pushes.map((p) => p.commit);
 	expect(first?.files[0]?.text).toBe(note('one\n'));
@@ -233,7 +237,7 @@ test('for people, a delete versus an edit keeps the edit, and the deleter is tol
 	expect(alice.replica.notices()).toEqual([{ kind: 'kept', path: 'notes/keep.md' }]);
 });
 
-test('a note brought back by an unseen edit is the same note in history, so a later unseen edit merges into it (bug A)', () => {
+test('a note brought back by an unseen edit takes a later unseen edit too (bug A)', () => {
 	const { world, alice, bob, carol, settle } = setup(['alice', 'bob', 'carol']);
 	alice.replica.write({ 'notes/n.md': 'v1\n' });
 	settle();
@@ -251,7 +255,7 @@ test('a note brought back by an unseen edit is the same note in history, so a la
 	expect(bob.replica.notices()).toEqual([{ kind: 'restored', path: 'notes/n.md' }]);
 });
 
-test('an offline edit of a note deleted and created again, across a flush, becomes a sibling, and the new note stays (bug B)', () => {
+test('changed: an offline edit of a note deleted and created again, across flushes, merges into the note there now (bug B)', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write({ 'notes/log.md': 'old log\n' });
 	settle();
@@ -264,17 +268,12 @@ test('an offline edit of a note deleted and created again, across a flush, becom
 	settle();
 	bob.setOnline(true);
 	settle();
-	expect(bob.replica.notices()).toEqual([{ kind: 'sibling', path: 'notes/log (bob, 2026-10-28).md', of: 'notes/log.md' }]);
-	expect(world.server.snapshot()).toEqual(
-		new Map([
-			['notes/log (bob, 2026-10-28).md', 'old log\nbob\n'],
-			['notes/log.md', 'new log\n'],
-		]),
-	);
+	expect(world.server.snapshot()).toEqual(new Map([['notes/log.md', 'new log\nbob\n']]));
+	expect(bob.replica.read('notes/log.md')).toBe('new log\nbob\n');
 });
 
-test('two offline edits of a replaced note go in one commit and one sibling, and the device is told once', () => {
-	const { world, alice, bob, settle } = setup();
+test('changed: two offline saves of a replaced note go in one commit, and merge into the note there now', () => {
+	const { world, alice, bob, pushes, settle } = setup();
 	alice.replica.write({ 'notes/plan.md': 'old plan\n' });
 	settle();
 	bob.setOnline(false);
@@ -285,14 +284,17 @@ test('two offline edits of a replaced note go in one commit and one sibling, and
 	settle();
 	alice.replica.write({ 'notes/plan.md': 'a different plan\n' });
 	settle();
+	const before = pushes.length;
 	bob.setOnline(true);
 	settle();
-	expect(bob.replica.notices()).toHaveLength(1);
-	expect(world.server.read('notes/plan.md')).toBe('a different plan\n');
-	expect(world.server.read('notes/plan (bob, 2026-10-28).md')).toBe('old plan\nbob one\nbob two\n');
+	expect(pushes.slice(before).filter((p) => p.device === 'bob')).toHaveLength(1);
+	const merged = world.server.read('notes/plan.md') ?? '';
+	expect(merged).toContain('a different plan');
+	expect(merged).toContain('bob one\nbob two');
+	expect(world.server.snapshot().size).toBe(1);
 });
 
-test('an edit of a note replaced by one with the very same text becomes a sibling: history tells them apart, a hash cannot', () => {
+test('changed: an edit of a note replaced by one with the very same text merges into the new note cleanly, nothing lost', () => {
 	const template = '---\ntitle: New\n---\n';
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write({ [PATH]: template });
@@ -305,8 +307,7 @@ test('an edit of a note replaced by one with the very same text becomes a siblin
 	settle();
 	bob.setOnline(true);
 	settle();
-	expect(world.server.read(PATH)).toBe(template);
-	expect(world.server.read('notes/a (bob, 2026-10-28).md')).toBe(`${template}bob's notes\n`);
+	expect(world.server.snapshot()).toEqual(new Map([[PATH, `${template}bob's notes\n`]]));
 });
 
 test('a rename racing an edit of the old path leaves both files, and the renamer is told', () => {
@@ -349,11 +350,11 @@ test('a field both devices set keeps the value that landed first, and the device
 test("an agent's fast-forward commit is refused when main moved and changes nothing; on main it applies, and merge mode is merged", () => {
 	const world = createWorld({ latency: { min: 20, max: 20 } });
 	const alice = world.device('alice');
-	const agent = world.device('agent', { mode: 'fast-forward', pause: 0, most: 0 });
+	const agent = world.device('agent', { mode: 'fast-forward' });
 	world.net.runFor(500);
-	alice.replica.write({ [PATH]: note('one\n') }, { now: true });
+	alice.replica.write({ [PATH]: note('one\n') });
 	world.net.runFor(500);
-	alice.replica.write({ [PATH]: note('one\nalice\n') }, { now: true });
+	alice.replica.write({ [PATH]: note('one\nalice\n') });
 	world.net.runFor(5);
 	agent.replica.write({ [PATH]: note('one\nagent\n') });
 	world.net.runFor(2_000);
@@ -363,7 +364,7 @@ test("an agent's fast-forward commit is refused when main moved and changes noth
 	agent.replica.write({ [PATH]: note('one\nalice\nagent\n') });
 	world.net.runFor(2_000);
 	expect(world.server.read(PATH)).toBe(note('one\nalice\nagent\n'));
-	alice.replica.write({ [PATH]: note('zero\none\nalice\nagent\n') }, { now: true });
+	alice.replica.write({ [PATH]: note('zero\none\nalice\nagent\n') });
 	world.net.runFor(5);
 	agent.replica.write({ [PATH]: note('one\nalice\nagent\nagain\n') }, { commitMode: 'merge' });
 	world.net.runFor(2_000);
@@ -387,40 +388,63 @@ test('the server refuses a commit with no parent, a bad id, or a path named twic
 	expect(server.snapshot()).toEqual(new Map([[PATH, note('one\n')]]));
 });
 
-test('a device commits after a 0.5 s pause, or every 2 s while typing', () => {
-	const { world, alice, pushes } = setup();
-	for (let i = 1; i <= 30; i++) {
+test('every save commits while online; saves while a commit is in flight, or offline, amend one unsent commit', () => {
+	const { world, alice, pushes, settle } = setup();
+	for (let i = 1; i <= 10; i++) {
 		alice.replica.write({ [PATH]: note(`${'x'.repeat(i)}\n`) });
 		world.net.runFor(100);
 	}
-	world.net.runFor(1_000);
-	// Typing from 0.5 s to 3.5 s: a commit at 2 s in, and one after the pause.
-	expect(pushes.map((p) => p.commit.time)).toEqual(['2026-10-28T00:00:02.500Z', '2026-10-28T00:00:03.900Z']);
-	expect(world.server.read(PATH)).toBe(note(`${'x'.repeat(30)}\n`));
+	// A round trip is 40 ms: each save went alone.
+	expect(new Set(pushes.map((p) => p.commit.id)).size).toBe(10);
+	// Three saves inside one round trip: the first goes, the next two amend one commit.
+	alice.replica.write({ [PATH]: note('a\n') });
+	alice.replica.write({ [PATH]: note('ab\n') });
+	alice.replica.write({ [PATH]: note('abc\n') });
+	settle();
+	expect(pushes.slice(10).map((p) => p.commit.files[0]?.text)).toEqual([note('a\n'), note('abc\n')]);
+	alice.setOnline(false);
+	for (let i = 0; i < 20; i++) alice.replica.write({ [PATH]: note(`offline ${i}\n`) });
+	alice.setOnline(true);
+	settle();
+	expect(pushes.slice(12).map((p) => p.commit.files[0]?.text)).toEqual([note('offline 19\n')]);
+	expect(world.server.read(PATH)).toBe(note('offline 19\n'));
 });
 
-test('a flush writes the subject, the paths, and the live range, overlap, sibling and co-author trailers', () => {
+test('a commit whose parent was pruned after two flushes is merged again on top and lands once; the device stands on main', () => {
 	const { world, alice, bob, settle } = setup();
+	alice.replica.write({ [PATH]: note('one\n.\n.\nend\n') });
+	settle();
+	alice.setOnline(false);
+	alice.replica.write({ [PATH]: note('ONE\n.\n.\nend\n') });
+	for (let round = 0; round < 3; round++) {
+		bob.replica.write({ [PATH]: (bob.replica.read(PATH) ?? '').replace('end', `end ${round}`) });
+		settle();
+		world.flush();
+	}
+	alice.setOnline(true);
+	settle();
+	expect(world.server.read(PATH)).toBe(note('ONE\n.\n.\nend 2 1 0\n'));
+	expect(alice.replica.read(PATH)).toBe(world.server.read(PATH));
+	expect(alice.replica.position()).toBe(world.server.main());
+});
+
+test('a flush writes the subject, the paths, and the live range, overlap (with its live commit) and co-author trailers', () => {
+	const { world, alice, bob, pushes, settle } = setup();
 	alice.replica.write({ [PATH]: note('one\n'), 'notes/b.md': 'b\n' });
 	settle();
 	bob.setOnline(false);
 	bob.replica.write({ [PATH]: note('three\n') });
 	alice.replica.write({ [PATH]: note('two\n') });
 	settle();
-	alice.replica.write({ 'notes/b.md': null });
-	settle();
-	alice.replica.write({ 'notes/b.md': 'new b\n' });
-	bob.replica.write({ 'notes/b.md': 'b\nbob\n' });
-	settle();
 	bob.setOnline(true);
 	settle();
+	const bobs = pushes.filter((p) => p.device === 'bob').at(-1)?.commit.id.slice(0, 7);
 	const flushed = world.flush();
 	const lines = flushed?.message.split('\n') ?? [];
-	expect(lines[0]).toBe('Edit notes/a.md and 2 others');
-	expect(lines.slice(2, 5)).toEqual(['notes/a.md', 'notes/b (bob, 2026-10-28).md', 'notes/b.md']);
+	expect(lines[0]).toBe('Edit notes/a.md and 1 others');
+	expect(lines.slice(2, 4)).toEqual(['notes/a.md', 'notes/b.md']);
 	expect(lines.find((l) => l.startsWith('Epicenter-Live: '))).toMatch(/^Epicenter-Live: [0-9a-f]{7}\.\.[0-9a-f]{7} \(\d+ commits\)$/);
-	expect(lines).toContain('Epicenter-Overlap: notes/a.md body (alice/alice, bob/bob)');
-	expect(lines).toContain('Epicenter-Sibling: notes/b (bob, 2026-10-28).md from notes/b.md');
+	expect(lines).toContain(`Epicenter-Overlap: notes/a.md body (alice/alice, bob/bob) in ${bobs}`);
 	expect(lines.filter((l) => l.startsWith('Co-authored-by: '))).toEqual(['Co-authored-by: Alice <alice@example.com>', 'Co-authored-by: Bob <bob@example.com>']);
 	expect(flushed?.author).toBe('alice');
 });
