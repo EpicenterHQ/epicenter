@@ -549,8 +549,15 @@ export function createRepositoryServer({
 		});
 	}
 
+	/**
+	 * Tell every other device what changed. Never the sender's device, on any
+	 * connection: a batch a closed tab sent can land after the device
+	 * connected again, and its own change heard as one made elsewhere would
+	 * merge into its text a second time. The device learns its batch's
+	 * outcome from the reply, or from the receipt when it sends it again.
+	 */
 	function broadcast(message: Broadcast, from: Peer | null) {
-		for (const peer of peers) if (peer !== from) peer.onBroadcast?.(message);
+		for (const peer of peers) if (peer !== from && peer.device !== message.device) peer.onBroadcast?.(message);
 	}
 
 	/**

@@ -107,6 +107,17 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
+	test("a batch is never broadcast to another connection of the device that sent it, such as a reloaded tab's", async () => {
+		const t = await setup();
+		const heard: Broadcast[] = [];
+		t.server.connect({ device: 'alice-laptop', user: 'alice', onBroadcast: (b) => heard.push(b) });
+		// The old connection's batch lands after the device connected again.
+		await t.alice.push(t.batch('alice-laptop', 0, t.write('notes/a.md', null, 'Hello\n')));
+		expect(heard).toEqual([]);
+		expect(t.heard).toHaveLength(1);
+		await t.cleanup();
+	});
+
 	test("people's true overlap becomes a marker block in server order", async () => {
 		const t = await setup();
 		const seq = await seed(t, 'notes/a.md', 'cat\n');
