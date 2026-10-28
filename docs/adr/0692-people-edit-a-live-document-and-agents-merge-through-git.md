@@ -44,11 +44,16 @@ the server by that minute.
   are always LFS objects in R2, declared by blob templates that also write the
   repository's `.gitattributes`; a push carrying a binary outside LFS is
   refused. Other text files stay in Git and are not downloaded to app devices.
-  Identity is the path; the server keeps a week of each path's history
-  (creates, moves, deletes), so an edit follows a move and never lands on a
-  different note recreated at the same path. A device may be offline for up to
-  a week; past that the server answers `expired`, and an edit applies only if
-  its file is unchanged since its base, otherwise it is kept as an offline copy.
+  Identity is the path, and Git is its history: every commit records the
+  server sequence it includes, and moves made through the API are recorded
+  exactly in an `Epicenter-Move` trailer. An edit whose base is older than the
+  last commit is routed through that history, so it follows a move and never
+  lands on a different note recreated at the same path; the server object keeps
+  no history table and no window, so a device may return after any time
+  offline. An edit whose note can no longer be found (its path was deleted and
+  reused by a different note) is saved by the server, in the same transaction,
+  as a sibling note `<stem> (<user>, <YYYY-MM-DD>).md`, and later edits aimed at
+  the old path follow it there.
 - **Operations.** Every request is one batch, `{ device, n, changes }`, applied
   all or nothing, with one outcome per change; a `git push` is the same batch.
   A change is `write(path, base, text)` (create, edit, or, with no text,
@@ -58,11 +63,9 @@ the server by that minute.
   position, and each write's base is the hash of the text it started from; the device keeps the base text and sends it when the
   server answers `need-base`. Setting a value, for example
   `repo.settings.set('theme', 'dark')`, is a write that changes one frontmatter
-  field. A batch's outcome is `applied`, `need-base`, `expired` or `refused`
-  (for agents on overlap, and for anyone on a structural refusal such as a move
-  onto a taken path or a batch out of order); an edit whose path was deleted
-  and reused by a different note is stale and kept, never applied to the new
-  note; within `applied`, each file reports its overlaps, dropped values,
+  field. A batch's outcome is `applied`, `need-base` or `refused` (on overlap
+  when the caller is waiting for the answer, and for anyone on a structural
+  refusal such as a move onto a taken path or a batch out of order); within `applied`, each file reports its overlaps, dropped values,
   an edit kept over a delete, and its text when that differs from what was
   sent. The per-device number makes a retry return its recorded outcome within
   the window; the server stamps each batch with the signed-in user, for
@@ -92,13 +95,20 @@ the server by that minute.
   bodies kept. For people, a delete loses to an edit it had not seen. A
   prototype passes 15,000 random cases for these rules and merges cleanly five
   of six cases where `git merge-file` conflicts.
-- **Overlaps.** What still overlaps is decided by who wrote: for people, Git
+- **Overlaps.** The merge reports every clash as one kind of overlap: a field,
+  a body span, a span touching an existing conflict block, a delete against an
+  edit, two creates, or a path that is reused, taken or gone. One policy
+  settles them by whether the caller waits for the answer. A request that waits
+  (a `git push`, an online `epicenter` command) is refused, naming each overlap.
+  A device's edit, already shown as done, is marked: a body overlap becomes Git
   conflict markers with a base section, in server order, labeled with who, when
-  and the sequence; editors such as VS Code show accept and compare actions for
-  them, and the app renders each block as a card. The server keeps each block's
-  identity, never nests blocks, and removes markers only from a block it created
-  once one side is gone. For agents, a refusal naming the file and the overlap.
-- **Agents.** `epicenter` commands send the same batches. A `git push` is not
+  and the sequence, never nested, so editors such as VS Code show accept and
+  compare actions and the app renders each block as a card; a field overlap
+  keeps the current value; an unseen delete loses to an edit. Every overlap is
+  stored with its batch and named in the commit's `Epicenter-Overlap` trailer.
+- **Agents.** Online, `epicenter` commands send the same batches and wait for
+  the answer; offline, the same commands edit the local clone and commit, and
+  the commit goes through `git push` when the server is reachable. A `git push` is not
   replayed: its net change since its merge base becomes one batch, with the
   pushed commit as a parent of the result. It is refused, with the file and
   reason, if it overlaps changes since that base, if frontmatter does not
@@ -183,8 +193,10 @@ owner's machine took 1.5 s, and the same pack fetched and unpacked through a
 Worker took 3.3 s, against 28 s for per-file reads, so no R2 copies are needed
 for first open. Commit time follows the trees a commit rewrites, not the
 repository's size: one edit took 156 ms with 5,000 files in 100 folders and
-9.9 s with the same files in one folder. Background commits absorb that, but a
-template that puts thousands of notes in one folder makes every commit slow, so
-apps should spread large tables across folders (for example
-`recordings/{year}/{stem}.md`). Two writers racing on `main` always produced
+9.9 s with the same files in one folder. Commits run in the background, so a slow
+commit delays only how soon Git and clones catch up, never an edit; spreading
+a large table across folders (for example `recordings/{year}/{stem}.md`) is
+recommended, not required. Cloudflare describes Artifacts as a Git server in
+WebAssembly with one Durable Object per repository, which fits a cost per
+entry of each rewritten folder. Two writers racing on `main` always produced
 exactly one winner.
