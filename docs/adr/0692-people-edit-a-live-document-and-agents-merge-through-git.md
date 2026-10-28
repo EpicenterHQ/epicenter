@@ -84,7 +84,8 @@ the server by that minute.
   `append`, `put`, `batch`) resolves when it is saved in the device's
   database, works offline, and is never refused on overlap; what happened shows
   in the data, and anything that needs a person's attention (a move that was
-  not applied, an edit saved as a sibling, a protocol fault, which keeps the
+  not applied, a field value kept out by the current one, an edit saved as a
+  sibling, a protocol fault, which keeps the
   text the device showed) goes to `repo.notices`, a device-only list the person
   dismisses. `send(b => ...)` builds a batch for a caller that waits: it is
   online only and fails at once when offline, takes its base from what the
@@ -97,9 +98,13 @@ the server by that minute.
   or parses but does not match an app's schema. `<SourceEditor>`, a built-in
   CodeMirror 6 component, edits any note's whole text, frontmatter included,
   and shows the parse and schema status as you type; it saves through
-  `repo.files.writeText(path, text)`. A raw write may never turn a file that
-  parses into one that does not, so repairing a broken file can save every
-  step, and editing a sound one saves only while it still parses.
+  `repo.files.writeText(path, text)` (or `repo.files.open(path)`, which reads
+  live like an open note). A write may never turn a file that parses into one
+  that does not; the device refuses it before it resolves, the server keeps
+  the current text under `mark` (with a notice holding the person's text) and
+  refuses it under `refuse`. So repairing a broken file can save every step,
+  editing a sound one saves only while it still parses, and a new file breaks
+  nothing, so it may arrive broken and be repaired here.
 - **The app API.** `defineApp` maps identifier names to templates, each with a
   schema or a blob declaration; names must be identifiers, so they never
   collide with engine tables. Every handle takes a parameter object whose keys
@@ -138,8 +143,8 @@ the server by that minute.
   the commit goes through `git push` when the server is reachable. A `git push` is not
   replayed: its net change since its merge base becomes one batch, with the
   pushed commit as a parent of the result. It is refused, with the file and
-  reason, if it overlaps changes since that base, if frontmatter does not
-  parse, if a note exceeds 1 MB stored, or if a binary bypasses LFS; a refusal
+  reason, if it overlaps changes since that base, if it breaks a note's
+  frontmatter that parsed at that base, if a note exceeds 1 MB stored, or if a binary bypasses LFS; a refusal
   commits the overlay first, so the agent's next pull is current. `epicenter
   pull` asks the server to commit first.
 - **Schemas.** The app brings its own schema, published with its release;
