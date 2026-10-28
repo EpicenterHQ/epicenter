@@ -58,6 +58,10 @@ different boundary, or neglected caller need. A known blind spot is not required
 [adversarial-review](../adversarial-review/SKILL.md) owns that search and its
 coordination. Bring discoveries back into the concrete vision through dialectic.
 
+When the emerging explanation needs "except when," find out why before
+building on it, using
+[one-sentence-test](../one-sentence-test/SKILL.md#explain-it-from-its-parts).
+
 ## Work backward from the destination
 
 As the direction settles, describe the observable behavior that would make it

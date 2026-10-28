@@ -1,6 +1,6 @@
 ---
 name: one-sentence-test
-description: Test a product, API, utility, or design by stating what it actually does in one sentence. Use when auditing coherence or looking for orphaned surfaces, duplicate verbs, or inert abstractions, not for plain code-comprehension questions.
+description: Test a product, API, utility, or design by stating what it actually does in one sentence. Use when auditing coherence, when an explanation of a design needs "except when," or when looking for orphaned surfaces, duplicate verbs, or inert abstractions, not for plain code-comprehension questions.
 metadata:
   author: epicenter
   version: '2.0'
