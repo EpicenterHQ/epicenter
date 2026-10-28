@@ -262,7 +262,7 @@ export function createReplica({
 		if (f.sent !== undefined && !own) return;
 		const below = own ? (f.sent?.text ?? null) : f.base;
 		if (own) {
-			// A field this commit set that the server's merge kept out.
+			// RULE: a field this commit set that the server's merge kept out is noted here, from the commit and the answer; nothing else holds the value.
 			const before = fieldsOf(f.base);
 			const now_ = fieldsOf(text);
 			for (const [key, value] of Object.entries(fieldsOf(f.sent?.text ?? null)))

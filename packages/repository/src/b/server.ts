@@ -63,7 +63,7 @@ export type PushAnswer =
 	| {
 			kind: 'applied' | 'merged';
 			main: string;
-			/** The commits on `main` after the commit's parent, so the device knows those notifications are old. */
+			/** RULE: the commits on `main` after the commit's parent, so the device drops those notifications instead of catching up for them. */
 			commits: string[];
 			files: FileState[];
 			/** Paths this commit edited that had been deleted: the edit brought them back. */
@@ -383,7 +383,7 @@ export function createServer({ now = () => 0, onCommit }: { now?: () => number; 
 			const index = from === null ? undefined : place.get(from);
 			const head = main();
 			if (index === undefined || index < offset) {
-				// The paths the device named come too, absent or not, so it learns a named path is gone.
+				// RULE: the paths the device named come too, absent or not, so a device whose commit landed before a flush learns its path is gone.
 				const all = [...new Set([...trees.diff(trees.empty, head.tree), ...paths])].sort();
 				return { main: head.id, full: true, walked: 0, commits: [], files: all.map((path) => ({ path, hash: trees.read(head.tree, path) })) };
 			}
