@@ -9,15 +9,13 @@
 	import FolderIcon from '@lucide/svelte/icons/folder';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import TrashIcon from '@lucide/svelte/icons/trash-2';
-	import { FOLDERS, type FolderEntry, folderLabel as nameOf, rowFile } from '$lib/data.js';
+	import { type FolderEntry, folderLabel as nameOf, folderPath } from '$lib/data.js';
 	import { foldersOf, type Notes, notesOf } from '$lib/notes.svelte.js';
 
 	let { notes }: { notes: Notes } = $props();
 
-	const noteRows = $derived(notesOf(notes.folder.tables.notes.rows));
-	const folders = $derived(
-		foldersOf(notes.folder.tables.folders.rows).toSorted((a, b) => nameOf(a).localeCompare(nameOf(b))),
-	);
+	const noteRows = $derived(notesOf(notes.noteFiles ?? []));
+	const folders = $derived(foldersOf(notes.folderFiles).toSorted((a, b) => nameOf(a).localeCompare(nameOf(b))));
 	const counts = $derived.by(() => {
 		const result = { active: 0, deleted: 0, folders: new Map<string, number>() };
 		for (const note of noteRows) {
@@ -35,30 +33,16 @@
 
 	/** The folder being named: a new one, or an existing one by id. */
 	let naming = $state<{ id: string | undefined; value: string } | undefined>();
-	let savingName = false;
 
-	async function commitName() {
-		if (savingName) return;
+	/** Create or rename the folder; it applies on this device at once. */
+	function commitName() {
 		const current = naming;
+		naming = undefined;
 		const name = current?.value.trim();
-		if (!current || !name) {
-			naming = undefined;
-			return;
-		}
-		const target = folders.find((folder) => folder.id === current.id);
-		savingName = true;
-		const problem =
-			target === undefined
-				? await notes.createFolder(name)
-				: name === nameOf(target)
-					? undefined
-					: await notes.patchFolder(rowFile(FOLDERS, target.id), { name });
-		savingName = false;
-		if (problem) {
-			toast.error('Could not save the folder', { description: problem });
-			return;
-		}
-		if (naming === current && current.value.trim() === name) naming = undefined;
+		if (!current || !name) return;
+		const target = folders.find((folder) => folder.params.stem === current.id);
+		if (target === undefined) notes.createFolder(name);
+		else if (name !== nameOf(target)) notes.patchFolder(folderPath(target.params.stem), { name });
 	}
 
 	function confirmDeleteFolder(folder: FolderEntry) {
@@ -66,8 +50,8 @@
 			title: `Delete the folder “${nameOf(folder)}”?`,
 			description: 'Its notes are kept and moved to All Notes.',
 			confirm: { text: 'Delete', variant: 'destructive' },
-			async onConfirm() {
-				const problem = await notes.deleteFolder(folder);
+			onConfirm() {
+				const problem = notes.deleteFolder(folder);
 				if (problem) toast.error('Could not delete the folder', { description: problem });
 			},
 		});
@@ -87,10 +71,10 @@
 				node.select();
 			}}
 			onkeydown={(event) => {
-				if (event.key === 'Enter') void commitName();
+				if (event.key === 'Enter') commitName();
 				if (event.key === 'Escape') naming = undefined;
 			}}
-			onblur={() => void commitName()}
+			onblur={() => commitName()}
 		/>
 	{/if}
 {/snippet}
@@ -137,16 +121,16 @@
 		</Button>
 	</div>
 	{#if naming && naming.id === undefined}{@render nameInput()}{/if}
-	{#each folders as folder (folder.id)}
-		{#if naming?.id === folder.id}
+	{#each folders as folder (folder.path)}
+		{#if naming?.id === folder.params.stem}
 			{@render nameInput()}
 		{:else}
 			<div class="group flex items-center">
 				<button
 					class={row}
-					class:bg-accent={notes.view.folderId === folder.id && !notes.view.deleted}
-					aria-current={notes.view.folderId === folder.id && !notes.view.deleted ? 'true' : undefined}
-					onclick={() => notes.showFolder(folder.id)}
+					class:bg-accent={notes.view.folderId === folder.params.stem && !notes.view.deleted}
+					aria-current={notes.view.folderId === folder.params.stem && !notes.view.deleted ? 'true' : undefined}
+					onclick={() => notes.showFolder(folder.params.stem)}
 				>
 					{#if folder.fields.icon}
 						<span class="text-base leading-none">{folder.fields.icon}</span>
@@ -154,7 +138,7 @@
 						<FolderIcon class="size-4" />
 					{/if}
 					<span class="truncate">{nameOf(folder)}</span>
-					<span class="ml-auto text-xs text-muted-foreground">{counts.folders.get(folder.id) ?? 0}</span>
+					<span class="ml-auto text-xs text-muted-foreground">{counts.folders.get(folder.params.stem) ?? 0}</span>
 				</button>
 				<DropdownMenu.Root>
 					<DropdownMenu.Trigger>
@@ -166,11 +150,11 @@
 					</DropdownMenu.Trigger>
 					<DropdownMenu.Content align="start" class="w-40">
 						<DropdownMenu.Item
-							onSelect={() => (naming = { id: folder.id, value: nameOf(folder) })}
+							onSelect={() => (naming = { id: folder.params.stem, value: nameOf(folder) })}
 						>
 							Rename
 						</DropdownMenu.Item>
-						<DropdownMenu.Item onSelect={() => notes.open(rowFile(FOLDERS, folder.id), 'text')}>
+						<DropdownMenu.Item onSelect={() => notes.open(folderPath(folder.params.stem), 'text')}>
 							Open file
 						</DropdownMenu.Item>
 						<DropdownMenu.Separator />

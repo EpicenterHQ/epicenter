@@ -1,42 +1,36 @@
 /**
- * The Honeycrisp product state over its local folder, as `getFolder()`
- * answers it: what the lists and the detail show, and every action.
+ * The Honeycrisp product state over its repository: what the lists and the
+ * detail show, and every action.
  *
- * Reads are the folder mirror's landed files and rows. Editors own their
- * short-lived drafts while a write is in flight.
- *
- * Writes go through the folder. A note's title, folder, pin, and body are
- * changes to its fields and body (`table.update`). A file open as its exact
- * text writes the whole file (`folder.write`).
- *
- * The folder keeps no history. Honeycrisp exposes no file renames or moves.
+ * Reads are live queries, so they follow every change on this device and
+ * elsewhere. Every write applies on this device at once and shows at once;
+ * it settles when the server answers, or never without a server, so no
+ * action waits for it. A write that does not land is reported in a toast
+ * (`report`), and the controls show the stored note again.
  */
-import { InstantString } from '@epicenter/definition';
-import { ancestors, joinPath } from '@epicenter/folder/file-browser';
-import { describeIssues, type WriteError } from '@epicenter/folder';
+import { ancestors } from '@epicenter/folder/file-browser';
+import type { Pending, Settled } from '@epicenter/repository';
+import { live } from '@epicenter/repository/svelte';
+import { toast } from '@epicenter/ui/sonner';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
-	FOLDERS,
 	type FolderEntry,
 	type FolderFields,
-	type FolderRow,
-	folderIdOf,
-	NOTES,
+	type FolderFile,
+	folderStemOf,
 	type NoteEntry,
 	type NoteFields,
-	type NoteRow,
-	noteIdOf,
-	rowFile,
+	type NoteFile,
+	notePath,
+	noteStemOf,
 } from './data.js';
-import { nameProblem } from './files.js';
-import type { NotesFolder } from './folder.js';
 import { displayTitle } from './note-source.js';
-import { saveLine } from '@epicenter/svelte/status-line';
+import type { HoneycrispRepository } from './repository.js';
 
 export type Notes = ReturnType<typeof createNotes>;
 
-/** How a path opens: as the note it is, or as its exact text. */
+/** How a path opens: as the note it is, or as its text. */
 export type OpenAs = 'note' | 'text';
 
 /** The selected path and its presentation. The path owns the detail view's lifetime. */
@@ -45,7 +39,7 @@ export type Selection = {
 	readonly as: OpenAs;
 };
 
-/** A listed row file the lists cannot show as a row, and why. */
+/** A listed file the lists cannot show as a note or folder, and why. */
 export type Problem = { readonly path: string; readonly message: string };
 
 /** What a confirmed deletion removes, as the person was asked about it. */
@@ -55,90 +49,60 @@ export type Deletion = {
 	readonly title: string | undefined;
 };
 
-const NOT_LISTED = 'This file is not in the list, so nothing was changed.';
-const NOT_A_NOTE =
-	'This file does not read as a note. Repair it as text first.';
-const NOT_A_FOLDER =
-	'This file does not read as a folder. Repair it as text first.';
-const newId = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+const newStem = () => crypto.randomUUID().replaceAll('-', '').slice(0, 10);
+const now = () => new Date().toISOString();
 
-const notText = (row: NoteRow | FolderRow) =>
-	row.issues?.some(
-		(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
-	) ?? false;
+/** The note files that read as notes. */
+export const notesOf = (files: readonly NoteFile[]): NoteEntry[] => files.filter((file): file is NoteEntry => file.valid);
+/** The folder files that read as folders. */
+export const foldersOf = (files: readonly FolderFile[]): FolderEntry[] =>
+	files.filter((file): file is FolderEntry => file.valid);
 
-/** The note rows that read as notes. */
-export const notesOf = (rows: readonly NoteRow[]): NoteEntry[] =>
-	rows.filter((row): row is NoteEntry => row.issues === null);
-/** The folder rows that read as folders. */
-export const foldersOf = (rows: readonly FolderRow[]): FolderEntry[] =>
-	rows.filter((row): row is FolderEntry => row.issues === null);
+const problemsOf = (files: readonly (NoteFile | FolderFile)[]): Problem[] =>
+	files.flatMap((file) => (file.valid ? [] : [{ path: file.path, message: file.issues.join('; ') }]));
+/** Note files whose text does not read as a note: each opens as its text, with why. */
+export const repairsOf = (files: readonly NoteFile[]) => problemsOf(files);
+/** Folder files that do not read as folders. */
+export const unreadableOf = (folders: readonly FolderFile[]) => problemsOf(folders);
 
-/** Note files whose text does not read as a note: each opens as text for repair. */
-export function repairsOf(rows: readonly NoteRow[]): Problem[] {
-	return rows.flatMap((row) =>
-		row.issues === null || notText(row)
-			? []
-			: [{ path: row.path, message: describeIssues(row.issues) }],
-	);
+/**
+ * Tell the person when a write did not land. A write is shown at once; this
+ * settles when the server answers, or never without a server.
+ */
+export async function report(pending: Pending<Settled | Settled[]>, failure: string) {
+	const { data, error } = await pending;
+	if (error !== null) {
+		if (error.name !== 'Closed') toast.error(failure, { description: error.message });
+		return;
+	}
+	const refused = [data].flat().find((settled) => settled.kind === 'refused');
+	if (refused?.kind === 'refused') toast.error(failure, { description: refused.reason });
 }
 
-/** Note files that are not text or cannot be read, and folder files that do not read as folders. */
-export function unreadableOf(
-	notes: readonly NoteRow[],
-	folders: readonly FolderRow[],
-): Problem[] {
-	return [
-		...notes.flatMap((row) =>
-			row.issues !== null && notText(row)
-				? [{ path: row.path, message: describeIssues(row.issues) }]
-				: [],
-		),
-		...folders.flatMap((row) =>
-			row.issues === null
-				? []
-				: [{ path: row.path, message: describeIssues(row.issues) }],
-		),
-	];
-}
-
-export function createNotes(folder: NotesFolder) {
-	const { notes: noteTable, folders: folderTable } = folder.tables;
+export function createNotes(repo: HoneycrispRepository) {
+	const noteFiles = live(repo.notes.live());
+	const folderFiles = live(repo.folders.live());
+	const fileList = live(repo.live<{ path: string }>('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL ORDER BY path'));
+	const unsent = live(repo.live<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL'));
 
 	/** Which notes the list shows; input not yet committed, like a search. */
-	let view = $state<{
-		folderId: string | null;
-		deleted: boolean;
-		query: string;
-	}>({ folderId: null, deleted: false, query: '' });
+	let view = $state<{ folderId: string | null; deleted: boolean; query: string }>({
+		folderId: null,
+		deleted: false,
+		query: '',
+	});
 	/** Folders open in the file browser; kept while the browser is hidden. */
-	const expanded = new SvelteSet<string>([NOTES]);
+	const expanded = new SvelteSet<string>(['notes']);
 	/** What the detail shows. */
 	let selected = $state.raw<Selection | undefined>();
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
-	const failed = (error: WriteError | null | undefined) =>
-		error === null || error === undefined ? undefined : error.message;
 
-	async function patchNote(path: string, fields: Partial<NoteFields>) {
-		const id = noteIdOf(path);
-		if (id === undefined) return NOT_LISTED;
-		const row = noteTable.row(id);
-		if (row === undefined) return NOT_LISTED;
-		if (row.issues !== null) return NOT_A_NOTE;
-		return failed((await noteTable.update(id, { fields })).error);
-	}
-
-	// ------------------------------------------------------------------
-	// Opening
-	// ------------------------------------------------------------------
+	const noteAt = (path: string) => noteFiles.current?.find((file) => file.path === path);
 
 	/** How a path opens when nothing says: a note as a note, unless its text is not one. */
 	function defaultAs(path: string): OpenAs {
-		const id = noteIdOf(path);
-		if (id === undefined) return 'text';
-		const row = noteTable.row(id);
-		return row?.issues === null ? 'note' : 'text';
+		return noteStemOf(path) !== undefined && noteAt(path)?.valid !== false ? 'note' : 'text';
 	}
 
 	/** Show `path` in the detail. */
@@ -149,69 +113,67 @@ export function createNotes(folder: NotesFolder) {
 		selected = { path, as };
 	}
 
-	/** Why a file named `name` in `directory` cannot be made, if it cannot. */
-	function placeProblem(directory: string, name: string) {
-		const why = nameProblem(directory, name);
-		if (why !== undefined) return why;
-		const path = joinPath(directory, name);
-		if (
-			folder.files.some(
-				(file) => file.path === path || file.path.startsWith(`${path}/`),
-			)
-		)
-			return `"${name}" already exists here.`;
-		return undefined;
+	/** Set fields of a note; only the keys named change. */
+	function patchNote(path: string, fields: Partial<NoteFields>, failure = 'Could not update the note') {
+		const stem = noteStemOf(path);
+		if (stem !== undefined) void report(repo.notes.write({ stem }, { fields }), failure);
 	}
 
-	/** Refuse deletion while any note cannot identify its logical folder. */
-	function unknownRelations(rows: readonly NoteRow[]) {
-		const unknown = rows.filter((note) => note.issues !== null);
-		if (unknown.length === 0) return undefined;
-		return `Some notes cannot be read well enough to tell which folder they are in (${unknown
-			.slice(0, 3)
-			.map((note) => `${note.id}.md`)
-			.join(', ')}). Repair or remove them first.`;
-	}
-
-	/** Move every member out, then remove the logical folder. */
-	async function deleteFolder(entry: FolderEntry) {
-		const rows = noteTable.rows;
-		const unknown = unknownRelations(rows);
-		if (unknown !== undefined) return unknown;
-		const moved = await Promise.all(
-			notesOf(rows)
-				.filter((note) => note.fields.folderId === entry.id)
-				.map((note) => noteTable.update(note.id, { fields: { folderId: null } })),
+	/**
+	 * Move every member out and remove the folder, in one batch, so it lands
+	 * all or nothing. Refused while a note cannot say which folder it is in.
+	 */
+	function deleteFolder(entry: FolderEntry): string | undefined {
+		const files = noteFiles.current ?? [];
+		const unknown = files.filter(({ fields }) => fields.folderId !== null && typeof fields.folderId !== 'string');
+		if (unknown.length > 0)
+			return `Some notes cannot be read well enough to tell which folder they are in (${unknown
+				.slice(0, 3)
+				.map((file) => file.path)
+				.join(', ')}). Repair or remove them first.`;
+		const members = files.filter((file) => file.fields.folderId === entry.params.stem);
+		void report(
+			repo.batch((batch) => {
+				for (const member of members) batch.notes.write({ stem: member.params.stem }, { fields: { folderId: null } });
+				batch.folders.delete({ stem: entry.params.stem });
+			}),
+			'Could not delete the folder',
 		);
-		const problem = moved.map(({ error }) => failed(error)).find(Boolean);
-		if (problem !== undefined) return problem;
-		// A note that joined the folder while this ran keeps it.
-		if (noteTable.rows.some((note) => note.fields?.folderId === entry.id))
-			return 'Some notes are still in this folder, so it was kept. Delete it again to move them out.';
-		const why = await deleteConfirmed({
-			path: rowFile(FOLDERS, entry.id),
-			title: undefined,
-		});
-		if (why !== undefined) return why;
-		if (view.folderId === entry.id) view = { ...view, folderId: null };
+		if (view.folderId === entry.params.stem) view = { ...view, folderId: null };
 		return undefined;
 	}
 
-	async function deleteConfirmed({ path }: Deletion): Promise<string | undefined> {
+	/** Delete a note or folder file. Other files belong to the repository, not to Honeycrisp. */
+	function deleteConfirmed({ path }: Deletion) {
 		if (selected?.path === path) selected = undefined;
-		const problem = failed((await folder.delete(path)).error);
-		if (problem !== undefined) return problem;
-		return undefined;
+		const note = noteStemOf(path);
+		const folder = folderStemOf(path);
+		if (note !== undefined) void report(repo.notes.delete({ stem: note }), 'Could not delete the note');
+		else if (folder !== undefined) void report(repo.folders.delete({ stem: folder }), 'Could not delete the folder');
 	}
 
 	return {
-		/** The opened folder; `<OpenFolder>` closes it. */
-		folder,
+		repo,
 
 		// ------------------------------------------------------------------
 		// What the lists and the detail show
 		// ------------------------------------------------------------------
 
+		/** Every note file, valid or not; undefined until the first answer. */
+		get noteFiles() {
+			return noteFiles.current;
+		},
+		get folderFiles() {
+			return folderFiles.current ?? [];
+		},
+		/** Every file this device holds, by path. */
+		get files() {
+			return (fileList.current ?? []).map((file) => file.path);
+		},
+		/** Writes applied here that the server has not answered yet. */
+		get unsent() {
+			return unsent.current?.[0]?.n ?? 0;
+		},
 		expanded,
 		get view() {
 			return view;
@@ -234,86 +196,39 @@ export function createNotes(folder: NotesFolder) {
 		open,
 
 		// ------------------------------------------------------------------
-		// State read reactively
-		// ------------------------------------------------------------------
-
-		/** Typed input enters the folder queue immediately. */
-		get saves() {
-			return saveLine(folder.saving);
-		},
-
-		// ------------------------------------------------------------------
-		// Note and folder rows
+		// Actions; each applies at once and reports a write that did not land
 		// ------------------------------------------------------------------
 
 		patchNote,
 		/** Move a note to Recently Deleted. The file stays; `deletedAt` is set. */
-		trashNote: (path: string) =>
-			patchNote(path, { deletedAt: InstantString.now() }),
-		restoreNote: (path: string) => patchNote(path, { deletedAt: null }),
-		/** Set a folder's fields and save at once; answers why not, if not. */
-		async patchFolder(path: string, fields: Partial<FolderFields>) {
-			const id = folderIdOf(path);
-			if (id === undefined) return NOT_LISTED;
-			const row = folderTable.row(id);
-			if (row === undefined) return NOT_LISTED;
-			if (row.issues !== null) return NOT_A_FOLDER;
-			return failed((await folderTable.update(id, { fields })).error);
+		trashNote: (path: string) => patchNote(path, { deletedAt: now() }, 'Could not delete the note'),
+		restoreNote: (path: string) => patchNote(path, { deletedAt: null }, 'Could not restore the note'),
+		patchFolder(path: string, fields: Partial<FolderFields>) {
+			const stem = folderStemOf(path);
+			if (stem !== undefined) void report(repo.folders.write({ stem }, { fields }), 'Could not save the folder');
 		},
-
-		// ------------------------------------------------------------------
-		// Actions; each answers what the person is told, if anything
-		// ------------------------------------------------------------------
-
-		/** Create a note in the folder being shown and open it at once. */
-		async createNote() {
-			const id = newId();
+		/** Create a note in the folder being shown and open it: it is on this device as soon as this returns. */
+		createNote() {
+			const stem = newStem();
 			const folderId = view.deleted ? null : view.folderId;
-			const created = await noteTable.create(id, {
-				fields: {
-					folderId,
-					title: '',
-					pinned: false,
-					createdAt: InstantString.now(),
-					deletedAt: null,
-				},
-				body: '',
-			});
-			if (created.error !== null) return failed(created.error);
-			open(rowFile(NOTES, id), 'note');
-			return undefined;
+			void report(
+				repo.notes.create({ stem }, { fields: { folderId, title: '', pinned: false, createdAt: now(), deletedAt: null }, body: '' }),
+				'Could not create the note',
+			);
+			open(notePath(stem), 'note');
 		},
-		async createFolder(name: string) {
-			const created = await folderTable.create(newId(), {
-				fields: { name, icon: null },
-				body: '',
-			});
-			return failed(created.error);
-		},
-		/** A new empty text file, opened at once after checking the listed names. */
-		async createFile(directory: string, name: string) {
-			const problem = placeProblem(directory, name);
-			if (problem !== undefined) return problem;
-			const path = joinPath(directory, name);
-			const written = await folder.write(path, '');
-			if (written.error !== null) return failed(written.error);
-			open(path, 'text');
-			return undefined;
+		createFolder(name: string) {
+			void report(repo.folders.create({ stem: newStem() }, { fields: { name, icon: null }, body: '' }), 'Could not create the folder');
 		},
 		deleteFolder,
+		/** Whether Honeycrisp deletes `path`: notes and folders are its own. */
+		deletable: (path: string) => noteStemOf(path) !== undefined || folderStemOf(path) !== undefined,
 		/** What deleting `path` would remove, for the person to confirm. */
 		deletionFor(path: string): Result<Deletion, string> {
-			if (folder.file(path) === undefined)
-				return Err('It is no longer in the folder.');
-			const id = noteIdOf(path);
-			const row = id === undefined ? undefined : noteTable.row(id);
-			return Ok({
-				path,
-				title:
-					row?.issues === null
-						? displayTitle(row.fields.title, row.body)
-						: undefined,
-			});
+			if (noteStemOf(path) === undefined && folderStemOf(path) === undefined)
+				return Err('Honeycrisp deletes only notes and folders.');
+			const note = noteAt(path);
+			return Ok({ path, title: note?.valid ? displayTitle(note.fields.title, note.body) : undefined });
 		},
 		delete: deleteConfirmed,
 	};

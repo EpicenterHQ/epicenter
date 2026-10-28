@@ -1,17 +1,23 @@
 /**
  * Honeycrisp Page DOM Tests
  *
- * Mounts the real page with its opener and toaster. Verifies persisted notes,
- * live repair, and failed-save recovery shown to the user.
+ * Mounts the real page in jsdom over the repository engine running in this
+ * process, with a scripted server that seeds files and delivers other
+ * devices' changes (`repository.test-support.ts`). A second client of the
+ * same engine stands in for another tab.
+ *
+ * Key behaviors:
+ * - A new note's title and body persist across close and reopen, and every field stays
+ * - A change from elsewhere updates the open note without replacing its controls
+ * - A note that does not read as one is listed for repair and opens as its text
+ * - A write the engine refuses is reported, and the controls follow the stored note
+ * - Deleting a folder moves its notes out in the same batch
  */
-import 'fake-indexeddb/auto';
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { openFolder } from '@epicenter/folder/browser';
-import { until as folderUntil } from '@epicenter/folder/testing';
-import { expectOk } from 'wellcrafted/testing';
+import { Ok } from 'wellcrafted/result';
 import { button, type } from '../../../../packages/svelte/src/svelte-dom.test-support.js';
-import { honeycrispTables } from '../lib/data.js';
+import { type Device, folderText, noteText, openDevice, until as poll } from '../lib/repository.test-support.js';
 
 // SAFETY: jsdom has no layout; the empty list supplies only the geometry these tests need.
 Range.prototype.getClientRects ??= () => ({ length: 0, item: () => null, [Symbol.iterator]: function* () {} }) as DOMRectList;
@@ -20,224 +26,131 @@ Range.prototype.getBoundingClientRect ??= () => ({ top: 0, bottom: 0, left: 0, r
 const { flushSync, mount, unmount } = await import('svelte');
 const { confirmationDialog } = await import('@epicenter/ui/confirmation-dialog');
 const PageHost = (await import('../lib/page-host.test-support.svelte')).default;
+
 const cleanups: (() => unknown)[] = [];
-afterEach(async () => { for (const step of cleanups.splice(0).reverse()) await step(); document.body.replaceChildren(); });
-const TITLE = 'section[aria-label="Note"] input[aria-label="Title"]';
-const SOURCE = 'section[aria-label="Note"] textarea[aria-label="Markdown source"]';
+afterEach(async () => {
+	for (const step of cleanups.splice(0).reverse()) await step();
+	document.body.replaceChildren();
+});
+
+const NOTE = 'section[aria-label="Note"]';
+const TITLE = `${NOTE} input[aria-label="Title"]`;
+const SOURCE = `${NOTE} textarea[aria-label="Markdown source"]`;
 const LIST = 'section[aria-label="Notes"]';
-const noteText = ({ title = 'A' } = {}) =>
-    `---\nfolderId: null\ntitle: ${JSON.stringify(title)}\npinned: false\ncreatedAt: "2026-10-01T00:00:00.000Z"\ndeletedAt: null\n---\nBody.\n`;
-async function until(check: () => boolean, what: string) {
-    try {
-        await folderUntil(() => {
-            flushSync();
-            return check();
-        }, { timeout: 3000 });
-    } catch {
-        throw new Error(`Timed out waiting for ${what}`);
-    }
-}
-async function tab() {
-    const folder = expectOk(await openFolder({ tables: honeycrispTables }));
-    cleanups.push(() => folder.close());
-    return folder;
-}
-async function openPage() {
-    const target = document.createElement('div'); document.body.append(target);
-    const component = mount(PageHost, { target });
-    let mounted = true;
-    const close = async () => {
-        if (!mounted) return;
-        mounted = false;
-        await unmount(component);
-        target.remove();
-    };
-    cleanups.push(close);
-    await until(() => target.querySelector(LIST) !== null, 'notes list');
-    const get = <T extends Element>(selector: string) => {
-        const found = target.querySelector<T>(selector);
-        if (!found) throw new Error(`Missing ${selector}`);
-        return found;
-    };
-    return { target, get, close };
+
+const until = (check: () => boolean, what: string) => poll(check, what, flushSync);
+
+async function device(files: Record<string, string> = {}) {
+	const opened = await openDevice(files);
+	cleanups.push(() => opened.close());
+	return opened;
 }
 
-test('new note title and source persist across page close', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const page = await openPage();
-    page.get<HTMLButtonElement>('button[aria-label="New note"]').click();
-    await until(() => page.target.querySelector(TITLE) !== null, 'new note');
-    type(page.get<HTMLInputElement>(TITLE), 'Groceries');
-    await until(() => page.target.querySelector(LIST)?.textContent?.includes('Groceries') ?? false, 'saved title');
-    button(page.target, 'Source').click();
-    flushSync();
-    type(page.get<HTMLTextAreaElement>(SOURCE), 'Milk\n');
-    await until(() => page.target.querySelector(LIST)?.textContent?.includes('Milk') ?? false, 'saved body');
-    await until(() => page.target.querySelector('[data-testid="status-summary"]')?.getAttribute('aria-label')?.includes('On this device') ?? false, 'idle status');
-    const second = await tab();
-    expect(second.tables.notes.rows()[0]?.body).toBe('Milk\n');
-    await page.close();
-    const reopened = await openPage();
-    await until(() => reopened.target.querySelector(LIST)?.textContent?.includes('Groceries') ?? false, 'reopened note');
-    expect(reopened.target.querySelector(LIST)?.textContent).toContain('Milk');
+async function openPage(on: Device) {
+	const target = document.createElement('div');
+	document.body.append(target);
+	const component = mount(PageHost, { target, props: { open: async () => Ok(on.tab()) } });
+	let mounted = true;
+	const close = async () => {
+		if (!mounted) return;
+		mounted = false;
+		await unmount(component);
+		target.remove();
+	};
+	cleanups.push(close);
+	await until(() => target.querySelector(LIST) !== null, 'the notes list');
+	const get = <T extends Element>(selector: string) => {
+		const found = target.querySelector<T>(selector);
+		if (!found) throw new Error(`Missing ${selector}`);
+		return found;
+	};
+	const text = (selector: string) => target.querySelector(selector)?.textContent ?? '';
+	return { target, get, text, close };
+}
+
+async function openNote(page: Awaited<ReturnType<typeof openPage>>, path: string) {
+	await until(() => page.target.querySelector(`[data-note="${path}"]`) !== null, `${path} in the list`);
+	page.get<HTMLButtonElement>(`[data-note="${path}"]`).click();
+	await until(() => page.target.querySelector(TITLE) !== null, `${path} to open`);
+}
+
+test("a new note's title and body persist across close and reopen", async () => {
+	const on = await device();
+	const page = await openPage(on);
+	page.get<HTMLButtonElement>('button[aria-label="New note"]').click();
+	await until(() => page.target.querySelector(TITLE) !== null, 'the new note');
+	type(page.get<HTMLInputElement>(TITLE), 'Groceries');
+	await until(() => page.text(LIST).includes('Groceries'), 'the title in the list');
+	button(page.target, 'Source').click();
+	flushSync();
+	type(page.get<HTMLTextAreaElement>(SOURCE), 'Milk\n');
+	await until(() => page.text(LIST).includes('Milk'), 'the body in the list');
+	expect(page.get('[data-testid="status-summary"]').getAttribute('aria-label')).toContain('On this device');
+	await page.close();
+
+	const [note] = await on.tab().notes.list();
+	expect(note).toMatchObject({ valid: true, body: 'Milk\n', fields: { title: 'Groceries', pinned: false, folderId: null, deletedAt: null } });
+	const reopened = await openPage(on);
+	await until(() => reopened.text(LIST).includes('Groceries'), 'the reopened note');
+	expect(reopened.text(LIST)).toContain('Milk');
 });
 
-test('invalid note repairs as file and opens as note when typed text validates', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const seed = await tab();
-    expectOk(await seed.write('notes/a.md', 'plain text\n'));
-    const page = await openPage();
-    await until(() => page.target.textContent?.includes('Needs repair') ?? false, 'repair listing');
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor');
-    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), noteText());
-    flushSync();
-    expect(page.target.querySelector('[data-testid="row-issues"]')).toBeNull();
-    button(page.target, 'Open as note').click();
-    await until(() => page.target.querySelector(TITLE) !== null, 'repaired note');
-    await seed.refresh();
-    expect(seed.tables.notes.row('a')?.issues).toBeNull();
-    expect(seed.file('notes/a.md')?.data).toBe(noteText());
+test('a change from elsewhere updates the open note without replacing its controls', async () => {
+	const on = await device({ 'notes/a.md': noteText({ title: 'Alpha' }) });
+	const page = await openPage(on);
+	await openNote(page, 'notes/a.md');
+	const title = page.get<HTMLInputElement>(TITLE);
+	expect(title.value).toBe('Alpha');
+	await on.theirs('notes/a.md', noteText({ title: 'Beta' }));
+	await until(() => page.get<HTMLInputElement>(TITLE).value === 'Beta', 'their title');
+	expect(page.get(TITLE)).toBe(title);
+
+	type(title, 'Gamma');
+	flushSync();
+	// A key Honeycrisp does not name stays as its writer left it.
+	await until(() => on.text('notes/a.md')?.includes('title: Gamma') ?? false, 'the typed title');
+	expect(on.text('notes/a.md')).toContain('owner:\n  name: one\n  tags: [two]\n');
 });
 
-test('failed repair write remains available after switching presentations', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const seed = await tab();
-    expectOk(await seed.write('notes/a.md', 'plain text\n'));
-    const page = await openPage();
-    await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'repair listing');
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor');
-    const put = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
-    cleanups.push(() => { IDBObjectStore.prototype.put = put; });
-    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), noteText());
-    flushSync();
-    button(page.target, 'Open as note').click();
-    await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'repair failure');
-    expect(page.target.querySelector('textarea[aria-label="Contents of a.md"]')).toBeNull();
-    button(page.target, 'Repair as text').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'repair editor');
-    expect(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toBe(noteText());
-    expect(seed.file('notes/a.md')?.data).toBe('plain text\n');
+test('a note that does not read as one is listed for repair and opens as its text', async () => {
+	const on = await device({ 'notes/a.md': 'plain text\n', 'folders/f.md': 'not a folder\n' });
+	const page = await openPage(on);
+	await until(() => page.text(LIST).includes('Needs repair'), 'the repair listing');
+	expect(page.text(LIST)).toContain('folders/f.md');
+	page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
+	await until(() => page.target.querySelector('pre[aria-label="Text of a.md"]') !== null, 'the text view');
+	expect(page.text('pre[aria-label="Text of a.md"]')).toBe('plain text\n');
+	expect(page.target.querySelector('[data-testid="row-issues"]')).not.toBeNull();
+	expect(on.text('notes/a.md')).toBe('plain text\n');
 });
 
-test('selecting the same note leaves a failed text edit available for retry', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const seed = await tab();
-    expectOk(await seed.write('notes/a.md', noteText({ title: 'Disk' })));
-    const page = await openPage();
-    await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'note listing');
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => page.target.querySelector(TITLE) !== null, 'note title');
-    button(page.target, 'Edit as file').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor');
-    const put = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
-    cleanups.push(() => { IDBObjectStore.prototype.put = put; });
-    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), noteText({ title: 'Typed' }));
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'failed text save');
-    expect(page.target.querySelector('section[aria-label="File"]')).toBeNull();
-    button(page.target, 'Edit as file').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor again');
-    expect(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toContain('title: "Typed"');
+test('a write the engine refuses is reported, and the controls follow the stored note', async () => {
+	const on = await device({ 'notes/a.md': noteText({ title: 'Disk' }) });
+	const page = await openPage(on);
+	await openNote(page, 'notes/a.md');
+	on.refuseWrites(true);
+	type(page.get<HTMLInputElement>(TITLE), 'Typed');
+	await until(() => document.body.textContent?.includes('Could not save the title') ?? false, 'the title error');
+	await until(() => page.get<HTMLInputElement>(TITLE).value === 'Disk', 'the stored title');
+	expect(on.text('notes/a.md')).toBe(noteText({ title: 'Disk' }));
 });
 
-test('invalid landed text remains repairable after selecting the same note', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const seed = await tab();
-    expectOk(await seed.write('notes/a.md', noteText({ title: 'Disk' })));
-    const page = await openPage();
-    await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'note listing');
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => page.target.querySelector(TITLE) !== null, 'note title');
-    button(page.target, 'Edit as file').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file editor');
-    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), 'invalid note\n');
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => seed.file('notes/a.md')?.data === 'invalid note\n', 'invalid text save');
-    flushSync();
-    expect(page.target.querySelector('section[aria-label="File"]')).toBeNull();
-    expect(page.target.textContent).toContain('Needs repair');
-    button(page.target, 'Repair as text').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'repair editor again');
-    expect(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]').value).toBe('invalid note\n');
-});
-
-test('failed title save keeps input for retry and discard', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const seed = await tab();
-    expectOk(await seed.write('notes/a.md', noteText({ title: 'Disk' })));
-    const page = await openPage();
-    await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'note listing');
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => page.target.querySelector(TITLE) !== null, 'note title');
-    const put = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
-    cleanups.push(() => { IDBObjectStore.prototype.put = put; });
-    type(page.get<HTMLInputElement>(TITLE), 'Typed');
-    await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'unsaved title');
-    expect(page.get<HTMLInputElement>(TITLE).value).toBe('Typed');
-    expect(page.target.textContent).toContain('Copy');
-    IDBObjectStore.prototype.put = put;
-    button(page.target, 'Save again').click();
-    await until(() => seed.tables.notes.row('a')?.fields?.title === 'Typed', 'retried title');
-    await until(() => !page.target.textContent?.includes('Not saved:'), 'cleared unsaved title');
-
-    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
-    type(page.get<HTMLInputElement>(TITLE), 'Discard me');
-    await until(() => page.target.textContent?.includes('Not saved:') ?? false, 'second unsaved title');
-    expect(page.get<HTMLInputElement>(TITLE).value).toBe('Discard me');
-    button(page.target, 'Discard').click();
-    await until(() => page.get<HTMLInputElement>(TITLE).value === 'Typed', 'discarded title');
-    expect(page.target.textContent).not.toContain('Not saved:');
-});
-
-test('failed note creation reports its error at the command', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const page = await openPage();
-    const put = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
-    cleanups.push(() => { IDBObjectStore.prototype.put = put; });
-    page.get<HTMLButtonElement>('button[aria-label="New note"]').click();
-    await until(() => page.target.textContent?.includes('Could not create the note') ?? false, 'create failure');
-    expect(page.target.querySelector(TITLE)).toBeNull();
-});
-
-test('failed folder rename keeps the typed name available', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const page = await openPage();
-    page.get<HTMLButtonElement>('button[aria-label="New folder"]').click();
-    await until(() => page.target.querySelector('input[aria-label="Folder name"]') !== null, 'folder name input');
-    const input = page.get<HTMLInputElement>('input[aria-label="Folder name"]');
-    type(input, 'Project');
-    const put = IDBObjectStore.prototype.put;
-    IDBObjectStore.prototype.put = () => { throw new DOMException('Disk is full', 'QuotaExceededError'); };
-    cleanups.push(() => { IDBObjectStore.prototype.put = put; });
-    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    await until(() => document.body.textContent?.includes('Could not save the folder') ?? false, 'folder save failure');
-    expect(page.get<HTMLInputElement>('input[aria-label="Folder name"]').value).toBe('Project');
-});
-
-test('deleting from Files drains the selected file draft before removal', async () => {
-    globalThis.indexedDB = new IDBFactory();
-    const seed = await tab();
-    expectOk(await seed.write('notes/a.md', noteText()));
-    const page = await openPage();
-    await until(() => page.target.querySelector('[data-note="notes/a.md"]') !== null, 'note listing');
-    page.get<HTMLButtonElement>('[data-note="notes/a.md"]').click();
-    await until(() => page.target.querySelector(TITLE) !== null, 'note view');
-    button(page.target, 'Edit as file').click();
-    await until(() => page.target.querySelector('textarea[aria-label="Contents of a.md"]') !== null, 'file view');
-    type(page.get<HTMLTextAreaElement>('textarea[aria-label="Contents of a.md"]'), 'Pending replacement');
-    button(page.target, 'Files').click();
-    await until(() => page.target.querySelector('[data-row="notes/a.md"]') !== null, 'file tree');
-    page.get<HTMLElement>('[data-row="notes/a.md"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
-    await confirmationDialog.confirm();
-    await seed.refresh();
-    expect(seed.file('notes/a.md')).toBeUndefined();
-    await Bun.sleep(1100);
-    await seed.refresh();
-    expect(seed.file('notes/a.md')).toBeUndefined();
+test('deleting a folder moves its notes out in the same batch', async () => {
+	const on = await device({
+		'folders/work.md': folderText('Work'),
+		'notes/a.md': noteText({ title: 'In work', folderId: 'work' }),
+	});
+	const page = await openPage(on);
+	await until(() => page.text('nav[aria-label="Folders"]').includes('Work'), 'the folder');
+	page.get<HTMLButtonElement>('button[aria-label="Actions for Work"]').dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+	await until(() => document.querySelector('[role="menuitem"]') !== null, 'the folder menu');
+	const item = [...document.querySelectorAll('[role="menuitem"]')].find((element) => element.textContent?.trim() === 'Delete…');
+	if (!(item instanceof HTMLElement)) throw new Error('No Delete… item');
+	item.click();
+	await confirmationDialog.confirm();
+	await until(() => on.text('folders/work.md') === null, 'the folder deleted');
+	expect(on.text('notes/a.md')).toContain('folderId: null');
+	const outbox = await on.repo.query<{ changes: string }>('SELECT changes FROM "epicenter/outbox"');
+	expect(outbox).toHaveLength(1);
+	expect(JSON.parse(outbox[0]?.changes ?? '[]')).toHaveLength(2);
 });

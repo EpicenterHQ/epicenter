@@ -23,13 +23,11 @@ export function describeDeletion(deletion: Deletion) {
 			deletion.title !== undefined
 				? `Delete “${deletion.title}” permanently?`
 				: `Delete ${basename(deletion.path)}?`,
-		description: `This deletes ${deletion.path} from this device. Honeycrisp keeps no versions, so it cannot be brought back.`,
+		description: `This deletes ${deletion.path}, on this device and, when it syncs, everywhere.`,
 	};
 }
 
-/**
- * Ask before deleting `path`. The delete joins the mirror's write queue.
- */
+/** Ask before deleting `path`; the delete applies on this device at once. */
 export function confirmDelete(notes: Notes, path: string) {
 	const { data: deletion, error: refusal } = notes.deletionFor(path);
 	if (refusal !== null) {
@@ -41,12 +39,8 @@ export function confirmDelete(notes: Notes, path: string) {
 	confirmationDialog.open({
 		...describeDeletion(deletion),
 		confirm: { text: 'Delete', variant: 'destructive' },
-		async onConfirm() {
-			const problem = await notes.delete(deletion);
-			if (problem)
-				toast.error(`Could not delete ${basename(path)}`, {
-					description: problem,
-				});
+		onConfirm() {
+			notes.delete(deletion);
 		},
 	});
 }

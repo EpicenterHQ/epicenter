@@ -1,39 +1,36 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
-	import { type NotesFolder, setFolder } from '$lib/folder.js';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { toast } from '@epicenter/ui/sonner';
 	import { createNotes } from '$lib/notes.svelte.js';
+	import { type HoneycrispRepository, setRepository } from '$lib/repository.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileDetail from './FileDetail.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import NoteList from './NoteList.svelte';
 
-	// The notes over the folder `<OpenFolder>` opened, listed, and wrapped.
-	let { folder }: { folder: NotesFolder } = $props();
+	// The notes over the repository `OpenHoneycrisp` opened.
+	let { repo, syncsTo }: { repo: HoneycrispRepository; syncsTo?: string } = $props();
 
-	// The opened folder stays fixed until this app root unmounts.
+	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	const notes = createNotes(setFolder(folder));
+	const notes = createNotes(setRepository(repo));
 
 	let filesOpen = $state(false);
 	function openListed(path: string) {
 		notes.open(path);
 	}
-
 </script>
 
 <svelte:window
-	onkeydown={async (event) => {
+	onkeydown={(event) => {
 		const mod = event.metaKey || event.ctrlKey;
 		if (mod && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'b') {
 			event.preventDefault();
 			filesOpen = !filesOpen;
 		} else if (mod && !event.shiftKey && event.key.toLowerCase() === 'n') {
 			event.preventDefault();
-			const problem = await notes.createNote();
-			if (problem) toast.error('Could not create the note', { description: problem });
+			notes.createNote();
 		}
 	}}
 />
@@ -41,6 +38,7 @@
 <div class="flex h-dvh flex-col overflow-hidden">
 	<AppHeader
 		{notes}
+		{syncsTo}
 		{filesOpen}
 		onToggleFiles={() => (filesOpen = !filesOpen)}
 	/>

@@ -1,82 +1,67 @@
 /**
- * Honeycrisp's tables in its local folder, `openFolder({ tables: honeycrispTables })`.
+ * Honeycrisp's lens over its repository: a note is `notes/<stem>.md` and a
+ * folder is `folders/<stem>.md`. The file stem is the identity; everything a
+ * person can change is frontmatter or body. Folder membership is the note's
+ * `folderId`, so moving a note between folders never moves its file.
  *
- * A note is `notes/<id>.md` and a folder is `folders/<id>.md`. The file stem
- * is the identity; everything a person can change is frontmatter or body.
- * Folder membership is the note's `folderId`, so moving a note between
- * folders never moves its file.
- *
- * The schemas only interpret: a row that does not fit is listed with its
- * exact text and its issues, a save never checks a row against them, and a
- * key Honeycrisp does not name survives every save.
- *
- * The body is plain Markdown text. The rich-text editor reads and writes it
- * through `editor/markdown.ts`.
+ * The schemas only interpret: a note that does not fit is listed with its
+ * exact text and its issues, and a write changes only the keys and the body
+ * it names, so a key Honeycrisp does not name survives every save.
  */
-import { field } from '@epicenter/definition';
-import type { Row } from '@epicenter/folder';
+import { defineApp, type Note } from '@epicenter/repository';
 import { type Static, Type } from 'typebox';
 
-export const honeycrispTables = {
-	folders: Type.Object({
-		name: field.string(),
-		// Nullable rather than optional: a file field is one type, and
-		// "absent" is reported as a missing field instead.
-		icon: field.nullable(field.string()),
-	}),
-	notes: Type.Object({
-		folderId: field.nullable(field.string()),
-		title: field.string(),
-		pinned: field.boolean(),
-		createdAt: field.instant(),
-		deletedAt: field.nullable(field.instant()),
-	}),
-};
+const nullable = <T extends ReturnType<typeof Type.String>>(type: T) => Type.Union([type, Type.Null()]);
 
-export type HoneycrispTables = typeof honeycrispTables;
-export type TableName = keyof HoneycrispTables & string;
+export const noteSchema = Type.Object({
+	folderId: nullable(Type.String()),
+	title: Type.String(),
+	pinned: Type.Boolean(),
+	/** An ISO 8601 instant; the list orders by it. A save moves no timestamp. */
+	createdAt: Type.String(),
+	deletedAt: nullable(Type.String()),
+});
 
-export type NoteFields = Static<HoneycrispTables['notes']>;
-export type FolderFields = Static<HoneycrispTables['folders']>;
+export const folderSchema = Type.Object({
+	name: Type.String(),
+	icon: nullable(Type.String()),
+});
 
-/** A note file as the table lists it: its text, its fields, and any issues. */
-export type NoteRow = Row<HoneycrispTables['notes']>;
-/** A folder file as the table lists it. */
-export type FolderRow = Row<HoneycrispTables['folders']>;
+export const honeycrispApp = defineApp({
+	notes: { path: 'notes/{stem}.md', schema: noteSchema },
+	folders: { path: 'folders/{stem}.md', schema: folderSchema },
+});
+
+export type NoteFields = Static<typeof noteSchema>;
+export type FolderFields = Static<typeof folderSchema>;
+
+/** A note file as the repository lists it: its text, its fields, and any issues. */
+export type NoteFile = Note<'notes/{stem}.md', typeof noteSchema>;
+/** A folder file as the repository lists it. */
+export type FolderFile = Note<'folders/{stem}.md', typeof folderSchema>;
 
 /** A note file that reads as a note. */
-export type NoteEntry = Extract<NoteRow, { issues: null }>;
-/** A folder file that reads as a folder. Its id is the value a note's `folderId` holds. */
-export type FolderEntry = Extract<FolderRow, { issues: null }>;
+export type NoteEntry = Extract<NoteFile, { valid: true }>;
+/** A folder file that reads as a folder. Its stem is the value a note's `folderId` holds. */
+export type FolderEntry = Extract<FolderFile, { valid: true }>;
 
-/** The stem of `notes/<id>.md`. */
-export type NoteId = string;
+export const notePath = (stem: string) => `notes/${stem}.md`;
+export const folderPath = (stem: string) => `folders/${stem}.md`;
 
-export const NOTES = 'notes';
-export const FOLDERS = 'folders';
-
-/** The file of row `id` in `table`. */
-export const rowFile = (table: TableName, id: string) => `${table}/${id}.md`;
-
-function rowStemOf(table: string, path: string): string | undefined {
-	const prefix = `${table}/`;
+function stemOf(directory: string, path: string): string | undefined {
+	const prefix = `${directory}/`;
 	if (!path.startsWith(prefix) || !path.endsWith('.md')) return undefined;
 	const stem = path.slice(prefix.length, -3);
 	return stem !== '' && !stem.includes('/') ? stem : undefined;
 }
 
-/** The note id of a row path, or undefined when the path is not a note row. */
-export function noteIdOf(path: string): NoteId | undefined {
-	return rowStemOf(NOTES, path);
-}
-
-/** The folder id of a row path, or undefined when the path is not a folder row. */
-export function folderIdOf(path: string): string | undefined {
-	return rowStemOf(FOLDERS, path);
-}
+/** The note stem of a path, or undefined when the path is not a note. */
+export const noteStemOf = (path: string) => stemOf('notes', path);
+/** The folder stem of a path, or undefined when the path is not a folder. */
+export const folderStemOf = (path: string) => stemOf('folders', path);
 
 /** The name a person sees for a folder: its `name`, else its file. */
 export function folderLabel(folder: FolderEntry): string {
 	const { name } = folder.fields;
-	return name !== '' ? name : folder.id;
+	return name !== '' ? name : folder.params.stem;
 }

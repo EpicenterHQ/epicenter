@@ -2,11 +2,10 @@
  * Rich Text Tests
  *
  * Drives the rich-text view's two rules the way the view does, over the real
- * notes state and folder mirror: each transaction goes through `stateAfter`
- * before it is shown, and the body is followed
- * with `stateShowing`. The state the harness keeps is what the view would
- * display; the note's body edit holds typed text until its save lands, and
- * the mirror holds the note after.
+ * note held open in the repository: each transaction goes through
+ * `stateAfter` before it is shown, and the body is followed with
+ * `stateShowing`. The state the harness keeps is what the view would
+ * display; the harness holds typed text until its write applies.
  *
  * Key behaviors:
  * - Every displayed edit is in the note, including spaces, Enter, and
@@ -26,8 +25,6 @@
  * - The shown body keeps typing and history through a save; a failed save
  *   leaves the typed body visible
  */
-import 'fake-indexeddb/auto';
-import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, describe, expect, test } from 'bun:test';
 import { toggleMark } from 'prosemirror-commands';
 import {
@@ -44,18 +41,11 @@ import {
 	type Transaction,
 } from 'prosemirror-state';
 import { EditorView } from 'prosemirror-view';
-import { expectOk } from 'wellcrafted/testing';
 import { bodyCodec, equivalentNoteDocs, parseNoteBody } from './markdown.js';
 import { noteSchema } from './schema.js';
 
-// The notes state is a runes module: load it, and the rules, after the
-// compiler plugin.
-const { openNotes, quiet, until, noteText } = await import(
-	'../local.test-support.ts'
-);
-const { editingPlugins, noteBody, stateAfter, stateShowing } = await import(
-	'./rich-text.js'
-);
+import { noteText, openDevice, until } from '../repository.test-support.js';
+import { editingPlugins, noteBody, stateAfter, stateShowing } from './rich-text.js';
 
 const cleanup: (() => unknown)[] = [];
 
@@ -65,53 +55,52 @@ afterEach(async () => {
 
 const PATH = 'notes/a.md';
 
-/** The notes state over a folder holding one note with `text`, open as a note. */
+/** A device holding one note with `text`, held open as the note view holds it. */
 async function noteOver(text: string) {
-	const fixture = await openNotes();
+	const fixture = await openDevice({ [PATH]: text });
 	cleanup.push(() => fixture.close());
-	await fixture.write(PATH, text);
-	const { notes } = fixture;
-	notes.open(PATH);
-	const table = notes.folder.tables.notes;
+	const handle = await fixture.repo.notes.open({ stem: 'a' });
+	cleanup.push(() => handle.close());
 	let writes = 0;
 	let pending: Promise<unknown> = Promise.resolve();
 	const failures: string[] = [];
 	let typed: string | undefined;
 	const note = {
-		read: () =>
-			noteBody(table.row('a')) === undefined
-				? undefined
-				: (typed ?? noteBody(table.row('a'))),
+		read: () => (noteBody(handle.read()) === undefined ? undefined : (typed ?? noteBody(handle.read()))),
 		write(value: string) {
 			typed = value;
 			writes++;
-			pending = table.update('a', { body: value }).then(({ error }) => {
-				if (error !== null) failures.push(error.message);
-				else if (typed === value) typed = undefined;
+			let failed = false;
+			// Without a server a write never settles; a refused one settles at once.
+			void handle.write({ body: value }).then(({ error }) => {
+				if (error === null) return;
+				failed = true;
+				failures.push(error.message);
+			});
+			pending = fixture.repo.flush().then(() => {
+				if (!failed && typed === value) typed = undefined;
 			});
 		},
 	};
 	return {
 		fixture,
-		notes,
 		note,
 		failures: () => failures,
 		edit: () => {
-			const row = table.row('a');
-			if (row?.issues !== null || row === undefined)
-				throw new Error('The note does not read as one');
-			return { ...row, body: note.read() ?? row.body };
+			const shown = handle.read();
+			if (!shown?.valid) throw new Error('The note does not read as one');
+			return { ...shown, body: note.read() ?? shown.body };
 		},
 		saved: async () => {
 			await pending;
-			await quiet(notes);
+			await fixture.repo.flush();
 		},
 		writes: () => writes,
-		stored: () => fixture.text(PATH),
+		stored: async () => fixture.text(PATH),
 		theirs: async (body: string) => {
-			const tab = await fixture.otherTab();
-			expectOk(await tab.tables.notes.update('a', { body }));
-			await until(() => table.row('a')?.body === body, 'outside body');
+			const current = fixture.text(PATH) ?? '';
+			await fixture.theirs(PATH, current.slice(0, current.indexOf('\n---\n', 3) + 5) + body);
+			await until(() => handle.read()?.body === body, 'outside body');
 		},
 	};
 }
@@ -314,7 +303,8 @@ describe('every displayed edit is in the note', () => {
 	});
 
 	test('a CRLF body shows and saves with line feeds, and its blank lines at the start are kept (ADR-0572)', async () => {
-		const crlf = noteText({ body: '\none\n\ntwo\n' }).replace(/\n/g, '\r\n');
+		// The repository reads frontmatter only between `---` lines ending in a line feed, so the CRLF is in the body.
+		const crlf = noteText({ body: '\r\none\r\n\r\ntwo\r\n' });
 		const { type, end, body, saved, failures, stored, writes } = await open(
 			'',
 			{
@@ -561,7 +551,7 @@ describe('the editor follows the note', () => {
 	test('a failed save keeps the typed body and rich editor state', async () => {
 		const { fixture, type, end, saved, follow, body, failures, ...view } =
 			await open('one\n');
-		fixture.failSaves();
+		fixture.refuseWrites(true);
 		end();
 		type('!');
 		const typed = view.shown();

@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/honeycrisp",
-	"description": "File-authoritative Markdown notes with a rich-text editor, bundled in Epicenter or in a browser tab",
+	"description": "Markdown notes in a repository on this device, synced when a server is set",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
@@ -12,9 +12,10 @@
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
+		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' --path-ignore-patterns='browser-tests/**' ./src && bun run test:dom",
 		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte dom.test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json",
+		"test:browser": "bun test browser-tests/"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",
@@ -27,9 +28,9 @@
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"@types/markdown-it": "^14.0.0",
-		"fake-indexeddb": "^6.2.6",
 		"jsdom": "26.1.0",
 		"mode-watcher": "catalog:",
+		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"svelte-sonner": "catalog:",
@@ -39,8 +40,8 @@
 	},
 	"dependencies": {
 		"@epicenter/constants": "workspace:*",
-		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"bits-ui": "catalog:",

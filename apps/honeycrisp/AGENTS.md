@@ -1,76 +1,36 @@
 # Honeycrisp App
 
-File-authoritative Markdown notes over one local folder. Read [the README](README.md)
-for the current page flow and verify it against the code.
+Markdown notes in a repository on this device (`@epicenter/repository`),
+synced when the build names a server. Read [the README](README.md) for the
+current page flow and verify it against the code.
 
-## The files are the data
+## The repository is the data
 
-- The folder mirror's current files and rows are the saved data. Do not add
-  another durable store, browser-storage copy, import step, or app save queue.
-- Do not add Yjs, a CRDT, an account, or sync. Nothing in `src/` may import
-  `@y/*`, `yjs`, `@epicenter/auth`, or `@epicenter/sync`. The bundle test checks this.
+- The repository's files are the saved data. Do not add another durable
+  store, browser-storage copy, import step, or app save queue.
+- Do not add Yjs, a CRDT, or an account. Nothing in `src/` may import `@y/*`,
+  `yjs`, `@epicenter/auth`, or `@epicenter/sync`. The bundle test checks this.
 - Do not add a migration or compatibility path for earlier Honeycrisp data.
-  The shared opener handles the old OPFS refusal. Do not restore rename, move,
-  mkdir, or Git operations that the mirror does not offer.
-- Opening or listing a note writes nothing. `folder.files` and table rows show
-  landed values. Await `Saved` before opening a newly created file or relying
-  on a write in an action.
-- Text inputs and selects use one `edit(source, save)` per editor component,
-  including titles and folder selection. Every change enters the folder queue
-  immediately. The edit shows typed input until its save lands, then follows
-  the mirror. A failed save keeps the typed value and shows `<UnsavedEdit>`
-  beside its editor with Save again,
-  Discard, and Copy. Command callers report their own failed writes.
-- Row patches use `tables.x.update(id, { fields?, body? })`; each `save` callback
-  receives only the typed value. Whole-file editors use `fileEdit`, which calls
-  `folder.replace(path, text)`. A patch composes over storage at its turn;
-  a whole-file edit replaces the file at its turn and refuses a deleted file.
-  Canonical frontmatter keeps declared keys in
-  schema order, then other keys sorted; comments and original key order do not
-  survive a patch.
+- Reads are live queries (`live` from `@epicenter/repository/svelte`); the
+  open note is held open (`opened`). Writes go through the repository's
+  handles, apply at once, and are reported with `report` when they do not
+  land. Never await a write's `Pending` in an action: without a server it
+  never settles.
+- A write names only the fields and body it changes. Never rewrite a whole
+  note to change part of it.
 - A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
-- The folder writes lone surrogates as U+FFFD, and its copy shows the same
-  text. The rich editor also replaces them in its transaction, so its undo
-  history matches. Note bodies use line
-  feeds (ADR-0572); whole-file editing uses `fileEdit` to keep the file's
-  line endings.
-- The mirror refreshes from another tab through its change hints. Opening
-  reads text files. Read errors offer `refresh()` as Try again.
-- There are no versions or sync. A note that does not parse is listed for
-  repair and opens as text. `readRow(raw.value, schema)` checks typed repair
-  text before it saves. Folder deletion refuses when any note's relation
-  cannot be read.
-
-## Editor ownership
-
-- `NoteDetail` owns one body edit shared by its Rich text and Source views.
-  ProseMirror's `EditorState` owns cursor, pending formatting, undo history,
-  and an empty paragraph Markdown cannot spell. `stateAfter` validates a
-  changed document, calls `body.set`, then shows it. `stateShowing` preserves
-  state for equivalent content and replaces it when the shown body changes.
-- A failed rich-text save keeps the typed body visible until the person retries,
-  discards, or edits again.
-- Do not weaken `checkNoteDoc`. Fix the Markdown serializer and add tests if
-  an edit ought to be spellable. New nodes or marks need both Markdown
-  directions and tests.
-- The rich editor mount effect depends only on its element and `editable`
-  boolean. Reading save or row changes there recreates it and loses history.
-- Switching between note fields and the whole-file editor is immediate. An
-  earlier queued edit can land while the new view shows older text. A later
-  whole-file edit replaces that file; a failed note edit remains in its mounted
-  editor for recovery when returning to it. Write ordering stays in the Folder.
 
 ## Lifecycle and boundary
 
-- `<OpenFolder>` from `@epicenter/svelte/open-folder` opens, wraps, refreshes,
-  and closes the folder. The page passes its folder to
-  `HoneycrispApp`, which creates the `notes` state and provides context.
-- Shared imports use `@epicenter/folder`; Vite selects the platform
-  opener. Do not import Bun or Node modules under `src/`.
-- The host build opens the desktop shell's granted directory through the
-  same component. Browser tests fault `fake-indexeddb` storage.
+- `OpenHoneycrisp` opens the repository, shows Try again on failure, and
+  closes it on unmount. `HoneycrispApp` creates the `notes` state and provides
+  the repository through context.
+- Do not import Bun or Node modules under `src/`. Tests use
+  `src/lib/repository.test-support.ts`, the real engine on `bun:sqlite` with a
+  scripted server.
 
 ## Words a person reads
 
 Say note, folder, file, saved, and browser. Do not put `entry`, `buffer`,
-`scope`, `shell`, `baseline`, `canonical`, `draft`, or `row` in UI copy.
+`scope`, `shell`, `baseline`, `canonical`, `draft`, `row`, `lens`, or
+`outbox` in UI copy.

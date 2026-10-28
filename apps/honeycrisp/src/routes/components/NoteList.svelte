@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import * as ContextMenu from '@epicenter/ui/context-menu';
-	import { toast } from '@epicenter/ui/sonner';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import { format } from 'date-fns';
@@ -13,19 +12,18 @@
 
 	let { notes, openListed }: { notes: Notes; openListed: (path: string) => void } = $props();
 
-	// Filtering by fields and searching bodies reads every landed note row.
-	// An edit appears here once its save lands.
-	const noteRows = $derived(notes.folder.tables.notes.rows);
-	const folderRows = $derived(notes.folder.tables.folders.rows);
+	// Filtering by fields and searching bodies reads every note this device
+	// shows; an edit appears here as soon as it is made.
+	const noteRows = $derived(notes.noteFiles ?? []);
 	const all = $derived(notesOf(noteRows));
-	const folders = $derived(foldersOf(folderRows));
+	const folders = $derived(foldersOf(notes.folderFiles));
 	const repairs = $derived(repairsOf(noteRows));
-	const unreadable = $derived(unreadableOf(noteRows, folderRows));
+	const unreadable = $derived(unreadableOf(notes.folderFiles));
 	const selectedPath = $derived(notes.selected?.path);
 
 	const pathOf = (note: NoteEntry) => note.path;
 
-	/** What a row shows: the note as last saved. */
+	/** What a row shows. */
 	function shown(note: NoteEntry) {
 		return {
 			title: displayTitle(note.fields.title, note.body),
@@ -55,7 +53,7 @@
 		if (notes.view.deleted) return 'Recently Deleted';
 		const id = notes.view.folderId;
 		if (id === null) return 'All Notes';
-		const folder = folders.find((item) => item.id === id);
+		const folder = folders.find((item) => item.params.stem === id);
 		return folder === undefined ? 'Notes' : folderLabel(folder);
 	});
 
@@ -72,10 +70,6 @@
 		return result;
 	});
 
-	async function report(action: string, problem: ReturnType<Notes['patchNote']> | Promise<string | undefined>) {
-		const message = await problem;
-		if (message) toast.error(`Could not ${action}`, { description: message });
-	}
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Notes">
@@ -90,7 +84,7 @@
 				size="icon-sm"
 				tooltip="New note (⌘N)"
 				aria-label="New note"
-				onclick={() => void report('create the note', notes.createNote())}
+				onclick={() => notes.createNote()}
 			>
 				<PlusIcon />
 			</Button>
@@ -136,7 +130,7 @@
 		{/if}
 		{#each groups as group (group.label)}
 			<h3 class="px-2 pt-2 pb-1 text-xs font-medium text-muted-foreground">{group.label}</h3>
-			{#each group.entries as note (note.id)}
+			{#each group.entries as note (note.path)}
 				{@const path = pathOf(note)}
 				{@const row = shown(note)}
 				<ContextMenu.Root>
@@ -162,7 +156,7 @@
 					</ContextMenu.Trigger>
 					<ContextMenu.Content class="w-52">
 						{#if isDeleted(note)}
-							<ContextMenu.Item onSelect={() => void report('restore the note', notes.restoreNote(path))}>
+							<ContextMenu.Item onSelect={() => notes.restoreNote(path)}>
 								Restore
 							</ContextMenu.Item>
 							<ContextMenu.Item variant="destructive" onSelect={() => void confirmDelete(notes, path)}>
@@ -170,7 +164,7 @@
 							</ContextMenu.Item>
 						{:else}
 							<ContextMenu.Item
-								onSelect={() => void report('pin the note', notes.patchNote(path, { pinned: !isPinned(note) }))}
+								onSelect={() => notes.patchNote(path, { pinned: !isPinned(note) })}
 							>
 								{isPinned(note) ? 'Unpin' : 'Pin'}
 							</ContextMenu.Item>
@@ -178,15 +172,14 @@
 								<ContextMenu.SubTrigger>Move to folder</ContextMenu.SubTrigger>
 								<ContextMenu.SubContent class="w-48 max-h-(--bits-menu-content-available-height) overflow-y-auto">
 									<ContextMenu.Item
-										onSelect={() => void report('move the note', notes.patchNote(path, { folderId: null }))}
+										onSelect={() => notes.patchNote(path, { folderId: null })}
 									>
 										No folder
 									</ContextMenu.Item>
 									<ContextMenu.Separator />
-									{#each folders as folder (folder.id)}
+									{#each folders as folder (folder.path)}
 										<ContextMenu.Item
-											onSelect={() =>
-												void report('move the note', notes.patchNote(path, { folderId: folder.id }))}
+											onSelect={() => notes.patchNote(path, { folderId: folder.params.stem })}
 										>
 											{folderLabel(folder)}
 										</ContextMenu.Item>
@@ -196,7 +189,7 @@
 							<ContextMenu.Separator />
 							<ContextMenu.Item
 								variant="destructive"
-								onSelect={() => void report('delete the note', notes.trashNote(path))}
+								onSelect={() => notes.trashNote(path)}
 							>
 								Move to Recently Deleted
 							</ContextMenu.Item>
@@ -215,7 +208,7 @@
 				</div>
 			{/each}
 			<p class="px-3 pt-1 text-xs text-muted-foreground">
-				These files are still in the folder. Repair or delete them from Files.
+				These files are still in the repository. Delete them from Files.
 			</p>
 		{/if}
 	</div>

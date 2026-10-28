@@ -7,9 +7,8 @@
  * Key behaviors:
  * - Neither build carries a Yjs, Node, or Bun module, or the directory
  *   folder and Git host that run on them
- * - The bundled host build carries the native folder engine and no browser
- *   engine or OPFS store; the published build carries both folder engines
- *   behind one runtime choice
+ * - Both builds open the repository's browser host and carry no folder
+ *   engine; only the folder's pure path helpers remain
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -40,36 +39,12 @@ test.each(['epicenter-host', 'browser'] as const)(
 	BUNDLE_TIMEOUT,
 );
 
-/** A module of `@epicenter/folder`, by its path below its `src/`. */
-const folderModule = (name: string) => (path: string) =>
-	path.endsWith(`packages/folder/src/${name}`);
-
-test(
-	'the bundled host build carries the native engine and no browser storage',
-	async () => {
-		const modules = await bundledModules(
-			appDir,
-			'src/lib/bundle.test-support.ts',
-			'epicenter-host',
-		);
-		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
-		expect(modules.some(folderModule('browser.ts'))).toBe(false);
-	},
-	BUNDLE_TIMEOUT,
-);
-
-test(
-	'the published build carries the runtime choice and both folder engines',
-	async () => {
-		const modules = await bundledModules(
-			appDir,
-			'src/lib/bundle.test-support.ts',
-			'browser',
-		);
-		expect(modules.some(folderModule('browser.ts'))).toBe(true);
-		expect(modules.some(folderModule('browser/repository.ts'))).toBe(true);
-		expect(modules.some(folderModule('index.ts'))).toBe(true);
-		expect(modules.some(folderModule('tauri.ts'))).toBe(true);
+test.each(['epicenter-host', 'browser'] as const)(
+	'the %s build keeps notes in the repository, not a folder',
+	async (build) => {
+		const modules = await bundledModules(appDir, 'src/lib/bundle.test-support.ts', build);
+		expect(modules.some((path) => path.endsWith('packages/repository/src/browser/index.ts'))).toBe(true);
+		expect(modules.filter((path) => /packages\/folder\/src\/(?!file-browser|paths)/.test(path))).toEqual([]);
 	},
 	BUNDLE_TIMEOUT,
 );

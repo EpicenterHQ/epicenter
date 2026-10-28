@@ -50,7 +50,6 @@ import {
 	type Plugin,
 	type Transaction,
 } from 'prosemirror-state';
-import type { NoteRow } from '../data.js';
 import { bodyCodec, equivalentNoteDocs } from './markdown.js';
 import { noteSchema } from './schema.js';
 
@@ -157,8 +156,8 @@ export function stateShowing(state: EditorState, doc: Node): EditorState {
 }
 
 /** The valid note's body shown by Honeycrisp, with line feeds and no source mutation. */
-export function noteBody(row: NoteRow | undefined): string | undefined {
-	return row?.issues === null ? row.body.replace(/\r\n?/g, '\n') : undefined;
+export function noteBody(note: { valid: boolean; body: string } | null | undefined): string | undefined {
+	return note?.valid ? note.body.replace(/\r\n?/g, '\n') : undefined;
 }
 
 /** The body edit an editor shows and writes. */

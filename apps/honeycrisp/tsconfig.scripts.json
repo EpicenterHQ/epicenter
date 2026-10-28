@@ -1,0 +1,9 @@
+{
+	// Bun entrypoints: the browser tests.
+	"extends": "../../tsconfig.dom.json",
+	"compilerOptions": {
+		"types": ["bun"],
+		"noEmit": true
+	},
+	"include": ["browser-tests/**/*.ts"]
+}
