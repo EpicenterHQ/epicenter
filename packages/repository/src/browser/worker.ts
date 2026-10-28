@@ -8,7 +8,8 @@ import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
 import { type Definitions, defineApp } from '../define.js';
 import { openEngine } from '../engine/engine.js';
-import { offlineTransport, type Transport } from '../engine/ports.js';
+import { offlineTransport } from '../engine/ports.js';
+import { createWebSocketTransport } from '../ws/client.js';
 import { channelName, type Described, type Init, type LeaderMessage, type TabMessage } from './messages.js';
 import { openOpfsDatabase } from './sqlite.js';
 
@@ -26,17 +27,14 @@ function definitionsOf(described: Described): Definitions {
 	);
 }
 
-/** The transport for `server`; replaced by the WebSocket transport when one is given. */
-export type TransportFactory = (server: { url: string }) => Transport;
-
 /** Serve one repository from this worker once its tab sends `Init`. */
-export function serveRepositoryWorker(connect?: TransportFactory) {
+export function serveRepositoryWorker() {
 	addEventListener('message', (event: MessageEvent<Init>) => {
-		if (event.data?.type === 'init') void start(event.data, connect);
+		if (event.data?.type === 'init') void start(event.data);
 	});
 }
 
-async function start({ name, definitions, server }: Init, connect?: TransportFactory) {
+async function start({ name, definitions, server }: Init) {
 	const channel = new BroadcastChannel(channelName(name));
 	let dropSubmitAnswers = false;
 	const post = (message: LeaderMessage) => channel.postMessage(message);
@@ -49,7 +47,7 @@ async function start({ name, definitions, server }: Init, connect?: TransportFac
 	const engine = openEngine({
 		app: defineApp(definitionsOf(definitions)),
 		driver: driver.data,
-		transport: server !== null && connect !== undefined ? connect(server) : offlineTransport,
+		transport: server === null ? offlineTransport : createWebSocketTransport(server),
 		log,
 	});
 	const leader = crypto.randomUUID();

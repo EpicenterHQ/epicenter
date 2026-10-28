@@ -12,42 +12,15 @@
  * - Closing the leader mid-command hands over without losing or repeating the command
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { type BrowserContext, chromium, type Page, webkit } from 'playwright';
-import type {} from './harness.js';
+import { chromium, webkit } from 'playwright';
 import { startSite } from './site.js';
+import { launchProfile, openTab, reopen, TIMEOUT, uniqueName } from './support.js';
 
 let site: Awaited<ReturnType<typeof startSite>>;
 beforeAll(async () => {
 	site = await startSite();
 });
 afterAll(() => site.stop());
-
-const TIMEOUT = 60_000;
-
-async function profile(browser: typeof chromium) {
-	const dir = await mkdtemp(join(tmpdir(), 'repository-browser-'));
-	const context = await browser.launchPersistentContext(dir, { headless: true });
-	return {
-		context,
-		async cleanup() {
-			await context.close();
-			await rm(dir, { recursive: true, force: true });
-		},
-	};
-}
-
-/** A tab with the repository open. */
-async function tab(context: BrowserContext, name: string, page?: Page) {
-	const opened = page ?? (await context.newPage());
-	opened.on('pageerror', (error) => console.error('page error:', error));
-	await opened.goto(site.url);
-	await opened.waitForFunction(() => globalThis.harness !== undefined);
-	await opened.evaluate((name) => harness.open(name), name);
-	return opened;
-}
 
 for (const [engine, browser] of [
 	['chromium', chromium],
@@ -57,14 +30,14 @@ for (const [engine, browser] of [
 		test(
 			'a reload keeps data and unsent edits',
 			async () => {
-				const { context, cleanup } = await profile(browser);
+				const { context, cleanup } = await launchProfile(browser);
 				try {
-					const page = await tab(context, 'reload', context.pages()[0]);
+					const name = uniqueName('reload');
+					const page = await openTab(context, site.url, name, { page: context.pages()[0] });
 					await page.evaluate(() => harness.write('trip', 'Pack.\n'));
 					await page.evaluate(() => harness.append('trip', 'Passport.\n'));
 					await page.reload();
-					await page.waitForFunction(() => globalThis.harness !== undefined);
-					await page.evaluate(() => harness.open('reload'));
+					await reopen(page, name);
 					expect(await page.evaluate(() => harness.text('trip'))).toBe('Pack.\nPassport.\n');
 					// Never sent, since there is no server: both writes wait in the outbox.
 					expect(await page.evaluate(() => harness.unsent())).toBe(2);
@@ -83,10 +56,11 @@ for (const [engine, browser] of [
 		test(
 			"two tabs share one leader and see each other's edits",
 			async () => {
-				const { context, cleanup } = await profile(browser);
+				const { context, cleanup } = await launchProfile(browser);
 				try {
-					const a = await tab(context, 'shared', context.pages()[0]);
-					const b = await tab(context, 'shared');
+					const name = uniqueName('shared');
+					const a = await openTab(context, site.url, name, { page: context.pages()[0] });
+					const b = await openTab(context, site.url, name);
 					expect(await a.evaluate(() => harness.locks())).toEqual({ held: 1, pending: 1 });
 					await b.evaluate(() => harness.hold('plan'));
 					await a.evaluate(() => harness.write('plan', 'from a\n'));
@@ -104,10 +78,11 @@ for (const [engine, browser] of [
 		test(
 			'closing the leader mid-command hands over without losing or repeating the command',
 			async () => {
-				const { context, cleanup } = await profile(browser);
+				const { context, cleanup } = await launchProfile(browser);
 				try {
-					const leader = await tab(context, 'handover', context.pages()[0]);
-					const follower = await tab(context, 'handover');
+					const name = uniqueName('handover');
+					const leader = await openTab(context, site.url, name, { page: context.pages()[0] });
+					const follower = await openTab(context, site.url, name);
 					await follower.evaluate(() => harness.write('log', 'one\n'));
 					// The leader applies the next write but never answers it, as a
 					// leader whose tab closes between the two would.
