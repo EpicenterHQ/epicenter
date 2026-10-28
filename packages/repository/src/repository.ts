@@ -463,7 +463,9 @@ export function createRepository<const TDefs extends Definitions>(
 		 * The later verdict of a send that failed with `Unknown`, by its id:
 		 * the outcome this device stored once the server answered the send
 		 * again, `{ kind: 'unanswered' }` until then, or null for an id this
-		 * device keeps no such send under. Stored outcomes survive restarts.
+		 * device keeps no such send under. A stored outcome survives restarts
+		 * until it is read: reading a final verdict (applied or refused)
+		 * removes it, so a second read answers null.
 		 */
 		verdict: (id: number): Promise<LaterVerdict | null> => port.read({ kind: 'verdict', id }),
 		/**

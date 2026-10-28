@@ -7,7 +7,7 @@
  * across restarts, so `repo.verdict(id)` can say later what happened.
  *
  * Key behaviors:
- * - A lost reply's send is unanswered until it is sent again, then answered with its outcome, across restarts
+ * - A lost reply's send is unanswered until it is sent again, then answered with its outcome, across restarts; reading a final verdict removes it
  * - A refused send nobody waited for is answered later as refused, and is still a notice
  * - An applied send answered after its receipt left with a commit promises only that it applied
  * - An id this device never gave a send has no verdict
@@ -72,10 +72,10 @@ test('a send whose reply was lost is unanswered until it is sent again, then ans
 	expect(await alice.repo.verdict(lost.id)).toEqual({ kind: 'unanswered' });
 	alice.transport.setOnline(true);
 	await alice.repo.flush();
-	const answered = await alice.repo.verdict(lost.id);
-	expect(answered).toMatchObject({ kind: 'applied', seq: 2, changes: [{ path: 'notes/log.md', at: 'notes/log.md' }] });
+	// The stored verdict survives a restart, and reading it, once final, removes it.
 	alice.restart();
-	expect(await alice.repo.verdict(lost.id)).toEqual(answered);
+	expect(await alice.repo.verdict(lost.id)).toMatchObject({ kind: 'applied', seq: 2, changes: [{ path: 'notes/log.md', at: 'notes/log.md' }] });
+	expect(await alice.repo.verdict(lost.id)).toBeNull();
 	// A stored verdict is not a batch in the lane: later writes go as usual.
 	expectOk(await alice.repo.notes.append({ stem: 'log' }, 'z\n'));
 	await alice.repo.flush();
@@ -101,6 +101,7 @@ test('a refused send nobody waited for is answered later as refused, and is stil
 	bob.transport.setOnline(true);
 	await bob.repo.flush();
 	expect(await bob.repo.verdict(lost.id)).toMatchObject({ kind: 'refused', path: 'notes/a.md', reason: "the field 'title' changed on both sides" });
+	expect(await bob.repo.verdict(lost.id)).toBeNull();
 	expect((await bob.repo.notices.list()).map((notice) => notice.kind)).toEqual(['refused']);
 	await t.cleanup();
 });

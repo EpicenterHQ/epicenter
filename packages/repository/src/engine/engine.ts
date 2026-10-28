@@ -162,7 +162,7 @@ export type EngineRequest =
 	| { kind: 'files'; sync?: Sync['state'] }
 	| { kind: 'query'; sql: string; params: SqlValue[] }
 	| { kind: 'blob'; name: string; params: Params; as: 'bytes' | 'url' }
-	/** The later verdict of the send numbered `id`. */
+	/** The later verdict of the send numbered `id`; a final one is removed as it is read. */
 	| { kind: 'verdict'; id: number }
 	/** Resolves when queued sync work has run: the outbox is sent, or the server is unreachable. */
 	| { kind: 'flush' };
@@ -1124,7 +1124,7 @@ export function openEngine<const TDefs extends Definitions>({
 	 * The verdict is stored on the batch's row first, in the same
 	 * transaction, and the row is removed once a waiting caller has it; a
 	 * verdict nobody waited for any more, after a lost reply or a closed tab,
-	 * stays for `verdict(n)`, and a refusal of one is also kept as a notice.
+	 * stays until `verdict(n)` reads it, and a refusal of one is also kept as a notice.
 	 */
 	function concludeSend(n: number, entries: Entry[], outcome: BatchOutcome) {
 		const verdict: Verdict =
@@ -1150,14 +1150,17 @@ export function openEngine<const TDefs extends Definitions>({
 
 	/**
 	 * The later verdict of send `n`: its stored outcome once the server
-	 * answered it, unanswered while its row waits to be sent again, or null
-	 * for a number this device keeps no send under (a person's batch, a send
-	 * whose caller had its verdict, or none at all).
+	 * answered it, which this removes, since the caller now has it;
+	 * unanswered while its row waits to be sent again; or null for a number
+	 * this device keeps no send under (a person's batch, a send whose caller
+	 * had its verdict, a verdict already read, or none at all).
 	 */
-	function storedVerdict(n: number): LaterVerdict | null {
+	function takeVerdict(n: number): LaterVerdict | null {
 		const found = first<{ outcome: string | null }>(driver, `SELECT outcome FROM "epicenter/outbox" WHERE n = ? AND policy = 'refuse'`, [n]);
 		if (found === undefined) return null;
-		return found.outcome === null ? { kind: 'unanswered' } : (JSON.parse(found.outcome) as Verdict);
+		if (found.outcome === null) return { kind: 'unanswered' };
+		driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
+		return JSON.parse(found.outcome) as Verdict;
 	}
 
 	/** Settle a person's batch: fold its outcome into this device's files, note what they should know, and drop its row. */
@@ -1451,7 +1454,7 @@ export function openEngine<const TDefs extends Definitions>({
 				return (request.as === 'bytes' ? await blobs.get(pointer.oid) : await blobs.url(pointer.oid)) as Answer;
 			}
 			case 'verdict':
-				return storedVerdict(request.id) as Answer;
+				return takeVerdict(request.id) as Answer;
 			case 'flush':
 				await running;
 				return undefined as Answer;
