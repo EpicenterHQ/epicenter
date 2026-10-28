@@ -128,7 +128,7 @@ test('a command submitted twice under one id is applied once and answered twice'
 	await t.cleanup();
 });
 
-/** A device whose transport records every batch it pushes. */
+/** A device whose transport records every batch that leaves it. */
 function recordingDevice(t: Awaited<ReturnType<typeof setup>>, name: string) {
 	const inner = createInProcessTransport(t.server, { user: name });
 	const pushed: Batch[] = [];
@@ -137,9 +137,12 @@ function recordingDevice(t: Awaited<ReturnType<typeof setup>>, name: string) {
 			const link = inner.connect(handlers);
 			return {
 				...link,
-				push(batch) {
-					pushed.push(structuredClone(batch));
-					return link.push(batch);
+				async push(batch) {
+					const copy = structuredClone(batch);
+					const answer = await link.push(batch);
+					// Only what left the device: a call refused before sending carries nothing.
+					if (answer.error === null || answer.error.sent) pushed.push(copy);
+					return answer;
 				},
 			};
 		},
@@ -156,18 +159,20 @@ test('a burst of writes to one path while unsent sends one batch with the latest
 	await bob.repo.flush();
 	bob.inner.setOnline(false);
 	const note = await bob.repo.todos.open({ stem: 'list' });
-	const typed = ['a', 'ab', 'abc', 'abcd'].map((body) => note.write({ fields: { title: 'List', done: false }, body }));
-	await bob.repo.flush();
+	const typed: ReturnType<typeof note.write>[] = [];
+	for (const body of ['a', 'ab', 'abc', 'abcd']) {
+		typed.push(note.write({ fields: { title: 'List', done: false }, body }));
+		// Each write is tried while offline; a batch that never left the device still takes the next write.
+		await bob.repo.flush();
+	}
 	expect(await bob.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 1 }]);
 
 	bob.inner.setOnline(true);
 	const settled = await Promise.all(typed);
 	expect(settled.map((result) => expectOk(result).kind)).toEqual(['applied', 'applied', 'applied', 'applied']);
-	// Sending was tried once while offline and again on reconnect: the same one batch.
-	const distinct = [...new Set(bob.pushed.map((batch) => JSON.stringify(batch)))].map((json) => JSON.parse(json) as Batch);
-	expect(sentTexts(distinct)).toEqual([['---\ntitle: List\ndone: false\n---\nabcd']]);
+	expect(sentTexts(bob.pushed)).toEqual([['---\ntitle: List\ndone: false\n---\nabcd']]);
 	// The batch is the create, so its base is still none.
-	expect(distinct[0]?.changes[0]).toMatchObject({ kind: 'write', base: null });
+	expect(bob.pushed[0]?.changes[0]).toMatchObject({ kind: 'write', base: null });
 	expect(await t.server.read('todos/list.md')).toBe('---\ntitle: List\ndone: false\n---\nabcd');
 	note.close();
 	bob.engine.close();

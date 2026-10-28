@@ -714,9 +714,12 @@ export function openEngine<const TDefs extends Definitions>({
 					withBases || change.kind === 'move' || change.base === null ? change : { ...change, base: { hash: change.base.hash } },
 				),
 			});
-			// From here the batch may reach the server, so it is never changed again.
-			if (next.n > sentThrough()) setMeta('sent', String(next.n));
+			// From here the batch may reach the server, so it is never changed
+			// again, unless the transport says it never left this device.
+			const before = sentThrough();
+			if (next.n > before) setMeta('sent', String(next.n));
 			let answer = await link.push(send(false));
+			if (answer.error !== null && !answer.error.sent && sentThrough() === next.n) setMeta('sent', String(before));
 			if (answer.error === null && answer.data.kind === 'need-base') answer = await link.push(send(true));
 			if (answer.error !== null) {
 				online = false;

@@ -46,7 +46,7 @@ export function createWebSocketTransport({ url, retry = { minMs: 250, maxMs: 5_0
 				};
 				attempt.onclose = () => {
 					if (socket === attempt) socket = null;
-					for (const resolve of waiting.values()) resolve(TransportError.Offline());
+					for (const resolve of waiting.values()) resolve(TransportError.Offline({ sent: true }));
 					waiting.clear();
 					if (closed) return;
 					timer = setTimeout(open, delay);
@@ -58,7 +58,7 @@ export function createWebSocketTransport({ url, retry = { minMs: 250, maxMs: 5_0
 			/** Send one frame and wait for its reply, or fail at once while the socket is down. */
 			function call(frame: { type: 'hello'; seq: number } | { type: 'push'; batch: Batch }) {
 				const current = socket;
-				if (current === null || current.readyState !== WebSocket.OPEN) return Promise.resolve(TransportError.Offline());
+				if (current === null || current.readyState !== WebSocket.OPEN) return Promise.resolve(TransportError.Offline({ sent: false }));
 				const id = next++;
 				return new Promise<Result<unknown, TransportError>>((resolve) => {
 					waiting.set(id, resolve);

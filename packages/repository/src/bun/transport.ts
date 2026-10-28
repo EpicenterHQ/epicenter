@@ -28,17 +28,17 @@ export function createInProcessTransport(
 			reconnects.add(onOnline);
 			return {
 				async hello(seq) {
-					if (!online) return TransportError.Offline();
+					if (!online) return TransportError.Offline({ sent: false });
 					return Ok(await connection.hello(seq));
 				},
 				async push(batch) {
-					if (!online) return TransportError.Offline();
+					if (!online) return TransportError.Offline({ sent: false });
 					const outcome = await connection.push(batch);
 					if (dropReplies > 0) {
 						// The server applied the batch, but its reply never arrives.
 						dropReplies--;
 						online = false;
-						return TransportError.Offline();
+						return TransportError.Offline({ sent: true });
 					}
 					return Ok(outcome);
 				},

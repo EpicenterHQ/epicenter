@@ -21,7 +21,7 @@ export async function openDevice(files: Record<string, string> = {}) {
 			deliver = handlers.onBroadcast;
 			return {
 				hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, files: Object.entries(files).map(([path, text]) => state(path, text)) }),
-				push: async () => TransportError.Offline(),
+				push: async () => TransportError.Offline({ sent: false }),
 				close() {},
 			};
 		},

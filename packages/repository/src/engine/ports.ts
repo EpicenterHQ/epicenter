@@ -8,8 +8,12 @@ import type { Result } from 'wellcrafted/result';
 import type { Batch, BatchOutcome, Broadcast, Welcome } from '../protocol.js';
 
 export const TransportError = defineErrors({
-	/** The server cannot be reached; the engine waits for `onOnline`. */
-	Offline: () => ({ message: 'The server is not reachable' }),
+	/**
+	 * The server cannot be reached; the engine waits for `onOnline`. `sent`
+	 * says whether the call left this device first, so it may have reached
+	 * the server; when it did not, nothing about it is known there.
+	 */
+	Offline: ({ sent }: { sent: boolean }) => ({ message: 'The server is not reachable', sent }),
 });
 export type TransportError = InferErrors<typeof TransportError>;
 
@@ -33,8 +37,8 @@ export type Transport = {
 /** No server: the device works fully on its own and its outbox waits. */
 export const offlineTransport: Transport = {
 	connect: () => ({
-		hello: async () => TransportError.Offline(),
-		push: async () => TransportError.Offline(),
+		hello: async () => TransportError.Offline({ sent: false }),
+		push: async () => TransportError.Offline({ sent: false }),
 		close() {},
 	}),
 };
