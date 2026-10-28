@@ -15,6 +15,7 @@
  * - A batch the server cannot apply becomes a notice keeping the shown text; a dropped move is told
  * - Notices are live, newest first, and each stays until the person dismisses it
  * - The size, binary and frontmatter checks a push gets fail the write itself
+ * - A partial write or set needs an existing note; create is the only way to make one, and earlier changes in a callback count
  * - A refused send whose caller stopped waiting becomes a notice
  * - A raw write never breaks a file that parses; a broken one saves every step of its repair
  * - Raw writes merge with field edits by key and body, or by line while a side does not parse
@@ -95,11 +96,12 @@ test('an open note reads synchronously, shows its own writes at once, and follow
 test('typing through an open note never shows an older text while writes apply', async () => {
 	const t = await setup();
 	t.bob.transport.setOnline(false);
+	expectOk(await t.bob.repo.todos.create({ stem: 'list' }, { fields: { title: 'List', done: false } }));
 	const note = await t.bob.repo.todos.open({ stem: 'list' });
-	expect(note.read()).toBeNull();
+	expect(note.read()?.body).toBe('');
 	const shown: (string | undefined)[] = [];
 	note.subscribe((next) => shown.push(next?.body));
-	for (const body of ['a', 'ab', 'abc']) void note.write({ fields: { title: 'List', done: false }, body });
+	for (const body of ['a', 'ab', 'abc']) void note.write({ body });
 	await t.bob.repo.flush();
 	expect(shown).toEqual(['a', 'ab', 'abc']);
 	expect((await t.bob.repo.todos.get({ stem: 'list' }))?.body).toBe('abc');
@@ -173,10 +175,11 @@ test('a burst of writes to one path while unsent sends one batch with the latest
 	const bob = recordingDevice(t, 'bob-2');
 	await bob.repo.flush();
 	bob.inner.setOnline(false);
+	const typed: ReturnType<typeof bob.repo.todos.write>[] = [bob.repo.todos.create({ stem: 'list' }, { fields: { title: 'List', done: false }, body: 'a' })];
+	await bob.repo.flush();
 	const note = await bob.repo.todos.open({ stem: 'list' });
-	const typed: ReturnType<typeof note.write>[] = [];
-	for (const body of ['a', 'ab', 'abc', 'abcd']) {
-		typed.push(note.write({ fields: { title: 'List', done: false }, body }));
+	for (const body of ['ab', 'abc', 'abcd']) {
+		typed.push(note.write({ body }));
 		// Each write is tried while offline; a batch that never left the device still takes the next write.
 		await bob.repo.flush();
 	}
@@ -319,6 +322,44 @@ test('a write the server would refuse for its file fails at once, before anythin
 	expect(await repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 1 }]);
 	repo.close();
 	broken.close();
+});
+
+test('a partial write or set needs an existing note; create is the only way to make one, and earlier changes in a callback count', async () => {
+	const t = await setup();
+	const { repo } = t.alice;
+	const absent = { name: 'NotFound', path: 'todos/milk.md' };
+	expect(expectErr(await repo.todos.write({ stem: 'milk' }, { fields: { title: 'Milk' } }))).toMatchObject(absent);
+	expect(expectErr(await repo.todos.set({ stem: 'milk' }, 'done', true))).toMatchObject(absent);
+	const note = await repo.todos.open({ stem: 'milk' });
+	expect(expectErr(await note.write({ body: 'Two' }))).toMatchObject(absent);
+	expect(expectErr(await note.set('done', true))).toMatchObject(absent);
+	expect(expectErr(await note.edit('Two'))).toMatchObject(absent);
+	expect(note.read()).toBeNull();
+	expect(
+		expectErr(await repo.send((send) => send.todos.write({ stem: 'milk' }, { fields: { title: 'Milk' } }, { from: 'latest' }))),
+	).toMatchObject(absent);
+	expect(await repo.todos.get({ stem: 'milk' })).toBeNull();
+	expect(await repo.files.list()).toEqual([]);
+
+	// Earlier changes in one callback resolve first: create then set is one new note, delete then set is refused whole.
+	expectOk(
+		await repo.batch((batch) => {
+			batch.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false } });
+			batch.todos.set({ stem: 'milk' }, 'done', true);
+		}),
+	);
+	expect((await repo.todos.get({ stem: 'milk' }))?.fields).toEqual({ title: 'Milk', done: true });
+	expect(
+		expectErr(
+			await repo.batch((batch) => {
+				batch.todos.delete({ stem: 'milk' });
+				batch.todos.set({ stem: 'milk' }, 'done', false);
+			}),
+		),
+	).toMatchObject(absent);
+	expect((await repo.todos.get({ stem: 'milk' }))?.fields).toEqual({ title: 'Milk', done: true });
+	note.close();
+	await t.cleanup();
 });
 
 // ============================================================================

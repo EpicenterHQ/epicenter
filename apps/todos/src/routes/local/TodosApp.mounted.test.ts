@@ -309,8 +309,8 @@ test('a note that does not fit opens into its source with its schema issue, and 
 	const other = device.tab();
 	// Written as another program might: `done` is not a boolean, and `owner` is not in the schema.
 	void other.batch((b) => {
-		b.todos.write({ stem: 'odd' }, { fields: { title: 'Odd', done: 'soon' as never }, body: 'Notes\n' });
-		b.todos.write({ stem: 'extra' }, { fields: { title: 'Extra', done: false, owner: 'sam' } as never });
+		b.todos.create({ stem: 'odd' }, { fields: { title: 'Odd', done: 'soon' as never }, body: 'Notes\n' });
+		b.todos.create({ stem: 'extra' }, { fields: { title: 'Extra', done: false, owner: 'sam' } as never });
 	});
 	const opened = await openPage(device);
 	await until(() => opened.target.querySelector('[aria-label="Needs repair"]') !== null, 'the repair list');

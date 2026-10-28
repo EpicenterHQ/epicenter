@@ -593,12 +593,15 @@ export function openEngine<const TDefs extends Definitions>({
 			case 'write':
 			case 'set': {
 				if (op.kind === 'create' && current !== null) return WriteError.Exists({ path: path.data });
+				// Only create makes a note; a partial write needs one there.
+				if (op.kind !== 'create' && current === null) return WriteError.NotFound({ path: path.data });
 				const change = op.kind === 'set' ? { fields: { [op.key]: op.value } } : op.input;
 				const text = writeMarkdown(current, change);
 				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });
 				return Ok({ kind: 'write', path: path.data, text: text.data });
 			}
 			case 'edit': {
+				if (current === null) return WriteError.NotFound({ path: path.data });
 				// What changed here since the editor last showed the body stays: the
 				// edit is merged onto it, and the person's text wins an overlap.
 				const shown = current === null ? '' : current.slice(splitMarkdown(current).bodyStart);
@@ -864,6 +867,7 @@ export function openEngine<const TDefs extends Definitions>({
 			case 'write':
 			case 'set':
 			case 'edit': {
+				if (op.kind !== 'create' && from === null) return WriteError.NotFound({ path: path.data });
 				const change = op.kind === 'set' ? { fields: { [op.key]: op.value } } : op.kind === 'edit' ? { body: op.body } : op.input;
 				const text = writeMarkdown(from, change);
 				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });

@@ -48,7 +48,7 @@ test('devices sync over WebSocket, and edits made while the server is down merge
 	const text = async (repo: typeof alice, stem: string) => (await repo.notes.get({ stem }))?.text ?? null;
 	try {
 		// Written before the socket opens: it waits in the outbox and goes once connected.
-		expectOk(await alice.notes.write({ stem: 'list' }, { body: 'a\nb\nc\n' }));
+		expectOk(await alice.notes.create({ stem: 'list' }, { body: 'a\nb\nc\n' }));
 		await until(async () => (await text(bob, 'list')) === 'a\nb\nc\n', 'bob to see the list');
 
 		await served.stop();

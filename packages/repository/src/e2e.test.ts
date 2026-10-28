@@ -374,7 +374,7 @@ test('an overlap touching an existing conflict block keeps both sides as separat
 
 test('a setting deleted on one device and changed on another keeps the change', async () => {
 	const t = await setup();
-	await landed(t.alice, t.alice.repo.settings.set('theme', 'light'));
+	await landed(t.alice, t.alice.repo.settings.create({ fields: { theme: 'light' } }));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.settings.set('theme', 'dark');
@@ -573,7 +573,8 @@ test('an offline append to a note deleted and re-created across commits becomes 
 
 test('settings set on two devices merges by key', async () => {
 	const t = await setup();
-	await landed(t.alice, t.alice.repo.settings.set('theme', 'light'));
+	await landed(t.alice, t.alice.repo.settings.create({ fields: { theme: 'light' } }));
+	await t.settle(t.alice, t.bob);
 	t.alice.transport.setOnline(false);
 	t.bob.transport.setOnline(false);
 	void t.alice.repo.settings.set('theme', 'dark');

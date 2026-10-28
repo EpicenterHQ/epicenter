@@ -377,7 +377,7 @@ export type OpenNote<TPath extends string, TSchema extends TSchema_> = {
 	read(): Note<TPath, TSchema> | null;
 	/** Call back whenever `read` would answer differently. */
 	subscribe(onChange: (note: Note<TPath, TSchema> | null) => void): () => void;
-	/** Change some fields and or the body; creates the note when it is absent. */
+	/** Change some fields and or the body of the note there; NotFound when there is none, which only `create` makes. */
 	write(input: NoteInput<TSchema>): Saved;
 	/**
 	 * Replace the body with `body`, an edit of the body this handle last
@@ -441,11 +441,11 @@ export type NoteHandle<TPath extends string, TSchema extends TSchema_> = {
 	live(filter?: Partial<Params<TPath>>): Live<Note<TPath, TSchema>[]>;
 	/** Hold one note open: reads are synchronous and follow every change. */
 	open(...params: ParamsArg<TPath>): Promise<OpenNote<TPath, TSchema>>;
-	/** Refused locally when the file exists on this device. */
+	/** The only way to make a note; refused locally when the file exists on this device. */
 	create(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): Saved;
-	/** Change some fields and or the body; creates the note when it is absent. */
+	/** Change some fields and or the body of the note there; NotFound when there is none, which only `create` makes. */
 	write(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): Saved;
-	/** Set one frontmatter field. */
+	/** Set one frontmatter field of the note there; NotFound when there is none. */
 	set<TKey extends keyof Static<TSchema> & string>(
 		...args: [...ParamsArg<TPath>, key: TKey, value: Static<TSchema>[TKey]]
 	): Saved;

@@ -306,9 +306,14 @@ export function createRepository<const TDefs extends Definitions>(
 			path === null
 				? Promise.resolve(WriteError.InvalidParams({ handle: lens.name, reason: 'the parameters build no path' }))
 				: held.through(op, text);
-		/** The text a write leaves, as the engine computes it; an unparseable note is the engine's to refuse. */
+		/**
+		 * The text a write leaves, as the engine computes it; an unparseable
+		 * note is the engine's to refuse, and an absent one, which only
+		 * `create` makes, shows nothing.
+		 */
 		const written = (change: Parameters<typeof writeMarkdown>[1]) => {
 			const shown = held.shown()?.text ?? null;
+			if (shown === null) return null;
 			const text = writeMarkdown(shown, change);
 			return text.error === null ? text.data : shown;
 		};

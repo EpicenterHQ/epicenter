@@ -69,9 +69,14 @@ const api = {
 		if (now.status !== 'elsewhere' && now.status !== 'moved') throw new Error(`Use here is not offered while ${now.status}`);
 		now.useHere();
 	},
-	/** Start a write and return its index; `settled` awaits it. The write is applied locally when this returns. */
+	/**
+	 * Start a whole-body write, creating the note when this tab shows none,
+	 * and return its index; `settled` awaits it. The write is applied
+	 * locally when this returns.
+	 */
 	async write(stem: string, body: string) {
-		writes.push(current().notes.write({ stem }, { body }));
+		const exists = (await current().notes.get({ stem })) !== null;
+		writes.push(exists ? current().notes.write({ stem }, { body }) : current().notes.create({ stem }, { body }));
 		await current().flush();
 		return writes.length - 1;
 	},
