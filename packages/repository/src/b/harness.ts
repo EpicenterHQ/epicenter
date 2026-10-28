@@ -17,6 +17,7 @@ export function createWorld({
 	streamLoss = 0,
 	stall,
 	timeout = 2_000,
+	yieldAfter,
 	trace,
 }: {
 	seed?: number;
@@ -28,6 +29,8 @@ export function createWorld({
 	/** Chance a request, reply or notification stalls, and for up to how long. */
 	stall?: LinkOptions['stall'];
 	timeout?: number;
+	/** Passed to every replica: how long to wait after an applied write. */
+	yieldAfter?: (random: ReturnType<typeof createNet>['random']) => number;
 	/** Called with a line for every request, reply and notification. */
 	trace?: (line: string) => void;
 } = {}) {
@@ -48,6 +51,8 @@ export function createWorld({
 				mode,
 				store,
 				after: net.after,
+				now: net.now,
+				...(yieldAfter === undefined ? {} : { yieldAfter: () => yieldAfter(net.random) }),
 				timeout,
 				onMerge: (audit) => mergeHooks.forEach((hook) => hook({ ...audit, device: name })),
 			});

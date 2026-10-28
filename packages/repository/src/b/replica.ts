@@ -94,7 +94,10 @@ export function createReplica({
 	mode = 'person',
 	store,
 	after,
+	now,
 	timeout = 2_000,
+	catchUpEvery = 2_000,
+	yieldAfter = () => 0,
 	today = () => '2026-10-28',
 	onMerge,
 }: {
@@ -103,6 +106,16 @@ export function createReplica({
 	store: Store;
 	/** Run `run` after `ms` (the host's timer). */
 	after: (ms: number, run: () => void) => void;
+	/** The host's clock, in milliseconds. */
+	now: () => number;
+	/** While files are ready to send, catch up at most this often; writes go first. */
+	catchUpEvery?: number;
+	/**
+	 * RULE: how long to wait after an applied write before the next one, so a
+	 * device typing once per round trip does not win every race on a note and
+	 * starve everyone else's retries (see the benchmark). Random in practice.
+	 */
+	yieldAfter?: () => number;
 	/** A request unanswered this long is taken as lost. */
 	timeout?: number;
 	today?: () => string;
@@ -120,7 +133,9 @@ export function createReplica({
 	let reading: CatchUp | null = null;
 	// A process starts by catching up.
 	let needCatchUp = true;
-	let lastKind: Request['type'] | null = null;
+	let lastCatchUp = Number.NEGATIVE_INFINITY;
+	/** No write before this time: this device just landed one and yields. */
+	let yieldUntil = Number.NEGATIVE_INFINITY;
 	let alive = true;
 	const stats = { writes: 0, applied: 0, stale: 0, catchUps: 0, fetches: 0, fetchedTexts: 0, timeouts: 0, late: 0, notifications: 0, hints: 0 };
 
@@ -144,7 +159,7 @@ export function createReplica({
 		if (send === null) return;
 		const { rid } = message;
 		pending = { rid, kind: message.type };
-		lastKind = message.type;
+		if (message.type === 'catch-up') lastCatchUp = now();
 		send(message);
 		after(timeout, () => {
 			if (!alive || pending?.rid !== rid) return;
@@ -176,9 +191,13 @@ export function createReplica({
 		// A write whose answer never came is settled by a catch-up before anything else.
 		if (state.inflight !== null) return catchUp();
 		const ready = [...files].filter(([path, file]) => isReady(path, file));
-		// Writes and catch-ups take turns, so neither starves the other.
-		if (needCatchUp && (ready.length === 0 || lastKind === 'write' || state.at === null)) return catchUp();
+		// Writes go first (a stale answer carries the texts a retry needs); a catch-up waits for a pause, or `catchUpEvery`.
+		if (needCatchUp && (ready.length === 0 || state.at === null || now() - lastCatchUp >= catchUpEvery)) return catchUp();
 		if (ready.length === 0) return;
+		if (now() < yieldUntil) {
+			after(yieldUntil - now(), pump);
+			return;
+		}
 		state.inflight = ready.map(([path, file]) => ({
 			path,
 			expected: heard(file),
@@ -276,6 +295,7 @@ export function createReplica({
 		switch (answer.kind) {
 			case 'applied': {
 				stats.applied++;
+				yieldUntil = now() + yieldAfter();
 				state.inflight = null;
 				for (const file of sent) {
 					const record = files.get(file.path) ?? { base: null, mine: null };
@@ -424,6 +444,9 @@ export function createReplica({
 			if (!alive) return;
 			stats.notifications++;
 			if (event.tree === state.at) return;
+			// This device's own write in flight: its reply will say the same.
+			const sent = state.inflight;
+			if (event.by === device && sent !== null && event.files.every((f) => sent.some((s) => s.path === f.path && hashOf(s.text) === f.hash))) return;
 			stats.hints++;
 			needCatchUp = true;
 			pump();
