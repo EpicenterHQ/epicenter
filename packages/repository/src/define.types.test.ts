@@ -31,7 +31,9 @@ type Defs = typeof app.definitions;
 function typeChecks(repo: Handles<Defs>, batch: BatchHandles<Defs>) {
 	const params: Params<'projects/{project}/tasks/{stem}.md'> = { project: 'a', stem: 'b' };
 	repo.tasks.get(params);
-	repo.tasks.get({ project: 'acme', stem: 'fix-login' })?.fields;
+	void repo.tasks.get({ project: 'acme', stem: 'fix-login' }).then((note) => note?.fields.done);
+	repo.tasks.live({ project: 'acme' });
+	void repo.tasks.open({ project: 'acme', stem: 'fix-login' }).then((note) => note.set('done', true));
 	// @ts-expect-error a missing segment is a type error
 	repo.tasks.get({ project: 'acme' });
 	// @ts-expect-error an unknown segment is a type error

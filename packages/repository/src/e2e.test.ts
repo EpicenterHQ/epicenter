@@ -1,7 +1,8 @@
 /**
  * End-to-End Repository Tests
  *
- * Two devices (and sometimes an agent) run the real engine on `bun:sqlite`,
+ * Two devices (and sometimes an agent) run the real engine on `bun:sqlite`
+ * through the app API every host shares,
  * talk to one real server through the in-process transport, and the server
  * commits to a real bare Git repository. These are the scenarios ADR-0692's
  * design rests on, observed from the app API.
@@ -25,7 +26,7 @@ import { openBunGitStore } from './bun/git.js';
 import { openBunSqlite } from './bun/sqlite.js';
 import { createInProcessTransport } from './bun/transport.js';
 import { defineApp } from './define.js';
-import { openRepository } from './engine/engine.js';
+import { openRepository } from './repository.js';
 import { createMemoryBlobStore } from './engine/ports.js';
 import type { OnOverlap } from './policy.js';
 import { MAIN, sequenceOf } from './server/git-store.js';
@@ -74,16 +75,18 @@ async function setup(options: Partial<ServerOptions> = {}) {
 	};
 }
 
-const text = (repo: { notes: { get(p: { stem: string }): { text: string } | null } }, stem: string) =>
-	repo.notes.get({ stem })?.text ?? null;
+const text = async (repo: { notes: { get(p: { stem: string }): Promise<{ text: string } | null> } }, stem: string) =>
+	(await repo.notes.get({ stem }))?.text ?? null;
 
 test('an edit appears on the other device, and its live query re-runs', async () => {
 	const t = await setup();
 	const seen: unknown[] = [];
-	t.bob.repo.live('SELECT stem, title FROM notes', [], (rows) => seen.push(rows));
+	t.bob.repo.live('SELECT stem, title FROM notes').subscribe((rows) => seen.push(rows));
+	await t.bob.repo.flush();
 	const settled = expectOk(await t.alice.repo.notes.create({ stem: 'trip' }, { fields: { title: 'Trip' }, body: 'Pack.\n' }));
 	expect(settled).toMatchObject({ kind: 'applied', seq: 1 });
-	expect(t.bob.repo.notes.get({ stem: 'trip' })).toMatchObject({ valid: true, fields: { title: 'Trip' }, body: 'Pack.\n', params: { stem: 'trip' } });
+	await t.bob.repo.flush();
+	expect(await t.bob.repo.notes.get({ stem: 'trip' })).toMatchObject({ valid: true, fields: { title: 'Trip' }, body: 'Pack.\n', params: { stem: 'trip' } });
 	expect(seen).toEqual([[], [{ stem: 'trip', title: 'Trip' }]]);
 	await t.cleanup();
 });
@@ -95,12 +98,12 @@ test('an offline edit on each device merges on reconnect', async () => {
 	t.bob.transport.setOnline(false);
 	void t.alice.repo.notes.write({ stem: 'list' }, { body: 'A\nb\nc\n' });
 	void t.bob.repo.notes.write({ stem: 'list' }, { body: 'a\nb\nC\n' });
-	expect(text(t.alice.repo, 'list')).toBe('A\nb\nc\n');
+	expect(await text(t.alice.repo, 'list')).toBe('A\nb\nc\n');
 	t.alice.transport.setOnline(true);
 	t.bob.transport.setOnline(true);
 	await t.settle(t.alice, t.bob);
-	expect(text(t.alice.repo, 'list')).toBe('A\nb\nC\n');
-	expect(text(t.bob.repo, 'list')).toBe('A\nb\nC\n');
+	expect(await text(t.alice.repo, 'list')).toBe('A\nb\nC\n');
+	expect(await text(t.bob.repo, 'list')).toBe('A\nb\nC\n');
 	await t.cleanup();
 });
 
@@ -116,16 +119,16 @@ test('a true overlap becomes a marker block for people and a refusal for an agen
 	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: 'cart\n' }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
-	const marked = text(t.alice.repo, 'pet') ?? '';
+	const marked = (await text(t.alice.repo, 'pet')) ?? '';
 	expect(marked).toContain('<<<<<<< alice');
 	expect(marked).toContain('cart\n||||||| base\ncat\n=======\ncoat\n>>>>>>> bob');
-	expect(text(t.bob.repo, 'pet')).toBe(marked);
+	expect(await text(t.bob.repo, 'pet')).toBe(marked);
 
 	agent.transport.setOnline(true);
 	expect(expectOk(await agentWrite)).toMatchObject({ kind: 'refused', path: 'notes/pet.md' });
 	// The agent awaited the refusal and still holds what it wrote; its device shows the server's text.
-	expect(text(agent.repo, 'pet')).toBe(marked);
-	expect(agent.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	expect(await text(agent.repo, 'pet')).toBe(marked);
+	expect(await agent.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 0 }]);
 	await t.cleanup();
 });
 
@@ -139,8 +142,8 @@ test('two creates at one path merge fields and keep both bodies', async () => {
 	t.bob.transport.setOnline(true);
 	await t.settle(t.alice, t.bob);
 	const expected = '---\nweather: sun\nmood: good\n---\nMorning\n\nEvening\n';
-	expect(text(t.alice.repo, 'daily')).toBe(expected);
-	expect(text(t.bob.repo, 'daily')).toBe(expected);
+	expect(await text(t.alice.repo, 'daily')).toBe(expected);
+	expect(await text(t.bob.repo, 'daily')).toBe(expected);
 	await t.cleanup();
 });
 
@@ -152,8 +155,8 @@ test('an overlap touching an existing conflict block keeps both sides as separat
 	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: 'intro\ncart\nend\n' }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
-	const blocked = text(t.alice.repo, 'pet') ?? '';
-	expect(text(t.bob.repo, 'pet')).toBe(blocked);
+	const blocked = (await text(t.alice.repo, 'pet')) ?? '';
+	expect(await text(t.bob.repo, 'pet')).toBe(blocked);
 	expect(blocked.match(/^<<<<<<< /gm)).toHaveLength(1);
 
 	// Alice edits the intro and a line inside the block; Bob, offline, edits the
@@ -163,8 +166,8 @@ test('an overlap touching an existing conflict block keeps both sides as separat
 	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: blocked.replace('intro', 'intro by alice').replace('cart', 'CART') }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
-	const final = text(t.alice.repo, 'pet') ?? '';
-	expect(text(t.bob.repo, 'pet')).toBe(final);
+	const final = (await text(t.alice.repo, 'pet')) ?? '';
+	expect(await text(t.bob.repo, 'pet')).toBe(final);
 	for (const kept of ['intro by alice', 'CART', 'intro by bob\ncoat\n']) expect(final).toContain(kept);
 	expect(final.match(/^<<<<<<< /gm)).toHaveLength(2);
 	await t.cleanup();
@@ -192,7 +195,7 @@ test('a setting deleted on one device and changed on another keeps the change', 
 	expectOk(await t.alice.repo.settings.set('theme', undefined));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
-	for (const repo of [t.alice.repo, t.bob.repo]) expect(repo.settings.get()?.fields).toEqual({ theme: 'dark' });
+	for (const repo of [t.alice.repo, t.bob.repo]) expect((await repo.settings.get())?.fields).toEqual({ theme: 'dark' });
 	await t.cleanup();
 });
 
@@ -205,8 +208,8 @@ test('an edit made before a move follows it', async () => {
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
-		expect(text(repo, 'final')).toBe('one\ntwo\n');
-		expect(text(repo, 'draft')).toBeNull();
+		expect(await text(repo, 'final')).toBe('one\ntwo\n');
+		expect(await text(repo, 'draft')).toBeNull();
 	}
 	await t.cleanup();
 });
@@ -220,16 +223,16 @@ test('a move onto a taken path is refused, and the note stays where it was on th
 	const move = t.bob.repo.notes.move({ stem: 'final' }, { stem: 'taken' });
 	// An edit Bob makes to the moved note before the refusal arrives stays with it.
 	const edit = t.bob.repo.notes.append({ stem: 'taken' }, 'two\n');
-	expect(text(t.bob.repo, 'taken')).toBe('one\ntwo\n');
-	expect(text(t.bob.repo, 'final')).toBeNull();
+	expect(await text(t.bob.repo, 'taken')).toBe('one\ntwo\n');
+	expect(await text(t.bob.repo, 'final')).toBeNull();
 	t.bob.transport.setOnline(true);
 	expect(expectOk(await move)).toEqual({ kind: 'refused', path: 'notes/taken.md', reason: 'the destination is taken' });
 	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { path: 'notes/final.md', at: 'notes/final.md' } });
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
-		expect(text(repo, 'final')).toBe('one\ntwo\n');
-		expect(text(repo, 'taken')).toBe('mine\n');
-		expect(repo.notes.list()).toHaveLength(2);
+		expect(await text(repo, 'final')).toBe('one\ntwo\n');
+		expect(await text(repo, 'taken')).toBe('mine\n');
+		expect(await repo.notes.list()).toHaveLength(2);
 	}
 	await t.cleanup();
 });
@@ -239,15 +242,15 @@ test('for people, a delete versus an edit keeps the edit', async () => {
 	expectOk(await t.alice.repo.notes.create({ stem: 'keep' }, { body: 'v1\n' }));
 	t.alice.transport.setOnline(false);
 	const deleted = t.alice.repo.notes.delete({ stem: 'keep' });
-	expect(text(t.alice.repo, 'keep')).toBeNull();
+	expect(await text(t.alice.repo, 'keep')).toBeNull();
 	expectOk(await t.bob.repo.notes.write({ stem: 'keep' }, { body: 'v2\n' }));
 	t.alice.transport.setOnline(true);
 	expect(expectOk(await deleted)).toMatchObject({
 		kind: 'applied',
 		change: { overlaps: [{ unit: 'file', clash: 'deleted', settled: 'edit-kept' }] },
 	});
-	expect(text(t.alice.repo, 'keep')).toBe('v2\n');
-	expect(text(t.bob.repo, 'keep')).toBe('v2\n');
+	expect(await text(t.alice.repo, 'keep')).toBe('v2\n');
+	expect(await text(t.bob.repo, 'keep')).toBe('v2\n');
 	await t.cleanup();
 });
 
@@ -266,8 +269,8 @@ test('a note brought back by an unseen edit takes later unseen edits too (bug A)
 	carol.transport.setOnline(true);
 	await t.settle(carol, t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo, carol.repo]) {
-		expect(text(repo, 'n')).toBe('carol v1 bob\n');
-		expect(repo.notes.list()).toHaveLength(1);
+		expect(await text(repo, 'n')).toBe('carol v1 bob\n');
+		expect(await repo.notes.list()).toHaveLength(1);
 	}
 	await t.cleanup();
 });
@@ -287,8 +290,8 @@ test('an offline append to a note deleted and re-created across commits becomes 
 	expect(expectOk(await appended)).toMatchObject({ kind: 'applied', change: { at: 'notes/log (bob, 2026-10-28).md' } });
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
-		expect(text(repo, 'log')).toBe('new log\n');
-		expect(text(repo, 'log (bob, 2026-10-28)')).toBe('old log\nbob\n');
+		expect(await text(repo, 'log')).toBe('new log\n');
+		expect(await text(repo, 'log (bob, 2026-10-28)')).toBe('old log\nbob\n');
 	}
 	await t.cleanup();
 });
@@ -304,8 +307,8 @@ test('settings set on two devices merges by key', async () => {
 	t.bob.transport.setOnline(true);
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo])
-		expect(repo.settings.get()).toMatchObject({ valid: true, fields: { theme: 'dark', font: 'serif' } });
-	expect(t.alice.repo.query('SELECT theme, font FROM settings')).toEqual([{ theme: 'dark', font: 'serif' }]);
+		expect(await repo.settings.get()).toMatchObject({ valid: true, fields: { theme: 'dark', font: 'serif' } });
+	expect(await t.alice.repo.query('SELECT theme, font FROM settings')).toEqual([{ theme: 'dark', font: 'serif' }]);
 	await t.cleanup();
 });
 
@@ -320,8 +323,8 @@ test('appends from two devices keep both, in server order', async () => {
 	await t.alice.repo.flush();
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
-	expect(text(t.alice.repo, 'log')).toBe('log\nalice\nbob\n');
-	expect(text(t.bob.repo, 'log')).toBe('log\nalice\nbob\n');
+	expect(await text(t.alice.repo, 'log')).toBe('log\nalice\nbob\n');
+	expect(await text(t.bob.repo, 'log')).toBe('log\nalice\nbob\n');
 	await t.cleanup();
 });
 
@@ -335,7 +338,7 @@ test('a batch whose reply was lost is retried and returns its recorded outcome',
 	t.alice.transport.setOnline(true);
 	expect(expectOk(await appended)).toMatchObject({ kind: 'applied', seq: 2 });
 	expect(await t.server.read('notes/once.md')).toBe('x\ny\n');
-	expect(text(t.alice.repo, 'once')).toBe('x\ny\n');
+	expect(await text(t.alice.repo, 'once')).toBe('x\ny\n');
 	expect(t.server.sequence()).toBe(2);
 	await t.cleanup();
 });
@@ -350,9 +353,9 @@ test('a retry whose reply was lost and whose receipt left with its commit settle
 	expectOk(await t.server.tick());
 	t.alice.transport.setOnline(true);
 	expect(expectOk(await appended)).toEqual({ kind: 'applied', seq: null, change: null });
-	expect(text(t.alice.repo, 'once')).toBe('x\ny\n');
+	expect(await text(t.alice.repo, 'once')).toBe('x\ny\n');
 	expect(await t.server.read('notes/once.md')).toBe('x\ny\n');
-	expect(t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
+	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL')).toEqual([{ n: 0 }]);
 	await t.cleanup();
 });
 
@@ -368,8 +371,8 @@ test('a move in a batch is sent as a batch of its own', async () => {
 		}),
 	);
 	expect(settled.map((s) => (s.kind === 'applied' ? s.seq : null))).toEqual([2, 2, 3, 4]);
-	expect(text(t.bob.repo, 'moved')).toBe('A\n');
-	expect(text(t.bob.repo, 'b')).toBe('B\nmore\n');
+	expect(await text(t.bob.repo, 'moved')).toBe('A\n');
+	expect(await text(t.bob.repo, 'b')).toBe('B\nmore\n');
 	await t.cleanup();
 });
 
@@ -386,8 +389,8 @@ test('a base the server no longer has round-trips through need-base', async () =
 	t.bob.transport.setOnline(true);
 	expect(expectOk(await edit).kind).toBe('applied');
 	await t.settle(t.alice, t.bob);
-	expect(text(t.alice.repo, 'n')).toBe('ONE\ntwo\nTHREE\nfour\n');
-	expect(text(t.bob.repo, 'n')).toBe('ONE\ntwo\nTHREE\nfour\n');
+	expect(await text(t.alice.repo, 'n')).toBe('ONE\ntwo\nTHREE\nfour\n');
+	expect(await text(t.bob.repo, 'n')).toBe('ONE\ntwo\nTHREE\nfour\n');
 	await t.cleanup();
 });
 
@@ -409,9 +412,9 @@ test('a device offline across many commits follows a move made ten commits ago',
 	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { at: 'notes/final.md', movedTo: 'notes/final.md' } });
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
-		expect(text(repo, 'final')).toBe('one\ntwo\n');
-		expect(text(repo, 'draft')).toBeNull();
-		expect(repo.notes.list()).toHaveLength(11);
+		expect(await text(repo, 'final')).toBe('one\ntwo\n');
+		expect(await text(repo, 'draft')).toBeNull();
+		expect(await repo.notes.list()).toHaveLength(11);
 	}
 	await t.cleanup();
 });
@@ -430,9 +433,9 @@ test('an edit to a note deleted and replaced meanwhile becomes a sibling, and th
 	expect(expectOk(await second)).toMatchObject({ kind: 'applied', change: { at: 'notes/plan (bob, 2026-10-28).md' } });
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
-		expect(text(repo, 'plan')).toBe('a different plan\n');
-		expect(text(repo, 'plan (bob, 2026-10-28)')).toBe('old plan\nbob one\nbob two\n');
-		expect(repo.notes.list()).toHaveLength(2);
+		expect(await text(repo, 'plan')).toBe('a different plan\n');
+		expect(await text(repo, 'plan (bob, 2026-10-28)')).toBe('old plan\nbob one\nbob two\n');
+		expect(await repo.notes.list()).toHaveLength(2);
 	}
 	await t.cleanup();
 });
@@ -448,8 +451,8 @@ test('a note and its blob land in one batch', async () => {
 	);
 	expect(settled.map((s) => s.kind)).toEqual(['applied', 'applied']);
 	expect(new Set(settled.map((s) => (s.kind === 'applied' ? s.seq : 0)))).toEqual(new Set([1]));
-	expect(text(t.bob.repo, 'beach')).toBe('![](beach/photo.png)\n');
-	expect(t.bob.repo.photos.list()).toMatchObject([{ path: 'notes/beach/photo.png', size: 7 }]);
+	expect(await text(t.bob.repo, 'beach')).toBe('![](beach/photo.png)\n');
+	expect(await t.bob.repo.photos.list()).toMatchObject([{ path: 'notes/beach/photo.png', size: 7 }]);
 	expect(await t.bob.repo.photos.get({ stem: 'beach', file: 'photo.png' })).toEqual(bytes);
 	const refused = expectErr(await t.alice.repo.photos.put({ stem: 'x', file: 'a.gif' }, bytes, { type: 'image/gif' }));
 	expect(refused.name).toBe('BlobRefused');
@@ -469,7 +472,7 @@ test('the overlay clears after a commit, and the commit carries the sequence', a
 	// A fresh device opens from Git alone.
 	const carol = t.device('carol-tablet', 'carol');
 	await carol.repo.flush();
-	expect(carol.repo.notes.list().map((note) => note.text)).toEqual(['A\n', 'B\n']);
+	expect((await carol.repo.notes.list()).map((note) => note.text)).toEqual(['A\n', 'B\n']);
 	await t.cleanup();
 });
 
@@ -498,6 +501,6 @@ test('an agent push that overlaps is refused, and a clean one lands with its com
 	const landed = expectOk(await t.server.receivePush({ commit: clean, user: 'claude' }));
 	expect(landed.kind).toBe('applied');
 	expect((await t.git.readCommit((await t.git.readRef(MAIN)) ?? ''))?.parents).toContain(clean);
-	expect(text(t.bob.repo, 'plan')).toBe('one\nTWO\nthree\nfour\n');
+	expect(await text(t.bob.repo, 'plan')).toBe('one\nTWO\nthree\nfour\n');
 	await t.cleanup();
 });

@@ -1,38 +1,35 @@
 /**
  * The device engine: one SQLite database per repository per device. It holds
- * every synced file's text and this device's unsent batches, answers reads
- * synchronously in SQL, applies writes locally at once, sends batches in
- * order, and rebases unsent edits with the Epicenter merge when the server
- * acknowledges them or reports other devices' changes.
+ * every synced file's text and this device's unsent batches, answers reads in
+ * SQL, applies writes locally at once, sends batches in order, and rebases
+ * unsent edits with the Epicenter merge when the server acknowledges them or
+ * reports other devices' changes.
+ *
+ * Everything it takes and returns is plain data (`EngineRequest`, `WriteOp`),
+ * so it runs in the caller's thread (`openRepository`) or in a browser worker
+ * that serves several tabs; `createRepository` turns it into the app API.
  */
-import { Check, Errors } from 'typebox/value';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type {
-	App,
-	BatchHandles,
-	Definitions,
-	Handles,
-	Lens,
-	NoteInput,
-	Pending,
-	Settled,
-} from '../define.js';
+import type { App, Definitions, Lens, Settled } from '../define.js';
 import { WriteError } from '../define.js';
 import { gitBlobHash, sha256 } from '../hash.js';
 import { BODY_SQL, parseMarkdown, parsePointer, writeMarkdown, writePointer } from '../markdown.js';
 import { merge } from '../merge.js';
 import type { Batch, BatchOutcome, Broadcast, Change, ChangeOutcome, FileState, Move } from '../protocol.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
-import { buildPath, matchTemplate } from '../templates.js';
+import { buildPath } from '../templates.js';
 import { type BlobStore, createMemoryBlobStore, type Transport } from './ports.js';
 
-const SCHEMA = `
+/** The function that parses a file's fields, registered where the driver can. */
+const FIELDS_FUNCTION = 'epicenter_fields';
+
+const schema = (computedFields: boolean) => `
 CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	path TEXT PRIMARY KEY,
 	text TEXT,
-	fields TEXT,
+	fields TEXT${computedFields ? ` GENERATED ALWAYS AS (${FIELDS_FUNCTION}(text)) STORED` : ''},
 	body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL,
 	synced TEXT,
 	hash TEXT,
@@ -41,10 +38,19 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
 	seq INTEGER NOT NULL,
-	changes TEXT NOT NULL
+	changes TEXT NOT NULL,
+	command TEXT,
+	outcome TEXT
 ) STRICT;
+CREATE INDEX IF NOT EXISTS "epicenter/outbox_command" ON "epicenter/outbox" (command);
 CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
+
+/**
+ * How many settled outbox rows stay, so that a command retried after its
+ * answer was lost (a leader tab closing) is found rather than repeated.
+ */
+const KEEP_SETTLED = 500;
 
 const PARSER_VERSION = '1';
 
@@ -69,48 +75,89 @@ type Entry = { change: Change; local: string | null };
 
 type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number };
 
-export type Repository<TDefs extends Definitions> = Handles<TDefs> & {
-	/**
-	 * Build one batch from write-only handles; it lands all or nothing, except
-	 * that each move is sent as a batch of its own.
-	 */
-	batch(build: (handles: BatchHandles<TDefs>) => void): Pending<Settled[]>;
-	/** Run a read-only statement over the app's views. */
-	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): TRow[];
-	/** Run a statement now and again after any change, calling back only when its rows differ. */
-	live<TRow = Record<string, SqlValue>>(sql: string, params: SqlValue[], onChange: (rows: TRow[]) => void): () => void;
+/** A file as reads return it: its text, the parsed fields as JSON (null when they do not parse) and the body. */
+export type FileRead = { path: string; text: string; fields: string | null; body: string };
+
+type Params = Record<string, unknown>;
+
+/** One write an app asks for, as data, so it can cross to a worker and be retried. */
+export type WriteOp =
+	| { kind: 'create' | 'write'; name: string; params: Params; input: { fields?: Record<string, unknown>; body?: string } }
+	| { kind: 'set'; name: string; params: Params; key: string; value: unknown }
+	| { kind: 'append'; name: string; params: Params; text: string }
+	| { kind: 'move'; name: string; from: Params; to: Params }
+	| { kind: 'delete'; name: string; params: Params }
+	| { kind: 'put'; name: string; params: Params; bytes: Uint8Array; type: string };
+
+/** A read, as data. */
+export type EngineRequest =
+	| { kind: 'get'; name: string; params: Params }
+	| { kind: 'list'; name: string; filter: Params }
+	| { kind: 'query'; sql: string; params: SqlValue[] }
+	| { kind: 'blob'; name: string; params: Params; as: 'bytes' | 'url' }
 	/** Resolves when queued sync work has run: the outbox is sent, or the server is unreachable. */
-	flush(): Promise<void>;
-	close(): void;
+	| { kind: 'flush' };
+
+/** What each read answers. */
+export type EngineAnswers = {
+	get: FileRead | null;
+	list: FileRead[];
+	query: Record<string, SqlValue>[];
+	blob: Uint8Array | string | null;
+	flush: undefined;
 };
 
-export type RepositoryOptions<TDefs extends Definitions> = {
+/**
+ * A submitted command: `local` settles once its writes are applied on this
+ * device (or refused there), `settled` once the server answers each batch.
+ */
+export type Submitted = {
+	local: Promise<Result<undefined, WriteError>>;
+	settled: Promise<Result<Settled[], WriteError>>;
+};
+
+export type EngineOptions<TDefs extends Definitions> = {
 	app: App<TDefs>;
 	driver: SqlDriver;
 	transport: Transport;
-	device: string;
+	/** This device's id; by default the one the database holds, or a new one. */
+	device?: string;
 	blobs?: BlobStore;
 	log?: Logger;
 };
 
 const ROLLBACK = Symbol('rollback');
 
-export function openRepository<const TDefs extends Definitions>({
+export function openEngine<const TDefs extends Definitions>({
 	app,
 	driver,
 	transport,
-	device,
+	device: requested,
 	blobs = createMemoryBlobStore(),
 	log = createLogger('repository/engine'),
-}: RepositoryOptions<TDefs>): Repository<TDefs> {
-	driver.exec(SCHEMA);
+}: EngineOptions<TDefs>) {
+	/** What the views read: a note's frontmatter, or a pointer's oid and size. */
+	function fieldsOf(text: string | null): string | null {
+		if (text === null) return null;
+		const pointer = parsePointer(text);
+		if (pointer !== null) return JSON.stringify(pointer);
+		const parsed = parseMarkdown(text);
+		return parsed.error === null ? JSON.stringify(parsed.data.fields) : null;
+	}
+	// Where the driver can register a function, SQLite computes `fields` from
+	// the text itself; otherwise every write stores both in one statement.
+	const computedFields = driver.registerFunction !== undefined;
+	driver.registerFunction?.(FIELDS_FUNCTION, (text) => fieldsOf(typeof text === 'string' ? text : null));
+	driver.exec(schema(computedFields));
+
 	const meta = (key: string) => first<{ value: string }>(driver, 'SELECT value FROM "epicenter/meta" WHERE key = ?', [key])?.value;
 	const setMeta = (key: string, value: string) =>
 		driver.run('INSERT OR REPLACE INTO "epicenter/meta" (key, value) VALUES (?, ?)', [key, value]);
 	const stored = meta('device');
 	// Opening another device's database is a wiring mistake, not a runtime condition.
-	if (stored !== undefined && stored !== device)
-		throw new Error(`This database belongs to device '${stored}', not '${device}'`);
+	if (stored !== undefined && requested !== undefined && stored !== requested)
+		throw new Error(`This database belongs to device '${stored}', not '${requested}'`);
+	const device = stored ?? requested ?? crypto.randomUUID();
 	if (stored === undefined) {
 		setMeta('device', device);
 		setMeta('next', '1');
@@ -122,6 +169,7 @@ export function openRepository<const TDefs extends Definitions>({
 		driver.exec(`DROP VIEW IF EXISTS temp."${lens.name}"`);
 		driver.exec(lens.view);
 	}
+	const lenses = new Map(app.lenses.map((lens) => [lens.name, lens]));
 
 	// ------------------------------------------------------------------------
 	// Files
@@ -130,25 +178,29 @@ export function openRepository<const TDefs extends Definitions>({
 	const row = (path: string) =>
 		first<FileRow>(driver, 'SELECT path, text, synced, hash, seq FROM "epicenter/files" WHERE path = ?', [path]);
 
-	/** What the views read: a note's frontmatter, or a pointer's oid and size. */
-	function fieldsOf(text: string | null): string | null {
-		if (text === null) return null;
-		const pointer = parsePointer(text);
-		if (pointer !== null) return JSON.stringify(pointer);
-		const parsed = parseMarkdown(text);
-		return parsed.error === null ? JSON.stringify(parsed.data.fields) : null;
-	}
+	/** Paths whose shown text changed since the last notification. */
+	const changed = new Set<string>();
 
 	/** The one write path: text and its parsed fields in the same statement. */
 	function put(path: string, next: Omit<FileRow, 'path'>) {
+		if ((row(path)?.text ?? null) !== next.text) changed.add(path);
 		if (next.text === null && next.synced === null) {
 			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
 			return;
 		}
-		driver.run(
-			'INSERT OR REPLACE INTO "epicenter/files" (path, text, fields, synced, hash, seq) VALUES (?, ?, ?, ?, ?, ?)',
-			[path, next.text, fieldsOf(next.text), next.synced, next.hash, next.seq],
-		);
+		if (computedFields)
+			driver.run('INSERT OR REPLACE INTO "epicenter/files" (path, text, synced, hash, seq) VALUES (?, ?, ?, ?, ?)', [
+				path,
+				next.text,
+				next.synced,
+				next.hash,
+				next.seq,
+			]);
+		else
+			driver.run(
+				'INSERT OR REPLACE INTO "epicenter/files" (path, text, fields, synced, hash, seq) VALUES (?, ?, ?, ?, ?, ?)',
+				[path, next.text, fieldsOf(next.text), next.synced, next.hash, next.seq],
+			);
 	}
 	const keep = (path: string) => row(path) ?? { path, text: null, synced: null, hash: null, seq: 0 };
 
@@ -182,19 +234,15 @@ export function openRepository<const TDefs extends Definitions>({
 	}
 
 	// ------------------------------------------------------------------------
-	// Live queries
+	// Change notifications
 	// ------------------------------------------------------------------------
 
-	type Live = { sql: string; params: SqlValue[]; onChange: (rows: never[]) => void; last: string };
-	const lives = new Set<Live>();
+	const listeners = new Set<(paths: string[]) => void>();
 	function notify() {
-		for (const live of lives) {
-			const rows = driver.all(live.sql, live.params);
-			const json = JSON.stringify(rows);
-			if (json === live.last) continue;
-			live.last = json;
-			live.onChange(rows as never[]);
-		}
+		if (changed.size === 0) return;
+		const paths = [...changed];
+		changed.clear();
+		for (const listener of listeners) listener(paths);
 	}
 
 	// ------------------------------------------------------------------------
@@ -256,24 +304,117 @@ export function openRepository<const TDefs extends Definitions>({
 		return { change: { kind: 'write', path: change.path, base, text: change.text }, local: change.text };
 	}
 
-	type Op = () => Result<Local, WriteError>;
-	const waiters = new Map<number, (result: Result<Settled[], WriteError>) => void>();
+	/** Every op but a blob put, whose bytes are stored first and which then writes its pointer's text. */
+	type Ready = Exclude<WriteOp, { kind: 'put' }> | { kind: 'pointer'; name: string; params: Params; text: string };
+
+	function pathOf(lens: Lens, params: Params): Result<string, WriteError> {
+		const built = buildPath(lens.template, params);
+		return built.error === null ? Ok(built.data) : WriteError.InvalidParams({ handle: lens.name, reason: built.error.message });
+	}
+	function lensOf(name: string): Lens {
+		const lens = lenses.get(name);
+		// The client builds ops only from the app's own names.
+		if (lens === undefined) throw new Error(`'${name}' is not a name in this app`);
+		return lens;
+	}
+	const localText = (path: string) => row(path)?.text ?? null;
+
+	/** What one op does on this device, read against what the device shows now. */
+	function resolve(op: Ready): Result<Local, WriteError> {
+		const lens = lensOf(op.name);
+		if (op.kind === 'move') {
+			const from = pathOf(lens, op.from);
+			if (from.error !== null) return from;
+			const to = pathOf(lens, op.to);
+			if (to.error !== null) return to;
+			if (localText(from.data) === null) return WriteError.NotFound({ path: from.data });
+			if (localText(to.data) !== null) return WriteError.Exists({ path: to.data });
+			return Ok({ kind: 'move', from: from.data, to: to.data });
+		}
+		const path = pathOf(lens, op.params);
+		if (path.error !== null) return path;
+		const current = localText(path.data);
+		switch (op.kind) {
+			case 'pointer':
+				return Ok({ kind: 'write', path: path.data, text: op.text });
+			case 'delete':
+				if (current === null) return WriteError.NotFound({ path: path.data });
+				return Ok({ kind: 'write', path: path.data, text: null });
+			case 'append':
+				if (current === null) return WriteError.NotFound({ path: path.data });
+				return Ok({ kind: 'append', path: path.data, text: op.text });
+			case 'create':
+			case 'write':
+			case 'set': {
+				if (op.kind === 'create' && current !== null) return WriteError.Exists({ path: path.data });
+				const change = op.kind === 'set' ? { fields: { [op.key]: op.value } } : op.input;
+				const text = writeMarkdown(current, change);
+				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });
+				return Ok({ kind: 'write', path: path.data, text: text.data });
+			}
+		}
+	}
 
 	/**
-	 * Apply ops locally and queue them, in one transaction. A move is sent as
-	 * a batch of its own: the server refuses it when its destination is
-	 * taken, and that refusal should undo only the move, not the changes
-	 * around it.
+	 * A blob put: checks run first, the bytes are stored, and only then is the
+	 * pointer op returned, so a pointer never names missing bytes.
 	 */
-	function submit(ops: Op[]): Pending<Settled[]> {
-		if (closed) return Promise.resolve(WriteError.Closed());
+	async function upload(op: Extract<WriteOp, { kind: 'put' }>): Promise<Result<Ready, WriteError>> {
+		const lens = lensOf(op.name);
+		const path = pathOf(lens, op.params);
+		if (path.error !== null) return path;
+		if (lens.kind !== 'blob') throw new Error(`'${op.name}' is not a blob name`);
+		if (!lens.blob.types.includes(op.type))
+			return WriteError.BlobRefused({ path: path.data, reason: `'${op.type}' is not one of ${lens.blob.types.join(', ')}` });
+		if (lens.blob.maxSize !== undefined && op.bytes.length > lens.blob.maxSize)
+			return WriteError.BlobRefused({ path: path.data, reason: `${op.bytes.length} bytes is over ${lens.blob.maxSize}` });
+		const oid = await sha256(op.bytes);
+		const stored = await tryAsync({
+			try: () => blobs.put(oid, op.bytes, op.type),
+			catch: (cause) => WriteError.BlobUploadFailed({ path: path.data, cause }),
+		});
+		if (stored.error !== null) return stored;
+		return Ok({ kind: 'pointer', name: op.name, params: op.params, text: writePointer({ oid, size: op.bytes.length }) });
+	}
+
+	const waiters = new Map<number, ((result: Result<Settled[], WriteError>) => void)[]>();
+	const wait = (n: number) =>
+		new Promise<Result<Settled[], WriteError>>((resolve) => waiters.set(n, [...(waiters.get(n) ?? []), resolve]));
+
+	/** One answer for a command from its outbox rows, settled or still waiting. */
+	function settledOf(rows: { n: number; outcome: string | null }[]): Promise<Result<Settled[], WriteError>> {
+		const parts = rows.map(({ n, outcome }) => (outcome === null ? wait(n) : Promise.resolve(Ok(JSON.parse(outcome) as Settled[]))));
+		return Promise.all(parts).then((results) => {
+			const settled: Settled[] = [];
+			for (const result of results) {
+				if (result.error !== null) return result;
+				settled.push(...result.data);
+			}
+			return Ok(settled);
+		});
+	}
+
+	const commandRows = (command: string) =>
+		driver.all<{ n: number; outcome: string | null }>('SELECT n, outcome FROM "epicenter/outbox" WHERE command = ? ORDER BY n', [command]);
+
+	/**
+	 * Apply ops locally and queue them, in one transaction, under the
+	 * caller's command id: a command already in the outbox is answered from
+	 * there and never applied twice. A move is sent as a batch of its own: the
+	 * server refuses it when its destination is taken, and that refusal should
+	 * undo only the move, not the changes around it.
+	 */
+	function apply(command: string, ops: Ready[]): Submitted {
+		if (closed) return { local: Promise.resolve(WriteError.Closed()), settled: Promise.resolve(WriteError.Closed()) };
+		const known = commandRows(command);
+		if (known.length > 0) return { local: Promise.resolve(Ok(undefined)), settled: settledOf(known) };
 		let failure: WriteError | null = null;
 		const numbers: number[] = [];
 		try {
 			driver.transaction(() => {
 				const batches: Entry[][] = [];
 				for (const op of ops) {
-					const local = op();
+					const local = resolve(op);
 					if (local.error !== null) {
 						failure = local.error;
 						throw ROLLBACK;
@@ -286,35 +427,57 @@ export function openRepository<const TDefs extends Definitions>({
 				for (const entries of batches) {
 					const n = Number(meta('next') ?? '1');
 					setMeta('next', String(n + 1));
-					driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes) VALUES (?, ?, ?)', [n, position(), JSON.stringify(entries)]);
+					driver.run('INSERT INTO "epicenter/outbox" (n, seq, changes, command) VALUES (?, ?, ?, ?)', [
+						n,
+						position(),
+						JSON.stringify(entries),
+						command,
+					]);
 					numbers.push(n);
 				}
 			});
 		} catch (cause) {
 			if (cause !== ROLLBACK) throw cause;
+			changed.clear();
 		}
-		if (failure !== null) return Promise.resolve(Err(failure));
+		if (failure !== null) return { local: Promise.resolve(Err(failure)), settled: Promise.resolve(Err(failure)) };
 		notify();
-		const parts = numbers.map((n) => new Promise<Result<Settled[], WriteError>>((resolve) => waiters.set(n, resolve)));
+		const settled = settledOf(numbers.map((n) => ({ n, outcome: null })));
 		kick();
-		return Promise.all(parts).then((results) => {
-			const settled: Settled[] = [];
-			for (const result of results) {
-				if (result.error !== null) return result;
-				settled.push(...result.data);
-			}
-			return Ok(settled);
-		});
+		return { local: Promise.resolve(Ok(undefined)), settled };
 	}
 
-	/** Paths an outbox entry touches. */
+	function submit(command: string, ops: WriteOp[]): Submitted {
+		if (!ops.some((op) => op.kind === 'put')) return apply(command, ops as Ready[]);
+		const ready = (async (): Promise<Result<Ready[], WriteError>> => {
+			const out: Ready[] = [];
+			for (const op of ops) {
+				if (op.kind !== 'put') {
+					out.push(op);
+					continue;
+				}
+				const uploaded = await upload(op);
+				if (uploaded.error !== null) return uploaded;
+				out.push(uploaded.data);
+			}
+			return Ok(out);
+		})();
+		const submitted = ready.then((result) => (result.error !== null ? { local: Promise.resolve(result), settled: Promise.resolve(result) } : apply(command, result.data)));
+		return {
+			local: submitted.then((s) => s.local).then((r) => (r.error !== null ? Err(r.error) : Ok(undefined))),
+			settled: submitted.then((s) => s.settled),
+		};
+	}
+
+	/** The paths an outbox entry touches. */
 	const pathsOf = ({ change }: Entry) => (change.kind === 'move' ? [change.from, change.to] : [change.path]);
 
+	const unsent = (except = -1) =>
+		driver.all<{ n: number; changes: string }>('SELECT n, changes FROM "epicenter/outbox" WHERE outcome IS NULL AND n <> ? ORDER BY n', [except]);
+
 	/** Whether an unsent batch other than `except` touches `path`. */
-	function isPending(path: string, except: number) {
-		const pending = driver.all<{ changes: string }>('SELECT changes FROM "epicenter/outbox" WHERE n <> ?', [except]);
-		return pending.some((p) => (JSON.parse(p.changes) as Entry[]).some((e) => pathsOf(e).includes(path)));
-	}
+	const isPending = (path: string, except: number) =>
+		unsent(except).some((p) => (JSON.parse(p.changes) as Entry[]).some((e) => pathsOf(e).includes(path)));
 
 	/** Show the server's text again unless a later unsent change still covers the path. */
 	function revert(path: string, except: number) {
@@ -330,8 +493,7 @@ export function openRepository<const TDefs extends Definitions>({
 	 * change also names `from`, only the server's texts are shown again.
 	 */
 	function putBack({ from, to }: { from: string; to: string }) {
-		const later = driver.all<{ n: number; changes: string }>('SELECT n, changes FROM "epicenter/outbox" ORDER BY n');
-		const entries = later.map((batch) => ({ n: batch.n, entries: JSON.parse(batch.changes) as Entry[] }));
+		const entries = unsent().map((batch) => ({ n: batch.n, entries: JSON.parse(batch.changes) as Entry[] }));
 		if (entries.some((batch) => batch.entries.some((entry) => pathsOf(entry).includes(from)))) {
 			for (const path of [from, to]) revert(path, -1);
 			return;
@@ -396,10 +558,27 @@ export function openRepository<const TDefs extends Definitions>({
 		put(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
 	}
 
+	/**
+	 * Settle one batch. Its row stays, holding the outcome, so a command
+	 * retried by id after its answer was lost gets that outcome again; the
+	 * oldest settled rows are dropped.
+	 */
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
 		let settled: Settled[];
+		switch (outcome.kind) {
+			case 'applied':
+				settled = entries.map((_, index) => ({ kind: 'applied', seq: outcome.seq, change: outcome.changes[index] ?? null }));
+				break;
+			case 'refused':
+				settled = entries.map(() => ({ kind: 'refused', path: outcome.path, reason: outcome.reason }));
+				break;
+			case 'need-base':
+				settled = entries.map(() => ({ kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE }));
+				break;
+		}
 		driver.transaction(() => {
-			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
+			driver.run('UPDATE "epicenter/outbox" SET outcome = ? WHERE n = ?', [JSON.stringify(settled), n]);
+			driver.run('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL AND n <= ?', [n - KEEP_SETTLED]);
 			if (outcome.kind === 'applied') {
 				// With no seq the batch landed long ago, and the hello that came first
 				// already brought what it did.
@@ -418,20 +597,9 @@ export function openRepository<const TDefs extends Definitions>({
 				if (change.kind === 'move') putBack(change);
 				else revert(change.path, n);
 		});
-		switch (outcome.kind) {
-			case 'applied':
-				settled = entries.map((_, index) => ({ kind: 'applied', seq: outcome.seq, change: outcome.changes[index] ?? null }));
-				break;
-			case 'refused':
-				settled = entries.map(() => ({ kind: 'refused', path: outcome.path, reason: outcome.reason }));
-				break;
-			case 'need-base':
-				settled = entries.map(() => ({ kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE }));
-				break;
-		}
 		if (outcome.kind !== 'applied') log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
 		notify();
-		waiters.get(n)?.(Ok(settled));
+		for (const resolve of waiters.get(n) ?? []) resolve(Ok(settled));
 		waiters.delete(n);
 	}
 
@@ -487,7 +655,7 @@ export function openRepository<const TDefs extends Definitions>({
 			if (closed) return;
 			const next = first<{ n: number; seq: number; changes: string }>(
 				driver,
-				'SELECT n, seq, changes FROM "epicenter/outbox" ORDER BY n LIMIT 1',
+				'SELECT n, seq, changes FROM "epicenter/outbox" WHERE outcome IS NULL ORDER BY n LIMIT 1',
 			);
 			if (next === undefined) return;
 			const entries = JSON.parse(next.changes) as Entry[];
@@ -506,6 +674,7 @@ export function openRepository<const TDefs extends Definitions>({
 				needsHello = true;
 				return;
 			}
+			if (closed) return;
 			conclude(next.n, entries, answer.data);
 		}
 	}
@@ -513,241 +682,71 @@ export function openRepository<const TDefs extends Definitions>({
 	kick();
 
 	// ------------------------------------------------------------------------
-	// Handles
+	// Reads
 	// ------------------------------------------------------------------------
 
-	/** A handle call's parameters and the rest of its arguments. */
-	function split(lens: Lens, args: unknown[]): [Record<string, unknown>, unknown[]] {
-		return lens.template.params.length === 0 ? [{}, args] : [(args[0] ?? {}) as Record<string, unknown>, args.slice(1)];
-	}
-	function pathOf(lens: Lens, params: Record<string, unknown>): Result<string, WriteError> {
-		const built = buildPath(lens.template, params);
-		return built.error === null ? Ok(built.data) : WriteError.InvalidParams({ handle: lens.name, reason: built.error.message });
-	}
-	const localText = (path: string) => row(path)?.text ?? null;
+	const split = (lens: Lens, params: Params) => buildPath(lens.template, params);
 
-	function readNote(lens: Extract<Lens, { kind: 'note' }>, file: { path: string; text: string; fields: string | null; body: string }) {
-		const params = matchTemplate(lens.template, file.path) ?? {};
-		if (file.fields === null)
-			return { path: file.path, params, text: file.text, body: file.body, valid: false, fields: {}, issues: ['The frontmatter does not parse'] };
-		const fields = JSON.parse(file.fields) as Record<string, unknown>;
-		if (Check(lens.schema, fields)) return { path: file.path, params, text: file.text, body: file.body, valid: true, fields };
-		return {
-			path: file.path,
-			params,
-			text: file.text,
-			body: file.body,
-			valid: false,
-			fields,
-			issues: Errors(lens.schema, fields).map((error) => `${error.instancePath || '/'} ${error.message}`),
-		};
-	}
-
-	function listRows(lens: Lens, filter: Record<string, unknown> = {}) {
-		const where = Object.entries(filter)
-			.filter(([key, value]) => lens.template.params.includes(key) && value !== undefined)
-			.map(([key]) => `v."${key}" = ?`);
-		const params = Object.entries(filter)
-			.filter(([key, value]) => lens.template.params.includes(key) && value !== undefined)
-			.map(([, value]) => String(value));
-		return driver.all<{ path: string; text: string; fields: string | null; body: string }>(
+	function listRows(lens: Lens, filter: Params) {
+		const keys = Object.entries(filter).filter(([key, value]) => lens.template.params.includes(key) && value !== undefined);
+		const where = keys.map(([key]) => `v."${key}" = ?`);
+		return driver.all<FileRead>(
 			`SELECT f.path, f.text, f.fields, f.body FROM "epicenter/files" f JOIN temp."${lens.name}" v ON v.path = f.path${where.length > 0 ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY f.path`,
-			params,
+			keys.map(([, value]) => String(value)),
 		);
 	}
 
-	/** The ops a note handle builds: the same for a direct call and inside a batch. */
-	function noteOps(lens: Extract<Lens, { kind: 'note' }>) {
-		const edit = (args: unknown[], requireAbsent: boolean): Op => {
-			const [params, [input]] = split(lens, args);
-			return () => {
-				const path = pathOf(lens, params);
-				if (path.error !== null) return path;
-				const current = localText(path.data);
-				if (requireAbsent && current !== null) return WriteError.Exists({ path: path.data });
-				const { fields, body } = (input ?? {}) as NoteInput<typeof lens.schema>;
-				const text = writeMarkdown(current, { fields: fields as Record<string, unknown> | undefined, body });
-				if (text.error !== null) return WriteError.Unparseable({ path: path.data, reason: text.error.reason });
-				return Ok({ kind: 'write', path: path.data, text: text.data });
-			};
-		};
-		return {
-			create: (...args: unknown[]) => edit(args, true),
-			write: (...args: unknown[]) => edit(args, false),
-			set: (...args: unknown[]) => {
-				const [params, [key, value]] = split(lens, args);
-				return edit(lens.template.params.length === 0 ? [{ fields: { [String(key)]: value } }] : [params, { fields: { [String(key)]: value } }], false);
-			},
-			append: (...args: unknown[]): Op => {
-				const [params, [text]] = split(lens, args);
-				return () => {
-					const path = pathOf(lens, params);
-					if (path.error !== null) return path;
-					if (localText(path.data) === null) return WriteError.NotFound({ path: path.data });
-					return Ok({ kind: 'append', path: path.data, text: String(text) });
-				};
-			},
-			move: (from: Record<string, unknown>, to: Record<string, unknown>) => moveOp(lens, from, to),
-			delete: (...args: unknown[]) => deleteOp(lens, split(lens, args)[0]),
-		};
+	function getRow(lens: Lens, params: Params): FileRead | null {
+		const path = split(lens, params);
+		if (path.error !== null) return null;
+		return (
+			first<FileRead>(driver, 'SELECT path, text, fields, body FROM "epicenter/files" WHERE path = ? AND text IS NOT NULL', [
+				path.data,
+			]) ?? null
+		);
 	}
 
-	function moveOp(lens: Lens, fromParams: Record<string, unknown>, toParams: Record<string, unknown>): Op {
-		return () => {
-			const from = pathOf(lens, fromParams);
-			if (from.error !== null) return from;
-			const to = pathOf(lens, toParams);
-			if (to.error !== null) return to;
-			if (localText(from.data) === null) return WriteError.NotFound({ path: from.data });
-			if (localText(to.data) !== null) return WriteError.Exists({ path: to.data });
-			return Ok({ kind: 'move', from: from.data, to: to.data });
-		};
-	}
-
-	function deleteOp(lens: Lens, params: Record<string, unknown>): Op {
-		return () => {
-			const path = pathOf(lens, params);
-			if (path.error !== null) return path;
-			if (localText(path.data) === null) return WriteError.NotFound({ path: path.data });
-			return Ok({ kind: 'write', path: path.data, text: null });
-		};
-	}
-
-	/**
-	 * A blob put: checks run first, the bytes are stored, and only then is the
-	 * pointer op returned, so a pointer never names missing bytes.
-	 */
-	async function blobPut(lens: Extract<Lens, { kind: 'blob' }>, args: unknown[]): Promise<Result<Op, WriteError>> {
-		const [params, [bytes, options]] = split(lens, args);
-		const path = pathOf(lens, params);
-		if (path.error !== null) return path;
-		const data = bytes as Uint8Array;
-		const type = (options as { type: string } | undefined)?.type ?? '';
-		if (!lens.blob.types.includes(type))
-			return WriteError.BlobRefused({ path: path.data, reason: `'${type}' is not one of ${lens.blob.types.join(', ')}` });
-		if (lens.blob.maxSize !== undefined && data.length > lens.blob.maxSize)
-			return WriteError.BlobRefused({ path: path.data, reason: `${data.length} bytes is over ${lens.blob.maxSize}` });
-		const oid = await sha256(data);
-		const stored = await tryAsync({
-			try: () => blobs.put(oid, data, type),
-			catch: (cause) => WriteError.BlobUploadFailed({ path: path.data, cause }),
-		});
-		if (stored.error !== null) return stored;
-		const pointer = writePointer({ oid, size: data.length });
-		return Ok(() => Ok({ kind: 'write', path: path.data, text: pointer }));
-	}
-
-	const single = async (pending: Pending<Settled[]>): Pending => {
-		const result = await pending;
-		if (result.error !== null) return result;
-		const [settled] = result.data;
-		return settled === undefined ? WriteError.Closed() : Ok(settled);
-	};
-
-	const handles: Record<string, unknown> = {};
-	for (const lens of app.lenses) {
-		if (lens.kind === 'note') {
-			const ops = noteOps(lens);
-			handles[lens.name] = {
-				get: (...args: unknown[]) => {
-					const path = buildPath(lens.template, split(lens, args)[0]);
-					if (path.error !== null) return null;
-					const file = first<{ path: string; text: string; fields: string | null; body: string }>(
-						driver,
-						'SELECT path, text, fields, body FROM "epicenter/files" WHERE path = ? AND text IS NOT NULL',
-						[path.data],
-					);
-					return file === undefined ? null : readNote(lens, file);
-				},
-				list: (filter?: Record<string, unknown>) => listRows(lens, filter).map((file) => readNote(lens, file)),
-				create: (...args: unknown[]) => single(submit([ops.create(...args)])),
-				write: (...args: unknown[]) => single(submit([ops.write(...args)])),
-				set: (...args: unknown[]) => single(submit([ops.set(...args)])),
-				append: (...args: unknown[]) => single(submit([ops.append(...args)])),
-				move: (from: Record<string, unknown>, to: Record<string, unknown>) => single(submit([ops.move(from, to)])),
-				delete: (...args: unknown[]) => single(submit([ops.delete(...args)])),
-			};
-			continue;
+	async function read<TRequest extends EngineRequest>(request: TRequest): Promise<EngineAnswers[TRequest['kind']]> {
+		type Answer = EngineAnswers[TRequest['kind']];
+		switch (request.kind) {
+			case 'get':
+				return getRow(lensOf(request.name), request.params) as Answer;
+			case 'list':
+				return listRows(lensOf(request.name), request.filter) as Answer;
+			case 'query':
+				return driver.all(request.sql, request.params) as Answer;
+			case 'blob': {
+				const file = getRow(lensOf(request.name), request.params);
+				const pointer = file === null ? null : parsePointer(file.text);
+				if (pointer === null) return null as Answer;
+				return (request.as === 'bytes' ? await blobs.get(pointer.oid) : await blobs.url(pointer.oid)) as Answer;
+			}
+			case 'flush':
+				await running;
+				return undefined as Answer;
 		}
-		const pointerOf = (args: unknown[]) => {
-			const path = buildPath(lens.template, split(lens, args)[0]);
-			const text = path.error === null ? localText(path.data) : null;
-			return text === null ? null : parsePointer(text);
-		};
-		handles[lens.name] = {
-			put: async (...args: unknown[]) => {
-				const op = await blobPut(lens, args);
-				return op.error !== null ? op : single(submit([op.data]));
-			},
-			get: async (...args: unknown[]) => {
-				const pointer = pointerOf(args);
-				return pointer === null ? null : blobs.get(pointer.oid);
-			},
-			url: async (...args: unknown[]) => {
-				const pointer = pointerOf(args);
-				return pointer === null ? null : blobs.url(pointer.oid);
-			},
-			list: (filter?: Record<string, unknown>) =>
-				listRows(lens, filter).flatMap((file) => {
-					const pointer = parsePointer(file.text);
-					return pointer === null ? [] : [{ path: file.path, params: matchTemplate(lens.template, file.path) ?? {}, ...pointer }];
-				}),
-			delete: (...args: unknown[]) => single(submit([deleteOp(lens, split(lens, args)[0])])),
-		};
 	}
 
 	return {
-		...(handles as Handles<TDefs>),
-		async batch(build) {
-			const ops: (Op | Promise<Result<Op, WriteError>>)[] = [];
-			const batchHandles: Record<string, unknown> = {};
-			for (const lens of app.lenses) {
-				if (lens.kind === 'note') {
-					const note = noteOps(lens);
-					batchHandles[lens.name] = {
-						create: (...args: unknown[]) => void ops.push(note.create(...args)),
-						write: (...args: unknown[]) => void ops.push(note.write(...args)),
-						set: (...args: unknown[]) => void ops.push(note.set(...args)),
-						append: (...args: unknown[]) => void ops.push(note.append(...args)),
-						move: (from: Record<string, unknown>, to: Record<string, unknown>) => void ops.push(note.move(from, to)),
-						delete: (...args: unknown[]) => void ops.push(note.delete(...args)),
-					};
-				} else
-					batchHandles[lens.name] = {
-						put: (...args: unknown[]) => void ops.push(blobPut(lens, args)),
-						delete: (...args: unknown[]) => void ops.push(deleteOp(lens, split(lens, args)[0])),
-					};
-			}
-			build(batchHandles as BatchHandles<TDefs>);
-			const ready: Op[] = [];
-			for (const op of ops) {
-				if (typeof op === 'function') {
-					ready.push(op);
-					continue;
-				}
-				const resolved = await op;
-				if (resolved.error !== null) return resolved;
-				ready.push(resolved.data);
-			}
-			return submit(ready);
-		},
-		query: (sql, params = []) => driver.all(sql, params),
-		live(sql, params, onChange) {
-			const rows = driver.all(sql, params);
-			const live: Live = { sql, params, onChange: onChange as (rows: never[]) => void, last: JSON.stringify(rows) };
-			lives.add(live);
-			onChange(rows as never[]);
+		/** This device's id, as its database records it. */
+		device,
+		read,
+		/** Apply a command's writes here now and send them; see `apply`. */
+		submit,
+		/** Called with the paths whose shown text changed, after every change. */
+		onChange(listener: (paths: string[]) => void) {
+			listeners.add(listener);
 			return () => {
-				lives.delete(live);
+				listeners.delete(listener);
 			};
 		},
-		flush: () => running,
 		close() {
 			closed = true;
 			link.close();
-			lives.clear();
-			for (const resolve of waiters.values()) resolve(WriteError.Closed());
+			listeners.clear();
+			for (const resolvers of waiters.values()) for (const resolve of resolvers) resolve(WriteError.Closed());
 			waiters.clear();
 		},
 	};
 }
+export type Engine = ReturnType<typeof openEngine>;

@@ -7,21 +7,25 @@ export {
 	type Definitions,
 	defineApp,
 	type Handles,
+	type Live,
 	type Note,
 	type NoteDefinition,
 	type NoteHandle,
 	type NoteInput,
+	type OpenNote,
 	type Pending,
 	type Settled,
 	slug,
 	timestamp,
 	WriteError,
 } from './define.js';
-export { openRepository, type Repository, type RepositoryOptions } from './engine/engine.js';
+export type { EngineAnswers, EngineOptions, EngineRequest, FileRead, Submitted, WriteOp } from './engine/engine.js';
+export { createRepository, type EnginePort, openRepository, type Repository } from './repository.js';
 export {
 	type BlobStore,
 	createMemoryBlobStore,
 	type Link,
+	offlineTransport,
 	type Transport,
 	TransportError,
 } from './engine/ports.js';

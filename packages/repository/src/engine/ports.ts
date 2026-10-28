@@ -30,6 +30,15 @@ export type Transport = {
 	}): Link;
 };
 
+/** No server: the device works fully on its own and its outbox waits. */
+export const offlineTransport: Transport = {
+	connect: () => ({
+		hello: async () => TransportError.Offline(),
+		push: async () => TransportError.Offline(),
+		close() {},
+	}),
+};
+
 /**
  * Blob bytes by LFS oid. `put` throws when the bytes are not stored; the
  * engine writes a pointer only after it resolves.

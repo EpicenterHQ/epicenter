@@ -242,7 +242,19 @@ export type Settled =
 	| { kind: 'applied'; seq: number | null; change: ChangeOutcome | null }
 	| { kind: 'refused'; path: string; reason: string };
 
+/**
+ * A write's outcome. It is applied on this device before the call returns, so
+ * reads see it at once; the Promise settles when the server answers, which
+ * may be much later for a device offline, or never without a server.
+ */
 export type Pending<T = Settled> = Promise<Result<T, WriteError>>;
+
+/**
+ * A query that re-runs after any change on this device. `subscribe` calls
+ * back with the first result and then only when the result differs; it
+ * returns the function that stops it.
+ */
+export type Live<T> = { subscribe(onChange: (value: T) => void): () => void };
 
 export type NoteInput<TSchema extends TSchema_> = {
 	fields?: Partial<Static<TSchema>>;
@@ -261,9 +273,33 @@ export type Note<TPath extends string, TSchema extends TSchema_> = {
 	| { valid: false; fields: Record<string, unknown>; issues: string[] }
 );
 
+/**
+ * One note held open for editing. `read` answers synchronously and is
+ * current: a write through the handle shows at once, and changes from
+ * elsewhere arrive through `subscribe`.
+ */
+export type OpenNote<TPath extends string, TSchema extends TSchema_> = {
+	params: Params<TPath>;
+	/** The note as this device shows it, or null when there is none. */
+	read(): Note<TPath, TSchema> | null;
+	/** Call back whenever `read` would answer differently. */
+	subscribe(onChange: (note: Note<TPath, TSchema> | null) => void): () => void;
+	/** Change some fields and or the body; creates the note when it is absent. */
+	write(input: NoteInput<TSchema>): Pending;
+	set<TKey extends keyof Static<TSchema> & string>(key: TKey, value: Static<TSchema>[TKey]): Pending;
+	append(text: string): Pending;
+	delete(): Pending;
+	/** Stop following changes. */
+	close(): void;
+};
+
 export type NoteHandle<TPath extends string, TSchema extends TSchema_> = {
-	get(...params: ParamsArg<TPath>): Note<TPath, TSchema> | null;
-	list(filter?: Partial<Params<TPath>>): Note<TPath, TSchema>[];
+	get(...params: ParamsArg<TPath>): Promise<Note<TPath, TSchema> | null>;
+	list(filter?: Partial<Params<TPath>>): Promise<Note<TPath, TSchema>[]>;
+	/** `list`, re-run after every change. */
+	live(filter?: Partial<Params<TPath>>): Live<Note<TPath, TSchema>[]>;
+	/** Hold one note open: reads are synchronous and follow every change. */
+	open(...params: ParamsArg<TPath>): Promise<OpenNote<TPath, TSchema>>;
 	/** Refused locally when the file exists on this device. */
 	create(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): Pending;
 	/** Change some fields and or the body; creates the note when it is absent. */
@@ -290,7 +326,8 @@ export type BlobHandle<TPath extends string> = {
 	put(...args: [...ParamsArg<TPath>, bytes: Uint8Array, options: { type: string }]): Pending;
 	get(...params: ParamsArg<TPath>): Promise<Uint8Array | null>;
 	url(...params: ParamsArg<TPath>): Promise<string | null>;
-	list(filter?: Partial<Params<TPath>>): BlobEntry<TPath>[];
+	list(filter?: Partial<Params<TPath>>): Promise<BlobEntry<TPath>[]>;
+	live(filter?: Partial<Params<TPath>>): Live<BlobEntry<TPath>[]>;
 	delete(...params: ParamsArg<TPath>): Pending;
 };
 
