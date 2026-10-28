@@ -19,7 +19,7 @@ export {
 	timestamp,
 	WriteError,
 } from './define.js';
-export type { EngineAnswers, EngineOptions, EngineRequest, FileRead, Submitted, WriteOp } from './engine/engine.js';
+export { type Engine, type EngineAnswers, type EngineOptions, type EngineRequest, type FileRead, openEngine, type Submitted, type WriteOp } from './engine/engine.js';
 export { createRepository, type EnginePort, openRepository, type Repository } from './repository.js';
 export {
 	type BlobStore,
