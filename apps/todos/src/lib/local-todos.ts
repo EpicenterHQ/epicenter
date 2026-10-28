@@ -1,61 +1,51 @@
 /**
- * Todos over this browser's local folder: the rows as the list arranges
- * them, and what a person is told about a save. Pure functions of what the
- * table lists; the views read and write through `getFolder()`.
+ * Todos as the list arranges them, and what a person is told when a write
+ * does not land. Pure functions of what the repository lists, apart from the
+ * toast; the views read and write through `getRepository()`.
  */
-import type { Row } from '@epicenter/folder';
+import type { Note, Pending } from '@epicenter/repository';
+import { toast } from '@epicenter/ui/sonner';
 import type { todosTables } from './definition.js';
 
-export type TodoRow = Row<(typeof todosTables)['todos']>;
+export type TodoNote = Note<'todos/{stem}.md', (typeof todosTables)['todos']>;
 
-/** A row that reads as a todo. */
-export type Todo = Extract<TodoRow, { issues: null }>;
+/** A note that reads as a todo. */
+export type Todo = Extract<TodoNote, { valid: true }>;
 
-/** A row that does not read as a todo: its source stays, with why. */
-export type Problem = Extract<TodoRow, { issues: readonly unknown[] }>;
+/** A note that does not read as a todo: its source stays, with why. */
+export type Problem = Extract<TodoNote, { valid: false }>;
 
 /** The file of the todo `id`. */
 export const todoPath = (id: string) => `todos/${id}.md`;
 
-const byId = (a: { id: string }, b: { id: string }) =>
-	a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 
 /** The todos as the list shows them: open first, then done, each by file. */
-export function todosOf(rows: readonly TodoRow[]): Todo[] {
-	return rows
-		.filter((row): row is Todo => row.issues === null)
-		.sort(
-			(a, b) => Number(a.fields.done) - Number(b.fields.done) || byId(a, b),
-		);
+export function todosOf(notes: readonly TodoNote[]): Todo[] {
+	return notes
+		.filter((note): note is Todo => note.valid)
+		.sort((a, b) => Number(a.fields.done) - Number(b.fields.done) || byPath(a, b));
 }
 
-/** Rows whose text is not a valid todo; their source is shown as it is. */
-export function repairsOf(rows: readonly TodoRow[]): Problem[] {
-	return rows
-		.filter(
-			(row): row is Problem =>
-				row.issues !== null &&
-				!row.issues.some(
-					(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
-				),
-		)
-		.sort(byId);
-}
-
-/** Rows that are not text or could not be read. */
-export function unreadableOf(rows: readonly TodoRow[]): Problem[] {
-	return rows
-		.filter(
-			(row): row is Problem =>
-				row.issues?.some(
-					(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
-				) ?? false,
-		)
-		.sort(byId);
+/** Notes whose text is not a valid todo; their source is shown as it is. */
+export function repairsOf(notes: readonly TodoNote[]): Problem[] {
+	return notes.filter((note): note is Problem => !note.valid).sort(byPath);
 }
 
 /** The todo's label: its title, or its file's name when it has none. */
-export function labelOf(todo: { id: string; fields: { title: string } }) {
-	if (todo.fields.title.trim() !== '') return todo.fields.title;
-	return todo.id === '' ? todoPath(todo.id) : todo.id;
+export function labelOf(todo: { params: { stem: string }; fields: { title: string } }) {
+	return todo.fields.title.trim() === '' ? todo.params.stem : todo.fields.title;
+}
+
+/**
+ * Tell the person when a write did not land. A write is shown at once; this
+ * settles when the server answers, or never without a server.
+ */
+export async function reportWrite(pending: Pending, failure: string) {
+	const { data, error } = await pending;
+	if (error !== null) {
+		if (error.name !== 'Closed') toast.error(failure, { description: error.message });
+		return;
+	}
+	if (data.kind === 'refused') toast.error(failure, { description: data.reason });
 }

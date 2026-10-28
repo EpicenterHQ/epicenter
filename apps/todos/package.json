@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/todos",
-	"description": "Local Markdown todos over one Folder",
+	"description": "Markdown todos in a repository on this device, synced when a server is set",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -14,12 +14,12 @@
 		"dev:desktop": "bun run build:host && tauri dev --config src-tauri/tauri.dev.conf.json",
 		"build:desktop": "bun run build:host && tauri build --bundles app",
 		"native": "bun scripts/native.ts",
-		"demo:local": "bun scripts/local-demo.ts",
 		"build": "NODE_ENV=production vite build",
 		"build:host": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",
+		"test": "bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' --path-ignore-patterns='browser-tests/**' && bun run test:mounted",
+		"test:browser": "bun test browser-tests/",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte mounted.test",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
 	},
@@ -33,7 +33,6 @@
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
-		"fake-indexeddb": "^6.2.6",
 		"mode-watcher": "catalog:",
 		"playwright": "^1.61.1",
 		"svelte": "catalog:",
@@ -45,6 +44,7 @@
 	},
 	"dependencies": {
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"wellcrafted": "catalog:",

@@ -1,15 +1,16 @@
 <!--
-	The header over this device's local folder: the app's name and whether
-	a folder write is in progress. It offers no Save version, Sync, or
-	Connect: this storage keeps no history and syncs nowhere yet. Standalone
-	Todos also offers Open in Epicenter (`open-in-epicenter.ts`).
+	The header over this device's repository: the app's name and, when the
+	build syncs, whether edits are still waiting to reach the server. It
+	offers no Save version, Sync, or Connect. Standalone Todos also offers
+	Open in Epicenter (`open-in-epicenter.ts`).
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
-	import { saveLine } from '@epicenter/svelte/status-line';
-	import { getFolder } from '$lib/folder.js';
+	import type { StatusLine } from '@epicenter/svelte/status-line';
+	import { live } from '@epicenter/repository/svelte';
+	import { getRepository } from '$lib/repository.js';
 	import { onMount } from 'svelte';
 	import {
 		currentShell,
@@ -18,14 +19,17 @@
 		openInEpicenter,
 	} from './open-in-epicenter';
 
-	const folder = getFolder();
-	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
+	const repo = getRepository();
+	let { pendingNewTodo, syncsTo }: { pendingNewTodo: boolean; syncsTo?: string } = $props();
 
-	const status = $derived.by(() => {
-		const line = saveLine(folder.saving);
-		return pendingNewTodo && line.tone === 'neutral'
-			? { label: 'Todo not added', tone: 'warning' as const }
-			: line;
+	/** Edits applied here that the server has not answered yet. */
+	const unsent = live(repo.live<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox" WHERE outcome IS NULL'));
+
+	const status = $derived.by((): StatusLine => {
+		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
+		if (syncsTo === undefined) return { label: 'On this device', tone: 'neutral' };
+		const waiting = unsent.current?.[0]?.n ?? 0;
+		return waiting === 0 ? { label: 'Synced', tone: 'good' } : { label: 'Sending…', detail: `${waiting} not sent yet`, tone: 'busy' };
 	});
 
 	const shell = currentShell();
@@ -49,11 +53,13 @@
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
 	<!-- On narrow screens the list itself says what this is; the width goes to status. -->
 	<h1 class="text-sm font-semibold max-sm:sr-only">Todos</h1>
-	<StatusPopover summary={status} details={[{ name: 'Saving', testid: 'status-files', line: status }]}>
+	<StatusPopover summary={status} details={[{ name: 'Sync', testid: 'status-files', line: status }]}>
 		<StatusRow name="Where">
-			<span class="font-medium" data-testid="status-folder">This device</span>
+			<span class="font-medium" data-testid="status-folder">{syncsTo === undefined ? 'This device' : 'This device and a server'}</span>
 			<span class="mt-0.5 block text-xs text-muted-foreground">
-				Stored locally on this device. Todos does not sync these todos to other devices yet.
+				{syncsTo === undefined
+					? 'Stored on this device. This build of Todos syncs with no server.'
+					: `Stored on this device and synced through ${new URL(syncsTo).host}. Edits made offline are sent when it is back.`}
 			</span>
 		</StatusRow>
 	</StatusPopover>

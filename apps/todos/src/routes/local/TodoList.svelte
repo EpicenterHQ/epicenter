@@ -1,26 +1,19 @@
 <!--
-	The todo list over this browser's local folder: adding a todo, the todos
-	that read as todos, and the rows that do not, each with its file and why.
-	Every view reads the same mirror, so the list and the open todo never
-	disagree.
+	The todo list over this device's repository: adding a todo, the notes
+	that read as todos, and the ones that do not, each with its file and why.
+	The list is a live query, so it follows every change here and elsewhere.
 -->
 <script lang="ts">
-	import { describeIssues } from '@epicenter/folder';
+	import { live } from '@epicenter/repository/svelte';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { toast } from '@epicenter/ui/sonner';
-	import { getFolder } from '$lib/folder.js';
-	import {
-		repairsOf,
-		todoPath,
-		todosOf,
-		unreadableOf,
-	} from '$lib/local-todos.js';
+	import { getRepository } from '$lib/repository.js';
+	import { repairsOf, reportWrite, todoPath, todosOf } from '$lib/local-todos.js';
 	import TodoRow from './TodoRow.svelte';
 
-	const folder = getFolder();
+	const repo = getRepository();
 
 	let {
 		open,
@@ -35,30 +28,18 @@
 		title?: string;
 	} = $props();
 
-	const rows = $derived(folder.tables.todos.rows);
-	const todos = $derived(todosOf(rows));
-	const repairs = $derived(repairsOf(rows));
-	const unreadable = $derived(unreadableOf(rows));
-	let adding = $state(false);
+	const notes = live(repo.todos.live());
+	const todos = $derived(todosOf(notes.current ?? []));
+	const repairs = $derived(repairsOf(notes.current ?? []));
 
-	async function add() {
+	/** Add the todo and open it: it is on this device as soon as this returns. */
+	function add() {
 		const typed = title.trim();
-		if (typed === '' || adding) return;
-		adding = true;
-		try {
-			const id = crypto.randomUUID();
-			const { error } = await folder.tables.todos.create(id, {
-				fields: { title: typed, done: false },
-			});
-			if (error !== null) {
-				toast.error('Could not add todo', { description: error.message });
-				return;
-			}
-			title = '';
-			onOpen?.(id);
-		} finally {
-			adding = false;
-		}
+		if (typed === '') return;
+		const id = crypto.randomUUID();
+		void reportWrite(repo.todos.create({ stem: id }, { fields: { title: typed, done: false } }), 'Could not add todo');
+		title = '';
+		onOpen?.(id);
 	}
 </script>
 
@@ -67,31 +48,26 @@
 		class="flex shrink-0 items-center gap-2 border-b p-3"
 		onsubmit={(event) => {
 			event.preventDefault();
-			void add();
+			add();
 		}}
 	>
-		<Input
-			bind:value={title}
-			placeholder="Add a todo"
-			aria-label="New todo title"
-			disabled={adding}
-		/>
-		<Button type="submit" disabled={adding || title.trim() === ''}>
-			{adding ? 'Adding…' : 'Add'}
-		</Button>
+		<Input bind:value={title} placeholder="Add a todo" aria-label="New todo title" />
+		<Button type="submit" disabled={title.trim() === ''}>Add</Button>
 	</form>
 
 	<div class="flex min-h-0 flex-1 flex-col">
 		<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Todos">
-			{#each todos as todo (todo.id)}
-				<TodoRow {todo} selected={open === todo.id} {onOpen} />
+			{#each todos as todo (todo.path)}
+				<TodoRow {todo} selected={open === todo.params.stem} {onOpen} />
 			{:else}
-				<li>
-					<Empty.Root>
-						<Empty.Title>No todos yet</Empty.Title>
-						<Empty.Description>Add your first todo above.</Empty.Description>
-					</Empty.Root>
-				</li>
+				{#if notes.current !== undefined}
+					<li>
+						<Empty.Root>
+							<Empty.Title>No todos yet</Empty.Title>
+							<Empty.Description>Add your first todo above.</Empty.Description>
+						</Empty.Root>
+					</li>
+				{/if}
 			{/each}
 		</ul>
 
@@ -103,41 +79,20 @@
 					{repairs.length === 1 ? 'This file does' : 'These files do'} not read as a todo. Todos keeps {repairs.length === 1 ? 'its' : 'their'} text as it is.
 				</p>
 				<ul class="mt-1 space-y-1.5">
-					{#each repairs as repair (repair.id)}
+					{#each repairs as repair (repair.path)}
 						<li class="flex items-start gap-2">
 							<div class="min-w-0 flex-1">
-								<code class="font-mono break-anywhere">{todoPath(repair.id)}</code>
-								<p class="text-muted-foreground">{describeIssues(repair.issues)}</p>
+								<code class="font-mono break-anywhere">{todoPath(repair.params.stem)}</code>
+								<p class="text-muted-foreground">{repair.issues.join('; ')}</p>
 							</div>
 							<Button
 								size="xs"
 								variant="outline"
-								aria-current={open === repair.id ? 'true' : undefined}
-								onclick={() => onOpen?.(repair.id)}
+								aria-current={open === repair.params.stem ? 'true' : undefined}
+								onclick={() => onOpen?.(repair.params.stem)}
 							>
 								Show
 							</Button>
-						</li>
-					{/each}
-				</ul>
-			</section>
-		{/if}
-
-		{#if unreadable.length > 0}
-			<!-- Files whose source cannot be shown here. -->
-			<section class="max-h-[40%] shrink-0 overflow-y-auto border-t bg-destructive/5 px-3 py-2 text-xs" aria-label="Could not read">
-				<p class="flex items-center gap-2 font-medium">
-					<Badge variant="destructive">Could not read</Badge>
-					{unreadable.length === 1 ? 'This file cannot' : 'These files cannot'} be shown as text.
-				</p>
-				<ul class="mt-1 space-y-1.5">
-					{#each unreadable as file (file.id)}
-						<li class="flex items-start gap-2">
-							<div class="min-w-0 flex-1">
-								<code class="font-mono break-anywhere">{todoPath(file.id)}</code>
-								<p class="text-muted-foreground">{describeIssues(file.issues)}</p>
-							</div>
-							<Button size="xs" variant="outline" onclick={() => onOpen?.(file.id)}>Show</Button>
 						</li>
 					{/each}
 				</ul>

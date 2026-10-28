@@ -1,9 +1,9 @@
 {
-	// Bun entrypoints: the native CLI and its test.
+	// Bun entrypoints: the native CLI and its test, and the browser smoke test.
 	"extends": "../../tsconfig.dom.json",
 	"compilerOptions": {
 		"types": ["bun"],
 		"noEmit": true
 	},
-	"include": ["scripts/**/*.ts"]
+	"include": ["scripts/**/*.ts", "browser-tests/**/*.ts"]
 }

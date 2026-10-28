@@ -1,18 +1,15 @@
 <!--
-	Todos over this browser's local folder, inside `<OpenFolder>`: the
-	header, the list, and the open todo, laid out as the folder build lays
-	them out. Which todo is open is the URL's `?todo=<id>`, so it survives a
-	reload and the breakpoint.
+	Todos over this device's repository, inside `<OpenTodos>`: the header,
+	the list, and the open todo. Which todo is open is the URL's
+	`?todo=<id>`, so it survives a reload and the breakpoint.
 
-	The folder needs no account or remote, and Todos does not sync it yet:
-	the header offers no Save version, Sync, or Connect.
+	The repository needs no account; it syncs only when the build names a
+	server. The header offers no Save version, Sync, or Connect.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { setFolder } from '$lib/folder.js';
-	import type { SvelteFolder } from '@epicenter/svelte/folder';
-	import type { todosTables } from '$lib/definition.js';
+	import { setRepository, type TodosRepository } from '$lib/repository.js';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
@@ -22,11 +19,11 @@
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
-	let { folder }: { folder: SvelteFolder<typeof todosTables> } = $props();
+	let { repo, syncsTo }: { repo: TodosRepository; syncsTo?: string } = $props();
 
-	// The folder instance stays fixed until this app root unmounts.
+	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setFolder(folder);
+	setRepository(repo);
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
@@ -61,7 +58,7 @@
 	{#if open === undefined}
 		<Empty.Root class="h-full">
 			<Empty.Title>Select a todo to edit it</Empty.Title>
-			<Empty.Description>Each todo is kept on this device.</Empty.Description>
+			<Empty.Description>Each todo is kept on this device{syncsTo === undefined ? '' : ' and synced'}.</Empty.Description>
 		</Empty.Root>
 	{:else}
 		{#key open}
@@ -71,7 +68,7 @@
 {/snippet}
 
 <div class="flex h-dvh flex-col overflow-hidden">
-	<AppHeader pendingNewTodo={newTitle.trim() !== ''} />
+	<AppHeader pendingNewTodo={newTitle.trim() !== ''} {syncsTo} />
 
 	{#if wide.current}
 		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
