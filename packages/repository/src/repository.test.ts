@@ -13,7 +13,7 @@
  * - Unsent writes to one path coalesce into one batch; a sent write is never changed
  * - Without a server, a write resolves once saved and waits in the outbox
  * - A batch the server cannot apply becomes a notice keeping the shown text; a dropped move is told
- * - Notices are live, newest first, dismissed by the person, and capped at a hundred
+ * - Notices are live, newest first, and each stays until the person dismisses it
  * - The size, binary and frontmatter checks a push gets fail the write itself
  * - A refused send whose caller stopped waiting becomes a notice
  * - A raw write never breaks a file that parses; a broken one saves every step of its repair
@@ -274,7 +274,7 @@ test('a move whose note was deleted elsewhere is dropped, and the person is told
 	await t.cleanup();
 });
 
-test('notices are a live list, newest first, that the person dismisses; a device keeps the newest hundred', async () => {
+test('notices are a live list, newest first, that the person dismisses; every one stays until then', async () => {
 	let n = 0;
 	const repo = answeringDevice(() => ({ kind: 'refused', path: '', reason: `fault ${++n}`, overlaps: [] }));
 	const seen: number[] = [];
@@ -283,14 +283,15 @@ test('notices are a live list, newest first, that the person dismisses; a device
 		expectOk(await repo.todos.create({ stem: `t${k}` }, { fields: { title: 'T', done: false } }));
 		await repo.flush();
 	}
+	// A notice can be the only copy of what the person typed, so none is dropped for space.
 	const list = await repo.notices.list();
-	expect(list).toHaveLength(100);
+	expect(list).toHaveLength(101);
 	expect(list[0]).toMatchObject({ reason: 'fault 101', path: 'todos/t100.md' });
-	expect(list.at(-1)).toMatchObject({ reason: 'fault 2' });
+	expect(list.at(-1)).toMatchObject({ reason: 'fault 1', path: 'todos/t0.md' });
 	await repo.notices.dismiss(list[0]?.id ?? 0);
 	await repo.flush();
 	expect((await repo.notices.list())[0]).toMatchObject({ reason: 'fault 100' });
-	expect(seen.at(-1)).toBe(99);
+	expect(seen.at(-1)).toBe(100);
 	repo.close();
 });
 

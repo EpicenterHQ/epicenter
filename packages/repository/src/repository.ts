@@ -449,8 +449,8 @@ export function createRepository<const TDefs extends Definitions>(
 		},
 		/**
 		 * What happened to this device's saved changes that the person should
-		 * know, newest first: kept on this device, never synced, until
-		 * dismissed, and at most the newest hundred.
+		 * know, newest first: kept on this device, never synced, each until
+		 * the person dismisses it, since one can be the only copy of a value.
 		 */
 		notices: {
 			list: listNotices,

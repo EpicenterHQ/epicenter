@@ -65,9 +65,6 @@ CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NO
 
 const PARSER_VERSION = '1';
 
-/** How many notices a device keeps; the oldest go first. */
-const KEEP_NOTICES = 100;
-
 /** Why a change the server still lacks a base for, after it was resent with its bases, did not land. */
 const NO_BASE = 'the server has no base for this change';
 
@@ -1026,7 +1023,6 @@ export function openEngine<const TDefs extends Definitions>({
 	let noticed = false;
 	function notice(kind: Notice['kind'], path: string, reason: string, kept: string | null = null) {
 		driver.run('INSERT INTO "epicenter/notices" (at, kind, path, reason, kept) VALUES (?, ?, ?, ?, ?)', [Date.now(), kind, path, reason, kept]);
-		driver.run('DELETE FROM "epicenter/notices" WHERE id NOT IN (SELECT id FROM "epicenter/notices" ORDER BY id DESC LIMIT ?)', [KEEP_NOTICES]);
 		noticed = true;
 	}
 
