@@ -9,7 +9,7 @@
  * demand.
  */
 import { createNet, type LinkOptions } from './net.js';
-import { createMemoryStore, createReplica, type MergeAudit, type Reply, type Request } from './replica.js';
+import { createMemoryStore, createReplica, type Reply, type Request } from './replica.js';
 import { type Committed, createServer, type Event } from './server.js';
 
 export const QUIET = 60_000;
@@ -40,7 +40,6 @@ export function createWorld({
 	const requests: LinkOptions = { ordered: false, lossCloses: false, latency, loss: { ...loss }, ...(stall === undefined ? {} : { stall }) };
 	const stream: LinkOptions = { ordered: false, lossCloses: true, latency, loss: { up: 0, down: streamLoss }, ...(stall === undefined ? {} : { stall }) };
 	const commitHooks: ((committed: Committed) => void)[] = [];
-	const mergeHooks: ((audit: MergeAudit & { device: string }) => void)[] = [];
 	const requestHooks: ((device: string, request: Request, reply: Reply) => void)[] = [];
 	const server = createServer({ now: net.now, onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)) });
 	const counts = { push: 0, 'catch-up': 0, fetch: 0, walked: 0, notifications: 0, flushes: 0 };
@@ -63,20 +62,9 @@ export function createWorld({
 		});
 	}
 
-	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward', pause, most }: { mode?: 'merge' | 'fast-forward'; pause?: number; most?: number } = {}) {
+	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward' } = {}) {
 		const store = createMemoryStore();
-		const make = () =>
-			createReplica({
-				device: name,
-				mode,
-				store,
-				after: net.after,
-				now: net.now,
-				timeout,
-				...(pause === undefined ? {} : { pause }),
-				...(most === undefined ? {} : { most }),
-				onMerge: (audit) => mergeHooks.forEach((hook) => hook({ ...audit, device: name })),
-			});
+		const make = () => createReplica({ device: name, mode, store, after: net.after, now: net.now, timeout });
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;
@@ -197,7 +185,6 @@ export function createWorld({
 			delete stream.stall;
 		},
 		onCommit: (hook: (committed: Committed) => void) => commitHooks.push(hook),
-		onMerge: (hook: (audit: MergeAudit & { device: string }) => void) => mergeHooks.push(hook),
 		/** Every request the server answered, with its reply. */
 		onRequest: (hook: (device: string, request: Request, reply: Reply) => void) => requestHooks.push(hook),
 		counts: () => ({ ...counts }),

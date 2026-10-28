@@ -1,19 +1,20 @@
 /**
- * Design B's server, revised, in memory: live history. Every applied write
+ * Design B's server, collapsed, in memory: live history. Every applied write
  * is a live commit `{ id, parents, author, time }` whose id hashes its parent
  * and content, so a position never repeats. `main` only moves forward: a
  * commit whose parent is `main` fast-forwards it; otherwise a `merge`-mode
- * commit is merged by the server with the Epicenter merge into a merge
- * commit with two parents, and a `fast-forward`-mode commit is refused.
+ * commit is merged by the server with the Epicenter merge (base: the
+ * parent's text, current: `main`'s text now) into a merge commit with two
+ * parents, and a `fast-forward`-mode commit is refused. There is no note
+ * identity: a stale edit merges into whatever is at the path, visibly.
  *
- * History answers ordering (a device names the commit it is based on) and
- * identity (a path deleted and created again between a commit's base and
- * `main` holds another note, so the edit becomes a sibling). Resending a
- * commit is answered with its recorded outcome. A flush turns the live
- * commits since the last flush into one snapshot commit with trailers.
+ * Resending a commit is answered with its recorded outcome. A flush turns
+ * the live commits since the last flush into one snapshot commit with
+ * trailers; live commits and outcomes are kept one flush longer, then
+ * pruned, and a position or parent older than that is caught up by a full
+ * snapshot.
  *
- * Rules this server needed that the revised design does not state are
- * marked `RULE:` and listed in the report.
+ * Rules the collapsed design does not state are marked `RULE:`.
  */
 import { createHash } from 'node:crypto';
 import { gitBlobHash } from '../hash.js';
@@ -30,13 +31,6 @@ export type CommitFile = {
 	path: string;
 	/** The file's new text, or null to delete it. */
 	text: string | null;
-	/**
-	 * RULE: the commit this file's text was made on, when not the commit's
-	 * parent: a device that kept unsent work through a remote delete names the
-	 * commit before the delete, so the server merges from there and can tell a
-	 * restore from a replacement.
-	 */
-	from?: string;
 };
 
 /** A live commit on the wire. `id` is the SHA-1 of the canonical form of the rest. */
@@ -49,32 +43,30 @@ export type LiveCommit = {
 	files: CommitFile[];
 };
 
-/** The canonical form a commit id hashes: fixed order, `from` only when present. */
+/** The canonical form a commit id hashes, in a fixed order. */
 export function commitId(commit: Omit<LiveCommit, 'id'>) {
-	const files = commit.files.map((f) => (f.from === undefined ? [f.path, f.text] : [f.path, f.text, f.from]));
+	const files = commit.files.map((f) => [f.path, f.text]);
 	return gitBlobHash(JSON.stringify([commit.parent, commit.mode, commit.author.user, commit.author.device, commit.time, files]));
 }
 
-export type FileState = { path: string; text: string | null; hash: string | null; replaced?: true };
+export type FileState = { path: string; text: string | null; hash: string | null };
 
-/** A body or field both sides changed, and who was on each side. */
-export type Overlap = { path: string; unit: string; current: Author; incoming: Author };
+/** A body or field both sides changed, who was on each side, and the live commit that brought the incoming side. */
+export type Overlap = { path: string; unit: string; current: Author; incoming: Author; commit: string };
 
 export type PushAnswer =
 	/**
 	 * The commit is in `main`: fast-forwarded (`main` is the commit) or merged
 	 * (`main` is the merge commit). `files` are `main`'s texts for every path
-	 * changed since the commit's parent, every path it touched, and its
-	 * siblings, so the device can stand on `main` at once.
+	 * changed since the commit's parent and every path it touched, so the
+	 * device can stand on `main` at once.
 	 */
 	| {
 			kind: 'applied' | 'merged';
 			main: string;
-			/** RULE: the commits on `main` after the commit's parent, so the device knows those notifications are old. */
+			/** The commits on `main` after the commit's parent, so the device knows those notifications are old. */
 			commits: string[];
-			/** Each marked `replaced` when history since the commit's parent says the path holds another note now. */
 			files: FileState[];
-			siblings: { from: string; to: string }[];
 			/** Paths this commit edited that had been deleted: the edit brought them back. */
 			restored: string[];
 			/** Paths this commit deleted that had been edited since: the edit kept them. */
@@ -83,8 +75,10 @@ export type PushAnswer =
 	  }
 	/** `main` moved and the commit asked to fast-forward, or a file would stop parsing. Nothing changed. */
 	| { kind: 'refused'; reason: string; main: string; files: FileState[] }
-	/** RULE: the commit is in a flush whose live outcome is gone; its message's trailers say what happened. */
+	/** The commit is in a flush whose live outcome was pruned; its message's trailers say what happened. */
 	| { kind: 'flushed'; flush: string; message: string }
+	/** RULE: the commit's parent was pruned: catch up (a full snapshot), merge the work on top here, and commit again. */
+	| { kind: 'unknown-parent' }
 	| { kind: 'precondition-required' }
 	| { kind: 'invalid'; reason: string };
 
@@ -93,28 +87,22 @@ export type Event = { commit: string; parents: string[]; files: { path: string; 
 
 export type CatchUp = {
 	main: string;
-	/** Every file, because the server does not know the position. */
+	/** Every file, because the server no longer knows the position. */
 	full: boolean;
-	/** Paths changed since the position, with hashes; `replaced` when the path was deleted and holds another note now. */
-	files: { path: string; hash: string | null; replaced?: true }[];
+	/** Paths changed since the position, with hashes. */
+	files: { path: string; hash: string | null }[];
 	/** The commits walked, so the device knows those notifications are old. */
 	commits: string[];
 	/** Live commits walked to find `files`, for the benchmark. */
 	walked: number;
 };
 
-/** What a commit did at a path, for history walks. */
-export type Kind = 'create' | 'edit' | 'delete' | 'restore';
-
-/**
- * One commit on `main`, for audits: what each path was and became, and for a
- * device's change, the commit its text was made on (`from`; none for a sibling).
- */
+/** One commit on `main`, for audits: what each path was and became. */
 export type Committed = {
 	id: string;
 	parents: string[];
 	author: Author;
-	files: { path: string; kind: Kind; before: string | null; after: string | null; from?: string }[];
+	files: { path: string; before: string | null; after: string | null }[];
 };
 
 type Stored = {
@@ -123,11 +111,8 @@ type Stored = {
 	author: Author;
 	time: string;
 	tree: string;
-	changes: Map<string, Kind>;
-	/** For each path it changed and did not delete, the commit that created the note there (a restore keeps its note's). */
-	born: Map<string, string>;
+	changes: Set<string>;
 	overlaps: Overlap[];
-	siblings: { from: string; to: string }[];
 };
 
 // ============================================================================
@@ -220,26 +205,27 @@ function createTreeStore() {
 
 const SERVER: Author = { user: 'epicenter', device: 'server' };
 
-export function createServer({
-	now = () => 0,
-	today = () => '2026-10-28',
-	onCommit,
-}: { now?: () => number; today?: () => string; onCommit?: (committed: Committed) => void } = {}) {
+export function createServer({ now = () => 0, onCommit }: { now?: () => number; onCommit?: (committed: Committed) => void } = {}) {
 	const trees = createTreeStore();
 	/** Every text ever held, by hash (Git's object store). */
 	const blobs = new Map<string, string>();
+	/** Live commits kept: those on `main` since the flush before last, and the devices' commits they merged. */
 	const commits = new Map<string, Stored>();
-	/** `main`'s first-parent chain, oldest first, and each commit's place in it. */
-	const chain: string[] = [];
+	/** `main`'s first-parent chain, by absolute place; places below `offset` were pruned. */
+	let chain: string[] = [];
+	let offset = 0;
 	const place = new Map<string, number>();
 	const outcomes = new Map<string, PushAnswer>();
 	const listeners = new Set<(event: Event) => void>();
 	/** Who last changed each path on `main`, for overlap trailers and conflict labels. */
 	const lastAuthor = new Map<string, Author>();
 	const flushes: { id: string; tree: string; message: string; through: number }[] = [];
+	/** RULE: every live commit id a flush took in, kept after its commit is pruned, so a resend is told `flushed`. */
 	const flushedInto = new Map<string, string>();
 	let liveBytes = 0;
+	let made = 0;
 	const time = () => new Date(Date.UTC(2026, 9, 28) + now()).toISOString();
+	const at = (index: number) => commits.get(chain[index - offset] as string) as Stored;
 
 	const rootTime = time();
 	const root: Stored = {
@@ -248,16 +234,15 @@ export function createServer({
 		author: SERVER,
 		time: rootTime,
 		tree: trees.empty,
-		changes: new Map(),
-		born: new Map(),
+		changes: new Set(),
 		overlaps: [],
-		siblings: [],
 	};
 	commits.set(root.id, root);
 	chain.push(root.id);
 	place.set(root.id, 0);
 
-	const main = () => commits.get(chain.at(-1) as string) as Stored;
+	const top = () => offset + chain.length - 1;
+	const main = () => at(top());
 	const textIn = (tree: string, path: string) => {
 		const hash = trees.read(tree, path);
 		return hash === null ? null : (blobs.get(hash) ?? null);
@@ -267,53 +252,15 @@ export function createServer({
 		return { path, text: hash === null ? null : (blobs.get(hash) ?? null), hash };
 	};
 
-	/**
-	 * The note at a path at a commit on `main`, named by the commit that
-	 * created it: walk back to the last change of the path.
-	 */
-	function bornAt(at: number, path: string): string | null {
-		for (let i = at; i >= 0; i--) {
-			const commit = commits.get(chain[i] as string);
-			const kind = commit?.changes.get(path);
-			if (kind === undefined) continue;
-			return kind === 'delete' ? null : (commit?.born.get(path) ?? null);
-		}
-		return null;
-	}
-
-	/**
-	 * RULE: identity from history is the commit that created the note. A path
-	 * holds another note than at `from` when both have one and their creating
-	 * commits differ: deleted and created again, or deleted and brought back
-	 * by an edit of an older note.
-	 */
-	function replacedSince(from: number, path: string) {
-		const then = bornAt(from, path);
-		const now_ = bornAt(chain.length - 1, path);
-		return then !== null && now_ !== null && then !== now_;
-	}
-
-	/** Paths changed on `main` after `from`, and how many commits that walked. */
+	/** Paths changed on `main` after place `from`, the commits walked, and how many. */
 	function changedSince(from: number) {
 		const paths = new Set<string>();
-		for (let i = from + 1; i < chain.length; i++) for (const path of commits.get(chain[i] as string)?.changes.keys() ?? []) paths.add(path);
-		return { paths, walked: chain.length - 1 - from };
+		for (let i = from + 1; i <= top(); i++) for (const path of at(i).changes) paths.add(path);
+		return { paths, ids: chain.slice(from + 1 - offset), walked: top() - from };
 	}
 
-	function siblingPath(path: string, device: string, taken: (path: string) => boolean) {
-		const slash = path.lastIndexOf('/');
-		const name = path.slice(slash + 1);
-		const dot = name.lastIndexOf('.');
-		const stem = dot > 0 ? name.slice(0, dot) : name;
-		const extension = dot > 0 ? name.slice(dot) : '';
-		const prefix = `${path.slice(0, slash + 1)}${stem} (${device}, ${today()})`;
-		let candidate = `${prefix}${extension}`;
-		for (let n = 2; taken(candidate); n++) candidate = `${prefix} ${n}${extension}`;
-		return candidate;
-	}
-
-	/** Put a commit on `main`: its snapshot, its history kinds, its notification. */
-	function advance(stored: Omit<Stored, 'tree' | 'changes' | 'born'>, files: { path: string; text: string | null; kind: Kind; from?: string }[]) {
+	/** Put a commit on `main`: its snapshot and its notification. */
+	function advance(stored: Omit<Stored, 'tree' | 'changes'>, files: CommitFile[]) {
 		const before = main();
 		const tree = trees.update(
 			before.tree,
@@ -323,38 +270,26 @@ export function createServer({
 				return [f.path.split('/'), hash];
 			}),
 		);
-		const changes = new Map(
-			files.filter((f) => textIn(before.tree, f.path) !== f.text || f.kind === 'restore').map((f) => [f.path, f.kind] as const),
-		);
-		const born = new Map<string, string>();
-		for (const f of files) {
-			if (!changes.has(f.path) || f.kind === 'delete') continue;
-			if (f.kind === 'create') born.set(f.path, stored.id);
-			else if (f.kind === 'restore') born.set(f.path, bornAt(place.get(f.from ?? '') ?? chain.length - 1, f.path) ?? stored.id);
-			else born.set(f.path, bornAt(chain.length - 1, f.path) ?? stored.id);
-		}
-		const commit: Stored = { ...stored, tree, changes, born };
+		const changes = new Set(files.filter((f) => textIn(before.tree, f.path) !== f.text).map((f) => f.path));
+		const commit: Stored = { ...stored, tree, changes };
 		onCommit?.({
 			id: commit.id,
 			parents: commit.parents,
 			author: commit.author,
-			files: files.map((f) => ({ path: f.path, kind: f.kind, before: textIn(before.tree, f.path), after: f.text, ...(f.from === undefined ? {} : { from: f.from }) })),
+			files: files.map((f) => ({ path: f.path, before: textIn(before.tree, f.path), after: f.text })),
 		});
 		commits.set(commit.id, commit);
-		place.set(commit.id, chain.length);
+		place.set(commit.id, top() + 1);
 		chain.push(commit.id);
-		for (const path of changes.keys()) {
+		made++;
+		for (const path of changes) {
 			lastAuthor.set(path, stored.author);
 			liveBytes += path.length + (textIn(tree, path)?.length ?? 0);
 		}
 		liveBytes += 200;
-		const event: Event = { commit: commit.id, parents: commit.parents, files: [...changes.keys()].map((path) => ({ path, hash: trees.read(tree, path) })) };
+		const event: Event = { commit: commit.id, parents: commit.parents, files: [...changes].map((path) => ({ path, hash: trees.read(tree, path) })) };
 		for (const listener of listeners) listener(event);
-		return commit;
 	}
-
-	const kindOf = (before: string | null, after: string | null, restored: boolean): Kind =>
-		after === null ? 'delete' : before === null ? (restored ? 'restore' : 'create') : 'edit';
 
 	function push(commit: LiveCommit): PushAnswer {
 		if (commit.parent === undefined) return { kind: 'precondition-required' };
@@ -363,42 +298,30 @@ export function createServer({
 		const flush = flushedInto.get(commit.id);
 		if (flush !== undefined) return { kind: 'flushed', flush, message: flushes.find((f) => f.id === flush)?.message ?? '' };
 		if (commitId(commit) !== commit.id) return { kind: 'invalid', reason: 'the id is not the hash of the commit' };
-		const at = place.get(commit.parent);
-		if (at === undefined) return { kind: 'invalid', reason: 'the parent is not on main' };
+		const from = place.get(commit.parent);
+		if (from === undefined || from < offset) return { kind: 'unknown-parent' };
 		const paths = new Set(commit.files.map((f) => f.path));
 		if (paths.size !== commit.files.length) return { kind: 'invalid', reason: 'a path is named twice' };
 		const head = main();
 		const current = (path: string) => textIn(head.tree, path);
 		const refuse = (reason: string): PushAnswer => ({ kind: 'refused', reason, main: head.id, files: commit.files.map((f) => state(f.path)) });
 
-		const forward = commit.parent === head.id && commit.files.every((f) => f.from === undefined || f.from === head.id);
+		const forward = commit.parent === head.id;
 		if (commit.mode === 'fast-forward' && !forward) return refuse('main moved');
 		const breaks = commit.files.some((f) => breaksParsing(f.path, current(f.path), f.text));
 		if (forward && !breaks) {
-			const files = commit.files.map((f) => ({ path: f.path, text: f.text, kind: kindOf(current(f.path), f.text, false), from: commit.parent }));
-			advance({ id: commit.id, parents: [commit.parent], author: commit.author, time: commit.time, overlaps: [], siblings: [] }, files);
-			return record(commit, { kind: 'applied', main: commit.id, commits: [], files: [], siblings: [], restored: [], kept: [], overlaps: [] }, at);
+			advance({ id: commit.id, parents: [commit.parent], author: commit.author, time: commit.time, overlaps: [] }, commit.files);
+			return record(commit, { kind: 'applied', main: commit.id, commits: [], files: [], restored: [], kept: [], overlaps: [] }, from);
 		}
 		if (commit.mode === 'fast-forward') return refuse('the frontmatter would no longer parse');
 
-		// Merge, where the commit's history and main's meet.
-		const parentTree = commits.get(commit.parent)?.tree ?? trees.empty;
-		const out: { path: string; text: string | null; kind: Kind; from?: string }[] = [];
-		const answer = { siblings: [] as { from: string; to: string }[], restored: [] as string[], kept: [] as string[], overlaps: [] as Overlap[] };
-		const taken = (path: string) => current(path) !== null || paths.has(path) || out.some((f) => f.path === path && f.text !== null);
+		// Merge where the commit's history and main's meet: base is the parent's text, current is main's now.
+		const parentTree = at(from).tree;
+		const out: CommitFile[] = [];
+		const answer = { restored: [] as string[], kept: [] as string[], overlaps: [] as Overlap[] };
 		for (const file of commit.files) {
-			const from = file.from === undefined ? at : (place.get(file.from) ?? at);
-			const base = textIn(file.from === undefined ? parentTree : (commits.get(file.from)?.tree ?? parentTree), file.path);
+			const base = textIn(parentTree, file.path);
 			const ours = current(file.path);
-			if (ours !== null && replacedSince(from, file.path)) {
-				// Identity from history: the path holds another note now. The edit goes beside it.
-				if (file.text !== null) {
-					const to = siblingPath(file.path, commit.author.device, taken);
-					out.push({ path: to, text: file.text, kind: 'create' });
-					answer.siblings.push({ from: file.path, to });
-				}
-				continue;
-			}
 			const result = merge(base, ours, file.text);
 			const who = lastAuthor.get(file.path) ?? SERVER;
 			let text = withMarkers(result, { current: `main (${who.user}/${who.device})`, incoming: `${commit.author.user}/${commit.author.device}` });
@@ -406,12 +329,11 @@ export function createServer({
 			if (breaksParsing(file.path, ours, text)) text = ours;
 			for (const overlap of result.overlaps) {
 				const unit = overlap.unit === 'field' ? `field ${overlap.key}` : overlap.unit === 'file' ? `file ${overlap.clash}` : overlap.unit;
-				answer.overlaps.push({ path: file.path, unit, current: who, incoming: commit.author });
+				answer.overlaps.push({ path: file.path, unit, current: who, incoming: commit.author, commit: commit.id });
 			}
-			const restored = ours === null && base !== null && text !== null;
-			if (restored) answer.restored.push(file.path);
+			if (ours === null && base !== null && text !== null) answer.restored.push(file.path);
 			if (file.text === null && text !== null) answer.kept.push(file.path);
-			out.push({ path: file.path, text, kind: kindOf(ours, text, restored), from: file.from ?? commit.parent });
+			out.push({ path: file.path, text });
 		}
 		// The device's commit stays a real commit: the merge's second parent.
 		for (const f of commit.files) if (f.text !== null) blobs.set(gitBlobHash(f.text), f.text);
@@ -421,27 +343,20 @@ export function createServer({
 			author: commit.author,
 			time: commit.time,
 			tree: trees.update(parentTree, commit.files.map((f) => [f.path.split('/'), f.text === null ? null : gitBlobHash(f.text)])),
-			changes: new Map(),
-			born: new Map(),
+			changes: new Set(),
 			overlaps: [],
-			siblings: [],
 		});
 		const mergeTime = time();
-		const id = commitId({ parent: `${head.id} ${commit.id}`, mode: 'merge', author: SERVER, time: mergeTime, files: out.map((f) => ({ path: f.path, text: f.text })) });
-		advance({ id, parents: [head.id, commit.id], author: commit.author, time: mergeTime, overlaps: answer.overlaps, siblings: answer.siblings }, out);
-		return record(commit, { kind: 'merged', main: id, commits: [], files: [], ...answer }, at);
+		const id = commitId({ parent: `${head.id} ${commit.id}`, mode: 'merge', author: SERVER, time: mergeTime, files: out });
+		advance({ id, parents: [head.id, commit.id], author: commit.author, time: mergeTime, overlaps: answer.overlaps }, out);
+		return record(commit, { kind: 'merged', main: id, commits: [], files: [], ...answer }, from);
 	}
 
-	/** Fill an answer's files (everything changed since the commit's parent, what it touched, its siblings) and keep it for a resend. */
-	function record(commit: LiveCommit, answer: Extract<PushAnswer, { kind: 'applied' | 'merged' }>, at: number): PushAnswer {
-		const { paths } = changedSince(at);
-		const touched = new Set([...commit.files.map((f) => f.path), ...answer.siblings.map((s) => s.to)]);
-		for (const path of touched) paths.add(path);
-		const files = [...paths].sort().map((path) => {
-			const file = state(path);
-			return !touched.has(path) && file.text !== null && replacedSince(at, path) ? { ...file, replaced: true as const } : file;
-		});
-		const full = { ...answer, commits: chain.slice(at + 1), files };
+	/** Fill an answer's files (everything changed since the commit's parent, and what it touched) and keep it for a resend. */
+	function record(commit: LiveCommit, answer: Extract<PushAnswer, { kind: 'applied' | 'merged' }>, from: number): PushAnswer {
+		const { paths, ids } = changedSince(from);
+		for (const f of commit.files) paths.add(f.path);
+		const full = { ...answer, commits: ids, files: [...paths].sort().map(state) };
 		outcomes.set(commit.id, full);
 		return full;
 	}
@@ -462,29 +377,20 @@ export function createServer({
 		push,
 		/**
 		 * What changed on `main` since `from`, by walking history, plus `paths`
-		 * the device names. An unknown position gets every file.
+		 * the device names. A position the server no longer keeps (pruned, or
+		 * none) gets every file.
 		 */
-		catchUp({ from, paths = [] }: { from: string | null; paths?: { path: string; at?: string }[] }): CatchUp {
-			const at = from === null ? undefined : place.get(from);
+		catchUp({ from, paths = [] }: { from: string | null; paths?: string[] }): CatchUp {
+			const index = from === null ? undefined : place.get(from);
 			const head = main();
-			if (at === undefined) {
-				const all = trees.diff(trees.empty, head.tree);
+			if (index === undefined || index < offset) {
+				// The paths the device named come too, absent or not, so it learns a named path is gone.
+				const all = [...new Set([...trees.diff(trees.empty, head.tree), ...paths])].sort();
 				return { main: head.id, full: true, walked: 0, commits: [], files: all.map((path) => ({ path, hash: trees.read(head.tree, path) })) };
 			}
-			const { paths: changed, walked } = changedSince(at);
-			// RULE: a path the device names is judged against the commit its base was taken at, which can be older than the position.
-			const since = new Map(paths.map((p) => [p.path, (p.at === undefined ? undefined : place.get(p.at)) ?? at]));
-			for (const { path } of paths) changed.add(path);
-			return {
-				main: head.id,
-				full: false,
-				walked,
-				commits: chain.slice(at + 1),
-				files: [...changed].sort().map((path) => {
-					const hash = trees.read(head.tree, path);
-					return { path, hash, ...(hash !== null && replacedSince(since.get(path) ?? at, path) ? { replaced: true as const } : {}) };
-				}),
-			};
+			const { paths: changed, ids, walked } = changedSince(index);
+			for (const path of paths) changed.add(path);
+			return { main: head.id, full: false, walked, commits: ids, files: [...changed].sort().map((path) => ({ path, hash: trees.read(head.tree, path) })) };
 		},
 		/** Texts by hash: a content-addressed read, never stale. */
 		fetch: (hashes: string[]) => Object.fromEntries(hashes.flatMap((hash) => (blobs.has(hash) ? [[hash, blobs.get(hash) as string]] : []))),
@@ -494,13 +400,15 @@ export function createServer({
 		},
 		/**
 		 * Turn the live commits since the last flush into one snapshot commit
-		 * with the design's message. Their recorded outcomes go with them.
+		 * with the design's message, then prune the live commits (and their
+		 * outcomes) that the flush before this one took in.
 		 */
 		flush() {
 			const last = flushes.at(-1);
 			const from = (last?.through ?? 0) + 1;
-			if (from >= chain.length) return null;
-			const range = chain.slice(from).map((id) => commits.get(id) as Stored);
+			if (from > top()) return null;
+			const range: Stored[] = [];
+			for (let i = from; i <= top(); i++) range.push(at(i));
 			const head = main();
 			const paths = trees.diff(last?.tree ?? trees.empty, head.tree).sort();
 			const counts = new Map<string, number>();
@@ -515,23 +423,34 @@ export function createServer({
 			const trailers = [
 				`Epicenter-Live: ${short(range[0]?.id ?? '')}..${short(head.id)} (${range.length} commits)`,
 				...range.flatMap((c) =>
-					c.overlaps.map((o) => `Epicenter-Overlap: ${o.path} ${o.unit} (${o.current.user}/${o.current.device}, ${o.incoming.user}/${o.incoming.device})`),
+					c.overlaps.map(
+						(o) => `Epicenter-Overlap: ${o.path} ${o.unit} (${o.current.user}/${o.current.device}, ${o.incoming.user}/${o.incoming.device}) in ${short(o.commit)}`,
+					),
 				),
-				...range.flatMap((c) => c.siblings.map((s) => `Epicenter-Sibling: ${s.to} from ${s.from}`)),
 				...[...counts.keys()].sort().map((user) => `Co-authored-by: ${user[0]?.toUpperCase()}${user.slice(1)} <${user}@example.com>`),
 			];
 			const author = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'epicenter';
 			const message = `${subject}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n`;
 			const id = createHash('sha1').update(`${last?.id ?? ''}\n${head.tree}\n${author}\n${message}`).digest('hex');
-			flushes.push({ id, tree: head.tree, message, through: chain.length - 1 });
-			for (const live of taken) {
-				flushedInto.set(live, id);
-				outcomes.delete(live);
+			flushes.push({ id, tree: head.tree, message, through: top() });
+			for (const live of taken) flushedInto.set(live, id);
+			// RULE: live commits outlive their flush by one more flush, so positions and resends from just before it still resolve.
+			const prune = last?.through;
+			if (prune !== undefined && prune > offset) {
+				for (let i = offset; i < prune; i++) {
+					const commit = at(i);
+					for (const id_ of [commit.id, ...commit.parents.slice(1)]) {
+						commits.delete(id_);
+						outcomes.delete(id_);
+					}
+				}
+				chain = chain.slice(prune - offset);
+				offset = prune;
 			}
 			return { id, author, message };
 		},
-		/** Live commits on `main` and their approximate bytes (paths, texts, ~200 bytes of metadata each), for the benchmark. */
-		history: () => ({ commits: chain.length - 1, bytes: liveBytes, flushes: flushes.length }),
+		/** Live commits ever made and kept, their approximate bytes, and flushes, for the benchmark. */
+		history: () => ({ commits: made, kept: chain.length, bytes: liveBytes, flushes: flushes.length }),
 	};
 }
 

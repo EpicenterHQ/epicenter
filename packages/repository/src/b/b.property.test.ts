@@ -26,7 +26,7 @@
  * - Nothing owed is ever unreachable, after any step or at quiescence
  * - No server file ever goes from parsing to not parsing
  * - At quiescence every device's mine and base equal the server's text for every path
- * - No edit made on one note is merged into another note at its path, on the server or a device (the test follows note identity through history itself)
+ * - Every stale edit is visible: it is in a server text (as merged lines or conflict markers) or a notice, which the first promise checks; a stale edit may land in whatever note is at its path now
  *
  * Set B_SEED=n to replay one sequence, B_RUNS=n to run n seeds from B_FROM (default 1).
  * A failure names its seed and the steps.
@@ -72,7 +72,7 @@ function run(seed: number) {
 		...(process.env.B_TRACE === undefined ? {} : { trace: (line: string) => log.push(line) }),
 	});
 	const people = ['alice', 'bob', 'carol'].map((name) => world.device(name));
-	const agent = world.device('agent', { mode: 'fast-forward', pause: 0, most: 0 });
+	const agent = world.device('agent', { mode: 'fast-forward' });
 	const everyone: Device[] = [...people, agent];
 	const log: string[] = [];
 	const owed = new Set<string>();
@@ -81,37 +81,11 @@ function run(seed: number) {
 	let next = 1;
 	const token = () => `t${next++}z`;
 
-	/**
-	 * The test's own account of which note each path holds at each commit: a
-	 * create starts a new note, a restore brings back the note its change was
-	 * made on, a delete ends one. The server decides by walking history; this
-	 * follows the same history another way.
-	 */
-	const notes = new Map<string, Map<string, number>>();
-	let nextNote = 1;
-	const noteAt = (commit: string | undefined, path: string) => (commit === undefined ? undefined : notes.get(commit)?.get(path));
 	world.onCommit((committed) => {
-		const map = new Map(notes.get(committed.parents[0] ?? '') ?? []);
 		for (const file of committed.files) {
 			if (file.path.endsWith('.md') && file.before !== null && file.after !== null && parses(file.before) && !parses(file.after))
 				violations.push(`server: ${file.path} stopped parsing (by ${committed.author.user})`);
-			const made = noteAt(file.from, file.path);
-			const there = map.get(file.path);
-			if (file.before !== null && made !== undefined && there !== undefined && made !== there)
-				violations.push(`server: ${committed.author.user}'s edit of note ${made} was merged into note ${there} at ${file.path}`);
-			if (file.kind === 'delete') map.delete(file.path);
-			else if (file.kind === 'restore') map.set(file.path, made ?? nextNote++);
-			else if (file.kind === 'create' || there === undefined) map.set(file.path, nextNote++);
 			if (committed.author.user === 'agent') for (const t of tokensIn(file.after)) if (!tokensIn(file.before).has(t)) owed.add(t);
-		}
-		notes.set(committed.id, map);
-	});
-	world.onMerge((audit) => {
-		const made = noteAt(audit.baseAt, audit.path);
-		const into = noteAt(audit.incomingAt, audit.path);
-		if (made !== undefined && into !== undefined && made !== into) {
-			log.push(`${world.net.now()} VIOLATION merge ${audit.device} ${audit.path}`);
-			violations.push(`${audit.device}: an edit of note ${made} was merged into note ${into} at ${audit.path}`);
 		}
 	});
 
