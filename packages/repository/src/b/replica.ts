@@ -122,7 +122,7 @@ export function createReplica({
 	let needCatchUp = true;
 	let lastKind: Request['type'] | null = null;
 	let alive = true;
-	const stats = { writes: 0, applied: 0, stale: 0, catchUps: 0, fetches: 0, fetchedTexts: 0, timeouts: 0, notifications: 0, hints: 0 };
+	const stats = { writes: 0, applied: 0, stale: 0, catchUps: 0, fetches: 0, fetchedTexts: 0, timeouts: 0, late: 0, notifications: 0, hints: 0 };
 
 	const save = () => {
 		state.files = Object.fromEntries(files);
@@ -243,12 +243,6 @@ export function createReplica({
 			return { ...take(incoming.text), mine: integrate(path, base, incoming.text, file.mine, label) };
 		};
 
-		// RULE: the server holding exactly what this device sent, in that note, means it landed, whoever says so: no merge.
-		const sent = sentFor(path);
-		if (sent !== undefined && hashOf(sent.text) === incoming.hash && (sent.note === undefined || sent.note === incoming.note)) {
-			set({ base: sent.text, mine: file.mine, ...note });
-			return;
-		}
 		// Another note now holds the path: unsent edits of the old one are kept beside it, never merged in.
 		if (file.note !== undefined && incoming.note !== null && incoming.note !== file.note) {
 			const unsent = file.gone === true || file.mine !== file.base;
@@ -435,7 +429,12 @@ export function createReplica({
 			pump();
 		},
 		reply(message: Reply) {
-			if (!alive || pending?.rid !== message.rid) return;
+			if (!alive) return;
+			// A reply to a request that timed out is ignored: what it said is found again by the next catch-up.
+			if (pending?.rid !== message.rid) {
+				stats.late++;
+				return;
+			}
 			pending = null;
 			switch (message.type) {
 				case 'answer':
