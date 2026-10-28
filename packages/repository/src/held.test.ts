@@ -14,6 +14,7 @@
  * - Held text stays visible, unsent and held through an acknowledgment, a changed broadcast, a remote move, a remote delete, a path reuse and another device's applied send, and a restart at each point
  * - A repair queues exactly the repaired text, from what the server will have
  * - A merge that makes held text parse queues it at once
+ * - Held text over a create whose reply was lost is not joined with that create when the hello brings it
  * - A callback's ready changes go together; a held change waits alone, and later changes follow a rename before it
  * - A send naming a held path fails at once, and one with a breaking text is refused before it is numbered
  * - A field write on a held note is Unparseable
@@ -232,6 +233,30 @@ test("held text survives another device's applied send", () =>
 			repaired: note('ONE\n.\n.\nsent\n', 'B'),
 		},
 	));
+
+test('held text over a create whose reply was lost is not joined with that create when the server says hello', async () => {
+	const t = await setup();
+	const alice = t.device('alice', join(t.dir, 'alice.sqlite'));
+	await alice.repo.flush();
+	// The create lands, but its reply is lost and Alice goes offline.
+	alice.transport.dropNextReply();
+	expectOk(await alice.repo.files.writeText(PATH, note('one\n')));
+	await alice.repo.flush();
+	expect(await t.server.read(PATH)).toBe(note('one\n'));
+	expectOk(await alice.repo.files.writeText(PATH, broken('one\n')));
+	// Back online, the hello brings her own create, and the retry is answered from its receipt.
+	alice.transport.setOnline(true);
+	await alice.repo.flush();
+	await alice.repo.flush();
+	expect(await alice.repo.files.readText(PATH)).toMatchObject({ text: broken('one\n'), sync: { state: 'held', reason: 'unparseable' } });
+	await alice.restart();
+	expect(await alice.repo.files.readText(PATH)).toMatchObject({ text: broken('one\n'), sync: { state: 'held' } });
+	expectOk(await alice.repo.files.writeText(PATH, note('two\n')));
+	await alice.repo.flush();
+	expect(await t.server.read(PATH)).toBe(note('two\n'));
+	expect((await alice.repo.files.readText(PATH))?.sync).toEqual({ state: 'synced' });
+	await t.cleanup();
+});
 
 test('a merge that makes held text parse queues it at once', async () => {
 	const t = await setup();

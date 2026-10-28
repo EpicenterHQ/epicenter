@@ -353,10 +353,21 @@ export function openEngine<const TDefs extends Definitions>({
 	/** A file a move made elsewhere took along: this device's text of it, what that text was based on, and whether it was held. */
 	type Carried = { base: string | null; local: string | null; held: HoldReason | null };
 
-	function serverFile(file: FileState, seq: number, carried?: Carried) {
+	/**
+	 * Show what the server reports for one file. `landed` is what this
+	 * device's own batches that the server already applied, though their
+	 * replies were lost, left at the path: the server's text holds them, so
+	 * this device's text is rebased from there, and its own changes are
+	 * never merged in a second time.
+	 */
+	function serverFile(file: FileState, seq: number, carried?: Carried, landed?: string | null) {
 		if (!isDeviceFile(file.path, file.text)) return;
 		const current = keep(file.path);
 		if (current.seq > seq) return;
+		if (landed !== undefined) {
+			put(file.path, { text: rebaseLocal(landed, current.text, file.text), synced: file.text, hash: file.hash, seq });
+			return;
+		}
 		// A note this device renamed, its rename still queued, takes a change made
 		// elsewhere along, as the server will once the rename lands; the old path
 		// shows nothing meanwhile.
@@ -497,6 +508,20 @@ export function openEngine<const TDefs extends Definitions>({
 			at = last.change.to;
 		}
 		return at;
+	}
+
+	/**
+	 * What this device's queued batches numbered up to `through`, which the
+	 * server says it applied, left at each path they touch: what the server's
+	 * files already hold of this device's own. Their replies were lost; each
+	 * is answered from its receipt when it is sent again.
+	 */
+	function landedAt(through: number): Map<string, string | null> {
+		const landed = new Map<string, string | null>();
+		for (const batch of unsent())
+			if (batch.n <= through)
+				for (const entry of JSON.parse(batch.changes) as Entry[]) for (const path of pathsOf(entry)) landed.set(path, leftAt(entry, path));
+		return landed;
 	}
 
 	/** Whether this device moved a note to `path` and the move is still queued: the last change touching `path` is that move. */
@@ -1333,14 +1358,15 @@ export function openEngine<const TDefs extends Definitions>({
 				return;
 			}
 			needsHello = false;
-			const { kind, seq, files } = welcome.data;
+			const { kind, seq, files, through } = welcome.data;
 			driver.transaction(() => {
+				const landed = landedAt(through);
 				if (kind === 'snapshot') {
 					const present = new Set(files.map((file) => file.path));
 					for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/files" WHERE synced IS NOT NULL'))
-						if (!present.has(path)) serverFile({ path, text: null, hash: null }, seq);
+						if (!present.has(path)) serverFile({ path, text: null, hash: null }, seq, undefined, landed.get(path));
 				}
-				for (const file of files) serverFile(file, seq);
+				for (const file of files) serverFile(file, seq, undefined, landed.get(file.path));
 				jumpTo(seq);
 				settle();
 			});

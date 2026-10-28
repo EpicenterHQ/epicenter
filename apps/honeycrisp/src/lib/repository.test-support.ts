@@ -46,7 +46,7 @@ export async function openDevice(files: Record<string, string> = {}) {
 			reconnect = handlers.onOnline;
 			return {
 				connected: () => answer !== null,
-				hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, files: Object.entries(files).map(([path, text]) => state(path, text)) }),
+				hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, through: 0, files: Object.entries(files).map(([path, text]) => state(path, text)) }),
 				push: async () => (answer === null ? TransportError.Offline({ sent: false }) : Ok(answer)),
 				close() {},
 			};

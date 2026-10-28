@@ -108,6 +108,8 @@ async function world() {
 		pushed,
 		alice: openAlice(),
 		bob,
+		/** Alice's network, to lose a reply or come back online. */
+		network: inner,
 		openAlice,
 		gated: () => gate !== null,
 		hold() {
@@ -156,6 +158,8 @@ async function run(seed: number) {
 	};
 	let lastPath = 'notes/a.md';
 	let bobEdits = 0;
+	/** Alice lost a reply and is offline: only she acts until she reconnects. */
+	let offline = false;
 	let stems = 0;
 	const freshPath = () => `notes/n${++stems}.md`;
 	const stemOf = (path: string) => path.slice('notes/'.length, -'.md'.length);
@@ -177,7 +181,8 @@ async function run(seed: number) {
 			expect(files[0]?.sync.state).toBe(m.held ? 'held' : m.queued !== null ? 'sending' : 'synced');
 			expect(enginePromised(driver, m.path)).toBe(promisedText(m));
 			const synced = driver.all<{ synced: string | null }>('SELECT synced FROM "epicenter/files" WHERE path = ?', [m.path])[0]?.synced ?? null;
-			expect(synced).toBe(m.server?.path === m.path ? serverText(m) : null);
+			// Offline after a lost reply, Alice has not heard that her batch landed.
+			if (!offline) expect(synced).toBe(m.server?.path === m.path ? serverText(m) : null);
 		}
 		if (m.server !== null) expect(await w.server.read(m.server.path)).toBe(serverText(m));
 		else expect(await w.server.read(lastPath)).toBeNull();
@@ -203,7 +208,44 @@ async function run(seed: number) {
 				m.lands = { mine, bob };
 			} else m.held = text !== below;
 		},
+		/** Alice types a text that parses; it lands, but its reply is lost and she goes offline. */
+		async typeLost() {
+			if (offline || m.queued !== null) return;
+			const mine: Mine = { title: pick(['A', 'B', 'C', 'D']), broken: false };
+			const path = m.path ?? lastPath;
+			const bob = m.shown.whole !== null && m.server !== null ? m.server.bob : m.shown.bob;
+			const text = render(mine, bob);
+			log.push(`type ${JSON.stringify(mine)} at ${path}, reply lost`);
+			w.release();
+			w.network.dropNextReply();
+			expectOk(await w.alice.repo.files.writeText(path, text));
+			await w.alice.repo.flush();
+			w.hold();
+			offline = true;
+			m.path = path;
+			m.shown = { mine, bob, whole: null };
+			m.held = false;
+			m.queued = text;
+			m.lands = { mine, bob };
+			m.server = { path, mine, bob: m.server?.bob ?? bob };
+		},
+		async reconnect() {
+			if (!offline) return;
+			log.push('reconnect');
+			w.release();
+			w.network.setOnline(true);
+			await w.alice.repo.flush();
+			await w.alice.repo.flush();
+			w.hold();
+			offline = false;
+			if (m.lands !== null && m.path !== null)
+				m.server = { path: m.path, mine: m.lands.mine, bob: m.server !== null ? m.server.bob : m.lands.bob };
+			m.queued = null;
+			m.lands = null;
+			bobEdits = 0;
+		},
 		async bobEdit() {
+			if (offline) return;
 			// One edit of Bob's at most while Alice's writes wait: a write of hers sends the text she shows,
 			// which holds Bob's edit merged in, from what she promised before it, so a second edit of the
 			// same line would overlap that copy at the server, which the model does not describe.
@@ -219,6 +261,7 @@ async function run(seed: number) {
 			if (m.path !== null) m.shown = { ...m.shown, bob: line };
 		},
 		async ack() {
+			if (offline) return;
 			if (!w.gated()) return;
 			log.push('ack');
 			w.release();
@@ -231,6 +274,7 @@ async function run(seed: number) {
 			bobEdits = 0;
 		},
 		async rename() {
+			if (offline) return;
 			if (m.path === null || promisedText(m) === null || m.server?.path !== m.path || m.shown.whole !== null) return;
 			const to = freshPath();
 			log.push(`alice renames to ${to}`);
@@ -241,6 +285,7 @@ async function run(seed: number) {
 			lastPath = to;
 		},
 		async bobRename() {
+			if (offline) return;
 			if (m.server === null || m.queued !== null || m.path !== m.server.path) return;
 			const to = freshPath();
 			log.push(`bob renames to ${to}`);
@@ -250,6 +295,7 @@ async function run(seed: number) {
 			lastPath = to;
 		},
 		async bobDelete() {
+			if (offline) return;
 			if (m.server === null || m.queued !== null || m.path !== m.server.path) return;
 			log.push('bob deletes');
 			expectOk(await w.bob.notes.delete({ stem: stemOf(m.server.path) }));
@@ -257,6 +303,7 @@ async function run(seed: number) {
 			if (!m.held) m.path = null;
 		},
 		async bobReuse() {
+			if (offline) return;
 			if (m.server !== null || m.queued !== null) return;
 			const mine: Mine = { title: 'R', broken: false };
 			log.push(`bob reuses ${lastPath}`);
@@ -280,10 +327,12 @@ async function run(seed: number) {
 		await check();
 		w.hold();
 		for (let step = 0; step < STEPS; step++) {
-			await steps[pick(names)]();
+			// With no file shown, a lost reply on the create that makes one again is the interesting case.
+			await steps[m.path === null && !offline && random() < 0.5 ? 'typeLost' : pick(names)]();
 			await settled();
 			await check();
 		}
+		await steps.reconnect();
 		log.push('final ack');
 		await steps.ack();
 		await settled();

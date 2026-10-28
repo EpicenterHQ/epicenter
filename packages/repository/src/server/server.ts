@@ -632,12 +632,13 @@ export function createRepositoryServer({
 	// Reading for devices
 	// ------------------------------------------------------------------------
 
-	async function hello(seq: number): Promise<Welcome> {
+	async function hello(seq: number, device: string): Promise<Welcome> {
 		const head = await loadMain();
 		const serverSeq = state('seq');
+		const through = first<{ last_n: number }>(driver, 'SELECT last_n FROM devices WHERE device = ?', [device])?.last_n ?? 0;
 		if (seq >= state('committed') && seq >= head.seq) {
 			const files = driver.all<FileState>('SELECT path, text, hash FROM overlay WHERE seq > ? ORDER BY seq, path', [seq]);
-			return { kind: 'changes', seq: serverSeq, files };
+			return { kind: 'changes', seq: serverSeq, files, through };
 		}
 		const overlay = new Map(
 			driver.all<FileState>('SELECT path, text, hash FROM overlay').map((row) => [row.path, row]),
@@ -649,7 +650,7 @@ export function createRepositoryServer({
 			if (text !== null) files.push({ path, text, hash: entry.oid });
 		}
 		for (const row of overlay.values()) if (row.text !== null) files.push(row);
-		return { kind: 'snapshot', seq: serverSeq, files };
+		return { kind: 'snapshot', seq: serverSeq, files, through };
 	}
 
 	const core: ServerCore = { git, loadMain, gitText, applyBatch, commitNow, broadcast };
@@ -659,7 +660,7 @@ export function createRepositoryServer({
 		connect(peer: Peer) {
 			peers.add(peer);
 			return {
-				hello: (seq: number) => serially(() => hello(seq)),
+				hello: (seq: number) => serially(() => hello(seq, peer.device)),
 				push: (batch: Batch) =>
 					serially(async () => {
 						const { outcome, broadcast: message } = await applyBatch(batch, peer);

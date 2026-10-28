@@ -395,7 +395,7 @@ test('a change the server could not take is shown as a notice, with its text to 
 	const transport: Transport = {
 		connect: () => ({
 			connected: () => true,
-			hello: async () => Ok({ kind: 'changes' as const, seq: 0, files: [] }),
+			hello: async () => Ok({ kind: 'changes' as const, seq: 0, files: [], through: 0 }),
 			push: async () => Ok({ kind: 'refused' as const, path: '', reason: 'batch 1 arrived after 3', overlaps: [] }),
 			close() {},
 		}),

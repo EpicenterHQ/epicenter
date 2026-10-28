@@ -113,10 +113,14 @@ export type Broadcast = {
 
 /**
  * The answer to a device saying hello from `seq`: either what changed since
- * then, or, when the server no longer holds that history, every file.
+ * then, or, when the server no longer holds that history, every file; and
+ * `through`, the number of the device's last batch the server applied (0
+ * for none), so the device knows which of its unanswered batches the files
+ * already hold, after a reply was lost.
  */
 export type Welcome = {
 	kind: 'changes' | 'snapshot';
 	seq: number;
 	files: FileState[];
+	through: number;
 };

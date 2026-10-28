@@ -217,7 +217,7 @@ test("a person's batch of an edit then a rename that the server cannot apply put
 	const transport: Transport = {
 		connect: () => ({
 			connected: () => true,
-			hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, files: [{ path: 'notes/trip.md', text: TRIP, hash: gitBlobHash(TRIP) }] }),
+			hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, through: 0, files: [{ path: 'notes/trip.md', text: TRIP, hash: gitBlobHash(TRIP) }] }),
 			push: async () => Ok({ kind: 'refused' as const, path: '', reason: 'a fault', overlaps: [] }),
 			close() {},
 		}),

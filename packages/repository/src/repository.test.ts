@@ -242,7 +242,7 @@ function answeringDevice(answer: (batch: Batch) => BatchOutcome) {
 	const transport: Transport = {
 		connect: () => ({
 			connected: () => true,
-			hello: async () => Ok({ kind: 'changes' as const, seq: 0, files: [] }),
+			hello: async () => Ok({ kind: 'changes' as const, seq: 0, files: [], through: 0 }),
 			push: async (batch) => Ok(answer(batch)),
 			close() {},
 		}),
