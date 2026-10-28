@@ -3,13 +3,14 @@
  * detail show, and every action.
  *
  * Reads are live queries, so they follow every change on this device and
- * elsewhere. Every write applies on this device at once and shows at once;
- * it settles when the server answers, or never without a server, so no
- * action waits for it. A write that does not land is reported in a toast
- * (`report`), and the controls show the stored note again.
+ * elsewhere. Every write applies on this device at once, shows at once, and
+ * resolves once saved, so no action waits for the server. A write that
+ * cannot be saved is reported in a toast (`report`), and the controls show
+ * the stored note again; what the server later does with a saved write that
+ * the person should know is a notice (`notices`).
  */
 import { ancestors } from '@epicenter/folder/file-browser';
-import type { Pending, Settled } from '@epicenter/repository';
+import type { Saved } from '@epicenter/repository';
 import { live } from '@epicenter/repository/svelte';
 import { toast } from '@epicenter/ui/sonner';
 import { SvelteSet } from 'svelte/reactivity';
@@ -66,17 +67,13 @@ export const repairsOf = (files: readonly NoteFile[]) => problemsOf(files);
 export const unreadableOf = (folders: readonly FolderFile[]) => problemsOf(folders);
 
 /**
- * Tell the person when a write did not land. A write is shown at once; this
- * settles when the server answers, or never without a server.
+ * Tell the person when a write could not be saved on this device. A write is
+ * shown at once and resolves once saved; what the server later does with it
+ * is a notice, which the header shows.
  */
-export async function report(pending: Pending<Settled | Settled[]>, failure: string) {
-	const { data, error } = await pending;
-	if (error !== null) {
-		if (error.name !== 'Closed') toast.error(failure, { description: error.message });
-		return;
-	}
-	const refused = [data].flat().find((settled) => settled.kind === 'refused');
-	if (refused?.kind === 'refused') toast.error(failure, { description: refused.reason });
+export async function report(saved: Saved, failure: string) {
+	const { error } = await saved;
+	if (error !== null && error.name !== 'Closed') toast.error(failure, { description: error.message });
 }
 
 export function createNotes(repo: HoneycrispRepository) {

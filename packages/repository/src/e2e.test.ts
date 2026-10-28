@@ -21,6 +21,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Type } from 'typebox';
+import type { Result } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openBunGitStore } from './bun/git.js';
 import { openBunSqlite } from './bun/sqlite.js';
@@ -112,6 +113,15 @@ async function setup(options: Partial<ServerOptions> = {}) {
 	};
 }
 
+/** Save a write and wait until the server has answered it. */
+async function landed(device: { repo: { flush(): Promise<void> } }, saved: Promise<Result<undefined, unknown>>) {
+	expectOk(await saved);
+	await device.repo.flush();
+}
+
+const notices = (repo: { notices: { list(): Promise<{ kind: string; path: string; reason: string; kept: string | null }[]> } }) =>
+	repo.notices.list().then((list) => list.map(({ kind, path, reason, kept }) => ({ kind, path, reason, kept })));
+
 const text = async (repo: { notes: { get(p: { stem: string }): Promise<{ text: string } | null> } }, stem: string) =>
 	(await repo.notes.get({ stem }))?.text ?? null;
 
@@ -120,8 +130,8 @@ test('an edit appears on the other device, and its live query re-runs', async ()
 	const seen: unknown[] = [];
 	t.bob.repo.live('SELECT stem, title FROM notes').subscribe((rows) => seen.push(rows));
 	await t.bob.repo.flush();
-	const settled = expectOk(await t.alice.repo.notes.create({ stem: 'trip' }, { fields: { title: 'Trip' }, body: 'Pack.\n' }));
-	expect(settled).toMatchObject({ kind: 'applied', seq: 1 });
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'trip' }, { fields: { title: 'Trip' }, body: 'Pack.\n' }));
+	expect(t.server.sequence()).toBe(1);
 	await t.bob.repo.flush();
 	expect(await t.bob.repo.notes.get({ stem: 'trip' })).toMatchObject({ valid: true, fields: { title: 'Trip' }, body: 'Pack.\n', params: { stem: 'trip' } });
 	expect(seen).toEqual([[], [{ stem: 'trip', title: 'Trip' }]]);
@@ -130,7 +140,7 @@ test('an edit appears on the other device, and its live query re-runs', async ()
 
 test('an offline edit on each device merges on reconnect', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'list' }, { body: 'a\nb\nc\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'list' }, { body: 'a\nb\nc\n' }));
 	t.alice.transport.setOnline(false);
 	t.bob.transport.setOnline(false);
 	void t.alice.repo.notes.write({ stem: 'list' }, { body: 'A\nb\nc\n' });
@@ -146,14 +156,14 @@ test('an offline edit on each device merges on reconnect', async () => {
 
 test('a true overlap becomes a marker block for people and a refusal for an agent', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'pet' }, { body: 'cat\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'pet' }, { body: 'cat\n' }));
 	const agent = t.device('agent-1', 'claude');
 	await agent.repo.flush();
 	const read = await agent.repo.notes.get({ stem: 'pet' });
 	expect(read?.version).toBe(gitBlobHash('cat\n'));
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.notes.write({ stem: 'pet' }, { body: 'coat\n' });
-	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: 'cart\n' }));
+	await landed(t.alice, t.alice.repo.notes.write({ stem: 'pet' }, { body: 'cart\n' }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice, agent);
 	const marked = (await text(t.alice.repo, 'pet')) ?? '';
@@ -176,7 +186,7 @@ test('a true overlap becomes a marker block for people and a refusal for an agen
 
 test('an applied send shows on its own device at once, though the server echoes nothing back', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'Fix login' }, body: 'Steps.\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'Fix login' }, body: 'Steps.\n' }));
 	const agent = t.device('agent-1', 'claude');
 	await agent.repo.flush();
 	const read = await agent.repo.notes.get({ stem: 'task' });
@@ -193,10 +203,10 @@ test('an applied send shows on its own device at once, though the server echoes 
 
 test('a send without a base starts from the text the server last acknowledged', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'A' } }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'A' } }));
 	const agent = t.device('agent-1', 'claude');
 	await agent.repo.flush();
-	expectOk(await t.alice.repo.notes.set({ stem: 'task' }, 'title', 'B'));
+	await landed(t.alice, t.alice.repo.notes.set({ stem: 'task' }, 'title', 'B'));
 	await agent.repo.flush();
 	expect(expectOk(await agent.repo.send((b) => b.notes.set({ stem: 'task' }, 'mood', 'calm')))).toMatchObject({ kind: 'applied' });
 	expect(await t.server.read('notes/task.md')).toBe('---\ntitle: B\nmood: calm\n---\n');
@@ -205,7 +215,7 @@ test('a send without a base starts from the text the server last acknowledged', 
 
 test('a send while offline fails at once and queues nothing', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { body: 'x\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'task' }, { body: 'x\n' }));
 	t.alice.transport.setOnline(false);
 	await t.alice.repo.flush();
 	expect(expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'task' }, 'y\n'))).name).toBe('Offline');
@@ -216,7 +226,7 @@ test('a send while offline fails at once and queues nothing', async () => {
 
 test('a send whose reply was lost is unknown to its caller, then resent under its number and lands once', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'x\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'log' }, { body: 'x\n' }));
 	t.alice.transport.dropNextReply();
 	const lost = expectErr(await t.alice.repo.send((b) => b.notes.append({ stem: 'log' }, 'y\n')));
 	expect(lost).toMatchObject({ name: 'Unknown', n: 2 });
@@ -244,7 +254,7 @@ test('a send waits for earlier writes to its paths, so it starts from what they 
 
 test('a write to a path with a send in flight waits for the verdict and starts from its result', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'A' } }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'task' }, { fields: { title: 'A' } }));
 	const agent = t.gated('agent-1', 'claude');
 	await agent.repo.flush();
 	agent.hold();
@@ -259,9 +269,11 @@ test('a write to a path with a send in flight waits for the verdict and starts f
 	expect(await text(agent.repo, 'task')).toBe('---\ntitle: A\n---\n');
 	agent.release();
 	expect(expectOk(await sent)).toMatchObject({ kind: 'applied' });
-	expect(expectOk(await write)).toMatchObject({ kind: 'applied', change: { overlaps: [] } });
+	expectOk(await write);
+	await agent.repo.flush();
 	const [, after] = agent.pushed.map((batch) => batch.changes[0]);
 	expect(after).toMatchObject({ kind: 'write', base: { hash: gitBlobHash('---\ntitle: B\n---\n') } });
+	// Started from the send's result, the write is no clash: its title is kept, not the current one.
 	expect(await t.server.read('notes/task.md')).toBe('---\ntitle: C\n---\n');
 	await t.cleanup();
 });
@@ -283,10 +295,10 @@ test('two creates at one path merge fields and keep both bodies', async () => {
 
 test('an overlap touching an existing conflict block keeps both sides as separate blocks', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'pet' }, { body: 'intro\ncat\nend\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'pet' }, { body: 'intro\ncat\nend\n' }));
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.notes.write({ stem: 'pet' }, { body: 'intro\ncoat\nend\n' });
-	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: 'intro\ncart\nend\n' }));
+	await landed(t.alice, t.alice.repo.notes.write({ stem: 'pet' }, { body: 'intro\ncart\nend\n' }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
 	const blocked = (await text(t.alice.repo, 'pet')) ?? '';
@@ -297,7 +309,7 @@ test('an overlap touching an existing conflict block keeps both sides as separat
 	// intro and resolves the block.
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.notes.write({ stem: 'pet' }, { body: 'intro by bob\ncoat\nend\n' });
-	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: blocked.replace('intro', 'intro by alice').replace('cart', 'CART') }));
+	await landed(t.alice, t.alice.repo.notes.write({ stem: 'pet' }, { body: blocked.replace('intro', 'intro by alice').replace('cart', 'CART') }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
 	const final = (await text(t.alice.repo, 'pet')) ?? '';
@@ -309,11 +321,11 @@ test('an overlap touching an existing conflict block keeps both sides as separat
 
 test('a setting deleted on one device and changed on another keeps the change', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.settings.set('theme', 'light'));
+	await landed(t.alice, t.alice.repo.settings.set('theme', 'light'));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.settings.set('theme', 'dark');
-	expectOk(await t.alice.repo.settings.set('theme', undefined));
+	await landed(t.alice, t.alice.repo.settings.set('theme', undefined));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
 	for (const repo of [t.alice.repo, t.bob.repo]) expect((await repo.settings.get())?.fields).toEqual({ theme: 'dark' });
@@ -322,10 +334,10 @@ test('a setting deleted on one device and changed on another keeps the change', 
 
 test('an edit made before a move follows it', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.notes.write({ stem: 'draft' }, { body: 'one\ntwo\n' });
-	expectOk(await t.alice.repo.notes.move({ stem: 'draft' }, { stem: 'final' }));
+	await landed(t.alice, t.alice.repo.notes.move({ stem: 'draft' }, { stem: 'final' }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
@@ -335,21 +347,22 @@ test('an edit made before a move follows it', async () => {
 	await t.cleanup();
 });
 
-test('a move onto a taken path is refused, and the note stays where it was on the device', async () => {
+test('a move onto a taken path is refused, the note stays where it was on the device, and the person is told', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'final' }, { body: 'one\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'final' }, { body: 'one\n' }));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
-	expectOk(await t.alice.repo.notes.create({ stem: 'taken' }, { body: 'mine\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'taken' }, { body: 'mine\n' }));
 	const move = t.bob.repo.notes.move({ stem: 'final' }, { stem: 'taken' });
 	// An edit Bob makes to the moved note before the refusal arrives stays with it.
 	const edit = t.bob.repo.notes.append({ stem: 'taken' }, 'two\n');
 	expect(await text(t.bob.repo, 'taken')).toBe('one\ntwo\n');
 	expect(await text(t.bob.repo, 'final')).toBeNull();
+	expectOk(await move);
+	expectOk(await edit);
 	t.bob.transport.setOnline(true);
-	expect(expectOk(await move)).toEqual({ kind: 'refused', path: 'notes/taken.md', reason: 'the destination is taken' });
-	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { path: 'notes/final.md', at: 'notes/final.md' } });
 	await t.settle(t.alice, t.bob);
+	expect(await notices(t.bob.repo)).toEqual([{ kind: 'refused', path: 'notes/final.md', reason: 'the destination is taken', kept: null }]);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
 		expect(await text(repo, 'final')).toBe('one\ntwo\n');
 		expect(await text(repo, 'taken')).toBe('mine\n');
@@ -360,16 +373,13 @@ test('a move onto a taken path is refused, and the note stays where it was on th
 
 test('for people, a delete versus an edit keeps the edit', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'keep' }, { body: 'v1\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'keep' }, { body: 'v1\n' }));
 	t.alice.transport.setOnline(false);
 	const deleted = t.alice.repo.notes.delete({ stem: 'keep' });
 	expect(await text(t.alice.repo, 'keep')).toBeNull();
-	expectOk(await t.bob.repo.notes.write({ stem: 'keep' }, { body: 'v2\n' }));
+	await landed(t.bob, t.bob.repo.notes.write({ stem: 'keep' }, { body: 'v2\n' }));
 	t.alice.transport.setOnline(true);
-	expect(expectOk(await deleted)).toMatchObject({
-		kind: 'applied',
-		change: { overlaps: [{ unit: 'file', clash: 'deleted', settled: 'edit-kept' }] },
-	});
+	await landed(t.alice, deleted);
 	expect(await text(t.alice.repo, 'keep')).toBe('v2\n');
 	expect(await text(t.bob.repo, 'keep')).toBe('v2\n');
 	await t.cleanup();
@@ -378,13 +388,13 @@ test('for people, a delete versus an edit keeps the edit', async () => {
 test('a note brought back by an unseen edit takes later unseen edits too (bug A)', async () => {
 	const t = await setup();
 	const carol = t.device('carol-tablet', 'carol');
-	expectOk(await t.alice.repo.notes.create({ stem: 'n' }, { body: 'v1\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'n' }, { body: 'v1\n' }));
 	await t.settle(t.alice, t.bob, carol);
 	t.bob.transport.setOnline(false);
 	carol.transport.setOnline(false);
 	void t.bob.repo.notes.write({ stem: 'n' }, { body: 'v1 bob\n' });
 	void carol.repo.notes.write({ stem: 'n' }, { body: 'carol v1\n' });
-	expectOk(await t.alice.repo.notes.delete({ stem: 'n' }));
+	await landed(t.alice, t.alice.repo.notes.delete({ stem: 'n' }));
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice);
 	carol.transport.setOnline(true);
@@ -398,17 +408,25 @@ test('a note brought back by an unseen edit takes later unseen edits too (bug A)
 
 test('an offline append to a note deleted and re-created across commits becomes a sibling (bug B)', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'old log\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'log' }, { body: 'old log\n' }));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	const appended = t.bob.repo.notes.append({ stem: 'log' }, 'bob\n');
-	expectOk(await t.alice.repo.notes.delete({ stem: 'log' }));
+	await landed(t.alice, t.alice.repo.notes.delete({ stem: 'log' }));
 	expectOk(await t.server.commit());
-	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'new log\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'log' }, { body: 'new log\n' }));
 	t.advance(120_000);
 	expectOk(await t.server.tick());
 	t.bob.transport.setOnline(true);
-	expect(expectOk(await appended)).toMatchObject({ kind: 'applied', change: { at: 'notes/log (bob, 2026-10-28).md' } });
+	await landed(t.bob, appended);
+	expect(await notices(t.bob.repo)).toEqual([
+		{
+			kind: 'relocated',
+			path: 'notes/log (bob, 2026-10-28).md',
+			reason: 'the file was deleted and its path reused, so this change to notes/log.md was saved here',
+			kept: null,
+		},
+	]);
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
 		expect(await text(repo, 'log')).toBe('new log\n');
@@ -419,7 +437,7 @@ test('an offline append to a note deleted and re-created across commits becomes 
 
 test('settings set on two devices merges by key', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.settings.set('theme', 'light'));
+	await landed(t.alice, t.alice.repo.settings.set('theme', 'light'));
 	t.alice.transport.setOnline(false);
 	t.bob.transport.setOnline(false);
 	void t.alice.repo.settings.set('theme', 'dark');
@@ -435,7 +453,7 @@ test('settings set on two devices merges by key', async () => {
 
 test('appends from two devices keep both, in server order', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'log\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'log' }, { body: 'log\n' }));
 	t.alice.transport.setOnline(false);
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.notes.append({ stem: 'log' }, 'bob\n');
@@ -451,13 +469,13 @@ test('appends from two devices keep both, in server order', async () => {
 
 test('a batch whose reply was lost is retried and returns its recorded outcome', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'once' }, { body: 'x\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'once' }, { body: 'x\n' }));
 	t.alice.transport.dropNextReply();
 	const appended = t.alice.repo.notes.append({ stem: 'once' }, 'y\n');
 	await t.alice.repo.flush();
 	expect(t.server.sequence()).toBe(2);
 	t.alice.transport.setOnline(true);
-	expect(expectOk(await appended)).toMatchObject({ kind: 'applied', seq: 2 });
+	await landed(t.alice, appended);
 	expect(await t.server.read('notes/once.md')).toBe('x\ny\n');
 	expect(await text(t.alice.repo, 'once')).toBe('x\ny\n');
 	expect(t.server.sequence()).toBe(2);
@@ -466,14 +484,15 @@ test('a batch whose reply was lost is retried and returns its recorded outcome',
 
 test('a retry whose reply was lost and whose receipt left with its commit settles as applied', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'once' }, { body: 'x\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'once' }, { body: 'x\n' }));
 	t.alice.transport.dropNextReply();
 	const appended = t.alice.repo.notes.append({ stem: 'once' }, 'y\n');
 	await t.alice.repo.flush();
 	t.advance(8 * 24 * 3600e3);
 	expectOk(await t.server.tick());
 	t.alice.transport.setOnline(true);
-	expect(expectOk(await appended)).toEqual({ kind: 'applied', seq: null, change: null });
+	await landed(t.alice, appended);
+	expect(await notices(t.alice.repo)).toEqual([]);
 	expect(await text(t.alice.repo, 'once')).toBe('x\ny\n');
 	expect(await t.server.read('notes/once.md')).toBe('x\ny\n');
 	expect(await t.alice.repo.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
@@ -482,16 +501,18 @@ test('a retry whose reply was lost and whose receipt left with its commit settle
 
 test('a move in a batch is sent as a batch of its own', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'a' }, { body: 'A\n' }));
-	const settled = expectOk(
-		await t.alice.repo.batch((b) => {
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'a' }, { body: 'A\n' }));
+	await landed(
+		t.alice,
+		t.alice.repo.batch((b) => {
 			b.notes.create({ stem: 'b' }, { body: 'B\n' });
 			b.notes.create({ stem: 'c' }, { body: 'C\n' });
 			b.notes.move({ stem: 'a' }, { stem: 'moved' });
 			b.notes.append({ stem: 'b' }, 'more\n');
 		}),
 	);
-	expect(settled.map((s) => (s.kind === 'applied' ? s.seq : null))).toEqual([2, 2, 3, 4]);
+	// The two creates, the move, then the append: three batches after the first.
+	expect(t.server.sequence()).toBe(4);
 	expect(await text(t.bob.repo, 'moved')).toBe('A\n');
 	expect(await text(t.bob.repo, 'b')).toBe('B\nmore\n');
 	await t.cleanup();
@@ -499,16 +520,17 @@ test('a move in a batch is sent as a batch of its own', async () => {
 
 test('a base the server no longer has round-trips through need-base', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'n' }, { body: 'one\ntwo\nthree\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'n' }, { body: 'one\ntwo\nthree\n' }));
 	expectOk(await t.server.commit());
-	expectOk(await t.alice.repo.notes.write({ stem: 'n' }, { body: 'one\ntwo\nthree\nfour\n' }));
+	await landed(t.alice, t.alice.repo.notes.write({ stem: 'n' }, { body: 'one\ntwo\nthree\nfour\n' }));
 	t.bob.transport.setOnline(false);
-	expectOk(await t.alice.repo.notes.write({ stem: 'n' }, { body: 'ONE\ntwo\nthree\nfour\n' }));
+	await landed(t.alice, t.alice.repo.notes.write({ stem: 'n' }, { body: 'ONE\ntwo\nthree\nfour\n' }));
 	// Bob's base (with "four") was replaced in the overlay before this commit, so it is in neither.
 	expectOk(await t.server.commit());
 	const edit = t.bob.repo.notes.write({ stem: 'n' }, { body: 'one\ntwo\nTHREE\nfour\n' });
 	t.bob.transport.setOnline(true);
-	expect(expectOk(await edit).kind).toBe('applied');
+	await landed(t.bob, edit);
+	expect(await notices(t.bob.repo)).toEqual([]);
 	await t.settle(t.alice, t.bob);
 	expect(await text(t.alice.repo, 'n')).toBe('ONE\ntwo\nTHREE\nfour\n');
 	expect(await text(t.bob.repo, 'n')).toBe('ONE\ntwo\nTHREE\nfour\n');
@@ -517,20 +539,22 @@ test('a base the server no longer has round-trips through need-base', async () =
 
 test('a device offline across many commits follows a move made ten commits ago', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	const edit = t.bob.repo.notes.append({ stem: 'draft' }, 'two\n');
-	expectOk(await t.alice.repo.notes.move({ stem: 'draft' }, { stem: 'final' }));
+	await landed(t.alice, t.alice.repo.notes.move({ stem: 'draft' }, { stem: 'final' }));
 	expectOk(await t.server.commit());
 	for (let k = 0; k < 10; k++) {
-		expectOk(await t.alice.repo.notes.create({ stem: `other ${k}` }, { body: `${k}\n` }));
+		await landed(t.alice, t.alice.repo.notes.create({ stem: `other ${k}` }, { body: `${k}\n` }));
 		t.advance(30 * 24 * 3600e3);
 		expectOk(await t.server.tick());
 	}
 	expect(t.server.overlaySize()).toBe(0);
 	t.bob.transport.setOnline(true);
-	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { at: 'notes/final.md', movedTo: 'notes/final.md' } });
+	await landed(t.bob, edit);
+	// Following a move is no surprise to tell anyone about.
+	expect(await notices(t.bob.repo)).toEqual([]);
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
 		expect(await text(repo, 'final')).toBe('one\ntwo\n');
@@ -542,16 +566,17 @@ test('a device offline across many commits follows a move made ten commits ago',
 
 test('an edit to a note deleted and replaced meanwhile becomes a sibling, and the new note stays', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'plan' }, { body: 'old plan\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'plan' }, { body: 'old plan\n' }));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	void t.bob.repo.notes.write({ stem: 'plan' }, { body: 'old plan\nbob one\n' });
 	const second = t.bob.repo.notes.append({ stem: 'plan' }, 'bob two\n');
-	expectOk(await t.alice.repo.notes.delete({ stem: 'plan' }));
-	expectOk(await t.alice.repo.notes.create({ stem: 'plan' }, { body: 'a different plan\n' }));
+	await landed(t.alice, t.alice.repo.notes.delete({ stem: 'plan' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'plan' }, { body: 'a different plan\n' }));
 	t.bob.transport.setOnline(true);
-	// Both of Bob's batches still name the old path, and both land in one sibling.
-	expect(expectOk(await second)).toMatchObject({ kind: 'applied', change: { at: 'notes/plan (bob, 2026-10-28).md' } });
+	// Both of Bob's batches still name the old path, and both land in one sibling; Bob is told once.
+	await landed(t.bob, second);
+	expect(await notices(t.bob.repo)).toMatchObject([{ kind: 'relocated', path: 'notes/plan (bob, 2026-10-28).md' }]);
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
 		expect(await text(repo, 'plan')).toBe('a different plan\n');
@@ -564,14 +589,16 @@ test('an edit to a note deleted and replaced meanwhile becomes a sibling, and th
 test('a note and its blob land in one batch', async () => {
 	const t = await setup();
 	const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
-	const settled = expectOk(
-		await t.alice.repo.batch((b) => {
+	await landed(
+		t.alice,
+		t.alice.repo.batch((b) => {
 			b.notes.create({ stem: 'beach' }, { body: '![](beach/photo.png)\n' });
 			b.photos.put({ stem: 'beach', file: 'photo.png' }, bytes, { type: 'image/png' });
 		}),
 	);
-	expect(settled.map((s) => s.kind)).toEqual(['applied', 'applied']);
-	expect(new Set(settled.map((s) => (s.kind === 'applied' ? s.seq : 0)))).toEqual(new Set([1]));
+	// One batch, so one server sequence holds both.
+	expect(t.server.sequence()).toBe(1);
+	await t.bob.repo.flush();
 	expect(await text(t.bob.repo, 'beach')).toBe('![](beach/photo.png)\n');
 	expect(await t.bob.repo.photos.list()).toMatchObject([{ path: 'notes/beach/photo.png', size: 7 }]);
 	expect(await t.bob.repo.photos.get({ stem: 'beach', file: 'photo.png' })).toEqual(bytes);
@@ -582,8 +609,8 @@ test('a note and its blob land in one batch', async () => {
 
 test('the overlay clears after a commit, and the commit carries the sequence', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'a' }, { body: 'A\n' }));
-	expectOk(await t.bob.repo.notes.create({ stem: 'b' }, { body: 'B\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'a' }, { body: 'A\n' }));
+	await landed(t.bob, t.bob.repo.notes.create({ stem: 'b' }, { body: 'B\n' }));
 	expect(t.server.overlaySize()).toBe(2);
 	expectOk(await t.server.commit());
 	expect(t.server.overlaySize()).toBe(0);
@@ -599,7 +626,7 @@ test('the overlay clears after a commit, and the commit carries the sequence', a
 
 test('an agent push that overlaps is refused, and a clean one lands with its commit as a parent', async () => {
 	const t = await setup();
-	expectOk(await t.alice.repo.notes.create({ stem: 'plan' }, { body: 'one\ntwo\nthree\n' }));
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'plan' }, { body: 'one\ntwo\nthree\n' }));
 	expectOk(await t.server.commit());
 	const base = (await t.git.readRef(MAIN)) ?? '';
 	const commitWith = async (body: string) => {
@@ -614,13 +641,13 @@ test('an agent push that overlaps is refused, and a clean one lands with its com
 			at: new Date(),
 		});
 	};
-	expectOk(await t.alice.repo.notes.write({ stem: 'plan' }, { body: 'one\nTWO\nthree\n' }));
+	await landed(t.alice, t.alice.repo.notes.write({ stem: 'plan' }, { body: 'one\nTWO\nthree\n' }));
 	const overlapping = await commitWith('one\n2\nthree\n');
 	expect(expectOk(await t.server.receivePush({ commit: overlapping, user: 'claude' }))).toMatchObject({ kind: 'refused', path: 'notes/plan.md' });
 
 	const clean = await commitWith('one\ntwo\nthree\nfour\n');
-	const landed = expectOk(await t.server.receivePush({ commit: clean, user: 'claude' }));
-	expect(landed.kind).toBe('applied');
+	const pushed = expectOk(await t.server.receivePush({ commit: clean, user: 'claude' }));
+	expect(pushed.kind).toBe('applied');
 	expect((await t.git.readCommit((await t.git.readRef(MAIN)) ?? ''))?.parents).toContain(clean);
 	expect(await text(t.bob.repo, 'plan')).toBe('one\nTWO\nthree\nfour\n');
 	await t.cleanup();

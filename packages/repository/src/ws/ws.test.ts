@@ -48,7 +48,7 @@ test('devices sync over WebSocket, and edits made while the server is down merge
 	const text = async (repo: typeof alice, stem: string) => (await repo.notes.get({ stem }))?.text ?? null;
 	try {
 		// Written before the socket opens: it waits in the outbox and goes once connected.
-		expect(expectOk(await alice.notes.write({ stem: 'list' }, { body: 'a\nb\nc\n' })).kind).toBe('applied');
+		expectOk(await alice.notes.write({ stem: 'list' }, { body: 'a\nb\nc\n' }));
 		await until(async () => (await text(bob, 'list')) === 'a\nb\nc\n', 'bob to see the list');
 
 		await served.stop();
@@ -56,7 +56,8 @@ test('devices sync over WebSocket, and edits made while the server is down merge
 		expect(await text(alice, 'list')).toBe('A\nb\nc\n');
 
 		served = await serveRepository({ dir: repoDir, port: Number(port) });
-		for (const settled of await Promise.all(offline)) expect(expectOk(settled).kind).toBe('applied');
+		// Each was saved on its device at once, offline.
+		for (const saved of await Promise.all(offline)) expectOk(saved);
 		await until(async () => (await text(alice, 'list')) === 'A\nb\nC\n' && (await text(bob, 'list')) === 'A\nb\nC\n', 'both to merge');
 
 		expectOk(await served.repository.commit());

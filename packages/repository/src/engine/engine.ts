@@ -6,7 +6,9 @@
  * reports other devices' changes.
  *
  * Batches share one numbered lane to the server. A person's write is applied
- * here first and sent with the `'mark'` policy; a `send` is sent with
+ * and saved here first, resolves then, and is sent with the `'mark'` policy;
+ * what the server later does with it that the person should know becomes a
+ * row in `"epicenter/notices"`, which never syncs. A `send` is sent with
  * `'refuse'`, changes nothing here until its verdict, and folds an applied
  * verdict into the files, since the server never echoes a batch to its
  * sender.
@@ -19,11 +21,12 @@
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { App, Definitions, Lens, Settled, Verdict } from '../define.js';
+import type { App, Definitions, Lens, Notice, Verdict } from '../define.js';
 import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, sha256 } from '../hash.js';
-import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../markdown.js';
+import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, storageRefusal, writeMarkdown, writePointer } from '../markdown.js';
 import { merge } from '../merge.js';
+import { describe } from '../policy.js';
 import type { Policy } from '../policy.js';
 import type { Batch, BatchOutcome, Broadcast, Change, ChangeOutcome, FileState, Move } from '../protocol.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
@@ -49,10 +52,21 @@ CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	policy TEXT NOT NULL,
 	changes TEXT NOT NULL
 ) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/notices" (
+	id INTEGER PRIMARY KEY,
+	at INTEGER NOT NULL,
+	kind TEXT NOT NULL,
+	path TEXT NOT NULL,
+	reason TEXT NOT NULL,
+	kept TEXT
+) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
 
 const PARSER_VERSION = '1';
+
+/** How many notices a device keeps; the oldest go first. */
+const KEEP_NOTICES = 100;
 
 /** Why a change the server still lacks a base for, after it was resent with its bases, did not land. */
 const NO_BASE = 'the server has no base for this change';
@@ -62,9 +76,9 @@ const EngineDiagnostic = defineErrors({
 		message: 'A sync step failed; it will run again on the next change or reconnect',
 		cause,
 	}),
-	/** A batch the server did not apply; its local changes were reverted. */
+	/** A person's batch the server could not apply, which is a bug; its changes became notices. */
 	BatchNotApplied: ({ n, outcome }: { n: number; outcome: BatchOutcome }) => ({
-		message: `Batch ${n} was not applied (${outcome.kind}); its local changes were reverted`,
+		message: `Batch ${n} was not applied (${outcome.kind}); its changes were reverted and kept in notices`,
 		n,
 		outcome,
 	}),
@@ -124,14 +138,6 @@ export type EngineAnswers = {
 	flush: undefined;
 };
 
-/**
- * A submitted command: `local` settles once its writes are applied on this
- * device (or refused there), `settled` once the server answers each batch.
- */
-export type Submitted = {
-	local: Promise<Result<undefined, WriteError>>;
-	settled: Promise<Result<Settled[], WriteError>>;
-};
 
 export type EngineOptions<TDefs extends Definitions> = {
 	app: App<TDefs>;
@@ -267,9 +273,10 @@ export function openEngine<const TDefs extends Definitions>({
 
 	const listeners = new Set<(paths: string[]) => void>();
 	function notify() {
-		if (changed.size === 0) return;
+		if (changed.size === 0 && !noticed) return;
 		const paths = [...changed];
 		changed.clear();
+		noticed = false;
 		for (const listener of listeners) listener(paths);
 	}
 
@@ -347,8 +354,28 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 	const localText = (path: string) => row(path)?.text ?? null;
 
-	/** What one op does on this device, read against what the device shows now. */
+	/**
+	 * The checks a push is refused for, run before a write resolves, so a
+	 * person learns at once instead of in a notice later.
+	 */
+	function storable(path: string, text: string | null): Result<undefined, WriteError> {
+		const refusal = text === null ? null : storageRefusal(path, text);
+		if (refusal === null) return Ok(undefined);
+		if (refusal.kind === 'parse') return WriteError.Unparseable({ path, reason: refusal.reason });
+		return WriteError.NotStorable({ path, reason: refusal.reason });
+	}
+
+	/** What one op does on this device, read against what the device shows now, if it can be stored. */
 	function resolve(op: Ready): Result<Local, WriteError> {
+		const local = resolveOp(op);
+		if (local.error !== null || local.data.kind === 'move') return local;
+		const { path } = local.data;
+		const text = local.data.kind === 'append' ? (localText(path) ?? '') + local.data.text : local.data.text;
+		const checked = storable(path, text);
+		return checked.error !== null ? checked : local;
+	}
+
+	function resolveOp(op: Ready): Result<Local, WriteError> {
 		const lens = lensOf(op.name);
 		if (op.kind === 'move') {
 			const from = pathOf(lens, op.from);
@@ -414,22 +441,6 @@ export function openEngine<const TDefs extends Definitions>({
 		return Ok({ kind: 'pointer', name: op.name, params: op.params, text: writePointer({ oid, size: op.bytes.length }), base: op.base });
 	}
 
-	const waiters = new Map<number, ((result: Result<Settled[], WriteError>) => void)[]>();
-	const wait = (n: number) =>
-		new Promise<Result<Settled[], WriteError>>((resolve) => waiters.set(n, [...(waiters.get(n) ?? []), resolve]));
-
-	/** One answer for a command from the batches it queued. */
-	function settledOf(numbers: number[]): Promise<Result<Settled[], WriteError>> {
-		return Promise.all(numbers.map(wait)).then((results) => {
-			const settled: Settled[] = [];
-			for (const result of results) {
-				if (result.error !== null) return result;
-				settled.push(...result.data);
-			}
-			return Ok(settled);
-		});
-	}
-
 	/** The highest batch number ever handed to the transport: a batch at or below it may have reached the server. */
 	const sentThrough = () => Number(meta('sent') ?? '0');
 
@@ -485,10 +496,9 @@ export function openEngine<const TDefs extends Definitions>({
 	 * taken, and that refusal should undo only the move, not the changes
 	 * around it.
 	 */
-	function apply(ops: Ready[]): Submitted {
-		if (closed) return { local: Promise.resolve(WriteError.Closed()), settled: Promise.resolve(WriteError.Closed()) };
+	function apply(ops: Ready[]): Result<undefined, WriteError> {
+		if (closed) return WriteError.Closed();
 		let failure: WriteError | null = null;
-		let numbers: number[] = [];
 		try {
 			driver.transaction(() => {
 				const batches: Entry[][] = [];
@@ -503,17 +513,16 @@ export function openEngine<const TDefs extends Definitions>({
 					if (last === undefined || entry.change.kind === 'move' || last[0]?.change.kind === 'move') batches.push([entry]);
 					else last.push(entry);
 				}
-				numbers = queue(batches);
+				queue(batches);
 			});
 		} catch (cause) {
 			if (cause !== ROLLBACK) throw cause;
 			changed.clear();
 		}
-		if (failure !== null) return { local: Promise.resolve(Err(failure)), settled: Promise.resolve(Err(failure)) };
+		if (failure !== null) return Err(failure);
 		notify();
-		const settled = settledOf(numbers);
 		kick();
-		return { local: Promise.resolve(Ok(undefined)), settled };
+		return Ok(undefined);
 	}
 
 	/** Store each blob's bytes and turn its put into a pointer write. */
@@ -552,22 +561,18 @@ export function openEngine<const TDefs extends Definitions>({
 	const blockersOf = (paths: string[]) => paths.flatMap((path) => inFlight.get(path) ?? []);
 
 	/**
-	 * Apply a person's writes here and queue them. Blob bytes are stored
+	 * Apply a person's writes here, save them and queue them; resolves once
+	 * they are saved, never waiting for the server. Blob bytes are stored
 	 * first, and writes to a path a `send` is waiting on wait for its verdict.
 	 */
-	function submit(ops: WriteOp[]): Submitted {
+	function submit(ops: WriteOp[]): Promise<Result<undefined, WriteError>> {
 		const blockers = blockersOf(opPaths(ops));
-		if (blockers.length === 0 && !ops.some((op) => op.kind === 'put')) return apply(ops as Ready[]);
-		const submitted = (async (): Promise<Submitted> => {
+		if (blockers.length === 0 && !ops.some((op) => op.kind === 'put')) return Promise.resolve(apply(ops as Ready[]));
+		return (async () => {
 			await Promise.all(blockers);
 			const ready = await uploadAll(ops);
-			if (ready.error !== null) return { local: Promise.resolve(ready), settled: Promise.resolve(ready) };
-			return apply(ready.data);
+			return ready.error !== null ? ready : apply(ready.data);
 		})();
-		return {
-			local: submitted.then((s) => s.local),
-			settled: submitted.then((s) => s.settled),
-		};
 	}
 
 	// ------------------------------------------------------------------------
@@ -613,8 +618,10 @@ export function openEngine<const TDefs extends Definitions>({
 		const base = based(path.data);
 		if (base.error !== null) return base;
 		const from = base.data?.text ?? null;
-		const write = (text: string | null): Result<Entry, WriteError> =>
-			Ok({ change: { kind: 'write', path: path.data, base: base.data, text }, local: text });
+		const write = (text: string | null): Result<Entry, WriteError> => {
+			const checked = storable(path.data, text);
+			return checked.error !== null ? checked : Ok({ change: { kind: 'write', path: path.data, base: base.data, text }, local: text });
+		};
 		switch (op.kind) {
 			case 'pointer':
 				return write(op.text);
@@ -623,6 +630,8 @@ export function openEngine<const TDefs extends Definitions>({
 				return write(null);
 			case 'append':
 				if (base.data === null) return WriteError.NotFound({ path: path.data });
+				const appended = storable(path.data, base.data.text + op.text);
+				if (appended.error !== null) return appended;
 				return Ok({ change: { kind: 'append', path: path.data, text: op.text, base: base.data }, local: base.data.text + op.text });
 			case 'create':
 			case 'write':
@@ -691,11 +700,12 @@ export function openEngine<const TDefs extends Definitions>({
 		return verdict;
 	}
 
-	/** Answer a `send` waiting on batch `n`, if one is. */
+	/** Answer a `send` waiting on batch `n`, if one is, and say whether one was. */
 	function answerSend(n: number, result: SendResult) {
 		const resolve = verdicts.get(n);
 		verdicts.delete(n);
 		resolve?.(result);
+		return resolve !== undefined;
 	}
 	/** Tell a `send` waiting on batch `n` that its verdict is not known here; the row stays. */
 	const verdictUnknown = (n: number) => answerSend(n, SendError.Unknown({ n }));
@@ -820,58 +830,114 @@ export function openEngine<const TDefs extends Definitions>({
 			fold(entries, outcome, outcome.seq);
 			advance(outcome.seq);
 		});
-		notify();
-		switch (outcome.kind) {
-			case 'applied':
-				answerSend(n, Ok({ kind: 'applied', seq: outcome.seq, changes: outcome.changes }));
-				return;
-			case 'refused':
-				answerSend(n, Ok({ kind: 'refused', path: outcome.path, reason: outcome.reason, overlaps: outcome.overlaps }));
-				return;
-			case 'need-base':
-				answerSend(n, Ok({ kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE, overlaps: [] }));
-				return;
+		const verdict: Verdict =
+			outcome.kind === 'applied'
+				? { kind: 'applied', seq: outcome.seq, changes: outcome.changes }
+				: outcome.kind === 'refused'
+					? { kind: 'refused', path: outcome.path, reason: outcome.reason, overlaps: outcome.overlaps }
+					: { kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE, overlaps: [] };
+		// A refusal nobody is waiting for any more, after a lost reply or a closed tab, is kept as a notice.
+		if (!answerSend(n, Ok(verdict)) && verdict.kind === 'refused') {
+			const sent = entries.find(({ change }) => (change.kind === 'move' ? change.from : change.path) === verdict.path);
+			notice('refused', verdict.path, verdict.reason, sent?.local ?? null);
 		}
+		notify();
 	}
 
-	/** Settle a person's batch: fold its outcome into this device's files and drop its row. */
+	/** Settle a person's batch: fold its outcome into this device's files, note what they should know, and drop its row. */
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
-		let settled: Settled[];
-		switch (outcome.kind) {
-			case 'applied':
-				settled = entries.map((_, index) => ({ kind: 'applied', seq: outcome.seq, change: outcome.changes[index] ?? null }));
-				break;
-			case 'refused':
-				settled = entries.map(() => ({ kind: 'refused', path: outcome.path, reason: outcome.reason }));
-				break;
-			case 'need-base':
-				settled = entries.map(() => ({ kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE }));
-				break;
-		}
 		driver.transaction(() => {
 			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
-			if (outcome.kind === 'applied') {
-				// With no seq the batch landed long ago, and the hello that came first
-				// already brought what it did.
-				if (outcome.seq === null) return;
-				for (const [index, entry] of entries.entries()) {
-					const change = outcome.changes[index];
-					if (change !== undefined) acknowledge(n, entry, change, outcome.seq);
-				}
-				advance(outcome.seq);
-				return;
+			switch (outcome.kind) {
+				case 'applied':
+					// With no seq the batch landed long ago, and the hello that came
+					// first already brought what it did.
+					if (outcome.seq === null) return;
+					for (const [index, entry] of entries.entries()) {
+						const change = outcome.changes[index];
+						if (change === undefined) continue;
+						acknowledge(n, entry, change, outcome.seq);
+						noteLanding(entry, change);
+					}
+					advance(outcome.seq);
+					return;
+				case 'refused':
+					if (isTakenMove(entries, outcome)) refuseMove(entries[0]?.change as Extract<Change, { kind: 'move' }>, outcome.reason);
+					else fault(n, entries, outcome.reason);
+					return;
+				case 'need-base':
+					fault(n, entries, NO_BASE);
+					return;
 			}
-			// Nothing landed. A 'refuse' caller is told and still holds what it
-			// wrote; the device shows the server's text again, and a refused move
-			// (always alone in its batch) puts its note back.
-			for (const { change } of entries)
-				if (change.kind === 'move') putBack(change);
-				else revert(change.path, n);
 		});
 		if (outcome.kind !== 'applied') log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
 		notify();
-		for (const resolve of waiters.get(n) ?? []) resolve(Ok(settled));
-		waiters.delete(n);
+	}
+
+	/** A person's change that landed somewhere other than where it was aimed, or nowhere. */
+	function noteLanding({ change }: Entry, result: ChangeOutcome) {
+		const aimed = change.kind === 'move' ? change.from : change.path;
+		for (const overlap of result.overlaps) {
+			if (overlap.unit !== 'path') continue;
+			if (overlap.settled === 'relocated' && overlap.relocatedTo !== null)
+				notice('relocated', overlap.relocatedTo, `${describe(overlap)}, so this change to ${aimed} was saved here`);
+			else if (overlap.settled === 'dropped') notice('dropped', aimed, describe(overlap));
+		}
+	}
+
+	/** A move refused because another note took its destination: always alone in its batch. */
+	const isTakenMove = (entries: Entry[], outcome: Extract<BatchOutcome, { kind: 'refused' }>) =>
+		entries.length === 1 &&
+		entries[0]?.change.kind === 'move' &&
+		outcome.overlaps.some((overlap) => overlap.unit === 'path' && overlap.clash === 'taken');
+
+	/**
+	 * A move onto a name another note took is refused for everyone, so the
+	 * note goes back where it was and the person is told. Kept apart because
+	 * a taken move may instead land at a sibling name.
+	 */
+	function refuseMove(move: Extract<Change, { kind: 'move' }>, reason: string) {
+		putBack(move);
+		notice('refused', move.from, reason);
+	}
+
+	/**
+	 * A person's batch the server could not apply. Nothing that only depends
+	 * on the change itself gets here, since those checks run before a write
+	 * resolves, so this is a bug. The device shows the server's text again,
+	 * and each notice keeps what it showed, so nothing typed is lost.
+	 */
+	function fault(n: number, entries: Entry[], reason: string) {
+		for (const { change } of entries) {
+			if (change.kind === 'move') {
+				putBack(change);
+				notice('protocol', change.from, reason);
+				continue;
+			}
+			const shown = keep(change.path).text;
+			revert(change.path, n);
+			const after = keep(change.path).text;
+			notice('protocol', change.path, reason, after === shown ? null : shown);
+		}
+	}
+
+	// ------------------------------------------------------------------------
+	// Notices: what a person should know about a change after it was saved
+	// ------------------------------------------------------------------------
+
+	/** Whether the notices changed since the last notification. */
+	let noticed = false;
+	function notice(kind: Notice['kind'], path: string, reason: string, kept: string | null = null) {
+		driver.run('INSERT INTO "epicenter/notices" (at, kind, path, reason, kept) VALUES (?, ?, ?, ?, ?)', [Date.now(), kind, path, reason, kept]);
+		driver.run('DELETE FROM "epicenter/notices" WHERE id NOT IN (SELECT id FROM "epicenter/notices" ORDER BY id DESC LIMIT ?)', [KEEP_NOTICES]);
+		noticed = true;
+	}
+
+	/** The person has seen a notice. */
+	function dismiss(id: number) {
+		driver.run('DELETE FROM "epicenter/notices" WHERE id = ?', [id]);
+		noticed = true;
+		notify();
 	}
 
 	// ------------------------------------------------------------------------
@@ -1015,6 +1081,8 @@ export function openEngine<const TDefs extends Definitions>({
 		submit,
 		/** Send one batch that refuses on overlap and wait for the verdict; see `send`. */
 		send,
+		/** Remove a notice the person has seen. */
+		dismiss: async (id: number) => dismiss(id),
 		/** Called with the paths whose shown text changed, after every change. */
 		onChange(listener: (paths: string[]) => void) {
 			listeners.add(listener);
@@ -1026,8 +1094,6 @@ export function openEngine<const TDefs extends Definitions>({
 			closed = true;
 			link.close();
 			listeners.clear();
-			for (const resolvers of waiters.values()) for (const resolve of resolvers) resolve(WriteError.Closed());
-			waiters.clear();
 			for (const n of [...verdicts.keys()]) verdictUnknown(n);
 		},
 	};

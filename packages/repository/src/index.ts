@@ -13,17 +13,17 @@ export {
 	type NoteHandle,
 	type NoteInput,
 	type OpenNote,
-	type Pending,
+	type Notice,
+	type Saved,
 	SendError,
 	type SendHandles,
 	type SendOptions,
-	type Settled,
 	slug,
 	timestamp,
 	type Verdict,
 	WriteError,
 } from './define.js';
-export { type Engine, type EngineAnswers, type EngineOptions, type EngineRequest, type FileRead, openEngine, type Submitted, type WriteOp } from './engine/engine.js';
+export { type Engine, type EngineAnswers, type EngineOptions, type EngineRequest, type FileRead, openEngine, type WriteOp } from './engine/engine.js';
 export { createRepository, type EnginePort, openRepository, type Repository } from './repository.js';
 export {
 	type BlobStore,

@@ -1,8 +1,10 @@
 /**
  * The app API, the same for every host: reads and live queries are
- * asynchronous, writes apply on the device before they return and resolve
- * when the server answers, `send` waits for the server's verdict and changes
- * nothing here before it, and an open note reads synchronously.
+ * asynchronous; a person's write applies on the device and resolves once it
+ * is saved there, never waiting for the server; `send` waits for the
+ * server's verdict and changes nothing here before it; what happens later to
+ * a saved write that the person should know is a notice; and an open note
+ * reads synchronously.
  *
  * `createRepository` builds it over an `EnginePort`: the engine itself in
  * the caller's thread (`openRepository`, used by Bun and tests), or the
@@ -11,7 +13,7 @@
 import { Check, Errors } from 'typebox/value';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
+import type { Result } from 'wellcrafted/result';
 import type {
 	App,
 	BatchHandles,
@@ -20,10 +22,10 @@ import type {
 	Handles,
 	Lens,
 	Live,
-	Pending,
+	Notice,
+	Saved,
 	SendError,
 	SendHandles,
-	Settled,
 	Verdict,
 } from './define.js';
 import { WriteError } from './define.js';
@@ -33,7 +35,6 @@ import {
 	type EngineRequest,
 	type FileRead,
 	openEngine,
-	type Submitted,
 	type WriteOp,
 } from './engine/engine.js';
 import { parseMarkdown, parsePointer, splitMarkdown, writeMarkdown } from './markdown.js';
@@ -43,10 +44,12 @@ import { buildPath, matchTemplate } from './templates.js';
 /** What the app API needs from wherever the engine runs. */
 export type EnginePort = {
 	read<TRequest extends EngineRequest>(request: TRequest): Promise<EngineAnswers[TRequest['kind']]>;
-	/** Apply writes on the device and send them. */
-	submit(ops: WriteOp[]): Submitted;
+	/** Apply writes on the device and send them; resolves once they are saved. */
+	submit(ops: WriteOp[]): Saved;
 	/** Send ops as one batch that refuses on overlap, and answer the verdict. */
 	send(ops: WriteOp[]): Promise<Result<Verdict, WriteError | SendError>>;
+	/** Remove a notice the person has seen. */
+	dismiss(id: number): Promise<void>;
 	/** Called with the paths whose shown text changed, after every change; null when any may have. */
 	onChange(listener: (paths: string[] | null) => void): () => void;
 	close(): void;
@@ -145,14 +148,8 @@ export function createRepository<const TDefs extends Definitions>(
 		};
 	}
 
-	const submit = (ops: WriteOp[]) => port.submit(ops);
-	const first = async (pending: Pending<Settled[]>): Pending => {
-		const result = await pending;
-		if (result.error !== null) return result;
-		const [settled] = result.data;
-		return settled === undefined ? WriteError.Closed() : Ok(settled);
-	};
-	const save = (op: WriteOp) => first(submit([op]).settled);
+	const submit = (ops: WriteOp[]): Saved => (closed ? Promise.resolve(WriteError.Closed()) : port.submit(ops));
+	const save = (op: WriteOp) => submit([op]);
 
 	/** A handle call's parameters and the rest of its arguments. */
 	const split = (lens: Lens, args: unknown[]): [Params, unknown[]] =>
@@ -251,20 +248,20 @@ export function createRepository<const TDefs extends Definitions>(
 		});
 		await refresh();
 
-		/** Show the write's text now, then the engine's once it has applied every write made here. */
-		function through(op: WriteOp, text: string | null): Pending {
+		/** Show the write's text now, then the engine's once it has saved every write made here. */
+		function through(op: WriteOp, text: string | null): Saved {
 			if (path === null) return Promise.resolve(WriteError.InvalidParams({ handle: lens.name, reason: 'the parameters build no path' }));
 			generation++;
 			applying++;
 			show(text === null ? null : fileOf(path, text));
-			const { local, settled } = submit([op]);
+			const saved = submit([op]);
 			track(
-				local.then(() => {
+				saved.then(() => {
 					applying--;
 					if (applying === 0) return refresh();
 				}),
 			);
-			return first(settled);
+			return saved;
 		}
 		/** The text a write leaves, as the engine computes it; an unparseable note is the engine's to refuse. */
 		const written = (change: Parameters<typeof writeMarkdown>[1]) => {
@@ -294,6 +291,13 @@ export function createRepository<const TDefs extends Definitions>(
 			},
 		};
 	}
+
+	const listNotices = () =>
+		port.read({
+			kind: 'query',
+			sql: 'SELECT id, at, kind, path, reason, kept FROM "epicenter/notices" ORDER BY id DESC',
+			params: [],
+		}) as Promise<Notice[]>;
 
 	const handles: Record<string, unknown> = {};
 	for (const lens of app.lenses) {
@@ -341,8 +345,8 @@ export function createRepository<const TDefs extends Definitions>(
 		 * Build one batch from write-only handles; it lands all or nothing, except
 		 * that each move is sent as a batch of its own.
 		 */
-		batch(build: (handles: BatchHandles<TDefs>) => void): Pending<Settled[]> {
-			return submit(collect(build)).settled;
+		batch(build: (handles: BatchHandles<TDefs>) => void): Saved {
+			return submit(collect(build));
 		},
 		/**
 		 * Send one batch and wait for the server's verdict, for a caller that
@@ -356,6 +360,16 @@ export function createRepository<const TDefs extends Definitions>(
 		send(build: (handles: SendHandles<TDefs>) => void): Promise<Result<Verdict, WriteError | SendError>> {
 			if (closed) return Promise.resolve(WriteError.Closed());
 			return port.send(collect(build));
+		},
+		/**
+		 * What happened to this device's saved changes that the person should
+		 * know, newest first: kept on this device, never synced, until
+		 * dismissed, and at most the newest hundred.
+		 */
+		notices: {
+			list: listNotices,
+			live: (): Live<Notice[]> => liveOf(listNotices),
+			dismiss: (id: number) => (closed ? Promise.resolve() : port.dismiss(id)),
 		},
 		/** Run a read-only statement over the app's views and the engine's tables. */
 		query: <TRow = Record<string, SqlValue>>(sql: string, params: SqlValue[] = []) =>

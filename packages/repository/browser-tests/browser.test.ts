@@ -115,6 +115,8 @@ for (const [engine, browser] of [
 					await first.evaluate(() => harness.write('log', 'ab'));
 					// The keystroke and the freeze in one task: the write is only posted to the worker.
 					await first.evaluate(() => harness.writeThenFreeze('log', 'abc'));
+					// The write was saved before the worker let the database go.
+					expect(await first.evaluate(() => harness.settled(1))).toEqual({ data: undefined, error: null });
 					await first.evaluate(() => harness.untilReleased());
 
 					// With no owner, another tab opens the repository without asking.

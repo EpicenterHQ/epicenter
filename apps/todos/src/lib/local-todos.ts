@@ -1,9 +1,9 @@
 /**
  * Todos as the list arranges them, and what a person is told when a write
- * does not land. Pure functions of what the repository lists, apart from the
- * toast; the views read and write through `getRepository()`.
+ * cannot be saved. Pure functions of what the repository lists, apart from
+ * the toast; the views read and write through `getRepository()`.
  */
-import type { Note, Pending } from '@epicenter/repository';
+import type { Note, Saved } from '@epicenter/repository';
 import { toast } from '@epicenter/ui/sonner';
 import type { todosTables } from './definition.js';
 
@@ -38,14 +38,11 @@ export function labelOf(todo: { params: { stem: string }; fields: { title: strin
 }
 
 /**
- * Tell the person when a write did not land. A write is shown at once; this
- * settles when the server answers, or never without a server.
+ * Tell the person when a write could not be saved on this device. A write is
+ * shown at once and resolves once saved; what the server later does with it
+ * is a notice, which the header shows.
  */
-export async function reportWrite(pending: Pending, failure: string) {
-	const { data, error } = await pending;
-	if (error !== null) {
-		if (error.name !== 'Closed') toast.error(failure, { description: error.message });
-		return;
-	}
-	if (data.kind === 'refused') toast.error(failure, { description: data.reason });
+export async function reportWrite(saved: Saved, failure: string) {
+	const { error } = await saved;
+	if (error !== null && error.name !== 'Closed') toast.error(failure, { description: error.message });
 }

@@ -5,7 +5,7 @@
 import { Type } from 'typebox';
 import { openBrowserRepository, type RepositoryTab, type TabState } from '../src/browser/index.js';
 import { lockName } from '../src/browser/messages.js';
-import { defineApp, type Settled } from '../src/define.js';
+import { defineApp } from '../src/define.js';
 import type { Repository } from '../src/repository.js';
 
 const app = defineApp({
@@ -99,7 +99,7 @@ const api = {
 		return plainResult(await current().send((b) => b.notes.append({ stem }, more)));
 	},
 	query: (sql: string) => current().query(sql),
-	settled: async (index: number) => (await writes[index]) as { data: Settled | null; error: { name: string } | null },
+	settled: async (index: number) => (await writes[index]) as { data: undefined; error: { name: string } | null },
 	text,
 	untilText: (stem: string, expected: string | null) => until(async () => (await text(stem)) === expected, `${stem} to read ${JSON.stringify(expected)}`),
 	unsent: async () => (await current().query<{ n: number }>('SELECT count(*) AS n FROM "epicenter/outbox"'))[0]?.n,

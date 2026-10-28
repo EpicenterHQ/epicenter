@@ -6,13 +6,12 @@
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { parseMarkdown, parsePointer } from '../markdown.js';
+import { storageRefusal } from '../markdown.js';
 import type { Change, ChangeOutcome, Overlap } from '../protocol.js';
 import { sequenceOf, type Tree } from './git-store.js';
 import type { CommitError, ServerCore } from './server.js';
 
-/** Notes larger than this, stored, are refused. */
-export const MAX_NOTE_BYTES = 1024 * 1024;
+export { MAX_NOTE_BYTES } from '../markdown.js';
 
 export const PushError = defineErrors({
 	/** The pushed commit is not in the Git store. */
@@ -141,12 +140,7 @@ function checkFile(path: string, bytes: Uint8Array): string | null {
 	} catch {
 		return 'a binary file must be stored through Git LFS';
 	}
-	if (text.includes('\0')) return 'a binary file must be stored through Git LFS';
-	if (parsePointer(text) !== null) return null;
-	if (!path.endsWith('.md')) return null;
-	if (bytes.length > MAX_NOTE_BYTES) return 'a note may be at most 1 MB';
-	const parsed = parseMarkdown(text);
-	return parsed.error === null ? null : parsed.error.message;
+	return storageRefusal(path, text)?.reason ?? null;
 }
 
 async function treeOf(core: ServerCore, oid: string): Promise<Tree> {

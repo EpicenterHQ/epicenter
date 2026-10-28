@@ -40,7 +40,7 @@ export function serveRepositoryWorker() {
 	let driver: SqlDriver | null = null;
 	let closing = false;
 	/** Calls that arrived before the database opened, answered in order once it does. */
-	const early: Extract<TabMessage, { type: 'read' | 'submit' | 'send' }>[] = [];
+	const early: Extract<TabMessage, { type: 'read' | 'submit' | 'send' | 'dismiss' }>[] = [];
 	/** Writes still storing blob bytes, which a close waits for. */
 	const writing = new Set<Promise<unknown>>();
 	/** Sends whose verdict the tab is still waiting for; a close answers them before it reports `closed`. */
@@ -59,6 +59,7 @@ export function serveRepositoryWorker() {
 			case 'read':
 			case 'submit':
 			case 'send':
+			case 'dismiss':
 				if (engine === null) {
 					early.push(message);
 					return;
@@ -70,7 +71,7 @@ export function serveRepositoryWorker() {
 		}
 	}
 
-	function call(engine: Engine, message: Extract<TabMessage, { type: 'read' | 'submit' | 'send' }>) {
+	function call(engine: Engine, message: Extract<TabMessage, { type: 'read' | 'submit' | 'send' | 'dismiss' }>) {
 		const { id } = message;
 		if (message.type === 'read') {
 			engine.read(message.request).then(
@@ -86,11 +87,14 @@ export function serveRepositoryWorker() {
 			void verdict.finally(() => sending.delete(verdict));
 			return;
 		}
-		const submitted = engine.submit(message.ops);
-		const local = submitted.local.then((result) => post({ type: 'local', id, result: plain(result) }));
-		writing.add(local);
-		void local.finally(() => writing.delete(local));
-		void submitted.settled.then((result) => post({ type: 'settled', id, result: plain(result) }));
+		if (message.type === 'dismiss') {
+			engine.dismiss(message.notice);
+			post({ type: 'saved', id, result: { data: undefined, error: null } });
+			return;
+		}
+		const saved = engine.submit(message.ops).then((result) => post({ type: 'saved', id, result: plain(result) }));
+		writing.add(saved);
+		void saved.finally(() => writing.delete(saved));
 	}
 
 	async function start({ name, definitions, server }: Init) {

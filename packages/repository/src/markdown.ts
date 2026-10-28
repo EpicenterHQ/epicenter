@@ -213,3 +213,23 @@ export function parsePointer(text: string): LfsPointer | null {
 export function writePointer({ oid, size }: LfsPointer): string {
 	return `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${size}\n`;
 }
+
+/** Notes larger than this, stored, are refused. */
+export const MAX_NOTE_BYTES = 1024 * 1024;
+
+const encoder = new TextEncoder();
+
+/**
+ * Why a file's text cannot be stored in the repository, or null when it
+ * can: binary text belongs in Git LFS, a note is at most 1 MB, and a note's
+ * frontmatter must parse. A push is refused for these, and a device checks
+ * them before a write resolves, so a person's write never fails later for a
+ * reason it could have been told at once.
+ */
+export function storageRefusal(path: string, text: string): { kind: 'binary' | 'size' | 'parse'; reason: string } | null {
+	if (text.includes('\0')) return { kind: 'binary', reason: 'a binary file must be stored through Git LFS' };
+	if (parsePointer(text) !== null || !path.endsWith('.md')) return null;
+	if (encoder.encode(text).length > MAX_NOTE_BYTES) return { kind: 'size', reason: 'a note may be at most 1 MB' };
+	const parsed = parseMarkdown(text);
+	return parsed.error === null ? null : { kind: 'parse', reason: parsed.error.message };
+}

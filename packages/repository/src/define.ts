@@ -30,6 +30,7 @@ export type Definitions = Record<string, NoteDefinition | BlobDefinition>;
 const RESERVED = new Set([
 	'batch',
 	'send',
+	'notices',
 	'live',
 	'query',
 	'flush',
@@ -220,6 +221,12 @@ export const WriteError = defineErrors({
 		path,
 		reason,
 	}),
+	/** The text cannot be stored: binary text outside Git LFS, or a note over 1 MB. */
+	NotStorable: ({ path, reason }: { path: string; reason: string }) => ({
+		message: `'${path}' cannot be stored: ${reason}`,
+		path,
+		reason,
+	}),
 	/** A blob is not one of its template's declared types or is too large. */
 	BlobRefused: ({ path, reason }: { path: string; reason: string }) => ({
 		message: `The blob for '${path}' was refused: ${reason}`,
@@ -264,18 +271,38 @@ export type Verdict =
 	| { kind: 'applied'; seq: number | null; changes: ChangeOutcome[] }
 	| { kind: 'refused'; path: string; reason: string; overlaps: Overlap[] };
 
-/** How the server settled one change. */
-export type Settled =
-	/** `seq` and `change` are null for a retry of a batch whose receipt left with its commit. */
-	| { kind: 'applied'; seq: number | null; change: ChangeOutcome | null }
-	| { kind: 'refused'; path: string; reason: string };
+/**
+ * A person's write: it resolves once the change is saved in this device's
+ * database, and reads see it from then on. It never waits for the server.
+ * What the server later does with it, when that is something the person
+ * should know, becomes a `Notice`.
+ */
+export type Saved = Promise<Result<undefined, WriteError>>;
 
 /**
- * A write's outcome. It is applied on this device before the call returns, so
- * reads see it at once; the Promise settles when the server answers, which
- * may be much later for a device offline, or never without a server.
+ * Something that happened to a person's change after it was saved, kept on
+ * this device until the person dismisses it. Notices never sync.
+ *
+ * - `refused`: the server refused the change, such as a move onto a name
+ *   another note took, or a `send` whose caller stopped waiting.
+ * - `dropped`: the change had nothing left to apply to, such as a move of a
+ *   note deleted elsewhere.
+ * - `relocated`: the note's path was deleted and reused by another note, so
+ *   the change was saved in a copy at `path`.
+ * - `protocol`: the server could not apply the change, which is a bug. The
+ *   device shows the server's text again, and `kept` holds what it showed.
  */
-export type Pending<T = Settled> = Promise<Result<T, WriteError>>;
+export type Notice = {
+	id: number;
+	/** When this device learned of it, in milliseconds since the epoch. */
+	at: number;
+	kind: 'refused' | 'dropped' | 'relocated' | 'protocol';
+	/** Where the person should look. */
+	path: string;
+	reason: string;
+	/** The text this device showed when the change was taken back, so nothing typed is lost. */
+	kept: string | null;
+};
 
 /**
  * A query that re-runs after any change on this device. `subscribe` calls
@@ -320,7 +347,7 @@ export type OpenNote<TPath extends string, TSchema extends TSchema_> = {
 	/** Call back whenever `read` would answer differently. */
 	subscribe(onChange: (note: Note<TPath, TSchema> | null) => void): () => void;
 	/** Change some fields and or the body; creates the note when it is absent. */
-	write(input: NoteInput<TSchema>): Pending;
+	write(input: NoteInput<TSchema>): Saved;
 	/**
 	 * Replace the body with `body`, an edit of the body this handle last
 	 * showed. A change that reached this device meanwhile, but that the
@@ -328,10 +355,10 @@ export type OpenNote<TPath extends string, TSchema extends TSchema_> = {
 	 * editor writes each change this way, so text typed while a change from
 	 * elsewhere was arriving never takes that change back.
 	 */
-	edit(body: string): Pending;
-	set<TKey extends keyof Static<TSchema> & string>(key: TKey, value: Static<TSchema>[TKey]): Pending;
-	append(text: string): Pending;
-	delete(): Pending;
+	edit(body: string): Saved;
+	set<TKey extends keyof Static<TSchema> & string>(key: TKey, value: Static<TSchema>[TKey]): Saved;
+	append(text: string): Saved;
+	delete(): Saved;
 	/** Stop following changes. */
 	close(): void;
 };
@@ -344,17 +371,17 @@ export type NoteHandle<TPath extends string, TSchema extends TSchema_> = {
 	/** Hold one note open: reads are synchronous and follow every change. */
 	open(...params: ParamsArg<TPath>): Promise<OpenNote<TPath, TSchema>>;
 	/** Refused locally when the file exists on this device. */
-	create(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): Pending;
+	create(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): Saved;
 	/** Change some fields and or the body; creates the note when it is absent. */
-	write(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): Pending;
+	write(...args: [...ParamsArg<TPath>, NoteInput<TSchema>]): Saved;
 	/** Set one frontmatter field. */
 	set<TKey extends keyof Static<TSchema> & string>(
 		...args: [...ParamsArg<TPath>, key: TKey, value: Static<TSchema>[TKey]]
-	): Pending;
+	): Saved;
 	/** Append text to the end; needs no base, so concurrent appends both land. */
-	append(...args: [...ParamsArg<TPath>, text: string]): Pending;
-	move(from: Params<TPath>, to: Params<TPath>): Pending;
-	delete(...params: ParamsArg<TPath>): Pending;
+	append(...args: [...ParamsArg<TPath>, text: string]): Saved;
+	move(from: Params<TPath>, to: Params<TPath>): Saved;
+	delete(...params: ParamsArg<TPath>): Saved;
 };
 
 export type BlobEntry<TPath extends string> = {
@@ -366,12 +393,12 @@ export type BlobEntry<TPath extends string> = {
 
 export type BlobHandle<TPath extends string> = {
 	/** Store the bytes, then write the pointer: a pointer never names missing bytes. */
-	put(...args: [...ParamsArg<TPath>, bytes: Uint8Array, options: { type: string }]): Pending;
+	put(...args: [...ParamsArg<TPath>, bytes: Uint8Array, options: { type: string }]): Saved;
 	get(...params: ParamsArg<TPath>): Promise<Uint8Array | null>;
 	url(...params: ParamsArg<TPath>): Promise<string | null>;
 	list(filter?: Partial<Params<TPath>>): Promise<BlobEntry<TPath>[]>;
 	live(filter?: Partial<Params<TPath>>): Live<BlobEntry<TPath>[]>;
-	delete(...params: ParamsArg<TPath>): Pending;
+	delete(...params: ParamsArg<TPath>): Saved;
 };
 
 /** Write-only note handles inside `repo.batch`: nothing to read, nothing to await. */
