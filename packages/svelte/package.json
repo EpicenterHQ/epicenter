@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for the folder mirror, text editing, agent conversations, and status.",
+	"description": "Svelte 5 bindings for the folder mirror, text editing, repository source editing, agent conversations, and status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -20,11 +20,19 @@
 		"./row-issues": "./src/row-issues.svelte",
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
-		"./status-row": "./src/status-row.svelte"
+		"./status-row": "./src/status-row.svelte",
+		"./codemirror": "./src/codemirror.ts",
+		"./source-editor": "./src/source-editor.svelte"
 	},
 	"dependencies": {
+		"@codemirror/commands": "^6.11.1",
+		"@codemirror/lang-markdown": "^6.5.2",
+		"@codemirror/merge": "^6.12.3",
+		"@codemirror/state": "^6.7.6",
+		"@codemirror/view": "^6.43.15",
 		"@epicenter/agent": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/repository": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tauri-apps/api": "catalog:",

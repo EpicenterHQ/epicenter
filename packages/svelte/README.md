@@ -1,6 +1,7 @@
 # @epicenter/svelte
 
-This package makes a Folder mirror reactive in Svelte 5. The Folder reports
+This package makes a Folder mirror reactive in Svelte 5, and edits a
+repository file's source. The Folder reports
 what storage last returned or accepted. Each text editor owns a `edit` for
 what the person typed until that value's save answers. `<OpenFolder>` owns
 opening, refresh on return, and close.
@@ -135,6 +136,36 @@ create reply that reads back its own bytes counts as landed; identical existing
 bytes are indistinguishable from that case.
 
 **Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through Folder instructions like any editor. Fields are never collaborative; they stay last-write-wins per field. No layer writes files except through the Folder. Agents may write files directly or issue the same Folder instructions through Epicenter; either way their changes reach editors through the Folder copy.
+
+## Edit a repository file's source
+
+`<SourceEditor>` from `@epicenter/svelte/source-editor` edits any synced
+Markdown file in an `@epicenter/repository` repository as its whole text,
+frontmatter included, in CodeMirror. It holds the file open through
+`repo.files.open(path)` and saves as the person types. Key it by the path.
+
+```svelte
+<script lang="ts">
+  import SourceEditor from '@epicenter/svelte/source-editor';
+</script>
+
+{#key path}
+  <SourceEditor {repo} {path} lens="notes" />
+{/key}
+```
+
+Its status line says, for the text on screen, whether the frontmatter parses
+(and the line where it breaks) and, given `lens`, whether the note matches
+that name's schema, with each issue. A write may never turn frontmatter that
+parses into frontmatter that does not, so a text that would is held in the
+editor, unsaved, until it parses again. A file whose frontmatter does not
+parse saves every step of its repair. A change from elsewhere merges under
+held-back typing, which survives it.
+
+`@epicenter/svelte/codemirror` exports the editor behind it,
+`createSourceEditor`, and the binding it shares with editors an app composes
+itself: `textBinding` writes each local change, and `applyExternal` shows a
+change from elsewhere as the smallest edits, kept out of the undo history.
 
 The package also exports agent conversation bindings and status display
 helpers. Those are independent of Folder editing.

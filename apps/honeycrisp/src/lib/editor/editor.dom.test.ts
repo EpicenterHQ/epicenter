@@ -19,7 +19,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { undo } from '@codemirror/commands';
 import { EditorSelection } from '@codemirror/state';
 import { noteText, openDevice } from '../repository.test-support.js';
-import { changesTo } from './binding.js';
+import { changesTo } from '@epicenter/svelte/codemirror';
 import { conflictsIn, resolveConflict } from './conflicts.js';
 import { createNoteEditor, type NoteEditor } from './note-editor.js';
 

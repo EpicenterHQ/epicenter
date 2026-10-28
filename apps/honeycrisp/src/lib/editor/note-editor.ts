@@ -8,7 +8,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import { applyExternal, lineBreakOf, noteBinding } from './binding.js';
+import { applyExternal, lineBreakOf, textBinding } from '@epicenter/svelte/codemirror';
 import { conflictCards } from './conflicts.js';
 import { livePreview } from './live-preview.js';
 
@@ -37,7 +37,7 @@ export function createNoteEditor({ parent, body, onEdit, label = 'Note text' }: 
 				conflictCards,
 				EditorView.lineWrapping,
 				EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'true' }),
-				noteBinding(onEdit),
+				textBinding(onEdit),
 			],
 		}),
 	});

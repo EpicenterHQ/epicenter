@@ -128,7 +128,7 @@ note cannot say which folder it is in.
 | --- | --- |
 | `src/lib/data.ts` | The lens: `notes` and `folders`, with each file's schema. |
 | `src/lib/notes.svelte.ts` | The notes over the repository: live lists, what the detail shows, and every action. |
-| `src/lib/editor/` | The CodeMirror editor: `note-editor.ts` composes it, `live-preview.ts`, `conflicts.ts`, `binding.ts`, and `NoteEditor.svelte` mounts it over a body source. It knows nothing of Honeycrisp's UI. |
+| `src/lib/editor/` | The CodeMirror editor: `note-editor.ts` composes it from `live-preview.ts`, `conflicts.ts` and the binding in `@epicenter/svelte/codemirror`, and `NoteEditor.svelte` mounts it over a body source. It knows nothing of Honeycrisp's UI. |
 | `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/routes/+page.svelte` | `OpenHoneycrisp` over `openBrowserRepository`, with `HoneycrispApp` inside it. |
 | `src/routes/components/` | Header, folder list, note list, the note view, files. |
