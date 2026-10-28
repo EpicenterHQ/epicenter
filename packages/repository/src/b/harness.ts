@@ -15,6 +15,7 @@ export function createWorld({
 	latency = { min: 5, max: 40 },
 	loss = { up: 0, down: 0 },
 	streamLoss = 0,
+	stall,
 	timeout = 2_000,
 	trace,
 }: {
@@ -24,15 +25,18 @@ export function createWorld({
 	loss?: LinkOptions['loss'];
 	/** Chance a notification is lost (closing the stream). */
 	streamLoss?: number;
+	/** Chance a request, reply or notification stalls, and for up to how long. */
+	stall?: LinkOptions['stall'];
 	timeout?: number;
 	/** Called with a line for every request, reply and notification. */
 	trace?: (line: string) => void;
 } = {}) {
 	const net = createNet(seed);
-	const requests: LinkOptions = { ordered: false, lossCloses: false, latency, loss: { ...loss } };
-	const stream: LinkOptions = { ordered: false, lossCloses: true, latency, loss: { up: 0, down: streamLoss } };
+	const requests: LinkOptions = { ordered: false, lossCloses: false, latency, loss: { ...loss }, ...(stall === undefined ? {} : { stall }) };
+	const stream: LinkOptions = { ordered: false, lossCloses: true, latency, loss: { up: 0, down: streamLoss }, ...(stall === undefined ? {} : { stall }) };
 	const appliedHooks: ((applied: Applied) => void)[] = [];
 	const mergeHooks: ((audit: MergeAudit & { device: string }) => void)[] = [];
+	const requestHooks: ((device: string, request: Request, reply: Reply) => void)[] = [];
 	const server = createServer({ onApplied: (applied) => appliedHooks.forEach((hook) => hook(applied)) });
 	const counts = { write: 0, 'catch-up': 0, fetch: 0, compared: 0, notifications: 0 };
 
@@ -55,6 +59,7 @@ export function createWorld({
 
 		function answer(request: Request): Reply {
 			const reply = respond(request);
+			for (const hook of requestHooks) hook(name, request, reply);
 			trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
 			return reply;
 		}
@@ -154,13 +159,17 @@ export function createWorld({
 		net,
 		server,
 		device,
-		/** Turn all loss off (the quiescence phase). */
+		/** Turn all loss and stalls off (the quiescence phase). */
 		calm() {
 			requests.loss = { up: 0, down: 0 };
 			stream.loss = { up: 0, down: 0 };
+			delete requests.stall;
+			delete stream.stall;
 		},
 		onApplied: (hook: (applied: Applied) => void) => appliedHooks.push(hook),
 		onMerge: (hook: (audit: MergeAudit & { device: string }) => void) => mergeHooks.push(hook),
+		/** Every request the server answered, with its reply. */
+		onRequest: (hook: (device: string, request: Request, reply: Reply) => void) => requestHooks.push(hook),
 		counts: () => ({ ...counts }),
 		/** Run until no event is left; false if it never went idle. */
 		settle: (limit?: number) => net.runUntilIdle(limit),

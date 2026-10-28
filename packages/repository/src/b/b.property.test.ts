@@ -2,7 +2,8 @@
  * Design B Property Test
  *
  * Three people and one agent edit a few notes over a lossy, reordering
- * network through seeded random steps: typing in the body and the
+ * network whose messages sometimes stall past a request's timeout, through
+ * seeded random steps: typing in the body and the
  * frontmatter, breaking and repairing frontmatter, setting one field from
  * several devices, renames (delete plus write), deletes, deleting a path and
  * creating it again (sometimes with the very text it had before), agent
@@ -65,6 +66,7 @@ function run(seed: number) {
 		latency: { min: 5, max: 120 },
 		loss: { up: 0.05, down: 0.08 },
 		streamLoss: 0.04,
+		stall: { chance: 0.03, ms: 4_000 },
 		timeout: 1_500,
 		...(process.env.B_TRACE === undefined ? {} : { trace: (line: string) => log.push(line) }),
 	});

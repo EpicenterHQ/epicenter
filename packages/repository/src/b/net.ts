@@ -42,6 +42,8 @@ export type LinkOptions = {
 	latency: { min: number; max: number };
 	/** Chance each message up (client to server) or down is lost. */
 	loss: { up: number; down: number };
+	/** Chance a message stalls, and for how long beyond its latency (a slow request, a reply after its timeout). */
+	stall?: { chance: number; ms: number };
 };
 
 type Event = { at: number; order: number; run: () => void };
@@ -116,6 +118,7 @@ export function createNet(seed: number) {
 			}
 			const copy = structuredClone(message);
 			let time = now + delay();
+			if (options.stall !== undefined && random.chance(options.stall.chance)) time += random.int(0, options.stall.ms);
 			if (options.ordered) {
 				time = Math.max(time, direction === 'up' ? lastUp : lastDown);
 				if (direction === 'up') lastUp = time;
