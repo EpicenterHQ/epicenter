@@ -60,16 +60,19 @@ the server by that minute.
 - **Operations.** Every request is one batch, `{ device, n, changes }`, applied
   all or nothing, with one outcome per change; a `git push` is the same batch.
   A change is `write(path, base, text)` (create, edit, or, with no text,
-  delete), `move(from, to)`, which is refused if the destination is taken and is sent
-  in a batch of its own so that a refusal affects nothing else, or
+  delete), `move(from, to)`, which treats a note's path as one of its fields
+  (the current path wins: a second move of the same note, or a move onto a path
+  another note holds, is not applied and becomes a notice) and travels in a
+  batch of its own, or
   `append(path, text)`, which needs no base and can still be stale after a
   delete or an untraceable move. A batch carries the device's repository
   position, and each write's base is the hash of the text it started from; the device keeps the base text and sends it when the
   server answers `need-base`. Setting a value, for example
   `repo.settings.set('theme', 'dark')`, is a write that changes one frontmatter
-  field. A batch's outcome is `applied`, `need-base` or `refused` (on overlap
-  when the caller is waiting for the answer, and for anyone on a structural
-  refusal such as a move onto a taken path or a batch out of order); within `applied`, each file reports its overlaps and how each was settled,
+  field. A batch carries its policy, chosen by the verb that built it: `mark`
+  for people, `refuse` for callers that wait. A batch's outcome is `applied`,
+  `need-base` or, for `refuse` batches on overlap, `refused`; a `mark` batch is
+  never refused except on a protocol fault such as a batch out of order; within `applied`, each file reports its overlaps and how each was settled,
   an edit kept over a delete, and its text when that differs from what was
   sent. The per-device number makes a retry return its recorded outcome, and a
   number at or below the last one applied is never applied twice; the server stamps each batch with the signed-in user, for
@@ -77,6 +80,26 @@ the server by that minute.
   first and its pointer written second, so a pointer never names missing
   bytes. A reply streamed by an assistant is relayed live without being stored,
   then written as one append.
+- **Two verbs.** A person's change (`write`, `create`, `move`, `delete`,
+  `append`, `put`, `batch`) resolves when it is saved in the device's
+  database, works offline, and is never refused on overlap; what happened shows
+  in the data, and anything that needs a person's attention (a move that was
+  not applied, an edit saved as a sibling, a protocol fault, which keeps the
+  text the device showed) goes to `repo.notices`, a device-only list the person
+  dismisses. `send(b => ...)` builds a batch for a caller that waits: it is
+  online only and fails at once when offline, takes its base from what the
+  caller read, does not change the device's copy until the server answers,
+  writes an applied result into it, and is refused on overlap. The CLI's
+  commands use `send` and fall back to a Git commit only when it is certainly
+  offline. Size, parse and LFS checks run on the device, so they fail the
+  change itself. Unsent writes to one path merge into one before sending.
+- **Repairing files.** A file either does not parse (its frontmatter is broken)
+  or parses but does not match an app's schema. `<SourceEditor>`, a built-in
+  CodeMirror 6 component, edits any note's whole text, frontmatter included,
+  and shows the parse and schema status as you type; it saves through
+  `repo.files.writeText(path, text)`. A raw write may never turn a file that
+  parses into one that does not, so repairing a broken file can save every
+  step, and editing a sound one saves only while it still parses.
 - **The app API.** `defineApp` maps identifier names to templates, each with a
   schema or a blob declaration; names must be identifiers, so they never
   collide with engine tables. Every handle takes a parameter object whose keys
@@ -132,9 +155,9 @@ the server by that minute.
   are told to resync from the head. Blob bytes are fetched on demand through
   short-lived URLs and cached by hash.
 - **Devices.** Each repository is one SQLite file per device: in the browser's
-  storage (OPFS) through a worker owned by one leader tab, natively on desktop,
+  storage (OPFS) through a worker owned by one tab at a time, natively on desktop,
   and through Bun in the CLI, behind one driver interface and one shared engine.
-  Three strict engine tables, named with a `/` so no app view can collide with
+  Strict engine tables, named with a `/` so no app view can collide with
   them: `"epicenter/files"` holds each synced file's path, the text this device
   shows (an LFS pointer for a blob), the text the server last acknowledged,
   the sequence and the hash the server reported; the body is generated from
@@ -142,12 +165,19 @@ the server by that minute.
   function and written in the same statement as the text where it cannot; `"epicenter/outbox"` holds every unsent
   batch in order, with its bases and the exact text sent; `"epicenter/meta"`
   holds the device's id, its next number, its repository position, the parser
-  version and this device's own settings. Each app's templates become
+  version and this device's own settings; `"epicenter/notices"` holds the
+  notices. Each app's templates become
   temporary read-only views on the leader's connection, with saved indexes and
   full-text search on the files table itself; apps query them in plain SQL and
   write only through the API. Any change re-runs live queries, whose results
   are compared before re-rendering; the file being edited is held open and read
-  synchronously. Without a server, an app works fully, with no history.
+  synchronously. One tab owns a repository's database; another tab of the same
+  app offers "Use here", which waits for the first tab to release it, and the
+  first tab then shows that the app moved. The owning tab saves pending writes
+  and closes its database when it is hidden or frozen, and never takes the
+  database back on its own. Retries rest on the server's per-device numbers,
+  so no cross-tab protocol exists. Without a server, an app works fully, with
+  no history.
 
 ## Consequences
 
