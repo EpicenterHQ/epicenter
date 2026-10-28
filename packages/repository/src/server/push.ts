@@ -85,7 +85,7 @@ export async function receivePush(
 		if (from !== undefined) renamed.set(from, to);
 	}
 	for (const [from, to] of renamed)
-		changes.push({ kind: 'move', from, to, base: { hash: baseTree.get(from)?.oid ?? '', text: (await baseText(from)) ?? '' } });
+		changes.push({ kind: 'move', from, to });
 	for (const [from, to] of renamed) {
 		if (baseTree.get(from)?.oid === pushedTree.get(to)?.oid) continue;
 		const before = (await baseText(from)) ?? '';
@@ -112,11 +112,10 @@ export async function receivePush(
 	const peer = { device: 'git-push', user, onOverlap: 'refuse' as const };
 	const { outcome, broadcast } = await core.applyBatch(batch, peer, false);
 	if (outcome.kind === 'refused') return refuse(core, outcome.path, outcome.reason, outcome.overlaps);
-	// A push is not numbered, so an applied one always has its sequence.
+	// A push is not numbered and sends its bases, so an applied one always has
+	// its sequence and need-base cannot happen.
 	if (outcome.kind !== 'applied' || outcome.seq === null || broadcast === null)
-		// Bases are sent with the batch, so neither need-base nor a window miss
-		// can stop it except by expiry, which an agent repairs by pulling.
-		return refuse(core, '', 'the push is based on history older than the server keeps');
+		return refuse(core, '', 'the server could not read the push\'s bases');
 	const committed = await core.commitNow([commit]);
 	if (committed.error !== null) return Err(committed.error);
 	core.broadcast(broadcast, null);

@@ -25,10 +25,8 @@ import type {
 } from '../protocol.js';
 import { first, type SqlDriver } from '../sql.js';
 import { type GitStore, MAIN, type Signature, sequenceOf, type Tree } from './git-store.js';
-import { createPathHistory, type PathEvent } from './history.js';
+import { createPathHistory, type PathEvent, pathEventTrailer } from './history.js';
 import { receivePush } from './push.js';
-
-const WEEK = 7 * 24 * 60 * 60 * 1000;
 
 export const CommitError = defineErrors({
 	/** `main` moved while the commit was being written; nothing was cleared. */
@@ -84,12 +82,6 @@ export type ServerOptions = {
 	driver: SqlDriver;
 	git: GitStore;
 	now?: () => number;
-	/**
-	 * How long path history and receipts are kept. A week by default. A
-	 * `'mark'` change older than that whose file changed since is relocated to
-	 * a sibling note; a `'refuse'` one is `expired`.
-	 */
-	windowMs?: number;
 	/** How old an overlay change is before `tick` commits it. A minute by default. */
 	commitAfterMs?: number;
 	/**
@@ -107,8 +99,7 @@ CREATE TABLE IF NOT EXISTS overlay (path TEXT PRIMARY KEY, text TEXT, hash TEXT,
 CREATE TABLE IF NOT EXISTS texts (hash TEXT PRIMARY KEY, text TEXT NOT NULL, seq INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS batches (seq INTEGER PRIMARY KEY, device TEXT NOT NULL, n INTEGER NOT NULL, user TEXT NOT NULL, at INTEGER NOT NULL, changes TEXT NOT NULL, overlaps TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS devices (device TEXT PRIMARY KEY, last_n INTEGER NOT NULL) STRICT;
-CREATE TABLE IF NOT EXISTS receipts (device TEXT NOT NULL, n INTEGER NOT NULL, at INTEGER NOT NULL, applied INTEGER NOT NULL, outcome TEXT NOT NULL, PRIMARY KEY (device, n)) STRICT;
-CREATE TABLE IF NOT EXISTS timeline (seq INTEGER PRIMARY KEY, at INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS receipts (device TEXT NOT NULL, n INTEGER NOT NULL, seq INTEGER, outcome TEXT NOT NULL, PRIMARY KEY (device, n)) STRICT;
 INSERT OR IGNORE INTO state VALUES ('seq', 0), ('committed', 0);
 `;
 
@@ -149,7 +140,6 @@ export function createRepositoryServer({
 	driver,
 	git,
 	now = Date.now,
-	windowMs = WEEK,
 	commitAfterMs = 60_000,
 	durability = 'overlay',
 	identify = (user) => ({ name: user, email: `${user}@users.epicenter.invalid` }),
@@ -245,7 +235,6 @@ export function createRepositoryServer({
 	async function prepare(batch: Batch): Promise<Prepared> {
 		const currents = new Map<string, string | null>();
 		const bases = new Map<string, string>();
-		const covered = history.covers(batch.seq);
 		const load = async (path: string) => {
 			if (!currents.has(path)) currents.set(path, await current(path));
 		};
@@ -259,8 +248,6 @@ export function createRepositoryServer({
 				await load(history.trace(change.from, batch.seq).path);
 				await load(change.from);
 				await load(change.to);
-				// Past the window, a move may be relocated with its base.
-				if (!covered) await loadBase(change.base);
 				continue;
 			}
 			const traced = history.trace(change.path, batch.seq);
@@ -270,7 +257,7 @@ export function createRepositoryServer({
 				if (change.base !== null) await loadBase(change.base);
 			}
 			// An append needs its base only when its note may be gone.
-			else if (!covered || traced.deleted || currents.get(traced.path) === null) await loadBase(change.base);
+			else if (traced.deleted || currents.get(traced.path) === null) await loadBase(change.base);
 		}
 		return { currents, bases };
 	}
@@ -286,7 +273,6 @@ export function createRepositoryServer({
 			const row = first<{ text: string | null }>(driver, 'SELECT text FROM overlay WHERE path = ?', [path]);
 			return row === undefined ? main.tree.has(path) : row.text !== null;
 		};
-		const covered = history.covers(batch.seq);
 		const seq = state('seq') + 1;
 		const at = now();
 		const incomingLabel = label(peer.user, at, seq);
@@ -295,7 +281,6 @@ export function createRepositoryServer({
 		const moves: Move[] = [];
 		const seenTexts = new Set<string>();
 		const needBase: string[] = [];
-		const expired: string[] = [];
 		const refuse = (path: string, reason: string, overlaps: Overlap[] = []): Applied => ({
 			outcome: { kind: 'refused', path, reason, overlaps },
 			broadcast: null,
@@ -316,26 +301,6 @@ export function createRepositoryServer({
 			if (change.kind === 'move') {
 				const from = trace(change.from);
 				const text = from.deleted ? null : read(from.path);
-				// Past the window, a changed file may be a different note: never move
-				// it. The moved note, as this device had it, goes to a sibling of `to`.
-				if (!covered && text !== null && gitBlobHash(text) !== change.base.hash) {
-					if (peer.onOverlap === 'refuse') {
-						expired.push(change.from);
-						continue;
-					}
-					const base = known(change.base);
-					if (base === null) {
-						needBase.push(change.from);
-						continue;
-					}
-					const dest = sibling(change.to);
-					const decision = settle([{ unit: 'path', clash: 'reused', relocatedTo: dest }], peer.onOverlap);
-					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
-					work.set(dest, base);
-					events.push({ kind: 'create', path: dest }, { kind: 'relocate', path: change.to, dest, before: batch.seq + 1 });
-					outcomes.push(outcome({ path: change.from, at: dest, hash: gitBlobHash(base), text: base, overlaps: decision.overlaps }));
-					continue;
-				}
 				if (text === null) {
 					const decision = settle([{ unit: 'path', clash: 'gone', relocatedTo: null }], peer.onOverlap);
 					if (decision.kind === 'refuse') return refuse(change.from, decision.reason, decision.overlaps);
@@ -367,13 +332,7 @@ export function createRepositoryServer({
 			const target = traced.path;
 			const movedTo = target === change.path ? null : target;
 			const existing = traced.reused ? null : read(target);
-			// Past the window, the history cannot say whether a changed file is still this note.
-			const unknown = !covered && change.base !== null && existing !== null && gitBlobHash(existing) !== change.base.hash;
-			if (traced.reused || unknown) {
-				if (!traced.reused && peer.onOverlap === 'refuse') {
-					expired.push(change.path);
-					continue;
-				}
+			if (traced.reused) {
 				// The change's own version of its note goes to a sibling.
 				let text: string | null = change.kind === 'write' ? change.text : null;
 				if (change.kind === 'append') {
@@ -452,7 +411,6 @@ export function createRepositoryServer({
 		}
 
 		if (needBase.length > 0) return { outcome: { kind: 'need-base', paths: needBase }, broadcast: null };
-		if (expired.length > 0) return { outcome: { kind: 'expired', paths: expired }, broadcast: null };
 
 		const files: FileState[] = [];
 		for (const [path, text] of work) {
@@ -480,7 +438,6 @@ export function createRepositoryServer({
 			JSON.stringify(batch.changes),
 			JSON.stringify(recorded),
 		]);
-		driver.run('INSERT INTO timeline (seq, at) VALUES (?, ?)', [seq, at]);
 		setState('seq', seq);
 		return {
 			outcome: { kind: 'applied', seq, changes: outcomes },
@@ -495,7 +452,7 @@ export function createRepositoryServer({
 			if (batch.n <= last) {
 				const receipt = first<{ outcome: string }>(driver, 'SELECT outcome FROM receipts WHERE device = ? AND n = ?', [batch.device, batch.n]);
 				if (receipt !== undefined) return { outcome: JSON.parse(receipt.outcome) as BatchOutcome, broadcast: null };
-				// Only applied receipts are pruned, so a missing one was applied.
+				// A missing receipt was applied: a refusal's receipt stays while it can be retried.
 				return { outcome: { kind: 'applied', seq: null, changes: [] }, broadcast: null };
 			}
 			if (batch.n !== last + 1)
@@ -509,11 +466,10 @@ export function createRepositoryServer({
 			const applied = applyPrepared(batch, peer, prepared);
 			if (numbered && applied.outcome.kind !== 'need-base') {
 				driver.run('INSERT OR REPLACE INTO devices (device, last_n) VALUES (?, ?)', [batch.device, batch.n]);
-				driver.run('INSERT OR REPLACE INTO receipts (device, n, at, applied, outcome) VALUES (?, ?, ?, ?, ?)', [
+				driver.run('INSERT OR REPLACE INTO receipts (device, n, seq, outcome) VALUES (?, ?, ?, ?)', [
 					batch.device,
 					batch.n,
-					now(),
-					applied.outcome.kind === 'applied' ? 1 : 0,
+					applied.outcome.kind === 'applied' ? applied.outcome.seq : null,
 					JSON.stringify(applied.outcome),
 				]);
 			}
@@ -538,12 +494,20 @@ export function createRepositoryServer({
 	// Committing
 	// ------------------------------------------------------------------------
 
-	/** Clear overlay rows Git already holds: never past main's sequence. */
+	/**
+	 * Clear overlay rows Git already holds: never past main's sequence. A
+	 * receipt goes with its batch's commit; a refusal stays while it is its
+	 * device's latest batch, since a device retries only that one.
+	 */
 	function clearThrough(seq: number) {
 		driver.transaction(() => {
 			driver.run('DELETE FROM overlay WHERE seq <= ?', [seq]);
 			driver.run('DELETE FROM texts WHERE seq <= ?', [seq]);
 			driver.run('DELETE FROM batches WHERE seq <= ?', [seq]);
+			driver.run('DELETE FROM receipts WHERE seq <= ?', [seq]);
+			driver.run(
+				'DELETE FROM receipts WHERE seq IS NULL AND n < (SELECT last_n FROM devices WHERE devices.device = receipts.device)',
+			);
 			if (seq > state('committed')) setState('committed', seq);
 		});
 	}
@@ -568,7 +532,8 @@ export function createRepositoryServer({
 		const overlaps = driver
 			.all<{ seq: number; user: string; overlaps: string }>('SELECT seq, user, overlaps FROM batches WHERE seq <= ? ORDER BY seq', [seq])
 			.flatMap((row) => (JSON.parse(row.overlaps) as RecordedOverlap[]).map((recorded) => overlapTrailer(row.seq, row.user, recorded)));
-		const trailers = [`Epicenter-Seq: ${seq}`, ...overlaps, ...coauthors];
+		const paths = history.between(head.seq, seq).map(pathEventTrailer);
+		const trailers = [`Epicenter-Seq: ${seq}`, ...paths, ...overlaps, ...coauthors];
 		const message = `Update ${rows.length} ${rows.length === 1 ? 'file' : 'files'}\n\n${trailers.map((line) => `${line}\n`).join('')}`;
 		const oid = await git.writeCommit({
 			tree: await git.writeTree(tree),
@@ -581,23 +546,6 @@ export function createRepositoryServer({
 		main = { oid, tree, seq };
 		clearThrough(seq);
 		return Ok({ oid, seq });
-	}
-
-	/**
-	 * Drop history, applied receipts and the timeline older than the window.
-	 * A receipt for a batch that did not apply is kept, so a retry of it is
-	 * never mistaken for one that did.
-	 */
-	function prune() {
-		const cutoff = now() - windowMs;
-		driver.transaction(() => {
-			const old = first<{ seq: number | null }>(driver, 'SELECT max(seq) AS seq FROM timeline WHERE at < ?', [cutoff])?.seq ?? null;
-			if (old !== null) {
-				history.prune(old);
-				driver.run('DELETE FROM timeline WHERE seq <= ?', [old]);
-			}
-			driver.run('DELETE FROM receipts WHERE at < ? AND applied = 1', [cutoff]);
-		});
 	}
 
 	// ------------------------------------------------------------------------
@@ -634,7 +582,6 @@ export function createRepositoryServer({
 				hello: (seq: number) => serially(() => hello(seq)),
 				push: (batch: Batch) =>
 					serially(async () => {
-						prune();
 						const { outcome, broadcast: message } = await applyBatch(batch, peer);
 						if (message !== null) {
 							await beforeAck();
@@ -649,10 +596,9 @@ export function createRepositoryServer({
 		},
 		/** Commit the overlay now (`epicenter pull` asks for this). */
 		commit: () => serially(() => commitNow()),
-		/** Prune the window and commit when the oldest overlay change is due. */
+		/** Commit when the oldest overlay change is due. */
 		tick: () =>
 			serially(async (): Promise<Result<Committed | null, CommitError>> => {
-				prune();
 				const oldest = first<{ at: number | null }>(driver, 'SELECT min(at) AS at FROM overlay')?.at ?? null;
 				if (oldest === null || now() - oldest < commitAfterMs) return Ok(null);
 				const committed = await commitNow();

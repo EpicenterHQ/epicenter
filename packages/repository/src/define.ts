@@ -238,14 +238,9 @@ export type WriteError = InferErrors<typeof WriteError>;
 
 /** How the server settled one change. */
 export type Settled =
-	/** `seq` and `change` are null for a retry of a batch applied so long ago its receipt is gone. */
+	/** `seq` and `change` are null for a retry of a batch whose receipt left with its commit. */
 	| { kind: 'applied'; seq: number | null; change: ChangeOutcome | null }
-	| { kind: 'refused'; path: string; reason: string }
-	/**
-	 * For a `'refuse'` connection: the change is older than the server's
-	 * history window and its file changed since, so nothing was applied.
-	 */
-	| { kind: 'expired'; paths: string[] };
+	| { kind: 'refused'; path: string; reason: string };
 
 export type Pending<T = Settled> = Promise<Result<T, WriteError>>;
 

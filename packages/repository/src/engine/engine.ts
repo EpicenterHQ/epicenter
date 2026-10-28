@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS "epicenter/meta" (key TEXT PRIMARY KEY, value TEXT NO
 
 const PARSER_VERSION = '1';
 
+/** Why a change the server still lacks a base for, after it was resent with its bases, did not land. */
+const NO_BASE = 'the server has no base for this change';
+
 const EngineDiagnostic = defineErrors({
 	SyncStepFailed: ({ cause }: { cause: unknown }) => ({
 		message: 'A sync step failed; it will run again on the next change or reconnect',
@@ -240,7 +243,7 @@ export function openRepository<const TDefs extends Definitions>({
 			const destination = keep(change.to);
 			put(change.from, { ...source, text: null });
 			put(change.to, { ...destination, text: source.text });
-			return { change: { ...change, base: baseOf(source.text ?? '') }, local: source.text };
+			return { change, local: source.text };
 		}
 		const current = keep(change.path);
 		if (change.kind === 'append') {
@@ -422,9 +425,8 @@ export function openRepository<const TDefs extends Definitions>({
 			case 'refused':
 				settled = entries.map(() => ({ kind: 'refused', path: outcome.path, reason: outcome.reason }));
 				break;
-			case 'expired':
 			case 'need-base':
-				settled = entries.map(() => ({ kind: 'expired', paths: outcome.paths }));
+				settled = entries.map(() => ({ kind: 'refused', path: outcome.paths[0] ?? '', reason: NO_BASE }));
 				break;
 		}
 		if (outcome.kind !== 'applied') log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
@@ -494,7 +496,7 @@ export function openRepository<const TDefs extends Definitions>({
 				n: next.n,
 				seq: next.seq,
 				changes: entries.map(({ change }): Change =>
-					withBases || change.base === null ? change : { ...change, base: { hash: change.base.hash } },
+					withBases || change.kind === 'move' || change.base === null ? change : { ...change, base: { hash: change.base.hash } },
 				),
 			});
 			let answer = await link.push(send(false));
@@ -504,11 +506,7 @@ export function openRepository<const TDefs extends Definitions>({
 				needsHello = true;
 				return;
 			}
-			const outcome: BatchOutcome =
-				answer.data.kind === 'need-base'
-					? { kind: 'refused', path: answer.data.paths[0] ?? '', reason: 'the server has no base for this change', overlaps: [] }
-					: answer.data;
-			conclude(next.n, entries, outcome);
+			conclude(next.n, entries, answer.data);
 		}
 	}
 

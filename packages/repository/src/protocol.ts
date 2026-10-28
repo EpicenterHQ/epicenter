@@ -24,7 +24,7 @@ export type Overlap =
 	| { unit: 'file'; clash: 'created' }
 	/**
 	 * The path a change named no longer holds its note: it was deleted and
-	 * `reused` by another (or, past the history window, may have been), a
+	 * `reused` by another, a
 	 * move's destination is `taken` (which always refuses the move), or a
 	 * move's note is `gone`. `relocatedTo` is the sibling note the server put
 	 * the change in instead, or null when nothing was put anywhere.
@@ -50,7 +50,7 @@ export type Change =
 	/** Create (base null), edit, or, with `text` null, delete. */
 	| { kind: 'write'; path: string; base: Base | null; text: string | null }
 	/** Refused, for every caller, when `to` is taken. */
-	| { kind: 'move'; from: string; to: string; base: Base }
+	| { kind: 'move'; from: string; to: string }
 	/**
 	 * Adds to whatever the file holds. The base is needed only when the note
 	 * is gone: the append is then an edit of its base.
@@ -80,18 +80,12 @@ export type ChangeOutcome = {
 
 export type BatchOutcome =
 	/**
-	 * `seq` is null and `changes` empty for a retry of a batch applied so long
-	 * ago that its receipt was pruned: it landed, but its details are gone.
+	 * `seq` is null and `changes` empty for a retry of a batch whose receipt
+	 * left with its commit: it landed, but its details are gone.
 	 */
 	| { kind: 'applied'; seq: number | null; changes: ChangeOutcome[] }
 	/** The server lacks these bases' texts; resend the batch with them. */
 	| { kind: 'need-base'; paths: string[] }
-	/**
-	 * For a `'refuse'` peer: these bases are older than the server's history
-	 * window and their files changed since. A `'mark'` peer's such changes
-	 * are relocated instead.
-	 */
-	| { kind: 'expired'; paths: string[] }
 	| { kind: 'refused'; path: string; reason: string; overlaps: Overlap[] };
 
 /** A file's state at the server: text null means no file. */

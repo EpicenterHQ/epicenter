@@ -272,13 +272,14 @@ test('a note brought back by an unseen edit takes later unseen edits too (bug A)
 	await t.cleanup();
 });
 
-test('past the window, an offline append to a note replaced meanwhile becomes a sibling (bug B)', async () => {
-	const t = await setup({ windowMs: 60_000 });
+test('an offline append to a note deleted and re-created across commits becomes a sibling (bug B)', async () => {
+	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'old log\n' }));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	const appended = t.bob.repo.notes.append({ stem: 'log' }, 'bob\n');
 	expectOk(await t.alice.repo.notes.delete({ stem: 'log' }));
+	expectOk(await t.server.commit());
 	expectOk(await t.alice.repo.notes.create({ stem: 'log' }, { body: 'new log\n' }));
 	t.advance(120_000);
 	expectOk(await t.server.tick());
@@ -339,7 +340,7 @@ test('a batch whose reply was lost is retried and returns its recorded outcome',
 	await t.cleanup();
 });
 
-test('a retry whose reply was lost and whose receipt was pruned settles as applied', async () => {
+test('a retry whose reply was lost and whose receipt left with its commit settles as applied', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'once' }, { body: 'x\n' }));
 	t.alice.transport.dropNextReply();
@@ -390,22 +391,28 @@ test('a base the server no longer has round-trips through need-base', async () =
 	await t.cleanup();
 });
 
-test('an edit offline past the window whose file changed becomes a sibling note', async () => {
-	const t = await setup({ windowMs: 60_000 });
-	expectOk(await t.alice.repo.notes.create({ stem: 'old' }, { body: 'base\n' }));
+test('a device offline across many commits follows a move made ten commits ago', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));
+	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
-	const edit = t.bob.repo.notes.write({ stem: 'old' }, { body: 'bob offline\n' });
-	expectOk(await t.alice.repo.notes.write({ stem: 'old' }, { body: 'alice online\n' }));
-	t.advance(120_000);
-	expectOk(await t.server.tick());
+	const edit = t.bob.repo.notes.append({ stem: 'draft' }, 'two\n');
+	expectOk(await t.alice.repo.notes.move({ stem: 'draft' }, { stem: 'final' }));
+	expectOk(await t.server.commit());
+	for (let k = 0; k < 10; k++) {
+		expectOk(await t.alice.repo.notes.create({ stem: `other ${k}` }, { body: `${k}\n` }));
+		t.advance(30 * 24 * 3600e3);
+		expectOk(await t.server.tick());
+	}
+	expect(t.server.overlaySize()).toBe(0);
 	t.bob.transport.setOnline(true);
-	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { at: 'notes/old (bob, 2026-10-28).md' } });
+	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { at: 'notes/final.md', movedTo: 'notes/final.md' } });
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
-		expect(text(repo, 'old')).toBe('alice online\n');
-		expect(text(repo, 'old (bob, 2026-10-28)')).toBe('bob offline\n');
+		expect(text(repo, 'final')).toBe('one\ntwo\n');
+		expect(text(repo, 'draft')).toBeNull();
+		expect(repo.notes.list()).toHaveLength(11);
 	}
-	expect(t.bob.repo.notes.list().map((note) => note.params)).toEqual([{ stem: 'old (bob, 2026-10-28)' }, { stem: 'old' }]);
 	await t.cleanup();
 });
 
