@@ -41,9 +41,8 @@ the server by that minute.
   every segment, including the stem, which a template never generates (apps may
   use plain helpers such as `slug` or `timestamp`). A Markdown file no
   template names (a README, say) is synced and never validated. Binary files
-  are always LFS objects in R2, declared by blob templates that also write the
-  repository's `.gitattributes`; a push carrying a binary outside LFS is
-  refused. Other text files stay in Git and are not downloaded to app devices.
+  are always LFS objects (see Blobs). Other text files stay in Git and are not
+  downloaded to app devices.
   Identity is the path, and Git is its history: every commit records the
   server sequence it includes, and every path event since the previous commit
   is recorded in a trailer with its sequence (`Epicenter-Create`,
@@ -62,61 +61,69 @@ the server by that minute.
   A change is `write(path, base, text)` (create, edit, or, with no text,
   delete), `move(from, to)`, which treats a note's path as one of its fields
   (the current path wins: a second move of the same note, or a move onto a path
-  another note holds, is not applied and becomes a notice) and travels in a
-  batch of its own, or
-  `append(path, text)`, which needs no base and can still be stale after a
-  delete or an untraceable move. A batch carries the device's repository
-  position, and each write's base is the hash of the text it started from; the device keeps the base text and sends it when the
-  server answers `need-base`. Setting a value, for example
-  `repo.settings.set('theme', 'dark')`, is a write that changes one frontmatter
-  field. A batch carries its policy, chosen by the verb that built it: `mark`
-  for people, `refuse` for callers that wait. A batch's outcome is `applied`,
-  `need-base` or, for `refuse` batches on overlap, `refused`; a `mark` batch is
-  never refused except on a protocol fault such as a batch out of order; within `applied`, each file reports its overlaps and how each was settled,
-  an edit kept over a delete, and its text when that differs from what was
-  sent. The per-device number makes a retry return its recorded outcome, and a
-  number at or below the last one applied is never applied twice; the server stamps each batch with the signed-in user, for
-  permissions, history and `Co-authored-by` lines. A blob is uploaded to R2
-  first and its pointer written second, so a pointer never names missing
-  bytes. A reply streamed by an assistant is relayed live without being stored,
-  then written as one append.
-- **Two verbs.** A person's change (`write`, `create`, `move`, `delete`,
-  `append`, `put`, `batch`) resolves when it is saved in the device's
-  database, works offline, and is never refused on overlap; what happened shows
-  in the data, and anything that needs a person's attention (a move that was
-  not applied, a field value kept out by the current one, an edit saved as a
-  sibling, a protocol fault, which keeps the
-  text the device showed) goes to `repo.notices`, a device-only list the person
-  dismisses. `send(b => ...)` builds a batch for a caller that waits: it is
-  online only and fails at once when offline, takes its base from what the
-  caller read, does not change the device's copy until the server answers,
-  writes an applied result into it, and is refused on overlap. The CLI's
-  commands use `send` and fall back to a Git commit only when it is certainly
-  offline. Size, parse and LFS checks run on the device, so they fail the
-  change itself. Unsent writes to one path merge into one before sending.
+  another note holds, is not applied and becomes a notice), or
+  `append(path, text)`, which needs no base and adds text exactly at the end of
+  whatever the server holds. Later changes in a batch follow a move made earlier
+  in it, so a callback is always one batch. A batch carries the device's
+  repository position, and each write's base is the hash of the text it started
+  from; the base text travels with it when the server lacks it (`need-base`),
+  and the server refuses a base text that does not hash to its hash. Setting a
+  value is a write that changes one frontmatter field. A batch carries its
+  policy, chosen by the verb that built it: `mark` for people, `refuse` for
+  callers that wait. A batch's outcome is `applied`, `need-base` or, for
+  `refuse` batches on overlap, `refused`; a `mark` batch is never refused
+  except on a protocol fault such as a batch out of order; within `applied`,
+  each file reports its overlaps and how each was settled, an edit kept over a
+  delete, and its text when that differs from what was sent. The per-device
+  number makes a retry return its recorded outcome, and a number at or below
+  the last one applied is never applied twice; the server stamps each batch
+  with the signed-in user, for permissions, history and `Co-authored-by` lines.
+  A reply streamed by an assistant is relayed live without being stored, then
+  written as one append.
+- **Two verbs.** `repo.write(b => ...)` and the direct handle calls are a
+  person's change: it resolves when saved in the device's database, works
+  offline, and is never refused because of a change made elsewhere; it can be
+  refused at once only for its own invalid input (a path, size or storage
+  failure). What happened shows in the data, and what needs a person's
+  attention (a rename or field value not applied, an edit saved as a sibling, a
+  protocol fault, which keeps the text the device showed) goes to
+  `repo.notices`, kept until dismissed. `repo.send(b => ...)` is for a caller
+  that waits: online only, it names the read each change guards (`{ from:
+  note }`, or `'latest'` said explicitly), does not change the device's copy
+  until the server answers, and is refused on overlap. A send whose answer was
+  lost ends `Unanswered` with an id, and `repo.verdict(id)` returns the stored
+  outcome later. Both verbs build with one set of handles. The CLI's commands
+  use `send` and fall back to a Git commit only when certainly offline. Unsent
+  writes to one path merge into one before sending.
 - **Repairing files.** A file either does not parse (its frontmatter is broken)
   or parses but does not match an app's schema. `<SourceEditor>`, a built-in
-  CodeMirror 6 component, edits any note's whole text, frontmatter included,
-  and shows the parse and schema status as you type; it saves through
-  `repo.files.writeText(path, text)` (or `repo.files.open(path)`, which reads
-  live like an open note). A write may never turn a file that parses into one
-  that does not; the device refuses it before it resolves, the server keeps
-  the current text under `mark` (with a notice holding the person's text) and
-  refuses it under `refuse`. So repairing a broken file can save every step,
-  editing a sound one saves only while it still parses, and a new file breaks
-  nothing, so it may arrive broken and be repaired here.
+  CodeMirror 6 component, edits any note's whole text and shows the parse and
+  schema status as you type, saving every keystroke through
+  `repo.files.writeText(path, text)` or an open file. The rule is enforced
+  where it protects someone: no synced file (on the server, in Git, on other
+  devices) ever goes from parsing to not parsing. A device saves text that does
+  not parse and holds it, unsent, until it parses again (see Devices); the
+  server keeps the current text and leaves a notice if a merge would break one,
+  and refuses it for a caller that waits. A new file breaks nothing, so it may
+  arrive broken and be repaired here.
 - **The app API.** `defineApp` maps identifier names to templates, each with a
-  schema or a blob declaration; names must be identifiers, so they never
-  collide with engine tables. Every handle takes a parameter object whose keys
-  TypeScript reads from the template: `repo.tasks.get({ project: 'acme', stem:
-  'fix-login' })`; `list` takes some segments as a filter; a template without
-  segments takes none (`repo.settings.get()`). Note handles offer `get`, `list`,
-  `create`, `write`, `move` and `delete`; blob handles offer `put`, `get`, `url`,
-  `list` and `delete`. `repo.batch(b => ...)` builds one batch synchronously from
-  write-only handles and resolves to one outcome per change, so a note and its
-  blob land together. A shorthand that fills in some segments (`in`, as in
-  `repo.tasks.in({ project: 'acme' })`) is deferred until call sites show it is
-  needed.
+  schema or a blob declaration; the repository's own members (`files`,
+  `notices`, `sql`, `pending`, `verdict`, `write`, `send`, `close`) are reserved
+  names, so adding one later is a deliberate breaking change. Every handle
+  takes a parameter object whose keys TypeScript reads from the template:
+  `repo.tasks.get({ project: 'acme', stem: 'fix-login' })`; `list` takes some
+  segments as a filter and `watch` follows it; a template without segments
+  takes none. Note handles offer `get`, `list`, `watch`, `open`, `create`,
+  `patch` (which requires the note to exist; `create` is the only creation),
+  `setField`, `append`, `rename` and `delete`; an open note's writes merge from
+  the text it showed. Blob handles offer `put`, `open`, `list` and `delete`.
+  `repo.files` reads and writes any synced Markdown file's whole text
+  (`readText` returns `{ path, text, version }`, a usable `from`), lists files
+  and opens one live; `app.check(text, { as })` reports parsing and schema
+  status. `repo.sql.read` and `repo.sql.watch` query the app's views and cannot
+  change anything. Everything that can be followed shares one contract: `read()`
+  and `subscribe(onChange)`. A shorthand that fills in some segments (`in`) is
+  deferred until call sites show it is needed.
 - **The Epicenter merge.** One pure function, used by the server, by devices
   replaying unsent edits, and by the CLI, merges a write against its base:
   frontmatter by key, where on a clash the current value wins and the other is
@@ -138,6 +145,28 @@ the server by that minute.
   compare actions and the app renders each block as a card; a field overlap
   keeps the current value; an unseen delete loses to an edit. Every overlap is
   stored with its batch and named in the commit's `Epicenter-Overlap` trailer.
+- **Blobs.** A blob is immutable bytes named by their SHA-256, scoped to the
+  repository, referenced by a canonical LFS pointer at a path whose template
+  declares its extensions (the media type comes from the extension). A pointer
+  is replaced as a whole, never merged: equal pointers are the same change; for
+  people the current one stays and the other is saved at a sibling path with a
+  notice; a waiting caller is refused. At every level a pointer names only
+  bytes that level can reach: a device seals the bytes, hashing them as it
+  writes, before saving the pointer; the pointer is held until its bytes are
+  uploaded and verified, while uploads run on their own track, in parallel and
+  in any order, so nothing behind them waits; the server admits a pointer only
+  for verified bytes, uploaded to a staging key and promoted to an immutable
+  one no client can write, and Git inherits that guarantee. Devices fetch bytes
+  on demand and cache them by hash, so a cache is never stale; bytes the server
+  lacks are pinned by whatever names them, and every other copy can be evicted.
+  Every host speaks the Git LFS batch protocol with one upload per object.
+  Published bytes are deleted only when an admin purges them from a Storage
+  view, which warns that old checkouts lose them and leaves a lasting marker;
+  a reference index of which commits name which bytes keeps that view exact,
+  and uploads that were never published expire on their own. The repository's
+  `.gitattributes` is the union of its apps' blob templates, committed before
+  any matching file is added. Limits start at 2 GB per blob and 10 GB per
+  repository, a server limit rather than space promised on a device.
 - **Agents.** Online, `epicenter` commands send the same batches and wait for
   the answer; offline, the same commands edit the local clone and commit, and
   the commit goes through `git push` when the server is reachable. A `git push` is not
@@ -157,32 +186,36 @@ the server by that minute.
 - **Reading.** Devices read committed files without the server object: the head
   commit and its sequence, the whole commit as one Git pack on first open, then
   a diff between two commits and changed files by content hash. They ask the object only for changes after that sequence, or
-  are told to resync from the head. Blob bytes are fetched on demand through
-  short-lived URLs and cached by hash.
-- **Devices.** Each repository is one SQLite file per device: in the browser's
-  storage (OPFS) through a worker owned by one tab at a time, natively on desktop,
-  and through Bun in the CLI, behind one driver interface and one shared engine.
-  Strict engine tables, named with a `/` so no app view can collide with
-  them: `"epicenter/files"` holds each synced file's path, the text this device
-  shows (an LFS pointer for a blob), the text the server last acknowledged,
-  the sequence and the hash the server reported; the body is generated from
-  the text, and parsed fields are generated where the driver can register a
-  function and written in the same statement as the text where it cannot; `"epicenter/outbox"` holds every unsent
-  batch in order, with its bases and the exact text sent; `"epicenter/meta"`
-  holds the device's id, its next number, its repository position, the parser
-  version and this device's own settings; `"epicenter/notices"` holds the
-  notices. Each app's templates become
-  temporary read-only views on the leader's connection, with saved indexes and
-  full-text search on the files table itself; apps query them in plain SQL and
-  write only through the API. Any change re-runs live queries, whose results
-  are compared before re-rendering; the file being edited is held open and read
-  synchronously. One tab owns a repository's database; another tab of the same
-  app offers "Use here", which waits for the first tab to release it, and the
-  first tab then shows that the app moved. The owning tab saves pending writes
-  and closes its database when it is hidden or frozen, and never takes the
-  database back on its own. Retries rest on the server's per-device numbers,
-  so no cross-tab protocol exists. Without a server, an app works fully, with
-  no history.
+  are told to resync from the head.
+- **Devices.** A device keeps replicas: one copy of one repository, written by
+  one account or a guest, bound to one server, in one storage area (a browser
+  origin's OPFS, a desktop data store, or a CLI clone's Git directory). A
+  replica is named by a random id and holds one SQLite database, its blob
+  objects and a small descriptor; a repository is named once by whoever creates
+  it, the server adopts that id when it is published, and a rename moves
+  nothing. The database records its repository and server, and the server
+  refuses a replica that greets it for a different one. Replicas meet only at
+  the server. Each file's text sits at levels, with one gate between each: what
+  the person sees, what this device has queued (its text passes once it parses),
+  and what the server has (a change passes once the server applies it). A change
+  moves down when its gate opens; when a level below changes, the levels above
+  merge onto it, so nothing waiting is lost. A file is therefore synced, sending
+  or held, and the reason for holding is named. A callback's changes that can
+  move now go together as one batch; a change whose gate is closed waits on its
+  own. Strict engine tables, named with a `/` so no app view can collide with
+  them, hold the files (this device's text, the text the server acknowledged,
+  the hash and sequence), the outbox in order, the device's metadata and the
+  notices; each app's templates become temporary read-only views on the owner's
+  connection, and any change re-runs live queries, whose results are compared
+  before re-rendering. One tab or process owns a replica at a time; another tab
+  offers "Use here", which waits for the first to release it. The owning tab
+  saves pending writes and closes its database when hidden or frozen, and never
+  takes it back on its own. A device asks the browser to keep its storage at
+  the first change that exists nowhere else, and says when it may not; a
+  repository that exists only in a browser is labelled at risk, with Export.
+  Signing out stops sync and hides that account's replicas; removing one is a
+  separate step that warns about unsent work. Without a server, an app works
+  fully, with no history.
 
 ## Consequences
 
@@ -196,7 +229,9 @@ sync engines such as Replicache. Two people typing in the same words at the same
 moment produce a conflict block; a live co-editing session can be
 added later if teams need it, replacing only body merging for that note.
 
-Undecided: when LFS lands.
+Accounts in one browser origin are not isolated from each other, and the
+browser can still evict an origin's unsent work; separate browser profiles,
+publishing and Export are the protections.
 
 ## Verification
 
@@ -239,3 +274,16 @@ recommended, not required. Cloudflare describes Artifacts as a Git server in
 WebAssembly with one Durable Object per repository, which fits a cost per
 entry of each rewritten folder. Two writers racing on `main` always produced
 exactly one winner.
+
+Three adversarial reviews, each with two Codex reviewers and one Claude
+reviewer working independently and then converging, settled the app API, the
+blob design and the device layout. They found, among other things, that writes
+chose their starting point by method (which lost text in one app), that a batch
+with a move was silently split, that pointers were merged as text and broke,
+and that a device database was not bound to its repository. A browser probe
+showed that a `File` handed from the worker to the page keeps reading after the
+worker ends, in Chromium, WebKit and Firefox. The engine on
+`claude/repository-engine` carries the first fixes (read-only SQL, notices kept
+until dismissed, writes starting from what the server will have, `send`
+naming its read, moves inside one batch); held text, the renamed API, the
+replica layout and blobs are still being built.
