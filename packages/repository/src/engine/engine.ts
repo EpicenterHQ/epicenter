@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL,
 	synced TEXT,
 	hash TEXT,
-	seq INTEGER NOT NULL DEFAULT 0
+	seq INTEGER NOT NULL DEFAULT 0,
+	held INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/outbox" (
 	n INTEGER PRIMARY KEY,
@@ -82,13 +83,20 @@ const EngineDiagnostic = defineErrors({
 });
 
 /**
- * One change as kept in the outbox: what was sent, and the text it leaves,
- * which this device shows for a person's write and shows only after an
- * applied verdict for a `send`.
+ * One change as kept in the outbox: what was sent, and the text it leaves
+ * at its path (a move's destination) once it lands as made. A person's
+ * write starts from the last of these for its path, the queued projection;
+ * a `send`'s shows here only after an applied verdict.
  */
 type Entry = { change: Change; local: string | null };
 
-type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number };
+/**
+ * A file on this device: the text it shows, the server's text and hash as
+ * this device last heard them, and `held`, 1 while `text` holds text this
+ * device keeps to itself beyond its queued changes, which no outbox row
+ * carries, so every reconciliation keeps it.
+ */
+type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number; held: number };
 
 /**
  * A file as reads return it: its text, the parsed fields as JSON (null when
@@ -163,13 +171,17 @@ export type EngineOptions<TDefs extends Definitions> = {
 const ROLLBACK = Symbol('rollback');
 
 /**
- * Bring a database an earlier build made up to this schema: its outbox kept
- * settled rows with their outcome for retried command ids, and had no
- * policy, since every batch it sent was a person's.
+ * Bring a database an earlier build made up to this schema, keeping its
+ * data: its files had no `held` column, its outbox kept settled rows with
+ * their outcome for retried command ids, and had no policy, since every
+ * batch it sent was a person's.
  */
 function upgrade(driver: SqlDriver) {
-	const columns = new Set(driver.all<{ name: string }>('SELECT name FROM pragma_table_info(\'epicenter/outbox\')').map((c) => c.name));
+	const columnsOf = (table: string) => new Set(driver.all<{ name: string }>('SELECT name FROM pragma_table_info(?)', [table]).map((c) => c.name));
+	const columns = columnsOf('epicenter/outbox');
+	const fileColumns = columnsOf('epicenter/files');
 	driver.transaction(() => {
+		if (!fileColumns.has('held')) driver.exec('ALTER TABLE "epicenter/files" ADD COLUMN held INTEGER NOT NULL DEFAULT 0');
 		if (!columns.has('policy')) driver.exec(`ALTER TABLE "epicenter/outbox" ADD COLUMN policy TEXT NOT NULL DEFAULT 'mark'`);
 		if (columns.has('outcome')) {
 			driver.exec('DELETE FROM "epicenter/outbox" WHERE outcome IS NOT NULL');
@@ -228,7 +240,7 @@ export function openEngine<const TDefs extends Definitions>({
 	// ------------------------------------------------------------------------
 
 	const row = (path: string) =>
-		first<FileRow>(driver, 'SELECT path, text, synced, hash, seq FROM "epicenter/files" WHERE path = ?', [path]);
+		first<FileRow>(driver, 'SELECT path, text, synced, hash, seq, held FROM "epicenter/files" WHERE path = ?', [path]);
 
 	/** Paths whose shown text changed since the last notification. */
 	const changed = new Set<string>();
@@ -242,9 +254,13 @@ export function openEngine<const TDefs extends Definitions>({
 		if (recent.size > RECENT_TEXTS) recent.delete(recent.keys().next().value as string);
 	}
 
-	/** The one write path: text and its parsed fields in the same statement. */
-	function put(path: string, next: Omit<FileRow, 'path'>) {
+	/**
+	 * The one write path: text and its parsed fields in the same statement.
+	 * `held` stays what it was unless `next` says.
+	 */
+	function put(path: string, { held: nextHeld, ...next }: Omit<FileRow, 'path' | 'held'> & { held?: number }) {
 		const previous = row(path);
+		const held = nextHeld ?? previous?.held ?? 0;
 		if ((previous?.text ?? null) !== next.text) changed.add(path);
 		if (previous !== undefined && previous.hash !== next.hash) remember(previous.hash, previous.synced);
 		if (next.text === null && next.synced === null) {
@@ -252,20 +268,21 @@ export function openEngine<const TDefs extends Definitions>({
 			return;
 		}
 		if (computedFields)
-			driver.run('INSERT OR REPLACE INTO "epicenter/files" (path, text, synced, hash, seq) VALUES (?, ?, ?, ?, ?)', [
+			driver.run('INSERT OR REPLACE INTO "epicenter/files" (path, text, synced, hash, seq, held) VALUES (?, ?, ?, ?, ?, ?)', [
 				path,
 				next.text,
 				next.synced,
 				next.hash,
 				next.seq,
+				held,
 			]);
 		else
 			driver.run(
-				'INSERT OR REPLACE INTO "epicenter/files" (path, text, fields, synced, hash, seq) VALUES (?, ?, ?, ?, ?, ?)',
-				[path, next.text, fieldsOf(next.text), next.synced, next.hash, next.seq],
+				'INSERT OR REPLACE INTO "epicenter/files" (path, text, fields, synced, hash, seq, held) VALUES (?, ?, ?, ?, ?, ?, ?)',
+				[path, next.text, fieldsOf(next.text), next.synced, next.hash, next.seq, held],
 			);
 	}
-	const keep = (path: string) => row(path) ?? { path, text: null, synced: null, hash: null, seq: 0 };
+	const keep = (path: string): FileRow => row(path) ?? { path, text: null, synced: null, hash: null, seq: 0, held: 0 };
 
 	/** Only Markdown files and LFS pointers live on devices. */
 	const isDeviceFile = (path: string, text: string | null) =>
@@ -313,18 +330,25 @@ export function openEngine<const TDefs extends Definitions>({
 	// Server changes
 	// ------------------------------------------------------------------------
 
-	function serverFile(file: FileState, seq: number, carried?: { base: string | null; local: string | null }) {
+	/** A file a move made elsewhere took along: this device's text of it, what that text was based on, and whether it was held. */
+	type Carried = { base: string | null; local: string | null; held: number };
+
+	function serverFile(file: FileState, seq: number, carried?: Carried) {
 		if (!isDeviceFile(file.path, file.text)) return;
 		const current = keep(file.path);
 		if (current.seq > seq) return;
 		const base = carried?.base ?? current.synced;
 		const local = carried?.local ?? current.text;
-		put(file.path, { text: rebaseLocal(base, local, file.text), synced: file.text, hash: file.hash, seq });
+		// A note this device moved here, unacknowledged, is not what the server
+		// put here: the server keeps its own, and the move is put back.
+		const movedByThisDevice = carried === undefined && current.text !== null && current.synced === null && movedHere(file.path);
+		const text = movedByThisDevice ? local : rebaseLocal(base, local, file.text);
+		put(file.path, { text, synced: file.text, hash: file.hash, seq, held: carried?.held });
 	}
 
 	function receive(broadcast: Broadcast) {
 		driver.transaction(() => {
-			const carried = new Map<string, { base: string | null; local: string | null }>();
+			const carried = new Map<string, Carried>();
 			for (const move of broadcast.moves) carryMove(move, carried);
 			for (const file of broadcast.files) serverFile(file, broadcast.seq, carried.get(file.path));
 			advance(broadcast.seq);
@@ -333,11 +357,11 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	/** A move made elsewhere takes this device's unsent edits of the file along. */
-	function carryMove({ from, to }: Move, carried: Map<string, { base: string | null; local: string | null }>) {
+	function carryMove({ from, to }: Move, carried: Map<string, Carried>) {
 		const source = row(from);
 		if (source === undefined || source.text === source.synced) return;
-		carried.set(to, { base: source.synced, local: source.text });
-		put(from, { ...source, text: null, synced: null, hash: null });
+		carried.set(to, { base: source.synced, local: source.text, held: source.held });
+		put(from, { ...source, text: null, synced: null, hash: null, held: 0 });
 	}
 
 	// ------------------------------------------------------------------------
@@ -346,26 +370,51 @@ export function openEngine<const TDefs extends Definitions>({
 
 	type Local = { kind: 'write'; path: string; text: string | null } | { kind: 'move'; from: string; to: string } | { kind: 'append'; path: string; text: string };
 
-	/** Apply one change on this device and say what to send. Runs inside the batch's transaction. */
+	/**
+	 * Apply one change on this device and say what to send. Runs inside the
+	 * batch's transaction. The change starts from the queued projection,
+	 * what the server will have once this device's queued writes land, never
+	 * from the text shown here, which can hold changes merged in from
+	 * elsewhere or text this device keeps to itself.
+	 */
 	function applyLocal(change: Local): Entry {
-		// A move or append is made only to a file this device holds, so its base is that text.
 		const baseOf = (text: string) => ({ hash: gitBlobHash(text), text });
 		if (change.kind === 'move') {
 			const source = keep(change.from);
 			const destination = keep(change.to);
+			const moved = projection(change.from);
 			put(change.from, { ...source, text: null });
 			put(change.to, { ...destination, text: source.text });
-			return { change, local: source.text };
+			return { change, local: moved };
 		}
 		const current = keep(change.path);
+		const from = projection(change.path);
 		if (change.kind === 'append') {
-			const text = (current.text ?? '') + change.text;
-			put(change.path, { ...current, text });
-			return { change: { ...change, base: baseOf(current.text ?? '') }, local: text };
+			put(change.path, { ...current, text: (current.text ?? '') + change.text });
+			return { change: { ...change, base: baseOf(from ?? '') }, local: (from ?? '') + change.text };
 		}
-		const base = current.text === null ? null : baseOf(current.text);
 		put(change.path, { ...current, text: change.text });
-		return { change: { kind: 'write', path: change.path, base, text: change.text }, local: change.text };
+		return { change: { kind: 'write', path: change.path, base: from === null ? null : baseOf(from), text: change.text }, local: change.text };
+	}
+
+	/** A person's queued entries, oldest first. */
+	const queuedEntries = () => unsent().flatMap((batch) => JSON.parse(batch.changes) as Entry[]);
+
+	/**
+	 * What the server will have at `path` once every queued change of a
+	 * person lands as made: what the last queued change touching it leaves
+	 * (nothing at a move's source), or the server's text.
+	 */
+	function projection(path: string): string | null {
+		const last = queuedEntries().findLast((entry) => pathsOf(entry).includes(path));
+		if (last === undefined) return row(path)?.synced ?? null;
+		return last.change.kind === 'move' && last.change.from === path ? null : last.local;
+	}
+
+	/** Whether this device moved a note to `path` and the move is still queued: the last change touching `path` is that move. */
+	function movedHere(path: string): boolean {
+		const last = queuedEntries().findLast((entry) => pathsOf(entry).includes(path));
+		return last?.change.kind === 'move' && last.change.to === path;
 	}
 
 	/** Every op but a blob put, whose bytes are stored first and which then writes its pointer's text. */
@@ -786,16 +835,30 @@ export function openEngine<const TDefs extends Definitions>({
 			[except],
 		);
 
-	/** Whether an unsent batch other than `except` touches `path`. */
+	/** Whether a queued batch other than `except` touches `path`. */
 	const isPending = (path: string, except: number) =>
 		unsent(except).some((p) => (JSON.parse(p.changes) as Entry[]).some((e) => pathsOf(e).includes(path)));
 
-	/** Show the server's text again unless a later unsent change still covers the path. */
-	function revert(path: string, except: number) {
-		if (isPending(path, except)) return;
+	/**
+	 * Whether this device shows text of its own at `path` beyond what batch
+	 * `n` sent: a later queued change, or text it holds. Otherwise what it
+	 * shows beyond `sent` is only what reached it from elsewhere, and the
+	 * server's answer already holds that.
+	 */
+	const keepsOwn = (path: string, n: number) => keep(path).held === 1 || isPending(path, n);
+
+	/**
+	 * Show the server's text again where batch `n`'s change did not land,
+	 * keeping this device's own text beyond `sent`, what the change left
+	 * here, rebased onto the server's.
+	 */
+	function revert(path: string, sent: string | null, n: number) {
 		const current = keep(path);
-		put(path, { ...current, text: current.synced });
+		put(path, { ...current, text: keepsOwn(path, n) ? rebaseLocal(sent, current.text, current.synced) : current.synced });
 	}
+
+	/** What an entry left at `path` when it was made: nothing at a move's source. */
+	const leftAt = ({ change, local }: Entry, path: string) => (change.kind === 'move' && change.from === path ? null : local);
 
 	/**
 	 * A move that did not land puts its note back at `from`, and later unsent
@@ -807,25 +870,25 @@ export function openEngine<const TDefs extends Definitions>({
 	 */
 	function putBack(
 		{ from, to }: { from: string; to: string },
-		server?: { text: string | null; hash: string | null; seq: number; base: string | null },
+		sent: string | null,
+		server?: { text: string | null; hash: string | null; seq: number },
 	) {
 		if (server !== undefined) put(from, { ...keep(from), synced: server.text, hash: server.hash, seq: server.seq });
 		const entries = unsent().map((batch) => ({ n: batch.n, entries: JSON.parse(batch.changes) as Entry[] }));
 		if (entries.some((batch) => batch.entries.some((entry) => pathsOf(entry).includes(from)))) {
-			for (const path of [from, to]) revert(path, -1);
+			revert(from, null, -1);
+			revert(to, sent, -1);
 			return;
 		}
 		const moved = keep(to);
 		const here = keep(from);
-		if (server === undefined) put(from, { ...here, text: moved.text });
-		else {
-			// The note's own text: what the last unsent change to it left, or what
-			// the move carried. The row at `to` may also hold what the server put
-			// there since, merged in.
-			const later = entries.flatMap((batch) => batch.entries).filter((entry) => pathsOf(entry).includes(to)).at(-1);
-			put(from, { ...here, text: rebaseLocal(server.base, later === undefined ? server.base : later.local, here.synced) });
-		}
-		put(to, { ...moved, text: moved.synced });
+		// The note's own text goes back with it, rebased onto the server's
+		// text at `from`: what the last queued change to it left, or what the
+		// move carried, or the text this device holds for it.
+		const later = entries.flatMap((batch) => batch.entries).findLast((entry) => pathsOf(entry).includes(to));
+		const own = moved.held === 1 ? moved.text : (later?.local ?? sent);
+		put(from, { ...here, text: rebaseLocal(sent, own, here.synced), held: moved.held });
+		put(to, { ...moved, text: moved.synced, held: 0 });
 		const aimed = (path: string) => (path === to ? from : path);
 		for (const batch of entries) {
 			const retargeted = batch.entries.map(({ change, local }): Entry => ({
@@ -849,12 +912,13 @@ export function openEngine<const TDefs extends Definitions>({
 	 */
 	function acknowledge(n: number, entry: Entry, outcome: ChangeOutcome, seq: number) {
 		const { change, local: sent } = entry;
+		// This device's own text beyond what it sent stays, rebased onto the server's answer.
 		const rebase = (path: string, local: string | null, server: string | null) =>
-			isPending(path, n) ? rebaseLocal(sent, local, server) : server;
+			keepsOwn(path, n) ? rebaseLocal(sent, local, server) : server;
 		const serverText = outcome.text !== undefined ? outcome.text : change.kind === 'write' ? change.text : null;
 		if (change.kind === 'move' && keptInPlace(outcome)) {
 			// The current path won: the note stays where the server has it.
-			putBack({ from: outcome.at ?? change.from, to: change.to }, { text: serverText, hash: outcome.hash, seq, base: sent });
+			putBack({ from: outcome.at ?? change.from, to: change.to }, sent, { text: serverText, hash: outcome.hash, seq });
 			return;
 		}
 		const clash = outcome.overlaps.find((overlap) => overlap.unit === 'path');
@@ -862,7 +926,7 @@ export function openEngine<const TDefs extends Definitions>({
 			// The change did not land where it was aimed, which may now hold a
 			// different note: show the server's text there again, and the change
 			// in the sibling the server made for it.
-			for (const path of pathsOf(entry)) revert(path, n);
+			for (const path of pathsOf(entry)) revert(path, leftAt(entry, path), n);
 			if (outcome.at !== null) put(outcome.at, { text: serverText, synced: serverText, hash: outcome.hash, seq });
 			return;
 		}
@@ -879,16 +943,21 @@ export function openEngine<const TDefs extends Definitions>({
 		}
 		if (outcome.at === null) {
 			const current = keep(change.path);
-			put(change.path, { text: isPending(change.path, n) ? current.text : null, synced: null, hash: null, seq });
+			put(change.path, { text: rebase(change.path, current.text, null), synced: null, hash: null, seq });
 			return;
 		}
 		const current = keep(change.path);
 		if (outcome.movedTo !== null) {
 			// The edit followed its note to `at`, by a move made elsewhere or to a
-			// sibling the server made for it. The path it named shows the server's
-			// text again: nothing after a move, a different note after a reuse.
-			revert(change.path, n);
-			put(outcome.at, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
+			// sibling the server made for it, and this device's text of the note
+			// goes with it: from the path the edit named, or from `at` when a move
+			// elsewhere already carried it there. The path it named shows the
+			// server's text again: nothing after a move, a different note after a
+			// reuse. Later changes aimed at it still show there until answered.
+			const source = current.text === null && current.synced === null ? keep(outcome.at) : current;
+			const own = keepsOwn(source.path, n) ? rebaseLocal(sent, source.text, serverText) : serverText;
+			if (!isPending(change.path, n)) put(change.path, { ...current, text: current.synced, held: 0 });
+			put(outcome.at, { text: own, synced: serverText, hash: outcome.hash, seq, held: source.held });
 			return;
 		}
 		put(change.path, { text: rebase(change.path, current.text, serverText), synced: serverText, hash: outcome.hash, seq });
@@ -938,10 +1007,10 @@ export function openEngine<const TDefs extends Definitions>({
 					return;
 				// The server never refuses a person's batch but for a fault.
 				case 'refused':
-					fault(n, entries, outcome.reason);
+					fault(entries, outcome.reason);
 					return;
 				case 'need-base':
-					fault(n, entries, NO_BASE);
+					fault(entries, NO_BASE);
 					return;
 			}
 		});
@@ -1001,15 +1070,15 @@ export function openEngine<const TDefs extends Definitions>({
 	 * resolves, so this is a bug. The device shows the server's text again,
 	 * and each notice keeps what it showed, so nothing typed is lost.
 	 */
-	function fault(n: number, entries: Entry[], reason: string) {
-		for (const { change } of entries) {
+	function fault(entries: Entry[], reason: string) {
+		for (const { change, local } of entries) {
 			if (change.kind === 'move') {
-				putBack(change);
+				putBack(change, local);
 				notice('protocol', change.from, reason);
 				continue;
 			}
 			const shown = keep(change.path).text;
-			revert(change.path, n);
+			revert(change.path, local, -1);
 			const after = keep(change.path).text;
 			notice('protocol', change.path, reason, after === shown ? null : shown);
 		}
