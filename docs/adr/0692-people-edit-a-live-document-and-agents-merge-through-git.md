@@ -57,7 +57,8 @@ the server by that minute.
 - **Operations.** Every request is one batch, `{ device, n, changes }`, applied
   all or nothing, with one outcome per change; a `git push` is the same batch.
   A change is `write(path, base, text)` (create, edit, or, with no text,
-  delete), `move(from, to)`, which is refused if the destination is taken, or
+  delete), `move(from, to)`, which is refused if the destination is taken and is sent
+  in a batch of its own so that a refusal affects nothing else, or
   `append(path, text)`, which needs no base and can still be stale after a
   delete or an untraceable move. A batch carries the device's repository
   position, and each write's base is the hash of the text it started from; the device keeps the base text and sends it when the
@@ -65,7 +66,7 @@ the server by that minute.
   `repo.settings.set('theme', 'dark')`, is a write that changes one frontmatter
   field. A batch's outcome is `applied`, `need-base` or `refused` (on overlap
   when the caller is waiting for the answer, and for anyone on a structural
-  refusal such as a move onto a taken path or a batch out of order); within `applied`, each file reports its overlaps, dropped values,
+  refusal such as a move onto a taken path or a batch out of order); within `applied`, each file reports its overlaps and how each was settled,
   an edit kept over a delete, and its text when that differs from what was
   sent. The per-device number makes a retry return its recorded outcome, and a
   number at or below the last one applied is never applied twice; the server stamps each batch with the signed-in user, for
