@@ -84,7 +84,11 @@ const EngineDiagnostic = defineErrors({
 	}),
 });
 
-/** One change as kept in the outbox: what was sent and what this device then showed. */
+/**
+ * One change as kept in the outbox: what was sent, and the text it leaves,
+ * which this device shows for a person's write and shows only after an
+ * applied verdict for a `send`.
+ */
 type Entry = { change: Change; local: string | null };
 
 type FileRow = { path: string; text: string | null; synced: string | null; hash: string | null; seq: number };
@@ -864,6 +868,7 @@ export function openEngine<const TDefs extends Definitions>({
 
 	/** Settle a person's batch: fold its outcome into this device's files, note what they should know, and drop its row. */
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
+		let faulted = false;
 		driver.transaction(() => {
 			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
 			switch (outcome.kind) {
@@ -881,14 +886,18 @@ export function openEngine<const TDefs extends Definitions>({
 					return;
 				case 'refused':
 					if (isTakenMove(entries, outcome)) refuseMove(entries[0]?.change as Extract<Change, { kind: 'move' }>, outcome.reason);
-					else fault(n, entries, outcome.reason);
+					else {
+						fault(n, entries, outcome.reason);
+						faulted = true;
+					}
 					return;
 				case 'need-base':
 					fault(n, entries, NO_BASE);
+					faulted = true;
 					return;
 			}
 		});
-		if (outcome.kind !== 'applied') log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
+		if (faulted) log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
 		notify();
 	}
 

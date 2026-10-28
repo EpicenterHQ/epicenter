@@ -13,9 +13,10 @@ current page flow and verify it against the code.
 - Do not add a migration or compatibility path for earlier Honeycrisp data.
 - Reads are live queries (`live` from `@epicenter/repository/svelte`); the
   open note is held open (`opened`). Writes go through the repository's
-  handles, apply at once, and are reported with `report` when they do not
-  land. Never await a write's `Pending` in an action: without a server it
-  never settles.
+  handles, apply at once, resolve once saved on the device, and are reported
+  with `report` when they cannot be saved. What the server later does with a
+  saved write is a notice (`repo.notices`), shown by `Notices.svelte`; never
+  wait for the server in an action.
 - A write names only the fields and body it changes. Never rewrite a whole
   note to change part of it.
 - A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
