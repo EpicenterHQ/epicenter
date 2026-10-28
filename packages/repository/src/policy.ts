@@ -4,8 +4,9 @@
  *
  * - `'mark'`: a device write has already been shown as done, so it always
  *   lands. Body overlaps become conflict blocks, the current field value is
- *   kept, an edit beats a delete it had not seen, two creates are joined, and
- *   a change whose path no longer holds its note is relocated or dropped.
+ *   kept, an edit beats a delete it had not seen (of a file or of a key), two
+ *   creates are joined, and a change whose path no longer holds its note is
+ *   relocated or dropped.
  * - `'refuse'`: a `git push` or an awaited call can pull and retry, so any
  *   overlap refuses the whole batch and nothing changes.
  */
@@ -30,11 +31,11 @@ export function settle(overlaps: Overlap[], onOverlap: OnOverlap): Decision {
 function settledAs(overlap: Overlap): SettledOverlap['settled'] {
 	switch (overlap.unit) {
 		case 'body':
-			return 'marked';
 		case 'block':
-			return 'current-kept';
+			return 'marked';
 		case 'field':
-			return 'current-kept';
+			// A key one side deleted keeps the other side's change.
+			return overlap.current === undefined || overlap.incoming === undefined ? 'edit-kept' : 'current-kept';
 		case 'file':
 			return overlap.clash === 'created' ? 'joined' : 'edit-kept';
 		case 'path':

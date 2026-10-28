@@ -15,7 +15,9 @@ import type { Overlap } from './protocol.js';
 
 const cases: [Overlap, string][] = [
 	[{ unit: 'body', base: 'cat', current: 'cart', incoming: 'coat', start: 0, end: 4 }, 'marked'],
+	[{ unit: 'block', base: 'x', current: 'y', incoming: 'z', start: 0, end: 1 }, 'marked'],
 	[{ unit: 'field', key: 'status', base: 'a', current: 'b', incoming: 'c' }, 'current-kept'],
+	[{ unit: 'field', key: 'status', base: 'a', incoming: 'c' }, 'edit-kept'],
 	[{ unit: 'file', clash: 'deleted', side: 'current' }, 'edit-kept'],
 	[{ unit: 'file', clash: 'created' }, 'joined'],
 	[{ unit: 'path', clash: 'reused', relocatedTo: 'a (bob, 2026-10-28).md' }, 'relocated'],

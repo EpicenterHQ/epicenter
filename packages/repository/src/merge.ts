@@ -2,8 +2,9 @@
  * The Epicenter merge: one pure function that merges a write against its base.
  * The server, devices replaying unsent edits, and the CLI all use it.
  *
- * - Frontmatter merges by key. On a clash the current value wins; no markers
- *   ever go into frontmatter.
+ * - Frontmatter merges by key. On a clash the current value wins, except that
+ *   a key one side deleted keeps the other side's change, as a file does; no
+ *   markers ever go into frontmatter.
  * - The body merges by line, so edits on neighboring lines do not conflict;
  *   lines both sides changed merge again by word, so letters never blend.
  *   Two insertions at one point are both kept, current first.
@@ -82,9 +83,10 @@ function markdown(base: string | null, current: string, incoming: string): Merge
 	const b = base === null ? null : parseMarkdown(base);
 	const c = parseMarkdown(current);
 	const i = parseMarkdown(incoming);
+	const created: ContentOverlap[] = base === null && current !== incoming ? [{ unit: 'file', clash: 'created' }] : [];
 	// Unparseable frontmatter on any side: merge the whole text as body.
 	if (c.error !== null || i.error !== null || b?.error) {
-		return finish(bodyParts(base ?? '', current, incoming), []);
+		return finish(bodyParts(base ?? '', current, incoming), created);
 	}
 	const baseFields = b?.data.fields ?? {};
 	const { chosen, clashes } = chooseFields(baseFields, c.data.fields, i.data.fields);
@@ -98,9 +100,9 @@ function markdown(base: string | null, current: string, incoming: string): Merge
 		if (!sameValue(c.data.fields[key], chosen[key])) changed[key] = chosen[key];
 	const written = writeMarkdown(current, { fields: changed, body: mergedBody });
 	// Current parsed, so writing its own fields back cannot fail.
-	if (written.error !== null) return finish(bodyParts(base ?? '', current, incoming), []);
+	if (written.error !== null) return finish(bodyParts(base ?? '', current, incoming), created);
 	const header = written.data.slice(0, splitMarkdown(written.data).bodyStart);
-	return finish(parts, clashes, header);
+	return finish(parts, [...created, ...clashes], header);
 }
 
 function chooseFields(
@@ -118,7 +120,8 @@ function chooseFields(
 		if (sameValue(c, i) || sameValue(i, b)) value = c;
 		else if (sameValue(c, b)) value = i;
 		else {
-			value = c;
+			// Both changed it: current wins, but a delete loses to an edit it had not seen.
+			value = c === undefined ? i : c;
 			clashes.push({
 				unit: 'field',
 				key,
@@ -152,7 +155,7 @@ function finish(parts: Part[], fields: ContentOverlap[], header = ''): MergeResu
 		const start = text.length;
 		text += part.overlap.current;
 		const { base, current, incoming } = part.overlap;
-		const unit = current.includes('<<<<<<< ') || incoming.includes('<<<<<<< ') ? 'block' : 'body';
+		const unit = [base, current, incoming].some(hasBlock) ? 'block' : 'body';
 		overlaps.push({ unit, base, current, incoming, start, end: text.length });
 	}
 	return { text, overlaps };
@@ -184,6 +187,15 @@ function lines(text: string) {
 }
 
 const words = (text: string) => text.match(/\S+|\s+/g) ?? [];
+const hasBlock = (text: string) => text.includes('<<<<<<< ');
+
+/** A span's plain lines, and the conflict blocks in it, each whole. */
+function splitBlocks(text: string) {
+	const plain: string[] = [];
+	const blocks: string[] = [];
+	for (const line of lines(text)) (line.startsWith('<<<<<<< ') && line.includes('\n>>>>>>> ') ? blocks : plain).push(line);
+	return { plain: plain.join(''), blocks };
+}
 
 function bodyParts(base: string, current: string, incoming: string): Part[] {
 	const parts: Part[] = [];
@@ -194,7 +206,7 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 		}
 		const { overlap } = part;
 		// Marker blocks stay atomic: never split, so never nested.
-		if (overlap.current.includes('<<<<<<< ') || overlap.incoming.includes('<<<<<<< ')) {
+		if ([overlap.base, overlap.current, overlap.incoming].some(hasBlock)) {
 			parts.push(part);
 			continue;
 		}
@@ -396,33 +408,45 @@ export type MarkerLabels = { current: string; incoming: string };
 
 /**
  * Write each body overlap as a Git conflict block with a base section, current
- * (earlier in server order) first. A block already in the text is left as is,
- * so blocks never nest.
+ * (earlier in server order) first.
+ *
+ * Blocks never nest. An overlap whose span holds an existing block keeps that
+ * block whole and writes the plain lines both sides changed as a separate
+ * block next to it, followed by any block only incoming had, so neither side
+ * is lost.
  */
 export function withMarkers(result: MergeResult, labels: MarkerLabels): string | null {
 	if (result.text === null) return null;
 	const eol = result.text.includes('\r\n') ? '\r\n' : '\n';
 	const line = (text: string) => text + eol;
 	const terminated = (text: string) => (text !== '' && !text.endsWith(eol) ? text + eol : text);
+	const conflict = (current: string, base: string, incoming: string) =>
+		line(`<<<<<<< ${labels.current}`) +
+		terminated(current) +
+		line('||||||| base') +
+		terminated(base) +
+		line('=======') +
+		terminated(incoming) +
+		line(`>>>>>>> ${labels.incoming}`);
 	let out = '';
 	let at = 0;
 	for (const overlap of result.overlaps) {
 		if (!isSpan(overlap)) continue;
 		out += result.text.slice(at, overlap.start);
+		if (out !== '' && !out.endsWith(eol)) out += eol;
 		if (overlap.unit === 'block') {
-			out += overlap.current;
+			const current = splitBlocks(overlap.current);
+			const incoming = splitBlocks(overlap.incoming);
+			out +=
+				current.plain === incoming.plain
+					? terminated(current.plain)
+					: conflict(current.plain, splitBlocks(overlap.base).plain, incoming.plain);
+			for (const block of [...current.blocks, ...incoming.blocks.filter((b) => !current.blocks.includes(b))])
+				out += terminated(block);
 			at = overlap.end;
 			continue;
 		}
-		if (out !== '' && !out.endsWith(eol)) out += eol;
-		out +=
-			line(`<<<<<<< ${labels.current}`) +
-			terminated(overlap.current) +
-			line('||||||| base') +
-			terminated(overlap.base) +
-			line('=======') +
-			terminated(overlap.incoming) +
-			line(`>>>>>>> ${labels.incoming}`);
+		out += conflict(overlap.current, overlap.base, overlap.incoming);
 		// A block around an inline span takes the line's old terminator.
 		at = !overlap.current.endsWith(eol) && result.text.startsWith(eol, overlap.end) ? overlap.end + eol.length : overlap.end;
 	}

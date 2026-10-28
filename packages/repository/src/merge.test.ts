@@ -9,8 +9,9 @@
  * Key behaviors:
  * - Neighboring line edits, separate sentence edits and same-point appends merge
  * - A true overlap is reported, never blended (cat/cart/coat)
- * - Frontmatter merges by parsed key; a clash keeps current and reports a field overlap
- * - Two creates merge fields and keep both bodies; delete versus edit is a file overlap
+ * - Frontmatter merges by parsed key; a clash keeps current, a key's unseen delete loses
+ * - Two creates merge fields and keep both bodies; both they and delete versus edit are reported
+ * - An overlap touching an existing block adds a separate, adjacent block; blocks never nest
  * - Large notes merge in bounded memory
  */
 import { describe, expect, test } from 'bun:test';
@@ -86,10 +87,30 @@ describe('examples', () => {
 		expect(r.text).toBe('---\na: 1\nc: 3\n---\n');
 	});
 
-	test('two offline creates merge fields and keep both bodies', () => {
+	test('a key deleted on one side and changed on the other keeps the change', () => {
+		// Probe: current's unseen delete used to win, unlike the file-level rule.
+		const r = merge('---\nstatus: a\ntitle: t\n---\nx\n', '---\ntitle: t\n---\nx\n', '---\nstatus: b\ntitle: t\n---\nx\n');
+		expect(r.text).toBe('---\ntitle: t\nstatus: b\n---\nx\n');
+		expect(r.overlaps).toEqual([{ unit: 'field', key: 'status', base: 'a', incoming: 'b' }]);
+		const other = merge('---\nstatus: a\ntitle: t\n---\nx\n', '---\nstatus: c\ntitle: t\n---\nx\n', '---\ntitle: t\n---\nx\n');
+		expect(other.text).toBe('---\nstatus: c\ntitle: t\n---\nx\n');
+		expect(other.overlaps).toEqual([{ unit: 'field', key: 'status', base: 'a', current: 'c' }]);
+	});
+
+	test('two offline creates merge fields, keep both bodies and report the clash', () => {
 		const r = merge(null, '---\nweather: sun\n---\nMorning', '---\nmood: good\n---\nEvening');
 		expect(r.text).toBe('---\nweather: sun\nmood: good\n---\nMorning\n\nEvening');
-		expect(r.overlaps).toHaveLength(0);
+		expect(r.overlaps).toEqual([{ unit: 'file', clash: 'created' }]);
+	});
+
+	test('two creates with a clashing field keep current and report both', () => {
+		// Probe: these used to merge with no overlap, so a 'refuse' peer was not refused.
+		const r = merge(null, '---\nstatus: a\n---\nbody c\n', '---\nstatus: b\n---\nbody i\n');
+		expect(r.text).toBe('---\nstatus: a\n---\nbody c\n\nbody i\n');
+		expect(r.overlaps).toEqual([
+			{ unit: 'file', clash: 'created' },
+			{ unit: 'field', key: 'status', current: 'a', incoming: 'b' },
+		]);
 	});
 
 	test('two identical creates are one file', () => {
@@ -139,13 +160,37 @@ describe('examples', () => {
 		);
 	});
 
-	test('a further edit around existing markers never nests markers', () => {
-		const first = withMarkers(merge('cat\n', 'cart\n', 'coat\n'), labels);
+	test('a further edit of an existing block adds a separate block, never a nested one', () => {
+		const first = withMarkers(merge('cat\n', 'cart\n', 'coat\n'), labels) ?? '';
 		const r = merge('cat\n', first, 'cut\n');
+		expect(r.overlaps).toMatchObject([{ unit: 'block' }]);
 		const marked = withMarkers(r, labels) ?? '';
-		expect(marked.match(/^<<<<<<< /gm)).toHaveLength(1);
-		expect(parseConflicts(marked).filter((s) => 'conflict' in s)).toHaveLength(1);
-		expect(r.overlaps.length).toBeGreaterThan(0);
+		expect(marked).toBe(`<<<<<<< current\n||||||| base\ncat\n=======\ncut\n>>>>>>> incoming\n${first}`);
+		const blocks = parseConflicts(marked).flatMap((s) => ('conflict' in s ? [s.conflict] : []));
+		expect(blocks).toHaveLength(2);
+		for (const block of blocks) expect(block.current + block.incoming).not.toContain('<<<<<<< ');
+	});
+
+	test('an overlap touching an existing block keeps both sides', () => {
+		// Probe: current edits a plain line and a line in the block; incoming edits
+		// the plain line and resolves the block. Incoming used to vanish.
+		const block = '<<<<<<< x\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> y\n';
+		const edited = block.replace('one', 'ONE');
+		const r = merge(`intro\n${block}end\n`, `intro by cur\n${edited}end\n`, 'intro by inc\nresolved\nend\n');
+		expect(r.overlaps).toMatchObject([{ unit: 'block' }]);
+		const marked = withMarkers(r, { current: 'A', incoming: 'B' }) ?? '';
+		expect(marked).toBe(
+			`<<<<<<< A\nintro by cur\n||||||| base\nintro\n=======\nintro by inc\nresolved\n>>>>>>> B\n${edited}end\n`,
+		);
+		expect(parseConflicts(marked).filter((s) => 'conflict' in s)).toHaveLength(2);
+	});
+
+	test('two edits inside one block become two adjacent blocks', () => {
+		const block = '<<<<<<< x\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> y\n';
+		const mine = block.replace('one', 'ONE');
+		const theirs = block.replace('two', 'TWO');
+		const marked = withMarkers(merge(`a\n${block}`, `a\n${mine}`, `a\n${theirs}`), labels);
+		expect(marked).toBe(`a\n${mine}${theirs}`);
 	});
 
 	test('an identical concurrent change appears once', () => {

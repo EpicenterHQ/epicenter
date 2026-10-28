@@ -142,6 +142,58 @@ test('two creates at one path merge fields and keep both bodies', async () => {
 	await t.cleanup();
 });
 
+test('an overlap touching an existing conflict block keeps both sides as separate blocks', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'pet' }, { body: 'intro\ncat\nend\n' }));
+	t.bob.transport.setOnline(false);
+	void t.bob.repo.notes.write({ stem: 'pet' }, { body: 'intro\ncoat\nend\n' });
+	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: 'intro\ncart\nend\n' }));
+	t.bob.transport.setOnline(true);
+	await t.settle(t.bob, t.alice);
+	const blocked = text(t.alice.repo, 'pet') ?? '';
+	expect(text(t.bob.repo, 'pet')).toBe(blocked);
+	expect(blocked.match(/^<<<<<<< /gm)).toHaveLength(1);
+
+	// Alice edits the intro and a line inside the block; Bob, offline, edits the
+	// intro and resolves the block.
+	t.bob.transport.setOnline(false);
+	void t.bob.repo.notes.write({ stem: 'pet' }, { body: 'intro by bob\ncoat\nend\n' });
+	expectOk(await t.alice.repo.notes.write({ stem: 'pet' }, { body: blocked.replace('intro', 'intro by alice').replace('cart', 'CART') }));
+	t.bob.transport.setOnline(true);
+	await t.settle(t.bob, t.alice);
+	const final = text(t.alice.repo, 'pet') ?? '';
+	expect(text(t.bob.repo, 'pet')).toBe(final);
+	for (const kept of ['intro by alice', 'CART', 'intro by bob\ncoat\n']) expect(final).toContain(kept);
+	expect(final.match(/^<<<<<<< /gm)).toHaveLength(2);
+	await t.cleanup();
+});
+
+test("two creates at one path are refused for a 'refuse' device", async () => {
+	const t = await setup();
+	const agent = t.device('agent-1', 'claude', 'refuse');
+	await agent.repo.flush();
+	agent.transport.setOnline(false);
+	const created = agent.repo.notes.create({ stem: 'daily' }, { fields: { weather: 'rain' }, body: 'Agent\n' });
+	expectOk(await t.alice.repo.notes.create({ stem: 'daily' }, { fields: { weather: 'sun' }, body: 'Alice\n' }));
+	agent.transport.setOnline(true);
+	expect(expectOk(await created)).toMatchObject({ kind: 'refused', path: 'notes/daily.md', reason: 'both sides created the file' });
+	expect(await t.server.read('notes/daily.md')).toBe('---\nweather: sun\n---\nAlice\n');
+	await t.cleanup();
+});
+
+test('a setting deleted on one device and changed on another keeps the change', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.settings.set('theme', 'light'));
+	await t.settle(t.alice, t.bob);
+	t.bob.transport.setOnline(false);
+	void t.bob.repo.settings.set('theme', 'dark');
+	expectOk(await t.alice.repo.settings.set('theme', undefined));
+	t.bob.transport.setOnline(true);
+	await t.settle(t.bob, t.alice);
+	for (const repo of [t.alice.repo, t.bob.repo]) expect(repo.settings.get()?.fields).toEqual({ theme: 'dark' });
+	await t.cleanup();
+});
+
 test('an edit made before a move follows it, and a move onto a taken path is refused', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));

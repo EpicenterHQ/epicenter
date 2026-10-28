@@ -141,6 +141,20 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
+	test("two creates at one path are joined for 'mark' and refused for 'refuse'", async () => {
+		const t = await setup();
+		await t.alice.push(t.batch('alice-laptop', 0, t.write('notes/a.md', null, '---\nstatus: a\n---\nbody c\n')));
+		const refused = await t.agent.push(t.batch('agent-1', 0, t.write('notes/a.md', null, '---\nstatus: b\n---\nbody i\n')));
+		expect(refused).toMatchObject({ kind: 'refused', path: 'notes/a.md', reason: 'both sides created the file' });
+		const joined = await t.bob.push(t.batch('bob-phone', 0, t.write('notes/a.md', null, '---\nstatus: b\n---\nbody i\n')));
+		expect(joined).toMatchObject({
+			kind: 'applied',
+			changes: [{ overlaps: [{ unit: 'file', clash: 'created', settled: 'joined' }, { unit: 'field', key: 'status', settled: 'current-kept' }] }],
+		});
+		expect(await t.server.read('notes/a.md')).toBe('---\nstatus: a\n---\nbody c\n\nbody i\n');
+		await t.cleanup();
+	});
+
 	test('a retried batch returns its recorded outcome without applying twice', async () => {
 		const t = await setup();
 		const batch = t.batch('alice-laptop', 0, { kind: 'write', path: 'log.md', base: null, text: 'one\n' });
