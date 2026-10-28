@@ -514,9 +514,8 @@ export function openEngine<const TDefs extends Definitions>({
 
 	/**
 	 * Apply ops locally and queue them, in one transaction. A move is sent as
-	 * a batch of its own: the server refuses it when its destination is
-	 * taken, and that refusal should undo only the move, not the changes
-	 * around it.
+	 * a batch of its own, so a move the server leaves undone, or a fault in
+	 * one, touches nothing around it.
 	 */
 	function apply(ops: Ready[]): Result<undefined, WriteError> {
 		if (closed) return WriteError.Closed();
@@ -770,19 +769,33 @@ export function openEngine<const TDefs extends Definitions>({
 	}
 
 	/**
-	 * A refused move puts its note back at `from`, as this device shows it,
-	 * and later unsent changes aimed at `to` are aimed at `from` again, so
-	 * they reach the note and never the one that took `to`. When a later
-	 * change also names `from`, only the server's texts are shown again.
+	 * A move that did not land puts its note back at `from`, and later unsent
+	 * changes aimed at `to` are aimed at `from` again, so they reach the note
+	 * and never what holds `to`. `server` is the note's text at `from` when
+	 * the server reported it, and `base` the text the move carried: edits
+	 * made here since are rebased onto it. When a later change also names
+	 * `from`, only the server's texts are shown again.
 	 */
-	function putBack({ from, to }: { from: string; to: string }) {
+	function putBack(
+		{ from, to }: { from: string; to: string },
+		server?: { text: string | null; hash: string | null; seq: number; base: string | null },
+	) {
+		if (server !== undefined) put(from, { ...keep(from), synced: server.text, hash: server.hash, seq: server.seq });
 		const entries = unsent().map((batch) => ({ n: batch.n, entries: JSON.parse(batch.changes) as Entry[] }));
 		if (entries.some((batch) => batch.entries.some((entry) => pathsOf(entry).includes(from)))) {
 			for (const path of [from, to]) revert(path, -1);
 			return;
 		}
 		const moved = keep(to);
-		put(from, { ...keep(from), text: moved.text });
+		const here = keep(from);
+		if (server === undefined) put(from, { ...here, text: moved.text });
+		else {
+			// The note's own text: what the last unsent change to it left, or what
+			// the move carried. The row at `to` may also hold what the server put
+			// there since, merged in.
+			const later = entries.flatMap((batch) => batch.entries).filter((entry) => pathsOf(entry).includes(to)).at(-1);
+			put(from, { ...here, text: rebaseLocal(server.base, later === undefined ? server.base : later.local, here.synced) });
+		}
 		put(to, { ...moved, text: moved.synced });
 		const aimed = (path: string) => (path === to ? from : path);
 		for (const batch of entries) {
@@ -794,6 +807,12 @@ export function openEngine<const TDefs extends Definitions>({
 		}
 	}
 
+	/** A move the server did not apply, since the note was renamed since or its destination is another note's. */
+	const keptInPlace = (outcome: ChangeOutcome) =>
+		outcome.overlaps.some(
+			(overlap) => (overlap.unit === 'field' && overlap.key === 'path') || (overlap.unit === 'path' && overlap.clash === 'taken'),
+		);
+
 	/**
 	 * Fold the server's answer for one sent change into this device's files.
 	 * With no later unsent change to the path, the server's text is the answer;
@@ -804,6 +823,11 @@ export function openEngine<const TDefs extends Definitions>({
 		const rebase = (path: string, local: string | null, server: string | null) =>
 			isPending(path, n) ? rebaseLocal(sent, local, server) : server;
 		const serverText = outcome.text !== undefined ? outcome.text : change.kind === 'write' ? change.text : null;
+		if (change.kind === 'move' && keptInPlace(outcome)) {
+			// The current path won: the note stays where the server has it.
+			putBack({ from: outcome.at ?? change.from, to: change.to }, { text: serverText, hash: outcome.hash, seq, base: sent });
+			return;
+		}
 		const clash = outcome.overlaps.find((overlap) => overlap.unit === 'path');
 		if (clash !== undefined) {
 			// The change did not land where it was aimed, which may now hold a
@@ -868,7 +892,6 @@ export function openEngine<const TDefs extends Definitions>({
 
 	/** Settle a person's batch: fold its outcome into this device's files, note what they should know, and drop its row. */
 	function conclude(n: number, entries: Entry[], outcome: BatchOutcome) {
-		let faulted = false;
 		driver.transaction(() => {
 			driver.run('DELETE FROM "epicenter/outbox" WHERE n = ?', [n]);
 			switch (outcome.kind) {
@@ -884,48 +907,43 @@ export function openEngine<const TDefs extends Definitions>({
 					}
 					advance(outcome.seq);
 					return;
+				// The server never refuses a person's batch but for a fault.
 				case 'refused':
-					if (isTakenMove(entries, outcome)) refuseMove(entries[0]?.change as Extract<Change, { kind: 'move' }>, outcome.reason);
-					else {
-						fault(n, entries, outcome.reason);
-						faulted = true;
-					}
+					fault(n, entries, outcome.reason);
 					return;
 				case 'need-base':
 					fault(n, entries, NO_BASE);
-					faulted = true;
 					return;
 			}
 		});
-		if (faulted) log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
+		if (outcome.kind !== 'applied') log.warn(EngineDiagnostic.BatchNotApplied({ n, outcome }));
 		notify();
 	}
+
+	/** A path's last segment without `.md`: the name a person knows a note by. */
+	const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1).replace(/\.md$/, '');
 
 	/** A person's change that landed somewhere other than where it was aimed, or nowhere. */
 	function noteLanding({ change }: Entry, result: ChangeOutcome) {
 		const aimed = change.kind === 'move' ? change.from : change.path;
+		if (change.kind === 'move' && keptInPlace(result)) {
+			const at = result.at ?? change.from;
+			const renamed = at !== change.from;
+			notice(
+				'refused',
+				at,
+				renamed
+					? `renamed to '${nameOf(at)}' elsewhere; your rename to '${nameOf(change.to)}' wasn't applied`
+					: `'${nameOf(change.to)}' is taken; your note is still '${nameOf(at)}'`,
+			);
+			return;
+		}
 		for (const overlap of result.overlaps) {
 			if (overlap.unit !== 'path') continue;
 			if (overlap.settled === 'relocated' && overlap.relocatedTo !== null)
 				notice('relocated', overlap.relocatedTo, `${describe(overlap)}, so this change to ${aimed} was saved here`);
 			else if (overlap.settled === 'dropped') notice('dropped', aimed, describe(overlap));
 		}
-	}
-
-	/** A move refused because another note took its destination: always alone in its batch. */
-	const isTakenMove = (entries: Entry[], outcome: Extract<BatchOutcome, { kind: 'refused' }>) =>
-		entries.length === 1 &&
-		entries[0]?.change.kind === 'move' &&
-		outcome.overlaps.some((overlap) => overlap.unit === 'path' && overlap.clash === 'taken');
-
-	/**
-	 * A move onto a name another note took is refused for everyone, so the
-	 * note goes back where it was and the person is told. Kept apart because
-	 * a taken move may instead land at a sibling name.
-	 */
-	function refuseMove(move: Extract<Change, { kind: 'move' }>, reason: string) {
-		putBack(move);
-		notice('refused', move.from, reason);
 	}
 
 	/**

@@ -11,7 +11,7 @@
  * - A retried batch returns its recorded outcome, or `applied` once its commit cleared it; a gap is refused
  * - An unknown base answers need-base, and the resent base applies
  * - A change made any number of commits ago is traced exactly, with no window
- * - Edits follow moves; a move onto a taken path is refused for every caller
+ * - Edits follow moves; a path is a note's field, so a rename of a renamed note or onto a taken path keeps the current path for people and refuses an agent
  * - A change whose path no longer holds its note goes to a sibling note, and
  *   later changes from the same position follow it
  * - Commits carry `Epicenter-Seq`, a trailer per path event and an
@@ -236,7 +236,7 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
-	test('an edit follows a move, and a move onto a taken path is refused for every caller', async () => {
+	test('an edit follows a move; a move onto a taken path keeps the occupant for people and is refused for agents', async () => {
 		const t = await setup();
 		await seed(t, 'notes/a.md', 'A\n');
 		const seq = await seed(t, 'notes/b.md', 'B\n');
@@ -246,24 +246,51 @@ describe('batches', () => {
 		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
 		expect(await t.server.read('notes/a.md')).toBeNull();
 		const now = t.server.sequence();
-		for (const [peer, device] of [
-			[t.agent, 'agent-1'],
-			[t.alice, 'alice-laptop'],
-		] as const) {
-			const refused = await peer.push(t.batch(device, now, t.move('notes/b.md', 'notes/renamed.md')));
-			expect(refused).toEqual({
-				kind: 'refused',
-				path: 'notes/renamed.md',
-				reason: 'the destination is taken',
-				overlaps: [{ unit: 'path', clash: 'taken', relocatedTo: null }],
-			});
-		}
+		const refused = await t.agent.push(t.batch('agent-1', now, t.move('notes/b.md', 'notes/renamed.md')));
+		expect(refused).toEqual({
+			kind: 'refused',
+			path: 'notes/renamed.md',
+			reason: 'the destination is taken',
+			overlaps: [{ unit: 'path', clash: 'taken', relocatedTo: null }],
+		});
 		expect(t.server.sequence()).toBe(now);
+		// A person's move is never refused: the occupant keeps the path, and the note stays.
+		const kept = await t.alice.push(t.batch('alice-laptop', now, t.move('notes/b.md', 'notes/renamed.md')));
+		expect(kept).toMatchObject({
+			kind: 'applied',
+			changes: [{ path: 'notes/b.md', at: 'notes/b.md', text: 'B\n', overlaps: [{ unit: 'path', clash: 'taken', settled: 'current-kept' }] }],
+		});
 		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
 		expect(await t.server.read('notes/b.md')).toBe('B\n');
 		// A move a device made before it saw the same move land is already done.
 		const same = await t.bob.push(t.batch('bob-phone', seq, t.move('notes/a.md', 'notes/renamed.md')));
 		expect(same).toMatchObject({ kind: 'applied', changes: [{ path: 'notes/a.md', at: 'notes/renamed.md', movedTo: 'notes/renamed.md' }] });
+		await t.cleanup();
+	});
+
+	test('two renames of one note: the current path wins for people, and an agent is refused', async () => {
+		const t = await setup();
+		const seq = await seed(t, 'notes/trip.md', 'Trip\n');
+		await t.alice.push(t.batch('alice-laptop', seq, t.move('notes/trip.md', 'notes/kyoto.md')));
+		const kept = await t.bob.push(t.batch('bob-phone', seq, t.move('notes/trip.md', 'notes/japan.md')));
+		expect(kept).toMatchObject({
+			kind: 'applied',
+			changes: [
+				{
+					path: 'notes/trip.md',
+					at: 'notes/kyoto.md',
+					movedTo: 'notes/kyoto.md',
+					overlaps: [{ unit: 'field', key: 'path', current: 'notes/kyoto.md', incoming: 'notes/japan.md', settled: 'current-kept' }],
+				},
+			],
+		});
+		const refused = await t.agent.push(t.batch('agent-1', seq, t.move('notes/trip.md', 'notes/japan.md')));
+		expect(refused).toMatchObject({ kind: 'refused', path: 'notes/trip.md', reason: 'the note was renamed elsewhere' });
+		expect(await t.server.read('notes/kyoto.md')).toBe('Trip\n');
+		expect(await t.server.read('notes/japan.md')).toBeNull();
+		// No sibling is made for a move.
+		await t.server.commit();
+		expect([...(await t.git.readTree((await t.git.readCommit((await t.git.readRef('refs/heads/main')) ?? ''))?.tree ?? '')).keys()]).toEqual(['notes/kyoto.md']);
 		await t.cleanup();
 	});
 

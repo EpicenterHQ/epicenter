@@ -33,6 +33,8 @@ export type Traced = {
 	reused: boolean;
 	/** The sequence of the delete, or null. */
 	vacatedAt: number | null;
+	/** The note was moved by a change the caller had not seen. */
+	moved: boolean;
 };
 
 /**
@@ -44,6 +46,7 @@ export function trace(path: string, since: number, events: SequencedEvent[]): Tr
 	let deleted = false;
 	let reused = false;
 	let vacatedAt: number | null = null;
+	let moved = false;
 	for (const event of events) {
 		if (event.seq <= since) continue;
 		if (event.kind === 'relocate') {
@@ -60,13 +63,15 @@ export function trace(path: string, since: number, events: SequencedEvent[]): Tr
 			else if ((event.kind === 'create' && event.path === at) || (event.kind === 'move' && event.dest === at)) reused = true;
 			continue;
 		}
-		if (event.kind === 'move' && event.path === at) at = event.dest;
-		else if (event.kind === 'delete' && event.path === at) {
+		if (event.kind === 'move' && event.path === at) {
+			at = event.dest;
+			moved = true;
+		} else if (event.kind === 'delete' && event.path === at) {
 			deleted = true;
 			vacatedAt = event.seq;
 		}
 	}
-	return { path: at, deleted, reused, vacatedAt };
+	return { path: at, deleted, reused, vacatedAt, moved };
 }
 
 // ----------------------------------------------------------------------------

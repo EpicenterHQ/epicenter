@@ -7,7 +7,9 @@
  *   lands. Body overlaps become conflict blocks, the current field value is
  *   kept, an edit beats a delete it had not seen (of a file or of a key), two
  *   creates are joined, and a change whose path no longer holds its note is
- *   relocated or dropped.
+ *   relocated or dropped. A path is one of a note's fields: a rename of a
+ *   note renamed since, or onto a path another note holds, keeps the current
+ *   path (`{ unit: 'field', key: 'path' }`, or a `taken` path clash).
  * - `'refuse'`: a `git push` or a `send` waits for its verdict and can read
  *   again and retry, so any overlap refuses the whole batch and nothing
  *   changes.
@@ -44,6 +46,7 @@ function settledAs(overlap: Overlap): SettledOverlap['settled'] {
 		case 'file':
 			return overlap.clash === 'created' ? 'joined' : 'edit-kept';
 		case 'path':
+			if (overlap.clash === 'taken') return 'current-kept';
 			return overlap.relocatedTo === null ? 'dropped' : 'relocated';
 	}
 }
@@ -55,6 +58,7 @@ export function describe(overlap: Overlap): string {
 		case 'block':
 			return 'the change overlaps changes since its base';
 		case 'field':
+			if (overlap.key === 'path') return 'the note was renamed elsewhere';
 			return `the field '${overlap.key}' changed on both sides`;
 		case 'file':
 			return overlap.clash === 'created' ? 'both sides created the file' : 'a delete and an edit of the same file';

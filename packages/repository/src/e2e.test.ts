@@ -10,7 +10,8 @@
  * Key behaviors:
  * - Edits appear on other devices; offline edits merge on reconnect
  * - Overlaps become marker blocks for people and refusals for agents
- * - Creates at one path merge; moves carry stale edits; a move onto a taken path is refused
+ * - Creates at one path merge; moves carry stale edits
+ * - A path is a note's field: a rename of a renamed note, or onto a taken name, keeps the current path and tells the person; a send is refused
  * - A change whose path no longer holds its note becomes a sibling note everyone sees
  * - Delete versus edit keeps the edit; root-record sets merge by key; appends keep server order
  * - Retries and need-base; a note and its blob land together
@@ -347,27 +348,110 @@ test('an edit made before a move follows it', async () => {
 	await t.cleanup();
 });
 
-test('a move onto a taken path is refused, the note stays where it was on the device, and the person is told', async () => {
+// ============================================================================
+// A path is one of a note's fields: the current one wins
+// ============================================================================
+
+test('two renames of one note made offline: the one that landed first wins, and the other device is told', async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'trip' }, { body: 'Trip\n' }));
+	await t.settle(t.alice, t.bob);
+	t.alice.transport.setOnline(false);
+	t.bob.transport.setOnline(false);
+	expectOk(await t.alice.repo.notes.move({ stem: 'trip' }, { stem: 'kyoto' }));
+	expectOk(await t.bob.repo.notes.move({ stem: 'trip' }, { stem: 'japan' }));
+	// An edit Bob makes to the renamed note before he hears back follows it.
+	expectOk(await t.bob.repo.notes.append({ stem: 'japan' }, 'Temples.\n'));
+	t.alice.transport.setOnline(true);
+	await t.alice.repo.flush();
+	t.bob.transport.setOnline(true);
+	await t.settle(t.bob, t.alice);
+	for (const repo of [t.alice.repo, t.bob.repo]) {
+		expect(await text(repo, 'kyoto')).toBe('Trip\nTemples.\n');
+		expect(await repo.notes.list()).toHaveLength(1);
+	}
+	expect(await notices(t.bob.repo)).toEqual([
+		{ kind: 'refused', path: 'notes/kyoto.md', reason: "renamed to 'kyoto' elsewhere; your rename to 'japan' wasn't applied", kept: null },
+	]);
+	expect(await notices(t.alice.repo)).toEqual([]);
+	await t.cleanup();
+});
+
+test('a rename made offline onto a name another note took keeps that note there, and this one where it was', async () => {
 	const t = await setup();
 	await landed(t.alice, t.alice.repo.notes.create({ stem: 'final' }, { body: 'one\n' }));
 	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	await landed(t.alice, t.alice.repo.notes.create({ stem: 'taken' }, { body: 'mine\n' }));
-	const move = t.bob.repo.notes.move({ stem: 'final' }, { stem: 'taken' });
-	// An edit Bob makes to the moved note before the refusal arrives stays with it.
-	const edit = t.bob.repo.notes.append({ stem: 'taken' }, 'two\n');
+	expectOk(await t.bob.repo.notes.move({ stem: 'final' }, { stem: 'taken' }));
+	// An edit Bob makes to the moved note before he hears back stays with it.
+	expectOk(await t.bob.repo.notes.append({ stem: 'taken' }, 'two\n'));
 	expect(await text(t.bob.repo, 'taken')).toBe('one\ntwo\n');
 	expect(await text(t.bob.repo, 'final')).toBeNull();
-	expectOk(await move);
-	expectOk(await edit);
 	t.bob.transport.setOnline(true);
-	await t.settle(t.alice, t.bob);
-	expect(await notices(t.bob.repo)).toEqual([{ kind: 'refused', path: 'notes/final.md', reason: 'the destination is taken', kept: null }]);
+	await t.settle(t.bob, t.alice);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
 		expect(await text(repo, 'final')).toBe('one\ntwo\n');
 		expect(await text(repo, 'taken')).toBe('mine\n');
 		expect(await repo.notes.list()).toHaveLength(2);
 	}
+	expect(await notices(t.bob.repo)).toEqual([
+		{ kind: 'refused', path: 'notes/final.md', reason: "'taken' is taken; your note is still 'final'", kept: null },
+	]);
+	await t.cleanup();
+});
+
+test('a rename alone shows the server again where the note stays, with nothing left unsent', async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'final' }, { body: 'one\n' }));
+	await t.settle(t.alice, t.bob);
+	t.bob.transport.setOnline(false);
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'taken' }, { body: 'mine\n' }));
+	expectOk(await t.bob.repo.notes.move({ stem: 'final' }, { stem: 'taken' }));
+	t.bob.transport.setOnline(true);
+	await t.settle(t.bob, t.alice);
+	expect(await text(t.bob.repo, 'final')).toBe('one\n');
+	expect(await text(t.bob.repo, 'taken')).toBe('mine\n');
+	expect(await t.bob.repo.query('SELECT count(*) AS n FROM "epicenter/files" WHERE text IS NOT synced')).toEqual([{ n: 0 }]);
+	await t.cleanup();
+});
+
+test('a send renaming a note renamed since it was sent is refused, and changes nothing', async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'trip' }, { body: 'Trip\n' }));
+	const agent = t.gated('agent-1', 'claude');
+	await agent.repo.flush();
+	t.alice.transport.setOnline(false);
+	expectOk(await t.alice.repo.notes.move({ stem: 'trip' }, { stem: 'kyoto' }));
+	agent.hold();
+	const sent = agent.repo.send((b) => b.notes.move({ stem: 'trip' }, { stem: 'japan' }));
+	t.alice.transport.setOnline(true);
+	await t.alice.repo.flush();
+	agent.release();
+	expect(expectOk(await sent)).toMatchObject({ kind: 'refused', path: 'notes/trip.md', reason: 'the note was renamed elsewhere' });
+	await agent.repo.flush();
+	expect(await text(agent.repo, 'kyoto')).toBe('Trip\n');
+	expect(await agent.repo.notes.list()).toHaveLength(1);
+	expect(await t.server.read('notes/japan.md')).toBeNull();
+	await t.cleanup();
+});
+
+test('a send renaming a note onto a name another note took meanwhile is refused, and changes nothing', async () => {
+	const t = await setup();
+	await landed(t.alice, t.alice.repo.notes.create({ stem: 'final' }, { body: 'one\n' }));
+	const agent = t.gated('agent-1', 'claude');
+	await agent.repo.flush();
+	t.alice.transport.setOnline(false);
+	expectOk(await t.alice.repo.notes.create({ stem: 'taken' }, { body: 'mine\n' }));
+	agent.hold();
+	const sent = agent.repo.send((b) => b.notes.move({ stem: 'final' }, { stem: 'taken' }));
+	t.alice.transport.setOnline(true);
+	await t.alice.repo.flush();
+	agent.release();
+	expect(expectOk(await sent)).toMatchObject({ kind: 'refused', path: 'notes/taken.md', reason: 'the destination is taken' });
+	await agent.repo.flush();
+	expect(await text(agent.repo, 'final')).toBe('one\n');
+	expect(await text(agent.repo, 'taken')).toBe('mine\n');
 	await t.cleanup();
 });
 

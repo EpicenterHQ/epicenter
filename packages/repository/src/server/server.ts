@@ -10,7 +10,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { gitBlobHash } from '../hash.js';
 import { merge, withMarkers } from '../merge.js';
-import { describe, settle } from '../policy.js';
+import { settle } from '../policy.js';
 import type {
 	Base,
 	Batch,
@@ -333,11 +333,19 @@ export function createRepositoryServer({
 					outcomes.push(outcome({ path: change.from, at: to, hash: gitBlobHash(text), text, movedTo }));
 					continue;
 				}
-				// A taken destination refuses the move for everyone: there is no
-				// sibling to put a moved note in that later changes could follow.
-				if (exists(to)) {
-					const taken: Overlap = { unit: 'path', clash: 'taken', relocatedTo: null };
-					return refuse(to, describe(taken), [taken]);
+				// The path is one of the note's fields, and the current one wins: a
+				// rename of a note renamed since, or onto another note's path, leaves
+				// the note where it is. No sibling is made for a move.
+				const kept: Overlap | null = from.moved
+					? { unit: 'field', key: 'path', base: change.from, current: from.path, incoming: to }
+					: exists(to)
+						? { unit: 'path', clash: 'taken', relocatedTo: null }
+						: null;
+				if (kept !== null) {
+					const decision = settle([kept], batch.policy);
+					if (decision.kind === 'refuse') return refuse(kept.unit === 'path' ? to : change.from, decision.reason, decision.overlaps);
+					outcomes.push(outcome({ path: change.from, at: from.path, hash: gitBlobHash(text), text, movedTo, overlaps: decision.overlaps }));
+					continue;
 				}
 				work.set(from.path, null);
 				work.set(to, text);
