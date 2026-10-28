@@ -19,7 +19,7 @@ export type PathEvent =
 	/**
 	 * A change made before sequence `before` that addresses `path` means the
 	 * note the server put at `dest`: a note displaced from `path` by a reuse,
-	 * a taken destination, or an identity the window could not establish.
+	 * or by an identity the window could not establish.
 	 */
 	| { kind: 'relocate'; path: string; dest: string; before: number };
 
@@ -89,17 +89,6 @@ export function createPathHistory(driver: SqlDriver) {
 				}
 			}
 			return { path: at, deleted, reused, vacatedAt };
-		},
-
-		/** The sequence at which the note now at `path` arrived there, if the history holds it. */
-		arrivedAt(path: string): number | null {
-			return (
-				first<{ seq: number }>(
-					driver,
-					"SELECT seq FROM history WHERE (kind IN ('create', 'restore') AND path = ?) OR (kind IN ('move', 'relocate') AND dest = ?) ORDER BY seq DESC, id DESC LIMIT 1",
-					[path, path],
-				)?.seq ?? null
-			);
 		},
 
 		record(seq: number, events: PathEvent[]) {

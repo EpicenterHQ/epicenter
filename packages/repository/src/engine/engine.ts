@@ -258,9 +258,9 @@ export function openRepository<const TDefs extends Definitions>({
 
 	/**
 	 * Apply ops locally and queue them, in one transaction. A move is sent as
-	 * a batch of its own: the server may relocate or drop it, and later
-	 * changes aimed at its destination should then follow it as their own
-	 * batch, not ride along in its.
+	 * a batch of its own: the server refuses it when its destination is
+	 * taken, and that refusal should undo only the move, not the changes
+	 * around it.
 	 */
 	function submit(ops: Op[]): Pending<Settled[]> {
 		if (closed) return Promise.resolve(WriteError.Closed());
@@ -321,6 +321,32 @@ export function openRepository<const TDefs extends Definitions>({
 	}
 
 	/**
+	 * A refused move puts its note back at `from`, as this device shows it,
+	 * and later unsent changes aimed at `to` are aimed at `from` again, so
+	 * they reach the note and never the one that took `to`. When a later
+	 * change also names `from`, only the server's texts are shown again.
+	 */
+	function putBack({ from, to }: { from: string; to: string }) {
+		const later = driver.all<{ n: number; changes: string }>('SELECT n, changes FROM "epicenter/outbox" ORDER BY n');
+		const entries = later.map((batch) => ({ n: batch.n, entries: JSON.parse(batch.changes) as Entry[] }));
+		if (entries.some((batch) => batch.entries.some((entry) => pathsOf(entry).includes(from)))) {
+			for (const path of [from, to]) revert(path, -1);
+			return;
+		}
+		const moved = keep(to);
+		put(from, { ...keep(from), text: moved.text });
+		put(to, { ...moved, text: moved.synced });
+		const aimed = (path: string) => (path === to ? from : path);
+		for (const batch of entries) {
+			const retargeted = batch.entries.map(({ change, local }): Entry => ({
+				local,
+				change: change.kind === 'move' ? { ...change, from: aimed(change.from) } : { ...change, path: aimed(change.path) },
+			}));
+			driver.run('UPDATE "epicenter/outbox" SET changes = ? WHERE n = ?', [JSON.stringify(retargeted), batch.n]);
+		}
+	}
+
+	/**
 	 * Fold the server's answer for one sent change into this device's files.
 	 * With no later unsent change to the path, the server's text is the answer;
 	 * otherwise the later edits are rebased onto it.
@@ -331,7 +357,7 @@ export function openRepository<const TDefs extends Definitions>({
 			isPending(path, n) ? rebaseLocal(sent, local, server) : server;
 		const serverText = outcome.text !== undefined ? outcome.text : change.kind === 'write' ? change.text : null;
 		const clash = outcome.overlaps.find((overlap) => overlap.unit === 'path');
-		if (clash !== undefined && clash.clash !== 'taken') {
+		if (clash !== undefined) {
 			// The change did not land where it was aimed, which may now hold a
 			// different note: show the server's text there again, and the change
 			// in the sibling the server made for it.
@@ -346,12 +372,8 @@ export function openRepository<const TDefs extends Definitions>({
 				const origin = keep(outcome.movedTo);
 				if (origin.text === origin.synced) put(outcome.movedTo, { ...origin, text: null, synced: null, hash: null, seq });
 			}
-			// Onto a taken destination the note went to a sibling, and `to` holds the other note.
-			const at = outcome.at ?? change.to;
-			if (at !== change.to) revert(change.to, n);
-			const destination = keep(at);
-			const text = at === change.to ? rebase(at, destination.text, serverText) : serverText;
-			put(at, { text, synced: serverText, hash: outcome.hash, seq });
+			const destination = keep(change.to);
+			put(change.to, { text: rebase(change.to, destination.text, serverText), synced: serverText, hash: outcome.hash, seq });
 			return;
 		}
 		if (outcome.at === null) {
@@ -387,8 +409,11 @@ export function openRepository<const TDefs extends Definitions>({
 				return;
 			}
 			// Nothing landed. A 'refuse' caller is told and still holds what it
-			// wrote; the device shows the server's text again.
-			for (const entry of entries) for (const path of pathsOf(entry)) revert(path, n);
+			// wrote; the device shows the server's text again, and a refused move
+			// (always alone in its batch) puts its note back.
+			for (const { change } of entries)
+				if (change.kind === 'move') putBack(change);
+				else revert(change.path, n);
 		});
 		switch (outcome.kind) {
 			case 'applied':

@@ -11,8 +11,9 @@
  * - A retried batch returns its recorded outcome, or `applied` once that is pruned; a gap is refused
  * - An unknown base answers need-base, and the resent base applies
  * - Past the window, a changed file's edit is relocated ('mark') or expired ('refuse')
- * - Edits follow moves; a change whose path no longer holds its note goes to a
- *   sibling note, and later changes from the same position follow it
+ * - Edits follow moves; a move onto a taken path is refused for every caller
+ * - A change whose path no longer holds its note goes to a sibling note, and
+ *   later changes from the same position follow it
  * - Commits carry `Epicenter-Seq` and an `Epicenter-Overlap` per settled overlap,
  *   clear the overlay and land on a timer
  * - Agent pushes: overlap and bad files refused, a clean push is a merge parent
@@ -231,7 +232,7 @@ describe('batches', () => {
 		await t.cleanup();
 	});
 
-	test("an edit follows a move; a move onto a taken path goes to a sibling for 'mark' and is refused for 'refuse'", async () => {
+	test('an edit follows a move, and a move onto a taken path is refused for every caller', async () => {
 		const t = await setup();
 		await seed(t, 'notes/a.md', 'A\n');
 		const seq = await seed(t, 'notes/b.md', 'B\n');
@@ -241,27 +242,24 @@ describe('batches', () => {
 		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
 		expect(await t.server.read('notes/a.md')).toBeNull();
 		const now = t.server.sequence();
-		const refused = await t.agent.push(t.batch('agent-1', now, t.move('notes/b.md', 'notes/renamed.md', 'B\n')));
-		expect(refused).toMatchObject({
-			kind: 'refused',
-			path: 'notes/renamed.md',
-			reason: 'the destination is taken',
-			overlaps: [{ unit: 'path', clash: 'taken', relocatedTo: null }],
-		});
-		const taken = await t.alice.push(t.batch('alice-laptop', now, t.move('notes/b.md', 'notes/renamed.md', 'B\n')));
-		const sibling = 'notes/renamed (alice, 2026-10-28).md';
-		expect(taken).toMatchObject({
-			kind: 'applied',
-			changes: [{ path: 'notes/b.md', at: sibling, overlaps: [{ unit: 'path', clash: 'taken', relocatedTo: sibling, settled: 'relocated' }] }],
-		});
-		expect(t.heard.at(-1)?.moves).toEqual([{ from: 'notes/b.md', to: sibling }]);
+		for (const [peer, device] of [
+			[t.agent, 'agent-1'],
+			[t.alice, 'alice-laptop'],
+		] as const) {
+			const refused = await peer.push(t.batch(device, now, t.move('notes/b.md', 'notes/renamed.md', 'B\n')));
+			expect(refused).toEqual({
+				kind: 'refused',
+				path: 'notes/renamed.md',
+				reason: 'the destination is taken',
+				overlaps: [{ unit: 'path', clash: 'taken', relocatedTo: null }],
+			});
+		}
+		expect(t.server.sequence()).toBe(now);
 		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
-		expect(await t.server.read(sibling)).toBe('B\n');
-		// A later edit alice made to the moved note, from before the move landed, follows it.
-		const later = await t.alice.push(t.batch('alice-laptop', seq, t.write('notes/renamed.md', 'B\n', 'B edited\n')));
-		expect(later).toMatchObject({ kind: 'applied', changes: [{ at: sibling }] });
-		expect(await t.server.read(sibling)).toBe('B edited\n');
-		expect(await t.server.read('notes/renamed.md')).toBe('A edited\n');
+		expect(await t.server.read('notes/b.md')).toBe('B\n');
+		// A move a device made before it saw the same move land is already done.
+		const same = await t.bob.push(t.batch('bob-phone', seq, t.move('notes/a.md', 'notes/renamed.md', 'A\n')));
+		expect(same).toMatchObject({ kind: 'applied', changes: [{ path: 'notes/a.md', at: 'notes/renamed.md', movedTo: 'notes/renamed.md' }] });
 		await t.cleanup();
 	});
 

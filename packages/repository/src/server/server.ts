@@ -10,7 +10,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { gitBlobHash } from '../hash.js';
 import { merge, withMarkers } from '../merge.js';
-import { type OnOverlap, settle } from '../policy.js';
+import { describe, type OnOverlap, settle } from '../policy.js';
 import type {
 	Base,
 	Batch,
@@ -342,32 +342,24 @@ export function createRepositoryServer({
 					outcomes.push(outcome({ path: change.from, overlaps: decision.overlaps }));
 					continue;
 				}
-				let to = change.to;
-				let overlaps: SettledOverlap[] = [];
-				if (exists(change.to)) {
-					const dest = sibling(change.to);
-					const decision = settle([{ unit: 'path', clash: 'taken', relocatedTo: dest }], peer.onOverlap);
-					if (decision.kind === 'refuse') return refuse(change.to, decision.reason, decision.overlaps);
-					// Changes made before the other note took `to` that address it mean the moved note.
-					const before = history.arrivedAt(change.to) ?? history.horizon() + 1;
-					events.push({ kind: 'relocate', path: change.to, dest, before });
-					to = dest;
-					overlaps = decision.overlaps;
+				const to = change.to;
+				const movedTo = from.path === change.from ? null : from.path;
+				// A move made elsewhere already put the note at `to`.
+				if (from.path === to) {
+					outcomes.push(outcome({ path: change.from, at: to, hash: gitBlobHash(text), text, movedTo }));
+					continue;
+				}
+				// A taken destination refuses the move for everyone: there is no
+				// sibling to put a moved note in that later changes could follow.
+				if (exists(to)) {
+					const taken: Overlap = { unit: 'path', clash: 'taken', relocatedTo: null };
+					return refuse(to, describe(taken), [taken]);
 				}
 				work.set(from.path, null);
 				work.set(to, text);
 				events.push({ kind: 'move', path: from.path, dest: to });
 				moves.push({ from: from.path, to });
-				outcomes.push(
-					outcome({
-						path: change.from,
-						at: to,
-						hash: gitBlobHash(text),
-						text,
-						movedTo: from.path === change.from ? null : from.path,
-						overlaps,
-					}),
-				);
+				outcomes.push(outcome({ path: change.from, at: to, hash: gitBlobHash(text), text, movedTo }));
 				continue;
 			}
 

@@ -9,7 +9,7 @@
  * Key behaviors:
  * - Edits appear on other devices; offline edits merge on reconnect
  * - Overlaps become marker blocks for people and refusals for agents
- * - Creates at one path merge; moves carry stale edits
+ * - Creates at one path merge; moves carry stale edits; a move onto a taken path is refused
  * - A change whose path no longer holds its note becomes a sibling note everyone sees
  * - Delete versus edit keeps the edit; root-record sets merge by key; appends keep server order
  * - Retries and need-base; a note and its blob land together
@@ -196,7 +196,7 @@ test('a setting deleted on one device and changed on another keeps the change', 
 	await t.cleanup();
 });
 
-test('an edit made before a move follows it, and a move onto a taken path goes to a sibling', async () => {
+test('an edit made before a move follows it', async () => {
 	const t = await setup();
 	expectOk(await t.alice.repo.notes.create({ stem: 'draft' }, { body: 'one\n' }));
 	t.bob.transport.setOnline(false);
@@ -208,21 +208,28 @@ test('an edit made before a move follows it, and a move onto a taken path goes t
 		expect(text(repo, 'final')).toBe('one\ntwo\n');
 		expect(text(repo, 'draft')).toBeNull();
 	}
+	await t.cleanup();
+});
 
+test('a move onto a taken path is refused, and the note stays where it was on the device', async () => {
+	const t = await setup();
+	expectOk(await t.alice.repo.notes.create({ stem: 'final' }, { body: 'one\n' }));
+	await t.settle(t.alice, t.bob);
 	t.bob.transport.setOnline(false);
 	expectOk(await t.alice.repo.notes.create({ stem: 'taken' }, { body: 'mine\n' }));
 	const move = t.bob.repo.notes.move({ stem: 'final' }, { stem: 'taken' });
+	// An edit Bob makes to the moved note before the refusal arrives stays with it.
+	const edit = t.bob.repo.notes.append({ stem: 'taken' }, 'two\n');
+	expect(text(t.bob.repo, 'taken')).toBe('one\ntwo\n');
+	expect(text(t.bob.repo, 'final')).toBeNull();
 	t.bob.transport.setOnline(true);
-	const sibling = 'taken (bob, 2026-10-28)';
-	expect(expectOk(await move)).toMatchObject({
-		kind: 'applied',
-		change: { at: `notes/${sibling}.md`, overlaps: [{ unit: 'path', clash: 'taken', settled: 'relocated' }] },
-	});
+	expect(expectOk(await move)).toEqual({ kind: 'refused', path: 'notes/taken.md', reason: 'the destination is taken' });
+	expect(expectOk(await edit)).toMatchObject({ kind: 'applied', change: { path: 'notes/final.md', at: 'notes/final.md' } });
 	await t.settle(t.alice, t.bob);
 	for (const repo of [t.alice.repo, t.bob.repo]) {
-		expect(text(repo, 'final')).toBeNull();
+		expect(text(repo, 'final')).toBe('one\ntwo\n');
 		expect(text(repo, 'taken')).toBe('mine\n');
-		expect(text(repo, sibling)).toBe('one\ntwo\n');
+		expect(repo.notes.list()).toHaveLength(2);
 	}
 	await t.cleanup();
 });

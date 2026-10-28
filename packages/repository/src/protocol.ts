@@ -25,9 +25,9 @@ export type Overlap =
 	/**
 	 * The path a change named no longer holds its note: it was deleted and
 	 * `reused` by another (or, past the history window, may have been), a
-	 * move's destination is `taken`, or a move's note is `gone`. `relocatedTo`
-	 * is the sibling note the server put the change in instead, or null when
-	 * nothing was left to put there.
+	 * move's destination is `taken` (which always refuses the move), or a
+	 * move's note is `gone`. `relocatedTo` is the sibling note the server put
+	 * the change in instead, or null when nothing was put anywhere.
 	 */
 	| { unit: 'path'; clash: 'reused' | 'taken' | 'gone'; relocatedTo: string | null };
 
@@ -49,7 +49,7 @@ export type Base = { hash: string; text?: string };
 export type Change =
 	/** Create (base null), edit, or, with `text` null, delete. */
 	| { kind: 'write'; path: string; base: Base | null; text: string | null }
-	/** Onto a taken `to`, the note moves to a sibling of `to` instead. */
+	/** Refused, for every caller, when `to` is taken. */
 	| { kind: 'move'; from: string; to: string; base: Base }
 	/**
 	 * Adds to whatever the file holds. The base is needed only when the note
