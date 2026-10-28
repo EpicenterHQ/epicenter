@@ -27,7 +27,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openBunGitStore } from './bun/git.js';
 import { openBunSqlite } from './bun/sqlite.js';
 import { createInProcessTransport } from './bun/transport.js';
-import type { Transport } from './engine/ports.js';
+import { type Transport, TransportError } from './engine/ports.js';
 import type { Batch, BatchOutcome } from './protocol.js';
 import { defineApp, type Notice } from './define.js';
 import { openEngine } from './engine/engine.js';
@@ -354,5 +354,45 @@ test('a database an earlier build made drops its settled rows and command ids, a
 	expect(await old.query('SELECT count(*) AS n FROM "epicenter/outbox"')).toEqual([{ n: 0 }]);
 	expect(await old.query(`SELECT count(*) AS n FROM sqlite_master WHERE name = 'epicenter/commands'`)).toEqual([{ n: 0 }]);
 	old.close();
+	await t.cleanup();
+});
+
+test('a link that comes back while a push is failing still sends the outbox', async () => {
+	const t = await setup();
+	const inner = createInProcessTransport(t.server, { user: 'bob' });
+	let reconnect = () => {};
+	let failing: (() => void) | null = null;
+	let pushes = 0;
+	const transport: Transport = {
+		connect(handlers) {
+			reconnect = handlers.onOnline;
+			const link = inner.connect(handlers);
+			return {
+				...link,
+				async push(batch) {
+					pushes++;
+					// The first push hangs, then fails as the old connection drops.
+					if (pushes === 1) {
+						await new Promise<void>((resolve) => {
+							failing = resolve;
+						});
+						return TransportError.Offline({ sent: false });
+					}
+					return link.push(batch);
+				},
+			};
+		},
+	};
+	const repo = openRepository({ app, driver: openBunSqlite(), transport, device: 'bob-2' });
+	await repo.flush();
+	expectOk(await repo.todos.create({ stem: 'a' }, { fields: { title: 'A', done: false } }));
+	while (failing === null) await Bun.sleep(1);
+	// The link is back before the old push reports its failure.
+	reconnect();
+	(failing as () => void)();
+	await repo.flush();
+	expect(pushes).toBe(2);
+	expect(await t.server.read('todos/a.md')).toBe('---\ntitle: A\ndone: false\n---\n');
+	repo.close();
 	await t.cleanup();
 });

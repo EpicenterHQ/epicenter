@@ -973,6 +973,11 @@ export function openEngine<const TDefs extends Definitions>({
 
 	let closed = false;
 	let online = true;
+	/**
+	 * Bumped each time the link comes back, so a call that failed on an
+	 * older connection does not take the device offline after it returned.
+	 */
+	let connection = 0;
 	let needsHello = true;
 	let running: Promise<void> = Promise.resolve();
 	const link = transport.connect({
@@ -982,6 +987,7 @@ export function openEngine<const TDefs extends Definitions>({
 		},
 		onOnline: () => {
 			online = true;
+			connection++;
 			needsHello = true;
 			kick();
 		},
@@ -996,10 +1002,16 @@ export function openEngine<const TDefs extends Definitions>({
 
 	async function step() {
 		if (closed || !online) return;
+		const on = connection;
+		/** A call failed: the device is offline, unless the link came back meanwhile and a new step runs. */
+		const lost = () => {
+			if (connection === on) online = false;
+			needsHello = true;
+		};
 		if (needsHello) {
 			const welcome = await link.hello(position());
 			if (welcome.error !== null) {
-				online = false;
+				lost();
 				return;
 			}
 			needsHello = false;
@@ -1040,8 +1052,7 @@ export function openEngine<const TDefs extends Definitions>({
 			if (answer.error !== null && !answer.error.sent && sentThrough() === next.n) setMeta('sent', String(before));
 			if (answer.error === null && answer.data.kind === 'need-base') answer = await link.push(batchOf(true));
 			if (answer.error !== null) {
-				online = false;
-				needsHello = true;
+				lost();
 				// Every waiting send's row stays and is sent again; its caller cannot know the verdict now.
 				for (const n of [...verdicts.keys()]) verdictUnknown(n);
 				return;
