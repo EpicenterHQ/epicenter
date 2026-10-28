@@ -4,5 +4,5 @@
  * resolves it.
  */
 export { openBrowserRepository } from '@epicenter/repository/browser';
-export { stateAfter } from './editor/rich-text.js';
+export { createNoteEditor } from './editor/note-editor.js';
 export { createNotes } from './notes.svelte.js';

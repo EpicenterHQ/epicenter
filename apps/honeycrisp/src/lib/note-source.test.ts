@@ -2,9 +2,6 @@
  * Note Text Tests
  *
  * The text a list shows for a note: its preview and the name a person sees.
- *
- * See also:
- * - `editor/markdown.test.ts` for the body codec the rich-text view uses
  */
 import { expect, test } from 'bun:test';
 import { displayTitle, previewText } from './note-source.js';
