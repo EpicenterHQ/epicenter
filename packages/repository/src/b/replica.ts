@@ -476,7 +476,9 @@ export function createReplica({
 	function place() {
 		const next = () => (state.position === null ? undefined : waiting.get(state.position));
 		// RULE: nothing is applied while a commit is in flight (a delete needs no read, so this is not implied); its answer brings everything since its parent.
+		// The socket needs this too: notifications of commits before this one arrive before its answer, and would move the position past paths in it, whose changes wait for the answer.
 		// RULE: nor while a catch-up is out: its answer names the position it brings, and a notification applied first would have it move the position back.
+		// The socket needs this too, between a catch-up's pages, which name the commit the first page answered.
 		const catchingUp = () => pending?.kind === 'catch-up' || gathering !== null || (reading !== null && 'catchUp' in reading);
 		for (let event = next(); event !== undefined && state.inflight === null && !catchingUp(); event = next()) {
 			const have = known();
@@ -576,9 +578,7 @@ export function createReplica({
 			const [parent = ''] = event.parents;
 			// Old: already passed, or after a position passed that is not this one (history is a line).
 			if (passed.has(event.commit) || (passed.has(parent) && parent !== state.position)) return;
-			// RULE: this device's commit in flight, or the merge that takes it in (as second parent), is answered by the push.
-			const sent = state.inflight;
-			if (sent !== null && (event.commit === sent.id || event.parents.slice(1).includes(sent.id))) return;
+			// This device's own commit (or the merge that takes it in) waits like any other: nothing is applied while it is in flight, and its answer passes it.
 			waiting.set(parent, event);
 			place();
 			save();
