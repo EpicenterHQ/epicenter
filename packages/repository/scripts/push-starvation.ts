@@ -4,10 +4,13 @@
  * Measures the receive path as built (receive.ts, flush.ts, server.ts). At
  * d1feeba6b7 `receive` refused a push as `unflushed` while live history ran
  * ahead of Git, or when a live commit landed during its asynchronous Git
- * checks. Under push-as-merge (this branch's prototype) it takes any push
+ * checks. Under push-as-merge (as built since phase 9d) it takes any push
  * whose old value is Git's `main` and merges it into live `main`; the only
  * refusal left that typing can cause is `main-moved` (a flush moved Git's
- * `main` between fetch and push). After each run the script flushes and
+ * `main` between fetch and push). A flush writes its objects as one pack
+ * with its staging ref (`writePack`, one receive-pack request), so it costs
+ * one Git call here however many commits it writes, and a push waiting
+ * behind it waits a few calls. After each run the script flushes and
  * checks that every landed push is in Git's history and that Git's `main`
  * holds the live tree.
  *
@@ -180,9 +183,8 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 		}),
 		readTree: slow(raw.readTree),
 		readBlob: slow(raw.readBlob),
-		writeBlob: slow(raw.writeBlob),
-		writeTree: slow(raw.writeTree),
-		writeCommit: slow(raw.writeCommit),
+		// One request, however many objects: a pack and its ref update.
+		writePack: slow(raw.writePack),
 		updateRef: slow(raw.updateRef),
 		deleteRef: slow(raw.deleteRef),
 	};

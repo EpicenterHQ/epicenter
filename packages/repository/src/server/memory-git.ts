@@ -3,8 +3,8 @@
  * simulated network: the same ids the Bun Git store writes, so a flush
  * planned against one is checked against the other by the same rules.
  */
-import { gitBlobHash, gitCommitHash, gitTreeHash, type TreeEntry } from '../core/hash.js';
-import type { CommitInfo, GitObjects, Tree } from './git-store.js';
+import { type GitObject, gitBlobHash, gitCommitHash, gitObjectId, gitTreeHash, type TreeEntry } from '../core/hash.js';
+import type { CommitInfo, GitObjects, GitObjectWrites, Tree } from './git-store.js';
 
 type Stored =
 	| { kind: 'blob'; bytes: Uint8Array }
@@ -12,6 +12,38 @@ type Stored =
 	| { kind: 'commit'; info: CommitInfo };
 
 type Level = Map<string, { mode: string; oid: string } | Level>;
+
+const decoder = new TextDecoder();
+
+/** An object as Git reads it from its bytes. */
+function parse({ kind, bytes }: GitObject): Stored {
+	if (kind === 'blob') return { kind, bytes };
+	if (kind === 'commit') {
+		const text = decoder.decode(bytes);
+		const split = text.indexOf('\n\n');
+		const header = text.slice(0, split).split('\n');
+		return {
+			kind,
+			info: {
+				tree: header.find((line) => line.startsWith('tree '))?.slice(5) ?? '',
+				parents: header.filter((line) => line.startsWith('parent ')).map((line) => line.slice(7)),
+				message: text.slice(split + 2),
+			},
+		};
+	}
+	const entries = new Map<string, TreeEntry>();
+	for (let at = 0; at < bytes.length; ) {
+		const space = bytes.indexOf(0x20, at);
+		const nul = bytes.indexOf(0, space);
+		const mode = decoder.decode(bytes.subarray(at, space));
+		const name = decoder.decode(bytes.subarray(space + 1, nul));
+		let hash = '';
+		for (const byte of bytes.subarray(nul + 1, nul + 21)) hash += byte.toString(16).padStart(2, '0');
+		entries.set(name, mode === '40000' ? { kind: 'tree', hash } : { kind: 'blob', hash, mode });
+		at = nul + 21;
+	}
+	return { kind, entries };
+}
 
 export function createMemoryGitStore() {
 	const objects = new Map<string, Stored>();
@@ -24,6 +56,12 @@ export function createMemoryGitStore() {
 		const oid = gitTreeHash([...entries]);
 		objects.set(oid, { kind: 'tree', entries });
 		return oid;
+	}
+
+	function move(name: string, next: string, expected: string | null) {
+		if ((refs.get(name) ?? null) !== expected) return false;
+		refs.set(name, next);
+		return true;
 	}
 
 	function flatten(oid: string, prefix: string, out: Tree) {
@@ -81,10 +119,14 @@ export function createMemoryGitStore() {
 			objects.set(oid, { kind: 'commit', info: { tree, parents, message } });
 			return oid;
 		},
+		async writePack(written, { name, next, expected }) {
+			for (const object of written) objects.set(gitObjectId(object), parse(object));
+			// As receive-pack: a ref may name only a commit Git holds.
+			if (objects.get(next)?.kind !== 'commit') throw new Error(`writePack: no commit ${next}`);
+			return move(name, next, expected);
+		},
 		async updateRef(name, next, expected) {
-			if ((refs.get(name) ?? null) !== expected) return false;
-			refs.set(name, next);
-			return true;
+			return move(name, next, expected);
 		},
 		async deleteRef(name, expected) {
 			const current = refs.get(name);
@@ -93,7 +135,7 @@ export function createMemoryGitStore() {
 			refs.delete(name);
 			return true;
 		},
-	} satisfies GitObjects;
+	} satisfies GitObjects & GitObjectWrites;
 	return {
 		...store,
 		/** Every ref and where it points, for tests. */

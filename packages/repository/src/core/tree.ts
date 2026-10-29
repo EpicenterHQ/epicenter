@@ -82,12 +82,32 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 		return out;
 	}
 
+	/** The trees `to` holds that `from` does not, along what differs (`to` itself included unless equal): what Git lacks of `to` when it has `from`. */
+	function added(from: string, to: string) {
+		const out: string[] = [];
+		const walk = (a: string | undefined, b: string) => {
+			if (a === b) return;
+			out.push(b);
+			const left = a === undefined ? undefined : nodes.get(a);
+			for (const [name, entry] of nodes.get(b) ?? []) {
+				if (entry.kind !== 'tree') continue;
+				const before = left?.get(name);
+				walk(before?.kind === 'tree' ? before.hash : undefined, entry.hash);
+			}
+		};
+		walk(from, to);
+		return out;
+	}
+
 	return {
 		/** The empty tree's id. */
 		empty,
 		update,
 		read,
 		diff,
+		added,
+		/** A tree's entries, by name, or undefined when the store does not hold it. */
+		entries: (tree: string) => nodes.get(tree),
 	};
 }
 export type TreeStore = ReturnType<typeof createTreeStore>;

@@ -4,6 +4,7 @@
  */
 import { mkdir, stat } from 'node:fs/promises';
 import { type GitStore, type LoggedCommit, sequenceOf, type Tree, type TreeEntry } from '../server/git-store.js';
+import { encodePack } from '../server/pack.js';
 
 const ZERO = '0'.repeat(40);
 const decoder = new TextDecoder();
@@ -139,6 +140,11 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 			]);
 			if (code !== 0) throw new Error(`git commit-tree failed: ${stderr}`);
 			return stdout.trim();
+		},
+		async writePack(objects, ref) {
+			// Git checks the pack, every object's id and what each names, as receive-pack does.
+			await must(['index-pack', '--stdin', '--strict'], await encodePack(objects));
+			return (await git(['update-ref', ref.name, ref.next, ref.expected ?? ZERO])).code === 0;
 		},
 		async updateRef(name, next, expected) {
 			return (await git(['update-ref', name, next, expected ?? ZERO])).code === 0;

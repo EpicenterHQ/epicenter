@@ -44,7 +44,7 @@ import { gitBlobHash } from '../core/hash.js';
 import { parsePointer } from '../core/markdown.js';
 import { BLOCK_CAP, POINTER_REFUSALS, settle, settlePointer } from '../core/settle.js';
 import { first, type SqlDriver } from '../sql.js';
-import { createFlusher, type FlushStep } from './flush.js';
+import { createFlusher, type FlushStep, type Join } from './flush.js';
 import { type GitObjects, MAIN } from './git-store.js';
 import { holdsBlob, openHistory, type Stored } from './history.js';
 import { createReceiver, DIVERGED } from './receive.js';
@@ -331,14 +331,13 @@ export function createServer({
 	/**
 	 * RULE: drop commits older than the window (never `main` itself), and
 	 * answers older than the window once `main` at their landing is in Git;
-	 * ids are recognized for `seen` longer.
+	 * ids are recognized for `seen` longer. A pushed commit waiting to be
+	 * joined holds nothing past the window (flush.ts).
 	 */
 	function prune() {
 		const now = clock();
 		const cutoff = now - limits.window;
-		// RULE: while a pushed commit waits to be joined to live history in Git, nothing Git lacks is dropped: the flush rebuilds that history from it.
-		const floor = flusher.joins().length > 0 ? meta.number('flushed') : history.top();
-		history.pruneBefore(Math.min(history.top(), floor, history.newestBefore(cutoff) + 1));
+		history.pruneBefore(Math.min(history.top(), history.newestBefore(cutoff) + 1));
 		store.run('DELETE FROM outcomes WHERE at < ? AND place <= ?', [cutoff, meta.number('flushed')]);
 		store.run('DELETE FROM seen WHERE at < ?', [now - limits.seen]);
 		store.run('DELETE FROM received WHERE at < ?', [now - limits.seen]);
@@ -536,7 +535,17 @@ export function createServer({
 	// ------------------------------------------------------------------------
 
 	const flusher = createFlusher({ history, store, git, faults });
-	const receiver = createReceiver({ history, store, git, clock, limits, flusher, faults, apply: (commit, session, during) => push(commit, session, { rate: false, during }) });
+	const receiver = createReceiver({
+		history,
+		store,
+		git,
+		clock,
+		limits,
+		flusher,
+		faults,
+		apply: (commit, session, during) => push(commit, session, { rate: false, during }),
+		prune: () => store.transaction(prune),
+	});
 
 	/**
 	 * RULE: after a flush, drop what the window no longer keeps, then every
@@ -546,11 +555,12 @@ export function createServer({
 	function collect() {
 		store.transaction(() => {
 			prune();
-			const roots = [meta.get('git_tree') ?? trees.empty, ...flusher.joins().map((join) => join.tree)];
+			// A waiting join's trees stay: its flush diffs against them.
+			const roots = [meta.get('git_tree') ?? trees.empty, ...flusher.joins().flatMap((join) => [join.base, join.tree])];
 			for (const { plan } of store.all<{ plan: string }>('SELECT plan FROM journal')) {
-				const planned = JSON.parse(plan) as { commits: { tree: string }[]; join?: { tree: string } };
+				const planned = JSON.parse(plan) as { commits: { tree: string }[]; join?: Join };
 				for (const commit of planned.commits) roots.push(commit.tree);
-				if (planned.join !== undefined) roots.push(planned.join.tree);
+				if (planned.join !== undefined) roots.push(planned.join.base, planned.join.tree);
 			}
 			history.sweep(roots);
 		});

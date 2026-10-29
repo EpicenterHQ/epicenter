@@ -16,6 +16,9 @@
  * - conflict cuts and a labelled commit made before the push stay in Git's history
  * - a second push from the first pushed commit, before the export, merges against the first push's tree
  * - a retry of an accepted push is answered accepted and is not applied twice
+ * - a join is Epicenter's commit, with every writer it merges in as a co-author
+ * - a join waits under the window like all live history; a push on a dropped one flushes first
+ * - a flush makes the same few Git requests however many commits it writes, so a push behind it waits for no more
  * - a crash at each step of the push, or of the export, leaves one answer and the same history
  */
 import { afterAll, describe, expect, test } from 'bun:test';
@@ -30,8 +33,8 @@ import { ATTRIBUTES } from '../core/door.js';
 import { writePointer } from '../core/markdown.js';
 import type { SqlDriver } from '../sql.js';
 import type { FlushStep } from './flush.js';
-import { type CommitInfo, type GitObjects, MAIN } from './git-store.js';
-import { createServer, type Server, type Session } from './server.js';
+import { type CommitInfo, type GitObjects, type GitObjectWrites, MAIN } from './git-store.js';
+import { createServer, LIMITS, type Server, type Session } from './server.js';
 
 const EPOCH = Date.UTC(2026, 9, 30, 12);
 const alice: Session = { user: 'alice', role: 'writer' };
@@ -70,7 +73,7 @@ function save(server: Server, session: Session, files: CommitFile[], { parent = 
 }
 
 /** A clone's commit on `parent` with `changes` to its tree, written as a transport would before asking. */
-async function commitOn(git: GitObjects, parent: string, changes: Record<string, string | null>, message = 'pushed\n') {
+async function commitOn(git: GitObjects & GitObjectWrites, parent: string, changes: Record<string, string | null>, message = 'pushed\n') {
 	const tree = await git.readTree((await git.readCommit(parent))?.tree ?? '');
 	for (const [path, text] of Object.entries(changes)) {
 		if (text === null) tree.delete(path);
@@ -337,6 +340,88 @@ describe('history', () => {
 	});
 });
 
+describe('the join', () => {
+	test('is authored by Epicenter, with every writer it merges in as a co-author and not its pusher', async () => {
+		const { server, git, path, old } = await flushedWorld();
+		save(server, alice, [{ path: 'notes/a.md', text: note('one, by alice\n') }]);
+		save(server, bob, [{ path: 'notes/b.md', text: note('b, by bob\n') }]);
+		const next = await commitOn(git, old, { 'agent/log.md': note('step 1\n') });
+		expect(await receive(server, old, next)).toMatchObject({ kind: 'accepted', merged: true });
+		await server.flush();
+		const join = await gitMain(git);
+		expect((await git.readCommit(join))?.parents[0]).toBe(next);
+		const raw = decoder.decode(Bun.spawnSync(['git', '-C', path, 'cat-file', 'commit', join], { env: ENV }).stdout);
+		expect(raw).toMatch(/^author Epicenter <noreply@epicenter\.so> /m);
+		expect(raw).toMatch(/^committer Epicenter <noreply@epicenter\.so> /m);
+		const coauthors = raw.split('\n').filter((line) => line.startsWith('Co-authored-by: '));
+		expect(coauthors).toEqual(['Co-authored-by: alice <alice@users.epicenter.invalid>', 'Co-authored-by: bob <bob@users.epicenter.invalid>']);
+	});
+});
+
+describe('a join waiting past the window', () => {
+	/** A merged push over bob's edit, then more typing after the window passed, so the join's place is dropped. */
+	async function aged() {
+		const w = await flushedWorld();
+		save(w.server, bob, [{ path: 'notes/b.md', text: note('b by bob\n') }]);
+		const next = await commitOn(w.git, w.old, { 'agent/log.md': note('step 1\n') });
+		expect(await receive(w.server, w.old, next)).toMatchObject({ kind: 'accepted', merged: true });
+		const place = (JSON.parse(meta(w.store, 'joins') as string) as { place: number }[])[0]?.place as number;
+		save(w.server, bob, [{ path: 'notes/b.md', text: note('b by bob, later\n') }]);
+		w.clock.now += LIMITS.window + 60_000;
+		save(w.server, alice, [{ path: 'notes/a.md', text: note('one, after a while\n') }]);
+		expect(Number(meta(w.store, 'offset'))).toBeGreaterThan(place);
+		return { ...w, next };
+	}
+
+	test('holds nothing past it: the flush keeps the push on first-parent history and Git ends at the live tree', async () => {
+		const { server, git, store, path, old, next } = await aged();
+		expect(await server.flush()).toMatchObject({ kind: 'flushed' });
+		const head = await gitMain(git);
+		expect(await firstParents(git, head)).toContain(next);
+		await expectExported(server, store, git, path, [{ old, next }]);
+	});
+
+	test('a push on the dropped join flushes first and is refused as main-moved; rebased, it lands', async () => {
+		const { server, git, store, path, old, next } = await aged();
+		const second = await commitOn(git, next, { 'agent/log.md': note('step 1\nstep 2\n') });
+		expect(await receive(server, next, second)).toMatchObject({ kind: 'refused', code: 'main-moved' });
+		const exported = await gitMain(git);
+		expect(await firstParents(git, exported)).toContain(next);
+		const rebased = await commitOn(git, exported, { 'agent/log.md': note('step 1\nstep 2\n') });
+		expect(await receive(server, exported, rebased)).toMatchObject({ kind: 'accepted', main: rebased });
+		await server.flush();
+		await expectExported(server, store, git, path, [
+			{ old, next },
+			{ old: exported, next: rebased },
+		]);
+	});
+});
+
+describe('a flush', () => {
+	test('makes the same few Git requests however many commits it writes, one of them the pack', async () => {
+		const requests = async (labelled: number) => {
+			const { git, open, old } = await flushedWorld();
+			const calls: string[] = [];
+			const counted = Object.fromEntries(
+				Object.entries(git).map(([name, fn]) => [name, (...args: unknown[]) => (calls.push(name), (fn as (...a: unknown[]) => unknown)(...args))]),
+			) as unknown as GitObjects;
+			const server = open(undefined, counted);
+			// Each labelled save is a Git commit of its own; a merged push adds a side chain and a join.
+			for (let i = 0; i < labelled; i++) expect(save(server, bob, [{ path: `notes/n${i}.md`, text: note(`${i}\n`) }], { message: `label ${i}` })).toMatchObject({ kind: 'applied' });
+			const next = await commitOn(git, old, { 'agent/log.md': note('step 1\n') });
+			expect(await receive(server, old, next)).toMatchObject({ kind: 'accepted', merged: true });
+			calls.length = 0;
+			const flushed = await server.flush();
+			expect(flushed.kind === 'flushed' && flushed.commits.length).toBeGreaterThan(labelled);
+			return calls;
+		};
+		const few = await requests(1);
+		const many = await requests(25);
+		expect(many.filter((name) => name === 'writePack')).toHaveLength(1);
+		expect(many).toEqual(few);
+	});
+});
+
 describe('a crash', () => {
 	for (const step of ['received', ...STEPS.filter((s) => s === 'main-moved' || s === 'completed' || s === 'staging-deleted')] as FlushStep[])
 		test(`after the push's '${step}', the retry is answered accepted and nothing is applied twice`, async () => {
@@ -406,9 +491,11 @@ describe('randomized', () => {
 
 	/**
 	 * Saves (some on a stale parent), pushes from Git's main or from the
-	 * pusher's own last pushed commit, flushes, and crashes at a random step
-	 * of a flush or a push. Every push whose old value is Git's main is
-	 * accepted (or refused by the live door with a path), every other is
+	 * pusher's own last pushed commit, flushes, crashes at a random step of
+	 * a flush or a push, and time passing beyond the window. Every push
+	 * whose old value is Git's main is accepted (or refused by the live door
+	 * with a path, or main-moved when the server moved Git first: a row a
+	 * crash left, or live history the window dropped), every other is
 	 * main-moved, a retry after a crash is accepted, and at the end Git's
 	 * first-parent history runs through every push, its main holds the
 	 * live tree, and no commit after a push holds an agent path at its
@@ -416,13 +503,21 @@ describe('randomized', () => {
 	 */
 	test(`saves, pushes, flushes and crashes interleaved hold the history invariants over ${SEEDS} seeds`, async () => {
 		const { createMemoryGitStore } = await import('./memory-git.js');
-		const seen = { merged: 0, chained: 0, pushCrashes: 0, flushCrashes: 0, refusedLive: 0, decidedFirst: 0 };
+		const seen = { merged: 0, chained: 0, pushCrashes: 0, flushCrashes: 0, refusedLive: 0, decidedFirst: 0, droppedFirst: 0, aged: 0 };
 		for (let seed = FROM; seed < FROM + SEEDS; seed++) {
 			const random = mulberry32(seed);
 			const pick = <T>(items: T[]) => items[Math.floor(random() * items.length)] as T;
 			const git = createMemoryGitStore();
 			const store = openBunSqlite();
-			const open = (faults?: (step: FlushStep) => void) => createServer({ store, git, clock: () => EPOCH, ...(faults === undefined ? {} : { faults }) });
+			let now = EPOCH;
+			/** Whether the window, as of now, no longer keeps the live commit Git's main stands for (the last join's place, or the flushed place). */
+			const dropped = () => {
+				const newest = store.all<{ place: number | null }>('SELECT MAX(place) AS place FROM commits WHERE place IS NOT NULL AND at < ?', [now - LIMITS.window])[0]?.place ?? -1;
+				const keptFrom = Math.max(Number(meta(store, 'offset')), Math.min(Number(meta(store, 'top')), newest + 1));
+				const joins = JSON.parse(meta(store, 'joins') ?? '[]') as { place: number }[];
+				return (joins.at(-1)?.place ?? Number(meta(store, 'flushed'))) < keptFrom;
+			};
+			const open = (faults?: (step: FlushStep) => void) => createServer({ store, git, clock: () => now, ...(faults === undefined ? {} : { faults }) });
 			let server = open();
 			save(server, alice, [{ path: 'notes/p0.md', text: note('start\n') }]);
 			await server.flush();
@@ -434,7 +529,10 @@ describe('randomized', () => {
 			const where = `seed ${seed} (PUSH_FROM=${seed} PUSH_SEEDS=1)`;
 			for (let step = 0; step < 60; step++) {
 				const roll = random();
-				if (roll < 0.5) {
+				if (roll < 0.04) {
+					now += LIMITS.window + 60_000;
+					if (meta(store, 'joins') !== null) seen.aged++;
+				} else if (roll < 0.5) {
 					const who = pick([alice, bob]);
 					const path = `notes/p${Math.floor(random() * 3)}.md`;
 					const parent = random() < 0.2 ? pick(mains.slice(-5)) : server.main();
@@ -455,6 +553,7 @@ describe('randomized', () => {
 					const next = await commitOn(git, old, changes, `step ${step}\n`);
 					// A row a crash left was decided before this push: it finishes first, and may move Git's main past what was fetched.
 					const decided = store.all('SELECT 1 FROM journal').length > 0;
+					const gone = !decided && dropped();
 					const waiting = meta(store, 'joins') !== null;
 					const crash = random() < 0.15 ? pick(['received', 'main-moved', 'completed', 'staging-deleted'] as FlushStep[]) : null;
 					const pusher =
@@ -469,11 +568,19 @@ describe('randomized', () => {
 						server = open();
 						answer = await receive(server, old, next);
 					}
-					if (decided && answer.kind === 'refused' && answer.code === 'main-moved') seen.decidedFirst++;
+					// Git moved before this push was checked: a row a crash left finished, or the window dropped what Git's main stands for and live history was flushed.
+					const movedFirst = answer.kind === 'refused' && answer.code === 'main-moved' && (await gitMain(git)) !== fetched;
+					if (movedFirst) {
+						expect({ where, decidedOrDropped: decided || gone }).toEqual({ where, decidedOrDropped: true });
+						if (decided) seen.decidedFirst++;
+						else seen.droppedFirst++;
+					}
+					// The window dropped Git's base: whatever the push's old value, the server flushes first.
+					if (gone) expect({ where, movedFirst: (await gitMain(git)) !== fetched }).toEqual({ where, movedFirst: true });
 					if (answer.kind === 'accepted' && answer.merged) seen.merged++;
 					if (answer.kind === 'accepted' && waiting && old === own) seen.chained++;
 					if (answer.kind === 'refused' && answer.code === 'live') seen.refusedLive++;
-					if (old === fetched && !(decided && answer.kind === 'refused' && answer.code === 'main-moved')) {
+					if (old === fetched && !movedFirst) {
 						if (answer.kind === 'refused') expect({ where, answer }).toMatchObject({ answer: { code: 'live', path: expect.any(String) } });
 						else {
 							expect({ where, answer }).toMatchObject({ answer: { kind: 'accepted', main: next, published: true } });

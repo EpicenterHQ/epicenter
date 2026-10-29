@@ -12,8 +12,11 @@
 
 const encoder = new TextEncoder();
 
-/** The Git object id of `bytes` as an object of `kind`: SHA-1 over `<kind> <length>\0<bytes>`. */
-function gitObjectHash(kind: 'blob' | 'tree' | 'commit', bytes: Uint8Array): string {
+/** A Git object: its kind and its content, as a pack or a loose object carries it. */
+export type GitObject = { kind: 'blob' | 'tree' | 'commit'; bytes: Uint8Array };
+
+/** A Git object's id: SHA-1 over `<kind> <length>\0<bytes>`. */
+export function gitObjectId({ kind, bytes }: GitObject): string {
 	const header = encoder.encode(`${kind} ${bytes.length}\0`);
 	const all = new Uint8Array(header.length + bytes.length);
 	all.set(header);
@@ -23,7 +26,7 @@ function gitObjectHash(kind: 'blob' | 'tree' | 'commit', bytes: Uint8Array): str
 
 /** The Git blob id (`git hash-object`) of `content`. */
 export function gitBlobHash(content: string | Uint8Array): string {
-	return gitObjectHash('blob', typeof content === 'string' ? encoder.encode(content) : content);
+	return gitObjectId({ kind: 'blob', bytes: typeof content === 'string' ? encoder.encode(content) : content });
 }
 
 /**
@@ -33,11 +36,10 @@ export function gitBlobHash(content: string | Uint8Array): string {
 export type TreeEntry = { kind: 'blob' | 'tree'; hash: string; mode?: string };
 
 /**
- * The Git tree id (`git write-tree`) of `entries`: each entry is
- * `<mode> <name>\0<20-byte id>`, sorted by name with a subtree compared as
- * if its name ended in `/`.
+ * The Git tree object of `entries`: each entry is `<mode> <name>\0<20-byte
+ * id>`, sorted by name with a subtree compared as if its name ended in `/`.
  */
-export function gitTreeHash(entries: [name: string, entry: TreeEntry][]): string {
+export function gitTreeObject(entries: [name: string, entry: TreeEntry][]): GitObject {
 	const key = ([name, entry]: [string, TreeEntry]) => (entry.kind === 'tree' ? `${name}/` : name);
 	const sorted = [...entries].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 	const parts = sorted.map(([name, entry]) => {
@@ -53,28 +55,36 @@ export function gitTreeHash(entries: [name: string, entry: TreeEntry][]): string
 		body.set(part, at);
 		at += part.length;
 	}
-	return gitObjectHash('tree', body);
+	return { kind: 'tree', bytes: body };
 }
+
+/** The Git tree id (`git write-tree`) of `entries`. */
+export const gitTreeHash = (entries: [name: string, entry: TreeEntry][]): string => gitObjectId(gitTreeObject(entries));
 
 /** Who made a Git commit, and when (seconds since the epoch, UTC). */
 export type GitSignature = { name: string; email: string; at: number };
 
+/** What a Git commit holds. */
+export type GitCommit = { tree: string; parents: string[]; author: GitSignature; committer: GitSignature; message: string };
+
 /**
- * The Git commit id (`git commit-tree`) of a commit: its tree, its parents,
- * author and committer lines with times in UTC, a blank line, and the
- * message as given.
+ * The Git commit object of a commit: its tree, its parents, author and
+ * committer lines with times in UTC, a blank line, and the message as given.
  */
-export function gitCommitHash({
+export function gitCommitObject({
 	tree,
 	parents,
 	author,
 	committer,
 	message,
-}: { tree: string; parents: string[]; author: GitSignature; committer: GitSignature; message: string }): string {
+}: GitCommit): GitObject {
 	const sign = ({ name, email, at }: GitSignature) => `${name} <${email}> ${at} +0000`;
 	const header = [`tree ${tree}`, ...parents.map((parent) => `parent ${parent}`), `author ${sign(author)}`, `committer ${sign(committer)}`];
-	return gitObjectHash('commit', encoder.encode(`${header.join('\n')}\n\n${message}`));
+	return { kind: 'commit', bytes: encoder.encode(`${header.join('\n')}\n\n${message}`) };
 }
+
+/** The Git commit id (`git commit-tree`) of a commit. */
+export const gitCommitHash = (commit: GitCommit): string => gitObjectId(gitCommitObject(commit));
 
 /** The LFS object id of a blob's bytes: lowercase hex SHA-256. */
 export async function lfsOid(bytes: Uint8Array): Promise<string> {
@@ -88,7 +98,8 @@ function toHex(bytes: Uint8Array) {
 	return out;
 }
 
-function sha1(message: Uint8Array): string {
+/** SHA-1 of `message`, as hex. */
+export function sha1(message: Uint8Array): string {
 	const length = message.length;
 	const padded = new Uint8Array((((length + 8) >> 6) + 1) << 6);
 	padded.set(message);
