@@ -30,7 +30,7 @@ import { type App, type Definitions, type Lens, type NoteName, schemaIssues } fr
 import { bodyOf, parseMarkdown, writeMarkdown } from '../core/markdown.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
-import { createEditors, type Editor, type EditorError } from './editor.js';
+import { createEditors, type Editor, type EditorError, type Unsaved } from './editor.js';
 
 // ============================================================================
 // The host: where the replica runs, and its sessions
@@ -153,8 +153,8 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>>;
 	/** Several writes as one transaction and one save. */
 	commit(build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> }) => void): Promise<Result<Changed, WriteError>>;
-	/** Stop: every open editor reports what it has not saved, and the host lets the replica go. */
-	close(): void;
+	/** Stop: every editor stops and the host lets the replica go. Returns the drafts that could not be saved, for the caller to keep or drop (an account change). */
+	close(): Unsaved[];
 };
 
 // ============================================================================
@@ -472,9 +472,9 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			if (invalid !== null) return Promise.resolve({ data: null, error: invalid });
 			return send(batch);
 		},
-		close() {
-			if (status.status === 'closed') return;
-			editors.closeAll();
+		close(): Unsaved[] {
+			if (status.status === 'closed') return [];
+			const unsaved = editors.closeAll();
 			setStatus({ status: 'closed' });
 			session = null;
 			stopWatching?.();
@@ -482,6 +482,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			host.close();
 			emit();
 			listeners.clear();
+			return unsaved;
 		},
 	};
 	for (const lens of lenses) repository[lens.name] = collection(lens);

@@ -13,7 +13,7 @@
  * - Typing on another line than a remote edit merges clean; a clean editor follows remote changes, and one heard during a write is taken after its answer
  * - Typing that touches what the worker changed pauses autosave with both kept, until resolved
  * - A note deleted elsewhere while the person types comes back with their typing
- * - A refused write, a worker lost mid-write, a close that cannot save and a repository closed (an account change) all keep the draft
+ * - A refused write, a worker lost mid-write, a close that cannot save and a repository closed (an account change) all keep the draft; closing the repository returns every draft it could not save
  * - Views of one note share its editor, body and source alike: the last to close saves
  */
 import { expect, test } from 'bun:test';
@@ -274,6 +274,17 @@ test('a repository closed with typing unsaved (an account change) reports it, an
 	expect(expectErr(await closing)).toMatchObject({ name: 'Unsaved', draft: note('one two three\n') });
 	expect(world.editor.draft()).toBe(note('one two three\n'));
 	expect(world.editor.state()).toEqual({ status: 'closed' });
+});
+
+test('a repository closed under an editor a view still holds returns that draft, unsaved', async () => {
+	const world = await opened('one\n');
+	world.gate.hold();
+	world.type('one two\n');
+	await settled();
+	world.type('one two three\n');
+	expect(world.repo.close()).toEqual([{ path: PATH, draft: note('one two three\n') }]);
+	expect(world.editor.state()).toEqual({ status: 'closed' });
+	expect(world.repo.close()).toEqual([]);
 });
 
 test('views of one note share its editor, a body view and a source view alike: the last to close saves it', async () => {

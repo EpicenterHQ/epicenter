@@ -57,6 +57,9 @@ export const EditorError = defineErrors({
 });
 export type EditorError = InferErrors<typeof EditorError>;
 
+/** A draft an editor held unsaved when its repository closed. */
+export type Unsaved = { path: string; draft: string };
+
 /**
  * What a view is told. `replaced`: the draft was replaced from outside (a
  * rebase, a change followed). `typed`: the person typed, in this view or
@@ -421,9 +424,11 @@ export function createEditors(deps: Deps) {
 		lost() {
 			for (const editor of editors.values()) editor.lost();
 		},
-		/** The repository closed: every editor stops, reporting what it could not save. */
-		closeAll() {
+		/** The repository closed: every editor stops, and the drafts none could save are returned. */
+		closeAll(): Unsaved[] {
+			const unsaved = [...editors.values()].filter((editor) => editor.dirty()).map(({ path, draft }) => ({ path, draft: draft() }));
 			for (const editor of editors.values()) editor.end();
+			return unsaved;
 		},
 	};
 }
