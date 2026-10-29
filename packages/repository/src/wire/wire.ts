@@ -13,6 +13,7 @@
  * One repository, at the root:
  *
  *   GET    /socket           the device's WebSocket (below)
+ *   POST   /tickets          a one-use ticket for the socket, for a client that cannot set its headers
  *   POST   /commits          a live commit, as JSON; answered with its PushAnswer
  *   GET    /files/<path>     main's text, its hash as the ETag
  *   PUT    /files/<path>     If-Match: "<hash>", or If-None-Match: * to create: one fast-forward commit on main
@@ -31,7 +32,13 @@
  * before it is parsed, and a request not read within `timeout` gets 408.
  *
  * The socket is authenticated when it connects, and the host closes it
- * (4401) when the session expires. Up, a device sends `push` and `catch-up`
+ * (4401) when the session expires. A browser cannot set a WebSocket's
+ * headers, so it asks for a ticket first: `POST /tickets`, authenticated
+ * like any request, answers `{ ticket, expires }`, and the socket connects
+ * as `/socket?ticket=<ticket>`. A ticket opens one socket, within
+ * `limits.ticket` ms, as the session that asked for it: it is gone once
+ * presented, whatever the outcome, and a request that also carries another
+ * account's credential is refused (401). Up, a device sends `push` and `catch-up`
  * requests with its own request id; down, it gets `head` first (main, so a
  * device that reconnects resumes from its last head by catching up when the
  * two differ, and the repository's id and the session's user, so a replica
@@ -108,9 +115,14 @@ export type WireLimits = {
 	body: number;
 	/** Milliseconds to authenticate a request and read its body. */
 	timeout: number;
+	/** Milliseconds a socket ticket can be presented after it is issued. */
+	ticket: number;
 };
 
-export const WIRE_LIMITS: WireLimits = { body: LIMITS.request, timeout: 10_000 };
+export const WIRE_LIMITS: WireLimits = { body: LIMITS.request, timeout: 10_000, ticket: 30_000 };
+
+/** What `POST /tickets` answers: the ticket, and when it lapses (ms since the epoch). */
+export type Ticket = { ticket: string; expires: number };
 
 /** The header a plain HTTP writer names its device in; `http` without it. */
 export const DEVICE_HEADER = 'epicenter-device';
@@ -262,6 +274,34 @@ export function createWire({
 	});
 	const lapsed = (verified: Verified) => verified.expires !== undefined && verified.expires <= clock();
 
+	/** Socket tickets not yet presented, by ticket. One repository's tickets live with its wire, as its sockets do. */
+	const tickets = new Map<string, { verified: Verified; expires: number }>();
+
+	function issueTicket(verified: Verified) {
+		for (const [ticket, issued] of tickets) if (issued.expires <= clock()) tickets.delete(ticket);
+		const bytes = crypto.getRandomValues(new Uint8Array(32));
+		const ticket = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+		const expires = clock() + limits.ticket;
+		tickets.set(ticket, { verified, expires });
+		return json(200, { ticket, expires } satisfies Ticket);
+	}
+
+	/**
+	 * The session a socket ticket stands for, or why it stands for none. A
+	 * ticket is spent once presented, so a replayed one finds nothing.
+	 */
+	async function redeemTicket(request: Request, ticket: string): Promise<Verified | string> {
+		const issued = tickets.get(ticket);
+		tickets.delete(ticket);
+		if (issued === undefined) return 'This ticket is unknown or already used';
+		if (issued.expires <= clock()) return 'This ticket has expired';
+		if (lapsed(issued.verified)) return 'The session behind this ticket has expired';
+		// A request that names an account of its own must name the ticket's.
+		const other = await authenticate(request);
+		if (other !== null && other.user !== issued.verified.user) return "This ticket belongs to another account's session";
+		return issued.verified;
+	}
+
 	/**
 	 * Take one commit, from either transport: its answer and that answer's
 	 * status, or why the value is not a live commit.
@@ -364,17 +404,29 @@ export function createWire({
 
 	const notAllowed = (allow: string) => failure(405, 'Method not allowed', { allow });
 
-	async function route(request: Request, session: Session, expired: Promise<typeof EXPIRED>): Promise<Response | undefined> {
+	function upgrade(request: Request, session: Verified) {
+		if (request.method !== 'GET') return notAllowed('GET');
+		if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return failure(426, 'The socket is a WebSocket', { upgrade: 'websocket' });
+		return sockets.upgrade(request, session);
+	}
+
+	/** Who is asking: the ticket's session for a socket that presents one, otherwise the host's credential. */
+	async function sessionOf(request: Request): Promise<Verified | string> {
+		const url = new URL(request.url);
+		const ticket = url.pathname === '/socket' ? url.searchParams.get('ticket') : null;
+		if (ticket !== null) return redeemTicket(request, ticket);
+		const session = await authenticate(request);
+		return session === null || lapsed(session) ? 'Sign in to use this repository' : session;
+	}
+
+	async function route(request: Request, session: Verified, expired: Promise<typeof EXPIRED>): Promise<Response | undefined> {
 		const url = new URL(request.url);
 		const { pathname } = url;
 		const { method } = request;
 		if (pathname === '/commits') return method === 'POST' ? postCommit(request, session, expired) : notAllowed('POST');
+		if (pathname === '/tickets') return method === 'POST' ? issueTicket(session) : notAllowed('POST');
 		if (pathname === '/catch-up') return method === 'GET' ? catchUp(url) : notAllowed('GET');
-		if (pathname === '/socket') {
-			if (method !== 'GET') return notAllowed('GET');
-			if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return failure(426, 'The socket is a WebSocket', { upgrade: 'websocket' });
-			return sockets.upgrade(request, session);
-		}
+		if (pathname === '/socket') return upgrade(request, session);
 		if (pathname.startsWith('/blobs/')) return method === 'GET' ? readBlob(request, pathname.slice('/blobs/'.length)) : notAllowed('GET');
 		if (pathname.startsWith('/files/')) {
 			const path = trySync({ try: () => decodeURIComponent(pathname.slice('/files/'.length)), catch: () => BodyError.NotText() });
@@ -400,9 +452,9 @@ export function createWire({
 				timer = setTimeout(() => resolve(EXPIRED), limits.timeout);
 			});
 			try {
-				const session = await Promise.race([authenticate(request), expired]);
+				const session = await Promise.race([sessionOf(request), expired]);
 				if (session === EXPIRED) return failure(408, 'The request was not authenticated in time');
-				if (session === null || lapsed(session)) return failure(401, 'Sign in to use this repository', { 'www-authenticate': 'Bearer' });
+				if (typeof session === 'string') return failure(401, session, { 'www-authenticate': 'Bearer' });
 				if (!server.mayRead(session)) return failure(403, 'Not a member of this repository');
 				return await route(request, session, expired);
 			} finally {

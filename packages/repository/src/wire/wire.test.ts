@@ -13,6 +13,8 @@
  * - a text by hash is immutable and private; a body is capped before it is parsed, and a slow one times out
  * - a device's socket names `main` when it opens, answers each request by its id before the commit's event, takes commits and catch-ups through the same functions as HTTP, and closes when the session expires
  * - a replica whose socket dropped resumes from its last head by catching up
+ * - a browser's socket connects with a one-use ticket bound to the session that asked for it: refused when reused, expired, presented with another account's credential, or outliving its session
+ * - the dev server serves a listed origin across origins
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { unwrap } from 'wellcrafted/result';
@@ -451,4 +453,134 @@ describe("the device's socket", () => {
 		await until(() => alice.read('n/b.md') === note('b\n'));
 		expect(replicas.every((replica) => !replica.busy())).toBe(true);
 	});
+});
+
+// ============================================================================
+// Socket tickets, for a client that cannot set a WebSocket's headers
+// ============================================================================
+
+describe('socket tickets', () => {
+	/** Open a socket the way a browser does: no headers, only the ticket in its URL. */
+	function openWithTicket(base: string, ticket: string, headers: Record<string, string> = {}) {
+		const target = new URL('socket', base);
+		target.protocol = 'ws:';
+		target.searchParams.set('ticket', ticket);
+		const socket = Object.keys(headers).length === 0 ? new WebSocket(target.href) : socketWithHeaders(headers)(target.href);
+		const messages: SocketMessage[] = [];
+		const closed: number[] = [];
+		const opened = new Promise<boolean>((resolve) => {
+			socket.onopen = () => resolve(true);
+			socket.onerror = () => resolve(false);
+		});
+		socket.onmessage = (event) => messages.push(JSON.parse(String(event.data)) as SocketMessage);
+		socket.onclose = (event) => closed.push(event.code);
+		stops.push(async () => socket.close());
+		return { socket, messages, closed, opened };
+	}
+
+	async function issue(url: (path: string) => string, as: (user: string) => Record<string, string>, user: string) {
+		const response = await fetch(url('tickets'), { method: 'POST', headers: as(user) });
+		expect(response.status).toBe(200);
+		expect(response.headers.get('cache-control')).toBe('no-store');
+		return (await response.json()) as { ticket: string; expires: number };
+	}
+
+	test("a ticket asked for with a session opens one socket as that session, which is told main and the session's user", async () => {
+		const { served, server, url, as } = setup();
+		expect((await fetch(url('tickets'), { method: 'POST' })).status).toBe(401);
+		expect((await fetch(url('tickets'), { method: 'POST', headers: as('eve') })).status).toBe(403);
+		const before = Date.now();
+		const { ticket, expires } = await issue(url, as, 'bob');
+		expect(ticket).toMatch(/^[0-9a-f]{64}$/);
+		expect(expires - before).toBeGreaterThanOrEqual(30_000);
+		expect(expires - Date.now()).toBeLessThanOrEqual(30_000);
+
+		const socket = openWithTicket(served.url, ticket);
+		expect(await socket.opened).toBe(true);
+		await until(() => socket.messages.length === 1);
+		expect(socket.messages[0]).toEqual({ type: 'head', main: server.main(), repository: 'test', user: 'bob' });
+	});
+
+	test('a ticket is refused once used, once expired, and with another account\'s credential, and is spent by the refusal', async () => {
+		const { served, url, as } = setup({ wire: { ticket: 100 } });
+		// Reused: the first socket spends it.
+		const reused = await issue(url, as, 'alice');
+		expect(await openWithTicket(served.url, reused.ticket).opened).toBe(true);
+		expect(await openWithTicket(served.url, reused.ticket).opened).toBe(false);
+		const refused = await fetch(url(`socket?ticket=${reused.ticket}`), { headers: { upgrade: 'websocket' } });
+		expect(refused.status).toBe(401);
+		expect((await refused.json()).error).toContain('unknown or already used');
+
+		// Expired: presented after its window.
+		const late = await issue(url, as, 'alice');
+		await Bun.sleep(150);
+		const expired = await fetch(url(`socket?ticket=${late.ticket}`), { headers: { upgrade: 'websocket' } });
+		expect(expired.status).toBe(401);
+		expect((await expired.json()).error).toContain('expired');
+
+		// Another account's session: alice's ticket presented with bob's credential.
+		const stolen = await issue(url, as, 'alice');
+		const wrong = await fetch(url(`socket?ticket=${stolen.ticket}`), { headers: { upgrade: 'websocket', ...as('bob') } });
+		expect(wrong.status).toBe(401);
+		expect((await wrong.json()).error).toContain("another account's session");
+		// The refusal spent it: even its own session cannot use it now.
+		expect(await openWithTicket(served.url, stolen.ticket, as('alice')).opened).toBe(false);
+	});
+
+	test('a ticket outlives neither the session it was issued for, nor works anywhere but the socket', async () => {
+		const expires = Date.now() + 150;
+		const { url, as } = setup({ authenticate: authenticateBearer((token) => (token === 'alice' ? { user: 'alice', role: 'writer', expires } : null)) });
+		const { ticket } = await issue(url, as, 'alice');
+		expect((await fetch(url(`catch-up?from=&ticket=${ticket}`))).status).toBe(401);
+		// The session ends before its ticket is presented.
+		await Bun.sleep(200);
+		const second = await fetch(url('tickets'), { method: 'POST', headers: as('alice') });
+		expect(second.status).toBe(401);
+		const refused = await fetch(url(`socket?ticket=${ticket}`), { headers: { upgrade: 'websocket' } });
+		expect(refused.status).toBe(401);
+		expect((await refused.json()).error).toContain('session behind this ticket has expired');
+	});
+
+	test('a wire client with tickets syncs a replica over a socket that carries no headers', async () => {
+		const { served, server } = setup();
+		const client = createWireClient({ url: served.url, headers: { authorization: 'Bearer alice' }, tickets: true });
+		const replica = unwrap(
+			openReplica({
+				driver: openBunSqlite(),
+				binding: { repository: 'test', server: client.url, account: 'alice' },
+				device: 'laptop',
+				after: (ms, run) => setTimeout(run, ms),
+				now: () => Date.now(),
+			}),
+		);
+		const connection = connectSocket(replica, client, { retry: 50 });
+		stops.push(async () => connection.close());
+		await until(() => replica.position() !== null);
+		replica.write('n/a.md', note('one\n'));
+		await until(() => !replica.busy());
+		expect(server.read('n/a.md')).toBe(note('one\n'));
+	});
+});
+
+// ============================================================================
+// The dev server across origins
+// ============================================================================
+
+test("the dev server answers a listed origin's preflight and marks its responses readable there, and no other origin's", async () => {
+	const server = createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock: () => EPOCH });
+	const served = serveRepository({ repository: 'test', server, authenticate: authenticateBearer((token) => SESSIONS[token] ?? null), origins: ['http://app.test'] });
+	stops.push(served.stop);
+	const preflight = await fetch(new URL('tickets', served.url), {
+		method: 'OPTIONS',
+		headers: { origin: 'http://app.test', 'access-control-request-method': 'POST', 'access-control-request-headers': 'authorization' },
+	});
+	expect(preflight.status).toBe(204);
+	expect(preflight.headers.get('access-control-allow-origin')).toBe('http://app.test');
+	expect(preflight.headers.get('access-control-allow-headers')).toContain('authorization');
+	const listed = await fetch(new URL('tickets', served.url), { method: 'POST', headers: { origin: 'http://app.test', authorization: 'Bearer alice' } });
+	expect(listed.status).toBe(200);
+	expect(listed.headers.get('access-control-allow-origin')).toBe('http://app.test');
+	expect(listed.headers.get('access-control-expose-headers')).toContain('etag');
+	const other = await fetch(new URL('tickets', served.url), { method: 'POST', headers: { origin: 'http://elsewhere.test', authorization: 'Bearer alice' } });
+	expect(other.headers.get('access-control-allow-origin')).toBeNull();
 });

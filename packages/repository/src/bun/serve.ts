@@ -5,6 +5,11 @@
  * only its verified session (and the timer that closes it when the session
  * expires). For development and tests; the hosted server is a Durable
  * Object (phase 10).
+ *
+ * A page served from another origin (an app's dev server, a test site) may
+ * call it when its origin is listed in `origins`: requests from it get the
+ * CORS headers a browser needs, and its preflights are answered. Sockets
+ * need none, and authenticate with a ticket.
  */
 import { join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -17,6 +22,23 @@ import { openBunGitStore } from './git.js';
 import { openBunSqlite } from './sqlite.js';
 
 const EVENTS = 'events';
+
+/** What a listed origin may send and read across origins. */
+const CORS = {
+	'access-control-allow-methods': 'GET, POST, PUT, DELETE',
+	'access-control-allow-headers': 'authorization, content-type, if-match, if-none-match, epicenter-device',
+	'access-control-expose-headers': 'etag, retry-after',
+	'access-control-max-age': '600',
+};
+
+/** `response` with the CORS headers for `origin`. */
+function allowOrigin(response: Response, origin: string) {
+	const headers = new Headers(response.headers);
+	headers.set('access-control-allow-origin', origin);
+	headers.append('vary', 'origin');
+	for (const [name, value] of Object.entries(CORS)) headers.set(name, value);
+	return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
 
 type SocketData = { verified: Verified; expiry?: ReturnType<typeof setTimeout> };
 
@@ -32,6 +54,7 @@ export function serveRepository({
 	hostname = '127.0.0.1',
 	port = 0,
 	limits,
+	origins = [],
 	log = createLogger('repository/serve'),
 }: {
 	/** The repository's id, which every socket's hello names. */
@@ -41,6 +64,8 @@ export function serveRepository({
 	hostname?: string;
 	port?: number;
 	limits?: Partial<WireLimits>;
+	/** Origins whose pages may call the server across origins, such as `http://127.0.0.1:5173`. */
+	origins?: string[];
 	log?: Logger;
 }) {
 	let bun: BunServer<SocketData> | undefined;
@@ -59,7 +84,13 @@ export function serveRepository({
 	bun = Bun.serve<SocketData>({
 		hostname,
 		port,
-		fetch: (request) => wire.handle(request),
+		async fetch(request) {
+			const origin = request.headers.get('origin');
+			const allowed = origin !== null && origins.includes(origin);
+			if (allowed && request.method === 'OPTIONS') return allowOrigin(new Response(null, { status: 204 }), origin);
+			const response = await wire.handle(request);
+			return response === undefined || !allowed ? response : allowOrigin(response, origin);
+		},
 		error(cause) {
 			log.error(ServeError.RequestFailed({ cause }));
 			return new Response('The repository server failed', { status: 500 });

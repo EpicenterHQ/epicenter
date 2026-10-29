@@ -12,6 +12,7 @@ export {
 	type SocketHub,
 	type SocketMessage,
 	type SocketRequest,
+	type Ticket,
 	statusOf,
 	type Verified,
 	type Wire,

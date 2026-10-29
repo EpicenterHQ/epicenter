@@ -1,7 +1,9 @@
 /**
  * The device's side of the wire. `socket` opens the device's WebSocket,
  * which carries its pushes and catch-ups up and their answers and every
- * change event down, in order. `send` carries one replica request as HTTP
+ * change event down, in order. A browser cannot set a WebSocket's headers,
+ * so with `tickets` the socket first asks `POST /tickets` (with `headers`)
+ * for a one-use ticket and connects with it. `send` carries one replica request as HTTP
  * (a push is one `POST /commits`, a catch-up page one `GET /catch-up`, a
  * read by hash one `GET /blobs/<hash>` per text, so each is cached for
  * good): reads by hash always go this way, and a one-shot client can send
@@ -13,7 +15,10 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { Reply, Request as ReplicaRequest } from '../client/replica.js';
 import type { CatchUp, PushAnswer } from '../server/server.js';
-import { PING, PONG, type SocketMessage, type SocketRequest } from './wire.js';
+import { PING, PONG, SESSION_EXPIRED, type SocketMessage, type SocketRequest, type Ticket } from './wire.js';
+
+/** The close code a socket reports when it never opened: the WebSocket API's abnormal closure. */
+const NEVER_OPENED = 1006;
 
 export const WireClientError = defineErrors({
 	Unreachable: ({ cause }: { cause: unknown }) => ({ message: 'The repository server could not be reached', cause }),
@@ -29,6 +34,7 @@ export function createWireClient({
 	url,
 	headers = {},
 	openSocket = (feed) => new WebSocket(feed),
+	tickets = false,
 }: {
 	/** The repository's base URL, such as `http://127.0.0.1:8787/`. */
 	url: string;
@@ -36,6 +42,8 @@ export function createWireClient({
 	headers?: Record<string, string>;
 	/** Open the feed socket; a host that authenticates sockets by header passes its own (Bun's `new WebSocket(url, { headers })`). */
 	openSocket?: (url: string) => WebSocket;
+	/** Authenticate each socket with a one-use ticket from `POST /tickets`, as a browser must. */
+	tickets?: boolean;
 }) {
 	const base = new URL(url.endsWith('/') ? url : `${url}/`);
 	const at = (path: string) => new URL(path, base);
@@ -90,6 +98,14 @@ export function createWireClient({
 		return Ok({ type: 'fetched', rid, texts });
 	}
 
+	/** A one-use ticket for the next socket. */
+	async function ticket(): Promise<Result<string, WireClientError>> {
+		const { data: response, error } = await call(at('tickets'), { method: 'POST' });
+		if (error !== null) return Err(error);
+		if (response.status !== 200) return unexpected(response);
+		return Ok(((await response.json()) as Ticket).ticket);
+	}
+
 	return {
 		/** The repository's base URL: the server a replica binds to. */
 		url: base.href,
@@ -114,28 +130,44 @@ export function createWireClient({
 		socket({ message, closed }: { message: (message: SocketMessage) => void; closed: (code: number) => void }) {
 			const socketUrl = at('socket');
 			socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-			const socket = openSocket(socketUrl.href);
+			let socket: WebSocket | null = null;
+			let closing = false;
 			const pongs: (() => void)[] = [];
-			socket.onmessage = (event) => {
-				if (event.data === PONG) return pongs.shift()?.();
-				message(JSON.parse(String(event.data)) as SocketMessage);
+			const attach = (opened: WebSocket) => {
+				socket = opened;
+				opened.onmessage = (event) => {
+					if (event.data === PONG) return pongs.shift()?.();
+					message(JSON.parse(String(event.data)) as SocketMessage);
+				};
+				opened.onclose = (event) => {
+					for (const resolve of pongs.splice(0)) resolve();
+					closed(event.code);
+				};
 			};
-			socket.onclose = (event) => {
-				for (const resolve of pongs.splice(0)) resolve();
-				closed(event.code);
-			};
+			if (!tickets) attach(openSocket(socketUrl.href));
+			else
+				void ticket().then(({ data, error }) => {
+					// No ticket, no socket: the caller hears it closed, as it would a refused one, and may try again.
+					if (error !== null) return closed(error.name === 'Unexpected' && error.status === 401 ? SESSION_EXPIRED : NEVER_OPENED);
+					if (closing) return closed(NEVER_OPENED);
+					socketUrl.searchParams.set('ticket', data);
+					attach(openSocket(socketUrl.href));
+				});
 			return {
 				/** Send a push or a catch-up; its reply comes down as a message naming its `rid`. Dropped unless the socket is open. */
 				send(request: SocketRequest) {
-					if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(request));
+					if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(request));
 				},
 				/** Resolves once everything the server sent before this ping has arrived, or the socket closed. */
 				ping(): Promise<void> {
-					if (socket.readyState !== WebSocket.OPEN) return Promise.resolve();
+					if (socket?.readyState !== WebSocket.OPEN) return Promise.resolve();
 					socket.send(PING);
 					return new Promise((resolve) => pongs.push(resolve));
 				},
-				close: () => socket.close(),
+				close() {
+					closing = true;
+					socket?.close();
+				},
 			};
 		},
 	};
