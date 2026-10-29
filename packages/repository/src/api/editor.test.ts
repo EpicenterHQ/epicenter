@@ -432,3 +432,38 @@ test('closing the repository reports only typing no write carried, not a write t
 	await settled();
 	expect(alice.replica.read(PATH)).toBe(note('typed'));
 });
+
+test('a note made again under another spelling of a deleted one opens as the note the replica keeps', async () => {
+	const { alice, repo } = twoDevices(app);
+	alice.replica.write('notes/x.md', note('one'));
+	alice.sync();
+	await settled();
+	expectOk(await repo.notes.delete({ stem: 'x' }));
+	await settled();
+	const created = repo.notes.create({ stem: 'X' }, { fields: { title: 'New' }, body: 'b\n' });
+	const editor = expectOk(await repo.notes.openEditor({ stem: 'X' }));
+	expectOk(await created);
+	await settled();
+	// The replica saved the create under the spelling it kept for the deleted note.
+	expect(alice.replica.read('notes/x.md')).toBe(note('b\n', 'New'));
+	expect(editor.path).toBe('notes/x.md');
+	expect(editor.draft()).toBe(note('b\n', 'New'));
+	expect(repo.notes.all().map((each) => each.path)).toEqual([editor.path]);
+});
+
+test("an editor waits for the unanswered writes to any spelling of its note's path", async () => {
+	const { repo, gate } = twoDevices(app);
+	await settled();
+	gate.hold();
+	const created = repo.notes.create({ stem: 'Day' }, { fields: { title: 'Day' }, body: 'b\n' });
+	let opened = false;
+	const opening = repo.notes.openEditor({ stem: 'DAY' }).then((result) => {
+		opened = true;
+		return result;
+	});
+	await settled();
+	expect(opened).toBe(false);
+	gate.release();
+	expectOk(await created);
+	expect(expectOk(await opening).path).toBe('notes/Day.md');
+});

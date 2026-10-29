@@ -100,8 +100,10 @@ type Deps = {
 	/** A kept note's text as the worker last said, or undefined when the path is not kept in memory. */
 	stored(path: string): string | null | undefined;
 	row(path: string): Promise<Row | null>;
-	/** Settles once every write to `path` sent so far is answered. */
+	/** Settles once every write to any spelling of `path` sent so far is answered. */
 	answered(path: string): Promise<void>;
+	/** `path` as this device spells it, when a note kept in memory is stored under another spelling of it. */
+	spelled(path: string): string;
 	send(changes: Change[]): Promise<Result<Changed, WriteError>>;
 	/** Show `path` again: its draft changed. */
 	refresh(path: string): void;
@@ -406,6 +408,8 @@ export function createEditors(deps: Deps) {
 		const starting = (async (): Promise<Result<Entry | { spelled: string }, WriteError | EditorError>> => {
 			// A write to this path still unanswered (a create just made) is what the editor opens over, within the replica's bound on an answer.
 			if (!(await within(deps.answered(path), REQUEST_TIMEOUT))) return EditorError.Unanswered({ path });
+			// What was just stored may keep another spelling of the path (a create over a deleted note's), as the replica does.
+			if (deps.spelled(path) !== path) return Ok({ spelled: deps.spelled(path) });
 			if (deps.session() === null) return { data: null, error: deps.unavailable() };
 			const revision = deps.revision();
 			let text = deps.stored(path);

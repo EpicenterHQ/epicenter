@@ -287,9 +287,12 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		revision: () => revision,
 		stored: (path) => (classify(path)?.lens.memory === true ? (stored.get(path)?.text ?? null) : undefined),
 		row: (path) => (session === null ? Promise.reject(new Error('No session is open')) : session.row(path)),
+		// Paths equal after NFC and case folding are one path: a write to any spelling of it counts.
 		answered: async (path) => {
-			await Promise.all((pending.get(path) ?? []).map((write) => write.done));
+			const writes = [...pending].filter(([other]) => fold(other) === fold(path)).flatMap(([, each]) => each);
+			await Promise.all(writes.map((write) => write.done));
 		},
+		spelled: (path) => spelled(path),
 		send: (changes) => send(changes),
 		refresh: (path) => {
 			refresh(path);
