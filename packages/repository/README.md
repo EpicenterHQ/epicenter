@@ -131,8 +131,9 @@ await repo.commit((batch) => {
 
 On a collection held in memory, a write shows at once: it is projected over
 the stored note the way the worker will apply it (a write made over an older
-text is merged, as the worker merges it), cleared by its answer, and dropped
-if it fails.
+text is merged, as the worker merges it), until the change it made is heard
+(each send carries a token the worker's change event repeats), and dropped if
+it fails.
 
 ### Edit a note's text
 
@@ -158,13 +159,21 @@ if (opened.error === null) {
   the worker's change touch the same characters, autosave pauses with both
   kept (`paused`, with `theirs`) until `resolve(text)`.
 - A failed write keeps the draft (`failed`, with `retry()`); a write lost
-  with its session goes again in the next one.
+  with its session goes again in the next one. A list shows a note whose
+  editor failed or paused as held, with why, never as sending.
+- A delete made here (a collection's, one in a batch, or a write of no text)
+  ends the note's editor and drops its draft, so nothing brings the note back.
+- `repo.close()` returns only typing no write carried: a write already handed
+  to the worker is stored, since a session that ends finishes the calls it
+  was sent.
 - A body view shows `bodyOf(editor.draft())` and types through
   `withBody(draft, body)`, so a note's body view and source view are two
   views of one draft.
 - `openEditor` right after `create` opens over the created note: it waits for
-  the path's unanswered writes, at most the replica's request timeout
-  (`EditorError.Unanswered` after that, with the write still going).
+  the unanswered writes to any spelling of the path, at most the replica's
+  request timeout (`EditorError.Unanswered` after that, with the write still
+  going), then opens under the spelling this device keeps. While the
+  repository is not open it answers `EditorError.Unavailable`.
 
 `@epicenter/svelte` binds an editor to CodeMirror (`editorBinding`,
 `createEditorView`, `<SourceEditor>`), so a change from elsewhere arrives in
