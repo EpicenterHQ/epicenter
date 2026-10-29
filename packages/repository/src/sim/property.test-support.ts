@@ -11,7 +11,11 @@
  * very text it had before), agent commits (fast-forward, sometimes merge),
  * lost replies, offline periods, restarts, flushes, idle periods longer than
  * the retention window, catch-ups in pages of two paths, a device whose storage
- * is lost for good, and a hostile member writing directly to the server.
+ * is lost for good, a hostile member writing directly to the server, and
+ * blobs: attaching bytes at a named path (alone, or with a note naming it),
+ * deleting them, and the upload track's steps out of order and across
+ * disconnects (the server receiving bytes, a device hearing they are
+ * present, an upload failing, an upload refused).
  * Then everyone comes online, repairs and saves what they hold back, and the
  * network goes quiet.
  *
@@ -31,6 +35,7 @@
  * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
+ * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
  *
  * Each suite reads its own environment, by prefix (B for the memory
  * suite, W for the wire): <P>_SEED=n replays one sequence, <P>_RUNS=n runs n
@@ -38,7 +43,7 @@
  * A failure names its seed and the steps.
  */
 import { expect, test } from 'bun:test';
-import { parses, splitMarkdown, writeMarkdown } from '../core/markdown.js';
+import { parsePointer, parses, splitMarkdown, writeMarkdown, writePointer } from '../core/markdown.js';
 import type { MemoryGitStore } from '../server/memory-git.js';
 import type { Server } from '../server/server.js';
 import { type Device, STAMP, type World, createWorld } from './harness.js';
@@ -85,6 +90,10 @@ export const memoryWorld = (options: WorldOptions): PropertyWorld => {
 };
 
 const PATHS = ['notes/a.md', 'notes/b.md', 'notes/c.md'];
+/** Blob paths, and the bytes devices attach at them (as oid and size: the bytes themselves are the upload track's). */
+const BLOB_PATHS = ['recordings/r1.webm', 'recordings/r2.webm'];
+const BYTES = ['a', 'b', 'c', 'd'].map((x, i) => ({ oid: x.repeat(64), size: 100 * (i + 1) }));
+const REFUSED = 'refused by the server';
 /** A note created from a template: the same text each time, so a path can hold a new note with an old note's text. */
 const TEMPLATE = '---\ntitle: New\n---\n';
 const TOKEN = /t\d+z/g;
@@ -142,6 +151,14 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const forgotten = new Set<string>();
 	const removals: { device: string; path: string; base: string | null; position: string | null; at: number; landed: boolean; cancelled: boolean; step: string }[] = [];
 	const violations: string[] = [];
+	/** Bytes each device was told are present (its "epicenter/objects"), by device. */
+	const marked = new Map<string, Set<string>>();
+	/** Bytes the server refuses, whoever asks. */
+	const refusedBytes = new Set<string>();
+	/** Each blob a person attached: done once that text is on main at that path (theirs, or the same bytes from someone else); settled otherwise only by their own later save of the path, a discard, or losing the device. */
+	const attaches: { device: string; path: string; text: string; settled: boolean }[] = [];
+	/** Every blob text main has held, by path. */
+	const onMain = new Set<string>();
 	const honestIds: string[] = [];
 	let next = 1;
 	const token = () => `t${next++}z`;
@@ -161,6 +178,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			if (committed.author.user === 'agent') for (const t of tokensIn(file.after)) if (!tokensIn(file.before).has(t)) owed.set(t, 'agent');
 			// A removal is done once its path is absent on the server after it, whoever's commit did it.
 			if (file.after === null) for (const r of removals) if (r.path === file.path && !r.cancelled) r.landed = true;
+			const pointer = file.after === null ? null : parsePointer(file.after);
+			if (pointer !== null && world.server.uploaded(pointer.oid) !== pointer.size) violations.push(`server: main holds ${file.path} without its bytes (${pointer.oid.slice(0, 8)})`);
+			if (pointer !== null) onMain.add(`${file.path}\0${file.after}`);
 			if (file.after === null) state.delete(file.path);
 			else state.set(file.path, file.after);
 		}
@@ -170,6 +190,11 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		lastMerge = committed.parents.length > 1 ? committed : null;
 	});
 	world.onRequest((device, request, reply) => {
+		if (request.type === 'push')
+			for (const file of request.commit.files) {
+				const pointer = file.text === null ? null : parsePointer(file.text);
+				if (pointer !== null && !marked.get(device)?.has(pointer.oid)) violations.push(`${device}: sent ${file.path} before its bytes were present`);
+			}
 		if (request.type !== 'push' || reply.type !== 'answer') return;
 		const answer = reply.answer as PushAnswer;
 		if (answer.kind !== 'applied' && answer.kind !== 'merged') return;
@@ -205,6 +230,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		for (const [t, n] of before) if ((written.get(t) ?? 0) < n) removed.add(t);
 		for (const t of typed) if (written.has(t)) owed.set(t, d.name);
 		for (const [path, text] of Object.entries(changes)) {
+			for (const a of attaches) if (a.device === d.name && a.path === path && a.text !== text) a.settled = true;
 			for (const r of removals) if (r.device === d.name && r.path === path && text !== null) r.cancelled = true;
 			// A removal claims a note the device had from the server, not one it created and never sent,
 			const known = d.replica.files().get(path)?.base ?? null;
@@ -300,7 +326,85 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		},
 	];
 
+	/** The upload track's word that bytes are present, which comes only once the server holds them. */
+	const hear = (d: Device, bytes: { oid: string; size: number }) => {
+		d.replica.present(bytes.oid, bytes.size);
+		let set = marked.get(d.name);
+		if (set === undefined) marked.set(d.name, (set = new Set()));
+		set.add(bytes.oid);
+	};
+	const owedBy = (d: Device) => d.replica.owed();
+	/** One of `d`'s owed bytes, or undefined when it owes none. */
+	const someOwed = (d: Device) => {
+		const owing = owedBy(d);
+		return owing.length === 0 ? undefined : random.pick(owing);
+	};
+
+	const blobSteps: [number, (d: Device) => string | null | Promise<string | null>][] = [
+		// Attach bytes at a named path (a create or a replace), sometimes with a note naming it, saved together.
+		[
+			3,
+			(d) => {
+				const path = random.pick(BLOB_PATHS);
+				const text = writePointer(random.pick(BYTES));
+				if (d.replica.read(path) === text) return null;
+				const changes: Record<string, string | null> = { [path]: text };
+				const typed: string[] = [];
+				const notePath = random.pick(PATHS);
+				const noteText = d.replica.read(notePath);
+				if (random.chance(0.5) && noteText !== null) {
+					const t = token();
+					typed.push(t);
+					changes[notePath] = `${noteText}${noteText.endsWith('\n') ? '' : '\n'}audio ${path} ${t}\n`;
+				}
+				save(d, changes, typed);
+				attaches.push({ device: d.name, path, text, settled: false });
+				return `${d.name} attaches ${parsePointer(text)?.oid.slice(0, 1)} at ${path}${typed.length > 0 ? ` with ${notePath} (${typed[0]})` : ''}`;
+			},
+		],
+		[
+			1,
+			(d) => {
+				const path = random.pick(BLOB_PATHS);
+				if (d.replica.read(path) === null) return null;
+				save(d, { [path]: null }, []);
+				return `${d.name} deletes ${path}`;
+			},
+		],
+		// The upload track, out of order: the server receives bytes; a device hears they are present (only once the server has them); an upload fails and will retry; an upload is refused.
+		[
+			2,
+			() => {
+				const bytes = random.pick(BYTES);
+				if (refusedBytes.has(bytes.oid) || world.server.uploaded(bytes.oid) !== null) return null;
+				world.server.upload(bytes.oid, bytes.size);
+				return `the server receives ${bytes.oid.slice(0, 1)}`;
+			},
+		],
+		[
+			2,
+			(d) => {
+				const bytes = someOwed(d);
+				if (bytes === undefined || world.server.uploaded(bytes.oid) !== bytes.size) return null;
+				hear(d, bytes);
+				return `${d.name} hears ${bytes.oid.slice(0, 1)} is present`;
+			},
+		],
+		[1, (d) => (owedBy(d).length === 0 ? null : `${d.name}'s upload fails; it will retry`)],
+		[
+			1,
+			(d) => {
+				const bytes = someOwed(d);
+				if (bytes === undefined || world.server.uploaded(bytes.oid) !== null) return null;
+				refusedBytes.add(bytes.oid);
+				d.replica.refused(bytes.oid, REFUSED);
+				return `${d.name}'s upload of ${bytes.oid.slice(0, 1)} is refused`;
+			},
+		],
+	];
+
 	const steps: [number, (d: Device) => string | null | Promise<string | null>][] = [
+		...blobSteps,
 		// Type a word into the body, or create the note.
 		[
 			6,
@@ -466,6 +570,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			(d) => {
 				for (const [t, who] of owed) if (who === d.name && !acknowledged.has(t)) forgotten.add(t);
 				for (const r of removals) if (r.device === d.name && !r.landed) r.cancelled = true;
+				for (const a of attaches) if (a.device === d.name) a.settled = true;
+				marked.delete(d.name);
 				editors.delete(d.name);
 				d.lose();
 				return `${d.name} loses its storage`;
@@ -507,6 +613,16 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	world.calm();
 	for (const d of everyone) d.setOnline(true);
 	for (let round = 0; round < 6; round++) {
+		// Every upload completes, or is refused.
+		for (const d of everyone)
+			for (const bytes of owedBy(d)) {
+				if (refusedBytes.has(bytes.oid)) {
+					d.replica.refused(bytes.oid, REFUSED);
+					continue;
+				}
+				if (world.server.uploaded(bytes.oid) === null) world.server.upload(bytes.oid, bytes.size);
+				hear(d, bytes);
+			}
 		if (!(await world.settle())) throw new Error(`seed ${seed}: never went idle\n${log.join('\n')}`);
 		let saved = false;
 		for (const d of people) {
@@ -515,6 +631,15 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				const text = d.replica.read(path);
 				const reason = held.get(path);
 				if (text === null) continue;
+				if (!path.endsWith('.md')) {
+					// A held blob (refused, or written over one that moved): its person discards it, keeping what the server has.
+					if (reason === undefined) continue;
+					for (const a of attaches) if (a.device === d.name && a.path === path && a.text === text) a.settled = true;
+					save(d, { [path]: d.replica.files().get(path)?.base ?? null }, []);
+					log.push(`quiet: ${d.name} discards ${path} (${reason})`);
+					saved = true;
+					continue;
+				}
 				// Too many blocks: the person resolves them by keeping every side's lines, which removes nothing typed.
 				const unblocked = reason === REASONS['too-many-blocks'] ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
 				const fixed = parses(unblocked) && !hasFiller(unblocked) ? unblocked : repair(unblocked);
@@ -548,13 +673,14 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		if (from < 0) for (from = r.at - 1; from > 0 && (states.get(chain[from] ?? '')?.get(r.path) ?? null) !== r.base; ) from--;
 		return writers.slice(from + 1).some((w) => w.user !== r.device && w.paths.has(r.path));
 	};
+	for (const a of attaches) if (!a.settled && !onMain.has(`${a.path}\0${a.text}`)) violations.push(`quiet: ${a.device}'s attach at ${a.path} never landed`);
 	for (const r of removals)
 		if (!r.cancelled && !r.landed && server.has(r.path) && !lostToEdit(r))
 			violations.push(`quiet: ${r.device}'s removal of ${r.path} (${r.step}) never took effect, and no edit it had not seen beat it`);
 	check('at quiescence', true);
 	const notices: Record<string, number> = {};
 	for (const line of log) {
-		const reason = /^quiet: \w+ saves \S+ \(([^)]+)\)/.exec(line)?.[1];
+		const reason = /^quiet: \w+ (?:saves|discards) \S+ \(([^)]+)\)/.exec(line)?.[1];
 		if (reason === undefined) continue;
 		const key = `held: ${reason}`;
 		notices[key] = (notices[key] ?? 0) + 1;
