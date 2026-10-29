@@ -9,7 +9,7 @@
  * Key behaviors:
  * - notes parse, are LF-only, have no BOM, are at most 1 MB and are never pointers
  * - paths are portable, and Epicenter's control files are refused
- * - frontmatter over the key or nesting bound is refused quickly, before parsing
+ * - frontmatter over the key, value or nesting bound is refused quickly, before parsing
  * - ordinary frontmatter (long keys, long values, deep but sane nesting) is admitted
  * - `slug` always yields a segment the door admits
  */
@@ -20,6 +20,7 @@ import {
 	admissible,
 	FRONTMATTER_KEYS,
 	FRONTMATTER_NESTING,
+	FRONTMATTER_VALUES,
 	fold,
 	lint,
 	MAX_FILE_BYTES,
@@ -73,6 +74,7 @@ describe('frontmatter parse cost', () => {
 			note(`k: ${'{a: '.repeat(80_000)}1${'}'.repeat(80_000)}`),
 			note(`${Array.from({ length: 1000 }, (_, i) => `${' '.repeat(i)}a:`).join('\n')} 1`),
 			note(`k: {${Array.from({ length: 40_000 }, (_, i) => `a${i}`).join(', ')}}`),
+			note(`k: [${Array(250_000).fill('1').join(',')}]`),
 		];
 		for (const text of cases) {
 			const { refusal, ms } = timed(text);
@@ -85,6 +87,9 @@ describe('frontmatter parse cost', () => {
 		const keys = (n: number) => note(Array.from({ length: n }, (_, i) => `k${i}: ${i}`).join('\n'));
 		expect(admissible('a.md', keys(FRONTMATTER_KEYS))).toBeNull();
 		expect(admissible('a.md', keys(FRONTMATTER_KEYS + 1))).toBe(`the frontmatter may hold at most ${FRONTMATTER_KEYS} keys`);
+		const values = (n: number) => note(`k: [${Array(n - 1).fill('1').join(', ')}]`);
+		expect(admissible('a.md', values(FRONTMATTER_VALUES))).toBeNull();
+		expect(admissible('a.md', values(FRONTMATTER_VALUES + 1))).toBe(`the frontmatter may hold at most ${FRONTMATTER_VALUES} values`);
 		const brackets = (n: number) => note(`k: ${'['.repeat(n)}${']'.repeat(n)}`);
 		expect(admissible('a.md', brackets(FRONTMATTER_NESTING))).toBeNull();
 		expect(admissible('a.md', brackets(FRONTMATTER_NESTING + 1))).toBe(`the frontmatter may nest at most ${FRONTMATTER_NESTING} deep`);

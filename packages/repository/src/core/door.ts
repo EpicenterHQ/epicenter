@@ -5,8 +5,8 @@
  *
  * Enforced: every note (`.md`, in any case) parses, is LF-only with no byte
  * order mark, is at most 1 MB and is never an LFS pointer, and its
- * frontmatter is cheap to parse (at most `FRONTMATTER_KEYS` keys, nested at
- * most `FRONTMATTER_NESTING` deep); every text is
+ * frontmatter is cheap to parse (at most `FRONTMATTER_KEYS` keys and
+ * `FRONTMATTER_VALUES` scalars, nested at most `FRONTMATTER_NESTING` deep); every text is
  * valid UTF-8 with no NUL; every non-LFS file is at most 1 MB; a blob is a
  * canonical LFS pointer at a path named by its content
  * (`attachments/<sha256>.<ext>`); paths are portable (NFC, no `.git`
@@ -107,6 +107,13 @@ export const FRONTMATTER_KEYS = 1000;
  */
 export const FRONTMATTER_NESTING = 64;
 
+/**
+ * The most scalars (keys and values) a note's frontmatter may hold. Parsing
+ * is linear in them but not cheap: a 1 MB flow sequence of 250,000 items
+ * parses in about 330 ms locally; 10,000 cost about 13 ms.
+ */
+export const FRONTMATTER_VALUES = 10_000;
+
 /** Zero-width marks `yaml`'s lexer puts in its token stream (document, flow error end, scalar). */
 const DOC_MODE = '\u0002';
 const FLOW_ERROR_END = '\u0018';
@@ -121,6 +128,7 @@ function frontmatterRefusal(text: string): string | null {
 	const { yaml } = splitMarkdown(text);
 	if (yaml === null) return null;
 	let keys = 0;
+	let values = 0;
 	let column = 0;
 	let atLineStart = true;
 	/** The column block structure has reached on this line: its indent, or a `- ` or `? ` further right. */
@@ -167,9 +175,11 @@ function frontmatterRefusal(text: string): string | null {
 				flow.pop();
 				break;
 			default:
+				if (type === 'value' || type === 'single-quoted-scalar' || type === 'double-quoted-scalar') values++;
 				// A scalar: inside a flow mapping, count each as a possible key.
 				if (inFlowMap) keys++;
 		}
+		if (values > FRONTMATTER_VALUES) return `the frontmatter may hold at most ${FRONTMATTER_VALUES} values`;
 		if (keys > FRONTMATTER_KEYS) return `the frontmatter may hold at most ${FRONTMATTER_KEYS} keys`;
 		if (blockColumn + flow.length > FRONTMATTER_NESTING) return `the frontmatter may nest at most ${FRONTMATTER_NESTING} deep`;
 	}
