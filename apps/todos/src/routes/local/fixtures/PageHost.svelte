@@ -14,7 +14,7 @@
 </script>
 
 <Tooltip.Provider>
-	<RepositoryGate {repo} name="Todos">
+	<RepositoryGate {repo} name="Todos" {onLeave}>
 		<TodosApp {repo} repository="Todos" {syncsTo} {onLeave} />
 	</RepositoryGate>
 </Tooltip.Provider>

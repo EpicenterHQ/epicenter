@@ -7,6 +7,8 @@
 	hiding and showing again, or another tab taking the repository, never
 	remounts the app, so its controls, editors and typing stay where they
 	are. While the bar shows, the repository saves nothing and says so.
+	Given `onLeave`, every screen before the notes arrive offers to choose
+	another repository, so one that never opens cannot trap the person.
 
 	```svelte
 	<RepositoryGate {repo} name="Todos">
@@ -26,12 +28,15 @@
 	let {
 		repo,
 		name,
+		onLeave,
 		children,
 	}: {
 		/** The repository, its status tracked (`reactive`). */
 		repo: { status(): RepositoryStatus };
 		/** The app's name, as the person knows it. */
 		name: string;
+		/** Back to the list of repositories. */
+		onLeave?: () => void;
 		children: Snippet;
 	} = $props();
 
@@ -67,32 +72,41 @@
 		{/if}
 		<div class="min-h-0 flex-1">{@render children()}</div>
 	</div>
-{:else if status.status === 'opening' || status.status === 'closed'}
-	<Loading class="h-dvh" label="Opening…" />
-{:else if status.status === 'waiting'}
-	<Loading class="h-dvh" label="Waiting for the other tab to let go…" />
-{:else if status.status === 'elsewhere' || status.status === 'moved'}
-	{@const useHere = status.useHere}
-	<Empty.Root class="h-dvh">
-		<Empty.Media><AppWindowIcon class="size-8 text-muted-foreground" /></Empty.Media>
-		<Empty.Header>
-			<Empty.Title>{status.status === 'moved' ? `${name} moved to another tab` : `${name} is open in another tab`}</Empty.Title>
-			<Empty.Description>{name} works in one tab at a time. Use it here, and the other tab stops.</Empty.Description>
-		</Empty.Header>
-		<Empty.Content>
-			<Button size="sm" onclick={() => useHere()}>Use here</Button>
-		</Empty.Content>
-	</Empty.Root>
-{:else if status.status === 'unavailable'}
-	{@const retry = status.retry}
-	<Empty.Root class="h-dvh">
-		<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
-		<Empty.Header>
-			<Empty.Title>Could not open storage</Empty.Title>
-			<Empty.Description role="alert">{status.reason}</Empty.Description>
-		</Empty.Header>
-		<Empty.Content>
-			<Button variant="outline" size="sm" onclick={() => retry()}>Try again</Button>
-		</Empty.Content>
-	</Empty.Root>
+{:else}
+	<div class="flex h-dvh flex-col">
+		<div class="min-h-0 flex-1">
+		{#if status.status === 'opening' || status.status === 'closed'}
+			<Loading class="h-full" label="Opening…" />
+		{:else if status.status === 'waiting'}
+			<Loading class="h-full" label="Waiting for the other tab to let go…" />
+		{:else if status.status === 'elsewhere' || status.status === 'moved'}
+			{@const useHere = status.useHere}
+			<Empty.Root class="h-full">
+				<Empty.Media><AppWindowIcon class="size-8 text-muted-foreground" /></Empty.Media>
+				<Empty.Header>
+					<Empty.Title>{status.status === 'moved' ? `${name} moved to another tab` : `${name} is open in another tab`}</Empty.Title>
+					<Empty.Description>{name} works in one tab at a time. Use it here, and the other tab stops.</Empty.Description>
+				</Empty.Header>
+				<Empty.Content>
+					<Button size="sm" onclick={() => useHere()}>Use here</Button>
+				</Empty.Content>
+			</Empty.Root>
+		{:else if status.status === 'unavailable'}
+			{@const retry = status.retry}
+			<Empty.Root class="h-full">
+				<Empty.Media><TriangleAlertIcon class="size-8 text-muted-foreground" /></Empty.Media>
+				<Empty.Header>
+					<Empty.Title>Could not open storage</Empty.Title>
+					<Empty.Description role="alert">{status.reason}</Empty.Description>
+				</Empty.Header>
+				<Empty.Content>
+					<Button variant="outline" size="sm" onclick={() => retry()}>Try again</Button>
+				</Empty.Content>
+			</Empty.Root>
+		{/if}
+		</div>
+		{#if onLeave}
+			<p class="flex shrink-0 justify-center p-4"><Button variant="ghost" size="sm" onclick={onLeave}>Choose another repository</Button></p>
+		{/if}
+	</div>
 {/if}

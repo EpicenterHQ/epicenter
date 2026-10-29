@@ -4,7 +4,9 @@
 	and opens, or is removed from this browser. A new one is kept only on
 	this device, or syncs with a server given its address, the repository's
 	name there, and whom to sync as. The repository last opened opens again
-	on the next visit, so a reload shows the app directly.
+	on the next visit, so a reload shows the app directly; it is remembered
+	only once it has opened, and until its notes arrive the gate offers to
+	choose another, so one that never opens cannot trap the person.
 
 	An open repository is one handle for as long as it is chosen, under the
 	repository gate; the app gets `leave` to come back here, which closes it
@@ -71,16 +73,33 @@
 		return listed;
 	}
 
-	function open(manifest: Manifest) {
+	/** Stops waiting to remember the repository chosen, if it has not opened yet. */
+	let forget = () => {};
+	/** Show `repo`, and remember it for the next visit once it first opens: one that never opens is not opened again on its own. */
+	function choose(manifest: Manifest, repo: Repository<TDefs>) {
 		failure = undefined;
 		unsaved = undefined;
-		chosen = { manifest, repo: reactive(openBrowserRepository({ app, replica: manifest.replica, headers: headersOf(manifest) })) };
-		localStorage.setItem(remembered, manifest.replica);
+		chosen = { manifest, repo };
+		const remember = () => {
+			if (repo.status().status !== 'open') return false;
+			localStorage.setItem(remembered, manifest.replica);
+			return true;
+		};
+		if (remember()) return;
+		const stop = repo.subscribe(() => {
+			if (remember()) stop();
+		});
+		forget = stop;
+	}
+
+	function open(manifest: Manifest) {
+		choose(manifest, reactive(openBrowserRepository({ app, replica: manifest.replica, headers: headersOf(manifest) })));
 	}
 
 	async function leave() {
 		const left = chosen;
 		if (left === undefined) return;
+		forget();
 		localStorage.removeItem(remembered);
 		chosen = undefined;
 		// The app's views close their editors as they go; then the repository closes.
@@ -105,11 +124,8 @@
 			failure = created.error.message;
 			return;
 		}
-		const { manifest } = created.data;
 		form = { name: '', url: '', repository: '', account: '' };
-		unsaved = undefined;
-		chosen = { manifest, repo: reactive(created.data.repository) };
-		localStorage.setItem(remembered, manifest.replica);
+		choose(created.data.manifest, reactive(created.data.repository));
 	}
 
 	async function remove(manifest: Manifest, discardUnsent: boolean) {
@@ -140,7 +156,7 @@
 {#if chosen !== undefined}
 	{@const { repo, manifest } = chosen}
 	{#key manifest.replica}
-		<RepositoryGate {repo} {name}>
+		<RepositoryGate {repo} {name} onLeave={() => void leave()}>
 			{@render children({ repo, manifest, leave })}
 		</RepositoryGate>
 	{/key}

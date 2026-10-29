@@ -90,10 +90,10 @@ function freshDevice() {
 }
 
 /** Mount the page over `repository`; `close` unmounts it. */
-function mountPage(repository: TodosRepository, syncsTo?: string) {
+function mountPage(repository: TodosRepository, syncsTo?: string, onLeave: () => void = () => {}) {
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(PageHost, { target, props: { repository, syncsTo } });
+	const view = mount(PageHost, { target, props: { repository, syncsTo, onLeave } });
 	let mounted = true;
 	const close = () => {
 		if (!mounted) return;
@@ -363,4 +363,19 @@ test("the repository's status shows before the todos arrive and as a bar after, 
 	local.resume();
 	await until(() => !opened.has('[data-testid="repository-status"]'), 'the bar to go');
 	expect(opened.get(LIST)).toBe(list);
+});
+
+test('a repository that does not open offers to choose another, from every screen before its todos arrive', async () => {
+	const device = freshDevice();
+	const local = device.host();
+	let left = 0;
+	local.end({ status: 'unavailable', reason: 'Storage access is blocked', retry: () => {} });
+	const opened = mountPage(local.repository, undefined, () => left++);
+	await until(() => opened.text('[role="alert"]')?.includes('Storage access is blocked') ?? false, 'the refusal');
+	press(button(opened.target, 'Choose another repository'));
+	expect(left).toBe(1);
+	local.end({ status: 'opening' });
+	await until(() => opened.target.textContent?.includes('Opening') ?? false, 'opening');
+	press(button(opened.target, 'Choose another repository'));
+	expect(left).toBe(2);
 });
