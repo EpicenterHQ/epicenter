@@ -218,9 +218,9 @@ export function createLfsClient({ url, headers = {} }: { url: string; headers?: 
 				return Ok(answer.objects as LfsObjectAnswer[]);
 			} catch (cause) { return LfsClientError.Unexpected({ status: result.data.status, message: String(cause) }); }
 		},
-		async put(action: LfsAction, body: Blob | ReadableStream<Uint8Array>, size: number): Promise<Result<void, LfsClientError>> {
-			const init: RequestInit & { duplex?: 'half' } = { method: 'PUT', headers: { ...action.header, ...(body instanceof Blob ? {} : { 'content-length': String(size) }) }, body, ...(body instanceof Blob ? {} : { duplex: 'half' as const }) };
-			const result = await sent(action.href, init);
+		/** PUT the bytes to an upload action's `href`, with its headers: a `Blob`, whose length is known and whose bytes are read as they go, never copied. */
+		async put(action: LfsAction, body: Blob): Promise<Result<void, LfsClientError>> {
+			const result = await sent(action.href, { method: 'PUT', headers: { ...action.header }, body });
 			return result.error !== null ? Err(result.error) : Ok(undefined);
 		},
 		async verify(action: LfsAction, object: { oid: string; size: number }): Promise<Result<void, LfsClientError>> {

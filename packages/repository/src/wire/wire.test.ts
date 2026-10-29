@@ -174,7 +174,7 @@ describe('Git LFS', () => {
 		const writer = createLfsClient({ url: served.url, headers: { authorization: 'Bearer alice' } });
 		const upload = unwrap(await writer.batch('upload', [item]))[0]?.actions?.upload;
 		expect(upload).toBeDefined();
-		unwrap(await writer.put(upload!, new Blob([bytes as BlobPart]), item.size));
+		unwrap(await writer.put(upload!, new Blob([bytes as BlobPart])));
 		const reader = createLfsClient({ url: served.url, headers: { authorization: 'Bearer rita' } });
 		const download = unwrap(await reader.batch('download', [item]))[0]?.actions?.download;
 		expect(download).toBeDefined();

@@ -72,7 +72,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
-import { admissible, fold, isNote } from '../core/door.js';
+import { admissible, fold, isNote, MAX_BLOB_BYTES } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
 import { BODY_SQL, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
@@ -1395,6 +1395,8 @@ function createReplica({
 		// The upload track's side
 		// ------------------------------------------------------------------------
 
+		/** The most bytes one blob may hold: the server's limit from its hello, or the default before one. */
+		blobLimit: () => sizing?.blob ?? MAX_BLOB_BYTES,
 		/** Bytes this device owes the server, each once, oldest first: what the upload track sends. */
 		owed: (limit = 64) =>
 			driver.all<{ oid: string; size: number }>(
