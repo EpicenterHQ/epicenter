@@ -1049,9 +1049,16 @@ function createReplica({
 		set(path, f);
 	}
 
-	/** RULE: where a file's unsent and saved work become one held text, their calls join: what holds it holds them both. */
+	/** The call whose work a file's `mine` is: its saved or held text's, else its unsent commit's. */
+	const callOfMine = (f: FileView) => f.call ?? f.committed?.call ?? 0;
+	/**
+	 * RULE: where a file's unsent and saved work become one text that stands
+	 * (held, or a delete sent again), their calls join: what holds or sends it
+	 * holds or sends them both. Only then: work a newer save made moot joins
+	 * nothing, since a join can give a call another's unsent commit.
+	 */
 	function oneCall(f: FileView) {
-		const call = f.call ?? f.committed?.call ?? 0;
+		const call = callOfMine(f);
 		if (f.committed !== undefined) join(f.committed.call, call);
 		return callOf(call);
 	}
@@ -1076,7 +1083,7 @@ function createReplica({
 				return;
 			}
 			// RULE: a delete that did not take is named to its call (`kept`): the file stays.
-			if (work === null && text !== null) note(oneCall(f), 'kept', path);
+			if (work === null && text !== null) note(callOfMine(f), 'kept', path);
 			const mine =
 				work === text || work === null
 					? text
@@ -1160,8 +1167,8 @@ function createReplica({
 			if (held !== undefined) next.held = held;
 			else if (f.saved !== undefined) next.saved = true;
 		}
-		// Held work holds the call it came from, and its saved text's with it (set).
-		if (held !== undefined) next.call = oneCall(f);
+		// Held work holds the call it came from, and its saved text's with it (set); a refusal no text stays held under (a newer save over it took `main`'s blob) joins nothing.
+		if (next.held !== undefined) next.call = oneCall(f);
 		else if (f.call !== undefined) next.call = f.call;
 		set(path, next);
 	}

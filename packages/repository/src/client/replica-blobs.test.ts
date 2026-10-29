@@ -21,6 +21,7 @@
  * - A refused upload holds every pointer naming those bytes, with the reason; a save of the path clears it, and saving the same bytes again owes them again
  * - Owed pointers survive a reopen, and count as busy and unsent
  * - A blob write over a blob that moved while its bytes were uploading is held with why, and never uploaded
+ * - A blob refusal that no held text stands under (a later save over it took `main`'s blob) joins no calls, so a message lands in one commit
  */
 import { expect, test } from 'bun:test';
 import type { LiveCommit } from '../core/commit.js';
@@ -217,4 +218,35 @@ test('a blob written elsewhere while this one uploads holds this one with why, a
 	expect(alice.replica.read(AUDIO)).toBe(writePointer(a));
 	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
 	expect(alice.replica.owed()).toEqual([]);
+});
+
+test('a blob refusal that does not stand joins no calls: a message lands in one commit when a later save over its blob is dropped (seed 1300099)', () => {
+	const { world, alice, bob, settle } = setup();
+	const c = { oid: 'c'.repeat(64), size: 10 };
+	/** Alice's commits the server took, in order. */
+	const landed: LiveCommit[] = [];
+	world.onRequest((device, request, reply) => {
+		if (device === 'alice' && request.type === 'push' && reply.type === 'answer' && (reply.answer.kind === 'applied' || reply.answer.kind === 'merged')) landed.push(request.commit);
+	});
+	for (const bytes of [a, b, c]) world.upload(bytes.oid, bytes.size);
+	for (const device of [alice, bob]) for (const bytes of [a, b, c]) device.replica.present(bytes.oid, bytes.size);
+	alice.replica.write(AUDIO, writePointer(b));
+	settle();
+	landed.length = 0;
+	alice.setOnline(false);
+	// A call with a message, then a later save without one over its blob: the later save waits for that commit.
+	alice.replica.writeAll({ [NOTE]: note('said\n'), [AUDIO]: writePointer(a) }, { message: 'Said' });
+	alice.replica.writeAll({ [AUDIO]: null, 'recordings/r2.webm': writePointer(a) });
+	// Someone replaces the blob; alice catches up before she sends: the message's write is refused there, and the later delete over it is dropped.
+	bob.replica.write(AUDIO, writePointer(c));
+	settle();
+	alice.restart();
+	alice.setOnline(true);
+	settle();
+	expect(landed.map((commit) => [commit.message ?? null, commit.files.map((f) => f.path).sort()])).toEqual([
+		['Said', [NOTE]],
+		[null, ['recordings/r2.webm']],
+	]);
+	expect(alice.replica.read(AUDIO)).toBe(writePointer(c));
+	expect(alice.replica.busy()).toBe(false);
 });
