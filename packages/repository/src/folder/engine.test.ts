@@ -182,3 +182,72 @@ test("a blob saved in the folder is sealed, uploaded and lands; one from elsewhe
 	await runFor(world, 2_000);
 	expect(folder.disk.text('media/b.webm')).toBe('webm bytes');
 });
+
+/**
+ * The deciding scenario (decision item 9): an agent's folder commits two
+ * notes and a new blob while a person autosaves overlapping lines every
+ * 2 s, the blob's upload is delayed, one note is invalid at the door, and
+ * the commit's reply is lost.
+ */
+async function deciding({ invalid }: { invalid: boolean }) {
+	const world = createWorld({ seed: 11, latency: { min: 2, max: 20 } });
+	const lfs: Lfs = new Map();
+	const person = world.device('bo');
+	const agent = createFolderDevice(world, 'ada', { lfs });
+	person.replica.write('notes/plan.md', note('one\ntwo\nthree\n'));
+	await runFor(world, 1_000);
+	await until(world, agent.start({ watch: false }));
+	await runFor(world, 1_000);
+	const commits = landed(world);
+	agent.engine.kill();
+	agent.device.setOnline(false);
+	// The agent edits while no sync runs.
+	await agent.crash({ watch: false });
+	agent.disk.write('notes/plan.md', encoder.encode(note('one\nTWO by the agent\nthree\n')));
+	agent.disk.write('notes/summary.md', encoder.encode(invalid ? '---\ntitle: [\n---\nsummary\n' : note('summary\n')));
+	agent.disk.write('media/chart.png', encoder.encode('chart bytes'));
+	const saved = await until(world, agent.engine.commit('Summarize October'));
+	expect(saved.sort()).toEqual(['media/chart.png', 'notes/plan.md', 'notes/summary.md']);
+	// The person autosaves the same lines every 2 s while the agent's commit is out.
+	let typed = 0;
+	const autosave = () => {
+		if (typed >= 5) return;
+		typed++;
+		person.replica.edit('notes/plan.md', (text) => (text ?? '').replace(/^(two|second, take \d+)$/m, `second, take ${typed}`));
+		world.net.after(2_000, autosave);
+	};
+	autosave();
+	agent.device.setOnline(true);
+	agent.device.loseNextReply();
+	await runFor(world, 3_000);
+	// The upload arrives late.
+	await until(world, agent.upload());
+	await runFor(world, 12_000);
+	return { world, agent, person, commits };
+}
+
+test('the deciding scenario: an invalid note holds the whole group with its message; fixed and committed again, it lands once', async () => {
+	const { world, agent, commits } = await deciding({ invalid: true });
+	expect(commits.filter((c) => c.message !== undefined)).toEqual([]);
+	expect(world.server.read('notes/summary.md')).toBeNull();
+	expect(world.server.read('media/chart.png')).toBeNull();
+	expect(world.server.read('notes/plan.md')).not.toContain('TWO by the agent');
+	expect(agent.replica.held().map((h) => h.path)).toEqual(['notes/summary.md']);
+	expect(agent.replica.state('notes/plan.md')).toEqual({ status: 'held', reason: 'saved with notes/summary.md, which is held' });
+	agent.disk.write('notes/summary.md', encoder.encode(note('summary\n')));
+	await until(world, agent.engine.commit('Summarize October, fixed'));
+	await runFor(world, 10_000);
+	const said = commits.filter((c) => c.message !== undefined);
+	expect(said).toEqual([{ message: 'Summarize October, fixed', paths: ['media/chart.png', 'notes/plan.md', 'notes/summary.md'] }]);
+	const plan = world.server.read('notes/plan.md') ?? '';
+	expect(plan.split('TWO by the agent').length - 1).toBe(1);
+	expect(world.server.read('notes/summary.md')).toBe(note('summary\n'));
+});
+
+test('the deciding scenario without the invalid note lands as one commit, its conflict block with the person in the text', async () => {
+	const { world, commits } = await deciding({ invalid: false });
+	expect(commits.filter((c) => c.message !== undefined)).toEqual([{ message: 'Summarize October', paths: ['media/chart.png', 'notes/plan.md', 'notes/summary.md'] }]);
+	const plan = world.server.read('notes/plan.md') ?? '';
+	expect(plan.split('TWO by the agent').length - 1).toBe(1);
+	expect(findConflicts(plan).length).toBeGreaterThanOrEqual(1);
+});
