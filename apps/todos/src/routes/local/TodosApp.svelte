@@ -1,11 +1,11 @@
 <!--
-	Todos over this device's repository, inside `<OpenTodos>`: the header,
-	the list, and the open todo. Which todo is open is the URL's
-	`?todo=<id>`, so it survives a reload and the breakpoint.
+	Todos over the repository chosen in the repository chooser, under its
+	gate: the header, the list, and the open todo. Which todo is open is the
+	URL's `?todo=<id>`, so it survives a reload and the breakpoint.
 
-	It mounts once, when the todos first arrive, and stays for the page's
-	life. The repository needs no account; it syncs only when a server is
-	set. The header offers no Save version, Sync, or Connect.
+	It mounts once, when the todos first arrive, and stays while the
+	repository is chosen. The repository needs no account; it syncs only when
+	it has a server. The header offers no Save version, Sync, or Connect.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
