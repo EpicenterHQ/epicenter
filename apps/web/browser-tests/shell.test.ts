@@ -56,7 +56,9 @@ for (const [engine, browser] of ENGINES) {
 					await page.getByRole('heading', { name: 'You', exact: true }).waitFor();
 					expect(pathOf(page)).toBe('/me');
 					const installed = page.getByRole('list', { name: 'Apps installed in this browser' });
-					for (const hostname of [HOSTNAMES.todos, HOSTNAMES.honeycrisp]) await installed.getByText(hostname).waitFor();
+					for (const hostname of [HOSTNAMES.todos, HOSTNAMES.honeycrisp]) await installed.getByText(hostname, { exact: true }).waitFor();
+					// Each install pins its bundle by hash.
+					for (const hash of await installed.getByTestId('app-hash').allInnerTexts()) expect(hash).toMatch(/^sha256-[0-9a-f]{12}/);
 					await page.getByRole('region', { name: 'Account' }).getByText('Accounts are not built yet').waitFor();
 
 					await page.getByRole('region', { name: 'Repositories' }).getByRole('link', { name: 'Home (home)' }).click();

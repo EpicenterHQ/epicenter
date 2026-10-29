@@ -15,6 +15,7 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { addressOf, createHome, findAt, isHome, ownerOf, repositories } from '$lib/device.svelte.js';
+	import { installedKey } from '$lib/installed.svelte.js';
 	import JoinForm from '$lib/JoinForm.svelte';
 	import Opened from '$lib/Opened.svelte';
 	import type { Snippet } from 'svelte';
@@ -57,7 +58,8 @@
 </script>
 
 {#if manifest !== undefined}
-	{#key manifest.replica}
+	<!-- Installing an app changes the lens, so the repository opens again with it. -->
+	{#key `${manifest.replica} ${installedKey()}`}
 		<Opened {manifest}>{@render children()}</Opened>
 	{/key}
 {:else if listedFor !== address || (isHome({ owner, repository }) && homeFailure === undefined)}

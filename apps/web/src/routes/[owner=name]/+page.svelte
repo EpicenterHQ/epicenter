@@ -99,6 +99,7 @@
 						<span class="min-w-0 flex-1">
 							<span class="block font-medium">{app.name}</span>
 							<code class="block truncate text-xs text-muted-foreground">{app.hostname}</code>
+							<code class="block truncate text-xs text-muted-foreground" title="The hash of the bundle installed" data-testid="app-hash">{app.hash.slice(0, 19)}…</code>
 						</span>
 						<Button size="sm" variant="ghost" href="/{YOU}/{HOME}/{app.hostname}">Open on Home</Button>
 					</li>
