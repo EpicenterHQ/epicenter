@@ -160,6 +160,7 @@ repository, in a collection or none.
 
 ```ts
 const listed = await repo.files.list(); // [{ path, state }], ordered by path
+const waiting = await repo.files.waiting(); // only those not yet synced: sending, or held with why
 const readme = await repo.files.read('README.md'); // { path, text, state } or null, by any spelling of the path
 await repo.files.create('plans/trip.md', 'Go north\n');
 await repo.files.write('plans/trip.md', next, { over: before });

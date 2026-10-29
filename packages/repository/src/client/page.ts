@@ -109,6 +109,10 @@ export function servePage(
 			const unsent = withWork();
 			return replica.paths().map((path) => ({ path, state: unsent.has(path) ? replica.state(path) : { status: 'synced' } }));
 		},
+		/** Every file not yet synced (sending, or held with why), deletes included, ordered by path: indexed, so a count of them costs what they number, not the repository. */
+		waiting(): FileEntry[] {
+			return [...withWork()].sort().map((path) => ({ path, state: replica.state(path) }));
+		},
 		/** One note, for a collection not kept in memory. */
 		read,
 		query: replica.query,

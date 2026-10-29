@@ -40,6 +40,8 @@ function replicaMethods(replica: Replica, page: PageServer, blobs: OpfsBlobStore
 		paths: () => replica.paths(),
 		/** Every file this device shows, with its state. */
 		files: () => page.files(),
+		/** Every file not yet synced, with its state. */
+		waiting: () => page.waiting(),
 		state: (path: string) => replica.state(path),
 		held: () => replica.held(),
 		query: (sql: string, params?: SqlValue[]) => replica.query(sql, params),

@@ -43,6 +43,8 @@ export type Session = {
 	row(path: string): Promise<Row | null>;
 	/** Every file the replica shows, with its state. */
 	files(): Promise<FileEntry[]>;
+	/** Every file not yet synced, with its state. */
+	waiting(): Promise<FileEntry[]>;
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<TRow[]>;
 	/** Apply `changes` in one transaction; the change it makes is heard with `token`. */
 	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
@@ -170,6 +172,8 @@ export type FileText = { path: string; text: string; state: FileStatus };
 export type Files = {
 	/** Every file this device shows, ordered by path, with its state. */
 	list(): Promise<Result<FileEntry[], RepositoryError>>;
+	/** Every file not yet synced (sending, or held with why), deletes included: as many as wait, never the whole repository, so a status can count them on every change. */
+	waiting(): Promise<Result<FileEntry[], RepositoryError>>;
 	/** One file's exact text, found by any spelling of its path, or null for none. */
 	read(path: string): Promise<Result<FileText | null, RepositoryError>>;
 	/** A new file, merged with one already there. */
@@ -570,26 +574,23 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			over === undefined ? { kind: 'write', path: spelled(path), text } : { kind: 'write', path: spelled(path), text, over },
 		delete: (path: string): Change => ({ kind: 'delete', path: spelled(path) }),
 	};
+	/** Ask the open session, or say why there is none. */
+	async function asked<T>(ask: (session: Session) => Promise<T>): Promise<Result<T, RepositoryError>> {
+		const current = status.status === 'open' ? session : null;
+		if (current === null) return RepositoryError.Unavailable({ status: status.status });
+		try {
+			return Ok(await ask(current));
+		} catch {
+			return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
+		}
+	}
 	const files: Files = {
-		async list() {
-			const current = status.status === 'open' ? session : null;
-			if (current === null) return RepositoryError.Unavailable({ status: status.status });
-			try {
-				return Ok(await current.files());
-			} catch {
-				return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
-			}
-		},
-		async read(path) {
-			const current = status.status === 'open' ? session : null;
-			if (current === null) return RepositoryError.Unavailable({ status: status.status });
-			try {
-				const row = await current.row(path);
-				return Ok(row === null ? null : { path: row.path, text: row.text, state: row.state });
-			} catch {
-				return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
-			}
-		},
+		list: () => asked((current) => current.files()),
+		waiting: () => asked((current) => current.waiting()),
+		read: (path) => asked(async (current) => {
+			const row = await current.row(path);
+			return row === null ? null : { path: row.path, text: row.text, state: row.state };
+		}),
 		create: (path, text) => {
 			const change = fileChanges.create(path, text);
 			return one(change.path, change);
@@ -615,15 +616,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 				listeners.delete(listener);
 			};
 		},
-		async query<TRow>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>> {
-			const current = status.status === 'open' ? session : null;
-			if (current === null) return RepositoryError.Unavailable({ status: status.status });
-			try {
-				return Ok(await current.query<TRow>(sql, params));
-			} catch {
-				return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
-			}
-		},
+		query: <TRow>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>> => asked((current) => current.query<TRow>(sql, params)),
 		commit(build: (batch: Record<string, unknown>) => void) {
 			const batch: Change[] = [];
 			const handles: Record<string, unknown> = {};

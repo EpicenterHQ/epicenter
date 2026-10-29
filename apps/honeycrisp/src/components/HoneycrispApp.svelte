@@ -4,7 +4,7 @@
 	import * as Resizable from '@epicenter/ui/resizable';
 	import type { manifest } from '../data.js';
 	import { createNotes } from '../notes.svelte.js';
-	import { type HoneycrispRepository, setRepository } from '../repository.js';
+	import { setRepository } from '../repository.js';
 	import AppHeader from './AppHeader.svelte';
 	import FileBrowser from './FileBrowser.svelte';
 	import FileDetail from './FileDetail.svelte';
@@ -16,7 +16,7 @@
 
 	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	const notes = createNotes(setRepository(repo as HoneycrispRepository), { path: () => path, navigate });
+	const notes = createNotes(setRepository(repo), { path: () => path, navigate });
 
 	let filesOpen = $state(false);
 	function openListed(path: string) {

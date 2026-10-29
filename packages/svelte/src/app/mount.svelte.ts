@@ -24,12 +24,21 @@ export type AppProps<TManifest extends AnyManifest> = {
 /** The `mount` of an app whose root is `Root`. */
 export function mountSvelte<TManifest extends AnyManifest>(Root: Component<AppProps<TManifest>>): Mount<TManifest> {
 	return (element, { repo, path, navigate }) => {
-		const props = $state<AppProps<TManifest>>({ repo: reactive(repo), path, navigate });
+		// Only the path changes; the repository stays one object, not a deep proxy of it.
+		let current = $state(path);
+		const tracked = reactive(repo);
+		const props: AppProps<TManifest> = {
+			repo: tracked,
+			get path() {
+				return current;
+			},
+			navigate,
+		};
 		const frame = mount(AppFrame<AppProps<TManifest>>, { target: element, props: { Root, props } });
 		return {
 			unmount: () => unmount(frame),
 			setPath(next) {
-				props.path = next;
+				current = next;
 			},
 		};
 	};

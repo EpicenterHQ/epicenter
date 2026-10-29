@@ -10,7 +10,7 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { setRepository, type TodosRepository } from './repository.js';
+	import { setRepository } from './repository.js';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import type { AppProps } from '@epicenter/svelte/app';
@@ -24,7 +24,7 @@
 
 	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setRepository(repo as TodosRepository);
+	setRepository(repo);
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');

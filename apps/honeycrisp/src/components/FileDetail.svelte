@@ -56,8 +56,8 @@
 		if (noteStem !== undefined || folderStem !== undefined) return;
 		repo.revision();
 		let current = true;
-		void repo.query<{ text: string }>('SELECT text FROM "epicenter/files" WHERE path = ? AND text IS NOT NULL', [path]).then((rows) => {
-			if (current && rows.error === null) other = rows.data[0]?.text ?? null;
+		void repo.files.read(path).then(({ data }) => {
+			if (current && data !== undefined) other = data?.text ?? null;
 		});
 		return () => {
 			current = false;

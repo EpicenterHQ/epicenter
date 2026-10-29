@@ -12,11 +12,13 @@
 
 	let { repo, manifest, app }: { repo: ShellRepository; manifest: Manifest; app: string } = $props();
 
-	let files = $state.raw<readonly FileEntry[]>([]);
+	/** The files not yet synced, as of the last change: as many as wait, never the whole repository. */
+	let waiting = $state.raw<readonly FileEntry[]>([]);
 	$effect(() => {
+		if (manifest.url === null) return;
 		repo.revision();
-		void repo.files.list().then(({ data }) => {
-			if (data !== null) files = data;
+		void repo.files.waiting().then(({ data }) => {
+			if (data !== null) waiting = data;
 		});
 	});
 
@@ -24,7 +26,7 @@
 		if (manifest.url === null) return { label: 'On this device', tone: 'neutral' as const, detail: undefined };
 		let sending = 0;
 		let held = 0;
-		for (const { state } of files) {
+		for (const { state } of waiting) {
 			if (state.status === 'sending') sending++;
 			else if (state.status === 'held') held++;
 		}

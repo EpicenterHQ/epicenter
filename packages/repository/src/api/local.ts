@@ -26,6 +26,7 @@ function sessionOver(page: PageServer, alive: () => boolean): Session {
 		snapshot: () => answer(() => page.snapshot()),
 		row: (path) => answer(() => page.read(path)),
 		files: () => answer(() => page.files()),
+		waiting: () => answer(() => page.waiting()),
 		query: (sql, params) => answer(() => page.query(sql, params)),
 		change(changes, token) {
 			if (!alive()) return ended();

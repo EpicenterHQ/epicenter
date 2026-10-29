@@ -21,8 +21,8 @@
 	$effect(() => {
 		notes.repo.revision();
 		let current = true;
-		void notes.repo.query<{ path: string }>('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL ORDER BY path').then((rows) => {
-			if (current && rows.error === null) paths = rows.data.map((row) => row.path);
+		void notes.repo.files.list().then(({ data }) => {
+			if (current && data !== null) paths = data.map((file) => file.path);
 		});
 		return () => {
 			current = false;

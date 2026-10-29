@@ -14,7 +14,7 @@
  * - A note not kept in memory is read, and edited, through another spelling of its path
  * - What shows before an answer is what the worker will make: a field set a moment ago still shows under body typing and a write made over an older text
  * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
- * - The plain file API lists, reads, writes and edits every file, in a collection or none; a write to a path a collection keeps shows there at once
+ * - The plain file API lists, reads, writes and edits every file, in a collection or none, and lists those not yet synced; a write to a path a collection keeps shows there at once
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -235,6 +235,9 @@ test('the plain file API lists, reads, writes and edits every file, in a collect
 	await settled();
 	expect(heard.some((change) => change.files && change.collections.length === 0)).toBe(true);
 	expect(expectOk(await repo.files.read('plans/trip.md'))?.text).toBe('Go north\n');
+
+	// With no server, every file waits to be sent; the list of those that wait is only those.
+	expect(expectOk(await repo.files.waiting()).map(({ path }) => path)).toEqual(['README.md', 'plans/trip.md', 'todos/milk.md']);
 
 	// A path a collection keeps in memory shows there at once, before its answer.
 	const written = repo.files.write('todos/milk.md', todo('Oat milk'), { over: todo('Milk') });

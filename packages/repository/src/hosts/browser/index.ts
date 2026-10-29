@@ -202,6 +202,8 @@ function createOpenReplica({
 		paths: () => call('paths'),
 		/** Every file this device shows, with its state. */
 		files: (): Promise<FileEntry[]> => call('files'),
+		/** Every file not yet synced, with its state. */
+		waiting: (): Promise<FileEntry[]> => call('waiting'),
 		/** One file's state: synced, sending, or held with why. */
 		state: (path: string): Promise<FileStatus> => call('state', path),
 		/** Files whose text is held back, with why. */
