@@ -17,7 +17,12 @@ import {
 	templatesOverlap,
 } from './templates.js';
 
-export type NoteDefinition = { path: string; schema: TSchema };
+/**
+ * A collection of Markdown notes. `memory: false`: the page does not keep
+ * it in memory, so it reads one note at a time and through SQL, for a
+ * collection too large to hold; by default a page keeps every note whole.
+ */
+export type NoteDefinition = { path: string; schema: TSchema; memory?: false };
 export type BlobDefinition = {
 	path: string;
 	blob: { types: readonly string[]; maxSize?: number };
@@ -32,6 +37,10 @@ export type NoteName<TDefs extends Definitions> = {
 
 /** Names the repository object itself uses, so no handle can shadow them. */
 const RESERVED = new Set([
+	'status',
+	'subscribe',
+	'commit',
+	'revision',
 	'batch',
 	'send',
 	'verdict',
@@ -55,6 +64,8 @@ export type Lens =
 			schema: TSchema;
 			fields: string[];
 			view: string;
+			/** Whether a page keeps every note of it in memory. */
+			memory: boolean;
 	  }
 	| {
 			kind: 'blob';
@@ -99,6 +110,7 @@ export function defineApp<const TDefs extends Definitions>(definitions: TDefs) {
 				schema: definition.schema,
 				fields,
 				view: viewSql(name, template, noteColumns(fields)),
+				memory: definition.memory !== false,
 			});
 		} else {
 			if (templateEnds(template, '.md'))

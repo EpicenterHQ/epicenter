@@ -9,7 +9,8 @@ import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
 import type { BlobStoreError, Sealed } from '../../client/blobs.js';
-import { type Change, type Changed, type ChangeError, openReplica, type Replica } from '../../client/replica.js';
+import { type PageServer, servePage } from '../../client/page.js';
+import { type Change, openReplica, type Replica } from '../../client/replica.js';
 import { connectSocket } from '../../client/socket.js';
 import type { SqlDriver, SqlValue } from '../../sql.js';
 import { createWireClient } from '../../wire/client.js';
@@ -29,9 +30,13 @@ function plain<T, E extends { cause?: unknown }>(result: Result<T, E>): Result<T
 }
 
 /** What the tab may call, by name. */
-function replicaMethods(replica: Replica, blobs: OpfsBlobStore) {
+function replicaMethods(replica: Replica, page: PageServer, blobs: OpfsBlobStore) {
 	return {
 		read: (path: string) => replica.read(path),
+		/** Every note of the collections the page keeps in memory, as of one revision. */
+		snapshot: () => page.snapshot(),
+		/** One note as the page reads it, or null. */
+		row: (path: string) => page.read(path),
 		paths: () => replica.paths(),
 		state: (path: string) => replica.state(path),
 		held: () => replica.held(),
@@ -45,14 +50,9 @@ function replicaMethods(replica: Replica, blobs: OpfsBlobStore) {
 		 * not at all: a save storage refuses (full, or failing) changes
 		 * nothing, and says so before anything is acknowledged.
 		 */
-		change(changes: Change[]): Result<Changed, ChangeError | SaveError> {
+		change(changes: Change[]) {
 			clearReported();
-			try {
-				return replica.change(changes);
-			} catch (cause) {
-				if (storageWasFull()) return SaveError.QuotaExceeded();
-				return SaveError.Failed({ reason: extractErrorMessage(cause) });
-			}
+			return page.change(changes);
 		},
 		/** Seal a blob's bytes into this replica's objects. */
 		seal: async (blob: Blob): Promise<Result<Sealed, BlobStoreError>> => plain(await blobs.seal(blob.stream() as ReadableStream<Uint8Array>)),
@@ -86,7 +86,7 @@ export function serveReplicaWorker() {
 		);
 	}
 
-	async function start({ replica: id, create, views, headers }: Init) {
+	async function start({ replica: id, create, collections, headers }: Init) {
 		if (create !== null && (await readManifest(id)) === null) await writeManifest(create);
 		const manifest = await readManifest(id);
 		const root = await replicaDirectory(id);
@@ -111,7 +111,7 @@ export function serveReplicaWorker() {
 			driver,
 			binding,
 			device: crypto.randomUUID(),
-			app: { lenses: views },
+			app: { lenses: collections },
 			after: (ms, run) => {
 				setTimeout(run, ms);
 			},
@@ -124,8 +124,9 @@ export function serveReplicaWorker() {
 		}
 		const connection = manifest.url === null ? null : connectSocket(replica, createWireClient({ url: manifest.url, headers, tickets: true }), { log });
 		const blobs = createOpfsBlobStore(objects);
-		replica.watch((paths, revision) => post({ type: 'changed', paths, revision }));
-		methods = replicaMethods(replica, blobs);
+		const page = servePage(replica, collections, { failed: (cause) => (storageWasFull() ? SaveError.QuotaExceeded() : SaveError.Failed({ reason: extractErrorMessage(cause) })) });
+		page.watch((delta) => post({ type: 'changed', delta }));
+		methods = replicaMethods(replica, page, blobs);
 		close = async () => {
 			await blobs.close();
 			connection?.close();

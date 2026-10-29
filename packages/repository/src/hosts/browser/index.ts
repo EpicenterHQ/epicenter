@@ -33,11 +33,13 @@ import type { BlobStoreError, Sealed } from '../../client/blobs.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
 import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock } from './layout.js';
-import { type Init, SaveError, type TabMessage, type View, type WorkerMessage } from './messages.js';
+import type { Collection, Delta, Row, Snapshot } from '../../client/page.js';
+import { type Init, SaveError, type TabMessage, type WorkerMessage } from './messages.js';
 import type { ReplicaMethods } from './worker.js';
 
 export { listReplicas, type Manifest } from './layout.js';
-export { SaveError, type View } from './messages.js';
+export { SaveError } from './messages.js';
+export type { Collection, Delta, Row, Snapshot } from '../../client/page.js';
 
 export const BrowserReplicaError = defineErrors({
 	/** No replica with this id is in this origin, or its removal has begun. */
@@ -68,8 +70,8 @@ export type ReplicaTabState =
 
 /** What an app's page passes to open a replica. */
 export type BrowserReplicaOptions = {
-	/** The app's views over the replica's files. */
-	views?: View[];
+	/** The app's collections: each one's view over the replica's files, its template, and whether a page keeps it in memory. */
+	collections?: Collection[];
 	/** Sent with the server's HTTP requests, such as `authorization`; the socket gets a ticket with them. */
 	headers?: Record<string, string>;
 	/** Start the owning tab's worker; by default the package's own worker module. */
@@ -180,7 +182,7 @@ function createOpenReplica({
 	call: CallReplica;
 	/** Whether the session is closing: a save then comes back `Closed`. */
 	isEnding: () => boolean;
-	changes: Set<(paths: string[], revision: number) => void>;
+	changes: Set<(delta: Delta) => void>;
 	/** Close this replica in its tab and delete its files, once its worker has let go. */
 	remove: () => Promise<Result<undefined, BrowserReplicaError>>;
 }) {
@@ -192,6 +194,10 @@ function createOpenReplica({
 		manifest,
 		/** What this device shows for a path, or null for no file. */
 		read: (path: string) => call('read', path),
+		/** Every note of the collections kept in memory, as of one revision. */
+		snapshot: (): Promise<Snapshot> => call('snapshot'),
+		/** One note as a page reads it, or null. */
+		row: (path: string): Promise<Row | null> => call('row', path),
 		/** Every path this device shows. */
 		paths: () => call('paths'),
 		/** One file's state: synced, sending, or held with why. */
@@ -223,8 +229,8 @@ function createOpenReplica({
 		blob: (oid: string) => call('blob', oid),
 		hasBlob: (oid: string) => call('hasBlob', oid),
 		evictBlob: (oid: string) => call('evictBlob', oid),
-		/** Be told which paths changed once each change is stored, with its revision; returns the function that stops it. */
-		watch(listener: (paths: string[], revision: number) => void) {
+		/** Be told each change once it is stored, in revision order: its paths, and the rows now of those kept in memory; returns the function that stops it. */
+		watch(listener: (delta: Delta) => void) {
 			changes.add(listener);
 			return () => {
 				changes.delete(listener);
@@ -278,7 +284,7 @@ function openTab(
 	id: string,
 	create: Manifest | null,
 	{
-		views = [],
+		collections = [],
 		headers = {},
 		worker = () => new Worker(new URL('./replica.worker.ts', import.meta.url), { type: 'module' }),
 		log = createLogger('repository/browser'),
@@ -307,7 +313,7 @@ function openTab(
 		const running = worker();
 		let next = 1;
 		const calls = new Map<number, Deferred<unknown>>();
-		const changes = new Set<(paths: string[], revision: number) => void>();
+		const changes = new Set<(delta: Delta) => void>();
 		const ended = deferred<undefined>();
 		let ending = false;
 		let finished = false;
@@ -366,7 +372,7 @@ function openTab(
 					return;
 				}
 				case 'changed':
-					for (const listener of changes) listener(message.paths, message.revision);
+					for (const listener of changes) listener(message.delta);
 					return;
 				case 'closed':
 					finish();
@@ -381,7 +387,7 @@ function openTab(
 			if (current()) unavailable(BrowserReplicaError.Unavailable({ reason }).error);
 			finish();
 		});
-		post({ type: 'init', replica: id, create, views, headers } satisfies Init);
+		post({ type: 'init', replica: id, create, collections, headers } satisfies Init);
 
 		const me: Session = {
 			ended: ended.promise,

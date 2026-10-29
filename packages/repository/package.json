@@ -8,6 +8,8 @@
 		"./server": "./src/server/index.ts",
 		"./wire": "./src/wire/index.ts",
 		"./client": "./src/client/index.ts",
+		"./api": "./src/api/index.ts",
+		"./api/browser": "./src/api/browser.ts",
 		"./legacy-server": "./src/legacy-server/index.ts",
 		"./merge": "./src/core/merge.ts",
 		"./conflict": "./src/core/conflict.ts",

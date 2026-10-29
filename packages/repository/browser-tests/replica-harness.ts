@@ -15,8 +15,17 @@ import {
 } from '../src/hosts/browser/index.js';
 import { replicaDirectory, replicaLock, replicasDirectory } from '../src/hosts/browser/layout.js';
 import { entriesOf } from '../src/hosts/browser/opfs.js';
+import { compileTemplate } from '../src/core/templates.js';
+import { unwrap } from 'wellcrafted/result';
 
-const NOTES = [{ name: 'notes', view: `CREATE TEMP VIEW notes AS SELECT path, text FROM "epicenter/files" WHERE path LIKE 'notes/%' AND text IS NOT NULL` }];
+const NOTES = [
+	{
+		name: 'notes',
+		view: `CREATE TEMP VIEW notes AS SELECT path, text FROM "epicenter/files" WHERE path LIKE 'notes/%' AND text IS NOT NULL`,
+		template: unwrap(compileTemplate('notes/{stem}.md')),
+		memory: false,
+	},
+];
 
 let tab: ReplicaTab | null = null;
 /** A File read from the replica, kept by the page as an `<img>` would keep it. */
@@ -54,7 +63,7 @@ async function summary(blob: Blob | null) {
 }
 const message = (worker: Worker) => new Promise<unknown>((resolve) => worker.addEventListener('message', (event) => resolve(event.data), { once: true }));
 const options = (token?: string): BrowserReplicaOptions => ({
-	views: NOTES,
+	collections: NOTES,
 	headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
 	worker: () => new Worker('/replica-worker.js', { type: 'module' }),
 });
