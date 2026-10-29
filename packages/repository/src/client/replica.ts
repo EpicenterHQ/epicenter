@@ -613,37 +613,61 @@ function createReplica({
 		return pointer !== null && first(driver, 'SELECT 1 FROM "epicenter/objects" WHERE oid = ?', [pointer.oid]) === undefined;
 	}
 
-	/** The paths saved with `path` that still count it as one of theirs: one that went out or settled without it has left the group. */
-	const partners = (path: string, f: FileRecord) => (f.together ?? []).filter((other) => stored(other)?.together?.includes(path) === true);
-
 	/**
-	 * What keeps `path` from going: a file of its group (itself, or one saved
-	 * with it) that is held, or else one owed its bytes; null when nothing does.
+	 * `path`'s group, each file read once: it, and every file saved with it
+	 * that still counts it as one of theirs (an edge only one side holds is
+	 * one that went out or settled without the other), and what keeps the
+	 * group from going: a held file, or else one owed its bytes.
 	 */
-	function blocker(path: string): { path: string; held: boolean } | null {
+	function groupOf(path: string) {
+		const members = new Set<string>();
+		let held: string | null = null;
 		let owed: string | null = null;
-		const seen = new Set<string>();
-		for (const visit = [path]; visit.length > 0; ) {
-			const at = visit.pop() as string;
-			if (seen.has(at)) continue;
-			seen.add(at);
+		for (const visit: [string, string | null][] = [[path, null]]; visit.length > 0; ) {
+			const [at, from] = visit.pop() as [string, string | null];
+			if (members.has(at)) continue;
 			const f = record(at);
-			if (heldReason(f) !== null) return { path: at, held: true };
+			if (from !== null && !(f.together ?? []).includes(from)) continue;
+			members.add(at);
+			if (held === null && heldReason(f) !== null) held = at;
 			if (owed === null && owes(at, f)) owed = at;
-			visit.push(...partners(at, f));
+			for (const other of f.together ?? []) visit.push([other, at]);
 		}
-		return owed === null ? null : { path: owed, held: false };
+		const blocker = held !== null ? { path: held, held: true } : owed !== null ? { path: owed, held: false } : null;
+		return { members, blocker };
 	}
-	const blocked = (path: string) => blocker(path) !== null;
+	/** Whether a path waits on its group, for one pass over many paths: each group is walked once. */
+	function blockedAll() {
+		const known = new Map<string, boolean>();
+		return (path: string) => {
+			let blocked = known.get(path);
+			if (blocked === undefined) {
+				const group = groupOf(path);
+				blocked = group.blocker !== null;
+				for (const member of group.members) known.set(member, blocked);
+			}
+			return blocked;
+		};
+	}
+
+	/** Whether a file saved and not yet committed can go now. */
+	const savedReady = () => {
+		const blocked = blockedAll();
+		return pathsOf('SELECT path FROM "epicenter/files" WHERE saved = 1').some((path) => !blocked(path));
+	};
 
 	/** RULE: committed files that can go now: a commit waits while a file of its group is held or owed (a rename's halves, a note and its blob, go together), or while the server asked this member to slow down. */
-	const ready = () => (now() < backoffUntil ? [] : committedFiles().filter(([path]) => !blocked(path)));
+	const ready = () => {
+		if (now() < backoffUntil) return [];
+		const blocked = blockedAll();
+		return committedFiles().filter(([path]) => !blocked(path));
+	};
 
 	/** The files saved together with `path` that can go now: a rename's halves, and any path saved with either. */
 	function unit(path: string, among: Map<string, FileView>, into = new Set<string>()) {
 		if (into.has(path) || !among.has(path)) return into;
 		into.add(path);
-		for (const other of partners(path, among.get(path) ?? { base: null, mine: null })) unit(other, among, into);
+		for (const other of among.get(path)?.together ?? []) if (among.get(other)?.together?.includes(path) === true) unit(other, among, into);
 		return into;
 	}
 
@@ -686,6 +710,7 @@ function createReplica({
 				set(path, { ...rest, held: { reason: refusal } });
 			}
 		}
+		const blocked = blockedAll();
 		for (const [path, f] of filesWhere('saved = 1')) {
 			if (blocked(path)) continue;
 			const { saved: _, ...rest } = f;
@@ -1281,7 +1306,7 @@ function createReplica({
 		if (reason !== null) return { status: 'held', reason };
 		if (owes(path, f)) return { status: 'sending', reason: UPLOADING };
 		// A path saved with a held or owed one waits for it: say which, and why.
-		const waits = f.saved === undefined && f.committed === undefined ? null : blocker(path);
+		const waits = f.saved === undefined && f.committed === undefined ? null : groupOf(path).blocker;
 		if (waits !== null) return waits.held ? { status: 'held', reason: `saved with ${waits.path}, which is held` } : { status: 'sending', reason: `saved with ${waits.path}, whose bytes are uploading` };
 		if (f.sent === undefined && f.committed === undefined && f.saved === undefined) return { status: 'synced' };
 		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
@@ -1363,7 +1388,7 @@ function createReplica({
 			inflight !== null ||
 			first(driver, 'SELECT 1 FROM "epicenter/unsent"') !== undefined ||
 			first(driver, `SELECT 1 ${OWED_SQL} LIMIT 1`) !== undefined ||
-			pathsOf('SELECT path FROM "epicenter/files" WHERE saved = 1').some((path) => !blocked(path)),
+			savedReady(),
 		/** Why this device's last commit was refused or rejected (a writer's verdict), until one lands; or null. */
 		lastRefusal: () => lastRefusal,
 		/** Why nothing is being sent: a rejection only the person or the account can fix, until the next connection; or null. */
