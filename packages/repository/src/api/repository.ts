@@ -191,8 +191,8 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	let revision = 0;
 	/** Each note kept in memory as the worker last said, by path. */
 	let stored = new Map<string, Row>();
-	/** Writes sent and not yet answered, by path, in the order sent: shown over the stored note. */
-	const pending = new Map<string, { id: number; change: Change }[]>();
+	/** Writes sent and not yet answered, by path, in the order sent: shown over the stored note. `done` settles once its answer is in. */
+	const pending = new Map<string, { id: number; change: Change; done: Promise<void> }[]>();
 	let nextId = 1;
 	const listeners = new Set<(change: RepositoryChange) => void>();
 	const touched = new Set<string>();
@@ -235,6 +235,9 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		revision: () => revision,
 		stored: (path) => (classify(path)?.lens.memory === true ? (stored.get(path)?.text ?? null) : undefined),
 		row: (path) => (session === null ? Promise.reject(new Error('No session is open')) : session.row(path)),
+		answered: async (path) => {
+			await Promise.all((pending.get(path) ?? []).map((write) => write.done));
+		},
 		send: (changes) => send(changes),
 		refresh: (path) => {
 			refresh(path);
@@ -342,7 +345,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	async function send(changes: Change[]): Promise<Result<Changed, WriteError>> {
 		const current = status.status === 'open' ? session : null;
 		if (current === null) return RepositoryError.Unavailable({ status: status.status });
-		const sent = changes.map((change) => ({ id: nextId++, change }));
+		let finish = () => {};
+		const done = new Promise<void>((resolve) => {
+			finish = resolve;
+		});
+		const sent = changes.map((change) => ({ id: nextId++, change, done }));
 		for (const write of sent) pending.set(write.change.path, [...(pending.get(write.change.path) ?? []), write]);
 		for (const write of sent) refresh(write.change.path);
 		emit();
@@ -359,6 +366,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		}
 		for (const write of sent) refresh(write.change.path);
 		emit();
+		finish();
 		return result;
 	}
 

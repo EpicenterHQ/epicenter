@@ -14,6 +14,7 @@
  * - Typing that touches what the worker changed pauses autosave with both kept, until resolved
  * - A note deleted elsewhere while the person types comes back with their typing
  * - A refused write, a worker lost mid-write, a close that cannot save and a repository closed (an account change) all keep the draft; closing the repository returns every draft it could not save
+ * - An editor opened right after a create, without awaiting it, opens over the created note
  * - Views of one note share its editor, body and source alike: the last to close saves
  */
 import { expect, test } from 'bun:test';
@@ -61,6 +62,14 @@ test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1
 	expect(editor.draft()).toBe(text);
 	expect(editor.state()).toEqual({ status: 'saved' });
 	expect(repo.notes.get({ stem: 'plan' })?.text).toBe(text);
+});
+
+test('an editor opened right after a create, without waiting for it, opens over the created note', async () => {
+	const { repo } = twoDevices(app);
+	await settled();
+	void repo.notes.create({ stem: 'new' }, { fields: { title: 'New' }, body: 'x\n' });
+	const editor = expectOk(await repo.notes.openEditor({ stem: 'new' }));
+	expect(editor.draft()).toBe(note('x\n', 'New'));
 });
 
 /** A note with title Base, synced to both devices, and Alice's editor on it. */

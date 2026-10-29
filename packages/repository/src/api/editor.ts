@@ -95,6 +95,8 @@ type Deps = {
 	/** A kept note's text as the worker last said, or undefined when the path is not kept in memory. */
 	stored(path: string): string | null | undefined;
 	row(path: string): Promise<Row | null>;
+	/** Settles once every write to `path` sent so far is answered. */
+	answered(path: string): Promise<void>;
 	send(changes: Change[]): Promise<Result<Changed, WriteError>>;
 	/** Show `path` again: its draft changed. */
 	refresh(path: string): void;
@@ -366,6 +368,8 @@ export function createEditors(deps: Deps) {
 			return open(path);
 		}
 		const starting = (async (): Promise<Result<Entry, WriteError | EditorError>> => {
+			// A write to this path still unanswered (a create just made) is what the editor opens over.
+			await deps.answered(path);
 			if (deps.session() === null) return { data: null, error: deps.unavailable() };
 			const revision = deps.revision();
 			let text = deps.stored(path);
