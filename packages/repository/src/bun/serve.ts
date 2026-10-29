@@ -27,6 +27,7 @@ const ServeError = defineErrors({
 /** Serve `server` over the wire on `hostname:port` (0 picks a free port). */
 export function serveRepository({
 	repository,
+	serverId,
 	server,
 	authenticate,
 	hostname = '127.0.0.1',
@@ -36,6 +37,8 @@ export function serveRepository({
 }: {
 	/** The repository's id, which every socket's hello names. */
 	repository: string;
+	/** This server's stable id, which every socket's hello names and a replica binds to. */
+	serverId: string;
 	server: Server;
 	authenticate: Authenticate;
 	hostname?: string;
@@ -46,6 +49,7 @@ export function serveRepository({
 	let bun: BunServer<SocketData> | undefined;
 	const wire = createWire({
 		repository,
+		serverId,
 		server,
 		authenticate,
 		...(limits === undefined ? {} : { limits }),

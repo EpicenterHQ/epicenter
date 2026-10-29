@@ -57,8 +57,12 @@ import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type Re
 // Ports and protocol
 // ============================================================================
 
-/** A session as the host verified it, with when it expires (ms since the epoch), if it does. */
-export type Verified = Session & { expires?: number };
+/**
+ * A session as the host verified it, with when it expires (ms since the
+ * epoch), if it does. `guest`: a session with no account (its user is the
+ * guest's id), which only a guest's replica takes.
+ */
+export type Verified = Session & { expires?: number; guest?: true };
 
 /** Who is asking, as the host verifies it; null when the request carries no valid credential. */
 export type Authenticate = (request: Request) => Verified | null | Promise<Verified | null>;
@@ -89,8 +93,13 @@ export type SocketRequest = { type: 'push'; rid: number; commit: LiveCommit } | 
 
 /** What a socket carries down: main when it opens, each commit on main (never texts), and the replies to its own requests. */
 export type SocketMessage =
-	/** The repository this socket reaches and the account it is signed in as, so a replica bound elsewhere refuses it, and the bounds on one push. */
-	| { type: 'head'; main: string; repository: string; user: string; limits: { request: number; files: number } }
+	/**
+	 * The repository this socket reaches, the server's stable id and the
+	 * account it is signed in as (null for a guest), so a replica bound
+	 * elsewhere refuses it; the session's user, whom its commits name; and
+	 * the bounds on one push.
+	 */
+	| { type: 'head'; main: string; repository: string; server: string; account: string | null; user: string; limits: { request: number; files: number } }
 	| ({ type: 'commit' } & Event)
 	| { type: 'answer'; rid: number; status: number; answer: PushAnswer }
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
@@ -244,6 +253,7 @@ const failure = (status: number, error: string, headers: Record<string, string> 
 
 export function createWire({
 	repository,
+	serverId,
 	server,
 	authenticate,
 	sockets,
@@ -252,6 +262,8 @@ export function createWire({
 }: {
 	/** The repository's id, as the host names it: a replica records it and refuses a socket that names another. */
 	repository: string;
+	/** The server's stable id, as the host names it (the hosted service, or a self-hosted install): a replica binds to it. */
+	serverId: string;
 	server: Server;
 	authenticate: Authenticate;
 	sockets: SocketHub;
@@ -417,10 +429,19 @@ export function createWire({
 		/**
 		 * The first message a socket whose session is `verified` gets once
 		 * open: `main` now, so a reconnecting device knows whether it missed
-		 * anything, and which repository and account the socket is, so a
-		 * replica bound elsewhere refuses it.
+		 * anything, and which repository, server and account the socket is,
+		 * so a replica bound elsewhere refuses it.
 		 */
-		hello: (verified: Verified) => JSON.stringify({ type: 'head', main: server.main(), repository, user: verified.user, limits: server.sizing() } satisfies SocketMessage),
+		hello: (verified: Verified) =>
+			JSON.stringify({
+				type: 'head',
+				main: server.main(),
+				repository,
+				server: serverId,
+				account: verified.guest === true ? null : verified.user,
+				user: verified.user,
+				limits: server.sizing(),
+			} satisfies SocketMessage),
 		/**
 		 * Take one message from a socket whose session is `verified`, replying
 		 * on `end`. A message past the body limit is refused unread: a push
@@ -471,7 +492,7 @@ export function createWire({
 export type Wire = ReturnType<typeof createWire>;
 
 /** An authenticator for development and tests: `Authorization: Bearer <token>`, looked up. */
-export function authenticateBearer(lookup: (token: string) => Session | null): Authenticate {
+export function authenticateBearer(lookup: (token: string) => Verified | null): Authenticate {
 	return (request) => {
 		const header = request.headers.get('authorization');
 		const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';

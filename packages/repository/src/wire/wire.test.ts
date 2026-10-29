@@ -23,14 +23,15 @@ import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
-import { createServer, type Limits, LIMITS, type Server, type Session } from '../server/server.js';
+import { createServer, type Limits, LIMITS, type Server } from '../server/server.js';
 import { createWireClient } from './client.js';
-import { type Authenticate, authenticateBearer, type SocketMessage, type WireLimits } from './wire.js';
+import { type Authenticate, authenticateBearer, type SocketMessage, type Verified, type WireLimits } from './wire.js';
 
 const EPOCH = Date.UTC(2026, 9, 28, 12);
 const note = (body: string) => `---\ntitle: A\n---\n${body}`;
-const SESSIONS: Record<string, Session> = {
+const SESSIONS: Record<string, Verified> = {
 	alice: { user: 'alice', role: 'writer' },
+	guest: { user: 'guest-7f3a', role: 'writer', guest: true },
 	bob: { user: 'bob', role: 'writer' },
 	rita: { user: 'rita', role: 'reader' },
 	eve: { user: 'eve', role: null },
@@ -48,7 +49,7 @@ function setup({
 }: { limits?: Partial<Limits>; wire?: Partial<WireLimits>; authenticate?: Authenticate } = {}) {
 	const clock = { now: EPOCH };
 	const server = createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock: () => clock.now, ...(limits === undefined ? {} : { limits }) });
-	const served = serveRepository({ repository: 'test', server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
+	const served = serveRepository({ repository: 'test', serverId: 'test-server', server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
 	stops.push(served.stop);
 	const url = (path: string) => new URL(path, served.url).href;
 	const as = (user: string, headers: Record<string, string> = {}) => ({ authorization: `Bearer ${user}`, ...headers });
@@ -349,7 +350,15 @@ describe("the device's socket", () => {
 		const rita = open(served.url, 'rita');
 		await until(() => alice.messages.length === 1 && rita.messages.length === 1);
 		const base = server.main();
-		expect(rita.messages[0]).toEqual({ type: 'head', main: base, repository: 'test', user: 'rita', limits: { request: LIMITS.request, files: LIMITS.files } });
+		expect(rita.messages[0]).toEqual({
+			type: 'head',
+			main: base,
+			repository: 'test',
+			server: 'test-server',
+			account: 'rita',
+			user: 'rita',
+			limits: { request: LIMITS.request, files: LIMITS.files },
+		});
 		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
 		alice.socket.send({ type: 'push', rid: 7, commit });
 		await alice.socket.ping();
@@ -414,6 +423,29 @@ describe("the device's socket", () => {
 		expect(gone.messages).toEqual([]);
 	});
 
+	test("a guest session's socket names no account: a guest replica takes it and writes as the session's user", async () => {
+		const { served, clock, server } = setup();
+		const guest = open(served.url, 'guest');
+		await until(() => guest.messages.length === 1);
+		expect(guest.messages[0]).toMatchObject({ type: 'head', account: null, user: 'guest-7f3a', server: 'test-server' });
+		const client = createWireClient({ url: served.url, openSocket: socketWithHeaders({ authorization: 'Bearer guest' }) });
+		const replica = unwrap(
+			openReplica({
+				driver: openBunSqlite(),
+				binding: { repository: 'test', server: 'test-server', account: null },
+				device: 'tablet',
+				after: (ms, run) => setTimeout(run, ms),
+				now: () => clock.now,
+			}),
+		);
+		const connection = connectSocket(replica, client, { retry: 50 });
+		stops.push(async () => connection.close());
+		await until(() => replica.position() !== null);
+		replica.write('n/g.md', note('guest\n'));
+		await until(() => server.read('n/g.md') === note('guest\n'));
+		expect(replica.state('n/g.md')).toEqual({ status: 'synced' });
+	});
+
 	test('a replica whose socket dropped resumes from its last head by catching up, and syncs through the wire', async () => {
 		const { served, clock } = setup();
 		const sockets: WebSocket[] = [];
@@ -431,7 +463,7 @@ describe("the device's socket", () => {
 			const replica = unwrap(
 				openReplica({
 					driver: openBunSqlite(),
-					binding: { repository: 'test', server: client.url, account: user },
+					binding: { repository: 'test', server: 'test-server', account: user },
 					device: user,
 					after: (ms, run) => setTimeout(run, ms),
 					now: () => clock.now,

@@ -30,7 +30,7 @@ import { type Binding, openReplica, type Replica, type Reply, type Request } fro
 
 const PATH = 'notes/a.md';
 const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`;
-const BINDING: Binding = { repository: 'r1', server: 'https://example.test/r1/', account: 'alice' };
+const BINDING: Binding = { repository: 'r1', server: 'example', account: 'alice' };
 
 const open = (driver: SqlDriver, options: Partial<Parameters<typeof openReplica>[0]> = {}) =>
 	openReplica({ driver, binding: BINDING, device: 'laptop', after: () => {}, now: () => 0, ...options });
@@ -69,7 +69,7 @@ const bytes = (commit: LiveCommit) => new TextEncoder().encode(JSON.stringify(co
 test("commits fit the server's bounds from the hello: saves split into several, a group saved together kept whole", () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, main: server.main(), limits: server.sizing() }));
+	expectOk(replica.hello({ ...BINDING, main: server.main(), user: 'alice', limits: server.sizing() }));
 	const link = connect(replica, server);
 	link.deliver();
 	replica.attach(null);
@@ -141,9 +141,14 @@ test('a database bound to another repository, server or account is refused, and 
 	expect(expectErr(open(driver, { binding: { ...BINDING, account: null } })).name).toBe('BoundElsewhere');
 	expect(expectOk(open(driver)).binding()).toEqual(BINDING);
 
-	const hello = { ...BINDING, main: 'm' };
-	expect(expectErr(replica.hello({ ...hello, server: 'https://elsewhere.test/r1/' })).field).toBe('server');
-	expect(expectErr(replica.hello({ ...hello, account: 'bob' })).field).toBe('account');
+	const hello = { ...BINDING, main: 'm', user: 'alice' };
+	expect(expectErr(replica.hello({ ...hello, server: 'elsewhere' })).field).toBe('server');
+	expect(expectErr(replica.hello({ ...hello, account: 'bob', user: 'bob' })).field).toBe('account');
+	// A guest's session names no account: an account's replica refuses it, and a guest's replica refuses an account's.
+	expect(expectErr(replica.hello({ ...hello, account: null, user: 'guest-1' })).field).toBe('account');
+	const guest = expectOk(open(openBunSqlite(), { binding: { ...BINDING, account: null } }));
+	expect(expectErr(guest.hello(hello)).field).toBe('account');
+	expectOk(guest.hello({ ...hello, account: null, user: 'guest-1' }));
 	expectOk(replica.hello(hello));
 });
 

@@ -36,6 +36,8 @@ const server = await openDiskRepository(resolve(dir));
 const served = serveRepository({
 	// A repository on disk is identified by its directory.
 	repository: resolve(dir),
+	// This machine's server; a replica binds to it.
+	serverId: `local:${values.host}`,
 	server,
 	authenticate: authenticateBearer((token) => ({ user: token, role: 'owner' })),
 	hostname: values.host,

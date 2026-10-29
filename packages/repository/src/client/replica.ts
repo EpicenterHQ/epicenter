@@ -78,14 +78,19 @@ export type Reply =
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
 	| { type: 'fetched'; rid: number; texts: Record<string, string> };
 
-/** Which repository a replica holds, on which server, for which account (null: a guest's). */
+/**
+ * Which repository a replica holds, on which server (its stable id, which
+ * the server's hello names), for which account (null: a guest's, which
+ * only a guest session's hello passes; adopting it into an account is a
+ * separate, explicit step).
+ */
 export type Binding = { repository: string; server: string; account: string | null };
 
 /** The server's bounds on one push: its bytes as JSON, and its files. */
 export type Sizing = { request: number; files: number };
 
-/** What the first exchange of a connection says: where the transport reached, as whom, `main` there, and the server's bounds on a push. */
-export type Hello = Binding & { main: string; limits?: Sizing };
+/** What the first exchange of a connection says: where the transport reached, the session's user (whom its commits name), `main` there, and the server's bounds on a push. */
+export type Hello = Binding & { user: string; main: string; limits?: Sizing };
 
 export const ReplicaError = defineErrors({
 	BoundElsewhere: ({ field, bound, given }: { field: keyof Binding; bound: string | null; given: string | null }) => ({
@@ -214,7 +219,8 @@ function createReplica({
 	/** A notification that cannot be placed this long sends a catch-up. */
 	gap?: number;
 }) {
-	const user = binding.account ?? device;
+	/** Whom this device's commits name: the session's user from the connection's hello; before one, the account. */
+	let user = binding.account ?? device;
 	for (const lens of app?.lenses ?? []) {
 		driver.exec(`DROP VIEW IF EXISTS temp."${lens.name}"`);
 		driver.exec(lens.view);
@@ -1095,6 +1101,7 @@ function createReplica({
 			for (const field of ['repository', 'server', 'account'] as const)
 				if (hello[field] !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound: binding[field], given: hello[field] });
 			sizing = hello.limits ?? null;
+			user = hello.user;
 			if (alive && (hello.main !== position || stalled !== null))
 				atomically(() => {
 					// A new connection may carry a session that fixes a rejection: try again.
