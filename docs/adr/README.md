@@ -834,7 +834,7 @@ When you add an ADR, add its row here.
 | [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Superseded by 0634 |
 | [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Repository data has one content history in Git | Accepted (amends 0592; amended by 0634) |
 | [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Accepted (supersedes 0595; amends 0546 and 0592) |
-| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592) |
+| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592; amended by 0653, and by 0692 at binary files) |
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Accepted (supersedes 0576; amends 0591) |
 | [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Accepted (amends 0529; amended by 0633) |
 | [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Accepted (amends 0592; amended by 0633) |
@@ -895,8 +895,9 @@ When you add an ADR, add its row here.
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Proposed (implemented; supersedes the working-document model) |
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Proposed (renumbered from 0689) |
-| [0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) | Every write is a live commit on its parent, taken through the repository's server | Proposed (rewritten to design B as built) |
+| [0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) | Every write is a live commit on its parent, taken through the repository's server | Proposed (rewritten to design B as built; one write rule and blobs) |
 | [0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) | Repositories are addressed, and every page is an owner, a repository, or an app on one | Accepted (amends 0686 at its data area; revisits 0687) |
 | [0694](0694-installing-an-app-is-trusting-it.md) | Installing an app is trusting it | Accepted (revisits 0687; mount contract and installs unbuilt) |
-| [0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) | One sync engine runs on every device, and a folder on disk is its watched projection | Accepted (revisits 0692's retired desktop folder; watcher unbuilt) |
-| [0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) | A page writes a repository only through its worker, over collections its app declares | Proposed (split from 0692; blob handles unbuilt) |
+| [0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) | One sync engine runs on every device, and a folder on disk is its watched projection | Accepted (revisits 0692's retired desktop folder; amended by 0697 at agent batches; watcher unbuilt) |
+| [0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) | A page writes a repository only through its worker, over collections its app declares | Proposed (split from 0692; blob collections built) |
+| [0697](0697-all-text-merges-from-everyone.md) | All text merges, from everyone | Proposed (amends 0695 at agent batches; `git push` keeps `unflushed` pending a prototype) |

@@ -354,7 +354,8 @@ To have a write merged instead, post a live commit on the commit the read
 named (`POST /commits`): its parent is the `epicenter-commit` header, its
 id is `commitId` (`core/commit.ts`) of the rest, and its author is the
 session's user. The answer is `applied` or `merged`, with `main`'s text for
-each path it touched.
+each path it touched. A parent older than the server's retention window
+(10 minutes) is answered `outcome-unknown`: read again and post anew.
 
 ## Checks
 

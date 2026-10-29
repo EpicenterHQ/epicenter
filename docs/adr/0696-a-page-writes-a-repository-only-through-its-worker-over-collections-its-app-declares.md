@@ -2,8 +2,8 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-29
-- **Relates:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) (the replica and the commits this API's writes become); [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which decides that typing is safe once it reaches the engine's database; [ADR-0694](0694-installing-an-app-is-trusting-it.md), whose manifest names an app's collections; [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (a schema interprets a note, it never refuses one).
-- **Unbuilt:** blob collections on the handle (`BlobDefinition` is declared in `core/lens.ts`; no handle reads or writes bytes); the editor and the page over the desktop and CLI hosts; a measurement of the browser's OPFS worker under typing.
+- **Relates:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) (the replica and the commits this API's writes become); [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which decides that typing is safe once it reaches the engine's database; [ADR-0694](0694-installing-an-app-is-trusting-it.md), whose manifest names an app's collections; [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (a schema interprets a note, it never refuses one); [ADR-0697](0697-all-text-merges-from-everyone.md) (a call's group lands whole, the rule `repo.commit` runs).
+- **Unbuilt:** the editor and the page over the desktop and CLI hosts; a measurement of the browser's OPFS worker under typing.
 
 ## Context
 
@@ -31,8 +31,22 @@ defineApp({
 ```
 
 A template is `/`-separated literals and parameters (`{stem}.md`); a
-parameter never spans a `/`, and two templates that could claim one file
-are refused when the app is defined. Each name becomes a SQL view on the
+parameter never spans a `/`, and two templates of one app that could claim
+one file are refused when the app is defined. Apps combined
+(`combineApps`) may claim the same files: collections are views, not
+permissions ([ADR-0694](0694-installing-an-app-is-trusting-it.md)).
+
+**A blob collection names bytes, and every file that is not a note is
+one.** `{ path: 'recordings/{stem}.webm', blob: true }` offers `create`
+(refused at once where this device shows a file), `replace` (refused where
+it shows none), `delete` and `open`, which answers a `File` typed by the
+path's extension, from this device or fetched and verified first. A write
+seals the bytes on this device before it stores the pointer, and is
+compare-and-swap: it lands only over the blob this device saw there. The
+plain file API takes bytes too: `files.create(path, text | Blob)` (a note
+is text, any other file bytes), `files.replace` and `files.open`.
+`attachment(repo, getPath)` in `@epicenter/svelte/repository` shows one as
+an object URL. Each name becomes a SQL view on the
 replica. A held collection keeps every note (exact text, fields, body,
 `state`) and offers `all()` and `get(params)`, synchronous. A `memory: false`
 collection keeps nothing in the page and offers `read(params)`, async;
@@ -44,8 +58,11 @@ interprets, it never refuses.
 transaction.** `create`, `patch(params, fields)` (only those keys; the rest
 of the note keeps its formatting), `delete`, `write(params, text, { over })`
 (exact source, merged where the note moved since `over`), and
-`repo.commit(batch => ...)` for several at once. Each resolves once this
-device stored it, with the note's resulting text and the revision. On a held
+`repo.commit(batch => ...)` for several at once, blobs included. What one
+call stores is one group: it lands in one commit, once every byte it names
+is on the server, or is held whole, and a batch whose change cannot apply
+stores nothing. Each resolves once this device stored it, with the note's
+resulting text and the revision. On a held
 collection a write is projected over the stored note the way the worker will
 apply it, until the change event carrying its token is heard, and dropped
 if it fails. The worker keeps no file texts in memory.

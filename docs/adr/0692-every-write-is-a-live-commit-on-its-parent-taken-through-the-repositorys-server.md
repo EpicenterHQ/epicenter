@@ -3,9 +3,9 @@
 - **Status:** Proposed
 - **Date:** 2026-10-29
 - **Would supersede:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the last edit to reach `main` wins each unit, and Epicenter writes no conflict marker): a clash is a conflict block in the note; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (a commit happens only at sync or when a person saves a version): the server flushes live history into Git on its own schedule.
-- **Would amend:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at "Repository content has one committed history: Git": live history runs ahead of Git until the next flush; [ADR-0534](0534-data-folders-are-the-only-data-model.md) at the device's copy: a device holds a replica database of the repository's files, not a folder it writes through; [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) at "Git LFS pointers ... are not designed": the door admits canonical pointers at content-named paths.
-- **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose rule `main` keeps; [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which runs the replica on every device and decides that typing is safe once it reaches the engine; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) (what a repository and its address are); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (the app API over the replica); [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) (a path is a note's identity); [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (the server reads no schema).
-- **Unbuilt:** the hosted server (a Durable Object host, Cloudflare Artifacts as `GitObjects`, R2 for blob bytes); a `git push` transport into `receive` (the receiver and its checks are built, no receive-pack endpoint is); the LFS batch endpoint and the device's upload track; accounts and membership (the development server makes anyone the owner their `Authorization: Bearer <name>` names); the GitHub mirror and Action; the `epicenter` commands agents run.
+- **Would amend:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at "Repository content has one committed history: Git": live history runs ahead of Git until the next flush; [ADR-0534](0534-data-folders-are-the-only-data-model.md) at the device's copy: a device holds a replica database of the repository's files, not a folder it writes through; [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) at binary files ("Git LFS pointers ... are not designed"): every file that is not a note is a canonical LFS pointer, at any path an app names.
+- **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose rule `main` keeps; [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which runs the replica on every device and decides that typing is safe once it reaches the engine; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) (what a repository and its address are); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (the app API over the replica); [ADR-0697](0697-all-text-merges-from-everyone.md) (all text merges, from everyone: the one write rule this record runs, and the `git push` limitation); [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) (a path is a note's identity); [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (the server reads no schema).
+- **Unbuilt:** the hosted server (a Durable Object host, Cloudflare Artifacts as `GitObjects`, R2 for blob bytes behind presigned uploads); a `git push` transport into `receive` (the receiver and its checks are built, no receive-pack endpoint is); accounts and membership (the development server makes anyone the owner their `Authorization: Bearer <name>` names); the GitHub mirror and Action; the `epicenter` commands agents run.
 
 ## Context
 
@@ -41,25 +41,36 @@ for the repository takes it.** A live commit (`LiveCommit`,
 changes on top of a parent:
 
 ```txt
-{ id, parent, mode: 'merge' | 'fast-forward', author: { user, device }, time, files: [{ path, text | null }] }
+{ id, parent, author: { user, device }, time, files: [{ path, text | null }] }
 ```
 
 `id` is `commitId`, the Git blob id of the commit's canonical form, so it
 hashes the parent and the content, never repeats, and makes a resend
 recognizable. `text: null` deletes the file. There is no move and no append:
 a rename is a delete of the old path and a write of the new one, saved
-together (`"epicenter/groups"` on the device keeps the two halves in one
-commit). `time` is a label people read in conflict blocks, never an order.
+in one call. Everything one call saves is one group (`"epicenter/groups"`
+on the device), and a group goes in one commit or not at all.
+`time` is a label people read in conflict blocks, never an order.
 
-**`main` only moves forward, and the writer picks how its commit meets a
-`main` that moved.** If the parent is `main`, `main` fast-forwards to the
-commit. Otherwise a `merge` commit is merged path by path with `settle`
-(`core/settle.ts`) and lands as a merge commit whose second parent is the
-writer's commit; a `fast-forward` commit is rejected with `main-moved` and
-`main`'s texts for its paths, so the writer redoes its change against them.
-A person's device always sends `merge`; an agent sends `fast-forward`. A
-one-file HTTP write (`PUT` with `If-Match`, `If-None-Match: *` to create,
-`DELETE` with `If-Match`) is a `fast-forward` commit with that precondition.
+**`main` only moves forward, and every writer's commit meets a `main` that
+moved the same way** ([ADR-0697](0697-all-text-merges-from-everyone.md)).
+If the parent is `main`, `main` becomes the commit. Otherwise the commit is
+merged path by path, a note with `settle` (`core/settle.ts`) and a blob by
+compare-and-swap (`settlePointer`), and lands as a merge commit whose
+second parent is the writer's commit. A commit carries no mode: who wrote
+it changes its label, never how it settles. A one-file HTTP write (`PUT`
+with `If-Match`, `If-None-Match: *` to create, `DELETE` with `If-Match`)
+is a commit on `main` with that precondition, checked inside the server's
+transaction: HTTP's conditional write, the one text write refused
+(`file-moved`) because of someone else's write. A one-shot client that
+wants merging reads a file (`GET /files/<path>` names the commit it read
+as `Epicenter-Commit`) and posts a commit on that parent to
+`POST /commits`.
+
+**A blob never merges.** A blob write lands only where the path still holds
+the blob in the commit's parent; a create or replace that does not is
+refused (`blob-changed`) and held with why, and a delete that does not
+leaves the file. Holding a blob holds its group.
 
 **Every conflict is text.** `settle` runs the Epicenter merge (`core/merge.ts`):
 
@@ -105,23 +116,22 @@ the door's rules.** `admit` (`server/server.ts`) checks, in order:
 | At most 4 MB as JSON, 1,000 files, one entry per folded path | `too-large`, `too-many-files`, `path-twice` |
 | A path at most 512 bytes | `path-too-long` |
 | `admissible(path, text)` (`core/door.ts`), below | `inadmissible`, with the door's reason |
-| A pointer's bytes uploaded; a blob's path never rewritten | `blob-missing`, `blob-immutable` |
+| A pointer's bytes present at its size; a blob write lands only over the blob its writer saw | `blob-missing`, `blob-changed` |
 
 `admissible` is one pure predicate the device, the server and a GitHub
 Action share. A note (`.md` in any case) parses, uses LF with no byte order
 mark, is at most 1 MB, is never an LFS pointer, and its frontmatter holds at
 most `FRONTMATTER_KEYS` (1,000) keys and `FRONTMATTER_VALUES` (10,000)
 scalars, nested at most `FRONTMATTER_NESTING` (64) deep. Every text is valid
-UTF-8 with no NUL; any other file outside LFS is at most 1 MB; a blob is a
-canonical LFS pointer at `attachments/<sha256>.<ext>`, named by its
-content. Paths are NFC, hold no `.git` component, are legal on Windows and
+UTF-8 with no NUL, and every file that is not a note is a canonical LFS
+pointer naming at most 2 GiB (`MAX_BLOB_BYTES`). Paths are NFC, hold no `.git` component, are legal on Windows and
 macOS, and keep each segment within 255 bytes; Epicenter alone writes
-`.gitattributes` (`*.md text eol=lf`), `.lfsconfig`, `.gitmodules` and
-`.epicenter/`. `lint` only warns: unresolved or malformed conflict blocks,
-CR in a file that is not a note, a path over 260 bytes. Paths equal after
+`.gitattributes` (`ATTRIBUTES`: every file through LFS, notes and the file
+itself as text), `.lfsconfig`, `.gitmodules` and `.epicenter/`. `lint`
+only warns: unresolved or malformed conflict blocks, a path over 260 bytes. Paths equal after
 NFC and case folding (`fold`) are one path, and a write goes to the spelling
 `main` has. A merge result passes `admissible` too, and two named
-exceptions refuse a person because of someone else: a merge that would grow
+exceptions refuse a text writer because of someone else: a merge that would grow
 a note past 1 MB (`merge-too-large`), and one that would leave more than
 `BLOCK_CAP` (20) conflict blocks in a note (`too-many-blocks`, "this note
 has unresolved conflicts; resolve some first"). The server reads no schema.
@@ -131,8 +141,12 @@ nothing else.** The replica (`openReplica`, `client/replica.ts`) keeps four
 levels per file: `base` (the text at its position), `sent` (in the commit
 awaiting an answer), `committed` (in the unsent commit) and `mine` (what it
 shows). A text the door refuses, or one the server refused, stays in `mine`
-marked `held` with the reason until its person saves that file again; the
-rest of the commit goes without it. A commit whose outcome the server
+marked `held` with the reason until its writer saves that file again; its
+group waits with it, and other groups go. A group too large for one request
+is held whole, never split. A pointer whose bytes the server does not hold
+yet is owed: it stays saved, `sending` with "its bytes are uploading", and
+its group waits, until the upload track (`client/uploads.ts`) finds the
+bytes present; a refused upload holds it with why. A commit whose outcome the server
 cannot know is put beside what is there as one block, held as "outcome
 unknown". A delete or field removal that lost to an edit is not held: it is
 an intent, not typed text, and the edited note stays, visibly. There are no
@@ -178,13 +192,20 @@ Git's `main` moved from outside, the flush stops as `diverged`, and
 recovery is an operator's; Epicenter never rewinds or merges a `main` it
 did not write.
 
-**A `git push` is taken only as a fast-forward of the last flush.**
-`receive` (`server/receive.ts`) refuses it while live edits are not in Git
-yet (`unflushed`, which starts a flush so the client can fetch and retry),
-when a pushed commit has other than one parent, and when any path a pushed
-commit changes fails the door. Accepted, it becomes one fast-forward live
-commit, and the transaction that applies it journals the move of Git's
-`main`, so a published `main` is never rewound.
+**A `git push` keeps Git's ref rule, and is taken only while Git holds
+every live edit.** `receive` (`server/receive.ts`) refuses a push whose old
+value is not Git's `main` (`main-moved`: fetch and rebase), when a pushed
+commit has other than one parent, and when any path a pushed commit changes
+fails the door. It also refuses one while live edits are not in Git yet
+(`unflushed`, which starts a flush so the client can fetch and retry): a
+limitation of Epicenter's, not Git's, which can starve a push on a
+repository someone is typing in, and which ADR-0697 keeps until a
+measurement and a prototype decide. Accepted, the push becomes one live
+commit on the live `main` Git holds, landing only if that is still `main`
+in the transaction that applies it (otherwise `unflushed`), and that
+transaction journals the move of Git's `main`, so a published `main` is
+never rewound. While `unflushed` stands, a push always saw the current
+bytes of every blob it replaces.
 
 **A device keeps one WebSocket, and HTTP serves one-shot clients.**
 `createWire` (`wire/wire.ts`) serves one repository:
@@ -193,12 +214,19 @@ commit, and the transaction that applies it journals the move of Git's
 GET    /socket          the device's WebSocket: push and catch-up up; head, commit events and replies down, in one order
 POST   /tickets         a one-use ticket for the socket, for a browser that cannot set its headers
 POST   /commits         a live commit, answered with its PushAnswer
-GET    /files/<path>    main's text, its hash as the ETag
+GET    /files/<path>    main's text, its hash as the ETag, the commit it was read at as Epicenter-Commit
 PUT    /files/<path>    If-Match: "<hash>", or If-None-Match: * to create
 DELETE /files/<path>    If-Match: "<hash>"
 GET    /catch-up        ?from=<commit>&to=&after=&path=...: one page
 GET    /blobs/<hash>    a text by its Git blob hash, cached for good
+POST   /info/lfs/objects/batch   Git LFS basic-transfer actions, and per-object errors
+PUT    /lfs/objects/<oid>        a blob's bytes, streamed, verified and recorded once durable
+GET    /lfs/objects/<oid>        a blob's bytes, streamed to a member
 ```
+
+A request body has the wire's timeout plus its declared length at a
+minimum rate to arrive, or gets 408. Uploads are bounded by the blob limit
+(2 GiB) and the repository's quota (10 GB).
 
 A commit's answer reaches its device before the commit's event reaches
 anyone. A `commit` event names the commit, its parents and the changed
@@ -207,7 +235,8 @@ the session that asked for it, and is gone once presented.
 
 **A replica is bound to one repository, server and account, and learns its
 server once.** The socket's first message (`head`) names `main`, the
-repository, the server's stable id, the account and the session's user.
+repository, the server's stable id, the account, the session's user, and
+the server's `limits` on a push (its bytes and files) and on one blob.
 The replica records these in `"epicenter/replica"`; a replica with no
 server yet adopts the first one it meets for good, and a `head` that names
 another repository, server or account is refused (`BoundElsewhere`).
@@ -219,8 +248,9 @@ another repository, server or account is refused (`BoundElsewhere`).
   question is an indexed query. Opening a 100,000-note replica took 6 to
   9 ms and 0.2 MB of heap in Bun; a full catch-up of 100,000 notes took
   2.3 s.
-- A person is never refused because of someone else, except at 1 MB and at
-  20 blocks; an agent redoes its work whenever `main` moved. Two people
+- No text writer, person or agent, is refused because of someone else,
+  except at 1 MB, at 20 blocks, and in HTTP's conditional file write; a
+  blob write is refused when the blob it replaces moved. Two people
   typing in the same words at once produce one block, which stays in the
   note and in Git until someone edits it away.
 - Every value someone saved is in the shared text and in Git history,
@@ -273,8 +303,12 @@ another repository, server or account is refused (`BoundElsewhere`).
   commits on the same socket removed the answer-versus-event ordering rules.
 - **Committing to Git before acknowledging each write:** a flush to
   Artifacts cost about 2 s.
+- **A writer mode, with agents' commits refused when `main` moved:** see
+  [ADR-0697](0697-all-text-merges-from-everyone.md).
 - **A conflicting `git push` merged by the server:** server merging stays on
-  the commit path, where the answer can name the merge commit.
+  the commit path, where the answer can name the merge commit, until the
+  push prototype in [ADR-0697](0697-all-text-merges-from-everyone.md) says
+  otherwise.
 - **Devices committing after a 0.5 to 2 s pause:** committing every save
   online measured p95 400 ms to the server at 10 typists, against 2.2 s.
 - **IndexedDB as the device store:** writing 50,000 records took 17 s in
@@ -288,10 +322,12 @@ The property test (`packages/repository/src/sim/property.test.ts`, and
 `wire.property.test.ts` over the real HTTP and socket wire) checks after
 every step that nothing typed and acknowledged is lost, every shared note
 parses, every device converges with the server, and hostile writes are
-refused or bounded; recent runs passed 1,000 seeds at 200 steps in memory and 200 over the
-socket. Deployed spikes 3 and 4 (outside the tree) proved the flush state
+refused or bounded, and that an agent's batch lands in one commit or is
+held whole; recent runs passed 500 fresh seeds at 200 steps in memory and
+200 over the wire. The LFS round trip is tested locally, in Bun and in
+Chromium and WebKit through Playwright. Deployed spikes 3 and 4 (outside the tree) proved the flush state
 machine against Artifacts at every step boundary, the transport choice, and
 R2 verifying a blob's SHA-256 on `put`. Before acceptance: the Durable
 Object host with eviction mid-request, a `git push` through a real
-receive-pack endpoint, the LFS round trip, and the replica in the browser's
-OPFS at 50,000 notes on a phone.
+receive-pack endpoint, the LFS round trip against R2, and the replica in the
+browser's OPFS at 50,000 notes on a phone.
