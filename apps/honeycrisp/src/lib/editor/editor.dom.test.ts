@@ -172,13 +172,14 @@ test('a task checkbox toggles exactly the character inside its brackets', () => 
 
 const conflicted = [
 	'Before.',
-	'<<<<<<< alice 2026-10-28 #4',
+	'<<<<<<< current alice 2026-10-28T12:00:00Z 1111111',
 	'Hers.',
-	'||||||| base',
+	'\\=======',
+	'||||||| base 2222222',
 	'Original.',
 	'=======',
 	'His.',
-	'>>>>>>> bob 2026-10-28 #5',
+	'>>>>>>> incoming bob 2026-10-28T12:01:00Z 3333333',
 	'After.',
 	'',
 ].join('\n');
@@ -187,13 +188,14 @@ test('a conflict block renders as one card and resolving it is one edit that rem
 	const writes: string[] = [];
 	const editor = editorOver(conflicted, (body) => writes.push(body));
 	const [conflict] = conflictsIn(editor.view.state);
-	expect(conflict).toMatchObject({ current: 'Hers.\n', incoming: 'His.\n', labels: ['alice 2026-10-28 #4', 'bob 2026-10-28 #5'] });
+	// A section line that reads as a delimiter is escaped in the file and shown, and kept, as written.
+	expect(conflict).toMatchObject({ current: 'Hers.\n=======\n', incoming: 'His.\n', labels: ['alice, 2026-10-28T12:00:00Z', 'bob, 2026-10-28T12:01:00Z'] });
 	const card = editor.view.dom.querySelector('[aria-label="Overlapping edits"]');
 	expect(card?.textContent).toContain('Keep both');
 	expect(editor.view.contentDOM.textContent).not.toContain('<<<<<<<');
 	const keepBoth = [...(card?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Keep both');
 	keepBoth?.click();
-	expect(writes).toEqual(['Before.\nHers.\nHis.\nAfter.\n']);
+	expect(writes).toEqual(['Before.\nHers.\n=======\nHis.\nAfter.\n']);
 	expect(conflictsIn(editor.view.state)).toEqual([]);
 	// Undo brings the block back, whole.
 	undo(editor.view);

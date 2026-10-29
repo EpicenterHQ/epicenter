@@ -26,7 +26,8 @@ import { type Author, type CommitFile, commitId, type LiveCommit } from '../core
 import { gitBlobHash } from '../core/hash.js';
 import { createTreeStore } from '../core/tree.js';
 import { parsePointer } from '../core/markdown.js';
-import { ATTRIBUTES, MAX_FILE_BYTES, admissible, findConflicts, fold, isNote } from '../core/door.js';
+import { findConflicts } from '../core/conflict.js';
+import { ATTRIBUTES, MAX_FILE_BYTES, admissible, fold, isNote } from '../core/door.js';
 import { BLOCK_CAP, settle } from '../core/settle.js';
 
 // ============================================================================
@@ -310,7 +311,7 @@ export function createServer({
 			const who = lastAuthor.get(file.path) ?? SERVER;
 			const settled = settle(textIn(parentTree, file.path), ours, file.text, {
 				deletedSince: deletedSince(from, file.path),
-				labels: { current: `main (${who.user}/${who.device})`, incoming: `${commit.author.user}/${commit.author.device}` },
+				parties: { current: { author: `${who.user}/${who.device}`, time: head.time }, incoming: { author: `${commit.author.user}/${commit.author.device}`, time: commit.time } },
 			});
 			// RULE, the one named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
 			if (settled.text !== null && isNote(file.path) && new TextEncoder().encode(settled.text).length > MAX_FILE_BYTES)

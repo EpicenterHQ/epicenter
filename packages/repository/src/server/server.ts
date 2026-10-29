@@ -10,7 +10,8 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { gitBlobHash } from '../core/hash.js';
 import { breaksParsing } from '../parse-rule.js';
-import { merge, withMarkers } from '../core/merge.js';
+import { type Party, versionOf } from '../core/conflict.js';
+import { merge, withBlocks } from '../core/merge.js';
 import { settle } from '../policy.js';
 import type {
 	Base,
@@ -210,16 +211,16 @@ export function createRepositoryServer({
 		return gitText(hash);
 	}
 
-	/** Who last wrote `path` in the overlay, for marker labels. */
-	function writerOf(path: string) {
+	/** Who last wrote `path` in the overlay, and when, for block labels. */
+	function writerOf(path: string): Party {
 		const row = first<{ user: string; at: number; seq: number }>(
 			driver,
 			'SELECT b.user, b.at, b.seq FROM overlay o JOIN batches b ON b.seq = o.seq WHERE o.path = ?',
 			[path],
 		);
-		return row === undefined ? `main (seq ${main.seq})` : label(row.user, row.at, row.seq);
+		return row === undefined ? { author: 'main', time: `seq-${main.seq}` } : party(row.user, row.at);
 	}
-	const label = (user: string, at: number, seq: number) => `${user} ${new Date(at).toISOString()} seq ${seq}`;
+	const party = (user: string, at: number): Party => ({ author: user, time: new Date(at).toISOString() });
 
 	// ------------------------------------------------------------------------
 	// Applying a batch
@@ -298,7 +299,7 @@ export function createRepositoryServer({
 		};
 		const seq = state('seq') + 1;
 		const at = now();
-		const incomingLabel = label(peer.user, at, seq);
+		const incomingParty = party(peer.user, at);
 		const outcomes: ChangeOutcome[] = [];
 		const events: PathEvent[] = [];
 		const moves: Move[] = [];
@@ -455,7 +456,11 @@ export function createRepositoryServer({
 			const decision = settle(result.overlaps, batch.policy);
 			if (decision.kind === 'refuse') return refuse(change.path, decision.reason, decision.overlaps);
 			const text = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block')
-				? withMarkers(result, { current: writerOf(target), incoming: incomingLabel })
+				? withBlocks(result, {
+						current: { ...writerOf(target), version: versionOf(existing) },
+						base: { version: versionOf(baseText) },
+						incoming: { ...incomingParty, version: versionOf(incoming) },
+					})
 				: result.text;
 			if (existing !== null && breaksParsing(target, existing, text)) {
 				const kept = keepParsing(change.path, target, existing, movedTo);

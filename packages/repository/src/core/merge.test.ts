@@ -4,7 +4,7 @@
  * Ported from the merge spike: examples for each rule in ADR-0692, then
  * seeded properties over 2,500 Markdown-like triples each. The properties are
  * what make the rules trustworthy: independent edits survive exactly once,
- * output never blends tokens, and marker output parses without nesting.
+ * output never blends tokens, and each overlap is one well-formed block, never nested.
  *
  * Key behaviors:
  * - Neighboring line edits, separate sentence edits and same-point appends merge
@@ -15,9 +15,18 @@
  * - Large notes merge in bounded memory
  */
 import { describe, expect, test } from 'bun:test';
-import { type ContentOverlap, merge, parseConflicts, withMarkers } from './merge.js';
+import { findConflicts, type Labels } from './conflict.js';
+import { type ContentOverlap, merge, withBlocks } from './merge.js';
 
-const labels = { current: 'current', incoming: 'incoming' };
+const labels: Labels = {
+	current: { author: 'alice', time: 't1', version: 'c1' },
+	base: { version: 'b1' },
+	incoming: { author: 'bob', time: 't2', version: 'i1' },
+};
+/** The delimiter lines `labels` writes. */
+const OPEN = '<<<<<<< current alice t1 c1\n';
+const BASE = '||||||| base b1\n';
+const CLOSE = '>>>>>>> incoming bob t2 i1\n';
 /** Body and block overlaps: the ones with spans in the text. */
 const spans = (overlaps: ContentOverlap[]) =>
 	overlaps.flatMap((o) => (o.unit === 'body' || o.unit === 'block' ? [o] : []));
@@ -136,10 +145,16 @@ describe('examples', () => {
 		expect(merge('a\nb\n', 'A\r\nb\r\n', 'a\nB\n').text).toBe('A\r\nB\r\n');
 	});
 
-	test('a true overlap gets a Git-style marker block with a base section', () => {
-		const marked = withMarkers(merge('cat\n', 'cart\n', 'coat\n'), { current: 'Alice', incoming: 'Bob' });
-		expect(marked).toBe('<<<<<<< Alice\ncart\n||||||| base\ncat\n=======\ncoat\n>>>>>>> Bob\n');
-		expect(parseConflicts(marked ?? '').filter((s) => 'conflict' in s)).toHaveLength(1);
+	test('a true overlap gets a labelled conflict block with a base section', () => {
+		const marked = withBlocks(merge('cat\n', 'cart\n', 'coat\n'), labels);
+		expect(marked).toBe(`${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`);
+		expect(findConflicts(marked ?? '')).toMatchObject([{ current: 'cart\n', base: 'cat\n', incoming: 'coat\n' }]);
+	});
+
+	test('section lines that read as delimiters are escaped, and read back as written', () => {
+		const marked = withBlocks(merge('a\n', '=======\n', '>>>>>>> x\n'), labels) ?? '';
+		expect(marked).toBe(`${OPEN}\\=======\n${BASE}a\n=======\n\\>>>>>>> x\n${CLOSE}`);
+		expect(findConflicts(marked)).toMatchObject([{ current: '=======\n', incoming: '>>>>>>> x\n' }]);
 	});
 
 	test('an overlap in a body after frontmatter has offsets past the header', () => {
@@ -147,26 +162,22 @@ describe('examples', () => {
 		expect(r.text).toBe('---\na: 2\n---\ncart\n');
 		const [overlap] = spans(r.overlaps);
 		expect(r.text?.slice(overlap?.start, overlap?.end)).toBe('cart');
-		expect(withMarkers(r, labels)).toBe(
-			'---\na: 2\n---\n<<<<<<< current\ncart\n||||||| base\ncat\n=======\ncoat\n>>>>>>> incoming\n',
-		);
+		expect(withBlocks(r, labels)).toBe(`---\na: 2\n---\n${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`);
 	});
 
-	test('CRLF overlap markers use current line endings and offsets', () => {
+	test('CRLF overlap blocks use current line endings and offsets', () => {
 		const r = merge('a\ncat\n', 'a\r\ncart\r\n', 'a\ncoat\n');
 		expect(r.text).toBe('a\r\ncart\r\n');
-		expect(withMarkers(r, labels)).toBe(
-			'a\r\n<<<<<<< current\r\ncart\r\n||||||| base\r\ncat\r\n=======\r\ncoat\r\n>>>>>>> incoming\r\n',
-		);
+		expect(withBlocks(r, labels)).toBe(`a\n${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`.replaceAll('\n', '\r\n'));
 	});
 
 	test('a further edit of an existing block adds a separate block, never a nested one', () => {
-		const first = withMarkers(merge('cat\n', 'cart\n', 'coat\n'), labels) ?? '';
+		const first = withBlocks(merge('cat\n', 'cart\n', 'coat\n'), labels) ?? '';
 		const r = merge('cat\n', first, 'cut\n');
 		expect(r.overlaps).toMatchObject([{ unit: 'block' }]);
-		const marked = withMarkers(r, labels) ?? '';
-		expect(marked).toBe(`<<<<<<< current\n||||||| base\ncat\n=======\ncut\n>>>>>>> incoming\n${first}`);
-		const blocks = parseConflicts(marked).flatMap((s) => ('conflict' in s ? [s.conflict] : []));
+		const marked = withBlocks(r, labels) ?? '';
+		expect(marked).toBe(`${OPEN}${BASE}cat\n=======\ncut\n${CLOSE}${first}`);
+		const blocks = findConflicts(marked);
 		expect(blocks).toHaveLength(2);
 		for (const block of blocks) expect(block.current + block.incoming).not.toContain('<<<<<<< ');
 	});
@@ -174,22 +185,20 @@ describe('examples', () => {
 	test('an overlap touching an existing block keeps both sides', () => {
 		// Probe: current edits a plain line and a line in the block; incoming edits
 		// the plain line and resolves the block. Incoming used to vanish.
-		const block = '<<<<<<< x\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> y\n';
+		const block = '<<<<<<< current x t v\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> incoming y t v\n';
 		const edited = block.replace('one', 'ONE');
 		const r = merge(`intro\n${block}end\n`, `intro by cur\n${edited}end\n`, 'intro by inc\nresolved\nend\n');
 		expect(r.overlaps).toMatchObject([{ unit: 'block' }]);
-		const marked = withMarkers(r, { current: 'A', incoming: 'B' }) ?? '';
-		expect(marked).toBe(
-			`<<<<<<< A\nintro by cur\n||||||| base\nintro\n=======\nintro by inc\nresolved\n>>>>>>> B\n${edited}end\n`,
-		);
-		expect(parseConflicts(marked).filter((s) => 'conflict' in s)).toHaveLength(2);
+		const marked = withBlocks(r, labels) ?? '';
+		expect(marked).toBe(`${OPEN}intro by cur\n${BASE}intro\n=======\nintro by inc\nresolved\n${CLOSE}${edited}end\n`);
+		expect(findConflicts(marked)).toHaveLength(2);
 	});
 
 	test('two edits inside one block become two adjacent blocks', () => {
-		const block = '<<<<<<< x\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> y\n';
+		const block = '<<<<<<< current x t v\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> incoming y t v\n';
 		const mine = block.replace('one', 'ONE');
 		const theirs = block.replace('two', 'TWO');
-		const marked = withMarkers(merge(`a\n${block}`, `a\n${mine}`, `a\n${theirs}`), labels);
+		const marked = withBlocks(merge(`a\n${block}`, `a\n${mine}`, `a\n${theirs}`), labels);
 		expect(marked).toBe(`a\n${mine}${theirs}`);
 	});
 
@@ -294,15 +303,16 @@ describe('properties', () => {
 		}
 	});
 
-	test('marked output parses and has no nested markers', () => {
+	test('every overlap is one well-formed block, and none nests', () => {
 		for (const [b, c, i] of CASES) {
-			const marked = withMarkers(merge(b, c, i), labels) ?? '';
-			const parsed = parseConflicts(marked);
-			expect(parsed.map((s) => ('text' in s ? s.text : s.conflict.raw)).join('')).toBe(marked);
-			for (const segment of parsed) {
-				if (!('conflict' in segment)) continue;
-				expect(segment.conflict.current).not.toContain('<<<<<<< ');
-				expect(segment.conflict.incoming).not.toContain('<<<<<<< ');
+			const result = merge(b, c, i);
+			const marked = withBlocks(result, labels) ?? '';
+			const found = findConflicts(marked);
+			expect(found.length).toBeGreaterThanOrEqual(spans(result.overlaps).filter((o) => o.unit === 'body').length);
+			for (const block of found) {
+				expect(marked.slice(block.from, block.to)).toBe(block.raw);
+				expect(block.current).not.toContain('<<<<<<< ');
+				expect(block.incoming).not.toContain('<<<<<<< ');
 			}
 		}
 	});

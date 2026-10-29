@@ -11,18 +11,15 @@
  * - paths are portable, and Epicenter's control files are refused
  * - frontmatter over the key or nesting bound is refused quickly, before parsing
  * - ordinary frontmatter (long keys, long values, deep but sane nesting) is admitted
- * - escaped content never reads as a conflict block; well-formed blocks are found
  * - `slug` always yields a segment the door admits
  */
 import { describe, expect, test } from 'bun:test';
 import { writePointer } from './markdown.js';
+import { block } from './conflict.js';
 import {
 	admissible,
-	block,
-	escapeLines,
 	FRONTMATTER_KEYS,
 	FRONTMATTER_NESTING,
-	findConflicts,
 	fold,
 	lint,
 	MAX_FILE_BYTES,
@@ -105,16 +102,10 @@ describe('frontmatter parse cost', () => {
 	});
 });
 
-describe('conflict blocks', () => {
-	test('content that looks like a delimiter is escaped and never read as a block', () => {
-		const tricky = '<<<<<<< mine\n=======\n>>>>>>> theirs\n';
-		expect(findConflicts(escapeLines(tricky))).toEqual([]);
-		const written = block({ current: tricky, incoming: 'b\n' }, { current: 'alice', incoming: 'bob' });
-		expect(findConflicts(written)).toEqual([{ line: 1, current: 'alice', incoming: 'bob' }]);
-	});
-
+describe('lint', () => {
 	test('lint warns about blocks and malformed openings, and refuses nothing', () => {
-		const written = block({ current: 'a\n', incoming: 'b\n' }, { current: 'alice', incoming: 'bob' });
+		const side = { author: 'alice', time: 't', version: 'v' };
+		const written = block({ current: 'a\n', incoming: 'b\n' }, { current: side, incoming: side });
 		expect(lint('a.md', written)).toEqual(['1 unresolved conflict block']);
 		expect(lint('a.md', '<<<<<<< open only\n')).toEqual(['a malformed conflict block']);
 		expect(lint('a.txt', 'a\r\n')).toEqual(['CR line endings']);

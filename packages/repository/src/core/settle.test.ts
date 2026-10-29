@@ -13,27 +13,27 @@
  * - a pointer is one value: current stays and the loser keeps its oid
  */
 import { describe, expect, test } from 'bun:test';
-import { findConflicts } from './door.js';
+import { findConflicts } from './conflict.js';
 import { parseMarkdown, writePointer } from './markdown.js';
-import { settle, withBlock } from './settle.js';
+import { settle } from './settle.js';
 
-const labels = { current: 'main', incoming: 'alice/laptop' };
+const parties = { current: { author: 'main', time: 't1' }, incoming: { author: 'alice/laptop', time: 't2' } };
 const note = (title: string, body = 'body\n') => `---\ntitle: ${title}\n---\n${body}`;
 
 describe('settle', () => {
 	test('a change on an unchanged base lands, and a repeat changes nothing', () => {
-		expect(settle('a\n', 'a\n', 'b\n', { labels })).toEqual({ text: 'b\n', disposition: 'landed' });
-		expect(settle('a\n', 'b\n', 'b\n', { labels })).toEqual({ text: 'b\n', disposition: 'landed' });
-		expect(settle('a\n', 'b\n', 'a\n', { labels })).toEqual({ text: 'b\n', disposition: 'landed' });
+		expect(settle('a\n', 'a\n', 'b\n', { parties })).toEqual({ text: 'b\n', disposition: 'landed' });
+		expect(settle('a\n', 'b\n', 'b\n', { parties })).toEqual({ text: 'b\n', disposition: 'landed' });
+		expect(settle('a\n', 'b\n', 'a\n', { parties })).toEqual({ text: 'b\n', disposition: 'landed' });
 	});
 
 	test('a delete loses to an edit; an edit restores a deleted note', () => {
-		expect(settle('a\n', 'edited\n', null, { labels })).toEqual({ text: 'edited\n', disposition: 'kept-current' });
-		expect(settle('a\n', null, 'edited\n', { labels })).toEqual({ text: 'edited\n', disposition: 'restored' });
+		expect(settle('a\n', 'edited\n', null, { parties })).toEqual({ text: 'edited\n', disposition: 'kept-current' });
+		expect(settle('a\n', null, 'edited\n', { parties })).toEqual({ text: 'edited\n', disposition: 'restored' });
 	});
 
 	test('a field both sides set keeps current and writes incoming as a block (D2)', () => {
-		const settled = settle(note('Base'), note('Mine'), note('Theirs'), { labels });
+		const settled = settle(note('Base'), note('Mine'), note('Theirs'), { parties });
 		expect(settled.disposition).toBe('conflict');
 		expect(parseMarkdown(settled.text ?? '').data?.fields).toEqual({ title: 'Mine' });
 		expect(settled.text).toContain('title: Theirs');
@@ -41,25 +41,24 @@ describe('settle', () => {
 	});
 
 	test('a path created twice or deleted since base holds another note (D3)', () => {
-		const twice = settle(null, note('One'), note('Two'), { labels });
+		const twice = settle(null, note('One'), note('Two'), { parties });
 		expect(twice.disposition).toBe('different-note');
 		expect(twice.text?.startsWith(note('One'))).toBe(true);
-		expect(findConflicts(twice.text ?? '')).toEqual([{ line: 5, current: 'main', incoming: 'alice/laptop' }]);
-		const reused = settle(note('Old'), note('New'), note('Old', 'edit\n'), { deletedSince: true, labels });
+		expect(findConflicts(twice.text ?? '')).toMatchObject([{ line: 5, current: '', incoming: note('Two'), sides: { incoming: { author: 'alice/laptop', time: 't2' } } }]);
+		const reused = settle(note('Old'), note('New'), note('Old', 'edit\n'), { deletedSince: true, parties });
 		expect(reused.disposition).toBe('different-note');
 	});
 
 	test('an identical block is written once, whoever its labels name', () => {
-		const once = settle(null, note('One'), note('Two'), { labels }).text ?? '';
-		const again = settle(null, once, note('Two'), { labels: { current: 'main', incoming: 'bob/phone' } }).text ?? '';
+		const once = settle(null, note('One'), note('Two'), { parties }).text ?? '';
+		const again = settle(null, once, note('Two'), { parties: { current: parties.current, incoming: { author: 'bob/phone', time: 't3' } } }).text ?? '';
 		expect(again).toBe(once);
-		expect(withBlock('a', 'b\n')).toBe('a\nb\n');
 	});
 
 	test('a pointer is one value: current stays, and the loser keeps its oid', () => {
 		const ours = writePointer({ oid: 'a'.repeat(64), size: 1 });
 		const theirs = writePointer({ oid: 'b'.repeat(64), size: 2 });
 		const base = writePointer({ oid: 'c'.repeat(64), size: 3 });
-		expect(settle(base, ours, theirs, { labels })).toEqual({ text: ours, disposition: 'kept-current', yours: 'b'.repeat(64) });
+		expect(settle(base, ours, theirs, { parties })).toEqual({ text: ours, disposition: 'kept-current', yours: 'b'.repeat(64) });
 	});
 });

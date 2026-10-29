@@ -13,8 +13,9 @@
  *
  * The text is already settled the people's way, except that body overlaps hold
  * `current`. Every clash is reported in `overlaps`, and `settle` decides what
- * they mean: `withMarkers` writes the body ones as conflict blocks.
+ * they mean: `withBlocks` writes the body ones as conflict blocks.
  */
+import { block, type Labels } from './conflict.js';
 import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
 
 /** Something both sides changed, as the merge found it. */
@@ -414,104 +415,49 @@ function uniqueAnchors(
 }
 
 // ============================================================================
-// The people policy: Git conflict markers
+// Conflict blocks for body overlaps
 // ============================================================================
 
-export type MarkerLabels = { current: string; incoming: string };
-
 /**
- * Write each body overlap as a Git conflict block with a base section, current
- * (earlier in server order) first.
+ * Write each body overlap as a conflict block (core/conflict), current
+ * (earlier in server order) first, with a base section.
  *
  * Blocks never nest. An overlap whose span holds an existing block keeps that
  * block whole and writes the plain lines both sides changed as a separate
  * block next to it, followed by any block only incoming had, so neither side
- * is lost.
+ * is lost. A CRLF text is written with LF blocks inside and its line endings
+ * restored after.
  */
-export function withMarkers(result: MergeResult, labels: MarkerLabels): string | null {
+export function withBlocks(result: MergeResult, labels: Labels): string | null {
 	if (result.text === null) return null;
-	const eol = result.text.includes('\r\n') ? '\r\n' : '\n';
-	const line = (text: string) => text + eol;
-	const terminated = (text: string) => (text !== '' && !text.endsWith(eol) ? text + eol : text);
-	const conflict = (current: string, base: string, incoming: string) =>
-		line(`<<<<<<< ${labels.current}`) +
-		terminated(current) +
-		line('||||||| base') +
-		terminated(base) +
-		line('=======') +
-		terminated(incoming) +
-		line(`>>>>>>> ${labels.incoming}`);
+	const crlf = result.text.includes('\r\n');
+	const crsBefore = (offset: number) => result.text?.slice(0, offset).match(/\r\n/g)?.length ?? 0;
+	const text = crlf ? lf(result.text) : result.text;
+	const terminated = (part: string) => (part !== '' && !part.endsWith('\n') ? `${part}\n` : part);
 	let out = '';
 	let at = 0;
 	for (const overlap of result.overlaps) {
 		if (!isSpan(overlap)) continue;
-		out += result.text.slice(at, overlap.start);
-		if (out !== '' && !out.endsWith(eol)) out += eol;
+		const start = crlf ? overlap.start - crsBefore(overlap.start) : overlap.start;
+		const end = crlf ? overlap.end - crsBefore(overlap.end) : overlap.end;
+		const [base, current, incoming] = [overlap.base, overlap.current, overlap.incoming].map(lf) as [string, string, string];
+		out += text.slice(at, start);
+		if (out !== '' && !out.endsWith('\n')) out += '\n';
 		if (overlap.unit === 'block') {
-			const current = splitBlocks(overlap.current);
-			const incoming = splitBlocks(overlap.incoming);
+			const mine = splitBlocks(current);
+			const theirs = splitBlocks(incoming);
 			out +=
-				current.plain === incoming.plain
-					? terminated(current.plain)
-					: conflict(current.plain, splitBlocks(overlap.base).plain, incoming.plain);
-			for (const block of [...current.blocks, ...incoming.blocks.filter((b) => !current.blocks.includes(b))])
-				out += terminated(block);
-			at = overlap.end;
+				mine.plain === theirs.plain
+					? terminated(mine.plain)
+					: block({ current: mine.plain, base: splitBlocks(base).plain, incoming: theirs.plain }, labels);
+			for (const existing of [...mine.blocks, ...theirs.blocks.filter((b) => !mine.blocks.includes(b))]) out += terminated(existing);
+			at = end;
 			continue;
 		}
-		out += conflict(overlap.current, overlap.base, overlap.incoming);
+		out += block({ current, base, incoming }, labels);
 		// A block around an inline span takes the line's old terminator.
-		at = !overlap.current.endsWith(eol) && result.text.startsWith(eol, overlap.end) ? overlap.end + eol.length : overlap.end;
+		at = !current.endsWith('\n') && text.startsWith('\n', end) ? end + 1 : end;
 	}
-	return out + result.text.slice(at);
-}
-
-export type ConflictSegment =
-	| { text: string }
-	| { conflict: { current: string; base: string; incoming: string; raw: string } };
-
-/** Split text into plain spans and well-formed marker blocks; joining `raw` and `text` restores it. */
-export function parseConflicts(text: string): ConflictSegment[] {
-	const raw = text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-	const segments: ConflictSegment[] = [];
-	let plain = '';
-	for (let n = 0; n < raw.length; n++) {
-		const line = raw[n] ?? '';
-		if (!line.startsWith('<<<<<<< ')) {
-			plain += line;
-			continue;
-		}
-		let baseAt = -1;
-		let separator = -1;
-		let end = -1;
-		for (let j = n + 1; j < raw.length; j++) {
-			const next = raw[j] ?? '';
-			if (next.startsWith('<<<<<<< ')) break;
-			if (next.startsWith('||||||| ') && baseAt < 0) baseAt = j;
-			else if (next.startsWith('=======') && separator < 0) separator = j;
-			else if (next.startsWith('>>>>>>> ') && separator >= 0) {
-				end = j;
-				break;
-			}
-		}
-		if (baseAt < 0 || separator < 0 || end < 0) {
-			plain += line;
-			continue;
-		}
-		if (plain !== '') {
-			segments.push({ text: plain });
-			plain = '';
-		}
-		segments.push({
-			conflict: {
-				current: raw.slice(n + 1, baseAt).join(''),
-				base: raw.slice(baseAt + 1, separator).join(''),
-				incoming: raw.slice(separator + 1, end).join(''),
-				raw: raw.slice(n, end + 1).join(''),
-			},
-		});
-		n = end;
-	}
-	if (plain !== '') segments.push({ text: plain });
-	return segments;
+	out += text.slice(at);
+	return crlf ? out.replaceAll('\n', '\r\n') : out;
 }

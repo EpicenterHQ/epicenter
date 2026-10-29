@@ -27,6 +27,7 @@ import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { openBunGitStore } from '../bun/git.js';
 import { openBunSqlite } from '../bun/sqlite.js';
+import { versionOf } from '../core/conflict.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Batch, Broadcast, Change } from '../protocol.js';
 import { type GitStore, MAIN, sequenceOf } from './git-store.js';
@@ -127,7 +128,7 @@ describe('batches', () => {
 		const outcome = await t.bob.push(t.batch('bob-phone', seq, t.write('notes/a.md', 'cat\n', 'coat\n')));
 		const text = await t.server.read('notes/a.md');
 		expect(text).toBe(
-			'<<<<<<< alice 2026-10-28T12:00:00.000Z seq 2\ncart\n||||||| base\ncat\n=======\ncoat\n>>>>>>> bob 2026-10-28T12:00:00.000Z seq 3\n',
+			`<<<<<<< current alice 2026-10-28T12:00:00.000Z ${versionOf('cart\n')}\ncart\n||||||| base ${versionOf('cat\n')}\ncat\n=======\ncoat\n>>>>>>> incoming bob 2026-10-28T12:00:00.000Z ${versionOf('coat\n')}\n`,
 		);
 		expect(outcome).toMatchObject({ kind: 'applied', changes: [{ text, overlaps: [{ current: 'cart', incoming: 'coat' }] }] });
 		await t.cleanup();

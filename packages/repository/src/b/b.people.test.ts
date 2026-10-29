@@ -26,7 +26,8 @@
  */
 import { expect, test } from 'bun:test';
 import { writePointer } from '../core/markdown.js';
-import { admissible, findConflicts } from '../core/door.js';
+import { findConflicts } from '../core/conflict.js';
+import { admissible } from '../core/door.js';
 import { createWorld, QUIET } from './harness.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { createServer } from './server.js';

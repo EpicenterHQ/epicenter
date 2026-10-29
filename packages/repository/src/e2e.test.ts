@@ -168,8 +168,7 @@ test('a true overlap becomes a marker block for people and a refusal for an agen
 	t.bob.transport.setOnline(true);
 	await t.settle(t.bob, t.alice, agent);
 	const marked = (await text(t.alice.repo, 'pet')) ?? '';
-	expect(marked).toContain('<<<<<<< alice');
-	expect(marked).toContain('cart\n||||||| base\ncat\n=======\ncoat\n>>>>>>> bob');
+	expect(marked).toMatch(/^<<<<<<< current alice \S+ \S+\ncart\n\|\|\|\|\|\|\| base \S+\ncat\n=======\ncoat\n>>>>>>> incoming bob /m);
 	expect(await text(t.bob.repo, 'pet')).toBe(marked);
 
 	// The agent changes the note it read; it changed since, so the send is refused and changes nothing.

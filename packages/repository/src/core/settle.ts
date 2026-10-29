@@ -20,9 +20,9 @@
  * 242,652 fuzzed triples and 1,000 property seeds never reached it.
  */
 import { stringify } from 'yaml';
-import { block } from './door.js';
+import { block, type Labels, type Party, versionOf, withBlock } from './conflict.js';
 import { parsePointer } from './markdown.js';
-import { merge, withMarkers } from './merge.js';
+import { merge, withBlocks } from './merge.js';
 
 export type Disposition =
 	/** Everything incoming said is in the text, cleanly. */
@@ -43,24 +43,24 @@ export type Settled = {
 	yours?: string;
 };
 
-export type Labels = { current: string; incoming: string };
+/** Who wrote each side, and when; settle adds each side's version. */
+export type Parties = { current: Party; incoming: Party };
 
 const stringifyField = (key: string, value: unknown) => stringify({ [key]: value });
 
-const unlabelled = (text: string) => text.replace(/^(<<<<<<<|>>>>>>>) .*$/gm, '$1');
-
-/** `text` with `added` (one block) after it, unless a block with the same sections, whoever's labels, is already there. */
-export function withBlock(text: string, added: string) {
-	if (unlabelled(text).includes(unlabelled(added))) return text;
-	return `${text === '' || text.endsWith('\n') ? text : `${text}\n`}${added}`;
-}
+/** Labels for a block between these texts: each side's party and the version of the note it had. */
+const labelled = (parties: Parties, base: string | null, current: string | null, incoming: string | null): Labels => ({
+	current: { ...parties.current, version: versionOf(current) },
+	base: { version: versionOf(base) },
+	incoming: { ...parties.incoming, version: versionOf(incoming) },
+});
 
 /** The most conflict blocks a merge may leave in a note; past it the merge is refused (an agent redoes it, a person holds it). */
 export const BLOCK_CAP = 20;
 
 /** One conflict block holding `incoming` whole, after `current`. */
-export function appendBlock(current: string, incoming: string, labels: Labels) {
-	return withBlock(current, block({ current: '', incoming }, labels));
+export function appendBlock(current: string, incoming: string, parties: Parties) {
+	return withBlock(current, block({ current: '', incoming }, labelled(parties, null, current, incoming)));
 }
 
 /**
@@ -72,7 +72,7 @@ export function settle(
 	base: string | null,
 	current: string | null,
 	incoming: string | null,
-	{ deletedSince = false, labels }: { deletedSince?: boolean; labels: Labels },
+	{ deletedSince = false, parties }: { deletedSince?: boolean; parties: Parties },
 ): Settled {
 	if (incoming === current) return { text: current, disposition: 'landed' };
 	if (incoming === base) return { text: current, disposition: 'landed' };
@@ -84,10 +84,11 @@ export function settle(
 	const theirs = parsePointer(incoming);
 	if (theirs !== null || parsePointer(current) !== null) return { text: current, disposition: 'kept-current', ...(theirs === null ? {} : { yours: theirs.oid }) };
 	// Two creates, or a path deleted and created again: another note.
-	if (base === null || deletedSince) return { text: appendBlock(current, incoming, labels), disposition: 'different-note' };
+	const labels = labelled(parties, base, current, incoming);
+	if (base === null || deletedSince) return { text: withBlock(current, block({ current: '', incoming }, labels)), disposition: 'different-note' };
 
 	const result = merge(base, current, incoming);
-	let text = withMarkers(result, labels) ?? current;
+	let text = withBlocks(result, labels) ?? current;
 	let conflict = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block');
 	for (const overlap of result.overlaps) {
 		if (overlap.unit !== 'field' || overlap.incoming === undefined || overlap.current === undefined) continue;

@@ -1,12 +1,14 @@
 /**
  * Conflict blocks as cards. When two people's edits overlap, the server
- * writes Git conflict markers with a base section into the note
- * (ADR-0692). Each well-formed block renders as one card in place of its
- * lines, offering Keep this (the first side), Keep that (the second) and
- * Keep both; choosing is one edit that replaces the whole block, so the
- * markers are gone and Undo brings them back.
+ * writes a labelled conflict block with a base section into the note, in
+ * the repository's one grammar (`@epicenter/repository/conflict`). Each
+ * well-formed block renders as one card in place of its lines, naming who
+ * wrote each side and when, and offering Keep this (the first side), Keep
+ * that (the second) and Keep both; choosing is one edit that replaces the
+ * whole block with the chosen text as written, so the markers are gone and
+ * Undo brings them back.
  */
-import { parseConflicts } from '@epicenter/repository/merge';
+import { findConflicts, type Side } from '@epicenter/repository/conflict';
 import { type EditorState, type Range, StateField } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 
@@ -15,21 +17,15 @@ type Conflict = { from: number; to: number; current: string; incoming: string; l
 /** Every well-formed conflict block, with document positions (a line break counts once). */
 export function conflictsIn(state: EditorState): Conflict[] {
 	const text = state.doc.sliceString(0, state.doc.length, '\n');
-	const found: Conflict[] = [];
-	let at = 0;
-	for (const segment of parseConflicts(text)) {
-		if ('text' in segment) {
-			at += segment.text.length;
-			continue;
-		}
-		const { raw, current, incoming } = segment.conflict;
-		const lines = raw.split('\n');
-		const label = (line: string | undefined) => line?.slice(8).trim() ?? '';
-		const closing = raw.endsWith('\n') ? lines.at(-2) : lines.at(-1);
-		found.push({ from: at, to: at + raw.length, current, incoming, labels: [label(lines[0]), label(closing)] });
-		at += raw.length;
-	}
-	return found;
+	/** Who wrote a side and when, or the label as written when it is not one Epicenter wrote. */
+	const name = (side: Side | null, label: string) => (side === null ? label : side.time === '-' ? side.author : `${side.author}, ${side.time}`);
+	return findConflicts(text).map(({ from, to, current, incoming, labels, sides }) => ({
+		from,
+		to,
+		current,
+		incoming,
+		labels: [name(sides.current, labels.current), name(sides.incoming, labels.incoming)],
+	}));
 }
 
 export type Resolution = 'this' | 'that' | 'both';

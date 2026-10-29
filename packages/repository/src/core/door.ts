@@ -22,6 +22,7 @@
  * blocks (core/settle, which also never writes an identical block twice).
  */
 import { CST, Lexer } from 'yaml';
+import { findConflicts } from './conflict.js';
 import { parsePointer, parses, splitMarkdown } from './markdown.js';
 
 const encoder = new TextEncoder();
@@ -173,50 +174,6 @@ function frontmatterRefusal(text: string): string | null {
 		if (blockColumn + flow.length > FRONTMATTER_NESTING) return `the frontmatter may nest at most ${FRONTMATTER_NESTING} deep`;
 	}
 	return null;
-}
-
-// ============================================================================
-// Conflict blocks: a strict grammar, written escaped, found only when well formed
-// ============================================================================
-
-const MARKERS = ['<<<<<<< ', '||||||| ', '=======', '>>>>>>> '];
-const isMarker = (line: string) => MARKERS.some((m) => line.startsWith(m)) || line === '=======';
-
-/** A content line that would read as a delimiter (or as an escaped one) gets one more backslash. */
-const escapeLine = (line: string) => (isMarker(line.replace(/^\\+/, '')) ? `\\${line}` : line);
-export const escapeLines = (text: string) => text.split('\n').map(escapeLine).join('\n');
-
-/** One labelled block holding `incoming` whole, with its delimiter-like lines escaped. */
-export function block({ current, base = '', incoming }: { current: string; base?: string; incoming: string }, labels: { current: string; incoming: string }) {
-	const section = (text: string) => (text === '' ? '' : `${escapeLines(text.endsWith('\n') ? text.slice(0, -1) : text)}\n`);
-	return `<<<<<<< ${labels.current}\n${section(current)}||||||| base\n${section(base)}=======\n${section(incoming)}>>>>>>> ${labels.incoming}\n`;
-}
-
-/** The well-formed conflict blocks in a text: delimiters in order, labelled, none nested. */
-export function findConflicts(text: string) {
-	const lines = text.split('\n');
-	const found: { line: number; current: string; incoming: string }[] = [];
-	for (let i = 0; i < lines.length; i++) {
-		const open = lines[i] ?? '';
-		if (!open.startsWith('<<<<<<< ') || open.length <= 8) continue;
-		let base = -1;
-		let middle = -1;
-		let close = -1;
-		for (let j = i + 1; j < lines.length; j++) {
-			const line = lines[j] ?? '';
-			if (line.startsWith('<<<<<<< ')) break;
-			if (base < 0 && line === '||||||| base') base = j;
-			else if (base >= 0 && middle < 0 && line === '=======') middle = j;
-			else if (middle >= 0 && line.startsWith('>>>>>>> ') && line.length > 8) {
-				close = j;
-				break;
-			}
-		}
-		if (close < 0) continue;
-		found.push({ line: i + 1, current: open.slice(8), incoming: (lines[close] ?? '').slice(8) });
-		i = close;
-	}
-	return found;
 }
 
 /** Warnings only: nothing here refuses. */

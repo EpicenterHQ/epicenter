@@ -7,6 +7,7 @@
 		".": "./src/index.ts",
 		"./server": "./src/server/index.ts",
 		"./merge": "./src/core/merge.ts",
+		"./conflict": "./src/core/conflict.ts",
 		"./bun": "./src/bun/index.ts",
 		"./browser": "./src/browser/index.ts",
 		"./ws": "./src/ws/index.ts",

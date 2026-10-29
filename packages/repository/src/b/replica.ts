@@ -133,7 +133,8 @@ export function createReplica({
 	let backoffUntil = 0;
 	/** The reason of the last refusal, for an agent awaiting its verdict. */
 	let lastRefusal: string | null = null;
-	const labels = { current: 'main', incoming: `${user}/${device}` };
+	/** Who each side of a block this device writes is: `main` as it arrived, and this device's person, now. */
+	const parties = () => ({ current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}`, time: new Date(now()).toISOString() } });
 	const stats = { pushes: 0, applied: 0, merged: 0, refused: 0, catchUps: 0, fetches: 0, timeouts: 0, late: 0, notifications: 0, placed: 0, commits: 0, unknown: 0 };
 
 	const save = () => {
@@ -210,7 +211,7 @@ export function createReplica({
 			const path = spelled(given);
 			const { held: _, ...f } = record(path);
 			const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
-			const next = from === f.mine ? text : settle(from, f.mine, text, { labels }).text;
+			const next = from === f.mine ? text : settle(from, f.mine, text, { parties: parties() }).text;
 			// RULE: a save joins any group the path is already in: a new text over a rename's unsent half must still go with the other half.
 			const together = [...new Set([...(f.together ?? []), ...all.filter((other) => other !== path)])];
 			set(path, { ...f, mine: next, saved: true, ...(together.length === 0 ? {} : { together }) });
@@ -301,7 +302,7 @@ export function createReplica({
 		if (f.unknown) {
 			// RULE: work whose outcome is unknown is put beside what is there, held for its person, never merged blindly.
 			const work = f.committed !== undefined ? f.committed.text : f.mine;
-			const mine = work === text ? text : work === null || text === null ? work : appendBlock(text, work, { current: 'main', incoming: `${labels.incoming} (outcome unknown)` });
+			const mine = work === text ? text : work === null || text === null ? work : appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } });
 			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }) });
 			return;
 		}
@@ -309,10 +310,10 @@ export function createReplica({
 		const gone = deleted && !own;
 		// Committed work is rebased onto the new text; a delete or removal that loses to an edit leaves the edit.
 		let committed: string | null | undefined;
-		if (f.committed !== undefined) committed = settle(below, text, f.committed.text, { deletedSince: gone, labels }).text;
+		if (f.committed !== undefined) committed = settle(below, text, f.committed.text, { deletedSince: gone, parties: parties() }).text;
 		// Held or waiting text in `mine` is rebased too, and stays held: it goes only with its own save.
 		const mineBelow = f.committed !== undefined ? f.committed.text : below;
-		const mine = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, labels }).text;
+		const mine = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, parties: parties() }).text;
 		const next: FileRecord = { base: text, mine };
 		if (committed !== undefined && committed !== text) next.committed = { text: committed };
 		if (mine !== text) {
