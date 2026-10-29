@@ -87,8 +87,13 @@ export type PushAnswer =
 	 * paths it touched; the device catches up for the rest.
 	 */
 	| { kind: 'flushed'; main: string; files: FileState[] }
-	/** Nothing changed: `main` moved and the commit asked to fast-forward, or the door refused it (`path` names the file at fault). */
-	| { kind: 'refused'; reason: string; path?: string; main: string }
+	/**
+	 * Nothing changed: `main` moved and the commit asked to fast-forward, or
+	 * the door refused it (`path` names the file at fault). For `main moved`,
+	 * `files` are `main`'s texts for the paths the commit touched, so a writer
+	 * can redo its change without asking again.
+	 */
+	| { kind: 'refused'; reason: string; path?: string; main: string; files?: FileState[] }
 	/** RULE: the commit's parent is older than the retention window, and the server has no record of it: it cannot say what happened. */
 	| { kind: 'outcome-unknown'; main: string };
 
@@ -321,7 +326,7 @@ export function createServer({
 		if (from === undefined) return { kind: 'outcome-unknown', main: head.id };
 		const forward = commit.parent === head.id;
 		const refuse = (reason: string, path?: string): PushAnswer => ({ kind: 'refused', reason, main: head.id, ...(path === undefined ? {} : { path }) });
-		if (commit.mode === 'fast-forward' && !forward) return refuse('main moved');
+		if (commit.mode === 'fast-forward' && !forward) return { kind: 'refused', reason: 'main moved', main: head.id, files: commit.files.map((f) => state(f.path, from)) };
 		const author = { user: session?.user ?? commit.author.user, device: commit.author.device };
 		if (forward) {
 			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false }, commit.files);

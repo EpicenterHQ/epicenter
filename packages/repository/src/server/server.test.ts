@@ -6,7 +6,7 @@
  * in src/b/ cover how they combine.
  *
  * Key behaviors:
- * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds
+ * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds; a stale fast-forward commit is refused with main's texts
  * - idempotency: a resend gets its answer brought up to now; after the window, `flushed`; a parent past the window with no record, `outcome-unknown`
  * - catch-up is a tree diff in pages; the change feed names each commit, its parents and changed paths with hashes
  * - a fresh instance over the same Store answers as the first did
@@ -71,6 +71,19 @@ describe('admission', () => {
 			kind: 'refused',
 			reason: 'the merge would grow the note past 1 MB',
 			path: 'n/a.md',
+		});
+	});
+
+	test("a stale fast-forward commit is refused with main's texts for the paths it touched", () => {
+		const { server } = setup();
+		const base = server.main();
+		expect(server.push(make(server, [{ path: 'n/a.md', text: note('one\n') }]), alice).kind).toBe('applied');
+		const body = { parent: base, mode: 'fast-forward' as const, author: { user: 'alice', device: 'laptop' }, time: 't', files: [{ path: 'n/a.md', text: note('two\n') }] };
+		expect(server.push({ id: commitId(body), ...body }, alice)).toEqual({
+			kind: 'refused',
+			reason: 'main moved',
+			main: server.main(),
+			files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }],
 		});
 	});
 });
