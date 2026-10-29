@@ -22,7 +22,9 @@
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",
 		"./codemirror": "./src/codemirror.ts",
-		"./source-editor": "./src/source-editor.svelte"
+		"./source-editor": "./src/source-editor.svelte",
+		"./repository": "./src/repository/index.ts",
+		"./repository/source-editor": "./src/repository/source-editor.svelte"
 	},
 	"dependencies": {
 		"@codemirror/commands": "^6.11.1",

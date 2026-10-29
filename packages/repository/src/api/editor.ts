@@ -70,7 +70,7 @@ export type Editor = {
 	state(): EditorState;
 	/** The person typed: `draft` is the new text. */
 	update(draft: string): void;
-	/** Be told when the draft is replaced from outside or the state changes; returns the function that stops it. */
+	/** Be told when the draft or the state changes (`replaced`: the draft was replaced from outside); returns the function that stops it. */
 	subscribe(listener: (change: EditorChange) => void): () => void;
 	/** Send the draft again after a failure. */
 	retry(): void;
@@ -254,6 +254,7 @@ export function createEditors(deps: Deps) {
 				draft = next;
 				if (state.status === 'saved') setState({ status: 'saving' });
 				deps.refresh(path);
+				tell(null);
 				schedule();
 			},
 			subscribe(listener) {

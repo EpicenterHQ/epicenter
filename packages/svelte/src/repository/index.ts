@@ -1,0 +1,80 @@
+/**
+ * Svelte 5 reactivity over the repository API (`@epicenter/repository/api`).
+ * `reactive(repo)` is the repository with the same methods, its reads
+ * tracked: a collection's `all()` and `get()` re-run when that collection's
+ * notes change, `status()` when the status does, and `revision()` after any
+ * change, so a `$derived` or `$effect` that reads it re-runs a SQL query or
+ * a `read()`. Reads outside an effect or a template are plain snapshots.
+ *
+ *     const repo = reactive(openBrowserRepository({ app, replica }));
+ *     const open = $derived(repo.todos.all().filter((todo) => !todo.fields.done));
+ *     $effect(() => {
+ *         repo.revision();
+ *         void repo.query('SELECT stem FROM entries ORDER BY stem DESC LIMIT 20').then(show);
+ *     });
+ *
+ * `tracked(editor)` is an editor's draft and state as reactive getters; a
+ * CodeMirror view binds to the editor itself (`./codemirror.ts`).
+ */
+import type { Definitions, Editor, Repository, RepositoryChange } from '@epicenter/repository/api';
+import { createSubscriber } from 'svelte/reactivity';
+
+const isCollection = (value: unknown): value is Record<string, (...args: never[]) => unknown> => typeof value === 'object' && value !== null && 'create' in value;
+
+/** The repository, its reads tracked per collection, its status and its revision. */
+export function reactive<TDefs extends Definitions>(repo: Repository<TDefs>): Repository<TDefs> {
+	const tracker = (heard: (change: RepositoryChange) => boolean) =>
+		createSubscriber((update) =>
+			repo.subscribe((change) => {
+				if (heard(change)) update();
+			}),
+		);
+	const status = tracker((change) => change.status);
+	const anything = tracker((change) => change.status || change.collections.length > 0);
+	const wrapped: Record<string, unknown> = {
+		...repo,
+		status() {
+			status();
+			return repo.status();
+		},
+		revision() {
+			anything();
+			return repo.revision();
+		},
+	};
+	for (const [name, collection] of Object.entries(repo)) {
+		if (!isCollection(collection) || !('all' in collection)) continue;
+		const track = tracker((change) => change.status || change.collections.includes(name));
+		const { all, get } = collection as unknown as { all(): unknown; get(params: unknown): unknown };
+		wrapped[name] = {
+			...collection,
+			all() {
+				track();
+				return all();
+			},
+			get(params: unknown) {
+				track();
+				return get(params);
+			},
+		};
+	}
+	return wrapped as Repository<TDefs>;
+}
+
+/** An editor's draft and state, tracked. */
+export function tracked(editor: Editor) {
+	const track = createSubscriber((update) => editor.subscribe(() => update()));
+	return {
+		editor,
+		get draft() {
+			track();
+			return editor.draft();
+		},
+		get state() {
+			track();
+			return editor.state();
+		},
+	};
+}
+
+export { editorBinding, createEditorView } from './codemirror.js';
