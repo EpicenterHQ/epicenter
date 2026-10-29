@@ -159,6 +159,15 @@ export function createNet(seed: number) {
 			}
 			now = end;
 		},
+		/** Run the next event if it is due by `end`; false when none is. A host doing real I/O between events steps with this. */
+		next(end = Number.POSITIVE_INFINITY) {
+			const top = heap[0];
+			if (top === undefined || top.at > end) return false;
+			pop();
+			now = top.at;
+			top.run();
+			return true;
+		},
 		/** Run until no event is left, or `limit` events ran; returns whether it went idle. */
 		runUntilIdle(limit = 1_000_000) {
 			for (let n = 0; n < limit; n++) {
