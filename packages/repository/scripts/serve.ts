@@ -1,5 +1,5 @@
 /**
- * Serve one repository over design B's wire on this machine:
+ * Serve one repository over the repository's wire on this machine:
  *
  *   bun packages/repository/scripts/serve.ts <repo-dir> [--port 8787] [--host 127.0.0.1]
  *

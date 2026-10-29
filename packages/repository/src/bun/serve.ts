@@ -1,5 +1,5 @@
 /**
- * The Bun host of design B's wire: one repository's server over HTTP and the
+ * The Bun host of the repository's wire: one repository's server over HTTP and the
  * devices' sockets, on a port of this machine. Events go out by Bun's
  * pub/sub: every socket subscribes to one topic when it opens, and keeps
  * only its verified session (and the timer that closes it when the session

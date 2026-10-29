@@ -1,8 +1,8 @@
 /**
  * Client Replica Tests
  *
- * What the replica's SQLite database adds to design B's replica, whose sync
- * behavior the property and scenario tests in `src/b/` cover: the binding
+ * What the replica's SQLite database adds to the replica, whose sync behavior
+ * the property and scenario tests in `src/sim/` cover: the binding
  * to one repository, server and account; a restart from the database file
  * alone; and the read side an app queries. Requests are answered by a real
  * server, by hand, so each test decides what is delivered and what is lost.
@@ -19,7 +19,7 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createTestServer, STAMP, writer } from '../b/harness.js';
+import { createTestServer, STAMP, writer } from '../sim/harness.js';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { defineApp } from '../core/lens.js';
 import type { LiveCommit } from '../core/commit.js';

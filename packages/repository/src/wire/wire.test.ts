@@ -4,7 +4,7 @@
  * The wire's promises one at a time, over real HTTP and WebSockets against
  * the Bun dev server on localhost, with a SQLite Store and an in-memory Git
  * behind it. The property suite over the same wire is
- * `src/b/b.wire.property.test.ts`.
+ * `src/sim/wire.property.test.ts`.
  *
  * Key behaviors:
  * - every endpoint, reads included, refuses a request with no session (401) and one from a non-member (403)

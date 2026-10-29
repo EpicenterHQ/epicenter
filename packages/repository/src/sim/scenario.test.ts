@@ -1,13 +1,13 @@
 /**
- * Design B Scenario Tests
+ * Scenario Tests
  *
  * The intent of today's engine's held, reconcile, verdict and delete/reuse
- * tests, asserted under design B after phase 0a: live commits with parents,
+ * tests, asserted after phase 0a: live commits with parents,
  * the server merging merge-mode commits, the commit id as idempotency, a
  * commit on every save, no stored notices (conflict blocks in the text, and
  * held work with a reason on the device), and a retention window. Each world
  * has a fixed latency and no loss unless a test loses a reply. The people
- * review's probes live in `b.people.test.ts`.
+ * review's probes live in `people.test.ts`.
  *
  * Key behaviors:
  * - A text that would break a parsing note is held, never committed; a repair commits exactly the repaired text

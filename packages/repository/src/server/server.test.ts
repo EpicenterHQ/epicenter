@@ -3,7 +3,7 @@
  *
  * The server's promises at its door, one at a time, over a SQLite Store and
  * an in-memory Git; the replica-driven scenario, people and property tests
- * in src/b/ cover how they combine.
+ * in src/sim/ cover how they combine.
  *
  * Key behaviors:
  * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds; a stale fast-forward commit is refused with main's texts

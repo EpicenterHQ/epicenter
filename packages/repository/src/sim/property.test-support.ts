@@ -1,6 +1,6 @@
 /**
- * Design B's property test, run over any world: in memory
- * (`b.property.test.ts`) or over the real wire (`b.wire.property.test.ts`).
+ * The repository's property test, run over any world: in memory
+ * (`property.test.ts`) or over the real wire (`wire.property.test.ts`).
  *
  * Three people and one agent edit a few notes over a lossy, reordering
  * network whose messages sometimes stall past a request's timeout, through

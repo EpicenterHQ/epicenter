@@ -1,5 +1,5 @@
 /**
- * Design B People Tests
+ * People Tests
  *
  * The closing people review's probes P1 to P12, each the sequence a person
  * would notice, with what they should see after the phase 0a decisions:

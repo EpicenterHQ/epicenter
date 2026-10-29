@@ -1,5 +1,5 @@
 /**
- * Design B's wire. A device keeps one WebSocket: it sends its commits and
+ * The repository's wire. A device keeps one WebSocket: it sends its commits and
  * catch-ups there and gets their answers and every change event on it, in
  * one ordered sequence. HTTP serves one-shot clients (agents, the CLI,
  * scripts) and content by hash. Both transports call the same composed

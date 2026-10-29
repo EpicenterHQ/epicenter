@@ -1,5 +1,5 @@
 /**
- * A deterministic network for design B's tests: virtual time, seeded
+ * A deterministic network for the simulation's tests: virtual time, seeded
  * randomness, and connections that delay, drop, reorder or lose messages.
  *
  * A connection may keep messages in order or give each its own delay, so

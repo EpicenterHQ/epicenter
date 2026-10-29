@@ -1,5 +1,5 @@
 /**
- * Design B Property Test, over the real wire
+ * Property Test, over the real wire
  *
  * The property test (`property.test-support.ts`, whose header lists the
  * invariants) against the Bun dev server on localhost, on virtual time
@@ -14,10 +14,10 @@
  * - a device whose socket drops resumes from its last head
  *
  * See also:
- * - `b.property.test.ts` for the same test in memory, for many more seeds
+ * - `property.test.ts` for the same test in memory, for many more seeds
  */
 import { definePropertySuite } from './property.test-support.js';
 import { createWireWorld } from './wire-harness.js';
 
-definePropertySuite({ label: 'design B over the socket', prefix: 'W', runs: 200, world: (options) => createWireWorld(options), timeout: 60_000 });
-definePropertySuite({ label: 'design B over HTTP', prefix: 'H', runs: 50, world: (options) => createWireWorld(options, { transport: 'http' }), timeout: 60_000 });
+definePropertySuite({ label: 'the repository over the socket', prefix: 'W', runs: 200, world: (options) => createWireWorld(options), timeout: 60_000 });
+definePropertySuite({ label: 'the repository over HTTP', prefix: 'H', runs: 50, world: (options) => createWireWorld(options, { transport: 'http' }), timeout: 60_000 });

@@ -1,5 +1,5 @@
 /**
- * Test support for design B: one server, a seeded network, and devices with
+ * The simulation's memory world: one server, a seeded network, and devices with
  * two channels each: requests (pushes, catch-ups, reads by hash), each
  * delayed on its own, lost, or answered with a reply that is lost; and a
  * notification stream, delayed and reordered per message, which a lost

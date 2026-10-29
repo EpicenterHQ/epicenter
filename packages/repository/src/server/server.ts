@@ -1,5 +1,5 @@
 /**
- * Design B's server: live history behind one door, as a state machine over
+ * The repository's server: live history behind one door, as a state machine over
  * ports. It holds no host imports: the `Store` (SQLite) keeps every live
  * commit, text, outcome and the flush journal; `GitObjects` is where
  * flushed history goes; the `Clock` and the host's one `Alarm` schedule

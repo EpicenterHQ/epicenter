@@ -1,5 +1,5 @@
 /**
- * Design B's client: a replica of one repository, a clone with a short
+ * The repository's client: a replica of one repository, a clone with a short
  * local branch, kept in one SQLite database over the `SqlDriver` port. It
  * holds no host imports: the host supplies the database, its timer and
  * clock, and a transport (`socket.ts`) that drives it.
