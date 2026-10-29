@@ -22,6 +22,24 @@ export const EPOCH = Date.UTC(2026, 9, 28);
 /** A commit time the server takes: the epoch, as an ISO instant. */
 export const STAMP = new Date(EPOCH).toISOString();
 
+/** The server's alarm on virtual time: each schedule replaces the last. */
+export const virtualAlarm =
+	(net: { now(): number; after(ms: number, run: () => void): void }) =>
+	(due: () => void) => {
+		let set = 0;
+		return {
+			schedule(at: number) {
+				const mine = ++set;
+				net.after(Math.max(0, at - (EPOCH + net.now())), () => {
+					if (set === mine) due();
+				});
+			},
+			cancel() {
+				set++;
+			},
+		};
+	};
+
 /** A server alone over an in-memory Store and Git, for tests that push to it directly. */
 export function createTestServer({ clock = () => EPOCH, limits }: { clock?: () => number; limits?: Parameters<typeof createServer>[0]['limits'] } = {}) {
 	return createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock, ...(limits === undefined ? {} : { limits }) });
@@ -67,7 +85,7 @@ export function createWorld({
 		store: openBunSqlite(),
 		git,
 		clock: () => EPOCH + net.now(),
-		timer: net.after,
+		alarm: virtualAlarm(net),
 		...(limits === undefined ? {} : { limits }),
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});

@@ -19,7 +19,7 @@ import { gitBlobHash } from '../core/hash.js';
 import { type GitObjects, MAIN } from './git-store.js';
 import { createMemoryGitStore } from './memory-git.js';
 import { createLogger, memorySink } from 'wellcrafted/logger';
-import { createServer, type Event, type Limits, LIMITS, openServer, type Server, type Session } from './server.js';
+import { createServer, type Event, type Limits, LIMITS, openServer, SCHEDULE, type Server, type Session } from './server.js';
 
 const EPOCH = Date.UTC(2026, 9, 28, 12);
 const alice: Session = { user: 'alice', role: 'writer' };
@@ -198,6 +198,66 @@ describe('catch-up and the change feed', () => {
 	});
 });
 
+describe('flush scheduling', () => {
+	/** An alarm that records what the server asks of it, as a Durable Object's one alarm would hold it. */
+	function recordingAlarm() {
+		const alarm = { at: null as number | null, fire: () => {} };
+		return {
+			alarm,
+			port: (due: () => void) => {
+				alarm.fire = due;
+				return {
+					schedule: (at: number) => {
+						alarm.at = at;
+					},
+					cancel: () => {
+						alarm.at = null;
+					},
+				};
+			},
+		};
+	}
+
+	test('one alarm, replaced on every push: quiet after the last push, at most busy after the last flush, cancelled once flushed', async () => {
+		const clock = { now: EPOCH };
+		const store = openBunSqlite();
+		const git = createMemoryGitStore();
+		const { alarm, port } = recordingAlarm();
+		const server = createServer({ store, git, clock: () => clock.now, alarm: port });
+		expect(alarm.at).toBeNull();
+		server.push(make(server, [{ path: 'n/a.md', text: note('one\n') }]), alice);
+		expect(alarm.at).toBe(EPOCH + SCHEDULE.quiet);
+		// Typing goes on every 30 s: the alarm moves with it, until the busy bound holds it.
+		for (let i = 1; i <= 9; i++) {
+			clock.now = EPOCH + i * 30_000;
+			server.push(make(server, [{ path: 'n/a.md', text: note(`one ${i}\n`) }]), alice);
+			expect(alarm.at).toBe(Math.min(clock.now + SCHEDULE.quiet, EPOCH + SCHEDULE.busy));
+		}
+		// Fired early (a host may), it flushes nothing and keeps the time.
+		alarm.fire();
+		await server.idle();
+		expect(server.history().flushes).toBe(0);
+		expect(alarm.at).toBe(EPOCH + SCHEDULE.busy);
+		clock.now = EPOCH + SCHEDULE.busy;
+		alarm.fire();
+		await server.idle();
+		expect(server.history().flushes).toBe(1);
+		expect(alarm.at).toBeNull();
+	});
+
+	test('a push that a restart left unflushed is scheduled again when the server opens', async () => {
+		const clock = { now: EPOCH };
+		const store = openBunSqlite();
+		const git = createMemoryGitStore();
+		const first = createServer({ store, git, clock: () => clock.now, alarm: recordingAlarm().port });
+		first.push(make(first, [{ path: 'n/a.md', text: note('one\n') }]), alice);
+		clock.now += 10_000;
+		const { alarm, port } = recordingAlarm();
+		createServer({ store, git, clock: () => clock.now, alarm: port });
+		expect(alarm.at).toBe(EPOCH + SCHEDULE.quiet);
+	});
+});
+
 describe('storage', () => {
 	test('texts and tree nodes no kept commit names are collected after a flush, so 200 saves of a 10 KB note leave a bounded store', async () => {
 		const { server, clock } = setup();
@@ -244,11 +304,11 @@ describe('the Git receive path', () => {
 	test('a flush that finds Git moved from outside says so: the server state, the log and the receiver; putting main back resumes it', async () => {
 		const { server, git, head, commitOn, store } = await flushed();
 		const { sink, events } = memorySink();
-		const logged = createServer({ store, git, clock: () => EPOCH, log: createLogger('test', sink), timer: (_, run) => run() });
+		const logged = createServer({ store, git, clock: () => EPOCH, log: createLogger('test', sink) });
 		const outside = await commitOn(head, { 'n/x.md': note('outside\n') });
 		await git.updateRef(MAIN, outside, head);
 		logged.push(make(logged, [{ path: 'n/a.md', text: note('two\n') }]), alice);
-		await logged.idle();
+		expect(await logged.flush()).toMatchObject({ kind: 'diverged', main: outside, expected: head });
 		expect(events.map((event) => [event.level, event.message])).toContainEqual(['error', "Git's main moved outside Epicenter; flushes stop until an operator puts it back"]);
 		expect(logged.state()).toEqual({ kind: 'diverged', expected: head });
 		expect(await logged.receive({ ref: MAIN, old: outside, next: outside }, alice)).toMatchObject({ kind: 'refused', code: 'diverged' });

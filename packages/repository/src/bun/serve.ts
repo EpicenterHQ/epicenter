@@ -11,7 +11,7 @@ import { mkdir } from 'node:fs/promises';
 import type { Server as BunServer } from 'bun';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { openServer, type Server } from '../server/server.js';
+import { type Alarm, openServer, type Server } from '../server/server.js';
 import { type Authenticate, createWire, SESSION_EXPIRED, type Verified, type WireLimits } from '../wire/wire.js';
 import { openBunGitStore } from './git.js';
 import { openBunSqlite } from './sqlite.js';
@@ -102,6 +102,20 @@ export function serveRepository({
 }
 export type ServedRepository = ReturnType<typeof serveRepository>;
 
+/** The server's alarm on this process's timers: one timeout, replaced on every schedule. */
+export const timeoutAlarm = (due: () => void): Alarm => {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	return {
+		schedule(at) {
+			clearTimeout(timeout);
+			timeout = setTimeout(due, Math.max(0, at - Date.now()));
+		},
+		cancel() {
+			clearTimeout(timeout);
+		},
+	};
+};
+
 /**
  * Open a repository on disk for the dev server: `dir` is a bare Git
  * repository (created when missing) that live history flushes into, and its
@@ -114,9 +128,7 @@ export async function openDiskRepository(dir: string, { log = createLogger('repo
 	return openServer({
 		store: openBunSqlite(join(dir, 'epicenter', 'live.sqlite')),
 		git,
-		timer: (ms, run) => {
-			setTimeout(run, ms);
-		},
+		alarm: timeoutAlarm,
 		log,
 	});
 }

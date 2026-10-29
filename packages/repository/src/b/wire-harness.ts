@@ -29,7 +29,7 @@ import { createMemoryGitStore } from '../server/memory-git.js';
 import { type Committed, createServer, type Session } from '../server/server.js';
 import { createWireClient, type SocketConnection } from '../wire/client.js';
 import { authenticateBearer, type SocketMessage } from '../wire/wire.js';
-import { type Device, EPOCH } from './harness.js';
+import { type Device, EPOCH, virtualAlarm } from './harness.js';
 import { unwrap } from 'wellcrafted/result';
 import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createNet } from './net.js';
@@ -52,7 +52,7 @@ export function createWireWorld(
 		store: openBunSqlite(),
 		git,
 		clock: () => EPOCH + net.now(),
-		timer: net.after,
+		alarm: virtualAlarm(net),
 		...(limits === undefined ? {} : { limits }),
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});

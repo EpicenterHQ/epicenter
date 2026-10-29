@@ -3,6 +3,7 @@ export { type CommitInfo, type GitObjects, MAIN, type Signature, type Tree, type
 export { createMemoryGitStore, type MemoryGitStore } from './memory-git.js';
 export { DIVERGED, type ReceiveAnswer, type ReceiveCode } from './receive.js';
 export {
+	type Alarm,
 	type CatchUp,
 	type Clock,
 	type Committed,
@@ -25,5 +26,4 @@ export {
 	type ServerState,
 	type Session,
 	type Store,
-	type Timer,
 } from './server.js';

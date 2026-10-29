@@ -2,7 +2,8 @@
  * Design B's server: live history behind one door, as a state machine over
  * ports. It holds no host imports: the `Store` (SQLite) keeps every live
  * commit, text, outcome and the flush journal; `GitObjects` is where
- * flushed history goes; the `Clock` and the `Timer` schedule flushes.
+ * flushed history goes; the `Clock` and the host's one `Alarm` schedule
+ * flushes.
  *
  * Every applied write is a live commit whose id hashes its parent and
  * content (core/commit). `main` only moves forward: a commit on `main`
@@ -51,8 +52,15 @@ import { createReceiver, DIVERGED } from './receive.js';
 export type Store = SqlDriver;
 /** Milliseconds since the epoch. */
 export type Clock = () => number;
-/** Run `run` after `ms` (the host's timer: `setTimeout`, an alarm, or virtual time). */
-export type Timer = (ms: number, run: () => void) => void;
+/**
+ * The host's one replaceable alarm (a Durable Object's alarm, `setTimeout`,
+ * or virtual time), made for the server's `due` entry point: `schedule(at)`
+ * replaces any time set before (ms since the epoch, by the server's clock;
+ * a time past fires at once), and `cancel` clears it. A host whose alarm
+ * fires on its own (a Durable Object's `alarm()` handler) ignores `due` and
+ * calls `server.due()` itself.
+ */
+export type Alarm = { schedule(at: number): void; cancel(): void };
 
 // ============================================================================
 // Protocol
@@ -263,7 +271,7 @@ export function createServer({
 	store,
 	git,
 	clock = () => Date.now(),
-	timer,
+	alarm: makeAlarm,
 	limits: given = {},
 	schedule = SCHEDULE,
 	onCommit,
@@ -273,8 +281,8 @@ export function createServer({
 	store: Store;
 	git: GitObjects;
 	clock?: Clock;
-	/** Without a timer, flushes run only when asked (`flush`). */
-	timer?: Timer;
+	/** The host's alarm, made for `due`. Without one, flushes run only when asked (`flush`). */
+	alarm?: (due: () => void) => Alarm;
 	limits?: Partial<Limits>;
 	schedule?: Schedule;
 	/** Called with every commit that lands on `main`, for audits and tests. */
@@ -506,8 +514,6 @@ export function createServer({
 	// Flush scheduling
 	// ------------------------------------------------------------------------
 
-	let lastPush = 0;
-	let lastFlush = clock();
 	const flusher = createFlusher({ history, store, git, faults });
 	const receiver = createReceiver({ history, store, git, clock, limits, flusher, apply: (commit, session, during) => push(commit, session, { rate: false, during }) });
 
@@ -531,22 +537,49 @@ export function createServer({
 		return result;
 	};
 
+	/**
+	 * RULE: a flush is due `quiet` after the last push with none since, and
+	 * at most `busy` after the last flush while pushes go on; nothing is due
+	 * once a flush started after the last push. Both times are in `meta`, so
+	 * a restarted server schedules what a crash left unflushed.
+	 */
+	if (meta.get('last_flush') === null) meta.set('last_flush', clock());
+	function dueAt(): number | null {
+		const push = meta.get('last_push');
+		const flush = meta.number('last_flush');
+		if (push === null || Number(push) < flush) return null;
+		return Math.min(Number(push) + schedule.quiet, flush + schedule.busy);
+	}
+	function reschedule() {
+		const at = dueAt();
+		if (at === null) alarm?.cancel();
+		else alarm?.schedule(at);
+	}
+	/** The flush started by the alarm, if one is running. */
+	let background: Promise<void> = Promise.resolve();
 	function flushInBackground() {
-		lastFlush = clock();
-		flushAndCollect().catch((cause: unknown) => log?.error(ServerDiagnostic.FlushFailed({ cause })));
+		meta.set('last_flush', clock());
+		background = flushAndCollect()
+			.then(
+				() => {},
+				(cause: unknown) => log?.error(ServerDiagnostic.FlushFailed({ cause })),
+			)
+			.finally(reschedule);
 	}
-	/** The quiet-time trigger: `quiet` after the last push with none since, or `busy` after the last flush. */
+	/** The alarm's entry point: flush if one is due, otherwise set the alarm for when one is. */
+	function due() {
+		const at = dueAt();
+		if (at !== null && clock() >= at) flushInBackground();
+		else reschedule();
+	}
+	const alarm = makeAlarm?.(due);
 	function pushed() {
-		if (timer === undefined) return;
-		lastPush = clock();
-		if (lastPush - lastFlush >= schedule.busy) flushInBackground();
-		const at = lastPush;
-		timer(schedule.quiet, () => {
-			if (lastPush === at) flushInBackground();
-		});
+		if (alarm === undefined) return;
+		meta.set('last_push', clock());
+		reschedule();
 	}
+	reschedule();
 
-	/** Take a live commit: fast-forward `main`, merge it in, or refuse it; a resend gets its recorded outcome. */
 	/** Take a live commit; `during` runs in its transaction once it lands (the receiver's journal row). */
 	function push(commit: LiveCommit, session?: Session, { rate = true, expect, during }: { rate?: boolean; expect?: Expect; during?: () => void } = {}): PushAnswer {
 		pending = [];
@@ -660,12 +693,21 @@ export function createServer({
 		 * finish the flush a crash interrupted: one Git commit at each merge
 		 * that wrote a conflict block, and one at `main`.
 		 */
-		flush: () => {
-			lastFlush = clock();
-			return flushAndCollect();
+		flush: async () => {
+			meta.set('last_flush', clock());
+			try {
+				return await flushAndCollect();
+			} finally {
+				reschedule();
+			}
 		},
+		/** The alarm's entry point (a Durable Object's `alarm()` calls it): flush if one is due, otherwise set the alarm for when one is. */
+		due,
 		/** Resolves once no flush or Git push is in progress. */
-		idle: () => flusher.idle(),
+		idle: async () => {
+			await background;
+			await flusher.idle();
+		},
 		/**
 		 * Take a `git push` of `refs/heads/main` whose objects are already in
 		 * Git: fast-forward only (D1). Refused because live edits are not in
