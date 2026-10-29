@@ -1,15 +1,17 @@
 /**
  * What the Honeycrisp browser tests share: the app built as it ships, served
- * from 127.0.0.1 once per person on a port of its own, and a repository
- * server behind a router. Each person's site is its own origin, so each has
- * its own storage, and the router tells them apart by the `Origin` of their
- * WebSocket: it connects each as its own user, and can take one offline
+ * from 127.0.0.1 once per person on a port of its own, and the repository's
+ * development server on Bun behind a proxy. Each person's site is its own
+ * origin, so each has its own storage (Playwright's WebKit shares one
+ * origin's OPFS across persistent profiles), and the proxy tells them apart
+ * by the `Origin` of their requests and sockets: it can take one offline
  * while the others stay on.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { serveRepository } from '@epicenter/repository/legacy-ws/server';
+import { openDiskRepository, serveRepository } from '@epicenter/repository/bun';
+import { authenticateBearer } from '@epicenter/repository/wire';
 import type { BrowserType, Page } from 'playwright';
 
 export const TIMEOUT = 90_000;
@@ -17,26 +19,58 @@ const app = join(import.meta.dir, '..');
 
 type Data = { target: string; person: string; upstream?: WebSocket; buffered: (string | Buffer)[] };
 
-/** Build Honeycrisp against a router, serve a site per person, and a repository behind the router. */
+/** Build Honeycrisp against a proxy, serve a site per person, and the repository server behind the proxy. */
 export async function startWorld(people: readonly string[]) {
-	const dir = await mkdtemp(join(tmpdir(), 'honeycrisp-browser-'));
-	const served = await serveRepository({ dir: join(dir, 'repo.git') });
 	const sites = new Map<string, string>();
 	const offline = new Set<string>();
 	const clients = new Set<Bun.ServerWebSocket<Data>>();
-	const router = Bun.serve<Data>({
+	// The static adapter always writes `build/` in the app.
+	const build = join(app, 'build');
+	const statics = people.map((person) => {
+		const site = Bun.serve({
+			hostname: '127.0.0.1',
+			port: 0,
+			async fetch(request) {
+				const { pathname } = new URL(request.url);
+				const file = Bun.file(join(build, pathname));
+				// A single-page app: every route is the index page.
+				return new Response(pathname !== '/' && (await file.exists()) ? file : Bun.file(join(build, 'index.html')));
+			},
+		});
+		sites.set(person, site.url.origin);
+		return site;
+	});
+
+	const dir = await mkdtemp(join(tmpdir(), 'honeycrisp-browser-'));
+	const server = await openDiskRepository(join(dir, 'repo.git'));
+	const served = serveRepository({
+		repository: 'honeycrisp',
+		serverId: 'honeycrisp-browser',
+		server,
+		authenticate: authenticateBearer((token) => ({ user: token, role: 'writer' })),
+		origins: [...sites.values()],
+	});
+	const upstream = new URL(served.url);
+
+	const proxy = Bun.serve<Data>({
 		hostname: '127.0.0.1',
 		port: 0,
-		fetch(request, server) {
+		async fetch(request, bun) {
 			const origin = request.headers.get('origin') ?? '';
 			const person = [...sites].find(([, url]) => url === origin)?.[0];
 			if (person === undefined) return new Response('Unknown origin', { status: 403 });
 			if (offline.has(person)) return new Response('Offline', { status: 503 });
-			const target = new URL(served.url);
-			target.search = new URL(request.url).search;
-			target.searchParams.set('user', person);
-			if (server.upgrade(request, { data: { target: target.href, person, buffered: [] } })) return undefined;
-			return new Response('Expected a WebSocket upgrade', { status: 426 });
+			const url = new URL(request.url);
+			const target = new URL(`${url.pathname}${url.search}`, upstream);
+			if (url.pathname === '/socket') {
+				target.protocol = 'ws:';
+				if (bun.upgrade(request, { data: { target: target.href, person, buffered: [] } })) return undefined;
+				return new Response('Expected a WebSocket upgrade', { status: 426 });
+			}
+			const headers = new Headers(request.headers);
+			headers.delete('host');
+			const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+			return fetch(target, { method: request.method, headers, body, redirect: 'manual' });
 		},
 		websocket: {
 			open(client) {
@@ -61,35 +95,17 @@ export async function startWorld(people: readonly string[]) {
 		},
 	});
 
-	// The static adapter always writes `build/` in the app.
-	const build = join(app, 'build');
 	const built = Bun.spawn(['bun', 'run', 'build'], {
 		cwd: app,
 		stdout: 'ignore',
 		stderr: 'pipe',
-		env: { ...process.env, VITE_HONEYCRISP_SERVER: `ws://127.0.0.1:${router.port}/` },
+		env: { ...process.env, VITE_HONEYCRISP_SERVER: proxy.url.href },
 	});
 	if ((await built.exited) !== 0) throw new Error(`The Honeycrisp build failed: ${await new Response(built.stderr).text()}`);
-	const statics = people.map((person) => {
-		const site = Bun.serve({
-			hostname: '127.0.0.1',
-			port: 0,
-			async fetch(request) {
-				const { pathname } = new URL(request.url);
-				const file = Bun.file(join(build, pathname));
-				// A single-page app: every route is the index page.
-				return new Response(pathname !== '/' && (await file.exists()) ? file : Bun.file(join(build, 'index.html')));
-			},
-		});
-		sites.set(person, site.url.origin);
-		return site;
-	});
-	const agent = served.repository.connect({ device: 'agent', user: 'agent' });
-	let agentBatches = 0;
 	return {
 		/** The site `person` opens. */
 		url: (person: string) => `${sites.get(person)}/`,
-		/** Take `person` offline, dropping their connection, or bring them back. */
+		/** Take `person` offline, dropping their socket, or bring them back. */
 		setOnline(person: string, value: boolean) {
 			if (value) offline.delete(person);
 			else {
@@ -97,26 +113,15 @@ export async function startWorld(people: readonly string[]) {
 				for (const client of clients) if (client.data.person === person) client.close();
 			}
 		},
-		/** The note's text as the server holds it. */
-		read: (path: string) => served.repository.read(path),
-		/**
-		 * Create a file on the server as an agent would, with any text: one
-		 * whose frontmatter does not parse included, as Git can hold one.
-		 */
-		async createFile(path: string, text: string) {
-			const outcome = await agent.push({
-				device: 'agent',
-				n: ++agentBatches,
-				seq: served.repository.sequence(),
-				policy: 'refuse',
-				changes: [{ kind: 'write', path, base: null, text }],
-			});
-			if (outcome.kind !== 'applied') throw new Error(`The server did not create ${path}: ${JSON.stringify(outcome)}`);
-		},
+		/** The note's text on the server's main. */
+		read: async (path: string) => server.read(path),
 		async stop() {
 			for (const site of statics) site.stop(true);
-			router.stop(true);
+			proxy.stop(true);
 			await served.stop();
+			// Flushed and idle, so no flush timer outlives the directory.
+			await server.flush();
+			await server.idle();
 			await rm(dir, { recursive: true, force: true });
 		},
 	};

@@ -16,12 +16,24 @@
 
 	let { notes, openListed }: { notes: Notes; openListed: (path: string) => void } = $props();
 
+	/** Every file this device holds, by path, read again after every change. */
+	let paths = $state.raw<string[]>([]);
+	$effect(() => {
+		notes.repo.revision();
+		let current = true;
+		void notes.repo.query<{ path: string }>('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL ORDER BY path').then((rows) => {
+			if (current && rows.error === null) paths = rows.data.map((row) => row.path);
+		});
+		return () => {
+			current = false;
+		};
+	});
+
 	/**
 	 * The tree over the files this device holds. A directory is there while a
 	 * file is in it, and no size is listed, so none is shown.
 	 */
 	const rows = $derived.by(() => {
-		const paths = notes.files;
 		const directories = new Set<string>();
 		for (const path of paths)
 			for (let at = dirname(path); at !== ''; at = dirname(at)) directories.add(at);

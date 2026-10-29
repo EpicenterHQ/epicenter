@@ -8,9 +8,8 @@
 	import FileDetail from './FileDetail.svelte';
 	import FolderNav from './FolderNav.svelte';
 	import NoteList from './NoteList.svelte';
-	import Notices from './Notices.svelte';
 
-	// The notes over the repository `OpenHoneycrisp` opened.
+	// The notes over the repository `OpenHoneycrisp` opened; mounted once, when they first arrive.
 	let { repo, syncsTo }: { repo: HoneycrispRepository; syncsTo?: string } = $props();
 
 	// The repository stays fixed until this app root unmounts.
@@ -36,14 +35,13 @@
 	}}
 />
 
-<div class="flex h-dvh flex-col overflow-hidden">
+<div class="flex h-full flex-col overflow-hidden">
 	<AppHeader
 		{notes}
 		{syncsTo}
 		{filesOpen}
 		onToggleFiles={() => (filesOpen = !filesOpen)}
 	/>
-	<Notices notices={repo.notices} />
 
 	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 		<Resizable.Pane id="folders" order={1} defaultSize={16} minSize={10} maxSize={30}>

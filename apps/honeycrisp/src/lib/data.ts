@@ -8,7 +8,7 @@
  * exact text and its issues, and a write changes only the keys and the body
  * it names, so a key Honeycrisp does not name survives every save.
  */
-import { defineApp, type Note } from '@epicenter/repository';
+import { defineApp, type Note, type ValidNote } from '@epicenter/repository/api';
 import { type Static, Type } from 'typebox';
 
 const nullable = <T extends ReturnType<typeof Type.String>>(type: T) => Type.Union([type, Type.Null()]);
@@ -41,9 +41,9 @@ export type NoteFile = Note<'notes/{stem}.md', typeof noteSchema>;
 export type FolderFile = Note<'folders/{stem}.md', typeof folderSchema>;
 
 /** A note file that reads as a note. */
-export type NoteEntry = Extract<NoteFile, { valid: true }>;
+export type NoteEntry = ValidNote<'notes/{stem}.md', typeof noteSchema>;
 /** A folder file that reads as a folder. Its stem is the value a note's `folderId` holds. */
-export type FolderEntry = Extract<FolderFile, { valid: true }>;
+export type FolderEntry = ValidNote<'folders/{stem}.md', typeof folderSchema>;
 
 export const notePath = (stem: string) => `notes/${stem}.md`;
 export const folderPath = (stem: string) => `folders/${stem}.md`;

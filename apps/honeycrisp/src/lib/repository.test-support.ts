@@ -1,99 +1,55 @@
 /**
- * Honeycrisp's repository in a test: the real engine on `bun:sqlite`, with a
- * scripted server behind it. The server starts the device with `files`,
- * exactly as their text reads, and `theirs` delivers a change another device
- * made. It answers no batch until `serverAnswers`, so this device's writes
- * wait in its outbox, as they do offline. Every `tab()` is another client of the one engine, which
- * stands in for a change made elsewhere on this device.
+ * Honeycrisp's repository in a test: the repository API over a replica in
+ * this process, on `bun:sqlite`, with no server. The device starts with
+ * `files`, exactly as their text reads; `theirs` writes a change the way
+ * another program on this device would, straight into the replica; and
+ * every `tab()` is another repository over the same replica, which stands
+ * in for a change made elsewhere on this device.
  */
-import {
-	type BatchOutcome,
-	createRepository,
-	type EnginePort,
-	openEngine,
-	type Transport,
-	TransportError,
-	WriteError,
-} from '@epicenter/repository';
 import { openBunSqlite } from '@epicenter/repository/bun';
-import { Ok } from 'wellcrafted/result';
+import { openReplica, type Replica } from '@epicenter/repository/client';
+import { Ok, unwrap } from 'wellcrafted/result';
+import { createLocalHost } from '../../../../packages/repository/src/api/local.js';
+import { openRepository } from '../../../../packages/repository/src/api/repository.js';
 import { honeycrispApp } from './data.js';
-import type { HoneycrispRepository, HoneycrispTab } from './repository.js';
-
-/** A tab that owns `repository`, as the browser host reports one. */
-export function owningTab(repository: HoneycrispRepository): HoneycrispTab {
-	const state = { status: 'open', repository } as const;
-	return {
-		state: () => state,
-		subscribe(onChange) {
-			onChange(state);
-			return () => {};
-		},
-		close() {},
-	};
-}
+import type { HoneycrispRepository } from './repository.js';
 
 export async function openDevice(files: Record<string, string> = {}) {
-	let deliver: Parameters<Transport['connect']>[0]['onBroadcast'] | undefined;
-	let seq = 1;
-	const state = (path: string, text: string | null) => ({ path, text, hash: text === null ? null : `hash-${seq}` });
-	/** What the server answers every batch with, once `serverAnswers` sets it. */
-	let answer: BatchOutcome | null = null;
-	let reconnect = () => {};
-	const transport: Transport = {
-		connect(handlers) {
-			deliver = handlers.onBroadcast;
-			reconnect = handlers.onOnline;
-			return {
-				connected: () => answer !== null,
-				hello: async () => Ok({ kind: 'snapshot' as const, seq: 1, through: 0, files: Object.entries(files).map(([path, text]) => state(path, text)) }),
-				push: async () => (answer === null ? TransportError.Offline({ sent: false }) : Ok(answer)),
-				close() {},
-			};
-		},
-	};
 	const driver = openBunSqlite();
-	const engine = openEngine({ app: honeycrispApp, driver, transport, device: 'this-device' });
-	/** When set, the engine refuses every write, as a full disk would. */
+	const replica = unwrap(openReplica({ driver, binding: { repository: 'honeycrisp', server: null, account: null }, device: 'this-device', app: honeycrispApp, after: () => {}, now: () => 0 }));
+	for (const [path, text] of Object.entries(files)) replica.write(path, text);
+	/** When set, the replica refuses every change, as a full disk would. */
 	let refuse = false;
-	const port: EnginePort = {
-		read: (request) => engine.read(request),
-		submit(ops) {
-			if (!refuse) return engine.submit(ops);
-			const failed = WriteError.Unparseable({ path: 'notes/', reason: 'the disk is full' });
-			return Promise.resolve(failed);
+	const refusing: Replica = {
+		...replica,
+		change(changes) {
+			if (refuse) throw new Error('the disk is full');
+			return replica.change(changes);
 		},
-		send: (ops) => engine.send(ops),
-		dismiss: (id) => engine.dismiss(id),
-		onChange: (listener) => engine.onChange(listener),
-		// A client closing leaves the engine to the others.
-		close() {},
 	};
-	const first = createRepository(honeycrispApp, port);
-	await first.flush();
+	const opened: HoneycrispRepository[] = [];
+	const open = (over: Replica): HoneycrispRepository => {
+		const repository = openRepository({ app: honeycrispApp, host: createLocalHost({ replica: over, app: honeycrispApp }).host });
+		opened.push(repository);
+		return repository;
+	};
 	return {
-		repo: first,
-		/** Another client of this device's engine. */
-		tab: (): HoneycrispRepository => createRepository(honeycrispApp, port),
-		/** The file's text as this device holds it, read from SQLite itself. */
-		text: (path: string) =>
-			driver.all<{ text: string | null }>('SELECT text FROM "epicenter/files" WHERE path = ?', [path])[0]?.text ?? null,
-		/** Another device's change arrives, as the server broadcasts it. */
-		async theirs(path: string, text: string | null) {
-			seq++;
-			deliver?.({ seq, device: 'other-device', files: [state(path, text)], moves: [] });
-			await first.flush();
+		/** A repository over this device's replica, whose writes `refuseWrites` refuses, as the page would be given. */
+		open: async () => Ok(open(refusing)),
+		/** Another repository over this device's replica. */
+		tab: () => open(replica),
+		/** The file's text as this device holds it. */
+		text: (path: string) => replica.read(path),
+		/** Another program on this device writes `path`. */
+		theirs(path: string, text: string | null) {
+			replica.write(path, text);
 		},
 		refuseWrites(value: boolean) {
 			refuse = value;
 		},
-		/** Connect the server, which answers every batch with `outcome`. */
-		serverAnswers(outcome: BatchOutcome) {
-			answer = outcome;
-			reconnect();
-		},
 		close() {
-			engine.close();
+			for (const repository of opened.splice(0)) repository.close();
+			replica.close();
 			driver.close();
 		},
 	};

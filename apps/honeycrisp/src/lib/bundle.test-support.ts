@@ -3,6 +3,6 @@
  * modules it loads. `bundle.test.ts` bundles this the way each build
  * resolves it.
  */
-export { openBrowserRepository } from '@epicenter/repository/browser';
+export { openBrowserRepository } from '@epicenter/repository/api/browser';
 export { createNoteEditor } from './editor/note-editor.js';
 export { createNotes } from './notes.svelte.js';

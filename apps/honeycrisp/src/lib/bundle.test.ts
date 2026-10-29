@@ -43,7 +43,7 @@ test.each(['epicenter-host', 'browser'] as const)(
 	'the %s build keeps notes in the repository, not a folder',
 	async (build) => {
 		const modules = await bundledModules(appDir, 'src/lib/bundle.test-support.ts', build);
-		expect(modules.some((path) => path.endsWith('packages/repository/src/browser/index.ts'))).toBe(true);
+		expect(modules.some((path) => path.endsWith('packages/repository/src/hosts/browser/index.ts'))).toBe(true);
 		expect(modules.filter((path) => /packages\/folder\/src\/(?!file-browser|paths)/.test(path))).toEqual([]);
 	},
 	BUNDLE_TIMEOUT,

@@ -2,15 +2,15 @@
  * Honeycrisp Source Editor Browser Tests
  *
  * The built site in Chromium and WebKit, two persistent profiles as two
- * people (alice and bob), syncing through the local repository server. A
- * note whose frontmatter does not parse arrives from the server, as an agent
- * can write one, and alice repairs it in the source editor by typing.
+ * people (alice and bob), syncing through the repository's development
+ * server. Every note on the server parses (the server admits no other), so
+ * a note whose frontmatter breaks is broken on a device: alice breaks one
+ * in its source by typing, and repairs it.
  *
  * Key behaviors:
- * - A note that does not parse opens straight into its source, which names the line that breaks
- * - Each step of the repair saves; a schema mismatch shows its issue and clears when fixed
- * - Text that would break the frontmatter again waits in the editor until it parses
- * - The repaired note becomes a normal note on the other profile
+ * - The source names the line that breaks; text that does not parse is saved on this device and held, not sent
+ * - Each step of the repair that parses is sent; a schema mismatch shows its issue and clears when fixed
+ * - A note that does not read as one is listed for repair on the other profile, and becomes a normal note again
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chromium, type Page, webkit } from 'playwright';
@@ -31,12 +31,9 @@ async function until(check: () => Promise<boolean>, what: string, timeout = 20_0
 	}
 }
 
-const statusOf = (page: Page) => page.getByTestId('source-status');
+const statusOf = (page: Page) => page.getByTestId('editor-status');
 const statusSays = (page: Page, text: string) => async () => ((await statusOf(page).textContent()) ?? '').includes(text);
 const serverHas = (path: string, text: string) => async () => (await world.read(path))?.includes(text) ?? false;
-
-const noteText = (title: string) =>
-	`---\nfolderId: null\ntitle: ${title}\npinned: false\ncreatedAt: "2026-10-28T12:00:00.000Z"\ndeletedAt: null\n---\nThe body.\n`;
 
 for (const [engine, browser] of [
 	['chromium', chromium],
@@ -44,44 +41,53 @@ for (const [engine, browser] of [
 ] as const) {
 	describe(engine, () => {
 		test(
-			'a note broken on the server is repaired in its source and becomes a normal note on another profile',
+			"a note broken in its source is held on the device, and its repair reaches another profile",
 			async () => {
-				const stem = `broken-${engine}`;
-				const path = `notes/${stem}.md`;
-				await world.createFile(path, noteText('[Broken'));
 				const alice = await openProfile(browser, world.url('alice'));
 				const bob = await openProfile(browser, world.url('bob'));
 				try {
-					const repair = alice.page.locator(`[data-note="${path}"]`);
-					await repair.waitFor();
-					await repair.click();
-					// It opens straight into its source, which names the line where YAML found the break.
+					const title = `Plan ${engine}`;
+					await alice.page.getByRole('button', { name: 'New note' }).click();
+					await alice.page.getByLabel('Title', { exact: true }).fill(title);
+					const row = alice.page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: title });
+					await row.waitFor();
+					const path = (await row.getAttribute('data-note')) ?? '';
+					const stem = path.slice('notes/'.length, -'.md'.length);
+					await until(serverHas(path, `title: ${title}\n`), 'the note on the server');
+					const bobsNotes = bob.page.getByRole('region', { name: 'Notes' });
+					await until(async () => (await bobsNotes.locator(`[data-note="${path}"]`, { hasText: title }).count()) > 0, 'the note for bob');
+
+					await alice.page.getByRole('button', { name: 'Edit source' }).click();
 					const source = alice.page.getByRole('textbox', { name: `Source of ${stem}.md` });
 					await source.waitFor();
-					await until(statusSays(alice.page, "Frontmatter doesn't parse (line 4)"), 'the parse status');
+					await until(statusSays(alice.page, 'Matches the schema'), 'the schema status');
 
-					// Closing the bracket makes it parse, but a list is not a title.
-					await source.locator('.cm-line', { hasText: 'title: [Broken' }).click();
+					// Retyping the title line passes through text that does not parse: saved here and held, not sent.
+					await source.locator('.cm-line', { hasText: `title: ${title}` }).click();
 					await alice.page.keyboard.press('End');
+					await alice.page.keyboard.press('Shift+Home');
+					await alice.page.keyboard.type('title: [Broken');
+					await until(statusSays(alice.page, "Frontmatter doesn't parse"), 'the parse status');
+					await until(statusSays(alice.page, 'not sent'), 'the held text');
+					// Steps that parsed on the way were sent; the broken text never is.
+					await Bun.sleep(500);
+					expect(await world.read(path)).not.toContain('[Broken');
+
+					// Closing the bracket makes it parse, and it is sent, but a list is not a title.
 					await alice.page.keyboard.type(']');
 					await until(statusSays(alice.page, '/title must be string'), 'the schema issue');
-					await until(serverHas(path, 'title: [Broken]\n'), 'the repair step on the server');
+					await until(serverHas(path, 'title: [Broken]\n'), 'the parsing step on the server');
+					// On bob's profile it does not read as a note, so it is listed for repair.
+					await until(async () => ((await bobsNotes.textContent()) ?? '').includes(path), 'the repair listing for bob');
 
-					// Retyping the line passes through text that does not parse; it is saved here and held, not sent.
-					await alice.page.keyboard.press('Home');
-					await alice.page.keyboard.press('Shift+End');
-					await alice.page.keyboard.type('title');
-					await until(statusSays(alice.page, 'waiting for the frontmatter to parse'), 'the held text');
-					expect(await world.read(path)).toContain('title: [Broken]\n');
-					await alice.page.keyboard.type(': Fixed');
+					await alice.page.keyboard.press('Shift+Home');
+					await alice.page.keyboard.type('title: Fixed');
 					await until(statusSays(alice.page, 'Matches the schema'), 'the schema to match');
 					await until(serverHas(path, 'title: Fixed\n'), 'the repaired note on the server');
 
-					// On bob's profile it is a normal note now, under its title.
-					const notes = bob.page.getByRole('region', { name: 'Notes' });
-					await until(async () => (await notes.locator(`[data-note="${path}"]`, { hasText: 'Fixed' }).count()) > 0, 'the note for bob');
-					await expect(notes.textContent()).resolves.not.toContain(path);
-					expect(await world.read(path)).toBe(noteText('Fixed'));
+					// On bob's profile it is a normal note again, under its title.
+					await until(async () => (await bobsNotes.locator(`[data-note="${path}"]`, { hasText: 'Fixed' }).count()) > 0, 'the note for bob');
+					await expect(bobsNotes.textContent()).resolves.not.toContain(path);
 				} finally {
 					await alice.cleanup();
 					await bob.cleanup();

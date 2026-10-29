@@ -2,16 +2,16 @@
  * The Honeycrisp product state over its repository: what the lists and the
  * detail show, and every action.
  *
- * Reads are live queries, so they follow every change on this device and
- * elsewhere. Every write applies on this device at once, shows at once, and
- * resolves once saved, so no action waits for the server. A write that
- * cannot be saved is reported in a toast (`report`), and the controls show
- * the stored note again; what the server later does with a saved write that
- * the person should know is a notice (`notices`).
+ * Notes and folders are held in page memory whole, so the lists, the title
+ * fallback and the search read them synchronously and follow every change
+ * here and elsewhere. Every write shows at once and resolves once this
+ * device stored it, so no action waits for the server. A write that cannot
+ * be saved is reported in a toast (`report`), and the controls show the
+ * stored note again; a note the server refuses stays here, held with its
+ * reason, which the header counts.
  */
 import { ancestors } from '@epicenter/folder/file-browser';
-import type { Saved } from '@epicenter/repository';
-import { live } from '@epicenter/repository/svelte';
+import type { FileStatus, WriteError } from '@epicenter/repository/api';
 import { toast } from '@epicenter/ui/sonner';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -66,22 +66,28 @@ export const repairsOf = (files: readonly NoteFile[]) => problemsOf(files);
 /** Folder files that do not read as folders. */
 export const unreadableOf = (folders: readonly FolderFile[]) => problemsOf(folders);
 
+/** How many of `files` are not sent yet, and how many are held here with a reason. */
+export function syncOf(files: readonly { state: FileStatus }[]) {
+	let sending = 0;
+	let held = 0;
+	for (const { state } of files) {
+		if (state.status === 'sending') sending++;
+		else if (state.status === 'held') held++;
+	}
+	return { sending, held };
+}
+
 /**
  * Tell the person when a write could not be saved on this device. A write is
- * shown at once and resolves once saved; what the server later does with it
- * is a notice, which the header shows.
+ * shown at once and resolves once this device stored it; a note the server
+ * later refuses stays here, held with its reason.
  */
-export async function report(saved: Saved, failure: string) {
+export async function report(saved: Promise<Result<unknown, WriteError>>, failure: string) {
 	const { error } = await saved;
 	if (error !== null && error.name !== 'Closed') toast.error(failure, { description: error.message });
 }
 
 export function createNotes(repo: HoneycrispRepository) {
-	const noteFiles = live(repo.notes.live());
-	const folderFiles = live(repo.folders.live());
-	const fileList = live(repo.live<{ path: string }>('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL ORDER BY path'));
-	const sending = live(repo.files.live({ sync: 'sending' }));
-	const held = live(repo.files.live({ sync: 'held' }));
 
 	/** Which notes the list shows; input not yet committed, like a search. */
 	let view = $state<{ folderId: string | null; deleted: boolean; query: string }>({
@@ -96,7 +102,10 @@ export function createNotes(repo: HoneycrispRepository) {
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
 
-	const noteAt = (path: string) => noteFiles.current?.find((file) => file.path === path);
+	const noteAt = (path: string) => {
+		const stem = noteStemOf(path);
+		return stem === undefined ? undefined : repo.notes.get({ stem });
+	};
 
 	/** How a path opens when nothing says: a note as a note, unless its text is not one. */
 	function defaultAs(path: string): OpenAs {
@@ -114,7 +123,7 @@ export function createNotes(repo: HoneycrispRepository) {
 	/** Set fields of a note; only the keys named change. */
 	function patchNote(path: string, fields: Partial<NoteFields>, failure = 'Could not update the note') {
 		const stem = noteStemOf(path);
-		if (stem !== undefined) void report(repo.notes.write({ stem }, { fields }), failure);
+		if (stem !== undefined) void report(repo.notes.patch({ stem }, fields), failure);
 	}
 
 	/**
@@ -122,7 +131,7 @@ export function createNotes(repo: HoneycrispRepository) {
 	 * all or nothing. Refused while a note cannot say which folder it is in.
 	 */
 	function deleteFolder(entry: FolderEntry): string | undefined {
-		const files = noteFiles.current ?? [];
+		const files = repo.notes.all();
 		const unknown = files.filter(({ fields }) => fields.folderId !== null && typeof fields.folderId !== 'string');
 		if (unknown.length > 0)
 			return `Some notes cannot be read well enough to tell which folder they are in (${unknown
@@ -131,8 +140,8 @@ export function createNotes(repo: HoneycrispRepository) {
 				.join(', ')}). Repair or remove them first.`;
 		const members = files.filter((file) => file.fields.folderId === entry.params.stem);
 		void report(
-			repo.batch((batch) => {
-				for (const member of members) batch.notes.write({ stem: member.params.stem }, { fields: { folderId: null } });
+			repo.commit((batch) => {
+				for (const member of members) batch.notes.patch({ stem: member.params.stem }, { folderId: null });
 				batch.folders.delete({ stem: entry.params.stem });
 			}),
 			'Could not delete the folder',
@@ -157,20 +166,18 @@ export function createNotes(repo: HoneycrispRepository) {
 		// What the lists and the detail show
 		// ------------------------------------------------------------------
 
-		/** Every note file, valid or not; undefined until the first answer. */
+		/** Every note file, valid or not, ordered by path. */
 		get noteFiles() {
-			return noteFiles.current;
+			return repo.notes.all();
 		},
 		get folderFiles() {
-			return folderFiles.current ?? [];
+			return repo.folders.all();
 		},
-		/** Every file this device holds, by path. */
-		get files() {
-			return (fileList.current ?? []).map((file) => file.path);
-		},
-		/** How many files have edits the server has not answered yet, and how many are held here until they parse. */
+		/** How many notes and folders the server has not answered yet, and how many are held here with a reason. */
 		get sync() {
-			return { sending: sending.current?.length ?? 0, held: held.current?.length ?? 0 };
+			const notes = syncOf(repo.notes.all());
+			const folders = syncOf(repo.folders.all());
+			return { sending: notes.sending + folders.sending, held: notes.held + folders.held };
 		},
 		expanded,
 		get view() {
@@ -203,9 +210,9 @@ export function createNotes(repo: HoneycrispRepository) {
 		restoreNote: (path: string) => patchNote(path, { deletedAt: null }, 'Could not restore the note'),
 		patchFolder(path: string, fields: Partial<FolderFields>) {
 			const stem = folderStemOf(path);
-			if (stem !== undefined) void report(repo.folders.write({ stem }, { fields }), 'Could not save the folder');
+			if (stem !== undefined) void report(repo.folders.patch({ stem }, fields), 'Could not save the folder');
 		},
-		/** Create a note in the folder being shown and open it: it is on this device as soon as this returns. */
+		/** Create a note in the folder being shown and open it: it shows at once, and its editor opens once it is stored. */
 		createNote() {
 			const stem = newStem();
 			const folderId = view.deleted ? null : view.folderId;

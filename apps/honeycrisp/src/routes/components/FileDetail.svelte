@@ -1,19 +1,24 @@
 <!--
-	One selected path and its presentations. The note presentation stays
-	mounted while the file's source shows, so its editor keeps its undo
-	history. The source presentation edits a Markdown file's whole text,
-	frontmatter included, which is how a note or folder that does not read
-	as one is repaired; any other file shows exactly as this device holds it.
+	One selected path and its presentations. A note or a folder has one
+	editor (`openEditor`), opened here and given to every view of it: the
+	note presentation edits its body and the source presentation its whole
+	text, frontmatter included, as two views of one draft, so switching
+	between them loses nothing. The note presentation stays mounted while the
+	source shows, so its view keeps its undo history. The source is how a
+	note or folder that does not read as one is repaired; any other file
+	shows exactly as this device holds it.
 -->
 <script lang="ts">
 	import { basename } from '@epicenter/folder/file-browser';
-	import { live } from '@epicenter/repository/svelte';
-	import SourceEditor from '@epicenter/svelte/source-editor';
+	import type { Editor } from '@epicenter/repository/api';
+	import SourceEditor from '@epicenter/svelte/repository/source-editor';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
+	import { toast } from '@epicenter/ui/sonner';
 	import CopyIcon from '@lucide/svelte/icons/copy';
 	import FileIcon from '@lucide/svelte/icons/file';
-	import { folderStemOf, noteStemOf } from '$lib/data.js';
+	import { onDestroy } from 'svelte';
+	import { folderStemOf, honeycrispApp, noteStemOf } from '$lib/data.js';
 	import { type Notes } from '$lib/notes.svelte.js';
 	import { confirmDelete, copyPath } from './file-actions.js';
 	import NoteDetail from './NoteDetail.svelte';
@@ -35,20 +40,54 @@
 	const path = shownPath;
 	const name = basename(path);
 	const noteStem = noteStemOf(path);
-	/** The name whose schema the source is checked against. */
-	const lens = noteStem !== undefined ? 'notes' : folderStemOf(path) !== undefined ? 'folders' : undefined;
-
+	const folderStem = folderStemOf(path);
+	// The notes are fixed for the app's life.
 	// svelte-ignore state_referenced_locally
-	const file = live(notes.repo.live<{ text: string }>('SELECT text FROM "epicenter/files" WHERE path = ? AND text IS NOT NULL', [path]));
-	const text = $derived(file.current?.[0]?.text);
-	const note = $derived(notes.noteFiles?.find((item) => item.path === path));
+	const { repo } = notes;
+
+	const note = $derived(noteStem === undefined ? undefined : repo.notes.get({ stem: noteStem }));
+	const folder = $derived(folderStem === undefined ? undefined : repo.folders.get({ stem: folderStem }));
+	/** The note or folder this path is, as the page holds it. */
+	const entry = $derived(note ?? folder);
+
+	/** Any other file's text as this device holds it, read again after every change; undefined until read. */
+	let other = $state.raw<string | null>();
+	$effect(() => {
+		if (noteStem !== undefined || folderStem !== undefined) return;
+		repo.revision();
+		let current = true;
+		void repo.query<{ text: string }>('SELECT text FROM "epicenter/files" WHERE path = ? AND text IS NOT NULL', [path]).then((rows) => {
+			if (current && rows.error === null) other = rows.data[0]?.text ?? null;
+		});
+		return () => {
+			current = false;
+		};
+	});
+	const text = $derived(entry?.text ?? other ?? undefined);
+	const gone = $derived(noteStem !== undefined || folderStem !== undefined ? entry === undefined : other === null);
+
+	/** The note's or folder's editor, once open; a note just created opens it once it is stored. */
+	let editor = $state.raw<Editor>();
+	let destroyed = false;
+	const opening = noteStem !== undefined ? repo.notes.openEditor({ stem: noteStem }) : folderStem !== undefined ? repo.folders.openEditor({ stem: folderStem }) : undefined;
+	void opening?.then((opened) => {
+		if (opened.error !== null) return;
+		if (destroyed) void opened.data.close();
+		else editor = opened.data;
+	});
+	onDestroy(() => {
+		destroyed = true;
+		void editor?.close().then(({ error }) => {
+			if (error !== null) toast.warning(`${name} is not saved yet`, { description: `${error.reason}. It is kept here and saved once it can be.` });
+		});
+	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
 	{#if noteStem !== undefined}
 		<!-- Hidden and inert, rather than unmounted: the editor's history stays here. -->
 		<div class="min-h-0 flex-1" hidden={as !== 'note'} inert={as !== 'note'}>
-			<NoteDetail {notes} {path} />
+			<NoteDetail {notes} {path} {editor} />
 		</div>
 	{/if}
 	{#if as === 'text'}
@@ -67,11 +106,17 @@
 				</Button>
 			</div>
 
-			{#if text !== undefined && path.endsWith('.md')}
-				<SourceEditor repo={notes.repo} {path} {lens} label="Source of {name}" class="flex-1" />
-			{:else if text !== undefined}
+			{#if entry !== undefined && editor !== undefined}
+				<SourceEditor
+					{editor}
+					check={(source) => honeycrispApp.check(source, { as: noteStem !== undefined ? 'notes' : 'folders' })}
+					state={entry.state}
+					label="Source of {name}"
+					class="flex-1"
+				/>
+			{:else if text !== undefined && entry === undefined}
 				<pre class="min-h-40 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap" aria-label="Text of {name}">{text}</pre>
-			{:else if file.current !== undefined}
+			{:else if gone}
 				<Empty.Root class="flex-1">
 					<Empty.Title>This file is no longer here</Empty.Title>
 					<Empty.Description>It was deleted, here or on another device.</Empty.Description>

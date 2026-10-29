@@ -53,6 +53,9 @@ export async function startServer(repository: string, origins: string[]) {
 		read: (path: string) => server.read(path),
 		async stop() {
 			await served.stop();
+			// Flushed and idle, so no flush timer outlives the directory.
+			await server.flush();
+			await server.idle();
 			await rm(dir, { recursive: true, force: true });
 		},
 	};

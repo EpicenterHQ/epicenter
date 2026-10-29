@@ -4,19 +4,16 @@
 	when the page goes away.
 -->
 <script lang="ts">
-	import { openBrowserRepository } from '@epicenter/repository/browser';
-	import { honeycrispApp } from '$lib/data.js';
+	import { openHoneycrisp } from '$lib/open.js';
 	import OpenHoneycrisp from './components/OpenHoneycrisp.svelte';
 
 	/**
 	 * The server to sync with, set at build time, such as
-	 * `ws://127.0.0.1:8787/?user=me` from `bun packages/repository/scripts/serve-legacy.ts`.
-	 * Without one, Honeycrisp keeps its notes on this device.
+	 * `http://127.0.0.1:8787/` from `bun packages/repository/scripts/serve.ts`,
+	 * and whom to sync as. Without a server, Honeycrisp keeps its notes on this device.
 	 */
 	const server: string | undefined = import.meta.env.VITE_HONEYCRISP_SERVER || undefined;
+	const account: string = import.meta.env.VITE_HONEYCRISP_ACCOUNT || 'me';
 </script>
 
-<OpenHoneycrisp
-	open={() => openBrowserRepository({ app: honeycrispApp, name: 'honeycrisp', server: server === undefined ? undefined : { url: server } })}
-	syncsTo={server}
-/>
+<OpenHoneycrisp open={() => openHoneycrisp({ server, account })} syncsTo={server} />

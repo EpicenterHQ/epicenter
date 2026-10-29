@@ -1,64 +1,38 @@
 <!--
-	The note's body in CodeMirror. It takes the body as a source to read,
-	follow, and write, and owns the editor's state (the cursor, the undo
-	history) for as long as it is mounted; nothing it is given recreates it.
+	The note's body in CodeMirror, over its repository editor. It owns the
+	view's state (the cursor, the undo history) for as long as it is mounted;
+	the editor it is given holds the draft, so nothing it is given recreates
+	the view.
 -->
 <script lang="ts">
+	import type { Editor } from '@epicenter/repository/api';
 	import { onMount, untrack } from 'svelte';
 	import { createNoteEditor, type NoteEditor } from './note-editor.js';
 
-	export type BodySource = {
-		/** The body as the note shows it now. */
-		read(): string;
-		/** Call back whenever `read` may answer differently. */
-		subscribe(onChange: () => void): () => void;
-		/** Write the whole body after a local change. */
-		edit(body: string): void;
-	};
-
 	let {
-		source,
+		editor,
 		focusRequest = 0,
 		class: className = '',
 	}: {
-		source: BodySource;
+		/** The note's editor; fixed for this view's life. */
+		editor: Editor;
 		/** Bumped to move focus into the editor. */
 		focusRequest?: number;
 		class?: string;
 	} = $props();
 
 	let element: HTMLDivElement;
-	let editor = $state.raw<NoteEditor>();
+	let view = $state.raw<NoteEditor>();
 
 	onMount(() => {
-		const body = untrack(() => source);
-		let writing = false;
-		const created = createNoteEditor({
-			parent: element,
-			body: body.read(),
-			onEdit(next) {
-				writing = true;
-				try {
-					body.edit(next);
-				} finally {
-					writing = false;
-				}
-			},
-		});
-		// A write's own echo arrives while it is being made; the editor already shows it.
-		const stop = body.subscribe(() => {
-			if (!writing) created.follow(body.read());
-		});
-		editor = created;
-		return () => {
-			stop();
-			created.destroy();
-		};
+		const created = createNoteEditor({ parent: element, editor: untrack(() => editor) });
+		view = created;
+		return () => created.destroy();
 	});
 
 	// Each request focuses the editor once it exists.
 	$effect(() => {
-		const target = editor;
+		const target = view;
 		if (focusRequest > 0) target?.focus();
 	});
 </script>

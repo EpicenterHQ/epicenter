@@ -1,30 +1,32 @@
 <!--
-	The note presentation of one open file. The note is held open in the
-	repository: its controls read it synchronously and write through it, so
-	what a person types shows at once and changes from elsewhere arrive while
-	it is open. Its fields are controls here; its body is the editor's text.
-	FileDetail keeps this mounted while the file's text shows.
+	The note presentation of one open file. Its fields are controls that set
+	them on the note (`patch`), so the rest of the note stays as it is; its
+	body is a view of the note's editor, which FileDetail opens and shares
+	with the source. FileDetail keeps this mounted while the file's text
+	shows.
 -->
 <script lang="ts">
-	import { opened } from '@epicenter/repository/svelte';
+	import type { Editor } from '@epicenter/repository/api';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
 	import PinIcon from '@lucide/svelte/icons/pin';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
-	import { onDestroy } from 'svelte';
 	import { folderLabel, noteStemOf } from '$lib/data.js';
 	import NoteEditor from '$lib/editor/NoteEditor.svelte';
-	import { foldersOf, type Notes, report } from '$lib/notes.svelte.js';
+	import { foldersOf, type Notes } from '$lib/notes.svelte.js';
 
 	let {
 		notes,
 		path: shownPath,
+		editor,
 	}: {
 		notes: Notes;
 		/** Fixed for this component's lifetime, including presentation changes. */
 		path: string;
+		/** The note's editor, once FileDetail has opened it. */
+		editor: Editor | undefined;
 	} = $props();
 
 	// The parent keys this view by its path. While the parent replaces it,
@@ -33,28 +35,7 @@
 	const path = shownPath;
 	const stem = noteStemOf(path) ?? '';
 
-	// Closed as this view goes, so the note never calls back into it afterward.
-	let held: { close(): void } | undefined;
-	let destroyed = false;
-	// svelte-ignore state_referenced_locally
-	const opening = notes.repo.notes.open({ stem }).then((note) => {
-		if (destroyed) note.close();
-		else held = note;
-		return {
-			note: opened(note),
-			/** The body the editor shows and writes; its fields stay out of the text. */
-			body: {
-				read: () => note.read()?.body ?? '',
-				subscribe: note.subscribe,
-				edit: (body: string) => void report(note.edit(body), 'Could not save the note'),
-			},
-		};
-	});
-	onDestroy(() => {
-		destroyed = true;
-		held?.close();
-	});
-
+	const shown = $derived(notes.repo.notes.get({ stem }));
 	const folders = $derived(foldersOf(notes.folderFiles));
 
 	/** A folder's option value. No folder is the empty value, so a folder id never is. */
@@ -63,15 +44,13 @@
 </script>
 
 <section class="flex h-full min-h-0 flex-col" aria-label="Note">
-	{#await opening then { note, body }}
-		{@const shown = note.current}
-		{#if shown?.valid}
+	{#if shown?.valid}
 			{@const folderId = shown.fields.folderId}
 			{@const pinned = shown.fields.pinned}
 			<div class="flex flex-wrap items-center gap-2 border-b px-3 py-2">
 				<Input
 					class="min-w-40 flex-1 text-base font-medium"
-					bind:value={() => shown.fields.title, (title) => void report(note.set('title', title), 'Could not save the title')}
+					bind:value={() => shown.fields.title, (title) => notes.patchNote(path, { title }, 'Could not save the title')}
 					placeholder="Title"
 					aria-label="Title"
 				/>
@@ -79,7 +58,7 @@
 					class="h-9 max-w-40 rounded-md border bg-background px-2 text-sm"
 					aria-label="Folder"
 					value={optionOf(folderId)}
-					onchange={(event) => void report(note.set('folderId', idOf(event.currentTarget.value)), 'Could not move the note')}
+					onchange={(event) => notes.patchNote(path, { folderId: idOf(event.currentTarget.value) }, 'Could not move the note')}
 				>
 					<option value="">No folder</option>
 					{#each folders as folder (folder.path)}
@@ -95,15 +74,17 @@
 					aria-label={pinned ? 'Unpin' : 'Pin'}
 					aria-pressed={pinned}
 					tooltip={pinned ? 'Unpin' : 'Pin'}
-					onclick={() => void report(note.set('pinned', !pinned), 'Could not pin the note')}
+					onclick={() => notes.patchNote(path, { pinned: !pinned }, 'Could not pin the note')}
 				>
 					<PinIcon class={pinned ? 'fill-current' : ''} />
 				</Button>
 				<Button size="sm" variant="ghost" tooltip="Edit the whole file, including keys Honeycrisp does not show" onclick={() => notes.open(path, 'text')}>Edit source</Button>
 			</div>
 
-			<NoteEditor source={body} focusRequest={notes.focusRequest} class="flex-1" />
-		{:else if shown === null}
+			{#if editor !== undefined}
+				<NoteEditor {editor} focusRequest={notes.focusRequest} class="flex-1" />
+			{/if}
+		{:else if shown === undefined}
 			<Empty.Root class="flex-1">
 				<Empty.Title>This note is no longer here</Empty.Title>
 				<Empty.Description>It was deleted, here or on another device.</Empty.Description>
@@ -118,5 +99,4 @@
 				<Button variant="outline" size="sm" onclick={() => notes.open(path, 'text')}>Edit source</Button>
 			</Empty.Root>
 		{/if}
-	{/await}
 </section>
