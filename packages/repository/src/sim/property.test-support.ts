@@ -1,6 +1,6 @@
 /**
- * Design B's property test, run over any world: in memory
- * (`b.property.test.ts`) or over the real wire (`b.wire.property.test.ts`).
+ * The repository's property test, run over any world: in memory
+ * (`property.test.ts`) or over the real wire (`wire.property.test.ts`).
  *
  * Three people and one agent edit a few notes over a lossy, reordering
  * network whose messages sometimes stall past a request's timeout, through
@@ -9,7 +9,8 @@
  * editor buffer saved late, a note too large to store, renames (delete plus
  * write), deletes, deleting a path and creating it again (sometimes with the
  * very text it had before), agent commits (fast-forward, sometimes merge),
- * lost replies, offline periods, restarts, flushes, a device whose storage
+ * lost replies, offline periods, restarts, flushes, idle periods longer than
+ * the retention window, catch-ups in pages of two paths, a device whose storage
  * is lost for good, and a hostile member writing directly to the server.
  * Then everyone comes online, repairs and saves what they hold back, and the
  * network goes quiet.
@@ -40,12 +41,12 @@ import { expect, test } from 'bun:test';
 import { parses, splitMarkdown, writeMarkdown } from '../core/markdown.js';
 import type { MemoryGitStore } from '../server/memory-git.js';
 import type { Server } from '../server/server.js';
-import { type Device, type World, createWorld } from './harness.js';
+import { type Device, STAMP, type World, createWorld } from './harness.js';
 import { escapeLines } from '../core/conflict.js';
 import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { MAIN } from '../server/git-store.js';
-import type { Committed, PushAnswer } from '../server/server.js';
+import { type Committed, LIMITS, type PushAnswer, REASONS } from '../server/server.js';
 
 /**
  * What the property test needs of a world: the memory harness's surface,
@@ -126,6 +127,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		streamLoss: 0.04,
 		stall: { chance: 0.03, ms: 4_000 },
 		timeout: 1_500,
+		// Pages of two paths, so a catch-up of more comes in several, and a push can land between them.
+		limits: { page: 2 },
 		...(tracing ? { trace: (line: string) => log.push(line) } : {}),
 	});
 	const people = ['alice', 'bob', 'carol'].map((name) => world.device(name));
@@ -251,7 +254,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 
 	// A hostile member writing straight to the server, and a stranger.
 	const hostile = (member: string, files: LiveCommit['files'], { author = member, parent = world.server.main(), id }: { author?: string; parent?: string; id?: string } = {}) => {
-		const body = { parent, mode: 'merge' as const, author: { user: author, device: 'x' }, time: 't', files };
+		const body = { parent, mode: 'merge' as const, author: { user: author, device: 'x' }, time: STAMP, files };
 		const commit = { id: id ?? commitId(body), ...body };
 		return world.server.push(commit, world.session(member));
 	};
@@ -439,6 +442,15 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		[1, (d) => (d.loseNextReply(), `${d.name} will lose its next reply`)],
 		[1, (d) => (d.restart(), `${d.name} restarts`)],
 		[1, () => (world.flush(), 'the server flushes')],
+		// Nobody pushes for longer than the retention window: positions and answers older than it are pruned.
+		[
+			1,
+			async () => {
+				const ms = LIMITS.window + random.int(0, 120_000);
+				await world.runFor(ms);
+				return `the repository is idle for ${ms} ms`;
+			},
+		],
 		[
 			1,
 			async (d) => {
@@ -468,9 +480,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		const text = agent.replica.read(path);
 		if (text === null) return null;
 		const t = token();
-		const commitMode = random.chance(0.3) ? 'merge' : 'fast-forward';
-		agent.replica.write(path, `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`, { commitMode });
-		return `agent appends ${t} to ${path} (${commitMode})`;
+		agent.replica.write(path, `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`);
+		return `agent appends ${t} to ${path}`;
 	};
 
 	for (let n = 0; n < STEPS; n++) {
@@ -505,7 +516,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				const reason = held.get(path);
 				if (text === null) continue;
 				// Too many blocks: the person resolves them by keeping every side's lines, which removes nothing typed.
-				const unblocked = reason === 'the note has too many conflict blocks' ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
+				const unblocked = reason === REASONS['too-many-blocks'] ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
 				const fixed = parses(unblocked) && !hasFiller(unblocked) ? unblocked : repair(unblocked);
 				if (fixed === text && text === world.server.read(path) && reason === undefined) continue;
 				save(d, { [path]: fixed }, []);

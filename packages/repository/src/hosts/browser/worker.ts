@@ -109,7 +109,8 @@ export function serveReplicaWorker() {
 			return post({ type: 'unavailable', reason: opened.error.message });
 		}
 		const driver: SqlDriver = opened.data;
-		const binding = { repository: manifest.repository, server: manifest.server, account: manifest.account };
+		// The replica's database holds the server's id, learned when it first meets it.
+		const binding = { repository: manifest.repository, server: null, account: manifest.account };
 		const { data: replica, error } = openReplica({
 			driver,
 			binding,
@@ -125,7 +126,7 @@ export function serveReplicaWorker() {
 			log.error(error);
 			return post({ type: 'unavailable', reason: error.message });
 		}
-		const connection = manifest.server === null ? null : connectSocket(replica, createWireClient({ url: manifest.server, headers, tickets: true }), { log });
+		const connection = manifest.url === null ? null : connectSocket(replica, createWireClient({ url: manifest.url, headers, tickets: true }), { log });
 		const blobs = createOpfsBlobStore(objects);
 		replica.watch((paths) => post({ type: 'changed', paths }));
 		methods = replicaMethods(replica, blobs);

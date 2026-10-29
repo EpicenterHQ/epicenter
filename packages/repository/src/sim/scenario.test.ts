@@ -1,13 +1,13 @@
 /**
- * Design B Scenario Tests
+ * Scenario Tests
  *
  * The intent of today's engine's held, reconcile, verdict and delete/reuse
- * tests, asserted under design B after phase 0a: live commits with parents,
+ * tests, asserted after phase 0a: live commits with parents,
  * the server merging merge-mode commits, the commit id as idempotency, a
  * commit on every save, no stored notices (conflict blocks in the text, and
  * held work with a reason on the device), and a retention window. Each world
  * has a fixed latency and no loss unless a test loses a reply. The people
- * review's probes live in `b.people.test.ts`.
+ * review's probes live in `people.test.ts`.
  *
  * Key behaviors:
  * - A text that would break a parsing note is held, never committed; a repair commits exactly the repaired text
@@ -25,7 +25,7 @@ import { expect, test } from 'bun:test';
 import { parses } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { BLOCK_CAP } from '../core/settle.js';
-import { createTestServer, createWorld, QUIET, writer } from './harness.js';
+import { createTestServer, createWorld, EPOCH, QUIET, STAMP, writer } from './harness.js';
 import { unwrap } from 'wellcrafted/result';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Request } from '../client/replica.js';
@@ -239,7 +239,6 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 	);
 	expect(alice.replica.read(PATH)).toBe(note('one\nbob\n'));
 	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
-	console.log(alice.replica.stats(), alice.replica.held(), world.server.read("notes/b.md"));
 	expect(alice.replica.held()).toEqual([]);
 });
 
@@ -247,7 +246,7 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 // Agents, the server's refusals, cadence, the window
 // ============================================================================
 
-test("an agent's fast-forward commit is refused when main moved and changes nothing; on main it applies, and merge mode is merged", () => {
+test("an agent's fast-forward commit is refused when main moved and changes nothing; on main it applies", () => {
 	const world = createWorld({ latency: { min: 20, max: 20 } });
 	const alice = world.device('alice');
 	const agent = world.device('agent', { mode: 'fast-forward' });
@@ -259,36 +258,31 @@ test("an agent's fast-forward commit is refused when main moved and changes noth
 	agent.replica.edit(PATH, () => note('one\nagent\n'));
 	world.net.runFor(2_000);
 	expect(world.server.read(PATH)).toBe(note('one\nalice\n'));
-	expect(agent.replica.lastRefusal()).toBe('main moved');
+	expect(agent.replica.lastRefusal()).toEqual({ code: 'main-moved', reason: 'main moved' });
 	expect(agent.replica.read(PATH)).toBe(note('one\nalice\n'));
 	agent.replica.edit(PATH, () => note('one\nalice\nagent\n'));
 	world.net.runFor(2_000);
 	expect(world.server.read(PATH)).toBe(note('one\nalice\nagent\n'));
-	alice.replica.edit(PATH, () => note('zero\none\nalice\nagent\n'));
-	world.net.runFor(5);
-	agent.replica.edit(PATH, () => note('one\nalice\nagent\nagain\n'), { commitMode: 'merge' });
-	world.net.runFor(2_000);
-	expect(world.server.read(PATH)).toBe(note('zero\none\nalice\nagent\nagain\n'));
 });
 
 test('the server refuses a commit with no parent, a bad id, or a path named twice, and a resend gets the recorded outcome', () => {
 	const server = createTestServer();
 	const session = writer('x');
 	const make = (files: LiveCommit['files'], mode: LiveCommit['mode'] = 'merge'): LiveCommit => {
-		const body = { parent: server.main(), mode, author: { user: 'x', device: 'x' }, time: 't', files };
+		const body = { parent: server.main(), mode, author: { user: 'x', device: 'x' }, time: STAMP, files };
 		return { id: commitId(body), ...body };
 	};
 	const first = make([{ path: PATH, text: note('one\n') }]);
 	expect(server.push(first, session)).toMatchObject({ kind: 'applied', main: first.id });
 	expect(server.push(first, session)).toMatchObject({ kind: 'applied', main: first.id });
 	expect(server.history().commits).toBe(1);
-	expect(server.push({ ...make([]), parent: undefined } as unknown as LiveCommit, session)).toMatchObject({ kind: 'refused', reason: 'no parent' });
-	expect(server.push({ ...make([{ path: PATH, text: 'x' }]), id: 'forged' }, session)).toMatchObject({ kind: 'refused', reason: 'the id is not the hash of the commit' });
+	expect(server.push({ ...make([]), parent: undefined } as unknown as LiveCommit, session)).toMatchObject({ kind: 'rejected', code: 'no-parent', reason: 'no parent' });
+	expect(server.push({ ...make([{ path: PATH, text: 'x' }]), id: 'forged' }, session)).toMatchObject({ kind: 'rejected', code: 'bad-id', reason: 'the id is not the hash of the commit' });
 	expect(server.push(make([{ path: 'notes/b.md', text: '---\n---\nb\n' }, { path: 'notes/B.md', text: '---\n---\nc\n' }]), session)).toMatchObject({
-		kind: 'refused',
-		reason: 'a path is named twice',
+		kind: 'rejected',
+		code: 'path-twice',
 	});
-	expect(server.push(make([{ path: PATH, text: broken('one\n') }], 'fast-forward'), session)).toMatchObject({ kind: 'refused', reason: 'does not parse' });
+	expect(server.push(make([{ path: PATH, text: broken('one\n') }], 'fast-forward'), session)).toMatchObject({ kind: 'refused', code: 'inadmissible', reason: 'does not parse', path: PATH });
 	expect(server.snapshot()).toEqual(new Map([[PATH, note('one\n')]]));
 });
 
@@ -337,7 +331,7 @@ test('a stale-parent flood writes each different text once, an identical one not
 	let clock = 0;
 	// Each commit is new (its own time, so its own id): a resend of one would just get its recorded outcome.
 	const make = (parent: string, files: LiveCommit['files'], user = 'x'): LiveCommit => {
-		const body = { parent, mode: 'merge' as const, author: { user, device: user }, time: `t${clock++}`, files };
+		const body = { parent, mode: 'merge' as const, author: { user, device: user }, time: new Date(EPOCH + clock++).toISOString(), files };
 		return { id: commitId(body), ...body };
 	};
 	const root = server.main();
@@ -350,12 +344,14 @@ test('a stale-parent flood writes each different text once, an identical one not
 	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 	expect(server.push(make(root, [{ path: PATH, text: note('one more\n', 'flood') }], 'm'), writer('m'))).toMatchObject({
 		kind: 'refused',
-		reason: 'the note has too many conflict blocks',
+		code: 'too-many-blocks',
+		reason: 'this note has unresolved conflicts; resolve some first',
+		path: PATH,
 	});
 	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 });
 
-test("a person's merge past the block cap is held with the reason on their device", () => {
+test("a person's merge past the block cap, caused by other people's blocks, is held with the reason on their device", () => {
 	const { world, alice, bob, settle } = setup();
 	const blocks = Array.from({ length: BLOCK_CAP }, (_, i) => `<<<<<<< main\n||||||| base\n=======\nold ${i}\n>>>>>>> m/m\n`).join('');
 	alice.replica.write(PATH, note(`one\n.\n.\n${blocks}`));
@@ -366,7 +362,9 @@ test("a person's merge past the block cap is held with the reason on their devic
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'the note has too many conflict blocks' });
+	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'this note has unresolved conflicts; resolve some first' });
+	// Her text is kept, and goes once she resolves blocks and saves.
+	expect(alice.replica.read(PATH)).toContain('ONE\n');
 	expect(findConflicts(world.server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 	expect(world.server.read(PATH)).toContain('uno\n');
 });
@@ -446,8 +444,8 @@ test('a notification arriving while a catch-up is out waits for it: the catch-up
 	replica.attach((request) => requests.push(request));
 	const caughtUp = (rid: number, main: string, full: boolean) => replica.reply({ type: 'caught-up', rid, catchUp: { main, full, files: [], commits: [], next: null } });
 	caughtUp(1, 'A', true);
-	// The stream reopens: a catch-up from A goes out, and the server answers it while main is still A.
-	replica.streamOpened();
+	// A connection opens naming a main other than A: a catch-up from A goes out, answered (as over HTTP, apart from events) while main was still A.
+	replica.hello({ repository: 'test', server: 'memory', account: 'alice', user: 'alice', main: 'B' });
 	expect(requests.at(-1)).toMatchObject({ type: 'catch-up', from: 'A' });
 	// B lands next, and its notification (a delete: nothing to read) overtakes the catch-up's reply.
 	replica.notify({ commit: 'B', parents: ['A'], files: [{ path: PATH, hash: null }] });

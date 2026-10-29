@@ -1,5 +1,5 @@
 /**
- * Serve one repository over design B's wire on this machine:
+ * Serve one repository over the repository's wire on this machine:
  *
  *   bun packages/repository/scripts/serve.ts <repo-dir> [--port 8787] [--host 127.0.0.1] [--origin http://127.0.0.1:5173 ...]
  *
@@ -39,6 +39,8 @@ const server = await openDiskRepository(resolve(dir));
 const served = serveRepository({
 	// A repository on disk is identified by its directory.
 	repository: resolve(dir),
+	// This machine's server; a replica binds to it.
+	serverId: `local:${values.host}`,
 	server,
 	authenticate: authenticateBearer((token) => ({ user: token, role: 'owner' })),
 	hostname: values.host,

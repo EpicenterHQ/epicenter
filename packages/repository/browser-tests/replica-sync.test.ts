@@ -47,6 +47,7 @@ for (const [engine, browser] of [
 				const repository = `shared-${crypto.randomUUID().slice(0, 8)}`;
 				const served = serveRepository({
 					repository,
+					serverId: 'replica-sync',
 					server,
 					authenticate: authenticateBearer((token) => ({ user: token, role: 'writer' })),
 					origins: [new URL(site.url).origin],
@@ -57,9 +58,9 @@ for (const [engine, browser] of [
 				try {
 					const a = await loadReplicaPage(alice.context, site.url, { page: alice.context.pages()[0] });
 					const b = await loadReplicaPage(bob.context, site.url, { page: bob.context.pages()[0] });
-					await a.evaluate(([repository, server]) => replicas.create(repository, { account: 'alice', server, token: 'alice' }), [repository, gates.alice.url] as const);
+					await a.evaluate(([repository, server]) => replicas.create(repository, { account: 'alice', url: server, token: 'alice' }), [repository, gates.alice.url] as const);
 					const { replica: bobReplica } = await b.evaluate(
-						([repository, server]) => replicas.create(repository, { account: 'bob', server, token: 'bob' }),
+						([repository, server]) => replicas.create(repository, { account: 'bob', url: server, token: 'bob' }),
 						[repository, gates.bob.url] as const,
 					);
 					if (bobReplica === null) throw new Error("bob's replica was not created");

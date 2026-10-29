@@ -1,5 +1,5 @@
 /**
- * Test support for design B: one server, a seeded network, and devices with
+ * The simulation's memory world: one server, a seeded network, and devices with
  * two channels each: requests (pushes, catch-ups, reads by hash), each
  * delayed on its own, lost, or answered with a reply that is lost; and a
  * notification stream, delayed and reordered per message, which a lost
@@ -10,7 +10,7 @@
  */
 import { openBunSqlite } from '../bun/sqlite.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
-import { type Committed, createServer, type Event, SCHEDULE, type Session } from '../server/server.js';
+import { type Committed, createServer, type Event, type Limits, SCHEDULE, type Session } from '../server/server.js';
 import { unwrap } from 'wellcrafted/result';
 import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createNet, type LinkOptions } from './net.js';
@@ -19,11 +19,34 @@ export const QUIET = SCHEDULE.quiet;
 export const BUSY = SCHEDULE.busy;
 /** The server's clock reads virtual time from this instant. */
 export const EPOCH = Date.UTC(2026, 9, 28);
+/** A commit time the server takes: the epoch, as an ISO instant. */
+export const STAMP = new Date(EPOCH).toISOString();
+
+/** The server's alarm on virtual time: each schedule replaces the last. */
+export const virtualAlarm =
+	(net: { now(): number; after(ms: number, run: () => void): void }) =>
+	(due: () => void) => {
+		let set = 0;
+		return {
+			schedule(at: number) {
+				const mine = ++set;
+				net.after(Math.max(0, at - (EPOCH + net.now())), () => {
+					if (set === mine) due();
+				});
+			},
+			cancel() {
+				set++;
+			},
+		};
+	};
 
 /** A server alone over an in-memory Store and Git, for tests that push to it directly. */
 export function createTestServer({ clock = () => EPOCH, limits }: { clock?: () => number; limits?: Parameters<typeof createServer>[0]['limits'] } = {}) {
 	return createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock, ...(limits === undefined ? {} : { limits }) });
 }
+
+/** The memory world's binding for a person's replica. */
+const BINDING = (account: string) => ({ repository: 'test', server: 'memory', account });
 
 /** A writer's session, as a host would verify it. */
 export const writer = (user: string): Session => ({ user, role: 'writer' });
@@ -35,6 +58,7 @@ export function createWorld({
 	streamLoss = 0,
 	stall,
 	timeout = 2_000,
+	limits,
 	trace,
 }: {
 	seed?: number;
@@ -46,6 +70,8 @@ export function createWorld({
 	/** Chance a request, reply or notification stalls, and for up to how long. */
 	stall?: LinkOptions['stall'];
 	timeout?: number;
+	/** The server's limits, such as a small catch-up page so catch-ups come in several. */
+	limits?: Partial<Limits>;
 	/** Called with a line for every request, reply and notification. */
 	trace?: (line: string) => void;
 } = {}) {
@@ -62,7 +88,8 @@ export function createWorld({
 		store: openBunSqlite(),
 		git,
 		clock: () => EPOCH + net.now(),
-		timer: net.after,
+		alarm: virtualAlarm(net),
+		...(limits === undefined ? {} : { limits }),
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});
 	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0 };
@@ -73,8 +100,7 @@ export function createWorld({
 		members.add(name);
 		// The device's database: a restart opens a new replica over it; a lost device gets a new one.
 		let driver = openBunSqlite();
-		const make = () =>
-			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'memory', account: name }, device: name, mode, after: net.after, now: net.now, timeout }));
+		const make = () => unwrap(openReplica({ driver, binding: BINDING(name), device: name, mode, after: net.after, now: () => EPOCH + net.now(), timeout }));
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;
@@ -134,7 +160,8 @@ export function createWorld({
 			});
 			unsubscribe = server.subscribe((event) => current.down(event));
 			notifications = current;
-			replica.streamOpened();
+			// The stream's first exchange, as a socket's hello: a main other than the device's position means it may have missed something.
+			unwrap(replica.hello({ ...BINDING(name), user: name, main: server.main(), limits: server.sizing() }));
 		}
 
 		function reopen() {

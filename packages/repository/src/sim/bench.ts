@@ -1,5 +1,5 @@
 /**
- * Design B Benchmarks (phase 0a: live commits, no stored notices, a retention window)
+ * Repository Benchmarks (phase 0a: live commits, no stored notices, a retention window)
  *
  * 1. A busy note: 2, 5 and 10 people type into their own line of one note
  *    at 5 keystrokes a second, saved every 300 ms, at 150 ms one-way latency,
@@ -16,11 +16,11 @@
  *    pages, reply bytes (paths, hashes and the commit ids passed) and the
  *    texts read by hash.
  *
- * Run: bun run src/b/b.bench.ts
+ * Run: bun run src/sim/bench.ts
  */
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { createTestServer, createWorld, EPOCH, writer } from './harness.js';
+import { createTestServer, createWorld, EPOCH, STAMP, writer } from './harness.js';
 import { LIMITS } from '../server/server.js';
 
 // ============================================================================
@@ -146,7 +146,7 @@ function catchUp(total: number, behind: number | 'outside the window') {
 	const session = writer('bench');
 	const path = (i: number) => `notes/${(i % 256).toString(16).padStart(2, '0')}/n${i}.md`;
 	const commit = (files: LiveCommit['files']) => {
-		const draft = { parent: server.main(), mode: 'fast-forward' as const, author, time: 't', files };
+		const draft = { parent: server.main(), mode: 'fast-forward' as const, author, time: STAMP, files };
 		const answer = server.push({ id: commitId(draft), ...draft }, session);
 		if (answer.kind !== 'applied') throw new Error(`seeding failed: ${answer.kind}`);
 	};

@@ -16,7 +16,7 @@ export type LoggedCommit = CommitInfo & { oid: string };
 
 export type Signature = { name: string; email: string };
 
-/** Git's objects and refs: what design B's server reads and writes. */
+/** Git's objects and refs: what the server reads and writes. */
 export type GitObjects = {
 	readRef(name: string): Promise<string | null>;
 	readCommit(oid: string): Promise<CommitInfo | null>;

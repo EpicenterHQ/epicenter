@@ -42,7 +42,8 @@ const ManifestSchema = Type.Object(
 		repository: Type.String(),
 		name: Type.String(),
 		account: Type.Union([Type.String(), Type.Null()]),
-		server: Type.Union([Type.String(), Type.Null()]),
+		/** Where the replica's server is reached (null: a local repository); the server's id lives in the replica. */
+		url: Type.Union([Type.String(), Type.Null()]),
 	},
 	{ additionalProperties: false },
 );

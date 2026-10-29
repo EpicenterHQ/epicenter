@@ -1,23 +1,29 @@
 export { type FlushResult, type FlushStep } from './flush.js';
 export { type CommitInfo, type GitObjects, MAIN, type Signature, type Tree, type TreeEntry } from './git-store.js';
 export { createMemoryGitStore, type MemoryGitStore } from './memory-git.js';
-export { type ReceiveAnswer } from './receive.js';
+export { DIVERGED, type ReceiveAnswer, type ReceiveCode } from './receive.js';
 export {
+	type Alarm,
 	type CatchUp,
 	type Clock,
 	type Committed,
 	createServer,
 	type Event,
+	type Expect,
 	type FileState,
 	LIMITS,
 	type Limits,
 	openServer,
 	type PushAnswer,
+	REASONS,
+	type RequestCode,
+	rejection,
+	type TextCode,
 	type Role,
 	SCHEDULE,
 	type Schedule,
 	type Server,
+	type ServerState,
 	type Session,
 	type Store,
-	type Timer,
 } from './server.js';

@@ -4,7 +4,7 @@
  * The wire's promises one at a time, over real HTTP and WebSockets against
  * the Bun dev server on localhost, with a SQLite Store and an in-memory Git
  * behind it. The property suite over the same wire is
- * `src/b/b.wire.property.test.ts`.
+ * `src/sim/wire.property.test.ts`.
  *
  * Key behaviors:
  * - every endpoint, reads included, refuses a request with no session (401) and one from a non-member (403)
@@ -25,14 +25,15 @@ import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
-import { createServer, type Limits, type Server, type Session } from '../server/server.js';
+import { createServer, type Limits, LIMITS, type Server } from '../server/server.js';
 import { createWireClient } from './client.js';
-import { type Authenticate, authenticateBearer, type SocketMessage, type WireLimits } from './wire.js';
+import { type Authenticate, authenticateBearer, type SocketMessage, type Verified, type WireLimits } from './wire.js';
 
 const EPOCH = Date.UTC(2026, 9, 28, 12);
 const note = (body: string) => `---\ntitle: A\n---\n${body}`;
-const SESSIONS: Record<string, Session> = {
+const SESSIONS: Record<string, Verified> = {
 	alice: { user: 'alice', role: 'writer' },
+	guest: { user: 'guest-7f3a', role: 'writer', guest: true },
 	bob: { user: 'bob', role: 'writer' },
 	rita: { user: 'rita', role: 'reader' },
 	eve: { user: 'eve', role: null },
@@ -50,7 +51,7 @@ function setup({
 }: { limits?: Partial<Limits>; wire?: Partial<WireLimits>; authenticate?: Authenticate } = {}) {
 	const clock = { now: EPOCH };
 	const server = createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock: () => clock.now, ...(limits === undefined ? {} : { limits }) });
-	const served = serveRepository({ repository: 'test', server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
+	const served = serveRepository({ repository: 'test', serverId: 'test-server', server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
 	stops.push(served.stop);
 	const url = (path: string) => new URL(path, served.url).href;
 	const as = (user: string, headers: Record<string, string> = {}) => ({ authorization: `Bearer ${user}`, ...headers });
@@ -59,7 +60,7 @@ function setup({
 	return { clock, server, served, url, as, post };
 }
 
-function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), mode = 'merge' as LiveCommit['mode'], time = 't' } = {}): LiveCommit {
+function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), mode = 'merge' as LiveCommit['mode'], time = new Date(EPOCH).toISOString() } = {}): LiveCommit {
 	const body = { parent, mode, author: { user, device: 'laptop' }, time, files };
 	return { id: commitId(body), ...body };
 }
@@ -121,7 +122,7 @@ describe('POST /commits', () => {
 	test('a resend after its answer left the window is 200 flushed; a parent past the window with no record is 409 outcome-unknown', async () => {
 		const { server, post, clock } = setup({ limits: { window: 1_000, seen: 1_000_000 } });
 		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
-		const stale = make(server, [{ path: 'n/b.md', text: note('two\n') }], { time: 'later' });
+		const stale = make(server, [{ path: 'n/b.md', text: note('two\n') }], { time: new Date(EPOCH - 1).toISOString() });
 		expect((await post(commit)).status).toBe(200);
 		await server.flush();
 		clock.now += 5_000;
@@ -138,7 +139,7 @@ describe('POST /commits', () => {
 		const { parent: _, ...orphan } = make(server, [{ path: 'n/a.md', text: note('a\n') }]);
 		const response = await post(orphan);
 		expect(response.status).toBe(428);
-		expect(await response.json()).toMatchObject({ kind: 'refused', reason: 'no parent' });
+		expect(await response.json()).toMatchObject({ kind: 'rejected', code: 'no-parent', reason: 'no parent' });
 	});
 
 	test("a stale fast-forward commit is 412, with main's texts for its paths", async () => {
@@ -148,7 +149,8 @@ describe('POST /commits', () => {
 		const response = await post(make(server, [{ path: 'n/a.md', text: note('two\n') }], { parent: base, mode: 'fast-forward' }));
 		expect(response.status).toBe(412);
 		expect(await response.json()).toEqual({
-			kind: 'refused',
+			kind: 'rejected',
+			code: 'main-moved',
 			reason: 'main moved',
 			main: server.main(),
 			files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }],
@@ -160,7 +162,7 @@ describe('POST /commits', () => {
 		expect((await post(make(server, [{ path: 'n/a.md', text: note('a\n') }]))).status).toBe(200);
 		const response = await post(make(server, [{ path: 'n/b.md', text: note('b\n') }]));
 		expect([response.status, response.headers.get('retry-after')]).toEqual([429, '1']);
-		expect(await response.json()).toMatchObject({ kind: 'refused', reason: 'rate' });
+		expect(await response.json()).toMatchObject({ kind: 'rejected', code: 'rate', reason: 'rate' });
 	});
 
 	test('a reader, or a commit by another author, is 403', async () => {
@@ -199,7 +201,7 @@ describe('limits', () => {
 		const big = make(server, [{ path: 'n/a.md', text: note('x'.repeat(2_000)) }]);
 		const declared = await post(big);
 		expect(declared.status).toBe(413);
-		expect(await declared.json()).toMatchObject({ kind: 'refused', reason: 'request too large', main: server.main() });
+		expect(await declared.json()).toMatchObject({ kind: 'rejected', code: 'too-large', reason: 'request too large', main: server.main() });
 		// No Content-Length: the body is counted as it arrives.
 		const bytes = new TextEncoder().encode(JSON.stringify(big));
 		const stream = new ReadableStream({
@@ -261,12 +263,26 @@ describe('PUT and DELETE /files/<path>', () => {
 		const current = { path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) };
 		const stale = await fetch(url('files/n/a.md'), { method: 'PUT', headers: as('bob', { 'if-match': `"${gitBlobHash(note('zero\n'))}"` }), body: note('two\n') });
 		expect(stale.status).toBe(412);
-		expect(await stale.json()).toEqual({ kind: 'refused', reason: 'the file moved', main, files: [current] });
+		expect(await stale.json()).toEqual({ kind: 'rejected', code: 'file-moved', reason: 'the file moved', main, files: [current] });
 		const again = await fetch(url('files/n/a.md'), { method: 'PUT', headers: as('bob', { 'if-none-match': '*' }), body: note('two\n') });
 		expect(again.status).toBe(412);
 		const deleted = await fetch(url('files/n/a.md'), { method: 'DELETE', headers: as('bob', { 'if-match': '"0000000000000000000000000000000000000000"' }) });
 		expect(deleted.status).toBe(412);
 		expect(server.main()).toBe(main);
+	});
+
+	test("a path's other spelling is the same file: its read, its ETag and its create-if-absent see the file main has", async () => {
+		const { server, url, as } = setup();
+		await fetch(url('files/notes/a.md'), { method: 'PUT', headers: as('alice', { 'if-none-match': '*' }), body: note('alice\n') });
+		const read = await fetch(url('files/Notes/A.md'), { headers: as('bob') });
+		expect([read.status, await read.text()]).toEqual([200, note('alice\n')]);
+		const create = await fetch(url('files/Notes/A.md'), { method: 'PUT', headers: as('bob', { 'if-none-match': '*' }), body: note('bob\n') });
+		expect(create.status).toBe(412);
+		expect(await create.json()).toMatchObject({ kind: 'rejected', code: 'file-moved', reason: 'the file moved', files: [{ path: 'notes/a.md', text: note('alice\n') }] });
+		expect(server.read('notes/a.md')).toBe(note('alice\n'));
+		const update = await fetch(url('files/Notes/A.md'), { method: 'PUT', headers: as('bob', { 'if-match': `"${gitBlobHash(note('alice\n'))}"` }), body: note('bob\n') });
+		expect(update.status).toBe(200);
+		expect(server.read('notes/a.md')).toBe(note('bob\n'));
 	});
 
 	test('a reader may read a file but not write one (403)', async () => {
@@ -281,6 +297,22 @@ describe('PUT and DELETE /files/<path>', () => {
 // ============================================================================
 
 describe('reads', () => {
+	test("reads come out of the member's read bucket: past it, 429 over HTTP and an error naming the request on the socket", async () => {
+		const { url, as, served } = setup({ limits: { readBurst: 2, readRate: 0.001 } });
+		const statuses = [];
+		for (let i = 0; i < 3; i++) statuses.push((await fetch(url('catch-up?from='), { headers: as('alice') })).status);
+		expect(statuses).toEqual([200, 200, 429]);
+		const slowed = await fetch(url('files/n/a.md'), { headers: as('alice') });
+		expect([slowed.status, slowed.headers.get('retry-after')]).toEqual([429, '1']);
+		// Another member's reads are their own.
+		expect((await fetch(url('catch-up?from='), { headers: as('bob') })).status).toBe(200);
+		const alice = open(served.url, 'alice');
+		await until(() => alice.messages.length === 1);
+		alice.socket.send({ type: 'catch-up', rid: 4, from: null });
+		await alice.socket.ping();
+		expect(alice.messages.at(-1)).toEqual({ type: 'error', rid: 4, status: 429, error: 'Too many reads; slow down' });
+	});
+
 	test('a text by hash is immutable and private, revalidates as 304, and an unknown hash is 404 and not cached', async () => {
 		const { server, url, as, post } = setup();
 		await post(make(server, [{ path: 'n/a.md', text: note('one\n') }]));
@@ -336,7 +368,15 @@ describe("the device's socket", () => {
 		const rita = open(served.url, 'rita');
 		await until(() => alice.messages.length === 1 && rita.messages.length === 1);
 		const base = server.main();
-		expect(rita.messages[0]).toEqual({ type: 'head', main: base, repository: 'test', user: 'rita' });
+		expect(rita.messages[0]).toEqual({
+			type: 'head',
+			main: base,
+			repository: 'test',
+			server: 'test-server',
+			account: 'rita',
+			user: 'rita',
+			limits: { request: LIMITS.request, files: LIMITS.files },
+		});
 		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
 		alice.socket.send({ type: 'push', rid: 7, commit });
 		await alice.socket.ping();
@@ -362,7 +402,7 @@ describe("the device's socket", () => {
 		await rita.socket.ping();
 		const replies = alice.messages.filter((m) => m.type === 'answer' || m.type === 'caught-up');
 		expect(replies).toEqual([
-			{ type: 'answer', rid: 1, status: 412, answer: { kind: 'refused', reason: 'main moved', main: server.main(), files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }] } },
+			{ type: 'answer', rid: 1, status: 412, answer: { kind: 'rejected', code: 'main-moved', reason: 'main moved', main: server.main(), files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }] } },
 			{ type: 'answer', rid: 3, status: 422, answer: expect.objectContaining({ kind: 'refused', path: 'n/c.md' }) },
 			{ type: 'caught-up', rid: 4, catchUp: server.catchUp({ from: base }) },
 		]);
@@ -377,7 +417,7 @@ describe("the device's socket", () => {
 		alice.socket.send({ type: 'nonsense', rid: 10 } as never);
 		await alice.socket.ping();
 		expect(alice.messages.slice(1)).toEqual([
-			{ type: 'answer', rid: 9, status: 413, answer: { kind: 'refused', reason: 'request too large', main: server.main() } },
+			{ type: 'answer', rid: 9, status: 413, answer: { kind: 'rejected', code: 'too-large', reason: 'request too large', main: server.main() } },
 			{ type: 'error', rid: null, status: 400, error: 'Not a socket request' },
 		]);
 		expect(server.read('n/a.md')).toBeNull();
@@ -401,8 +441,31 @@ describe("the device's socket", () => {
 		expect(gone.messages).toEqual([]);
 	});
 
+	test("a guest session's socket names no account: a guest replica takes it and writes as the session's user", async () => {
+		const { served, clock, server } = setup();
+		const guest = open(served.url, 'guest');
+		await until(() => guest.messages.length === 1);
+		expect(guest.messages[0]).toMatchObject({ type: 'head', account: null, user: 'guest-7f3a', server: 'test-server' });
+		const client = createWireClient({ url: served.url, openSocket: socketWithHeaders({ authorization: 'Bearer guest' }) });
+		const replica = unwrap(
+			openReplica({
+				driver: openBunSqlite(),
+				binding: { repository: 'test', server: 'test-server', account: null },
+				device: 'tablet',
+				after: (ms, run) => setTimeout(run, ms),
+				now: () => clock.now,
+			}),
+		);
+		const connection = connectSocket(replica, client, { retry: 50 });
+		stops.push(async () => connection.close());
+		await until(() => replica.position() !== null);
+		replica.write('n/g.md', note('guest\n'));
+		await until(() => server.read('n/g.md') === note('guest\n'));
+		expect(replica.state('n/g.md')).toEqual({ status: 'synced' });
+	});
+
 	test('a replica whose socket dropped resumes from its last head by catching up, and syncs through the wire', async () => {
-		const { served } = setup();
+		const { served, clock } = setup();
 		const sockets: WebSocket[] = [];
 		const replicas: Replica[] = [];
 		const connect = (user: string) => {
@@ -418,10 +481,10 @@ describe("the device's socket", () => {
 			const replica = unwrap(
 				openReplica({
 					driver: openBunSqlite(),
-					binding: { repository: 'test', server: client.url, account: user },
+					binding: { repository: 'test', server: 'test-server', account: user },
 					device: user,
 					after: (ms, run) => setTimeout(run, ms),
-					now: () => Date.now(),
+					now: () => clock.now,
 					timeout: 1_000,
 				}),
 			);
@@ -498,7 +561,7 @@ describe('socket tickets', () => {
 		const socket = openWithTicket(served.url, ticket);
 		expect(await socket.opened).toBe(true);
 		await until(() => socket.messages.length === 1);
-		expect(socket.messages[0]).toEqual({ type: 'head', main: server.main(), repository: 'test', user: 'bob' });
+		expect(socket.messages[0]).toMatchObject({ type: 'head', main: server.main(), repository: 'test', server: 'test-server', user: 'bob' });
 	});
 
 	test('a ticket is refused once used, once expired, and with another account\'s credential, and is spent by the refusal', async () => {
@@ -547,10 +610,11 @@ describe('socket tickets', () => {
 		const replica = unwrap(
 			openReplica({
 				driver: openBunSqlite(),
-				binding: { repository: 'test', server: client.url, account: 'alice' },
+				binding: { repository: 'test', server: 'test-server', account: 'alice' },
 				device: 'laptop',
 				after: (ms, run) => setTimeout(run, ms),
-				now: () => Date.now(),
+				// The server's clock: a commit dated ahead of it is rejected.
+				now: () => EPOCH,
 			}),
 		);
 		const connection = connectSocket(replica, client, { retry: 50 });
@@ -568,7 +632,7 @@ describe('socket tickets', () => {
 
 test("the dev server answers a listed origin's preflight and marks its responses readable there, and no other origin's", async () => {
 	const server = createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock: () => EPOCH });
-	const served = serveRepository({ repository: 'test', server, authenticate: authenticateBearer((token) => SESSIONS[token] ?? null), origins: ['http://app.test'] });
+	const served = serveRepository({ repository: 'test', serverId: 'test-server', server, authenticate: authenticateBearer((token) => SESSIONS[token] ?? null), origins: ['http://app.test'] });
 	stops.push(served.stop);
 	const preflight = await fetch(new URL('tickets', served.url), {
 		method: 'OPTIONS',

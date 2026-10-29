@@ -1,8 +1,8 @@
 /**
  * Client Replica Tests
  *
- * What the replica's SQLite database adds to design B's replica, whose sync
- * behavior the property and scenario tests in `src/b/` cover: the binding
+ * What the replica's SQLite database adds to the replica, whose sync behavior
+ * the property and scenario tests in `src/sim/` cover: the binding
  * to one repository, server and account; a restart from the database file
  * alone; and the read side an app queries. Requests are answered by a real
  * server, by hand, so each test decides what is delivered and what is lost.
@@ -19,25 +19,28 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createTestServer, writer } from '../b/harness.js';
+import { createTestServer, STAMP, writer } from '../sim/harness.js';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { defineApp } from '../core/lens.js';
-import type { Server } from '../server/server.js';
+import type { LiveCommit } from '../core/commit.js';
+import { commitId } from '../core/commit.js';
+import type { Event, Server } from '../server/server.js';
 import type { SqlDriver } from '../sql.js';
 import { type Binding, openReplica, type Replica, type Reply, type Request } from './replica.js';
 
 const PATH = 'notes/a.md';
 const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`;
-const BINDING: Binding = { repository: 'r1', server: 'https://example.test/r1/', account: 'alice' };
+const SERVER = 'example';
+const BINDING: Binding = { repository: 'r1', server: SERVER, account: 'alice' };
 
 const open = (driver: SqlDriver, options: Partial<Parameters<typeof openReplica>[0]> = {}) =>
 	openReplica({ driver, binding: BINDING, device: 'laptop', after: () => {}, now: () => 0, ...options });
 
 /** The server's reply to one request, as the wire would carry it. */
-function answer(server: Server, request: Request): Reply {
+function answer(server: Server, request: Request, session = writer('alice')): Reply {
 	switch (request.type) {
 		case 'push':
-			return { type: 'answer', rid: request.rid, answer: server.push(request.commit, writer('alice')) };
+			return { type: 'answer', rid: request.rid, answer: server.push(request.commit, session) };
 		case 'catch-up':
 			return { type: 'caught-up', rid: request.rid, catchUp: server.catchUp(request) };
 		case 'fetch':
@@ -45,17 +48,92 @@ function answer(server: Server, request: Request): Reply {
 	}
 }
 
-/** Attach `replica` to `server`; `deliver` answers what it sent, until it sends nothing more. */
+/** Attach `replica` to `server`; `deliver` answers what it sent, until it sends nothing more, as `session` (alice, a writer). */
 function connect(replica: Replica, server: Server) {
 	const sent: Request[] = [];
+	const pushes: LiveCommit[] = [];
 	replica.attach((request) => sent.push(request));
 	return {
 		sent,
-		deliver() {
-			for (let request = sent.shift(); request !== undefined; request = sent.shift()) replica.reply(answer(server, request));
+		pushes,
+		deliver(session = writer('alice')) {
+			for (let request = sent.shift(); request !== undefined; request = sent.shift()) {
+				if (request.type === 'push') pushes.push(request.commit);
+				replica.reply(answer(server, request, session));
+			}
 		},
 	};
 }
+
+const bytes = (commit: LiveCommit) => new TextEncoder().encode(JSON.stringify(commit)).length;
+
+test("commits fit the server's bounds from the hello: saves split into several, a group saved together kept whole", () => {
+	const server = createTestServer({ limits: { request: 3_000 } });
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.attach(null);
+	// Offline, the saves amend one unsent commit far larger than one request.
+	for (const name of ['a', 'b', 'c', 'd']) replica.write(`notes/${name}.md`, note(`${name.repeat(900)}\n`));
+	replica.writeAll({ 'notes/e.md': note(`${'e'.repeat(500)}\n`), 'notes/f.md': note(`${'f'.repeat(500)}\n`) });
+	replica.attach(link.sent.push.bind(link.sent));
+	link.deliver();
+	expect(link.pushes.length).toBeGreaterThan(2);
+	for (const commit of link.pushes) expect(bytes(commit)).toBeLessThanOrEqual(3_000);
+	const together = link.pushes.find((commit) => commit.files.some((f) => f.path === 'notes/e.md'));
+	expect(together?.files.map((f) => f.path).sort()).toEqual(['notes/e.md', 'notes/f.md']);
+	expect(replica.held()).toEqual([]);
+	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
+	expect(replica.busy()).toBe(false);
+});
+
+test('a commit rejected as too large is split; a group saved together that is too large alone is held, its text kept', () => {
+	const server = createTestServer({ limits: { request: 3_000 } });
+	const replica = unwrap(open(openBunSqlite()));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.attach(null);
+	for (const name of ['a', 'b', 'c', 'd']) replica.write(`notes/${name}.md`, note(`${name.repeat(900)}\n`));
+	replica.attach(link.sent.push.bind(link.sent));
+	link.deliver();
+	expect(replica.held()).toEqual([]);
+	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
+	const big = { 'notes/x.md': note(`${'x'.repeat(1_600)}\n`), 'notes/y.md': note(`${'y'.repeat(1_600)}\n`) };
+	replica.writeAll(big);
+	link.deliver();
+	expect(replica.held().map((h) => [h.path, h.reason])).toEqual([
+		['notes/x.md', 'request too large: save fewer files at once'],
+		['notes/y.md', 'request too large: save fewer files at once'],
+	]);
+	expect(replica.read('notes/x.md')).toBe(big['notes/x.md']);
+	// Saved alone, each fits.
+	replica.write('notes/x.md', big['notes/x.md']);
+	link.deliver();
+	expect(server.read('notes/x.md')).toBe(big['notes/x.md']);
+});
+
+test('a request rejection holds no text: the work stays committed, the files say why, and the next connection sends it', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.write(PATH, note('one\n'));
+	link.deliver({ user: 'alice', role: 'reader' });
+	expect(replica.held()).toEqual([]);
+	expect(replica.state(PATH)).toEqual({ status: 'sending', reason: 'a reader may not write' });
+	expect(replica.rejection()).toEqual({ code: 'reader', reason: 'a reader may not write' });
+	// Nothing more goes on this connection, even a new save.
+	replica.write(PATH, note('one\ntwo\n'));
+	expect(link.sent.filter((request) => request.type === 'push')).toEqual([]);
+	// Made a writer again, the next connection sends the work.
+	replica.attach(null);
+	replica.attach(link.sent.push.bind(link.sent));
+	link.deliver();
+	expect(server.read(PATH)).toBe(note('one\ntwo\n'));
+	expect(replica.state(PATH)).toEqual({ status: 'synced' });
+	expect(replica.rejection()).toBeNull();
+});
 
 test('a database bound to another repository, server or account is refused, and so is a hello naming another', () => {
 	const driver = openBunSqlite();
@@ -64,14 +142,25 @@ test('a database bound to another repository, server or account is refused, and 
 	expect(expectErr(open(driver, { binding: { ...BINDING, account: null } })).name).toBe('BoundElsewhere');
 	expect(expectOk(open(driver)).binding()).toEqual(BINDING);
 
-	const hello = { ...BINDING, server: 'https://example.test/r1/', main: 'm' };
-	expect(expectErr(replica.hello({ ...hello, server: 'https://elsewhere.test/r1/' })).field).toBe('server');
-	expect(expectErr(replica.hello({ ...hello, account: 'bob' })).field).toBe('account');
+	const hello = { ...BINDING, server: SERVER, main: 'm', user: 'alice' };
+	expect(expectErr(replica.hello({ ...hello, server: 'elsewhere' })).field).toBe('server');
+	expect(expectErr(replica.hello({ ...hello, account: 'bob', user: 'bob' })).field).toBe('account');
+	// A guest's session names no account: an account's replica refuses it, and a guest's replica refuses an account's.
+	expect(expectErr(replica.hello({ ...hello, account: null, user: 'guest-1' })).field).toBe('account');
+	const guest = expectOk(open(openBunSqlite(), { binding: { ...BINDING, account: null } }));
+	expect(expectErr(guest.hello(hello)).field).toBe('account');
+	expectOk(guest.hello({ ...hello, account: null, user: 'guest-1' }));
 	expectOk(replica.hello(hello));
 
-	// A replica with no server yet refuses every socket until it is attached.
-	const local = expectOk(open(openBunSqlite(), { binding: { ...BINDING, server: null } }));
-	expect(expectErr(local.hello(hello)).field).toBe('server');
+	// A replica that has met no server records the first one it meets, for good, and a host that does not know it opens it with null.
+	const driver2 = openBunSqlite();
+	const local = expectOk(open(driver2, { binding: { ...BINDING, server: null } }));
+	expectOk(local.hello({ ...hello, server: 'first' }));
+	expect(local.binding().server).toBe('first');
+	expect(expectErr(local.hello({ ...hello, server: 'second' })).field).toBe('server');
+	local.close();
+	expect(expectOk(open(driver2, { binding: { ...BINDING, server: null } })).binding().server).toBe('first');
+	expect(expectErr(open(driver2, { binding: { ...BINDING, server: 'second' } })).field).toBe('server');
 });
 
 test('a commit in flight whose answer was lost survives reopening the database file, and lands once', () => {
@@ -108,6 +197,79 @@ test('a commit in flight whose answer was lost survives reopening the database f
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test("a commit carries the host's clock as its time", () => {
+	const at = Date.UTC(2026, 9, 29, 10, 30);
+	const replica = unwrap(open(openBunSqlite(), { now: () => at }));
+	const server = createTestServer({ clock: () => at });
+	const link = connect(replica, server);
+	link.deliver();
+	replica.write(PATH, note('one\n'));
+	const [push] = link.sent;
+	expect(push).toMatchObject({ type: 'push', commit: { time: '2026-10-29T10:30:00.000Z' } });
+});
+
+test('a notification costs what it names, not every text the device holds', () => {
+	const server = createTestServer({ limits: { request: 64 * 1024 * 1024, files: 5_000 } });
+	const bob = writer('bob');
+	const text = (i: number, version = 0) => note(`${'word '.repeat(1_000)}${version}\n`, `n${i}`);
+	const commit = (files: LiveCommit['files']) => {
+		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		return { id: commitId(body), ...body };
+	};
+	server.push(commit(Array.from({ length: 2_000 }, (_, i) => ({ path: `notes/${i}.md`, text: text(i) }))), bob);
+	const replica = unwrap(open(openBunSqlite()));
+	const link = connect(replica, server);
+	link.deliver();
+	expect(replica.paths()).toHaveLength(2_000);
+	const events: Event[] = [];
+	server.subscribe((event) => events.push(event));
+	let spent = 0;
+	for (let k = 0; k < 20; k++) {
+		server.push(commit([{ path: `notes/${k}.md`, text: text(k, k + 1) }]), bob);
+		const event = events.shift();
+		if (event === undefined) throw new Error('every commit is an event');
+		const start = performance.now();
+		replica.notify(event);
+		link.deliver();
+		spent += performance.now() - start;
+	}
+	expect(replica.position()).toBe(server.main());
+	// Hashing every text held took about 90 ms a notification at this size; reading one path's levels takes a few.
+	expect(spent / 20).toBeLessThan(15);
+});
+
+test("a catch-up's texts are read in batches, and a read that times out is asked again without gathering the pages again", () => {
+	const server = createTestServer({ limits: { page: 100, request: 64 * 1024 * 1024 } });
+	const commit = (files: LiveCommit['files']) => {
+		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		return { id: commitId(body), ...body };
+	};
+	server.push(commit(Array.from({ length: 600 }, (_, i) => ({ path: `notes/${String(i).padStart(3, '0')}.md`, text: note(`${i}\n`) }))), writer('bob'));
+	const timers: (() => void)[] = [];
+	const replica = unwrap(open(openBunSqlite(), { after: (_, run) => timers.push(run) }));
+	const sent: Request[] = [];
+	replica.attach((request) => sent.push(request));
+	const answerNext = () => {
+		const request = sent.shift();
+		if (request !== undefined) replica.reply(answer(server, request));
+		return request;
+	};
+	// Six pages, then the first batch of texts.
+	for (let page = 0; page < 6; page++) expect(answerNext()?.type).toBe('catch-up');
+	const first = answerNext();
+	expect(first?.type === 'fetch' && first.hashes.length).toBe(256);
+	// The second batch's reply is lost: its timeout asks for that batch again, not for the pages.
+	const lost = sent.shift();
+	expect(lost?.type === 'fetch' && lost.hashes.length).toBe(256);
+	for (const run of timers.splice(0)) run();
+	const again = sent[0];
+	expect(again?.type === 'fetch' && lost?.type === 'fetch' && again.hashes).toEqual(lost?.type === 'fetch' ? lost.hashes : []);
+	for (let request = answerNext(); request !== undefined; request = answerNext()) expect(request.type).toBe('fetch');
+	expect(replica.paths()).toHaveLength(600);
+	expect(replica.position()).toBe(server.main());
+	expect(replica.stats().catchUps).toBe(1);
 });
 
 test("the app's views read what the person sees, held text included, and a watcher hears each change once it is stored", () => {

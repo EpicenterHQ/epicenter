@@ -258,9 +258,9 @@ export async function createBrowserReplica({
 	repository,
 	name,
 	account,
-	server,
+	url,
 	...options
-}: { repository: string; name: string; account: string | null; server: string | null } & BrowserReplicaOptions): Promise<Result<ReplicaTab, BrowserReplicaError>> {
+}: { repository: string; name: string; account: string | null; url: string | null } & BrowserReplicaOptions): Promise<Result<ReplicaTab, BrowserReplicaError>> {
 	const existing = (await listReplicas()).find((manifest) => manifest.repository === repository && manifest.account === account);
 	if (existing !== undefined) return BrowserReplicaError.AlreadyHere({ replica: existing.replica });
 	const manifest: Manifest = {
@@ -268,8 +268,7 @@ export async function createBrowserReplica({
 		repository,
 		name,
 		account,
-		// The server a replica binds to, as the wire client names it.
-		server: server === null ? null : new URL(server.endsWith('/') ? server : `${server}/`).href,
+		url: url === null ? null : new URL(url.endsWith('/') ? url : `${url}/`).href,
 	};
 	return Ok(openTab(manifest.replica, manifest, options));
 }

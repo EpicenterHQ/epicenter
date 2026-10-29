@@ -29,7 +29,7 @@ import { createMemoryGitStore } from '../server/memory-git.js';
 import { type Committed, createServer, type Session } from '../server/server.js';
 import { createWireClient, type SocketConnection } from '../wire/client.js';
 import { authenticateBearer, type SocketMessage } from '../wire/wire.js';
-import { type Device, EPOCH } from './harness.js';
+import { type Device, EPOCH, virtualAlarm } from './harness.js';
 import { unwrap } from 'wellcrafted/result';
 import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createNet } from './net.js';
@@ -38,7 +38,7 @@ import type { PropertyWorld, WorldOptions } from './property.test-support.js';
 export type Transport = 'socket' | 'http';
 
 export function createWireWorld(
-	{ seed = 1, latency = { min: 5, max: 40 }, loss = { up: 0, down: 0 }, streamLoss = 0, stall, timeout = 2_000, trace }: WorldOptions = {},
+	{ seed = 1, latency = { min: 5, max: 40 }, loss = { up: 0, down: 0 }, streamLoss = 0, stall, timeout = 2_000, limits, trace }: WorldOptions = {},
 	{ transport = 'socket' }: { transport?: Transport } = {},
 ): PropertyWorld {
 	const net = createNet(seed);
@@ -52,11 +52,12 @@ export function createWireWorld(
 		store: openBunSqlite(),
 		git,
 		clock: () => EPOCH + net.now(),
-		timer: net.after,
+		alarm: virtualAlarm(net),
+		...(limits === undefined ? {} : { limits }),
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});
 	const session = (user: string): Session => ({ user, role: members.has(user) ? 'writer' : null });
-	const served = serveRepository({ repository: 'test', server, authenticate: authenticateBearer(session) });
+	const served = serveRepository({ repository: 'test', serverId: 'test-server', server, authenticate: authenticateBearer(session) });
 	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0 };
 
 	/** Real I/O in progress: the world waits for all of it before the next event. */
@@ -110,7 +111,7 @@ export function createWireWorld(
 		const client = createWireClient({ url: served.url, headers: authorization, openSocket: socketWithHeaders(authorization) });
 		let driver = openBunSqlite();
 		const make = () =>
-			unwrap(openReplica({ driver, binding: { repository: 'test', server: client.url, account: name }, device: name, mode, after: net.after, now: net.now, timeout }));
+			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'test-server', account: name }, device: name, mode, after: net.after, now: () => EPOCH + net.now(), timeout }));
 		let replica = make();
 		let online = true;
 		/** HTTP requests: each delayed and lost on its own. */
@@ -221,7 +222,7 @@ export function createWireWorld(
 			switch (message.type) {
 				case 'head': {
 					// The binding is checked first; then the device resumes from its last head, catching up only when main is not where it stands.
-					const { error } = replica.hello({ server: client.url, repository: message.repository, account: message.user, main: message.main });
+					const { error } = replica.hello({ server: message.server, repository: message.repository, account: message.account, user: message.user, main: message.main, limits: message.limits });
 					if (error !== null) throw new Error(`${name}: ${error.message}`);
 					if (transport === 'socket') attach();
 					return true;

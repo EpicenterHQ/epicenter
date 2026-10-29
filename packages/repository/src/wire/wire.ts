@@ -1,5 +1,5 @@
 /**
- * Design B's wire. A device keeps one WebSocket: it sends its commits and
+ * The repository's wire. A device keeps one WebSocket: it sends its commits and
  * catch-ups there and gets their answers and every change event on it, in
  * one ordered sequence. HTTP serves one-shot clients (agents, the CLI,
  * scripts) and content by hash. Both transports call the same composed
@@ -23,12 +23,15 @@
  *
  * Every request, reads included, is authenticated first (401 without a
  * session, or with one that has expired) and must come from a member (403
- * otherwise, `server.mayRead`). A write's answer is JSON whatever its
- * status: 200 applied, merged or flushed; 409 outcome-unknown; and for a
- * refusal, 428 with no parent (or no precondition), 412 when a fast-forward
- * found main moved (or a file is not at the hash named), with main's texts
- * for the paths it touched, 429 rate, 403 a reader or another author, 413
- * too large, and 422 anything the door refuses. A request body is capped
+ * otherwise, `server.mayRead`). Reads (catch-up pages, files, texts by
+ * hash, at a small part of a read each) come out of the member's read
+ * bucket (`server.admitRead`): past it, 429 with `retry-after`. A write's answer is JSON whatever its
+ * status: 200 applied, merged or flushed; 409 outcome-unknown; 422 a text
+ * the door refuses (`refused`, naming its path); and for a request
+ * rejection (`rejected`, by its code), 428 with no parent (or no
+ * precondition), 412 when a fast-forward found main moved (or a file is not
+ * at the hash named), with main's texts for the paths it touched, 429 rate,
+ * 403 a reader or another author, 413 too large, and 422 a malformed one. A request body is capped
  * before it is parsed, and a request not read within `timeout` gets 408.
  *
  * The socket is authenticated when it connects, and the host closes it
@@ -57,14 +60,18 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { type CatchUp, type Event, LIMITS, type PushAnswer, type Server, type Session } from '../server/server.js';
+import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type RequestCode, rejection, type Server, type Session } from '../server/server.js';
 
 // ============================================================================
 // Ports and protocol
 // ============================================================================
 
-/** A session as the host verified it, with when it expires (ms since the epoch), if it does. */
-export type Verified = Session & { expires?: number };
+/**
+ * A session as the host verified it, with when it expires (ms since the
+ * epoch), if it does. `guest`: a session with no account (its user is the
+ * guest's id), which only a guest's replica takes.
+ */
+export type Verified = Session & { expires?: number; guest?: true };
 
 /** Who is asking, as the host verifies it; null when the request carries no valid credential. */
 export type Authenticate = (request: Request) => Verified | null | Promise<Verified | null>;
@@ -95,8 +102,13 @@ export type SocketRequest = { type: 'push'; rid: number; commit: LiveCommit } | 
 
 /** What a socket carries down: main when it opens, each commit on main (never texts), and the replies to its own requests. */
 export type SocketMessage =
-	/** The repository this socket reaches and the account it is signed in as, so a replica bound elsewhere refuses it. */
-	| { type: 'head'; main: string; repository: string; user: string }
+	/**
+	 * The repository this socket reaches, the server's stable id and the
+	 * account it is signed in as (null for a guest), so a replica bound
+	 * elsewhere refuses it; the session's user, whom its commits name; and
+	 * the bounds on one push.
+	 */
+	| { type: 'head'; main: string; repository: string; server: string; account: string | null; user: string; limits: { request: number; files: number } }
 	| ({ type: 'commit' } & Event)
 	| { type: 'answer'; rid: number; status: number; answer: PushAnswer }
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
@@ -162,19 +174,23 @@ const BodyError = defineErrors({
 });
 type BodyError = InferErrors<typeof BodyError>;
 
-/** The status of a refusal, by reason; any other reason is the door's (422). */
-const REFUSED: Record<string, number> = {
-	'no session': 401,
-	'not a member': 403,
-	'a reader may not write': 403,
-	'the author is not the session': 403,
-	'no parent': 428,
-	'no precondition': 428,
-	'main moved': 412,
-	'the file moved': 412,
+/** The status of a request rejection, by code; a text refusal is the door's (422). */
+const REJECTED: Record<RequestCode, number> = {
+	'no-session': 401,
+	'not-member': 403,
+	reader: 403,
+	'not-author': 403,
+	'no-parent': 428,
+	'no-precondition': 428,
+	'main-moved': 412,
+	'file-moved': 412,
 	rate: 429,
-	'request too large': 413,
-	'too many files': 413,
+	'too-large': 413,
+	'too-many-files': 413,
+	'bad-id': 422,
+	'bad-time': 422,
+	'clock-ahead': 422,
+	'path-twice': 422,
 };
 
 /** The HTTP status of a write's answer. */
@@ -187,7 +203,9 @@ export function statusOf(answer: PushAnswer): number {
 		case 'outcome-unknown':
 			return 409;
 		case 'refused':
-			return REFUSED[answer.reason] ?? 422;
+			return 422;
+		case 'rejected':
+			return REJECTED[answer.code];
 		default:
 			return answer satisfies never;
 	}
@@ -249,6 +267,7 @@ const failure = (status: number, error: string, headers: Record<string, string> 
 
 export function createWire({
 	repository,
+	serverId,
 	server,
 	authenticate,
 	sockets,
@@ -257,11 +276,13 @@ export function createWire({
 }: {
 	/** The repository's id, as the host names it: a replica records it and refuses a socket that names another. */
 	repository: string;
+	/** The server's stable id, as the host names it (the hosted service, or a self-hosted install): a replica binds to it. */
+	serverId: string;
 	server: Server;
 	authenticate: Authenticate;
 	sockets: SocketHub;
 	limits?: Partial<WireLimits>;
-	/** The time a PUT or DELETE commit carries, and against which a session expires. */
+	/** The time against which a session expires. */
 	clock?: () => number;
 }) {
 	const limits = { ...WIRE_LIMITS, ...given };
@@ -306,10 +327,10 @@ export function createWire({
 	 * Take one commit, from either transport: its answer and that answer's
 	 * status, or why the value is not a live commit.
 	 */
-	function takeCommit(value: unknown, session: Session): { status: number; answer: PushAnswer } | { status: 400; error: string } {
+	function takeCommit(value: unknown, session: Session, expect?: Expect): { status: number; answer: PushAnswer } | { status: 400; error: string } {
 		if (!Check(CommitSchema, value)) return { status: 400, error: 'Not a live commit' };
 		// The schema allows a missing parent only so the door can refuse it in its order (428); nothing else differs from LiveCommit.
-		const answer = server.push(value as LiveCommit, session);
+		const answer = server.push(value as LiveCommit, session, expect === undefined ? {} : { expect });
 		return { status: statusOf(answer), answer };
 	}
 
@@ -318,13 +339,13 @@ export function createWire({
 
 	const answer = (pushed: PushAnswer, headers: Record<string, string> = {}) =>
 		json(statusOf(pushed), pushed, statusOf(pushed) === 429 ? { 'retry-after': '1', ...headers } : headers);
-	const refused = (reason: string, extra: Partial<Extract<PushAnswer, { kind: 'refused' }>> = {}) => answer({ kind: 'refused', reason, main: server.main(), ...extra });
+	const rejected = (code: RequestCode) => answer(rejection(code, server.main()));
 
 	/** A body that could not be read: too large is the commit's refusal, so its writer holds it; the rest are the request's. */
 	function unread(error: BodyError) {
 		switch (error.name) {
 			case 'TooLarge':
-				return refused('request too large');
+				return rejected('too-large');
 			case 'TimedOut':
 				return failure(408, error.message);
 			case 'NotText':
@@ -347,26 +368,24 @@ export function createWire({
 	async function writeFile(request: Request, session: Session, path: string, expired: Promise<typeof EXPIRED>) {
 		const ifMatch = request.headers.get('if-match');
 		const create = request.method === 'PUT' && request.headers.get('if-none-match')?.trim() === '*';
-		if (ifMatch === null && !create) return refused('no precondition');
+		if (ifMatch === null && !create) return rejected('no-precondition');
 		let text: string | null = null;
 		if (request.method === 'PUT') {
 			const { data, error } = await readBody(request, limits.body, expired);
 			if (error !== null) return unread(error);
 			text = data;
 		}
-		// From here to the push nothing awaits, so main cannot move between the check and the commit.
-		const current = server.read(path);
-		const hash = current === null ? null : gitBlobHash(current);
-		const holds = ifMatch !== null ? matches(ifMatch, hash) : hash === null;
-		if (!holds) return refused('the file moved', { files: [{ path, text: current, hash }] });
+		// The server checks the condition inside the push, against the file in main's spelling of the path.
+		const tags = ifMatch?.split(',').map((tag) => tag.trim());
+		const is: Expect['is'] = ifMatch === null ? 'absent' : ifMatch.trim() === '*' ? 'present' : (tags ?? []).filter((tag) => /^"[0-9a-f]{40}"$/.test(tag)).map((tag) => tag.slice(1, -1));
 		const commit = {
 			parent: server.main(),
 			mode: 'fast-forward' as const,
 			author: { user: session.user, device: request.headers.get(DEVICE_HEADER) ?? 'http' },
-			time: new Date(clock()).toISOString(),
+			time: server.time(),
 			files: [{ path, text }],
 		};
-		const taken = takeCommit({ id: commitId(commit), ...commit }, session);
+		const taken = takeCommit({ id: commitId(commit), ...commit }, session, { path, is });
 		if ('error' in taken) return failure(400, taken.error);
 		const pushed = taken.answer;
 		return answer(pushed, pushed.kind === 'applied' && text !== null ? { etag: `"${gitBlobHash(text)}"` } : {});
@@ -403,6 +422,9 @@ export function createWire({
 	}
 
 	const notAllowed = (allow: string) => failure(405, 'Method not allowed', { allow });
+	const SLOW_DOWN = 'Too many reads; slow down';
+	/** A read out of the member's read bucket: undefined when admitted, otherwise the 429. */
+	const throttled = (session: Session, kind: 'read' | 'text' = 'read') => (server.admitRead(session, kind) ? undefined : failure(429, SLOW_DOWN, { 'retry-after': '1' }));
 
 	function upgrade(request: Request, session: Verified) {
 		if (request.method !== 'GET') return notAllowed('GET');
@@ -425,15 +447,15 @@ export function createWire({
 		const { method } = request;
 		if (pathname === '/commits') return method === 'POST' ? postCommit(request, session, expired) : notAllowed('POST');
 		if (pathname === '/tickets') return method === 'POST' ? issueTicket(session) : notAllowed('POST');
-		if (pathname === '/catch-up') return method === 'GET' ? catchUp(url) : notAllowed('GET');
+		if (pathname === '/catch-up') return method === 'GET' ? (throttled(session) ?? catchUp(url)) : notAllowed('GET');
 		if (pathname === '/socket') return upgrade(request, session);
-		if (pathname.startsWith('/blobs/')) return method === 'GET' ? readBlob(request, pathname.slice('/blobs/'.length)) : notAllowed('GET');
+		if (pathname.startsWith('/blobs/')) return method === 'GET' ? (throttled(session, 'text') ?? readBlob(request, pathname.slice('/blobs/'.length))) : notAllowed('GET');
 		if (pathname.startsWith('/files/')) {
 			const path = trySync({ try: () => decodeURIComponent(pathname.slice('/files/'.length)), catch: () => BodyError.NotText() });
 			if (path.error !== null || path.data === '') return failure(400, 'Not a file path');
 			switch (method) {
 				case 'GET':
-					return readFile(request, path.data);
+					return throttled(session) ?? readFile(request, path.data);
 				case 'PUT':
 				case 'DELETE':
 					return writeFile(request, session, path.data, expired);
@@ -464,10 +486,19 @@ export function createWire({
 		/**
 		 * The first message a socket whose session is `verified` gets once
 		 * open: `main` now, so a reconnecting device knows whether it missed
-		 * anything, and which repository and account the socket is, so a
-		 * replica bound elsewhere refuses it.
+		 * anything, and which repository, server and account the socket is,
+		 * so a replica bound elsewhere refuses it.
 		 */
-		hello: (verified: Verified) => JSON.stringify({ type: 'head', main: server.main(), repository, user: verified.user } satisfies SocketMessage),
+		hello: (verified: Verified) =>
+			JSON.stringify({
+				type: 'head',
+				main: server.main(),
+				repository,
+				server: serverId,
+				account: verified.guest === true ? null : verified.user,
+				user: verified.user,
+				limits: server.sizing(),
+			} satisfies SocketMessage),
 		/**
 		 * Take one message from a socket whose session is `verified`, replying
 		 * on `end`. A message past the body limit is refused unread: a push
@@ -480,7 +511,7 @@ export function createWire({
 			const reply = (sent: SocketMessage) => end.send(JSON.stringify(sent));
 			if (encoder.encode(message).length > limits.body) {
 				const rid = /^\{"type":"push","rid":(\d+),/.exec(message)?.[1];
-				const answer: PushAnswer = { kind: 'refused', reason: 'request too large', main: server.main() };
+				const answer = rejection('too-large', server.main());
 				if (rid !== undefined) return reply({ type: 'answer', rid: Number(rid), status: statusOf(answer), answer });
 				return reply({ type: 'error', rid: null, status: 413, error: 'The message is larger than the limit' });
 			}
@@ -505,6 +536,7 @@ export function createWire({
 				}
 				case 'catch-up': {
 					const { type: _, rid, ...query } = request;
+					if (!server.admitRead(verified)) return reply({ type: 'error', rid, status: 429, error: SLOW_DOWN });
 					return reply({ type: 'caught-up', rid, catchUp: takeCatchUp(query) });
 				}
 				default:
@@ -518,7 +550,7 @@ export function createWire({
 export type Wire = ReturnType<typeof createWire>;
 
 /** An authenticator for development and tests: `Authorization: Bearer <token>`, looked up. */
-export function authenticateBearer(lookup: (token: string) => Session | null): Authenticate {
+export function authenticateBearer(lookup: (token: string) => Verified | null): Authenticate {
 	return (request) => {
 		const header = request.headers.get('authorization');
 		const token = header?.startsWith('Bearer ') ? header.slice('Bearer '.length).trim() : '';

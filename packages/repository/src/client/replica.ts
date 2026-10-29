@@ -1,5 +1,5 @@
 /**
- * Design B's client: a replica of one repository, a clone with a short
+ * The repository's client: a replica of one repository, a clone with a short
  * local branch, kept in one SQLite database over the `SqlDriver` port. It
  * holds no host imports: the host supplies the database, its timer and
  * clock, and a transport (`socket.ts`) that drives it.
@@ -10,8 +10,11 @@
  * types into). A save commits the files saved since they last went out, at
  * once, except held text: a text the door refuses, or one the server
  * refused, which stays held with its reason until its person saves that
- * file again. One commit is sent at a time, on top of the position; while
- * one is in flight, or offline, the unsent commit is amended.
+ * file again. One commit is sent at a time, on top of the position, sized
+ * to the server's bounds; while one is in flight, or offline, the unsent
+ * commit is amended. A request the server rejects (rate, size, who is
+ * asking, its form) holds no text: the work stays committed and goes again
+ * once the request is fixed.
  *
  * Saves are conditional: `write(path, next, { over })` names the text the
  * caller started from, and if `mine` moved since, the two are merged here,
@@ -30,9 +33,8 @@
  * collide with one:
  *
  *   "epicenter/replica"   key and value: the binding (repository, server,
- *                         account), the device's id, the position, the next
- *                         request id, the mode of the next commit, the last
- *                         refusal
+ *                         account), the device's id, the position, the
+ *                         next request id
  *   "epicenter/files"     per path: `text` (mine, what the person sees),
  *                         its `fields` and `body` for the app's views, `base`
  *                         and its `hash`, `saved`, `held` (the reason), and
@@ -59,7 +61,7 @@ import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
 import { BODY_SQL, parseMarkdown, parsePointer } from '../core/markdown.js';
 import { appendBlock, settle } from '../core/settle.js';
-import type { CatchUp, Event, PushAnswer } from '../server/server.js';
+import type { CatchUp, Event, PushAnswer, RequestCode, TextCode } from '../server/server.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
 
 // ============================================================================
@@ -77,13 +79,19 @@ export type Reply =
 	| { type: 'fetched'; rid: number; texts: Record<string, string> };
 
 /**
- * Which repository a replica holds, on which server (null: none yet, a
- * local repository), for which account (null: a guest's).
+/**
+ * Which repository a replica holds, on which server (its stable id, which
+ * the server's hello names; null: none met yet, so a local repository), for
+ * which account (null: a guest's, which only a guest session's hello passes;
+ * adopting it into an account is a separate, explicit step).
  */
 export type Binding = { repository: string; server: string | null; account: string | null };
 
-/** What the first exchange of a connection says: where the transport reached, as whom, and `main` there. */
-export type Hello = { repository: string; server: string; account: string | null; main: string };
+/** The server's bounds on one push: its bytes as JSON, and its files. */
+export type Sizing = { request: number; files: number };
+
+/** What the first exchange of a connection says: where the transport reached (the server's id), the session's user (whom its commits name), `main` there, and the server's bounds on a push. */
+export type Hello = { repository: string; server: string; account: string | null; user: string; main: string; limits?: Sizing };
 
 export const ReplicaError = defineErrors({
 	BoundElsewhere: ({ field, bound, given }: { field: keyof Binding; bound: string | null; given: string | null }) => ({
@@ -95,8 +103,11 @@ export const ReplicaError = defineErrors({
 });
 export type ReplicaError = InferErrors<typeof ReplicaError>;
 
-/** One file's state, as a person sees it. */
+/** One file's state, as a person sees it: `reason` says why it is held, or why it is not sending (the server rejected the request). */
 export type FileStatus = { status: 'synced' | 'sending' | 'held'; reason?: string };
+
+/** The last refusal or rejection of this device's commit, until one lands. */
+export type Verdict = { code: TextCode | RequestCode; reason: string };
 
 // ============================================================================
 // The database
@@ -146,6 +157,8 @@ type FileRow = { path: string; text: string | null; base: string | null; hash: s
 
 /** Recent positions kept, so a late notification is recognized as old. */
 const PASSED = 4096;
+/** Texts read in one request: a large catch-up reads in several, each with its own timeout. */
+const READ_BATCH = 256;
 
 /** What a view reads of a text: a note's frontmatter, or a pointer's oid and size, as JSON. */
 function fieldsOf(text: string | null): string | null {
@@ -156,39 +169,38 @@ function fieldsOf(text: string | null): string | null {
 	return parsed.error === null ? JSON.stringify(parsed.data.fields) : null;
 }
 
+const encoder = new TextEncoder();
 const sameGroup = (a: string[] | undefined, b: string[] | undefined) => (a ?? []).join('\0') === (b ?? []).join('\0');
 
 /**
  * Open the replica kept in `driver` for `binding`. A database that holds
- * another repository, server or account is refused; a new one records the
+ * another repository, account or server is refused; a new one records the
  * binding, and `device` as its device's id. A database keeps the device id
  * it was first given, so a host may pass a fresh one at every open.
+ *
+ * A replica learns its server once: a binding's server is what is known of
+ * it (null: not yet), so a host that does not know it passes null and the
+ * database's wins, and the first server known is recorded for good.
  */
 export function openReplica(options: Parameters<typeof createReplica>[0]): Result<Replica, ReplicaError> {
-	const { driver, binding } = options;
+	const { driver } = options;
 	driver.exec(SCHEMA);
-	const stored = driver.all<{ key: string; value: string }>(`SELECT key, value FROM "epicenter/replica" WHERE key IN ('repository', 'server', 'account', 'device')`);
-	if (stored.length === 0) {
-		driver.transaction(() => {
-			for (const field of ['repository', 'server', 'account'] as const)
-				driver.run('INSERT INTO "epicenter/replica" (key, value) VALUES (?, ?)', [field, JSON.stringify(binding[field])]);
-			driver.run('INSERT INTO "epicenter/replica" (key, value) VALUES (?, ?)', ['device', options.device]);
-		});
-		return Ok(createReplica(options));
-	}
-	let device = options.device;
-	for (const { key, value } of stored) {
-		if (key === 'device') {
-			device = value;
-			continue;
+	const stored = new Map(driver.all<{ key: string; value: string }>(`SELECT key, value FROM "epicenter/replica" WHERE key IN ('repository', 'server', 'account', 'device')`).map(({ key, value }) => [key, value]));
+	const binding = { ...options.binding };
+	const fresh = stored.size === 0;
+	if (!fresh)
+		for (const field of ['repository', 'server', 'account'] as const) {
+			const bound = JSON.parse(stored.get(field) ?? 'null') as string | null;
+			if (field === 'server' && (binding.server === null || bound === null)) binding.server ??= bound;
+			else if (bound !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound, given: binding[field] });
 		}
-		const field = key as keyof Binding;
-		const bound = JSON.parse(value) as string | null;
-		if (bound !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound, given: binding[field] });
-	}
-	// A database without a device id records this one.
-	if (!stored.some(({ key }) => key === 'device')) driver.run('INSERT INTO "epicenter/replica" (key, value) VALUES (?, ?)', ['device', device]);
-	return Ok(createReplica({ ...options, device }));
+	const device = stored.get('device') ?? options.device;
+	driver.transaction(() => {
+		for (const field of ['repository', 'server', 'account'] as const) driver.run('INSERT OR REPLACE INTO "epicenter/replica" (key, value) VALUES (?, ?)', [field, JSON.stringify(binding[field])]);
+		// A database without a device id records this one.
+		driver.run('INSERT OR REPLACE INTO "epicenter/replica" (key, value) VALUES (?, ?)', ['device', device]);
+	});
+	return Ok(createReplica({ ...options, binding, device }));
 }
 
 function createReplica({
@@ -218,7 +230,8 @@ function createReplica({
 	/** A notification that cannot be placed this long sends a catch-up. */
 	gap?: number;
 }) {
-	const user = binding.account ?? device;
+	/** Whom this device's commits name: the session's user from the connection's hello; before one, the account. */
+	let user = binding.account ?? device;
 	for (const lens of app?.lenses ?? []) {
 		driver.exec(`DROP VIEW IF EXISTS temp."${lens.name}"`);
 		driver.exec(lens.view);
@@ -239,9 +252,14 @@ function createReplica({
 	const hashes = new Map<string, string | null>();
 	let position: string | null = null;
 	let next = 1;
-	let nextMode = mode;
-	/** The reason of the last refusal, for an agent awaiting its verdict. */
-	let lastRefusal: string | null = null;
+	/** The last refusal or rejection, for an agent awaiting its verdict; cleared when a commit lands. */
+	let lastRefusal: Verdict | null = null;
+	/** The server's bounds on a push, from the connection's first exchange. */
+	let sizing: Sizing | null = null;
+	/** RULE: after a commit was rejected as too large, at most this many files go in one. */
+	let cap: number | null = null;
+	/** A rejection only the person or the account can fix: no commit goes until the next connection. */
+	let stalled: Verdict | null = null;
 	/** The commit sent and not yet answered: sent again, unchanged, until it is. */
 	let inflight: LiveCommit | null = null;
 	/** How many times the commit in flight has been sent: once means an `outcome-unknown` answer was a refusal, not a lost landing. */
@@ -275,8 +293,6 @@ function createReplica({
 		sentTexts = new Map(inflight?.files.map((f) => [f.path, f.text]));
 		position = meta.get('position');
 		next = Number(meta.get('next') ?? 1);
-		nextMode = (meta.get('mode') as typeof mode | null) ?? mode;
-		lastRefusal = meta.get('refusal');
 		passedN = first<{ n: number | null }>(driver, 'SELECT MAX(n) AS n FROM "epicenter/passed"')?.n ?? 0;
 	}
 	load();
@@ -289,11 +305,6 @@ function createReplica({
 		const rid = next++;
 		meta.set('next', String(next));
 		return rid;
-	};
-	const setMode = (next: typeof mode) => {
-		if (next === nextMode) return;
-		nextMode = next;
-		meta.set('mode', next === mode ? null : next);
 	};
 	const setInflight = (commit: LiveCommit | null) => {
 		const before = [...sentTexts.keys()];
@@ -439,7 +450,7 @@ function createReplica({
 	/** A catch-up being gathered page by page, then its texts read. */
 	let gathering: CatchUp | null = null;
 	/** A catch-up or notification whose texts are being read. */
-	let reading: { catchUp: CatchUp } | { event: Event } | null = null;
+	let reading: { catchUp: CatchUp; texts: Map<string, string>; wanted: string[] } | { event: Event } | null = null;
 	// A process starts by catching up.
 	let needCatchUp = true;
 	let gapArmed = false;
@@ -470,6 +481,40 @@ function createReplica({
 	/** RULE: committed files that can go now: a commit waits while a path saved with it is held (a rename's halves go together), or while the server asked this member to slow down. */
 	const ready = () => (now() < backoffUntil ? [] : all().filter(([path, f]) => f.committed !== undefined && !blocked(path)));
 
+	/** The files saved together with `path` that can go now: a rename's halves, and any path saved with either. */
+	function unit(path: string, among: Map<string, FileView>, into = new Set<string>()) {
+		if (into.has(path) || !among.has(path)) return into;
+		into.add(path);
+		for (const other of among.get(path)?.together ?? []) unit(other, among, into);
+		return into;
+	}
+
+	/**
+	 * RULE: a commit fits the server's bounds (its bytes as JSON and its
+	 * files, and the cap a too-large rejection set): whole groups of files
+	 * saved together, in order, as many as fit, and at least the first group.
+	 * The rest stays committed and goes in the next commit.
+	 */
+	function sized(going: [string, FileView][]): [string, FileView][] {
+		const files = Math.min(sizing?.files ?? Number.POSITIVE_INFINITY, cap ?? Number.POSITIVE_INFINITY);
+		// Room for the commit's id, parent, author and time.
+		const request = (sizing?.request ?? Number.POSITIVE_INFINITY) - 1_024;
+		const among = new Map(going);
+		const taken = new Set<string>();
+		let count = 0;
+		let size = 0;
+		for (const [path] of going) {
+			if (taken.has(path)) continue;
+			const group = [...unit(path, among)];
+			const bytes = group.reduce((sum, p) => sum + encoder.encode(JSON.stringify({ path: p, text: among.get(p)?.committed?.text ?? null })).length + 1, 0);
+			if (taken.size > 0 && (count + group.length > files || size + bytes > request)) continue;
+			for (const p of group) taken.add(p);
+			count += group.length;
+			size += bytes;
+		}
+		return going.filter(([path]) => taken.has(path));
+	}
+
 	/**
 	 * Take the files saved since they last went out into the unsent commit
 	 * (amended while one is in flight or offline). One the door refuses is
@@ -498,7 +543,7 @@ function createReplica({
 	}
 
 	/** Save texts: each merged here with `mine` if `mine` moved since the text the caller started from. */
-	function writeAll(changes: Record<string, string | null>, { over, commitMode }: { over?: Record<string, string | null>; commitMode?: 'merge' | 'fast-forward' } = {}) {
+	function writeAll(changes: Record<string, string | null>, { over }: { over?: Record<string, string | null> } = {}) {
 		atomically(() => {
 			// Paths equal after NFC and case folding are one path: a save goes to the spelling this device has.
 			const spelled = (path: string) => {
@@ -515,7 +560,6 @@ function createReplica({
 				const together = [...new Set([...(f.together ?? []), ...paths.filter((other) => other !== path)])];
 				set(path, { ...f, mine: next, saved: true, ...(together.length === 0 ? {} : { together }) });
 			}
-			if (commitMode !== undefined) setMode(commitMode);
 			commit();
 		});
 	}
@@ -529,6 +573,8 @@ function createReplica({
 			if (pending?.rid !== rid) return;
 			stats.timeouts++;
 			pending = null;
+			// RULE: a lost read of a catch-up's texts is asked again, keeping the pages and texts gathered.
+			if (message.type === 'fetch' && reading !== null && 'catchUp' in reading) return readBatch();
 			reading = null;
 			gathering = null;
 			// A lost push is sent again as it is; a lost catch-up or read is asked again.
@@ -555,7 +601,7 @@ function createReplica({
 		const parent = position;
 		if (needCatchUp || parent === null) return catchUp();
 		if (reading !== null || gathering !== null) return;
-		const going = ready();
+		const going = stalled === null ? sized(ready()) : [];
 		// RULE: a ready commit goes before reading notifications: its answer brings everything since its parent, and on a busy note there is always another notification.
 		if (going.length === 0) {
 			if (waiting.has(parent)) place();
@@ -563,9 +609,9 @@ function createReplica({
 		}
 		const body = {
 			parent,
-			mode: nextMode,
+			mode,
 			author: { user, device },
-			time: new Date(Date.UTC(2026, 9, 28) + now()).toISOString(),
+			time: new Date(now()).toISOString(),
 			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
@@ -574,7 +620,6 @@ function createReplica({
 			const { committed: _, ...rest } = f;
 			set(path, rest);
 		}
-		setMode(mode);
 		stats.pushes++;
 		request({ type: 'push', rid: takeRid(), commit: sent });
 	}
@@ -594,12 +639,17 @@ function createReplica({
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
 		if (f.sent !== undefined && !own) return;
 		if (f.unknown) {
-			// RULE: work whose outcome is unknown is put beside what is there, held for its person, never merged blindly.
-			const work = f.committed !== undefined ? f.committed.text : f.mine;
+			// RULE: work whose outcome is unknown is put beside what is there, held for its person, never merged blindly. `mine` is the newest of it: held text typed over the commit is in it too.
+			const work = f.mine;
+			// A delete is an intent, not typed text: where the path is as this device last had it, nothing landed there and the delete goes again; where it changed, the text stays, as a delete that lost to an edit does.
+			if (work === null && text !== null && text === f.base) {
+				set(path, { base: text, mine: null, committed: { text: null }, ...(f.together === undefined ? {} : { together: f.together }) });
+				return;
+			}
 			const mine =
-				work === text
+				work === text || work === null
 					? text
-					: work === null || text === null
+					: text === null
 						? work
 						: appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } });
 			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }) });
@@ -628,6 +678,8 @@ function createReplica({
 	function onLanded(answer: Extract<PushAnswer, { kind: 'applied' | 'merged' }>) {
 		if (answer.kind === 'applied') stats.applied++;
 		else stats.merged++;
+		lastRefusal = null;
+		cap = null;
 		for (const id of answer.commits) pass(id);
 		prune();
 		// Each path of the commit takes its own sent text as landed, so the commit in flight is cleared after.
@@ -637,27 +689,31 @@ function createReplica({
 		pass(answer.main);
 	}
 
+	/** An agent's change is dropped: it reads again and redoes its task. */
+	function dropSent() {
+		for (const file of inflight?.files ?? []) {
+			const { sent: _, committed: __, ...rest } = record(file.path);
+			set(file.path, { ...rest, mine: rest.base });
+		}
+		setInflight(null);
+		needCatchUp = true;
+	}
+
+	/** The door refused one file's text: that file is held with the reason, the files saved with it wait for it, and the rest goes again. */
 	function onRefused(answer: Extract<PushAnswer, { kind: 'refused' }>) {
 		stats.refused++;
-		const sent = inflight;
-		lastRefusal = answer.reason;
-		meta.set('refusal', answer.reason);
-		for (const file of sent?.files ?? []) {
+		lastRefusal = { code: answer.code, reason: answer.reason };
+		if (mode === 'fast-forward') return dropSent();
+		for (const file of inflight?.files ?? []) {
 			const { sent: level, ...rest } = record(file.path);
-			if (mode === 'fast-forward') {
-				// An agent's change is dropped: it reads again and redoes its task.
-				const { committed: _, ...clean } = rest;
-				set(file.path, { ...clean, mine: rest.base });
-				continue;
-			}
 			// RULE: a person's refused text is never dropped: what the door refused is held with the reason; the rest goes again.
-			const atFault = answer.path === undefined || answer.path === file.path;
-			const partner = answer.path !== undefined && (rest.together ?? []).includes(answer.path);
-			if (answer.reason !== 'rate' && !atFault && partner) {
+			if (file.path !== answer.path) {
 				// Saved with the path at fault (a rename's other half): it waits with it, uncommitted.
-				const { committed: _, ...clean } = rest;
-				set(file.path, { ...clean, saved: true });
-			} else if (answer.reason === 'rate' || !atFault) set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+				if ((rest.together ?? []).includes(answer.path)) {
+					const { committed: _, ...clean } = rest;
+					set(file.path, { ...clean, saved: true });
+				} else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+			}
 			// RULE: saved again since it was sent (a rename's delete, more typing): the refusal judged a text the person replaced, so the newer save goes, and is judged itself.
 			else if (rest.committed !== undefined) set(file.path, rest);
 			else {
@@ -666,10 +722,47 @@ function createReplica({
 			}
 		}
 		setInflight(null);
-		if (mode === 'fast-forward') needCatchUp = true;
-		if (answer.reason === 'rate') {
-			backoffUntil = now() + 1_000;
-			later(1_000, pump);
+	}
+
+	/**
+	 * The request was not taken, and no text is at fault: the work stays
+	 * committed. RULE: rate waits a second; too large splits the next commit
+	 * (one group of files saved together that is too large alone is held,
+	 * each file on its own, so its person saves fewer at once); main moved, for an agent, drops
+	 * its change; anything else only the person or the account can fix,
+	 * so nothing more is sent until the next connection, and the files say why.
+	 */
+	function onRejected(answer: Extract<PushAnswer, { kind: 'rejected' }>) {
+		stats.refused++;
+		lastRefusal = { code: answer.code, reason: answer.reason };
+		if (answer.code === 'main-moved' && mode === 'fast-forward') return dropSent();
+		const sent = inflight?.files ?? [];
+		const among = new Map(sent.map((f) => [f.path, record(f.path)] as const));
+		const alone = sent.length > 0 && unit(sent[0]?.path ?? '', among).size === sent.length;
+		const tooLarge = answer.code === 'too-large' || answer.code === 'too-many-files';
+		for (const file of sent) {
+			const { sent: level, ...rest } = record(file.path);
+			if (tooLarge && alone && rest.committed === undefined) {
+				// The group is too large to go together: each file is held on its own, so each can be saved alone.
+				const { committed: _, together: __, ...clean } = rest;
+				set(file.path, { ...clean, held: { reason: `${answer.reason}: save fewer files at once` } });
+			} else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+		}
+		setInflight(null);
+		switch (answer.code) {
+			case 'rate':
+				backoffUntil = now() + 1_000;
+				later(1_000, pump);
+				return;
+			case 'too-large':
+			case 'too-many-files':
+				if (!alone) cap = Math.max(1, Math.floor(sent.length / 2));
+				return;
+			case 'main-moved':
+				needCatchUp = true;
+				return;
+			default:
+				stalled = { code: answer.code, reason: answer.reason };
 		}
 	}
 
@@ -683,6 +776,17 @@ function createReplica({
 	function onUnknown() {
 		stats.unknown++;
 		const sent = inflight;
+		if (mode === 'fast-forward') {
+			// An agent's change is dropped, as on a refusal: it reads again and redoes its task.
+			for (const file of sent?.files ?? []) {
+				const { sent: _, committed: __, ...rest } = record(file.path);
+				set(file.path, { ...rest, mine: rest.base });
+			}
+			setInflight(null);
+			setPosition(null);
+			needCatchUp = true;
+			return;
+		}
 		const once = attempts <= 1;
 		for (const file of sent?.files ?? []) {
 			const { sent: level, ...rest } = record(file.path);
@@ -719,6 +823,9 @@ function createReplica({
 			case 'refused':
 				onRefused(answer);
 				return;
+			case 'rejected':
+				onRejected(answer);
+				return;
 			case 'outcome-unknown':
 				onUnknown();
 				return;
@@ -727,16 +834,36 @@ function createReplica({
 		}
 	}
 
-	/** Texts this device already holds, by hash. */
-	function known() {
+	/** Hashes of texts this device hashed lately, so a level is hashed once, not at every notification. */
+	const hashed = new Map<string, string>();
+	const hashOf = (text: string) => {
+		let hash = hashed.get(text);
+		if (hash === undefined) {
+			// Bounded: what is held changes, and an old text only costs one more hash.
+			if (hashed.size >= 4 * files.size + 64) hashed.clear();
+			hash = gitBlobHash(text);
+			hashed.set(text, hash);
+		}
+		return hash;
+	};
+
+	/**
+	 * Texts this device already holds at `paths`, by hash: each path's base
+	 * (whose hash is stored) and its other levels. RULE: only the paths a
+	 * notification or catch-up names, so its cost follows what it names, not
+	 * the repository; a text held at another path is fetched.
+	 */
+	function known(paths: Iterable<string>) {
 		const texts = new Map<string, string>();
-		for (const [path, f] of all()) {
+		for (const path of paths) {
+			const f = record(path);
 			const hash = hashes.get(path) ?? null;
 			if (f.base !== null && hash !== null) texts.set(hash, f.base);
-			for (const level of [f.mine, f.sent?.text ?? null, f.committed?.text ?? null]) if (level !== null) texts.set(gitBlobHash(level), level);
+			for (const level of [f.mine, f.sent?.text ?? null, f.committed?.text ?? null]) if (level !== null && level !== f.base) texts.set(hashOf(level), level);
 		}
 		return texts;
 	}
+	const named = (listed: { files: { path: string }[] }) => listed.files.map((f) => f.path);
 	const missing = (wanted: (string | null)[], have: Map<string, string>) => [...new Set(wanted.filter((h): h is string => h !== null && !have.has(h)))];
 
 	function applyCatchUp(reply: CatchUp, texts: Map<string, string>) {
@@ -774,6 +901,13 @@ function createReplica({
 		for (const [parent, event] of [...waiting]) if (passed(event.commit)) waiting.delete(parent);
 	}
 
+	/** Read the next batch of a catch-up's texts. */
+	function readBatch() {
+		if (reading === null || !('catchUp' in reading)) return;
+		stats.fetches++;
+		request({ type: 'fetch', rid: takeRid(), hashes: reading.wanted.slice(0, READ_BATCH) });
+	}
+
 	/** Apply waiting notifications that follow the position, reading their texts first. */
 	function place() {
 		const following = () => (position === null ? undefined : waiting.get(position));
@@ -783,7 +917,7 @@ function createReplica({
 		// The socket needs this too, between a catch-up's pages, which name the commit the first page answered.
 		const catchingUp = () => pending?.kind === 'catch-up' || gathering !== null || (reading !== null && 'catchUp' in reading);
 		for (let event = following(); event !== undefined && inflight === null && !catchingUp(); event = following()) {
-			const have = known();
+			const have = known(named(event));
 			const lacking = missing(
 				event.files.map((f) => f.hash),
 				have,
@@ -822,6 +956,11 @@ function createReplica({
 				break;
 			case 'caught-up': {
 				const page = message.catchUp;
+				// RULE: every page of one catch-up describes one commit: a page of another (the first page's commit left the window between pages) starts it again.
+				if (page.restart === true || (gathering !== null && (page.main !== gathering.main || page.full !== gathering.full))) {
+					catchUp();
+					break;
+				}
 				const whole: CatchUp = gathering === null ? page : { ...page, files: [...gathering.files, ...page.files] };
 				if (page.next !== null) {
 					// RULE: a catch-up comes in pages up to the server's limit; the device gathers them, then applies them at once.
@@ -830,25 +969,40 @@ function createReplica({
 					break;
 				}
 				gathering = null;
-				const have = known();
+				const have = known(named(whole));
 				const lacking = missing(
 					whole.files.map((f) => f.hash),
 					have,
 				);
 				if (lacking.length === 0) applyCatchUp(whole, have);
 				else {
-					reading = { catchUp: whole };
-					stats.fetches++;
-					request({ type: 'fetch', rid: takeRid(), hashes: lacking });
+					reading = { catchUp: whole, texts: have, wanted: lacking };
+					readBatch();
 				}
 				break;
 			}
 			case 'fetched': {
 				const was = reading;
+				if (was !== null && 'catchUp' in was) {
+					const asked = was.wanted.splice(0, READ_BATCH);
+					for (const [hash, text] of Object.entries(message.texts)) was.texts.set(hash, text);
+					// A text the server no longer keeps, or the last batch: apply (which catches up again for a text missing).
+					if (was.wanted.length > 0 && asked.every((hash) => was.texts.has(hash))) {
+						readBatch();
+						break;
+					}
+					reading = null;
+					applyCatchUp(was.catchUp, was.texts);
+					place();
+					break;
+				}
 				reading = null;
-				const texts = new Map([...known(), ...Object.entries(message.texts)]);
-				if (was !== null && 'catchUp' in was) applyCatchUp(was.catchUp, texts);
-				else if (was !== null && position === was.event.parents[0]) applyEvent(was.event, texts);
+				const texts = new Map([...(was === null ? [] : known(named(was.event))), ...Object.entries(message.texts)]);
+				if (was !== null && was.event.files.some((f) => f.hash !== null && !texts.has(f.hash))) {
+					// The server no longer keeps a text the notification names (its commit left the window): catch up instead.
+					waiting.delete(was.event.parents[0] ?? '');
+					needCatchUp = true;
+				} else if (was !== null && position === was.event.parents[0]) applyEvent(was.event, texts);
 				place();
 				break;
 			}
@@ -869,7 +1023,8 @@ function createReplica({
 		// A path saved with a held one waits for it: say so, not "sending".
 		const partner = f.saved === undefined && f.committed === undefined ? undefined : (f.together ?? []).find((other) => blocked(other));
 		if (partner !== undefined) return { status: 'held', reason: `saved with ${partner}, which is held` };
-		return f.sent !== undefined || f.committed !== undefined || f.saved !== undefined ? { status: 'sending' } : { status: 'synced' };
+		if (f.sent === undefined && f.committed === undefined && f.saved === undefined) return { status: 'synced' };
+		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
 	}
 
 	return {
@@ -925,15 +1080,15 @@ function createReplica({
 		 * loaded text); if `mine` moved since, the two are merged here. Without
 		 * `over`, the caller asserts it started from what `read` shows now.
 		 */
-		write(path: string, next: string | null, { over, commitMode }: { over?: string | null; commitMode?: 'merge' | 'fast-forward' } = {}) {
-			writeAll({ [path]: next }, { ...(over === undefined ? {} : { over: { [path]: over } }), ...(commitMode === undefined ? {} : { commitMode }) });
+		write(path: string, next: string | null, { over }: { over?: string | null } = {}) {
+			writeAll({ [path]: next }, over === undefined ? {} : { over: { [path]: over } });
 		},
 		/** Save several paths in one commit (a rename is a delete of the old path and a write of the new one). */
 		writeAll,
 		/** Change a path from what it shows now. */
-		edit(path: string, change: (text: string | null) => string | null, options: { commitMode?: 'merge' | 'fast-forward' } = {}) {
+		edit(path: string, change: (text: string | null) => string | null) {
 			const text = files.get(path)?.mine ?? null;
-			writeAll({ [path]: change(text) }, { over: { [path]: text }, ...options });
+			writeAll({ [path]: change(text) }, { over: { [path]: text } });
 		},
 
 		// ------------------------------------------------------------------------
@@ -947,8 +1102,10 @@ function createReplica({
 			gathering !== null ||
 			inflight !== null ||
 			all().some(([path, f]) => f.committed !== undefined || (f.saved !== undefined && !blocked(path))),
-		/** Why the last commit was refused (an agent's verdict), or null. */
+		/** Why this device's last commit was refused or rejected (an agent's verdict), until one lands; or null. */
 		lastRefusal: () => lastRefusal,
+		/** Why nothing is being sent: a rejection only the person or the account can fix, until the next connection; or null. */
+		rejection: () => stalled,
 		position: () => position,
 		stats: () => ({ ...stats }),
 
@@ -959,17 +1116,28 @@ function createReplica({
 		/**
 		 * A connection's first exchange: refused when it reached another
 		 * repository, server or account than this replica holds (a replica
-		 * with no server refuses every one); otherwise a
+		 * that has met no server yet records this one); otherwise a
 		 * `main` other than this device's position means it may have missed
 		 * something, so it catches up.
 		 */
 		hello(hello: Hello): Result<undefined, ReplicaError> {
-			for (const field of ['repository', 'server', 'account'] as const)
+			for (const field of ['repository', 'account'] as const)
 				if (hello[field] !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound: binding[field], given: hello[field] });
-			if (alive && hello.main !== position) atomically(() => {
-				needCatchUp = true;
-				pump();
-			});
+			if (binding.server !== null && hello.server !== binding.server) return ReplicaError.BoundElsewhere({ field: 'server', bound: binding.server, given: hello.server });
+			if (binding.server === null) {
+				// The first server this replica meets is its server for good.
+				binding = { ...binding, server: hello.server };
+				driver.run('INSERT OR REPLACE INTO "epicenter/replica" (key, value) VALUES (?, ?)', ['server', JSON.stringify(hello.server)]);
+			}
+			sizing = hello.limits ?? null;
+			user = hello.user;
+			if (alive && (hello.main !== position || stalled !== null))
+				atomically(() => {
+					// A new connection may carry a session that fixes a rejection: try again.
+					stalled = null;
+					if (hello.main !== position) needCatchUp = true;
+					pump();
+				});
 			return Ok(undefined);
 		},
 		/** Requests can be sent (online), or not (null). */
@@ -977,19 +1145,13 @@ function createReplica({
 			if (!alive) return;
 			atomically(() => {
 				send = sender;
+				// A new connection may carry a session that fixes a rejection: try again.
+				if (sender !== null) stalled = null;
 				if (sender === null) {
 					pending = null;
 					reading = null;
 					gathering = null;
 				}
-				pump();
-			});
-		},
-		/** The notification stream opened: anything may have been missed, so catch up. */
-		streamOpened() {
-			if (!alive) return;
-			atomically(() => {
-				needCatchUp = true;
 				pump();
 			});
 		},

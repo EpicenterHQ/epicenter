@@ -17,7 +17,15 @@
  * Every run starts by finishing a journal row a crash left, reading Git's
  * `main` first: at the tip, the swap happened (record it); at the expected
  * commit, carry on from the recorded step; anywhere else, something outside
- * moved `main`, and the flush stops as `diverged`, its intent kept.
+ * moved `main`, and the flush stops as `diverged`, its intent kept. RULE:
+ * the recovery is an operator's: Epicenter never rewinds or merges a
+ * `main` it did not write. Once Git's `main` is back at the expected
+ * commit (the outside commit kept elsewhere), the next run finishes.
+ *
+ * A `git push` (receive.ts) is journaled the same way: its commit is
+ * already in Git, so its row starts staged, with the staging ref at the
+ * pushed commit, in the transaction that applies its live commit; the
+ * compare-and-swap and completion are this machine's.
  *
  * Every Git commit's tree holds Epicenter's `.gitattributes`.
  */
@@ -218,8 +226,14 @@ export function createFlusher({
 	async function run(): Promise<FlushResult> {
 		let earlier: FlushResult = { kind: 'nothing' };
 		if (first(store, 'SELECT 1 FROM journal LIMIT 1') !== undefined) {
-			if (first(store, "SELECT 1 FROM journal WHERE state = 'diverged'") !== undefined)
-				return { kind: 'diverged', main: await git.readRef(MAIN), expected: meta.get('git_head') };
+			const stuck = first<{ n: number; plan: string }>(store, "SELECT n, plan FROM journal WHERE state = 'diverged'");
+			if (stuck !== undefined) {
+				const plan = JSON.parse(stuck.plan) as Plan;
+				const main = await git.readRef(MAIN);
+				// Put back by an operator: carry on from the start (staging is idempotent).
+				if (main !== plan.expected && main !== plan.commits.at(-1)?.oid) return { kind: 'diverged', main, expected: plan.expected };
+				store.run("UPDATE journal SET state = 'intended' WHERE n = ?", [stuck.n]);
+			}
 			earlier = await resume();
 			if (earlier.kind === 'diverged') return earlier;
 		}
@@ -238,6 +252,24 @@ export function createFlusher({
 	return {
 		/** Finish any interrupted flush, then flush what is new. */
 		flush: () => exclusive(run),
+		/**
+		 * Journal a pushed commit already in Git, inside the transaction that
+		 * applies its live commit: Git's `main` goes from `old` to `next` and
+		 * then holds live history through place `through`. `staging` already
+		 * points at `next`.
+		 */
+		journalPushed({ old, next, tree, through, staging, user, at }: { old: string | null; next: string; tree: string; through: number; staging: string; user: string; at: number }) {
+			const commit: Planned = { oid: next, tree, parents: old === null ? [] : [old], message: 'git push\n', author: signatureOf(user), at, blobs: [] };
+			const plan: Plan = { expected: old, staging, through, commits: [commit] };
+			store.run("INSERT INTO journal (state, plan) VALUES ('staged', ?)", [JSON.stringify(plan)]);
+		},
+		/** Finish the journal row in place: for the receiver, which already runs exclusively. */
+		finish: resume,
+		/** The row a diverged flush stopped at: what Git's `main` was expected to be. */
+		diverged: () => {
+			const row = first<{ plan: string }>(store, "SELECT plan FROM journal WHERE state = 'diverged'");
+			return row === undefined ? null : { expected: (JSON.parse(row.plan) as Plan).expected };
+		},
 		/** Run `fn` with no flush in progress (a Git push). */
 		exclusive,
 		/** Resolves once nothing queued is left. */

@@ -1,5 +1,5 @@
 /**
- * The Bun host of design B's wire: one repository's server over HTTP and the
+ * The Bun host of the repository's wire: one repository's server over HTTP and the
  * devices' sockets, on a port of this machine. Events go out by Bun's
  * pub/sub: every socket subscribes to one topic when it opens, and keeps
  * only its verified session (and the timer that closes it when the session
@@ -16,7 +16,7 @@ import { mkdir } from 'node:fs/promises';
 import type { Server as BunServer } from 'bun';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { openServer, type Server } from '../server/server.js';
+import { type Alarm, openServer, type Server } from '../server/server.js';
 import { type Authenticate, createWire, SESSION_EXPIRED, type Verified, type WireLimits } from '../wire/wire.js';
 import { openBunGitStore } from './git.js';
 import { openBunSqlite } from './sqlite.js';
@@ -49,6 +49,7 @@ const ServeError = defineErrors({
 /** Serve `server` over the wire on `hostname:port` (0 picks a free port). */
 export function serveRepository({
 	repository,
+	serverId,
 	server,
 	authenticate,
 	hostname = '127.0.0.1',
@@ -59,6 +60,8 @@ export function serveRepository({
 }: {
 	/** The repository's id, which every socket's hello names. */
 	repository: string;
+	/** This server's stable id, which every socket's hello names and a replica binds to. */
+	serverId: string;
 	server: Server;
 	authenticate: Authenticate;
 	hostname?: string;
@@ -71,6 +74,7 @@ export function serveRepository({
 	let bun: BunServer<SocketData> | undefined;
 	const wire = createWire({
 		repository,
+		serverId,
 		server,
 		authenticate,
 		...(limits === undefined ? {} : { limits }),
@@ -129,6 +133,20 @@ export function serveRepository({
 }
 export type ServedRepository = ReturnType<typeof serveRepository>;
 
+/** The server's alarm on this process's timers: one timeout, replaced on every schedule. */
+export const timeoutAlarm = (due: () => void): Alarm => {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+	return {
+		schedule(at) {
+			clearTimeout(timeout);
+			timeout = setTimeout(due, Math.max(0, at - Date.now()));
+		},
+		cancel() {
+			clearTimeout(timeout);
+		},
+	};
+};
+
 /**
  * Open a repository on disk for the dev server: `dir` is a bare Git
  * repository (created when missing) that live history flushes into, and its
@@ -141,9 +159,7 @@ export async function openDiskRepository(dir: string, { log = createLogger('repo
 	return openServer({
 		store: openBunSqlite(join(dir, 'epicenter', 'live.sqlite')),
 		git,
-		timer: (ms, run) => {
-			setTimeout(run, ms);
-		},
+		alarm: timeoutAlarm,
 		log,
 	});
 }

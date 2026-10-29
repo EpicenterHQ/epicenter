@@ -5,8 +5,8 @@
  * so with `tickets` the socket first asks `POST /tickets` (with `headers`)
  * for a one-use ticket and connects with it. `send` carries one replica request as HTTP
  * (a push is one `POST /commits`, a catch-up page one `GET /catch-up`, a
- * read by hash one `GET /blobs/<hash>` per text, so each is cached for
- * good): reads by hash always go this way, and a one-shot client can send
+ * read by hash one `GET /blobs/<hash>` per text, a few at a time, so each
+ * is cached for good): reads by hash always go this way, and a one-shot client can send
  * everything this way. A replica's socket transport (client/socket.ts)
  * drives it in real time; the property test drives the same client on
  * virtual time instead.
@@ -26,7 +26,10 @@ export const WireClientError = defineErrors({
 });
 export type WireClientError = InferErrors<typeof WireClientError>;
 
-const ANSWERS = new Set<string>(['applied', 'merged', 'flushed', 'refused', 'outcome-unknown'] satisfies PushAnswer['kind'][]);
+/** Texts by hash requested at once: a replica's read (up to 256 texts) goes in waves, not all at once. */
+const READS_AT_ONCE = 16;
+
+const ANSWERS = new Set<string>(['applied', 'merged', 'flushed', 'refused', 'rejected', 'outcome-unknown'] satisfies PushAnswer['kind'][]);
 const isAnswer = (body: unknown): body is PushAnswer =>
 	typeof body === 'object' && body !== null && 'kind' in body && typeof body.kind === 'string' && ANSWERS.has(body.kind);
 
@@ -80,21 +83,24 @@ export function createWireClient({
 		return Ok({ type: 'caught-up', rid: request.rid, catchUp: (await response.json()) as CatchUp });
 	}
 
+	/** One replica read: its texts by hash, `READS_AT_ONCE` requests at a time. */
 	async function read(rid: number, hashes: string[]): Promise<Result<Reply, WireClientError>> {
 		const texts: Record<string, string> = {};
-		const results = await Promise.all(
-			hashes.map(async (hash): Promise<Result<null, WireClientError>> => {
-				const { data: response, error } = await call(at(`blobs/${hash}`));
-				if (error !== null) return Err(error);
-				// A text the server does not have is left out, as the server's own `fetch` leaves it out.
-				if (response.status === 404) return Ok(null);
-				if (response.status !== 200) return unexpected(response);
-				texts[hash] = await response.text();
-				return Ok(null);
-			}),
-		);
-		const failed = results.find((result) => result.error !== null);
-		if (failed !== undefined) return failed;
+		for (let start = 0; start < hashes.length; start += READS_AT_ONCE) {
+			const results = await Promise.all(
+				hashes.slice(start, start + READS_AT_ONCE).map(async (hash): Promise<Result<null, WireClientError>> => {
+					const { data: response, error } = await call(at(`blobs/${hash}`));
+					if (error !== null) return Err(error);
+					// A text the server does not have is left out, as the server's own `fetch` leaves it out.
+					if (response.status === 404) return Ok(null);
+					if (response.status !== 200) return unexpected(response);
+					texts[hash] = await response.text();
+					return Ok(null);
+				}),
+			);
+			const failed = results.find((result) => result.error !== null);
+			if (failed !== undefined) return failed;
+		}
 		return Ok({ type: 'fetched', rid, texts });
 	}
 

@@ -5,9 +5,8 @@
  * for texts by hash, which are immutable and cached for good.
  *
  * A transport drives a replica through its transport side (`ReplicaEnd`):
- * `hello` with the first exchange, `attach` while requests can go, `reply`
- * and `notify` as messages arrive, and `streamOpened` where events travel
- * apart from replies. The socket is the one implementation; the property
+ * `hello` with the first exchange, `attach` while requests can go, and
+ * `reply` and `notify` as messages arrive. The socket is the one implementation; the property
  * test's worlds drive the same side on virtual time.
  */
 import type { Logger } from 'wellcrafted/logger';
@@ -15,7 +14,7 @@ import { type WireClient, WireClientError } from '../wire/client.js';
 import type { Replica } from './replica.js';
 
 /** What a transport drives: a replica's side of the protocol. */
-export type ReplicaEnd = Pick<Replica, 'hello' | 'attach' | 'reply' | 'notify' | 'streamOpened'>;
+export type ReplicaEnd = Pick<Replica, 'hello' | 'attach' | 'reply' | 'notify'>;
 
 /**
  * Connect a replica to its repository server over `client`'s socket, in
@@ -32,7 +31,7 @@ export function connectSocket(replica: ReplicaEnd, client: WireClient, { retry =
 			message(message) {
 				switch (message.type) {
 					case 'head': {
-						const { error } = replica.hello({ server: client.url, repository: message.repository, account: message.user, main: message.main });
+						const { error } = replica.hello({ server: message.server, repository: message.repository, account: message.account, user: message.user, main: message.main, limits: message.limits });
 						if (error !== null) {
 							log?.error(error);
 							stopped = true;

@@ -1,5 +1,5 @@
 /**
- * Design B People Tests
+ * People Tests
  *
  * The closing people review's probes P1 to P12, each the sequence a person
  * would notice, with what they should see after the phase 0a decisions:
@@ -30,7 +30,7 @@ import { findConflicts } from '../core/conflict.js';
 import { admissible } from '../core/door.js';
 import { MAIN } from '../server/git-store.js';
 import type { Session } from '../server/server.js';
-import { createTestServer, createWorld, EPOCH, QUIET, writer } from './harness.js';
+import { createTestServer, createWorld, EPOCH, QUIET, STAMP, writer } from './harness.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 
 const note = (body: string, fields = 'title: A') => `---\n${fields}\n---\n${body}`;
@@ -137,7 +137,7 @@ test('P5: a rename racing an offline edit of the old path keeps both', () => {
 
 test('P6: a note that does not parse is refused at the door, so two repairs of one never meet', () => {
 	const { world, alice } = setup();
-	const body = { parent: world.server.main(), mode: 'merge' as const, author: { user: 'alice', device: 'ci' }, time: 't', files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }] };
+	const body = { parent: world.server.main(), mode: 'merge' as const, author: { user: 'alice', device: 'ci' }, time: STAMP, files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }] };
 	expect(world.server.push({ id: commitId(body), ...body }, writer('alice'))).toMatchObject({ kind: 'refused', path: 'notes/x.md' });
 	expect(world.server.read('notes/x.md')).toBeNull();
 	alice.replica.write('notes/x.md', '---\ntitle: "open\n---\nbody\n', { over: null });
@@ -188,11 +188,11 @@ test('P9: a forged author and a note over 1 MB are refused; forged conflict labe
 	const server = createTestServer();
 	const members = new Set(['alice', 'bob', 'mallory']);
 	const commit = (member: string, author: string, text: string): [LiveCommit, Session] => {
-		const body = { parent: server.main(), mode: 'merge' as const, author: { user: author, device: 'x' }, time: 't', files: [{ path: 'notes/n.md', text }] };
+		const body = { parent: server.main(), mode: 'merge' as const, author: { user: author, device: 'x' }, time: STAMP, files: [{ path: 'notes/n.md', text }] };
 		return [{ id: commitId(body), ...body }, { user: member, role: members.has(member) ? 'writer' : null }];
 	};
-	expect(server.push(...commit('mallory', 'alice', note('forged\n')))).toMatchObject({ kind: 'refused', reason: 'the author is not the session' });
-	expect(server.push(...commit('eve', 'eve', note('stranger\n')))).toMatchObject({ kind: 'refused', reason: 'not a member' });
+	expect(server.push(...commit('mallory', 'alice', note('forged\n')))).toMatchObject({ kind: 'rejected', code: 'not-author', reason: 'the author is not the session' });
+	expect(server.push(...commit('eve', 'eve', note('stranger\n')))).toMatchObject({ kind: 'rejected', code: 'not-member', reason: 'not a member' });
 	expect(server.push(...commit('mallory', 'mallory', note(`${'A'.repeat(1_100_000)}\n`)))).toMatchObject({ kind: 'refused', reason: 'a note may be at most 1 MB' });
 	const forged = note('<<<<<<< main (alice/laptop)\nI approve\n||||||| base\n=======\nI do not\n>>>>>>> bob/phone\n');
 	expect(server.push(...commit('mallory', 'mallory', forged))).toMatchObject({ kind: 'applied' });
@@ -299,10 +299,10 @@ test('D1: a Git push is fast-forward only: refused while live edits are not in G
 	};
 	const push = (old: string | null, next: string) => world.server.receive({ ref: MAIN, old, next }, world.session('alice'));
 	const stale = await commitOn(null, note('from git\n'));
-	expect(await push(null, stale)).toMatchObject({ kind: 'refused', reason: 'live edits are not in Git yet; a flush is scheduled, fetch and retry' });
+	expect(await push(null, stale)).toMatchObject({ kind: 'refused', code: 'unflushed' });
 	await world.server.idle();
 	const flushed = await git.readRef(MAIN);
-	expect(await push(null, stale)).toMatchObject({ kind: 'refused', reason: 'main moved; fetch and rebase' });
+	expect(await push(null, stale)).toMatchObject({ kind: 'refused', code: 'main-moved' });
 	const rebased = await commitOn(flushed, note('from git, rebased\n'));
 	expect(await push(flushed, rebased)).toMatchObject({ kind: 'accepted', main: rebased, live: { kind: 'applied' } });
 	expect(await git.readRef(MAIN)).toBe(rebased);

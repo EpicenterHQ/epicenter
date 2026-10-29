@@ -68,8 +68,8 @@ async function settle() {
 
 const api = {
 	/** Make a replica of `repository` and open it here; answers its id. */
-	async create(repository: string, { account = null, server = null, token }: { account?: string | null; server?: string | null; token?: string } = {}) {
-		const created = await createBrowserReplica({ repository, name: repository, account, server, ...options(token) });
+	async create(repository: string, { account = null, url = null, token }: { account?: string | null; url?: string | null; token?: string } = {}) {
+		const created = await createBrowserReplica({ repository, name: repository, account, url, ...options(token) });
 		if (created.error !== null) return { error: created.error.name, replica: null };
 		tab = created.data;
 		await settle();

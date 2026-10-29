@@ -65,7 +65,7 @@ for (const [engine, browser] of [
 					expect(await page.evaluate(() => replicas.query('SELECT path FROM notes'))).toEqual([{ path: 'notes/a.md' }]);
 
 					const listed = (await page.evaluate(() => replicas.list())).filter((manifest) => manifest.replica === replica);
-					expect(listed).toEqual([{ replica, repository, name: repository, account: 'alice', server: null }]);
+					expect(listed).toEqual([{ replica, repository, name: repository, account: 'alice', url: null }]);
 					const layout = await page.evaluate((replica) => replicas.layout(replica), replica);
 					expect(layout?.root).toEqual(['manifest.json', 'objects/', 'sqlite/']);
 					// The VFS's own files only: no blob, no manifest, in its directory.
