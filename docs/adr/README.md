@@ -896,3 +896,6 @@ When you add an ADR, add its row here.
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Proposed (renumbered from 0689) |
 | [0692](0692-people-edit-a-live-document-and-agents-merge-through-git.md) | People and agents write one Git repository through ordered mutations | Proposed |
+| [0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) | Repositories are addressed, and every page is an owner, a repository, or an app on one | Proposed (would supersede 0686 at its data area; revisits 0687) |
+| [0694](0694-installing-an-app-is-trusting-it.md) | Installing an app is trusting it | Proposed (revisits 0687; mount contract and installs unbuilt) |
+| [0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) | One sync engine runs on every device, and a folder on disk is its watched projection | Proposed (revisits 0692's retired desktop folder; watcher unbuilt) |
