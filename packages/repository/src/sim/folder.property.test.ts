@@ -29,8 +29,8 @@
  *
  * Key behaviors (after every step, and at quiescence):
  * - No save lost: every owed token is in the folder (scratch included), an editor's write in progress, a replica, or the server; at quiescence, in the server's text or in a held file
- * - None applied twice: at quiescence no token appears twice outside conflict blocks in a server text or a file
- * - A commit is one group: no push first sent after a commit, without its message, lands the text that commit read at one of its paths before the commit lands (deletes and blob pointers recur, a rename moving one back, so only note texts are compared), and each message lands in at most one commit
+ * - None applied twice: at quiescence no token appears twice in a server text or a file outside its conflict blocks, nor twice in any one side of a block (read the same way); a base section is never counted
+ * - A commit is one group: no push first sent after a commit, without its message, lands the text that commit read at one of its paths before the commit lands (a delete or a blob pointer only if no writer touched the path since, as those recur), and each message lands in at most one commit
  * - Own writes never echo: once quiet, a further idle period and a scan send nothing
  * - Convergence: at quiescence every file equals the replica's `mine` and `mine` equals the server's, except held files; every unreadable file is listed
  * - Ignored stays ignored: the server never holds a dot path or a dropping, and the engine never writes or removes one
@@ -44,6 +44,7 @@
  */
 import { expect, test } from 'bun:test';
 import { parsePointer } from '../core/markdown.js';
+import { findConflicts } from '../core/conflict.js';
 import { fold } from '../core/door.js';
 import { ignored } from '../folder/engine.js';
 import { createWorld, type Device } from './harness.js';
@@ -68,6 +69,30 @@ const tokensIn = (text: string | null) => new Set(text === null ? [] : (text.mat
 const note = (lines: string[]) => `---\ntitle: N\n---\n${lines.map((line) => `${line}\n`).join('')}`;
 const appended = (text: string | null, token: string) => (text === null || text === '' ? note([token]) : `${text.endsWith('\n') ? text : `${text}\n`}${token}\n`);
 
+/**
+ * The texts in which no token may appear twice: a file's text outside its
+ * conflict blocks, and each side of each block, read the same way (a side
+ * may hold blocks of its own, escaped). A block's base section repeats the
+ * base by design and is not counted; nor are two sides counted together, or
+ * a side with the text around it: the core merge keeps an existing block
+ * whole beside a new one, and keeps both bodies of two creates, so a block's
+ * side repeats lines the text around it has (both by design, `core/merge.ts`).
+ */
+function versionsOf(text: string, where = 'outside blocks'): [string, string][] {
+	const blocks = findConflicts(text);
+	let outside = '';
+	let at = 0;
+	for (const block of blocks) {
+		outside += text.slice(at, block.from);
+		at = block.to;
+	}
+	outside += text.slice(at);
+	return [
+		[where, outside],
+		...blocks.flatMap((block) => [...versionsOf(block.current, `block at line ${block.line}, current`), ...versionsOf(block.incoming, `block at line ${block.line}, incoming`)]),
+	];
+}
+
 async function run(seed: number, steps: number) {
 	const random = createRandom(seed * 7919 + 17);
 	const world = createWorld({ seed, latency: { min: 2, max: 30 }, loss: { up: 0.03, down: 0.03 }, streamLoss: 0.02, stall: { chance: 0.02, ms: 2_500 } });
@@ -83,6 +108,8 @@ async function run(seed: number, steps: number) {
 	const violations: string[] = [];
 	let n = 0;
 	const token = () => `t${++n}z`;
+	/** Each atomic save's own temporary name, as an editor makes one (a pid, a counter): two saves never share one. */
+	let temps = 0;
 
 	/** Tokens a writer saved, not removed on purpose since. */
 	const owed = new Set<string>();
@@ -95,6 +122,24 @@ async function run(seed: number, steps: number) {
 	/** Each message's group, until its commit lands: the text the replica took for each path (what the commit says), and when. */
 	const groups = new Map<string, { paths: Set<string>; texts: Map<string, string | null>; at: number }>();
 	const landedMessages = new Map<string, Set<string>>();
+	/** When a writer in the folder last changed each path (a directory's, for a move of it): a later delete or pointer there is that writer's, not a group's. */
+	const touched = new Map<string, number>();
+	const touch = (...paths: string[]) => {
+		for (const p of paths) touched.set(fold(p), world.net.now());
+	};
+	const lastTouched = (p: string) => Math.max(-1, ...[...touched].filter(([q]) => p === q || p.startsWith(`${q}/`)).map(([, at]) => at));
+	{
+		const disk = folder.disk;
+		const [write, unlink, rename, writeInode, touchFile] = [disk.write, disk.unlink, disk.rename, disk.writeInode, disk.touch];
+		disk.write = (p, bytes) => (touch(p), write(p, bytes));
+		disk.unlink = (p) => (touch(p), unlink(p));
+		disk.rename = (from, to) => (touch(from, to), rename(from, to));
+		disk.touch = (p) => (touch(p), touchFile(p));
+		disk.writeInode = (ino, bytes) => {
+			touch(...disk.paths().filter((p) => disk.inodeOf(p) === ino));
+			return writeInode(ino, bytes);
+		};
+	}
 	let live = true;
 
 	// ------------------------------------------------------------------------
@@ -149,11 +194,13 @@ async function run(seed: number, steps: number) {
 				return;
 			}
 			case 'atomic': {
-				const temp = beside(path, `.${name(path)}.tmp${n}`);
+				const temp = beside(path, `.${name(path)}.tmp${++temps}`);
 				folder.disk.write(temp, encoder.encode(text));
 				writing.set(path, text);
 				later(random.int(0, 10), () => {
 					writing.delete(path);
+					// The model's own check: an editor's temporary is its own until it is renamed.
+					if (folder.disk.text(temp) !== text) violations.push(`the test model: ${temp} was written by another save`);
 					removing(path, text);
 					if (folder.disk.rename(temp, path)) owe(fresh);
 				});
@@ -491,11 +538,15 @@ async function run(seed: number, steps: number) {
 				if (live) return null;
 				const message = `Commit ${token()}`;
 				await folder.crash({ watch: false });
+				// What this device has in flight at each path: a save equal to it settles into that commit (the replica's rule), so it is not this commit's work.
+				const inFlight = new Map<string, string | null>();
+				for (const { commit } of folder.replica.query<{ commit: string }>('SELECT commit_json AS "commit" FROM "epicenter/inflight"', []))
+					for (const file of (JSON.parse(commit) as { files: { path: string; text: string | null }[] }).files) inFlight.set(file.path, file.text);
 				const saved = await until(world, folder.engine.commit(message));
 				if (process.env.F_TRACE) log.push(`   (commit at ${world.net.now()}: ${saved.join(', ')}; held ${JSON.stringify(folder.replica.held())}; unsent ${folder.replica.unsent().join(', ')})`);
-				// Only files with work: a save that changed nothing here (its file as the server has it) says nothing.
+				// Only files with work of this commit's own: a save that changed nothing beyond what is in flight here, or else the file as the server has it, says nothing.
 				const files = folder.replica.files();
-				const working = saved.filter((p) => files.get(p)?.mine !== files.get(p)?.base);
+				const working = saved.filter((p) => files.get(p)?.mine !== (inFlight.has(p) ? inFlight.get(p) : files.get(p)?.base));
 				if (working.length > 0) groups.set(message, { paths: new Set(working.map((p) => fold(p))), texts: new Map(working.map((p) => [fold(p), folder.replica.read(p)])), at: world.net.now() });
 				folder.device.setOnline(true);
 				await runFor(world, random.int(0, 3_000));
@@ -547,7 +598,9 @@ async function run(seed: number, steps: number) {
 			return;
 		}
 		const sent = new Map(request.commit.files.map((f) => [fold(f.path), f.text]));
-		for (const [said, { paths: group, texts, at }] of groups) for (const p of paths) if (group.has(p) && p.endsWith('.md') && sent.get(p) !== null && sent.get(p) === texts.get(p) && (firstSent.get(request.commit.id) ?? 0) > at) violations.push(`${p} of "${said}"'s group landed without its message before it did (at ${world.net.now()}, commit ${request.commit.id.slice(0, 7)} of ${paths.join(', ')})`);
+		// A note's text holds its tokens, so an equal one is that save's; a delete or a blob pointer recurs (a rename moves a pointer back), so an equal one is the group's only if no writer touched the path since.
+		const unique = (p: string, text: string | null) => p.endsWith('.md') && text !== null;
+		for (const [said, { paths: group, texts, at }] of groups) for (const p of paths) if (group.has(p) && sent.get(p) === texts.get(p) && (unique(p, texts.get(p) ?? null) || lastTouched(p) < at) && (firstSent.get(request.commit.id) ?? 0) > at) violations.push(`${p} of "${said}"'s group landed without its message before it did (at ${world.net.now()}, commit ${request.commit.id.slice(0, 7)} of ${paths.join(', ')})`);
 	});
 
 	function present() {
@@ -595,6 +648,8 @@ async function run(seed: number, steps: number) {
 
 	// Quiescence: everyone online, ada live, every upload through, editors stopped, the network calm.
 	world.calm();
+	// Editors finish the saves they are making before the stale buffers are saved.
+	while (writing.size > 0) await runFor(world, 10);
 	for (const [p, text] of stale) {
 		stale.delete(p);
 		retype(text);
@@ -647,11 +702,11 @@ async function run(seed: number, steps: number) {
 		if (!inServer && !inHeld) violations.push(`at quiescence, ${t} is not on the server`);
 	}
 	for (const [p, text] of [...server, ...folder.disk.texts().filter(([p]) => p.endsWith('.md'))]) {
-		const seen = new Map<string, number>();
-		// Outside conflict blocks: a block's sides repeat what each side held (a merge of texts that already hold blocks repeats lines across blocks, the core merge's rule), so only the settled text is counted.
-		const written = text.replace(/^<{7} [\s\S]*?^>{7} .*$/gm, '');
-		for (const t of written.match(TOKEN) ?? []) seen.set(t, (seen.get(t) ?? 0) + 1);
-		for (const [t, count] of seen) if (count > 1 && !retyped.has(t)) violations.push(`${t} appears ${count} times in ${p}${process.env.F_TRACE ? `:\n${text}` : ''}`);
+		for (const [version, written] of versionsOf(text)) {
+			const seen = new Map<string, number>();
+			for (const t of written.match(TOKEN) ?? []) seen.set(t, (seen.get(t) ?? 0) + 1);
+			for (const [t, count] of seen) if (count > 1 && !retyped.has(t)) violations.push(`${t} appears ${count} times in ${p} (${version})${process.env.F_TRACE ? `:\n${text}` : ''}`);
+		}
 	}
 	// Own writes never echo: quiet now, an idle period and a scan send nothing.
 	const pushes = folder.replica.stats().pushes;
@@ -666,11 +721,15 @@ async function run(seed: number, steps: number) {
 
 const seeds = SEED !== undefined ? [Number(SEED)] : Array.from({ length: RUNS }, (_, i) => FROM + i);
 test(`the folder engine holds its invariants over ${seeds.length} seeds of ${STEPS} steps`, async () => {
+	// Every seed runs, so one sweep names every failing seed; the first failure is shown in full.
+	const failed: { seed: number; first: string }[] = [];
+	let shown = '';
 	for (const seed of seeds) {
 		const { violations, log } = await run(seed, STEPS);
-		if (violations.length > 0) {
-			throw new Error(`seed ${seed} (F_SEED=${seed} F_STEPS=${STEPS}):\n${violations.slice(0, 10).join('\n')}\n\nsteps:\n${log.slice(-Number(process.env.F_LOG ?? 40)).join('\n')}`);
-		}
+		if (violations.length === 0) continue;
+		failed.push({ seed, first: violations[0] ?? '' });
+		if (shown === '') shown = `seed ${seed} (F_SEED=${seed} F_STEPS=${STEPS}):\n${violations.slice(0, 10).join('\n')}\n\nsteps:\n${log.slice(-Number(process.env.F_LOG ?? 40)).join('\n')}`;
 	}
+	if (failed.length > 0) throw new Error(`${failed.length} of ${seeds.length} seeds fail:\n${failed.map((f) => `  ${f.seed}: ${f.first}`).join('\n')}\n\n${shown}`);
 	expect(true).toBe(true);
 }, 3_600_000);
