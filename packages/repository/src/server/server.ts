@@ -111,6 +111,8 @@ export type CatchUp = {
 	commits: string[];
 	/** Ask again with `after` for the next page, or null on the last. */
 	next: string | null;
+	/** The commit a later page named has left the window: the device starts its catch-up again (no files, no next page). */
+	restart?: true;
 };
 
 /** One commit on `main`, for audits: what each path was and became. */
@@ -446,11 +448,15 @@ export function createServer({
 		 * What changed on `main` since `from`, as a tree diff, plus `paths` the
 		 * device names, one page at a time: a later page names `to` (the commit
 		 * the first page answered) and `after` (the last path it got). A
-		 * position outside the window gets every file.
+		 * position outside the window gets every file. RULE: a later page whose
+		 * `to` has left the window answers `restart`, never a page of another
+		 * commit: pages of two commits joined would stand a device on one with
+		 * the other's texts.
 		 */
 		catchUp({ from, paths = [], to, after }: { from: string | null; paths?: string[]; to?: string; after?: string }): CatchUp {
 			store.transaction(prune);
 			const toPlace = to === undefined ? undefined : history.placeOf(to);
+			if (to !== undefined && toPlace === undefined) return { main: main().id, full: true, files: [], commits: [], next: null, restart: true };
 			const target = toPlace === undefined ? main() : history.at(toPlace);
 			const index = from === null ? undefined : history.placeOf(from);
 			const full = index === undefined;

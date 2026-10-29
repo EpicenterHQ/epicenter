@@ -143,6 +143,17 @@ describe('catch-up and the change feed', () => {
 		expect(server.catchUp({ from })).toMatchObject({ full: true, files: [{ path: 'n/b.md' }, { path: 'n/c.md' }] });
 	});
 
+	test('a later page whose commit has left the window answers restart, never a page of another commit', () => {
+		const { server, clock } = setup({ page: 1 });
+		server.push(make(server, ['a', 'b'].map((name) => ({ path: `n/${name}.md`, text: note(`${name}\n`) }))), alice);
+		clock.now += LIMITS.window + 1;
+		const one = server.catchUp({ from: null });
+		expect(one).toMatchObject({ full: true, next: 'n/a.md' });
+		// A push between the pages prunes the commit the first page answered.
+		server.push(make(server, [{ path: 'n/a.md', text: note('a2\n') }]), alice);
+		expect(server.catchUp({ from: null, to: one.main, after: one.next ?? '' })).toEqual({ main: server.main(), full: true, restart: true, files: [], commits: [], next: null });
+	});
+
 	test('each commit on main is one event: its id, parents and changed paths with hashes, after it is stored', () => {
 		const { server } = setup();
 		const events: Event[] = [];

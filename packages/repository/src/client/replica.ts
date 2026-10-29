@@ -580,12 +580,17 @@ function createReplica({
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
 		if (f.sent !== undefined && !own) return;
 		if (f.unknown) {
-			// RULE: work whose outcome is unknown is put beside what is there, held for its person, never merged blindly.
-			const work = f.committed !== undefined ? f.committed.text : f.mine;
+			// RULE: work whose outcome is unknown is put beside what is there, held for its person, never merged blindly. `mine` is the newest of it: held text typed over the commit is in it too.
+			const work = f.mine;
+			// A delete is an intent, not typed text: where the path is as this device last had it, nothing landed there and the delete goes again; where it changed, the text stays, as a delete that lost to an edit does.
+			if (work === null && text !== null && text === f.base) {
+				set(path, { base: text, mine: null, committed: { text: null }, ...(f.together === undefined ? {} : { together: f.together }) });
+				return;
+			}
 			const mine =
-				work === text
+				work === text || work === null
 					? text
-					: work === null || text === null
+					: text === null
 						? work
 						: appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } });
 			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }) });
@@ -669,6 +674,17 @@ function createReplica({
 	function onUnknown() {
 		stats.unknown++;
 		const sent = inflight;
+		if (mode === 'fast-forward') {
+			// An agent's change is dropped, as on a refusal: it reads again and redoes its task.
+			for (const file of sent?.files ?? []) {
+				const { sent: _, committed: __, ...rest } = record(file.path);
+				set(file.path, { ...rest, mine: rest.base });
+			}
+			setInflight(null);
+			setPosition(null);
+			needCatchUp = true;
+			return;
+		}
 		const once = attempts <= 1;
 		for (const file of sent?.files ?? []) {
 			const { sent: level, ...rest } = record(file.path);
@@ -808,6 +824,11 @@ function createReplica({
 				break;
 			case 'caught-up': {
 				const page = message.catchUp;
+				// RULE: every page of one catch-up describes one commit: a page of another (the first page's commit left the window between pages) starts it again.
+				if (page.restart === true || (gathering !== null && (page.main !== gathering.main || page.full !== gathering.full))) {
+					catchUp();
+					break;
+				}
 				const whole: CatchUp = gathering === null ? page : { ...page, files: [...gathering.files, ...page.files] };
 				if (page.next !== null) {
 					// RULE: a catch-up comes in pages up to the server's limit; the device gathers them, then applies them at once.

@@ -9,7 +9,8 @@
  * editor buffer saved late, a note too large to store, renames (delete plus
  * write), deletes, deleting a path and creating it again (sometimes with the
  * very text it had before), agent commits (fast-forward, sometimes merge),
- * lost replies, offline periods, restarts, flushes, a device whose storage
+ * lost replies, offline periods, restarts, flushes, idle periods longer than
+ * the retention window, catch-ups in pages of two paths, a device whose storage
  * is lost for good, and a hostile member writing directly to the server.
  * Then everyone comes online, repairs and saves what they hold back, and the
  * network goes quiet.
@@ -45,7 +46,7 @@ import { escapeLines } from '../core/conflict.js';
 import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { MAIN } from '../server/git-store.js';
-import type { Committed, PushAnswer } from '../server/server.js';
+import { type Committed, LIMITS, type PushAnswer } from '../server/server.js';
 
 /**
  * What the property test needs of a world: the memory harness's surface,
@@ -126,6 +127,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		streamLoss: 0.04,
 		stall: { chance: 0.03, ms: 4_000 },
 		timeout: 1_500,
+		// Pages of two paths, so a catch-up of more comes in several, and a push can land between them.
+		limits: { page: 2 },
 		...(tracing ? { trace: (line: string) => log.push(line) } : {}),
 	});
 	const people = ['alice', 'bob', 'carol'].map((name) => world.device(name));
@@ -439,6 +442,15 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		[1, (d) => (d.loseNextReply(), `${d.name} will lose its next reply`)],
 		[1, (d) => (d.restart(), `${d.name} restarts`)],
 		[1, () => (world.flush(), 'the server flushes')],
+		// Nobody pushes for longer than the retention window: positions and answers older than it are pruned.
+		[
+			1,
+			async () => {
+				const ms = LIMITS.window + random.int(0, 120_000);
+				await world.runFor(ms);
+				return `the repository is idle for ${ms} ms`;
+			},
+		],
 		[
 			1,
 			async (d) => {

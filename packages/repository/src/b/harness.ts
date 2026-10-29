@@ -10,7 +10,7 @@
  */
 import { openBunSqlite } from '../bun/sqlite.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
-import { type Committed, createServer, type Event, SCHEDULE, type Session } from '../server/server.js';
+import { type Committed, createServer, type Event, type Limits, SCHEDULE, type Session } from '../server/server.js';
 import { unwrap } from 'wellcrafted/result';
 import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createNet, type LinkOptions } from './net.js';
@@ -37,6 +37,7 @@ export function createWorld({
 	streamLoss = 0,
 	stall,
 	timeout = 2_000,
+	limits,
 	trace,
 }: {
 	seed?: number;
@@ -48,6 +49,8 @@ export function createWorld({
 	/** Chance a request, reply or notification stalls, and for up to how long. */
 	stall?: LinkOptions['stall'];
 	timeout?: number;
+	/** The server's limits, such as a small catch-up page so catch-ups come in several. */
+	limits?: Partial<Limits>;
 	/** Called with a line for every request, reply and notification. */
 	trace?: (line: string) => void;
 } = {}) {
@@ -65,6 +68,7 @@ export function createWorld({
 		git,
 		clock: () => EPOCH + net.now(),
 		timer: net.after,
+		...(limits === undefined ? {} : { limits }),
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});
 	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0 };

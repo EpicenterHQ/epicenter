@@ -38,7 +38,7 @@ import type { PropertyWorld, WorldOptions } from './property.test-support.js';
 export type Transport = 'socket' | 'http';
 
 export function createWireWorld(
-	{ seed = 1, latency = { min: 5, max: 40 }, loss = { up: 0, down: 0 }, streamLoss = 0, stall, timeout = 2_000, trace }: WorldOptions = {},
+	{ seed = 1, latency = { min: 5, max: 40 }, loss = { up: 0, down: 0 }, streamLoss = 0, stall, timeout = 2_000, limits, trace }: WorldOptions = {},
 	{ transport = 'socket' }: { transport?: Transport } = {},
 ): PropertyWorld {
 	const net = createNet(seed);
@@ -53,6 +53,7 @@ export function createWireWorld(
 		git,
 		clock: () => EPOCH + net.now(),
 		timer: net.after,
+		...(limits === undefined ? {} : { limits }),
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});
 	const session = (user: string): Session => ({ user, role: members.has(user) ? 'writer' : null });
