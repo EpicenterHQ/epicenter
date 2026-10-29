@@ -30,6 +30,7 @@ test(
 		expect(modules.some((path) => path.endsWith('packages/repository/src/hosts/browser/index.ts'))).toBe(true);
 		expect(modules.some((path) => path.endsWith('apps/todos/src/TodosApp.svelte'))).toBe(true);
 		expect(modules.some((path) => path.endsWith('apps/honeycrisp/src/components/HoneycrispApp.svelte'))).toBe(true);
+		expect(modules.some((path) => path.endsWith('apps/files/src/FilesApp.svelte'))).toBe(true);
 		expect(modules.filter((path) => /packages\/folder\/src\/(?!file-browser|paths)/.test(path))).toEqual([]);
 	},
 	BUNDLE_TIMEOUT,

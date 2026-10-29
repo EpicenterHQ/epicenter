@@ -56,7 +56,8 @@ for (const [engine, browser] of ENGINES) {
 					await page.getByRole('heading', { name: 'You', exact: true }).waitFor();
 					expect(pathOf(page)).toBe('/me');
 					const installed = page.getByRole('list', { name: 'Apps installed in this browser' });
-					for (const hostname of [HOSTNAMES.todos, HOSTNAMES.honeycrisp]) await installed.getByText(hostname, { exact: true }).waitFor();
+					// A new device starts with Files, Todos and Honeycrisp installed.
+					await expect(installed.getByRole('listitem').locator('code').filter({ hasText: /\.epicenter\.so$/ }).allInnerTexts()).resolves.toEqual([HOSTNAMES.files, HOSTNAMES.todos, HOSTNAMES.honeycrisp]);
 					// Each install pins its bundle by hash.
 					for (const hash of await installed.getByTestId('app-hash').allInnerTexts()) expect(hash).toMatch(/^sha256-[0-9a-f]{12}/);
 					await page.getByRole('region', { name: 'Account' }).getByText('Accounts are not built yet').waitFor();
@@ -65,7 +66,8 @@ for (const [engine, browser] of ENGINES) {
 					await repositoryPage(page);
 					expect(pathOf(page)).toBe('/me/home');
 					await page.getByRole('heading', { name: 'Home', exact: true }).waitFor();
-					// A new home has no app's data: the apps are offered to start here.
+					// A new home has no app's data: it lists Files, and offers the others to start here.
+					await apps(page).getByRole('link', { name: 'Files' }).waitFor();
 					await others(page).getByRole('link', { name: 'Todos' }).waitFor();
 					await others(page).getByRole('link', { name: 'Honeycrisp' }).waitFor();
 					await expect(apps(page).getByRole('link', { name: 'Todos' }).count()).resolves.toBe(0);
@@ -207,7 +209,10 @@ for (const [engine, browser] of ENGINES) {
 					await missing.getByRole('heading', { name: 'recipes.pages.dev is not installed' }).waitFor();
 					await missing.getByRole('button', { name: 'Install recipes.pages.dev' }).click();
 					await missing.getByRole('alert').getByText('Installing an app from recipes.pages.dev is not built yet', { exact: false }).waitFor();
-					await expect(missing.getByRole('link', { name: 'Open in Files' }).getAttribute('href')).resolves.toBe(`/me/home/${HOSTNAMES.files}/notes/pasta.md`);
+					await missing.getByRole('link', { name: 'Open in Files' }).click();
+					await page.waitForURL((url) => url.pathname === `/me/home/${HOSTNAMES.files}/notes/pasta.md`);
+					await opened(page, 'files');
+					await page.getByRole('region', { name: 'File' }).getByText('No file is at notes/pasta.md').waitFor();
 
 					// An app's old address, by a short name, is no address: an app is its hostname.
 					await page.goto(world.url(person, '/me/home/todos'));

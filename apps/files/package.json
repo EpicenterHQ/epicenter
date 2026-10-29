@@ -1,0 +1,36 @@
+{
+	"name": "@epicenter/files",
+	"description": "Files: any repository as folders and files, through the plain file API, as an app (ADR-0694); where a link falls back when its own app is not installed",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/manifest.ts",
+		"./bundle": "./src/bundle.ts"
+	},
+	"scripts": {
+		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
+		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte dom.test",
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
+	},
+	"dependencies": {
+		"@epicenter/app": "workspace:*",
+		"@epicenter/repository": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"@types/jsdom": "21.1.7",
+		"jsdom": "26.1.0",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"typescript": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"peerDependencies": {
+		"svelte": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

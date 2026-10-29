@@ -5,7 +5,7 @@ import { workspaceAppViteConfig } from '@epicenter/vite-config';
 import { defineConfig, mergeConfig } from 'vite';
 
 /** The first-party bundles compiled into the shell, by package directory. */
-const BUNDLES = ['todos', 'honeycrisp'] as const;
+const BUNDLES = ['files', 'todos', 'honeycrisp'] as const;
 
 /**
  * The SHA-256 of a package's source as this build compiles it: every file

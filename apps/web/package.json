@@ -31,6 +31,7 @@
 	},
 	"dependencies": {
 		"@epicenter/app": "workspace:*",
+		"@epicenter/files": "workspace:*",
 		"@epicenter/honeycrisp": "workspace:*",
 		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",

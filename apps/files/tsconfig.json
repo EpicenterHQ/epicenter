@@ -1,0 +1,7 @@
+{
+	"extends": "../../tsconfig.dom.json",
+	"compilerOptions": {
+		"types": ["bun"]
+	},
+	"include": ["src/**/*"]
+}

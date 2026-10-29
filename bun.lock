@@ -141,6 +141,29 @@
         "vite": "catalog:",
       },
     },
+    "apps/files": {
+      "name": "@epicenter/files",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/app": "workspace:*",
+        "@epicenter/repository": "workspace:*",
+        "@epicenter/svelte": "workspace:*",
+        "@epicenter/ui": "workspace:*",
+        "@lucide/svelte": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "@types/jsdom": "21.1.7",
+        "jsdom": "26.1.0",
+        "svelte": "catalog:",
+        "svelte-check": "catalog:",
+        "typescript": "catalog:",
+        "wellcrafted": "catalog:",
+      },
+      "peerDependencies": {
+        "svelte": "catalog:",
+      },
+    },
     "apps/honeycrisp": {
       "name": "@epicenter/honeycrisp",
       "version": "0.0.2",
@@ -347,6 +370,7 @@
       "version": "0.0.1",
       "dependencies": {
         "@epicenter/app": "workspace:*",
+        "@epicenter/files": "workspace:*",
         "@epicenter/honeycrisp": "workspace:*",
         "@epicenter/repository": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -1026,6 +1050,8 @@
     "@epicenter/definition": ["@epicenter/definition@workspace:packages/definition"],
 
     "@epicenter/epicenter": ["@epicenter/epicenter@workspace:apps/epicenter"],
+
+    "@epicenter/files": ["@epicenter/files@workspace:apps/files"],
 
     "@epicenter/folder": ["@epicenter/folder@workspace:packages/folder"],
 
