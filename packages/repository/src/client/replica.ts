@@ -799,11 +799,11 @@ function createReplica({
 	}
 
 	/**
-	 * Take the files saved since they last went out into the unsent commit
+	 * Cut: take the files saved since they last went out into the unsent commit
 	 * (amended while one is in flight or offline). One the door refuses is
 	 * held instead, so held text goes only with its own next save.
 	 */
-	function commit() {
+	function cut() {
 		for (const [path, f] of filesWhere('saved = 1')) {
 			const refusal = f.mine === tip(f) ? null : admissible(path, f.mine);
 			if (refusal !== null) {
@@ -862,7 +862,7 @@ function createReplica({
 			}
 			if (batching === 0 && cutDue) {
 				cutDue = false;
-				commit();
+				cut();
 			}
 			return value;
 		});
@@ -881,7 +881,7 @@ function createReplica({
 	): Changed {
 		return atomically(() => {
 			const call = newCall(message ?? null);
-			// RULE: a save joins the call of the saved or held text it replaces at its path: a new text over a held file of a group, or over a rename's half not yet committed, still goes with the rest. An unsent commit below it is met when this save is cut (`commit`).
+			// RULE: a save joins the call of the saved or held text it replaces at its path: a new text over a held file of a group, or over a rename's half not yet committed, still goes with the rest. An unsent commit below it is met when this save is cut (`cut`).
 			for (const given of Object.keys(changes)) {
 				const f = record(spelled(given));
 				if (f.call !== undefined) join(f.call, call);
@@ -910,7 +910,7 @@ function createReplica({
 				set(path, { ...f, call, mine: next, saved: true });
 			}
 			if (batching > 0) cutDue = true;
-			else commit();
+			else cut();
 			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
 			return { texts: Object.fromEntries(Object.keys(changes).map((given) => [given, record(spelled(given)).mine])), revision: revision + (changed.size > 0 ? 1 : 0), call };
 		});
@@ -1018,7 +1018,7 @@ function createReplica({
 		stats.pushes++;
 		request({ type: 'push', rid: takeRid(), commit: sent });
 		// A save that waited for this commit to go (it is never amended) is free to commit now.
-		if (message !== null && first(driver, 'SELECT 1 FROM "epicenter/files" WHERE saved = 1') !== undefined) commit();
+		if (message !== null && first(driver, 'SELECT 1 FROM "epicenter/files" WHERE saved = 1') !== undefined) cut();
 	}
 
 	// ==========================================================================
@@ -1524,7 +1524,7 @@ function createReplica({
 	}
 
 	// Work saved before a restart and not yet committed is committed now.
-	if (first(driver, 'SELECT 1 FROM "epicenter/files" WHERE saved = 1') !== undefined) atomically(commit);
+	if (first(driver, 'SELECT 1 FROM "epicenter/files" WHERE saved = 1') !== undefined) atomically(cut);
 
 	/** One file's state: synced, sending, or held with why. */
 	function stateOf(path: string): FileStatus {
@@ -1679,7 +1679,7 @@ function createReplica({
 			atomically(() => {
 				for (const path of pointing(oid)) changed.add(path);
 				driver.run('INSERT OR REPLACE INTO "epicenter/objects" (oid, size) VALUES (?, ?)', [oid, size]);
-				commit();
+				cut();
 			});
 		},
 		/**
