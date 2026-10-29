@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chromium, type Page, webkit } from 'playwright';
 import { expectOk } from 'wellcrafted/testing';
-import { serveRepository } from '../src/ws/server.js';
+import { serveRepository } from '../src/legacy-ws/server.js';
 import { startGate } from './gate.js';
 import { startSite } from './site.js';
 import { launchProfile, openTab, reopen, TIMEOUT, uniqueName } from './support.js';

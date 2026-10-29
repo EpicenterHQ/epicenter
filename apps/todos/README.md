@@ -19,7 +19,7 @@ Open the URL Vite prints. The header says **On this device**. Open a second tab 
 To sync, serve a repository on this machine and build Todos against it:
 
 ```sh
-bun packages/repository/scripts/serve.ts /tmp/todos.git
+bun packages/repository/scripts/serve-legacy.ts /tmp/todos.git
 VITE_TODOS_SERVER='ws://127.0.0.1:8787/?user=me' bun dev:todos:ui
 ```
 

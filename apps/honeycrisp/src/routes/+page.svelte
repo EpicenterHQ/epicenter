@@ -10,7 +10,7 @@
 
 	/**
 	 * The server to sync with, set at build time, such as
-	 * `ws://127.0.0.1:8787/?user=me` from `bun packages/repository/scripts/serve.ts`.
+	 * `ws://127.0.0.1:8787/?user=me` from `bun packages/repository/scripts/serve-legacy.ts`.
 	 * Without one, Honeycrisp keeps its notes on this device.
 	 */
 	const server: string | undefined = import.meta.env.VITE_HONEYCRISP_SERVER || undefined;

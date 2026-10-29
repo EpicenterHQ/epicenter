@@ -11,15 +11,15 @@
 		"./conflict": "./src/core/conflict.ts",
 		"./bun": "./src/bun/index.ts",
 		"./browser": "./src/browser/index.ts",
-		"./ws": "./src/ws/index.ts",
-		"./ws/server": "./src/ws/server.ts",
+		"./legacy-ws": "./src/legacy-ws/index.ts",
+		"./legacy-ws/server": "./src/legacy-ws/server.ts",
 		"./svelte": "./src/svelte/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test --path-ignore-patterns='browser-tests/**'",
 		"test:browser": "bun test browser-tests/",
-		"serve": "bun scripts/serve.ts"
+		"serve:legacy": "bun scripts/serve-legacy.ts"
 	},
 	"dependencies": {
 		"@sqlite.org/sqlite-wasm": "^3.54.1-build1",

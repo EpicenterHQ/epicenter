@@ -9,7 +9,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { serveRepository } from '@epicenter/repository/ws/server';
+import { serveRepository } from '@epicenter/repository/legacy-ws/server';
 import type { BrowserType, Page } from 'playwright';
 
 export const TIMEOUT = 90_000;

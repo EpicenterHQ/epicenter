@@ -25,7 +25,7 @@ From the repository root:
 To sync, serve a repository on this machine and build Honeycrisp against it:
 
 ```sh
-bun packages/repository/scripts/serve.ts /tmp/notes.git
+bun packages/repository/scripts/serve-legacy.ts /tmp/notes.git
 VITE_HONEYCRISP_SERVER='ws://127.0.0.1:8787/?user=me' bun dev:honeycrisp
 ```
 

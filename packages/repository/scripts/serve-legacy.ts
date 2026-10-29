@@ -1,7 +1,7 @@
 /**
  * Serve one repository over WebSocket on this machine:
  *
- *   bun packages/repository/scripts/serve.ts <repo-dir> [--port 8787] [--host 127.0.0.1]
+ *   bun packages/repository/scripts/serve-legacy.ts <repo-dir> [--port 8787] [--host 127.0.0.1]
  *
  * `<repo-dir>` is a bare Git repository, created when missing; clone it with
  * `git clone <repo-dir>` to read what devices wrote once it is committed.
@@ -9,7 +9,7 @@
  */
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { serveRepository } from '../src/ws/server.js';
+import { serveRepository } from '../src/legacy-ws/server.js';
 
 const { values, positionals } = parseArgs({
 	args: Bun.argv.slice(2),
@@ -22,7 +22,7 @@ const { values, positionals } = parseArgs({
 });
 const [dir] = positionals;
 if (dir === undefined) {
-	console.error('Usage: bun packages/repository/scripts/serve.ts <repo-dir> [--port 8787] [--host 127.0.0.1] [--commit-after ms]');
+	console.error('Usage: bun packages/repository/scripts/serve-legacy.ts <repo-dir> [--port 8787] [--host 127.0.0.1] [--commit-after ms]');
 	process.exit(2);
 }
 const served = await serveRepository({

@@ -11,7 +11,7 @@ import { type Definitions, defineApp } from '../core/lens.js';
 import { type Engine, openEngine } from '../engine/engine.js';
 import { offlineTransport } from '../engine/ports.js';
 import type { SqlDriver } from '../sql.js';
-import { createWebSocketTransport } from '../ws/client.js';
+import { createWebSocketTransport } from '../legacy-ws/client.js';
 import type { Described, Init, TabMessage, WorkerMessage } from './messages.js';
 import { openOpfsDatabase } from './sqlite.js';
 
