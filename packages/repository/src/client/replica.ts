@@ -459,9 +459,12 @@ function createReplica({
 	const committedFiles = (): [string, FileView][] =>
 		pathsOf('SELECT u.path FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path ORDER BY f.rowid').map((path) => [path, record(path)]);
 
-	/** Store a file's record (its `sent` level lives in the commit in flight). */
-	function set(path: string, { sent: _, ...next }: FileView) {
+	/** Store a file's record (its `sent` level lives in the commit in flight). RULE: a file is in a group only while it has work: once it has nothing to send, it leaves. */
+	function set(path: string, { sent: _, ...given }: FileView) {
 		const before = stored(path);
+		const idle = given.mine === given.base && given.committed === undefined && given.saved === undefined && given.held === undefined && !sentTexts.has(path);
+		const { together: grouped, ...rest } = given;
+		const next: FileRecord = idle || grouped === undefined ? rest : { ...rest, together: grouped };
 		const empty =
 			next.base === null &&
 			next.mine === null &&
@@ -610,6 +613,9 @@ function createReplica({
 		return pointer !== null && first(driver, 'SELECT 1 FROM "epicenter/objects" WHERE oid = ?', [pointer.oid]) === undefined;
 	}
 
+	/** The paths saved with `path` that still count it as one of theirs: one that went out or settled without it has left the group. */
+	const partners = (path: string, f: FileRecord) => (f.together ?? []).filter((other) => stored(other)?.together?.includes(path) === true);
+
 	/**
 	 * What keeps `path` from going: a file of its group (itself, or one saved
 	 * with it) that is held, or else one owed its bytes; null when nothing does.
@@ -624,7 +630,7 @@ function createReplica({
 			const f = record(at);
 			if (heldReason(f) !== null) return { path: at, held: true };
 			if (owed === null && owes(at, f)) owed = at;
-			visit.push(...(f.together ?? []));
+			visit.push(...partners(at, f));
 		}
 		return owed === null ? null : { path: owed, held: false };
 	}
@@ -637,7 +643,7 @@ function createReplica({
 	function unit(path: string, among: Map<string, FileView>, into = new Set<string>()) {
 		if (into.has(path) || !among.has(path)) return into;
 		into.add(path);
-		for (const other of among.get(path)?.together ?? []) unit(other, among, into);
+		for (const other of partners(path, among.get(path) ?? { base: null, mine: null })) unit(other, among, into);
 		return into;
 	}
 
@@ -857,12 +863,12 @@ function createReplica({
 						: isNote(path)
 							? appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } })
 							: work;
-			// Held work keeps its group: it goes again with the rest of what was saved with it, or not at all.
-			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' }, ...(f.together === undefined ? {} : { together: f.together }) }) });
+			// Held work keeps its group (set): it goes again with the rest of what was saved with it, or not at all.
+			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }), ...(f.together === undefined ? {} : { together: f.together }) });
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
-		if (!isNote(path)) return integratePointer(path, f, text, below, own);
+		if (!isNote(path)) return integratePointer(path, f, text, below);
 		const gone = deleted && !own;
 		// Committed work is rebased onto the new text; a delete or removal that loses to an edit leaves the edit.
 		let committed: string | null | undefined;
@@ -877,8 +883,8 @@ function createReplica({
 			if (f.held !== undefined) next.held = f.held;
 			if (f.saved !== undefined) next.saved = true;
 		}
-		// A group lasts until its own commit lands: while anything of it is unsent here.
-		if (f.together !== undefined && (!own || next.committed !== undefined || next.mine !== next.base)) next.together = f.together;
+		// A group lasts while this file has work (set).
+		if (f.together !== undefined) next.together = f.together;
 		set(path, next);
 	}
 
@@ -890,7 +896,7 @@ function createReplica({
 	 * held with why; a delete over one that moved is dropped, and the file
 	 * stays.
 	 */
-	function integratePointer(path: string, f: FileView, text: string | null, below: string | null, own: boolean) {
+	function integratePointer(path: string, f: FileView, text: string | null, below: string | null) {
 		let held = f.held;
 		let committed: string | null | undefined;
 		/** What `mine` now sits on: the committed work if it still lands, else `main`. */
@@ -918,8 +924,8 @@ function createReplica({
 			if (held !== undefined) next.held = held;
 			else if (f.saved !== undefined) next.saved = true;
 		}
-		// A group lasts until its own commit lands, as a note's does.
-		if (f.together !== undefined && (!own || next.committed !== undefined || next.mine !== next.base)) next.together = f.together;
+		// A group lasts while this file has work (set).
+		if (f.together !== undefined) next.together = f.together;
 		set(path, next);
 	}
 

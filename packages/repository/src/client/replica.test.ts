@@ -393,3 +393,22 @@ test('a database made before the fold column opens, the column filled from each 
 	expect(replica.read('notes/Plan.md')).toBe(note('one\n', 'B'));
 	expect(replica.query('SELECT body FROM "epicenter/files"')).toEqual([{ body: 'one\n' }]);
 });
+
+test('a file with nothing left to send leaves its group: a later hold on it never stops what was saved with it', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\n') });
+	link.deliver();
+	// One call saves a with nothing changed and b changed, offline: a has nothing to send, so it is in no group.
+	replica.attach(null);
+	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\nmore\n') });
+	// A later save of a alone that the door refuses holds a, and only a.
+	replica.write('notes/a.md', '---\ntitle: [\n---\n');
+	expect(replica.state('notes/a.md').status).toBe('held');
+	expect(replica.state('notes/b.md')).toEqual({ status: 'sending' });
+	replica.attach(link.sent.push.bind(link.sent));
+	link.deliver();
+	expect(server.read('notes/b.md')).toBe(note('b\nmore\n'));
+});
