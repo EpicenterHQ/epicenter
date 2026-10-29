@@ -34,6 +34,8 @@ if (dir === undefined) {
 }
 const server = await openDiskRepository(resolve(dir));
 const served = serveRepository({
+	// A repository on disk is identified by its directory.
+	repository: resolve(dir),
 	server,
 	authenticate: authenticateBearer((token) => ({ user: token, role: 'owner' })),
 	hostname: values.host,

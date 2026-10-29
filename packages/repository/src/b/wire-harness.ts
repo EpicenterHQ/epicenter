@@ -54,7 +54,7 @@ export function createWireWorld(
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});
 	const session = (user: string): Session => ({ user, role: members.has(user) ? 'writer' : null });
-	const served = serveRepository({ server, authenticate: authenticateBearer(session) });
+	const served = serveRepository({ repository: 'test', server, authenticate: authenticateBearer(session) });
 	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0 };
 
 	/** Real I/O in progress: the world waits for all of it before the next event. */

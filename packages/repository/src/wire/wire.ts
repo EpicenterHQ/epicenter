@@ -32,9 +32,10 @@
  *
  * The socket is authenticated when it connects, and the host closes it
  * (4401) when the session expires. Up, a device sends `push` and `catch-up`
- * requests with its own request id; down, it gets `head` (main, first, so a
+ * requests with its own request id; down, it gets `head` first (main, so a
  * device that reconnects resumes from its last head by catching up when the
- * two differ), `commit` events (id, parents, changed paths with hashes,
+ * two differ, and the repository's id and the session's user, so a replica
+ * bound to another repository or account refuses the socket), `commit` events (id, parents, changed paths with hashes,
  * never texts), and `answer`, `caught-up` or `error` replies naming the
  * request id. A commit's answer goes to its device before the commit's
  * event goes to anyone, and everything is in the server's order. The only
@@ -68,7 +69,7 @@ export type SocketHub = {
 	 * as the socket's only state: Bun's `server.upgrade` with it as data, or
 	 * a Durable Object's `acceptWebSocket` with it as the attachment.
 	 * Undefined when the host took the request over. Once the socket is
-	 * open, the host sends it `wire.hello()` first, hands every message to
+	 * open, the host sends it `wire.hello(verified)` first, hands every message to
 	 * `wire.receive`, and closes it (4401) when the session expires.
 	 */
 	upgrade(request: Request, verified: Verified): Response | undefined;
@@ -87,7 +88,8 @@ export type SocketRequest = { type: 'push'; rid: number; commit: LiveCommit } | 
 
 /** What a socket carries down: main when it opens, each commit on main (never texts), and the replies to its own requests. */
 export type SocketMessage =
-	| { type: 'head'; main: string }
+	/** The repository this socket reaches and the account it is signed in as, so a replica bound elsewhere refuses it. */
+	| { type: 'head'; main: string; repository: string; user: string }
 	| ({ type: 'commit' } & Event)
 	| { type: 'answer'; rid: number; status: number; answer: PushAnswer }
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
@@ -234,12 +236,15 @@ const failure = (status: number, error: string, headers: Record<string, string> 
 // ============================================================================
 
 export function createWire({
+	repository,
 	server,
 	authenticate,
 	sockets,
 	limits: given = {},
 	clock = () => Date.now(),
 }: {
+	/** The repository's id, as the host names it: a replica records it and refuses a socket that names another. */
+	repository: string;
 	server: Server;
 	authenticate: Authenticate;
 	sockets: SocketHub;
@@ -404,8 +409,13 @@ export function createWire({
 				clearTimeout(timer);
 			}
 		},
-		/** The first message a socket gets once open: `main` now, so a reconnecting device knows whether it missed anything. */
-		hello: () => JSON.stringify({ type: 'head', main: server.main() } satisfies SocketMessage),
+		/**
+		 * The first message a socket whose session is `verified` gets once
+		 * open: `main` now, so a reconnecting device knows whether it missed
+		 * anything, and which repository and account the socket is, so a
+		 * replica bound elsewhere refuses it.
+		 */
+		hello: (verified: Verified) => JSON.stringify({ type: 'head', main: server.main(), repository, user: verified.user } satisfies SocketMessage),
 		/**
 		 * Take one message from a socket whose session is `verified`, replying
 		 * on `end`. A message past the body limit is refused unread: a push

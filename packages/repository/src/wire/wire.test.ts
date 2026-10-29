@@ -46,7 +46,7 @@ function setup({
 }: { limits?: Partial<Limits>; wire?: Partial<WireLimits>; authenticate?: Authenticate } = {}) {
 	const clock = { now: EPOCH };
 	const server = createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock: () => clock.now, ...(limits === undefined ? {} : { limits }) });
-	const served = serveRepository({ server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
+	const served = serveRepository({ repository: 'test', server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
 	stops.push(served.stop);
 	const url = (path: string) => new URL(path, served.url).href;
 	const as = (user: string, headers: Record<string, string> = {}) => ({ authorization: `Bearer ${user}`, ...headers });
@@ -332,7 +332,7 @@ describe("the device's socket", () => {
 		const rita = open(served.url, 'rita');
 		await until(() => alice.messages.length === 1 && rita.messages.length === 1);
 		const base = server.main();
-		expect(rita.messages[0]).toEqual({ type: 'head', main: base });
+		expect(rita.messages[0]).toEqual({ type: 'head', main: base, repository: 'test', user: 'rita' });
 		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
 		alice.socket.send({ type: 'push', rid: 7, commit });
 		await alice.socket.ping();

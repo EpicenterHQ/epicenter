@@ -26,6 +26,7 @@ const ServeError = defineErrors({
 
 /** Serve `server` over the wire on `hostname:port` (0 picks a free port). */
 export function serveRepository({
+	repository,
 	server,
 	authenticate,
 	hostname = '127.0.0.1',
@@ -33,6 +34,8 @@ export function serveRepository({
 	limits,
 	log = createLogger('repository/serve'),
 }: {
+	/** The repository's id, which every socket's hello names. */
+	repository: string;
 	server: Server;
 	authenticate: Authenticate;
 	hostname?: string;
@@ -42,6 +45,7 @@ export function serveRepository({
 }) {
 	let bun: BunServer<SocketData> | undefined;
 	const wire = createWire({
+		repository,
 		server,
 		authenticate,
 		...(limits === undefined ? {} : { limits }),
@@ -66,7 +70,7 @@ export function serveRepository({
 				if (expires !== undefined) socket.data.expiry = setTimeout(() => socket.close(SESSION_EXPIRED, 'The session expired'), Math.max(0, expires - Date.now()));
 				// Subscribed and told `main` in one step, so no commit falls between the two.
 				socket.subscribe(EVENTS);
-				socket.send(wire.hello());
+				socket.send(wire.hello(socket.data.verified));
 			},
 			message(socket, message) {
 				wire.receive(typeof message === 'string' ? message : new TextDecoder().decode(message), socket.data.verified, {
