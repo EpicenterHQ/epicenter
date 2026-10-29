@@ -124,6 +124,20 @@ export function writeMarkdown(
 	return Ok(`${OPEN}${yaml}---\n${body}`);
 }
 
+/** A text's body: what follows its frontmatter, or the whole text when it has none. */
+export const bodyOf = (text: string) => text.slice(splitMarkdown(text).bodyStart);
+
+/**
+ * `text` with its body replaced by `body`, its frontmatter kept byte for
+ * byte whether it parses or not, so an editor's body never touches a field.
+ */
+export function withBody(text: string, body: string) {
+	const header = text.slice(0, splitMarkdown(text).bodyStart);
+	// A closing fence at the very end has no newline after it yet.
+	if (header !== '' && !header.endsWith('\n') && body !== '') return `${header}\n${body}`;
+	return guardBody(header, body);
+}
+
 /** A body after an empty header must not itself read as frontmatter. */
 function guardBody(header: string, body: string) {
 	return header === '' && splitMarkdown(body).yaml !== null ? `${OPEN}---\n${body}` : header + body;

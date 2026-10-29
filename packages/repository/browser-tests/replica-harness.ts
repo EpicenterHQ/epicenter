@@ -88,7 +88,7 @@ const api = {
 	},
 	close: () => tab?.close(),
 	manifest: () => current().manifest,
-	write: async (path: string, text: string | null) => plain(await current().write(path, text)),
+	write: async (path: string, text: string | null) => plain(await current().change([{ kind: 'write', path, text }])),
 	read: (path: string) => current().read(path),
 	untilText: (path: string, text: string | null) => until(async () => (await current().read(path)) === text, `${path} to read ${JSON.stringify(text)}`),
 	unsent: () => current().unsent(),
@@ -96,7 +96,7 @@ const api = {
 	query: (sql: string) => current().query(sql),
 	/** Write and, in the same task, freeze the page, as a browser freezing a background tab right after a keystroke. */
 	writeThenFreeze(path: string, text: string) {
-		clicked.push(current().write(path, text));
+		clicked.push(current().change([{ kind: 'write', path, text }]));
 		document.dispatchEvent(new Event('freeze'));
 		return clicked.length - 1;
 	},
@@ -212,7 +212,7 @@ const button = document.createElement('button');
 button.id = 'save';
 button.textContent = 'Save';
 button.addEventListener('click', () => {
-	if (armed !== null) clicked.push(current().write(armed.path, armed.text));
+	if (armed !== null) clicked.push(current().change([{ kind: 'write', path: armed.path, text: armed.text }]));
 });
 document.body.append(button);
 

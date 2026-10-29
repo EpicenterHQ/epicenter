@@ -7,9 +7,9 @@
  */
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
-import { Ok, type Result } from 'wellcrafted/result';
+import type { Result } from 'wellcrafted/result';
 import type { BlobStoreError, Sealed } from '../../client/blobs.js';
-import { openReplica, type Replica } from '../../client/replica.js';
+import { type Change, type Changed, type ChangeError, openReplica, type Replica } from '../../client/replica.js';
 import { connectSocket } from '../../client/socket.js';
 import type { SqlDriver, SqlValue } from '../../sql.js';
 import { createWireClient } from '../../wire/client.js';
@@ -40,15 +40,15 @@ function replicaMethods(replica: Replica, blobs: OpfsBlobStore) {
 		/** Paths whose text has not reached the server: unsent, in flight, or held. */
 		unsent: () => replica.unsent(),
 		/**
-		 * Save texts, each merged with what this device shows if that moved
-		 * since `over`. Stored, or not at all: a save storage refuses (full,
-		 * or failing) changes nothing, and says so before anything is acknowledged.
+		 * Apply changes over what this device shows now, in one transaction:
+		 * each path's resulting text and the revision come back. Stored, or
+		 * not at all: a save storage refuses (full, or failing) changes
+		 * nothing, and says so before anything is acknowledged.
 		 */
-		write(changes: Record<string, string | null>, over?: Record<string, string | null>): Result<undefined, SaveError> {
+		change(changes: Change[]): Result<Changed, ChangeError | SaveError> {
 			clearReported();
 			try {
-				replica.writeAll(changes, over === undefined ? {} : { over });
-				return Ok(undefined);
+				return replica.change(changes);
 			} catch (cause) {
 				if (storageWasFull()) return SaveError.QuotaExceeded();
 				return SaveError.Failed({ reason: extractErrorMessage(cause) });
@@ -124,7 +124,7 @@ export function serveReplicaWorker() {
 		}
 		const connection = manifest.url === null ? null : connectSocket(replica, createWireClient({ url: manifest.url, headers, tickets: true }), { log });
 		const blobs = createOpfsBlobStore(objects);
-		replica.watch((paths) => post({ type: 'changed', paths }));
+		replica.watch((paths, revision) => post({ type: 'changed', paths, revision }));
 		methods = replicaMethods(replica, blobs);
 		close = async () => {
 			await blobs.close();

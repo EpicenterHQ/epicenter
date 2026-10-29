@@ -11,12 +11,15 @@
  * - Changing one field leaves other keys, comments and quoting byte-identical
  * - New keys append; removed keys disappear with their lines
  * - Pointers parse strictly and round-trip
+ * - Replacing a body keeps the frontmatter byte for byte, parsing or not
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	BODY_SQL,
+	bodyOf,
+	withBody,
 	parseMarkdown,
 	parsePointer,
 	splitMarkdown,
@@ -154,4 +157,19 @@ describe('LFS pointers', () => {
 		expect(parsePointer(writePointer({ oid, size: 1 }).trimEnd())).toBeNull();
 		expect(parsePointer(writePointer({ oid: 'z'.repeat(64), size: 1 }))).toBeNull();
 	});
+});
+
+test('replacing a body keeps the frontmatter byte for byte, parsing or not, and the body reads back', () => {
+	const cases = [
+		['---\ntitle: A # kept\n---\none\n', 'two\n'],
+		['---\ntitle: A\ntitle: B\n---\none\n', 'two\n'],
+		['---\ntitle: A\n---', 'two\n'],
+		['no frontmatter\n', '---\na: 1\n---\nlooks like frontmatter\n'],
+		['---\ntitle: A\n---\none\n', ''],
+	] as const;
+	for (const [text, body] of cases) {
+		const next = withBody(text, body);
+		expect(bodyOf(next)).toBe(body);
+		expect(next.slice(0, next.length - body.length).startsWith(text.slice(0, text.length - bodyOf(text).length))).toBe(true);
+	}
 });

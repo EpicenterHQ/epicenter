@@ -59,6 +59,6 @@ export type WorkerMessage =
 	| { type: 'answer'; id: number; value: unknown }
 	| { type: 'failed'; id: number; reason: string }
 	/** These paths' text or state changed, and the change is stored. */
-	| { type: 'changed'; paths: string[] }
+	| { type: 'changed'; paths: string[]; revision: number }
 	/** The database is closed and its storage released. */
 	| { type: 'closed' };

@@ -67,7 +67,7 @@ import { commitId, type LiveCommit } from '../core/commit.js';
 import { admissible, fold } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
-import { BODY_SQL, parseMarkdown, parsePointer } from '../core/markdown.js';
+import { BODY_SQL, bodyOf, parseMarkdown, parsePointer, withBody, writeMarkdown } from '../core/markdown.js';
 import { appendBlock, settle } from '../core/settle.js';
 import type { CatchUp, Event, PushAnswer, RequestCode, TextCode } from '../server/server.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
@@ -100,6 +100,34 @@ export type Sizing = { request: number; files: number };
 
 /** What the first exchange of a connection says: where the transport reached (the server's id), the session's user (whom its commits name), `main` there, and the server's bounds on a push. */
 export type Hello = { repository: string; server: string; account: string | null; user: string; main: string; limits?: Sizing };
+
+/**
+ * One change to a file, made over the text this device shows when it is
+ * applied, so a page that started from an older text never reverts a newer
+ * one. Every change ends in the same save (merged where the file moved
+ * since what the caller started from) and the same rules for what is held.
+ */
+export type Change =
+	/** A new note. A path that holds a note already keeps it and gets this one as one conflict block, as two creates do. */
+	| { kind: 'create'; path: string; text: string }
+	/** Set fields on the note as it is now (a field set to undefined is removed): its other keys, their formatting and its body stay. */
+	| { kind: 'patch'; path: string; fields: Record<string, unknown> }
+	| { kind: 'delete'; path: string }
+	/** Exact source: `text`, made from `over`; where the file moved since `over`, the two are merged. Without `over`, the caller asserts it started from what this device shows now. */
+	| { kind: 'write'; path: string; text: string | null; over?: string | null }
+	/** The body went from `from` to `to`, under the note's frontmatter as it is now; where the body moved since `from`, the two are merged. */
+	| { kind: 'edit-body'; path: string; from: string; to: string };
+
+/** What a change answers: each path's text after it, and the revision that change made (or the one already there, if it changed nothing). */
+export type Changed = { texts: Record<string, string | null>; revision: number };
+
+export const ChangeError = defineErrors({
+	/** A patch or body edit named a path this device shows no file at. */
+	NotFound: ({ path }: { path: string }) => ({ message: `There is no note at ${path}`, path }),
+	/** A patch named a note whose frontmatter does not parse, so it has no fields to set. */
+	Unparseable: ({ path, reason }: { path: string; reason: string }) => ({ message: `The frontmatter of ${path} does not parse: ${reason}`, path, reason }),
+});
+export type ChangeError = InferErrors<typeof ChangeError>;
 
 export const ReplicaError = defineErrors({
 	BoundElsewhere: ({ field, bound, given }: { field: keyof Binding; bound: string | null; given: string | null }) => ({
@@ -310,6 +338,8 @@ function createReplica({
 	/** The texts of the commit in flight, by path: each file's `sent` level. */
 	let sentTexts = new Map<string, string | null>();
 	let passedN = 0;
+	/** Counts changes stored: each transaction that changes a file's text or state makes the next one. */
+	let revision = 0;
 
 	/** Read what a restart keeps beside the files: the commit in flight, the position, the counters. */
 	function load() {
@@ -320,6 +350,7 @@ function createReplica({
 		position = meta.get('position');
 		next = Number(meta.get('next') ?? 1);
 		passedN = first<{ n: number | null }>(driver, 'SELECT MAX(n) AS n FROM "epicenter/passed"')?.n ?? 0;
+		revision = Number(meta.get('revision') ?? 0);
 	}
 	load();
 
@@ -449,14 +480,21 @@ function createReplica({
 	const outgoing: { to: (request: Request) => void; request: Request }[] = [];
 	/** Paths whose text or state changed in the transaction running. */
 	const changed = new Set<string>();
-	const listeners = new Set<(paths: string[]) => void>();
+	const listeners = new Set<(paths: string[], revision: number) => void>();
 
 	function atomically<T>(fn: () => T): T {
 		if (depth > 0) return fn();
 		depth++;
 		let result: T;
 		try {
-			result = driver.transaction(fn);
+			result = driver.transaction(() => {
+				const value = fn();
+				if (changed.size > 0) {
+					revision++;
+					meta.set('revision', String(revision));
+				}
+				return value;
+			});
 		} catch (cause) {
 			// Rolled back: what is in memory is read again from what the database kept.
 			outgoing.length = 0;
@@ -480,7 +518,7 @@ function createReplica({
 		if (changed.size > 0) {
 			const paths = [...changed].sort();
 			changed.clear();
-			for (const listener of listeners) listener(paths);
+			for (const listener of listeners) listener(paths, revision);
 		}
 		return result;
 	}
@@ -591,14 +629,15 @@ function createReplica({
 		pump();
 	}
 
+	/** Paths equal after NFC and case folding are one path: a save goes to the spelling this device has. */
+	function spelled(path: string) {
+		const nfc = path.normalize('NFC');
+		return first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1', [fold(nfc)])?.path ?? nfc;
+	}
+
 	/** Save texts: each merged here with `mine` if `mine` moved since the text the caller started from. */
-	function writeAll(changes: Record<string, string | null>, { over }: { over?: Record<string, string | null> } = {}) {
-		atomically(() => {
-			// Paths equal after NFC and case folding are one path: a save goes to the spelling this device has.
-			const spelled = (path: string) => {
-				const nfc = path.normalize('NFC');
-				return first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1', [fold(nfc)])?.path ?? nfc;
-			};
+	function writeAll(changes: Record<string, string | null>, { over }: { over?: Record<string, string | null> } = {}): Changed {
+		return atomically(() => {
 			const paths = Object.keys(changes).map(spelled);
 			for (const [given, text] of Object.entries(changes)) {
 				const path = spelled(given);
@@ -610,6 +649,51 @@ function createReplica({
 				set(path, { ...f, mine: next, saved: true, ...(together.length === 0 ? {} : { together }) });
 			}
 			commit();
+			// The revision this transaction makes once it commits, if it changed anything.
+			return { texts: Object.fromEntries(paths.map((path) => [path, record(path).mine])), revision: revision + (changed.size > 0 ? 1 : 0) };
+		});
+	}
+
+	/** Apply changes over what this device shows now, in one transaction and one save. */
+	function change(changes: Change[]): Result<Changed, ChangeError> {
+		return atomically(() => {
+			const texts: Record<string, string | null> = {};
+			const over: Record<string, string | null> = {};
+			for (const c of changes) {
+				const path = spelled(c.path);
+				const current = path in texts ? (texts[path] ?? null) : record(path).mine;
+				switch (c.kind) {
+					case 'create':
+						texts[path] = c.text;
+						if (!(path in over)) over[path] = null;
+						break;
+					case 'patch': {
+						if (current === null) return ChangeError.NotFound({ path });
+						const patched = writeMarkdown(current, { fields: c.fields });
+						if (patched.error !== null) return ChangeError.Unparseable({ path, reason: patched.error.reason });
+						texts[path] = patched.data;
+						if (!(path in over)) over[path] = current;
+						break;
+					}
+					case 'delete':
+						texts[path] = null;
+						if (!(path in over)) over[path] = current;
+						break;
+					case 'write':
+						texts[path] = c.text;
+						if (!(path in over)) over[path] = c.over === undefined ? current : c.over;
+						break;
+					case 'edit-body':
+						if (current === null) return ChangeError.NotFound({ path });
+						// RULE: the body went from `from` under the frontmatter as it is now, so a body edit merges with bodies alone, and a field set meanwhile stays.
+						texts[path] = withBody(current, c.to);
+						if (!(path in over)) over[path] = bodyOf(current) === c.from ? current : withBody(current, c.from);
+						break;
+					default:
+						c satisfies never;
+				}
+			}
+			return Ok(writeAll(texts, { over }));
 		});
 	}
 
@@ -1142,7 +1226,7 @@ function createReplica({
 		 * Be told, after each change is stored, which paths' text or state
 		 * changed; returns the function that stops it.
 		 */
-		watch(listener: (paths: string[]) => void) {
+		watch(listener: (paths: string[], revision: number) => void) {
 			listeners.add(listener);
 			return () => {
 				listeners.delete(listener);
@@ -1165,6 +1249,10 @@ function createReplica({
 		},
 		/** Save several paths in one commit (a rename is a delete of the old path and a write of the new one). */
 		writeAll,
+		/** Apply changes (create, patch, delete, exact source, a body edit) over what this device shows now, in one transaction and one save; each path's resulting text and the revision come back. */
+		change,
+		/** The revision of the last change stored. */
+		revision: () => revision,
 		/** Change a path from what it shows now. */
 		edit(path: string, change: (text: string | null) => string | null) {
 			const text = record(path).mine;

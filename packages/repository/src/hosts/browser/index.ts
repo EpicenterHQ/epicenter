@@ -30,7 +30,7 @@ import { defineErrors, extractErrorMessage, type InferErrors } from 'wellcrafted
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { BlobStoreError, Sealed } from '../../client/blobs.js';
-import type { FileStatus } from '../../client/replica.js';
+import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
 import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock } from './layout.js';
 import { type Init, SaveError, type TabMessage, type View, type WorkerMessage } from './messages.js';
@@ -180,7 +180,7 @@ function createOpenReplica({
 	call: CallReplica;
 	/** Whether the session is closing: a save then comes back `Closed`. */
 	isEnding: () => boolean;
-	changes: Set<(paths: string[]) => void>;
+	changes: Set<(paths: string[], revision: number) => void>;
 	/** Close this replica in its tab and delete its files, once its worker has let go. */
 	remove: () => Promise<Result<undefined, BrowserReplicaError>>;
 }) {
@@ -205,18 +205,14 @@ function createOpenReplica({
 		/** Paths whose text has not reached the server. */
 		unsent: () => call('unsent'),
 		/**
-		 * Save one path: `over` is the text the caller started from; if what
-		 * this device shows moved since, the two are merged. Resolves once the
-		 * save is stored, or with why nothing was.
+		 * Apply changes (create, patch, delete, exact source, a body edit)
+		 * over what this device shows now, in one transaction. Resolves once
+		 * they are stored, with each path's resulting text and the revision,
+		 * or with why nothing was.
 		 */
-		write(path: string, text: string | null, { over }: { over?: string | null } = {}) {
+		change(changes: Change[]): Promise<Result<Changed, ChangeError | SaveError>> {
 			askPersistence();
-			return save(() => call('write', { [path]: text }, over === undefined ? undefined : { [path]: over }));
-		},
-		/** Save several paths in one commit (a rename is a delete and a write). */
-		writeAll(changes: Record<string, string | null>, { over }: { over?: Record<string, string | null> } = {}) {
-			askPersistence();
-			return save(() => call('write', changes, over));
+			return save(() => call('change', changes));
 		},
 		/** Seal a blob's bytes into this replica, named by their SHA-256. */
 		seal(blob: Blob): Promise<Result<Sealed, BlobStoreError | SaveError>> {
@@ -227,8 +223,8 @@ function createOpenReplica({
 		blob: (oid: string) => call('blob', oid),
 		hasBlob: (oid: string) => call('hasBlob', oid),
 		evictBlob: (oid: string) => call('evictBlob', oid),
-		/** Be told which paths changed once each change is stored; returns the function that stops it. */
-		watch(listener: (paths: string[]) => void) {
+		/** Be told which paths changed once each change is stored, with its revision; returns the function that stops it. */
+		watch(listener: (paths: string[], revision: number) => void) {
 			changes.add(listener);
 			return () => {
 				changes.delete(listener);
@@ -311,7 +307,7 @@ function openTab(
 		const running = worker();
 		let next = 1;
 		const calls = new Map<number, Deferred<unknown>>();
-		const changes = new Set<(paths: string[]) => void>();
+		const changes = new Set<(paths: string[], revision: number) => void>();
 		const ended = deferred<undefined>();
 		let ending = false;
 		let finished = false;
@@ -370,7 +366,7 @@ function openTab(
 					return;
 				}
 				case 'changed':
-					for (const listener of changes) listener(message.paths);
+					for (const listener of changes) listener(message.paths, message.revision);
 					return;
 				case 'closed':
 					finish();

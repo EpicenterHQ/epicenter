@@ -52,7 +52,7 @@ for (const [engine, browser] of [
 					const page = await loadReplicaPage(context, site.url, { page: context.pages()[0] });
 					const { replica } = await page.evaluate((repository) => replicas.create(repository, { account: 'alice' }), repository);
 					if (replica === null) throw new Error('the replica was not created');
-					expect(await page.evaluate(() => replicas.write('notes/a.md', `---\ntitle: A\n---\none\n`))).toEqual(stored);
+					expect(await page.evaluate(() => replicas.write('notes/a.md', `---\ntitle: A\n---\none\n`))).toMatchObject({ data: { texts: { 'notes/a.md': note('one\n') } }, error: null });
 					// One replica per repository and account in an origin.
 					expect(await page.evaluate((repository) => replicas.create(repository, { account: 'alice' }), repository)).toMatchObject({ error: 'AlreadyHere' });
 
@@ -94,7 +94,7 @@ for (const [engine, browser] of [
 					await second.evaluate(() => replicas.untilStatus('open'));
 					await first.evaluate(() => replicas.untilStatus('moved'));
 					expect(await second.evaluate(() => replicas.read('notes/plan.md'))).toBe(note('first\n'));
-					expect(await second.evaluate(() => replicas.write('notes/plan.md', `---\ntitle: A\n---\nsecond\n`))).toEqual(stored);
+					expect(await second.evaluate(() => replicas.write('notes/plan.md', `---\ntitle: A\n---\nsecond\n`))).toMatchObject({ data: { texts: { 'notes/plan.md': note('second\n') } }, error: null });
 
 					// The owner goes away and the lock is free; the first tab stays moved until asked.
 					await second.close();
@@ -122,7 +122,7 @@ for (const [engine, browser] of [
 					await first.evaluate(() => replicas.write('notes/log.md', `---\ntitle: A\n---\nab\n`));
 					// The keystroke and the freeze in one task: the write is only posted to the worker.
 					const index = await first.evaluate(() => replicas.writeThenFreeze('notes/log.md', `---\ntitle: A\n---\nabc\n`));
-					expect(await first.evaluate((index) => replicas.settled(index), index)).toEqual(stored);
+					expect(await first.evaluate((index) => replicas.settled(index), index)).toMatchObject({ data: { texts: { 'notes/log.md': note('abc\n') } }, error: null });
 					await first.evaluate((replica) => replicas.untilReleased(replica), replica);
 
 					// With no owner, another tab opens the replica without asking.
@@ -271,7 +271,7 @@ for (const [engine, browser] of [
 					expect(['not-asked', 'granted']).toContain(await page.evaluate(() => replicas.persistence()));
 					await page.evaluate(() => replicas.arm('notes/a.md', `---\ntitle: A\n---\nclicked\n`));
 					await page.click('#save');
-					expect(await page.evaluate(() => replicas.settled(0))).toEqual(stored);
+					expect(await page.evaluate(() => replicas.settled(0))).toMatchObject({ error: null });
 					// Headless browsers answer without a prompt; the answer is what is shown.
 					await page.waitForFunction(() => ['granted', 'denied'].includes(replicas.persistence()));
 					const estimate = await page.evaluate(() => replicas.estimate());
@@ -294,7 +294,7 @@ for (const [engine, browser] of [
 						const page = await loadReplicaPage(context, site.url, { page: context.pages()[0] });
 						const { replica } = await page.evaluate((repository) => replicas.create(repository), uniqueRepository('quota'));
 						if (replica === null) throw new Error('the replica was not created');
-						expect(await page.evaluate(() => replicas.write('notes/a.md', `---\ntitle: A\n---\nsmall\n`))).toEqual(stored);
+						expect(await page.evaluate(() => replicas.write('notes/a.md', `---\ntitle: A\n---\nsmall\n`))).toMatchObject({ data: { texts: { 'notes/a.md': note('small\n') } }, error: null });
 						// Chromium's DevTools protocol caps this origin's quota near what it already uses.
 						const cdp = await context.newCDPSession(page);
 						const origin = new URL(site.url).origin;
@@ -308,7 +308,7 @@ for (const [engine, browser] of [
 
 						// With room again, saves store, and nothing of the refused ones was kept.
 						await cdp.send('Storage.overrideQuotaForOrigin', { origin });
-						expect(await page.evaluate(() => replicas.write('notes/b.md', `---\ntitle: A\n---\nroom\n`))).toEqual(stored);
+						expect(await page.evaluate(() => replicas.write('notes/b.md', `---\ntitle: A\n---\nroom\n`))).toMatchObject({ data: { texts: { 'notes/b.md': note('room\n') } }, error: null });
 						await page.reload();
 						await page.waitForFunction(() => globalThis.replicas !== undefined);
 						expect(await page.evaluate((replica) => replicas.open(replica), replica)).toEqual({ status: 'open' });
