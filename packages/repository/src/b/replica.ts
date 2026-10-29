@@ -476,7 +476,9 @@ export function createReplica({
 	function place() {
 		const next = () => (state.position === null ? undefined : waiting.get(state.position));
 		// RULE: nothing is applied while a commit is in flight (a delete needs no read, so this is not implied); its answer brings everything since its parent.
-		for (let event = next(); event !== undefined && state.inflight === null; event = next()) {
+		// RULE: nor while a catch-up is out: its answer names the position it brings, and a notification applied first would have it move the position back.
+		const catchingUp = () => pending?.kind === 'catch-up' || gathering !== null || (reading !== null && 'catchUp' in reading);
+		for (let event = next(); event !== undefined && state.inflight === null && !catchingUp(); event = next()) {
 			const have = known();
 			const lacking = missing(event.files.map((f) => f.hash), have);
 			if (lacking.length > 0) {

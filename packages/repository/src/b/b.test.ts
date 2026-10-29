@@ -26,7 +26,7 @@ import { parses } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { BLOCK_CAP } from '../core/settle.js';
 import { createTestServer, createWorld, QUIET, writer } from './harness.js';
-import type { Request } from './replica.js';
+import { createMemoryStore, createReplica, type Request } from './replica.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 
 const PATH = 'notes/a.md';
@@ -436,4 +436,20 @@ test('a device that restarts or loses its storage never hears replies meant for 
 		settle();
 		expect(alice.replica.stats().late).toBe(0);
 	}
+});
+
+test('a notification arriving while a catch-up is out waits for it: the catch-up never moves the position back (seed 18504)', () => {
+	const requests: Request[] = [];
+	const replica = createReplica({ device: 'alice', store: createMemoryStore(), after: () => {}, now: () => 0 });
+	replica.attach((request) => requests.push(request));
+	const caughtUp = (rid: number, main: string, full: boolean) => replica.reply({ type: 'caught-up', rid, catchUp: { main, full, files: [], commits: [], next: null } });
+	caughtUp(1, 'A', true);
+	// The stream reopens: a catch-up from A goes out, and the server answers it while main is still A.
+	replica.streamOpened();
+	expect(requests.at(-1)).toMatchObject({ type: 'catch-up', from: 'A' });
+	// B lands next, and its notification (a delete: nothing to read) overtakes the catch-up's reply.
+	replica.notify({ commit: 'B', parents: ['A'], files: [{ path: PATH, hash: null }] });
+	caughtUp(requests.at(-1)?.rid ?? 0, 'A', false);
+	replica.notify({ commit: 'C', parents: ['B'], files: [{ path: PATH, hash: null }] });
+	expect(replica.position()).toBe('C');
 });
