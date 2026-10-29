@@ -221,9 +221,9 @@ function createOpenReplica({
 		 * they are stored, with each path's resulting text and the revision,
 		 * or with why nothing was.
 		 */
-		change(changes: Change[], token?: number): Promise<Result<Changed, ChangeError | SaveError>> {
+		change(changes: Change[], token?: number, message?: string): Promise<Result<Changed, ChangeError | SaveError>> {
 			askPersistence();
-			return save(() => call('change', changes, token));
+			return save(() => call('change', changes, token, message));
 		},
 		/**
 		 * Seal each blob into this replica, then store a pointer to it at its
@@ -231,9 +231,9 @@ function createOpenReplica({
 		 * `Blob` crosses to the worker as a reference: its bytes are read
 		 * there, never copied here.
 		 */
-		put(blobs: BlobPut[], changes: Change[], token?: number): Promise<Result<Put, PutError>> {
+		put(blobs: BlobPut[], changes: Change[], token?: number, message?: string): Promise<Result<Put, PutError>> {
 			askPersistence();
-			return save(() => call('put', blobs, changes, token));
+			return save(() => call('put', blobs, changes, token, message));
 		},
 		/** A blob's bytes as a File, which the page reads or shows with its own object URL: from here, or fetched and verified first. */
 		open: (path: string): Promise<Result<File, BlobError>> => call('open', path),

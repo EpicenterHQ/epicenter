@@ -51,12 +51,12 @@ export type Session = {
 	/** Every file not yet synced, with its state. */
 	waiting(): Promise<FileEntry[]>;
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<TRow[]>;
-	/** Apply `changes` in one transaction; the change it makes is heard with `token`. */
-	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
+	/** Apply `changes` in one transaction, one call saying `message` if given; the change it makes is heard with `token`. */
+	change(changes: Change[], token: number, message?: string): Promise<Result<Changed, ChangeError | SaveError>>;
 	/** Hear each stored change in revision order; returns the function that stops it. */
 	watch(listener: (delta: Delta) => void): () => void;
 	/** Seal each blob, then store a pointer to it at its path together with `changes`, in one transaction and one group; the change it makes is heard with `token`. */
-	put(blobs: BlobPut[], changes: Change[], token: number): Promise<Result<Put, PutError>>;
+	put(blobs: BlobPut[], changes: Change[], token: number, message?: string): Promise<Result<Put, PutError>>;
 	/** A blob's bytes as a File: from this device, or fetched and verified first. */
 	open(path: string): Promise<Result<File, BlobError>>;
 };
@@ -247,10 +247,12 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 	/**
 	 * Several writes, blobs included, as one transaction and one group: its
 	 * bytes are sealed first, and it lands in one commit, once every byte is
-	 * on the server, or is held whole.
+	 * on the server, or is held whole. With `message`, that commit is its own,
+	 * carries the message into history, and is never amended by a later save.
 	 */
 	commit(
 		build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> } & { [K in BlobName<TDefs>]: BatchBlobCollection<TDefs[K]> } & { files: BatchFiles }) => void,
+		options?: { message?: string },
 	): Promise<Result<Committed, BlobWriteError>>;
 	/** Stop: every editor stops and the host lets the replica go. Returns the drafts that could not be saved, for the caller to keep or drop (an account change). */
 	close(): Unsaved[];
@@ -540,9 +542,10 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	}
 
 	/** Send changes, in one transaction and one save. */
-	const send = (changes: Change[]): Promise<Result<Changed, WriteError>> => saveVia(changes, (current, token) => current.change(changes, token));
+	const send = (changes: Change[], message?: string): Promise<Result<Changed, WriteError>> => saveVia(changes, (current, token) => current.change(changes, token, message));
 	/** Seal each blob, then send its pointer with `changes`: one transaction and one group. */
-	const put = (blobs: BlobPut[], changes: Change[] = []): Promise<Result<Put, BlobWriteError>> => saveVia(changes, (current, token) => current.put(blobs, changes, token));
+	const put = (blobs: BlobPut[], changes: Change[] = [], message?: string): Promise<Result<Put, BlobWriteError>> =>
+		saveVia(changes, (current, token) => current.put(blobs, changes, token, message));
 
 	const one = async (path: string, change: Change): Promise<Result<Written, WriteError>> => {
 		const result = await send([change]);
@@ -713,7 +716,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			};
 		},
 		query: <TRow>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>> => asked((current) => current.query<TRow>(sql, params)),
-		commit(build: (batch: Record<string, unknown>) => void): Promise<Result<Committed, BlobWriteError>> {
+		commit(build: (batch: Record<string, unknown>) => void, { message }: { message?: string } = {}): Promise<Result<Committed, BlobWriteError>> {
 			const batch: Change[] = [];
 			const blobs: BlobPut[] = [];
 			const handles: Record<string, unknown> = {};
@@ -759,7 +762,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			} satisfies Record<keyof BatchFiles, unknown>;
 			build(handles);
 			if (invalid !== null) return Promise.resolve({ data: null, error: invalid });
-			const saved = blobs.length === 0 ? send(batch) : put(blobs, batch);
+			const saved = blobs.length === 0 ? send(batch, message) : put(blobs, batch, message);
 			return saved.then((result): Result<Committed, BlobWriteError> => (result.error === null ? Ok({ revision: result.data.revision }) : result));
 		},
 		close(): Unsaved[] {

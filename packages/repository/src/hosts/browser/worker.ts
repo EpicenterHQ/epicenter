@@ -56,18 +56,18 @@ function replicaMethods(replica: Replica, page: PageServer, bytes: Bytes) {
 		 * not at all: a save storage refuses (full, or failing) changes
 		 * nothing, and says so before anything is acknowledged.
 		 */
-		change(changes: Change[], token?: number) {
+		change(changes: Change[], token?: number, message?: string) {
 			clearReported();
-			return page.change(changes, token);
+			return page.change(changes, token, message);
 		},
 		/**
 		 * Seal each blob (the page's reference, not a copy) into this
 		 * replica's objects, then store a pointer to it at its path together
 		 * with `changes`, in one transaction and one group.
 		 */
-		put: async (blobs: BlobPut[], changes: Change[], token?: number): Promise<Result<Put, PutError>> => {
+		put: async (blobs: BlobPut[], changes: Change[], token?: number, message?: string): Promise<Result<Put, PutError>> => {
 			clearReported();
-			return plain(await bytes.put(blobs, changes, token));
+			return plain(await bytes.put(blobs, changes, token, message));
 		},
 		/** A blob's bytes as a File, from this replica's objects or fetched and verified first; it outlives this worker. */
 		open: (path: string): Promise<Result<File, BlobError>> => bytes.open(path),

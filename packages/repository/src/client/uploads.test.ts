@@ -75,7 +75,7 @@ function setup(limits: Partial<Limits> = {}) {
 			get uploads() {
 				return uploads;
 			},
-			bytes: () => serveBytes({ replica, store, lfs }),
+			bytes: () => serveBytes({ replica: { read: replica.read, blobLimit: replica.blobLimit, change: (changes, _token, message) => replica.change(changes, message === undefined ? {} : { message }) }, store, lfs }),
 			/** A new worker over the same database and store: the track starts again. */
 			restart() {
 				uploads.stop();

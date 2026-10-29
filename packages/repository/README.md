@@ -171,7 +171,15 @@ await repo.commit((batch) => {
 	batch.files.write('plans/journey.md', text);
 	batch.files.delete('plans/trip.md');
 }); // a rename: one transaction
+await repo.commit((batch) => batch.files.write('plans/trip.md', plan), { message: 'Plan the trip' });
 ```
+
+A call with a message is a commit of its own that carries the message into
+history (the flushed Git commit's message), and a later save never amends
+it; `epicenter commit -m` is the same call from a folder. At a path that is
+not a note, `files.create` and `files.write` take a pointer (a blob moved by
+writing its pointer) or answer `BlobError.NotPointer` at once; bytes are
+written as a `Blob`.
 
 A write to a path a collection keeps in memory shows there at once, as that
 collection's own write would. A subscriber hears `files: true` when any

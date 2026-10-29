@@ -374,3 +374,31 @@ test('a batch of two notes and a new blob, with a delayed upload, lands as one c
 	expect(expectErr(failed).name).toBe('NotFound');
 	expect(alice.replica.read('recordings/r4.webm')).toBeNull();
 });
+
+test('repo.commit with a message is a commit of its own that carries it, never amended by a later save', async () => {
+	const { alice, repo } = twoDevices(app);
+	await settled();
+	alice.sync();
+	expectOk(
+		await repo.commit(
+			(batch) => {
+				batch.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false } });
+				batch.todos.create({ stem: 'eggs' }, { fields: { title: 'Eggs', done: false } });
+			},
+			{ message: 'Plan the week' },
+		),
+	);
+	expectOk(await repo.todos.patch({ stem: 'milk' }, { done: true }));
+	await settled();
+	// The commit with the message went first, as it was said: the later patch is not in it.
+	const sent = alice.replica.sent();
+	expect(sent?.message).toBe('Plan the week');
+	expect(sent?.files.map((f) => [f.path, f.text])).toEqual([
+		['todos/milk.md', todo('Milk')],
+		['todos/eggs.md', todo('Eggs')],
+	]);
+	alice.sync();
+	expect(alice.replica.sent()).toBeNull();
+	expect(alice.replica.read('todos/milk.md')).toBe(todo('Milk', true));
+	expect(alice.replica.unsent()).toEqual([]);
+});

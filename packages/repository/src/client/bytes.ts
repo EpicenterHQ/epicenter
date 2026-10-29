@@ -79,7 +79,7 @@ export function serveBytes({
 	lfs,
 }: {
 	/** The replica, and the change that stores a call (the page's, so its token is heard with it). */
-	replica: Pick<Replica, 'read' | 'blobLimit'> & { change(changes: Change[], token?: number): Result<Changed, ChangeError | SaveError> };
+	replica: Pick<Replica, 'read' | 'blobLimit'> & { change(changes: Change[], token?: number, message?: string): Result<Changed, ChangeError | SaveError> };
 	store: BlobStore<Blob>;
 	/** The server's LFS endpoint, or null for a repository kept only on this device. */
 	lfs: LfsClient | null;
@@ -95,7 +95,7 @@ export function serveBytes({
 		 * `changes`, in one change made with `token`: one group. Nothing is
 		 * stored unless every blob was sealed and every change applies.
 		 */
-		async put(blobs: BlobPut[], changes: Change[] = [], token?: number): Promise<Result<Put, PutError>> {
+		async put(blobs: BlobPut[], changes: Change[] = [], token?: number, message?: string): Promise<Result<Put, PutError>> {
 			const misplaced = (path: string, replace: boolean) => ((replica.read(path) !== null) === replace ? null : replace ? BlobError.NotFound({ path }) : BlobError.Exists({ path }));
 			const limit = replica.blobLimit();
 			for (const { path, blob, replace } of blobs) {
@@ -116,7 +116,7 @@ export function serveBytes({
 				if (refusal !== null) return refusal;
 			}
 			const pointers = blobs.map(({ path }): Change => ({ kind: 'write', path, text: writePointer(sealed[path] as Sealed) }));
-			const changed = replica.change([...changes, ...pointers], token);
+			const changed = replica.change([...changes, ...pointers], token, message);
 			if (changed.error !== null) return changed;
 			return Ok({ ...changed.data, sealed });
 		},

@@ -916,8 +916,8 @@ function createReplica({
 		});
 	}
 
-	/** Apply changes over what this device shows now, in one transaction and one save. */
-	function change(changes: Change[]): Result<Changed, ChangeError> {
+	/** Apply changes over what this device shows now, in one transaction and one save: one call, which says `message` if given. */
+	function change(changes: Change[], { message }: { message?: string } = {}): Result<Changed, ChangeError> {
 		return atomically(() => {
 			const texts: Record<string, string | null> = {};
 			const over: Record<string, string | null> = {};
@@ -952,7 +952,7 @@ function createReplica({
 						c satisfies never;
 				}
 			}
-			const written = writeAll(texts, { over });
+			const written = writeAll(texts, { over, ...(message === undefined ? {} : { message }) });
 			return Ok({ ...written, texts: Object.fromEntries([...spellings].map(([given, path]) => [given, written.texts[path] ?? null])) });
 		});
 	}
