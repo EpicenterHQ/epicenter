@@ -137,7 +137,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const removed = new Set<string>();
 	/** Typed on a device lost before its commit was acknowledged: legitimately gone. */
 	const forgotten = new Set<string>();
-	const removals: { device: string; path: string; base: string | null; at: number; landed: boolean; cancelled: boolean; step: string }[] = [];
+	const removals: { device: string; path: string; base: string | null; position: string | null; at: number; landed: boolean; cancelled: boolean; step: string }[] = [];
 	const violations: string[] = [];
 	const honestIds: string[] = [];
 	let next = 1;
@@ -206,7 +206,16 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			// A removal claims a note the device had from the server, not one it created and never sent,
 			const known = d.replica.files().get(path)?.base ?? null;
 			if (text === null && showed(path) !== null && known !== null)
-				removals.push({ device: d.name, path, base: known, at: chain.length, landed: world.server.read(path) === null, cancelled: false, step: log.at(-1) ?? '' });
+				removals.push({
+					device: d.name,
+					path,
+					base: known,
+					position: d.replica.position(),
+					at: chain.length,
+					landed: world.server.read(path) === null,
+					cancelled: false,
+					step: log.at(-1) ?? '',
+				});
 		}
 		d.replica.writeAll(changes, editor && seen !== undefined ? { over: seen } : {});
 	};
@@ -523,8 +532,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	}
 	// A removal stays removed, unless it lost to an edit by someone else made after the text it removed (which it had not seen).
 	const lostToEdit = (r: (typeof removals)[number]) => {
-		let from = r.at - 1;
-		while (from > 0 && (states.get(chain[from] ?? '')?.get(r.path) ?? null) !== r.base) from--;
+		// Everything after the remover's position is unseen by it; the text alone cannot say where that is, since an edit can bring a path back to the text it had.
+		let from = r.position === null ? -1 : chain.indexOf(r.position);
+		if (from < 0) for (from = r.at - 1; from > 0 && (states.get(chain[from] ?? '')?.get(r.path) ?? null) !== r.base; ) from--;
 		return writers.slice(from + 1).some((w) => w.user !== r.device && w.paths.has(r.path));
 	};
 	for (const r of removals)
