@@ -22,7 +22,7 @@ import { createSubscriber } from 'svelte/reactivity';
 const isCollection = (value: unknown): value is Record<string, (...args: never[]) => unknown> => typeof value === 'object' && value !== null && 'create' in value;
 
 /** The repository, its reads tracked per collection, its status and its revision. */
-export function reactive<TDefs extends Definitions>(repo: Repository<TDefs>): Repository<TDefs> {
+export function reactive<TRepository extends Repository<Definitions>>(repo: TRepository): TRepository {
 	const tracker = (heard: (change: RepositoryChange) => boolean) =>
 		createSubscriber((update) =>
 			repo.subscribe((change) => {
@@ -58,7 +58,7 @@ export function reactive<TDefs extends Definitions>(repo: Repository<TDefs>): Re
 			},
 		};
 	}
-	return wrapped as Repository<TDefs>;
+	return wrapped as TRepository;
 }
 
 /** An editor's draft and state, tracked. */

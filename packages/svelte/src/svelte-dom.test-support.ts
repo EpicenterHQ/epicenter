@@ -253,3 +253,29 @@ export function click(root: ParentNode, text: string) {
 		new window.MouseEvent('click', { bubbles: true }),
 	);
 }
+
+// CodeMirror reads the document's globals as it loads, so it loads after them.
+// SAFETY: jsdom has no layout; the empty list supplies only the geometry CodeMirror asks for.
+window.Range.prototype.getClientRects ??= () => ({ length: 0, item: () => null, [Symbol.iterator]: function* () {} }) as DOMRectList;
+// SAFETY: jsdom has no layout; this rectangle stands for an unmeasured range.
+window.Range.prototype.getBoundingClientRect ??= () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 }) as DOMRect;
+const { EditorView } = await import('@codemirror/view');
+
+/** The CodeMirror view an element (its editor, or anything inside it) belongs to. */
+function viewOf(element: Element | null | undefined) {
+	const editor = element?.closest('.cm-editor');
+	const view = editor instanceof window.HTMLElement ? EditorView.findFromDOM(editor) : null;
+	if (view === null) throw new Error('Expected an element inside a CodeMirror editor');
+	return view;
+}
+
+/** What a CodeMirror editor shows, given an element inside it. */
+export function editorText(element: Element | null | undefined) {
+	return viewOf(element).state.doc.toString();
+}
+
+/** Replace what a CodeMirror editor shows with `value`, as typing would. */
+export function typeInEditor(element: Element | null | undefined, value: string) {
+	const view = viewOf(element);
+	view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value }, userEvent: 'input.type' });
+}
