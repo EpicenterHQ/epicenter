@@ -1,3 +1,4 @@
+import { defineManifest } from '@epicenter/app';
 import { defineApp } from '@epicenter/repository';
 import { Type } from 'typebox';
 
@@ -13,3 +14,6 @@ export const todosTables = {
 export const todosApp = defineApp({
 	todos: { path: 'todos/{stem}.md', schema: todosTables.todos },
 });
+
+/** Todos as an app (ADR-0694): served at `todos.epicenter.so`, over `todos/`. */
+export const manifest = defineManifest({ name: 'Todos', hostname: 'todos.epicenter.so', collections: todosApp });

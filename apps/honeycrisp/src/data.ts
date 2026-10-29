@@ -8,6 +8,7 @@
  * exact text and its issues, and a write changes only the keys and the body
  * it names, so a key Honeycrisp does not name survives every save.
  */
+import { defineManifest } from '@epicenter/app';
 import { defineApp, type Note, type ValidNote } from '@epicenter/repository';
 import { type Static, Type } from 'typebox';
 
@@ -31,6 +32,9 @@ export const honeycrispApp = defineApp({
 	notes: { path: 'notes/{stem}.md', schema: noteSchema },
 	folders: { path: 'folders/{stem}.md', schema: folderSchema },
 });
+
+/** Honeycrisp as an app (ADR-0694): served at `honeycrisp.epicenter.so`, over `notes/` and `folders/`. */
+export const manifest = defineManifest({ name: 'Honeycrisp', hostname: 'honeycrisp.epicenter.so', collections: honeycrispApp });
 
 export type NoteFields = Static<typeof noteSchema>;
 export type FolderFields = Static<typeof folderSchema>;

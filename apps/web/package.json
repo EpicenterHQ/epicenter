@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/web",
-	"description": "The web shell: every first-party app over any repository in this browser, addressed /<owner>/<repo>/<app> on one origin",
+	"description": "The web shell: every installed app over any repository in this browser, addressed /<owner>/<repo>/<hostname>/<...path> on one origin",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -30,6 +30,7 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
+		"@epicenter/app": "workspace:*",
 		"@epicenter/honeycrisp": "workspace:*",
 		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",

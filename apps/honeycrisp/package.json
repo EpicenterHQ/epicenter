@@ -1,12 +1,12 @@
 {
 	"name": "@epicenter/honeycrisp",
-	"description": "Honeycrisp: Markdown notes in a repository, as a lens (its definition) and a Svelte root the web shell mounts",
+	"description": "Honeycrisp: Markdown notes in a repository, as an app (ADR-0694): its manifest and a bundle the web shell mounts",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
 	"exports": {
 		".": "./src/data.ts",
-		"./app": "./src/components/HoneycrispApp.svelte"
+		"./bundle": "./src/bundle.ts"
 	},
 	"scripts": {
 		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
@@ -27,6 +27,7 @@
 		"@codemirror/language": "^6.13.1",
 		"@codemirror/state": "^6.7.6",
 		"@codemirror/view": "^6.43.15",
+		"@epicenter/app": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",

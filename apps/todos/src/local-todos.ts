@@ -33,26 +33,27 @@ export function repairsOf(notes: readonly TodoNote[]): Problem[] {
 	return notes.filter((note): note is Problem => !note.valid).sort(byPath);
 }
 
+/** The id of the todo an app path opens (`/<id>`), or undefined for the list. */
+export function todoOf(path: string): string | undefined {
+	const [segment = ''] = path.split(/[?#]/, 1);
+	const id = segment.slice(1);
+	if (id === '' || id.includes('/')) return undefined;
+	try {
+		return decodeURIComponent(id);
+	} catch {
+		return undefined;
+	}
+}
+
 /** The todo's label: its title, or its file's name when it has none. */
 export function labelOf(todo: { params: { stem: string }; fields: { title: string } }) {
 	return todo.fields.title.trim() === '' ? todo.params.stem : todo.fields.title;
 }
 
-/** How many todos are not sent yet, and how many are held here with a reason. */
-export function syncOf(notes: readonly TodoNote[]) {
-	let sending = 0;
-	let held = 0;
-	for (const { state } of notes) {
-		if (state.status === 'sending') sending++;
-		else if (state.status === 'held') held++;
-	}
-	return { sending, held };
-}
-
 /**
  * Tell the person when a write could not be saved on this device. A write is
  * shown at once and resolves once saved; a note the server refuses stays
- * here, held with its reason, which the header counts.
+ * here, held with its reason, which the shell's repository bar counts.
  */
 export async function reportWrite(saved: Promise<Result<unknown, WriteError>>, failure: string) {
 	const { error } = await saved;

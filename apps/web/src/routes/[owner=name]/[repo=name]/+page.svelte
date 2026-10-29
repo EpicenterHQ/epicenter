@@ -6,11 +6,12 @@
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
 	import { page } from '$app/state';
-	import { apps } from '$lib/apps.js';
+	import { FIRST_PARTY } from '$lib/catalog.js';
 	import { addressOf, isHome, joinLinkOf, repositories, whereOf } from '$lib/device.svelte.js';
 	import { getOpenRepository } from '$lib/open.svelte.js';
 
 	const { repo, manifest } = getOpenRepository();
+	const apps = FIRST_PARTY.map(({ manifest: app }) => ({ id: app.hostname.split('.')[0] ?? '', name: app.name, lenses: app.collections.lenses }));
 	const address = addressOf(manifest);
 	const link = $derived(joinLinkOf(manifest, page.url.origin));
 
@@ -19,8 +20,8 @@
 	$effect(() => {
 		repo.revision();
 		void Promise.all(
-			apps.map(async ({ id, app }) => {
-				for (const { name } of app.lenses) {
+			apps.map(async ({ id, lenses }) => {
+				for (const { name } of lenses) {
 					const found = await repo.query(`SELECT 1 FROM "${name}" LIMIT 1`);
 					if (found.error === null && found.data.length > 0) return id;
 				}

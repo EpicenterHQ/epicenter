@@ -1,11 +1,11 @@
 <!--
 	Todos over the repository the shell opened, under its gate: the header,
-	the list, and the open todo. Which todo is open is the URL's
-	`?todo=<id>`, so it survives a reload and the breakpoint.
+	the list, and the open todo. Which todo is open is the app's path,
+	`/<id>` (`/` for none), so it survives a reload and the breakpoint, and
+	Back returns to the list.
 
 	It mounts once, when the todos first arrive, and stays while the shell
-	shows this repository. The repository needs no account; it syncs only
-	when it has a server. The header offers no Save version, Sync, or Connect.
+	shows this repository. Where the repository syncs is the shell's bar.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
@@ -13,36 +13,23 @@
 	import { setRepository, type TodosRepository } from './repository.js';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
-	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
-	import { todoPath } from './local-todos.js';
+	import type { AppProps } from '@epicenter/svelte/app';
+	import type { manifest } from './definition.js';
+	import { todoOf, todoPath } from './local-todos.js';
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
-	let {
-		repo,
-		repository,
-		syncsTo,
-		repositoryHref,
-	}: {
-		repo: TodosRepository;
-		/** The repository's name in this browser. */
-		repository: string;
-		/** The server it syncs with, if any. */
-		syncsTo?: string;
-		/** The repository's page: its apps, and this browser's other repositories. */
-		repositoryHref: string;
-	} = $props();
+	let { repo, path, navigate }: AppProps<typeof manifest> = $props();
 
 	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setRepository(repo);
+	setRepository(repo as TodosRepository);
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
-	/** The id of the todo the detail shows. */
-	const open = $derived(page.url.searchParams.get('todo') ?? undefined);
+	/** The id of the todo the detail shows: the path's one segment. */
+	const open = $derived(todoOf(path));
 	let newTitle = $state('');
 
 	/**
@@ -52,10 +39,7 @@
 	 */
 	async function show(id: string | undefined, { replaceState = false } = {}) {
 		if (id === open) return;
-		const url = new URL(page.url);
-		if (id === undefined) url.searchParams.delete('todo');
-		else url.searchParams.set('todo', id);
-		await goto(url, { replaceState, keepFocus: true, noScroll: true });
+		await navigate(id === undefined ? '/' : `/${encodeURIComponent(id)}`, { replace: replaceState });
 	}
 
 	/** On narrow screens, return to the list, focused on the todo that was open. */
@@ -72,7 +56,7 @@
 	{#if open === undefined}
 		<Empty.Root class="h-full">
 			<Empty.Title>Select a todo to edit it</Empty.Title>
-			<Empty.Description>Each todo is kept on this device{syncsTo === undefined ? '' : ' and synced'}.</Empty.Description>
+			<Empty.Description>Each todo is a Markdown file in this repository.</Empty.Description>
 		</Empty.Root>
 	{:else}
 		{#key open}
@@ -82,7 +66,7 @@
 {/snippet}
 
 <div class="flex h-full flex-col overflow-hidden">
-	<AppHeader pendingNewTodo={newTitle.trim() !== ''} {repository} {syncsTo} {repositoryHref} />
+	<AppHeader pendingNewTodo={newTitle.trim() !== ''} />
 
 	{#if wide.current}
 		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">

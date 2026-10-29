@@ -17,7 +17,7 @@ import {
 	removeBrowserRepository,
 } from '@epicenter/repository/browser';
 import { Ok, type Result } from 'wellcrafted/result';
-import { lens } from './apps.js';
+import { installedLens } from './installed.svelte.js';
 import { NAME } from './name.js';
 
 export type { Manifest };
@@ -94,7 +94,7 @@ function localIdFor(name: string, manifests: readonly Manifest[]) {
  * manifest, so the repository's page opens the one handle it keeps.
  */
 async function make(options: { owner: string | null; repository: string; name: string; account: string | null; url: string | null }): Promise<Result<Manifest, BrowserReplicaError>> {
-	const created = await createBrowserRepository({ app: lens, ...options, headers: headersOf(options) });
+	const created = await createBrowserRepository({ app: installedLens(), ...options, headers: headersOf(options) });
 	if (created.error !== null) return created;
 	const { repository, manifest } = created.data;
 	/** Null once it opens, or why it could not. */

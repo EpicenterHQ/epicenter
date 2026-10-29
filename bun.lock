@@ -150,6 +150,7 @@
         "@codemirror/language": "^6.13.1",
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.15",
+        "@epicenter/app": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/repository": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -281,6 +282,7 @@
       "name": "@epicenter/todos",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/app": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/repository": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -291,7 +293,6 @@
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
-        "@sveltejs/kit": "catalog:",
         "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
         "svelte": "catalog:",
@@ -299,7 +300,6 @@
         "typescript": "catalog:",
       },
       "peerDependencies": {
-        "@sveltejs/kit": "catalog:",
         "svelte": "catalog:",
       },
     },
@@ -346,6 +346,7 @@
       "name": "@epicenter/web",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/app": "workspace:*",
         "@epicenter/honeycrisp": "workspace:*",
         "@epicenter/repository": "workspace:*",
         "@epicenter/svelte": "workspace:*",
@@ -462,6 +463,17 @@
         "@types/bun": "catalog:",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/app": {
+      "name": "@epicenter/app",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/repository": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
         "typescript": "catalog:",
       },
     },
@@ -668,6 +680,7 @@
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.15",
         "@epicenter/agent": "workspace:*",
+        "@epicenter/app": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/repository": "workspace:*",
         "@epicenter/ui": "workspace:*",
@@ -995,6 +1008,8 @@
     "@epicenter/api": ["@epicenter/api@workspace:apps/api"],
 
     "@epicenter/api-ui": ["@epicenter/api-ui@workspace:apps/api/ui"],
+
+    "@epicenter/app": ["@epicenter/app@workspace:packages/app"],
 
     "@epicenter/auth": ["@epicenter/auth@workspace:packages/auth"],
 

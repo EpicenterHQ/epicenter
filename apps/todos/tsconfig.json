@@ -1,8 +1,7 @@
 {
 	"extends": "../../tsconfig.dom.json",
 	"compilerOptions": {
-		// `$app/navigation` and `$app/state`: Todos keeps the open todo in the shell's URL.
-		"types": ["bun", "@sveltejs/kit"]
+		"types": ["bun"]
 	},
 	"include": ["src/**/*"]
 }

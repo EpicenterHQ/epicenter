@@ -8,17 +8,18 @@ import type { Unsaved } from '@epicenter/repository';
 import { openBrowserRepository } from '@epicenter/repository/browser';
 import { reactive } from '@epicenter/svelte/repository';
 import { createContext, tick } from 'svelte';
-import { lens, type ShellRepository } from './apps.js';
 import { headersOf, type Manifest } from './device.svelte.js';
+import { installedLens } from './installed.svelte.js';
+import type { ShellRepository } from './lens.js';
 
 /** An open repository: its handle, its reads tracked (`reactive`), and the copy it opened. */
 export type OpenRepository = { repo: ShellRepository; manifest: Manifest };
 
 export const [getOpenRepository, setOpenRepository] = createContext<OpenRepository>();
 
-/** Open `manifest`'s copy in this tab, with every first-party app's lens. */
+/** Open `manifest`'s copy in this tab, with every installed app's collections. */
 export const openRepository = (manifest: Manifest): OpenRepository => ({
-	repo: reactive(openBrowserRepository({ app: lens, replica: manifest.replica, headers: headersOf(manifest) })),
+	repo: reactive(openBrowserRepository({ app: installedLens(), replica: manifest.replica, headers: headersOf(manifest) })),
 	manifest,
 });
 

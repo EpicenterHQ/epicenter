@@ -1,6 +1,8 @@
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
+	import type { AppProps } from '@epicenter/svelte/app';
 	import * as Resizable from '@epicenter/ui/resizable';
+	import type { manifest } from '../data.js';
 	import { createNotes } from '../notes.svelte.js';
 	import { type HoneycrispRepository, setRepository } from '../repository.js';
 	import AppHeader from './AppHeader.svelte';
@@ -9,25 +11,12 @@
 	import FolderNav from './FolderNav.svelte';
 	import NoteList from './NoteList.svelte';
 
-	// The notes over the repository the shell opened; mounted once, when they first arrive.
-	let {
-		repo,
-		repository,
-		syncsTo,
-		repositoryHref,
-	}: {
-		repo: HoneycrispRepository;
-		/** The repository's name in this browser. */
-		repository: string;
-		/** The server it syncs with, if any. */
-		syncsTo?: string;
-		/** The repository's page: its apps, and this browser's other repositories. */
-		repositoryHref: string;
-	} = $props();
+	// The notes over the repository the shell opened; mounted once, when they first arrive. The open note is the app's path.
+	let { repo, path, navigate }: AppProps<typeof manifest> = $props();
 
 	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	const notes = createNotes(setRepository(repo));
+	const notes = createNotes(setRepository(repo as HoneycrispRepository), { path: () => path, navigate });
 
 	let filesOpen = $state(false);
 	function openListed(path: string) {
@@ -50,10 +39,6 @@
 
 <div class="flex h-full flex-col overflow-hidden">
 	<AppHeader
-		{notes}
-		{repository}
-		{syncsTo}
-		{repositoryHref}
 		{filesOpen}
 		onToggleFiles={() => (filesOpen = !filesOpen)}
 	/>

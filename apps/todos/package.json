@@ -1,12 +1,12 @@
 {
 	"name": "@epicenter/todos",
-	"description": "Todos: Markdown todos in a repository, as a lens (its definition) and a Svelte root the web shell mounts",
+	"description": "Todos: Markdown todos in a repository, as an app (ADR-0694): its manifest and a bundle the web shell mounts",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
 	"exports": {
 		".": "./src/definition.ts",
-		"./app": "./src/TodosApp.svelte"
+		"./bundle": "./src/bundle.ts"
 	},
 	"scripts": {
 		"schema:export": "bun scripts/export-schema.ts",
@@ -16,7 +16,6 @@
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
-		"@sveltejs/kit": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"svelte": "catalog:",
@@ -24,6 +23,7 @@
 		"typescript": "catalog:"
 	},
 	"dependencies": {
+		"@epicenter/app": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
@@ -35,7 +35,6 @@
 	},
 	"license": "AGPL-3.0-or-later",
 	"peerDependencies": {
-		"@sveltejs/kit": "catalog:",
 		"svelte": "catalog:"
 	}
 }

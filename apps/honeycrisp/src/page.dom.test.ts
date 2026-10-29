@@ -8,6 +8,7 @@
  *
  * Key behaviors:
  * - A new note's title and body persist across close and reopen, and every field stays
+ * - The open note is the app's path: opening one moves it, and a path set from outside opens its note
  * - A new note takes typing at once: its editor opens once the create is stored
  * - A change from elsewhere updates the open note without replacing its controls
  * - A note that does not read as one is listed for repair and opens straight into its source
@@ -21,6 +22,7 @@ import { button, type } from '../../../packages/svelte/src/svelte-dom.test-suppo
 import { type Device, folderText, noteText, openDevice, until as poll } from './repository.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
+const { at, resetPath } = await import('./app-path.test-support.svelte.js');
 const { confirmationDialog } = await import('@epicenter/ui/confirmation-dialog');
 const PageHost = (await import('./page-host.test-support.svelte')).default;
 
@@ -28,6 +30,7 @@ const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanups.splice(0).reverse()) await step();
 	document.body.replaceChildren();
+	resetPath();
 });
 
 const NOTE = 'section[aria-label="Note"]';
@@ -82,7 +85,6 @@ test("a new note's title and body persist across close and reopen", async () => 
 	if (editor === null) throw new Error('No editor');
 	editor.dispatch(editor.state.replaceSelection('Milk\n'), { userEvent: 'input.type' });
 	await until(() => page.text(LIST).includes('Milk'), 'the body in the list');
-	expect(page.get('[data-testid="status-summary"]').getAttribute('aria-label')).toContain('On this device');
 	await page.close();
 
 	const tab = on.tab();
@@ -92,6 +94,18 @@ test("a new note's title and body persist across close and reopen", async () => 
 	const reopened = await openPage(on);
 	await until(() => reopened.text(LIST).includes('Groceries'), 'the reopened note');
 	expect(reopened.text(LIST)).toContain('Milk');
+});
+
+test("the open note is the app's path: opening one moves it, and a path set from outside opens its note", async () => {
+	const on = await device({ 'notes/a.md': noteText({ title: 'Alpha' }), 'notes/b.md': noteText({ title: 'Beta' }) });
+	resetPath('/notes/b.md');
+	const page = await openPage(on);
+	await until(() => page.target.querySelector<HTMLInputElement>(TITLE)?.value === 'Beta', 'the note the path names');
+	await openNote(page, 'notes/a.md');
+	expect(at.path).toBe('/notes/a.md');
+	await until(() => page.get<HTMLInputElement>(TITLE).value === 'Alpha', 'the note opened');
+	resetPath('/');
+	await until(() => page.target.querySelector(TITLE) === null, 'no note, at /');
 });
 
 test('a new note takes typing at once, and keeps it once its create is stored', async () => {

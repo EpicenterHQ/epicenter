@@ -1,0 +1,22 @@
+{
+	"name": "@epicenter/app",
+	"description": "What an Epicenter app is: a manifest (name, hostname, collections) and a module whose mount(element, { repo, path, navigate }) shows it over a repository",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@epicenter/repository": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

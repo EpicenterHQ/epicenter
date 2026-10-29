@@ -14,6 +14,7 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
+		"./app": "./src/app/mount.svelte.ts",
 		"./folder": "./src/folder.ts",
 		"./open-folder": "./src/open-folder.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
@@ -33,6 +34,7 @@
 		"@codemirror/state": "^6.7.6",
 		"@codemirror/view": "^6.43.15",
 		"@epicenter/agent": "workspace:*",
+		"@epicenter/app": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/repository": "workspace:*",
 		"@epicenter/ui": "workspace:*",

@@ -1,8 +1,7 @@
 /**
  * Bundle Tests
  *
- * Bundles the shell's apps (`apps.ts`: every first-party app's lens and
- * root) through the shell's Vite resolution, as its build resolves them,
+ * Bundles the shell's catalog and every first-party app's module through the shell's Vite resolution, as its build resolves them,
  * and reads every module the bundle pulls in.
  *
  * Key behaviors:

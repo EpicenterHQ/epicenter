@@ -10,8 +10,9 @@
  * stored note again; a note the server refuses stays here, held with its
  * reason, which the header counts.
  */
+import { fileOfPath, type Navigate, pathOfFile } from '@epicenter/app';
 import { ancestors } from '@epicenter/folder/file-browser';
-import type { FileStatus, WriteError } from '@epicenter/repository';
+import type { WriteError } from '@epicenter/repository';
 import { toast } from '@epicenter/ui/sonner';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -34,7 +35,7 @@ export type Notes = ReturnType<typeof createNotes>;
 /** How a path opens: as the note it is, or as its source text. */
 export type OpenAs = 'note' | 'text';
 
-/** The selected path and its presentation. The path owns the detail view's lifetime. */
+/** The selected path and its presentation. The path is the app's path (`/notes/<stem>.md`); it owns the detail view's lifetime. */
 export type Selection = {
 	readonly path: string;
 	readonly as: OpenAs;
@@ -66,17 +67,6 @@ export const repairsOf = (files: readonly NoteFile[]) => problemsOf(files);
 /** Folder files that do not read as folders. */
 export const unreadableOf = (folders: readonly FolderFile[]) => problemsOf(folders);
 
-/** How many of `files` are not sent yet, and how many are held here with a reason. */
-export function syncOf(files: readonly { state: FileStatus }[]) {
-	let sending = 0;
-	let held = 0;
-	for (const { state } of files) {
-		if (state.status === 'sending') sending++;
-		else if (state.status === 'held') held++;
-	}
-	return { sending, held };
-}
-
 /**
  * Tell the person when a write could not be saved on this device. A write is
  * shown at once and resolves once this device stored it; a note the server
@@ -87,7 +77,12 @@ export async function report(saved: Promise<Result<unknown, WriteError>>, failur
 	if (error !== null && error.name !== 'Closed') toast.error(failure, { description: error.message });
 }
 
-export function createNotes(repo: HoneycrispRepository) {
+/**
+ * The product state over `repo`. What the detail shows is the app's path
+ * (`path()`, a file path as `fileOfPath` reads it), so it survives a reload
+ * and Back returns to what was open before; `navigate` moves it.
+ */
+export function createNotes(repo: HoneycrispRepository, { path, navigate }: { path: () => string; navigate: Navigate }) {
 
 	/** Which notes the list shows; input not yet committed, like a search. */
 	let view = $state<{ folderId: string | null; deleted: boolean; query: string }>({
@@ -97,8 +92,19 @@ export function createNotes(repo: HoneycrispRepository) {
 	});
 	/** Folders open in the file browser; kept while the browser is hidden. */
 	const expanded = new SvelteSet<string>(['notes']);
-	/** What the detail shows. */
-	let selected = $state.raw<Selection | undefined>();
+	/** The presentation last chosen for a path; any other path opens as `defaultAs` says. */
+	let chosen = $state.raw<Selection | undefined>();
+	/** What the detail shows: the file the path names, as last chosen for it. */
+	const selected = $derived.by((): Selection | undefined => {
+		const file = fileOfPath(path());
+		if (file === undefined) return undefined;
+		return chosen?.path === file ? chosen : { path: file, as: defaultAs(file) };
+	});
+	// A file opened from the URL (a reload, Back) shows in the file browser.
+	$effect(() => {
+		const file = selected?.path;
+		if (file !== undefined) for (const ancestor of ancestors(file)) expanded.add(ancestor);
+	});
 	/** Bumped when a note is opened, so its editor takes focus. */
 	let focusRequest = $state(0);
 
@@ -116,8 +122,8 @@ export function createNotes(repo: HoneycrispRepository) {
 	function open(path: string, as: OpenAs = defaultAs(path)) {
 		if (as === 'note') focusRequest += 1;
 		for (const ancestor of ancestors(path)) expanded.add(ancestor);
-		if (selected?.path === path && selected.as === as) return;
-		selected = { path, as };
+		chosen = { path, as };
+		if (selected?.path !== path) void navigate(pathOfFile(path));
 	}
 
 	/** Set fields of a note; only the keys named change. */
@@ -152,7 +158,7 @@ export function createNotes(repo: HoneycrispRepository) {
 
 	/** Delete a note or folder file. Other files belong to the repository, not to Honeycrisp. */
 	function deleteConfirmed({ path }: Deletion) {
-		if (selected?.path === path) selected = undefined;
+		if (selected?.path === path) void navigate('/', { replace: true });
 		const note = noteStemOf(path);
 		const folder = folderStemOf(path);
 		if (note !== undefined) void report(repo.notes.delete({ stem: note }), 'Could not delete the note');
@@ -172,12 +178,6 @@ export function createNotes(repo: HoneycrispRepository) {
 		},
 		get folderFiles() {
 			return repo.folders.all();
-		},
-		/** How many notes and folders the server has not answered yet, and how many are held here with a reason. */
-		get sync() {
-			const notes = syncOf(repo.notes.all());
-			const folders = syncOf(repo.folders.all());
-			return { sending: notes.sending + folders.sending, held: notes.held + folders.held };
 		},
 		expanded,
 		get view() {

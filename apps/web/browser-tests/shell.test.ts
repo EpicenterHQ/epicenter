@@ -32,7 +32,7 @@ afterAll(() => world?.stop());
 const apps = (page: Page) => page.getByRole('list', { name: 'Apps' });
 const dataOf = (page: Page, app: string) => apps(page).getByRole('listitem').filter({ hasText: app }).getByTestId('app-data');
 /** The app header's link to the repository's page. */
-const toRepository = (page: Page, name: string) => page.getByRole('link', { name: `${name}: its apps and this browser's other repositories` });
+const toRepository = (page: Page, name: string) => page.getByRole('link', { name: `${name}: this repository's page` });
 
 async function addTodo(page: Page, title: string) {
 	await page.getByLabel('New todo title').fill(title);
@@ -93,6 +93,9 @@ for (const [engine, browser] of ENGINES) {
 					await page.getByRole('button', { name: 'New note' }).click();
 					await page.getByLabel('Title', { exact: true }).fill('Shell note');
 					await page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: 'Shell note' }).waitFor();
+					// The open note is Honeycrisp's path: Back closes it, then leaves Honeycrisp.
+					await page.goBack();
+					await page.getByText('No note selected').waitFor();
 					await page.goBack();
 					await dataOf(page, 'Honeycrisp').getByText('Has data').waitFor();
 					await page.goBack();
@@ -126,11 +129,11 @@ for (const [engine, browser] of ENGINES) {
 
 					// Back to Work's todos, and Forward to home's.
 					for (let step = 0; step < 3; step++) await page.goBack();
-					expect(new URL(page.url()).pathname).toBe('/me/work/todos');
+					expect(new URL(page.url()).pathname).toMatch(/^\/me\/work\/todos(\/|$)/);
 					await page.getByRole('checkbox', { name: 'Complete Work item' }).waitFor();
 					await expect(page.getByRole('checkbox', { name: 'Complete Water plants' }).count()).resolves.toBe(0);
 					for (let step = 0; step < 3; step++) await page.goForward();
-					expect(new URL(page.url()).pathname).toBe('/me/home/todos');
+					expect(new URL(page.url()).pathname).toMatch(/^\/me\/home\/todos(\/|$)/);
 					await page.getByRole('checkbox', { name: 'Complete Water plants' }).waitFor();
 					await expect(page.getByTestId('repository-status').count()).resolves.toBe(0);
 				} finally {

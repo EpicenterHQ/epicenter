@@ -10,16 +10,16 @@
  *
  * Key behaviors:
  * - Add, edit, complete, and delete persist across close and reopen
+ * - The open todo is the app's path: a path that changes under it opens that todo, and `/` the list
  * - Another tab's change updates a clean todo without replacing its controls
  * - A title typed here and done set elsewhere both survive
  * - A write the replica refuses is reported, and the controls follow the stored note
  * - A note that does not fit opens into its source with its schema issue, and an edit keeps unnamed fields
- * - The header says a held todo is not sent
  * - Storage that cannot be opened shows why, and Try again opens it
  * - The repository's status shows before the todos arrive and as a bar after, and the app is never mounted twice
  */
 import '../../../packages/svelte/src/svelte-dom.test-support.js';
-import { afterEach, expect, mock, test } from 'bun:test';
+import { afterEach, expect, test } from 'bun:test';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { openReplica, type Replica } from '@epicenter/repository/client';
 import type { SqlDriver } from '../../../packages/repository/src/sql.js';
@@ -31,19 +31,14 @@ import { todosApp } from './definition.js';
 import type { TodosRepository } from './repository.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const state = await import('./app-state.test-support.svelte.ts');
-const navigation = await import('./app-navigation.test-support.ts');
-mock.module('$app/state', () => state);
-mock.module('$app/navigation', () => navigation);
-const { page } = state;
-const { resetUrl } = navigation;
+const { at, resetPath } = await import('./app-path.test-support.svelte.js');
 const { default: PageHost } = await import('./fixtures/PageHost.svelte');
 
 const cleanup: (() => unknown)[] = [];
 afterEach(async () => {
 	for (const step of cleanup.splice(0).reverse()) await step();
 	document.body.replaceChildren();
-	resetUrl();
+	resetPath();
 });
 
 const DETAIL = 'section[aria-label="Todo"]';
@@ -51,7 +46,7 @@ const LIST = '[aria-label="Todo list"]';
 const TITLE = `${DETAIL} input[aria-label="Title"]`;
 const NOTES = `${DETAIL} [aria-label="Notes"]`;
 const DONE = `${DETAIL} button[aria-label="Done"]`;
-const SUMMARY = '[data-testid="status-summary"]';
+const PENDING = '[data-testid="todo-pending"]';
 
 /** A fresh device: one replica on one database, which every repository of the test opens. */
 function freshDevice() {
@@ -90,10 +85,10 @@ function freshDevice() {
 }
 
 /** Mount the page over `repository`; `close` unmounts it. */
-function mountPage(repository: TodosRepository, syncsTo?: string, onLeave: () => void = () => {}) {
+function mountPage(repository: TodosRepository, onLeave: () => void = () => {}) {
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(PageHost, { target, props: { repository, syncsTo, onLeave } });
+	const view = mount(PageHost, { target, props: { repository, onLeave } });
 	let mounted = true;
 	const close = () => {
 		if (!mounted) return;
@@ -129,9 +124,9 @@ async function until(check: () => boolean, what: string) {
 }
 
 /** Mount the page over a repository on `device` and wait until it lists the todos. */
-async function openPage(device: ReturnType<typeof freshDevice>, syncsTo?: string) {
+async function openPage(device: ReturnType<typeof freshDevice>) {
 	const { repository } = device.host();
-	const opened = mountPage(repository, syncsTo);
+	const opened = mountPage(repository);
 	await until(() => opened.has('[aria-label="Todos"]'), 'the list');
 	return opened;
 }
@@ -144,7 +139,7 @@ async function onMilk() {
 	const other = device.tab();
 	await until(() => other.status().status === 'open', 'the other tab');
 	unwrap(await other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false }, body: 'Two litres' }));
-	resetUrl('http://localhost/?todo=milk');
+	resetPath('/milk');
 	const opened = await openPage(device);
 	await until(() => opened.get(TITLE).value === 'Milk' && opened.has(NOTES), 'milk to open');
 	return { ...opened, device, other };
@@ -157,12 +152,12 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 
 	type(first.get('[aria-label="New todo title"]'), 'Buy milk');
 	flushSync();
-	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain('Todo not added');
+	expect(first.text(PENDING)).toBe('Todo not added');
 	click(first.get(LIST), 'Add');
 	await until(() => first.get(TITLE).value === 'Buy milk' && first.has(NOTES), 'the new todo to open');
-	const id = page.url.searchParams.get('todo');
-	if (id === null) throw new Error('The new todo did not open');
-	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain('On this device');
+	const id = decodeURIComponent(at.path.slice(1));
+	if (id === '') throw new Error('The new todo did not open');
+	expect(first.has(PENDING)).toBe(false);
 
 	type(first.get(TITLE), 'Buy oat milk');
 	typeInEditor(first.get(NOTES), 'Two litres');
@@ -184,12 +179,22 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	const dialog = document.querySelector('[role="alertdialog"]');
 	if (dialog === null) throw new Error('The delete confirmation did not open');
 	click(dialog, 'Delete');
-	await until(() => page.url.searchParams.get('todo') === null, 'the delete');
+	await until(() => at.path === '/', 'the delete');
 	await until(() => device.text(id) === null, 'the delete stored');
 	second.close();
 
 	const third = await openPage(device);
 	await until(() => third.text('[aria-label="Todos"]')?.includes('No todos yet') ?? false, 'an empty list');
+});
+
+test("the open todo is the app's path: a path that changes under it opens that todo, and / the list", async () => {
+	const { get, has, other } = await onMilk();
+	unwrap(await other.todos.create({ stem: 'tea' }, { fields: { title: 'Tea', done: false } }));
+	resetPath('/tea');
+	await until(() => get(TITLE).value === 'Tea', 'tea to open');
+	resetPath('/');
+	await until(() => !has(TITLE), 'the list');
+	await until(() => has('[data-todo="todos/milk.md"]'), 'the listed todo');
 });
 
 test("another tab's change updates a clean todo without replacing its controls", async () => {
@@ -233,7 +238,7 @@ test('rapid typing shows and saves the latest title', async () => {
 });
 
 test('a deleted todo shows absence even when its editor was already open', async () => {
-	resetUrl('http://localhost/?todo=ghost');
+	resetPath('/ghost');
 	const ghost = await openPage(freshDevice());
 	await until(() => ghost.text(DETAIL)?.includes('This todo is no longer here') ?? false, 'the missing todo');
 	ghost.close();
@@ -278,9 +283,8 @@ test('a new title not added does not prompt before a browser reload', async () =
 	const opened = await openPage(freshDevice());
 	type(opened.get('[aria-label="New todo title"]'), 'Buy tea');
 	flushSync();
-	expect(opened.get(SUMMARY).getAttribute('aria-label')).toContain('Todo not added');
+	expect(opened.text(PENDING)).toBe('Todo not added');
 	expect(window.dispatchEvent(new Event('beforeunload', { cancelable: true }))).toBe(true);
-	expect(navigation.leave()).toBe(false);
 	expect(opened.get('[aria-label="New todo title"]').value).toBe('Buy tea');
 });
 
@@ -310,20 +314,6 @@ test('a note that does not fit opens into its source with its schema issue, and 
 	type(opened.get(TITLE), 'Extra, renamed');
 	await until(() => device.text('extra') === '---\ntitle: Extra, renamed\ndone: false\nowner: sam\n---\n', 'the rename, keeping owner');
 	expect(device.text('odd')).toBe('---\ntitle: Odd\ndone: soon\n---\nNotes\n');
-});
-
-test('the header says a held todo is not sent, and never Synced while one waits', async () => {
-	const device = freshDevice();
-	const other = device.tab();
-	await until(() => other.status().status === 'open', 'the other tab');
-	unwrap(await other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false } }));
-	const opened = await openPage(device, 'https://sync.example');
-	// With no server reached, the create is still sending.
-	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Sending') ?? false, 'sending');
-	unwrap(await other.todos.write({ stem: 'milk' }, '---\ntitle: [Milk\ndone: false\n---\n'));
-	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Not sent') ?? false, 'the held todo');
-	unwrap(await other.todos.write({ stem: 'milk' }, '---\ntitle: Milk\ndone: false\n---\n'));
-	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Sending') ?? false, 'the repair sending');
 });
 
 test('storage that cannot be opened shows why, and Try again opens it', async () => {
@@ -370,7 +360,7 @@ test('a repository that does not open offers to choose another, from every scree
 	const local = device.host();
 	let left = 0;
 	local.end({ status: 'unavailable', reason: 'Storage access is blocked', retry: () => {} });
-	const opened = mountPage(local.repository, undefined, () => left++);
+	const opened = mountPage(local.repository, () => left++);
 	await until(() => opened.text('[role="alert"]')?.includes('Storage access is blocked') ?? false, 'the refusal');
 	press(button(opened.target, 'Choose another repository'));
 	expect(left).toBe(1);

@@ -1,11 +1,10 @@
 <!--
-	Every page of the shell: the providers the apps share, and any typing a
-	repository closed without saving, to copy.
+	Every page of the shell: its tooltips and theme, and any typing a
+	repository closed without saving, to copy. An app brings its own
+	providers (`@epicenter/svelte/app`), so none of them shows twice.
 -->
 <script lang="ts">
 	import { Button } from '@epicenter/ui/button';
-	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
-	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { ModeWatcher } from 'mode-watcher';
 	import { unsaved } from '$lib/open.svelte.js';
@@ -34,6 +33,4 @@
 
 <Tooltip.Provider>{@render props.children?.()}</Tooltip.Provider>
 
-<ConfirmationDialog />
-<Toaster offset={16} closeButton />
 <ModeWatcher defaultMode="dark" track={false} />
