@@ -104,6 +104,17 @@ test('a commit in flight whose answer was lost survives reopening the database f
 	}
 });
 
+test("a commit carries the host's clock as its time", () => {
+	const at = Date.UTC(2026, 9, 29, 10, 30);
+	const replica = unwrap(open(openBunSqlite(), { now: () => at }));
+	const server = createTestServer({ clock: () => at });
+	const link = connect(replica, server);
+	link.deliver();
+	replica.write(PATH, note('one\n'));
+	const [push] = link.sent;
+	expect(push).toMatchObject({ type: 'push', commit: { time: '2026-10-29T10:30:00.000Z' } });
+});
+
 test("the app's views read what the person sees, held text included, and a watcher hears each change once it is stored", () => {
 	const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.String() }) } });
 	const driver = openBunSqlite();

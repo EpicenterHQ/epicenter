@@ -32,7 +32,7 @@ function setup(limits: Partial<Limits> = {}) {
 	return { clock, store, git, server };
 }
 
-function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), time = 't' } = {}): LiveCommit {
+function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), time = new Date(EPOCH).toISOString() } = {}): LiveCommit {
 	const body = { parent, mode: 'merge' as const, author: { user, device: 'laptop' }, time, files };
 	return { id: commitId(body), ...body };
 }
@@ -60,6 +60,17 @@ describe('admission', () => {
 		expect(server.push(make(server, [{ path: 'n/a.md', text }]), alice)).toMatchObject({ kind: 'applied' });
 	});
 
+	test("a commit's time is an ISO instant no later than the server's clock allows; an earlier one is a resend's", () => {
+		const { server } = setup();
+		const files = [{ path: 'n/a.md', text: note('a\n') }];
+		expect(server.push(make(server, files, { time: 'yesterday' }), alice)).toMatchObject({ kind: 'refused', reason: 'the time is not an ISO instant' });
+		expect(server.push(make(server, files, { time: new Date(EPOCH + LIMITS.skew + 1).toISOString() }), alice)).toMatchObject({
+			kind: 'refused',
+			reason: "the time is ahead of the server's clock",
+		});
+		expect(server.push(make(server, files, { time: new Date(EPOCH - 3 * 24 * 3_600_000).toISOString() }), alice)).toMatchObject({ kind: 'applied' });
+	});
+
 	test('a merge result passes the door too', () => {
 		const { server } = setup();
 		const base = server.main();
@@ -78,7 +89,7 @@ describe('admission', () => {
 		const { server } = setup();
 		const base = server.main();
 		expect(server.push(make(server, [{ path: 'n/a.md', text: note('one\n') }]), alice).kind).toBe('applied');
-		const body = { parent: base, mode: 'fast-forward' as const, author: { user: 'alice', device: 'laptop' }, time: 't', files: [{ path: 'n/a.md', text: note('two\n') }] };
+		const body = { parent: base, mode: 'fast-forward' as const, author: { user: 'alice', device: 'laptop' }, time: new Date(EPOCH).toISOString(), files: [{ path: 'n/a.md', text: note('two\n') }] };
 		expect(server.push({ id: commitId(body), ...body }, alice)).toEqual({
 			kind: 'refused',
 			reason: 'main moved',

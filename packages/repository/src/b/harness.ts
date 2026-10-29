@@ -19,6 +19,8 @@ export const QUIET = SCHEDULE.quiet;
 export const BUSY = SCHEDULE.busy;
 /** The server's clock reads virtual time from this instant. */
 export const EPOCH = Date.UTC(2026, 9, 28);
+/** A commit time the server takes: the epoch, as an ISO instant. */
+export const STAMP = new Date(EPOCH).toISOString();
 
 /** A server alone over an in-memory Store and Git, for tests that push to it directly. */
 export function createTestServer({ clock = () => EPOCH, limits }: { clock?: () => number; limits?: Parameters<typeof createServer>[0]['limits'] } = {}) {
@@ -74,7 +76,7 @@ export function createWorld({
 		// The device's database: a restart opens a new replica over it; a lost device gets a new one.
 		let driver = openBunSqlite();
 		const make = () =>
-			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'memory', account: name }, device: name, mode, after: net.after, now: net.now, timeout }));
+			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'memory', account: name }, device: name, mode, after: net.after, now: () => EPOCH + net.now(), timeout }));
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;

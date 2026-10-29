@@ -40,7 +40,7 @@ import { expect, test } from 'bun:test';
 import { parses, splitMarkdown, writeMarkdown } from '../core/markdown.js';
 import type { MemoryGitStore } from '../server/memory-git.js';
 import type { Server } from '../server/server.js';
-import { type Device, type World, createWorld } from './harness.js';
+import { type Device, STAMP, type World, createWorld } from './harness.js';
 import { escapeLines } from '../core/conflict.js';
 import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
@@ -251,7 +251,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 
 	// A hostile member writing straight to the server, and a stranger.
 	const hostile = (member: string, files: LiveCommit['files'], { author = member, parent = world.server.main(), id }: { author?: string; parent?: string; id?: string } = {}) => {
-		const body = { parent, mode: 'merge' as const, author: { user: author, device: 'x' }, time: 't', files };
+		const body = { parent, mode: 'merge' as const, author: { user: author, device: 'x' }, time: STAMP, files };
 		const commit = { id: id ?? commitId(body), ...body };
 		return world.server.push(commit, world.session(member));
 	};

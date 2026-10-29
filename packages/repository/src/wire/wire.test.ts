@@ -57,7 +57,7 @@ function setup({
 	return { clock, server, served, url, as, post };
 }
 
-function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), mode = 'merge' as LiveCommit['mode'], time = 't' } = {}): LiveCommit {
+function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), mode = 'merge' as LiveCommit['mode'], time = new Date(EPOCH).toISOString() } = {}): LiveCommit {
 	const body = { parent, mode, author: { user, device: 'laptop' }, time, files };
 	return { id: commitId(body), ...body };
 }
@@ -119,7 +119,7 @@ describe('POST /commits', () => {
 	test('a resend after its answer left the window is 200 flushed; a parent past the window with no record is 409 outcome-unknown', async () => {
 		const { server, post, clock } = setup({ limits: { window: 1_000, seen: 1_000_000 } });
 		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
-		const stale = make(server, [{ path: 'n/b.md', text: note('two\n') }], { time: 'later' });
+		const stale = make(server, [{ path: 'n/b.md', text: note('two\n') }], { time: new Date(EPOCH - 1).toISOString() });
 		expect((await post(commit)).status).toBe(200);
 		await server.flush();
 		clock.now += 5_000;
@@ -400,7 +400,7 @@ describe("the device's socket", () => {
 	});
 
 	test('a replica whose socket dropped resumes from its last head by catching up, and syncs through the wire', async () => {
-		const { served } = setup();
+		const { served, clock } = setup();
 		const sockets: WebSocket[] = [];
 		const replicas: Replica[] = [];
 		const connect = (user: string) => {
@@ -419,7 +419,7 @@ describe("the device's socket", () => {
 					binding: { repository: 'test', server: client.url, account: user },
 					device: user,
 					after: (ms, run) => setTimeout(run, ms),
-					now: () => Date.now(),
+					now: () => clock.now,
 					timeout: 1_000,
 				}),
 			);

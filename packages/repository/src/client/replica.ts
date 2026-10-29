@@ -551,7 +551,7 @@ function createReplica({
 			parent,
 			mode: nextMode,
 			author: { user, device },
-			time: new Date(Date.UTC(2026, 9, 28) + now()).toISOString(),
+			time: new Date(now()).toISOString(),
 			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };

@@ -138,6 +138,8 @@ export type Limits = {
 	seen: number;
 	/** Commits in one `git push`. */
 	pushedCommits: number;
+	/** How far ahead of the server's clock a commit's `time` may be, in ms. */
+	skew: number;
 };
 
 export const LIMITS: Limits = {
@@ -150,6 +152,7 @@ export const LIMITS: Limits = {
 	window: 10 * 60_000,
 	seen: 24 * 60 * 60_000,
 	pushedCommits: 1000,
+	skew: 5 * 60_000,
 };
 
 /** When live history is flushed: after `quiet` ms with no push, and at most `busy` ms after the last flush while pushes go on. */
@@ -164,6 +167,8 @@ const ServerDiagnostic = defineErrors({
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const bytes = (text: string) => encoder.encode(text).length;
+/** A UTC instant as `Date.prototype.toISOString` writes it. */
+const isInstant = (time: string) => /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(time) && new Date(Date.parse(time)).toISOString() === time;
 
 // ============================================================================
 // The server
@@ -272,6 +277,9 @@ export function createServer({
 		// The id is checked before any recorded outcome is read, so a replayed id with other files is refused.
 		if (commitId(commit) !== commit.id) return refuse('the id is not the hash of the commit');
 		if (commit.author.user !== session.user) return refuse('the author is not the session');
+		// RULE: `time` is a label people read (in conflict blocks), never an order: an ISO instant, not ahead of the server's clock by more than the skew. An earlier one is a commit sent again after time offline.
+		if (!isInstant(commit.time)) return refuse('the time is not an ISO instant');
+		if (Date.parse(commit.time) > now + limits.skew) return refuse("the time is ahead of the server's clock");
 		if (bytes(JSON.stringify(commit)) > limits.request) return refuse('request too large');
 		if (commit.files.length > limits.files) return refuse('too many files');
 		const paths = new Set<string>();
@@ -415,6 +423,8 @@ export function createServer({
 	return {
 		/** The current `main`. */
 		main: () => main().id,
+		/** The server's clock, as the ISO instant a commit made here carries. */
+		time,
 		/**
 		 * Whether `session` may read this repository: any member may. The
 		 * reads below (`read`, `catchUp`, `fetch`, `subscribe`) do not check;

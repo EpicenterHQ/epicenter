@@ -25,7 +25,7 @@ import { expect, test } from 'bun:test';
 import { parses } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { BLOCK_CAP } from '../core/settle.js';
-import { createTestServer, createWorld, QUIET, writer } from './harness.js';
+import { createTestServer, createWorld, EPOCH, QUIET, STAMP, writer } from './harness.js';
 import { unwrap } from 'wellcrafted/result';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Request } from '../client/replica.js';
@@ -275,7 +275,7 @@ test('the server refuses a commit with no parent, a bad id, or a path named twic
 	const server = createTestServer();
 	const session = writer('x');
 	const make = (files: LiveCommit['files'], mode: LiveCommit['mode'] = 'merge'): LiveCommit => {
-		const body = { parent: server.main(), mode, author: { user: 'x', device: 'x' }, time: 't', files };
+		const body = { parent: server.main(), mode, author: { user: 'x', device: 'x' }, time: STAMP, files };
 		return { id: commitId(body), ...body };
 	};
 	const first = make([{ path: PATH, text: note('one\n') }]);
@@ -337,7 +337,7 @@ test('a stale-parent flood writes each different text once, an identical one not
 	let clock = 0;
 	// Each commit is new (its own time, so its own id): a resend of one would just get its recorded outcome.
 	const make = (parent: string, files: LiveCommit['files'], user = 'x'): LiveCommit => {
-		const body = { parent, mode: 'merge' as const, author: { user, device: user }, time: `t${clock++}`, files };
+		const body = { parent, mode: 'merge' as const, author: { user, device: user }, time: new Date(EPOCH + clock++).toISOString(), files };
 		return { id: commitId(body), ...body };
 	};
 	const root = server.main();

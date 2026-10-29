@@ -249,7 +249,7 @@ export function createWire({
 	authenticate: Authenticate;
 	sockets: SocketHub;
 	limits?: Partial<WireLimits>;
-	/** The time a PUT or DELETE commit carries, and against which a session expires. */
+	/** The time against which a session expires. */
 	clock?: () => number;
 }) {
 	const limits = { ...WIRE_LIMITS, ...given };
@@ -323,7 +323,7 @@ export function createWire({
 			parent: server.main(),
 			mode: 'fast-forward' as const,
 			author: { user: session.user, device: request.headers.get(DEVICE_HEADER) ?? 'http' },
-			time: new Date(clock()).toISOString(),
+			time: server.time(),
 			files: [{ path, text }],
 		};
 		const taken = takeCommit({ id: commitId(commit), ...commit }, session);
