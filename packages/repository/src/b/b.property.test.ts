@@ -97,6 +97,7 @@ function run(seed: number) {
 	const removed = new Set<string>();
 	/** Typed on a device lost before its commit was acknowledged: legitimately gone. */
 	const forgotten = new Set<string>();
+	const lastPush = new Map<string, boolean>();
 	const removals: { device: string; path: string; landed: boolean; cancelled: boolean; step: string }[] = [];
 	const violations: string[] = [];
 	const honestIds: string[] = [];
@@ -130,6 +131,8 @@ function run(seed: number) {
 		const commit = request.commit;
 		honestIds.push(commit.id);
 		for (const file of commit.files) for (const t of tokensIn(file.text)) acknowledged.add(t);
+		// What this device's last landed push did to each path: a removal saved while that delete is still in flight is that delete.
+		for (const file of commit.files) lastPush.set(`${device} ${file.path}`, file.text === null && states.get(answer.main)?.has(file.path) === false);
 		// No silent merge across a delete, judged by the test's own history.
 		const merge = lastMerge as Committed | null;
 		if (answer.kind !== 'merged' || merge === null || merge.parents[1] !== commit.id) return;
@@ -160,10 +163,17 @@ function run(seed: number) {
 		for (const t of typed) if (written.has(t)) owed.set(t, d.name);
 		for (const [path, text] of Object.entries(changes)) {
 			for (const r of removals) if (r.device === d.name && r.path === path && text !== null) r.cancelled = true;
-			// A removal claims a note the device had from the server, not one it created and never sent.
+			// A removal claims a note the device had from the server, not one it created and never sent,
 			const known = d.replica.files().get(path)?.base ?? null;
 			if (text === null && showed(path) !== null && known !== null)
-				removals.push({ device: d.name, path, landed: world.server.read(path) === null, cancelled: false, step: log.at(-1) ?? '' });
+				removals.push({
+					device: d.name,
+					path,
+					// A delete in flight, a create over it, and a delete again send nothing new: the delete in flight is this removal.
+					landed: world.server.read(path) === null || (d.replica.state(path).status === 'sending' && lastPush.get(`${d.name} ${path}`) === true),
+					cancelled: false,
+					step: log.at(-1) ?? '',
+				});
 		}
 		d.replica.writeAll(changes, editor && seen !== undefined ? { over: seen } : {});
 	};
