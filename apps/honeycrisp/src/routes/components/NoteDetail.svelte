@@ -21,12 +21,15 @@
 		notes,
 		path: shownPath,
 		editor,
+		unopened,
 	}: {
 		notes: Notes;
 		/** Fixed for this component's lifetime, including presentation changes. */
 		path: string;
 		/** The note's editor, once FileDetail has opened it. */
 		editor: Editor | undefined;
+		/** Why the editor did not open, and how to try again. */
+		unopened?: { reason: string; retry(): void };
 	} = $props();
 
 	// The parent keys this view by its path. While the parent replaces it,
@@ -83,6 +86,12 @@
 
 			{#if editor !== undefined}
 				<NoteEditor {editor} focusRequest={notes.focusRequest} class="flex-1" />
+			{:else if unopened !== undefined}
+				{@const { reason, retry } = unopened}
+				<p class="flex flex-wrap items-center gap-2 px-4 py-3 text-sm text-destructive" role="alert">
+					{reason}
+					<Button size="sm" variant="outline" onclick={retry}>Try again</Button>
+				</p>
 			{/if}
 		{:else if shown === undefined}
 			<Empty.Root class="flex-1">

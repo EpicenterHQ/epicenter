@@ -52,12 +52,21 @@
 
 	/** The note's editor, once open; it opens after a todo just added is stored. */
 	let editor = $state.raw<Editor>();
+	/** Why the editor did not open, when the todo is here and trying again may open it. */
+	let unopened = $state<string>();
 	let destroyed = false;
-	void repo.todos.openEditor({ stem: id }).then((opened) => {
-		if (opened.error !== null) return;
-		if (destroyed) void opened.data.close();
-		else editor = opened.data;
-	});
+	function openEditor() {
+		unopened = undefined;
+		void repo.todos.openEditor({ stem: id }).then((opened) => {
+			if (opened.error !== null) {
+				if (opened.error.name !== 'NotFound') unopened = opened.error.message;
+				return;
+			}
+			if (destroyed) void opened.data.close();
+			else editor = opened.data;
+		});
+	}
+	openEditor();
 	onDestroy(() => {
 		destroyed = true;
 		void editor?.close().then(({ error }) => {
@@ -98,6 +107,13 @@
 	</div>
 {/snippet}
 
+{#snippet notOpened(reason: string)}
+	<p class="flex flex-wrap items-center gap-2 px-4 py-3 text-sm text-destructive" role="alert">
+		{reason}
+		<Button size="sm" variant="outline" onclick={openEditor}>Try again</Button>
+	</p>
+{/snippet}
+
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
 	{#if note?.valid && !editingSource}
 		{@const fields = note.fields}
@@ -119,6 +135,8 @@
 		<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
 			{#if editor !== undefined}
 				<SourceEditor {editor} shows="body" label="Notes" class="min-h-0 flex-1 rounded-md border" />
+			{:else if unopened !== undefined}
+				{@render notOpened(unopened)}
 			{/if}
 		</div>
 		{@render fileBar(labelOf(note), true)}
@@ -135,6 +153,8 @@
 				label="Source of {path}"
 				class="min-h-48 flex-1"
 			/>
+		{:else if unopened !== undefined}
+			{@render notOpened(unopened)}
 		{/if}
 		{@render fileBar(note.valid ? labelOf(note) : `${id}.md`, note.valid)}
 	{:else}

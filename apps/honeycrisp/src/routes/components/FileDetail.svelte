@@ -68,13 +68,22 @@
 
 	/** The note's or folder's editor, once open; a note just created opens it once it is stored. */
 	let editor = $state.raw<Editor>();
+	/** Why the editor did not open, when the file is here and trying again may open it. */
+	let unopened = $state<string>();
 	let destroyed = false;
-	const opening = noteStem !== undefined ? repo.notes.openEditor({ stem: noteStem }) : folderStem !== undefined ? repo.folders.openEditor({ stem: folderStem }) : undefined;
-	void opening?.then((opened) => {
-		if (opened.error !== null) return;
-		if (destroyed) void opened.data.close();
-		else editor = opened.data;
-	});
+	function openEditor() {
+		unopened = undefined;
+		const opening = noteStem !== undefined ? repo.notes.openEditor({ stem: noteStem }) : folderStem !== undefined ? repo.folders.openEditor({ stem: folderStem }) : undefined;
+		void opening?.then((opened) => {
+			if (opened.error !== null) {
+				if (opened.error.name !== 'NotFound') unopened = opened.error.message;
+				return;
+			}
+			if (destroyed) void opened.data.close();
+			else editor = opened.data;
+		});
+	}
+	openEditor();
 	onDestroy(() => {
 		destroyed = true;
 		void editor?.close().then(({ error }) => {
@@ -87,7 +96,7 @@
 	{#if noteStem !== undefined}
 		<!-- Hidden and inert, rather than unmounted: the editor's history stays here. -->
 		<div class="min-h-0 flex-1" hidden={as !== 'note'} inert={as !== 'note'}>
-			<NoteDetail {notes} {path} {editor} />
+			<NoteDetail {notes} {path} {editor} unopened={unopened === undefined ? undefined : { reason: unopened, retry: openEditor }} />
 		</div>
 	{/if}
 	{#if as === 'text'}
@@ -114,6 +123,11 @@
 					label="Source of {name}"
 					class="flex-1"
 				/>
+			{:else if entry !== undefined && unopened !== undefined}
+				<p class="flex flex-wrap items-center gap-2 px-4 py-3 text-sm text-destructive" role="alert">
+					{unopened}
+					<Button size="sm" variant="outline" onclick={openEditor}>Try again</Button>
+				</p>
 			{:else if text !== undefined && entry === undefined}
 				<pre class="min-h-40 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap" aria-label="Text of {name}">{text}</pre>
 			{:else if gone}
