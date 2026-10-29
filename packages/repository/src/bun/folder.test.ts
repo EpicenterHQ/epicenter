@@ -80,7 +80,7 @@ test('commit lands every difference as one commit with its message; then unchang
 	server.subscribe((event) => pushes.push(event.commit));
 	lines.length = 0;
 	expect(await commit({ ...base, dir, message: 'Three files' }, print)).toBe(0);
-	expect(lines.at(-1)).toMatchObject({ landed: expect.any(String), conflicts: [] });
+	expect(lines.at(-1)).toMatchObject({ landed: expect.stringMatching(/^[0-9a-f]{40}$/), conflicts: [] });
 	expect(server.read('a.md')).toBe(note('a\n'));
 	expect(server.read('c.png')).toContain('oid sha256:');
 	expect(await commit({ ...base, dir, message: 'Again' }, print)).toBe(0);

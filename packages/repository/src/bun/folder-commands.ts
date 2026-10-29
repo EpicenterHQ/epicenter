@@ -127,20 +127,24 @@ export async function commit(options: FolderOptions & { message: string; wait?: 
 		}
 		const read = new Map(saved.map((path) => [path, findConflicts(replica.read(path) ?? '').length]));
 		const group = new Set(saved);
+		let id: string | null = null;
+		// The commit's id, as soon as the replica sends it: it may land between two looks.
+		const unwatch = replica.watch(() => {
+			const sent = replica.sent();
+			if (sent?.message === options.message) id = sent.id;
+		});
 		link = folder.connect();
 		if (link === null) {
 			print({ pending: null });
 			return 2;
 		}
-		let id: string | null = null;
 		/** What holds the group: its own held files, or those it was saved with. */
 		const heldHere = () => replica.held();
 		const settled = () => {
-			const sent = replica.sent();
-			if (sent?.message === options.message) id = sent.id;
 			return heldHere().length > 0 || [...group].every((path) => replica.state(path).status === 'synced');
 		};
 		await until(settled, options.wait ?? 30_000);
+		unwatch();
 		const held = heldHere();
 		if (held.length > 0 && [...group].some((path) => replica.state(path).status === 'held')) {
 			print({ held, commit: id });
