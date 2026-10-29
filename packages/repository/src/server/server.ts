@@ -30,7 +30,8 @@
  * kept for the window, so a catch-up is a tree diff, in pages.
  *
  * Flushing (flush.ts) turns live history into Git commits; a `git push`
- * comes in through `receive` (receive.ts), only on the live `main` Git holds.
+ * comes in through `receive` (receive.ts), on Git's `main`, and merges into
+ * live `main` like any commit.
  *
  * Rules the design does not state are marked `RULE:`.
  */
@@ -335,9 +336,12 @@ export function createServer({
 	function prune() {
 		const now = clock();
 		const cutoff = now - limits.window;
-		history.pruneBefore(Math.min(history.top(), history.newestBefore(cutoff) + 1));
+		// RULE: while a pushed commit waits to be joined to live history in Git, nothing Git lacks is dropped: the flush rebuilds that history from it.
+		const floor = flusher.joins().length > 0 ? meta.number('flushed') : history.top();
+		history.pruneBefore(Math.min(history.top(), floor, history.newestBefore(cutoff) + 1));
 		store.run('DELETE FROM outcomes WHERE at < ? AND place <= ?', [cutoff, meta.number('flushed')]);
 		store.run('DELETE FROM seen WHERE at < ?', [now - limits.seen]);
+		store.run('DELETE FROM received WHERE at < ?', [now - limits.seen]);
 	}
 
 	/** Put a commit on `main`: its snapshot and its notification. */
@@ -406,9 +410,9 @@ export function createServer({
 	}
 
 	/** Fill an answer's files (everything changed since the commit's parent, and what it touched) and keep it for a resend. */
-	function record(commit: LiveCommit, kind: 'applied' | 'merged', mainId: string, from: number, spelled: string[]): PushAnswer {
+	function record(commit: LiveCommit, kind: 'applied' | 'merged', mainId: string, { from, tree }: { from: number; tree: string }, spelled: string[]): PushAnswer {
 		const touched = [...new Set([...commit.files.map((f) => f.path), ...spelled])];
-		const paths = new Set([...trees.diff(history.at(from).tree, main().tree), ...touched]);
+		const paths = new Set([...trees.diff(tree, main().tree), ...touched]);
 		const answer: PushAnswer = { kind, main: mainId, commits: history.idsAfter(from), files: [...paths].sort().map((path) => state(path, from)) };
 		const now = clock();
 		store.run('INSERT OR REPLACE INTO outcomes (id, at, place, answer, paths) VALUES (?, ?, ?, ?, ?)', [commit.id, now, history.top(), JSON.stringify(answer), JSON.stringify(touched)]);
@@ -424,10 +428,10 @@ export function createServer({
 		if (recorded !== undefined) {
 			// RULE: a resend gets its verdict brought up to now: `main` and every file changed since its parent, as they are now.
 			const answer = JSON.parse(recorded.answer) as PushAnswer;
-			const from = history.placeOf(commit.parent);
-			if (from === undefined || (answer.kind !== 'applied' && answer.kind !== 'merged')) return answer;
-			const paths = new Set([...trees.diff(history.at(from).tree, main().tree), ...(JSON.parse(recorded.paths) as string[])]);
-			return { ...answer, main: main().id, commits: history.idsAfter(from), files: [...paths].sort().map((path) => state(path, from)) };
+			const base = history.baseOf(commit.parent);
+			if (base === undefined || (answer.kind !== 'applied' && answer.kind !== 'merged')) return answer;
+			const paths = new Set([...trees.diff(base.tree, main().tree), ...(JSON.parse(recorded.paths) as string[])]);
+			return { ...answer, main: main().id, commits: history.idsAfter(base.from), files: [...paths].sort().map((path) => state(path, base.from)) };
 		}
 		const seen = first<{ paths: string }>(store, 'SELECT paths FROM seen WHERE id = ?', [commit.id]);
 		if (seen !== undefined) return { kind: 'flushed', main: main().id, files: (JSON.parse(seen.paths) as string[]).map((path) => state(path)) };
@@ -435,8 +439,10 @@ export function createServer({
 		const spelled = commit.files.map((f) => f.path);
 		commit = { ...commit, files: commit.files.map((f) => ({ ...f, path: history.spelling(f.path) ?? f.path })) };
 		const head = main();
-		const from = history.placeOf(commit.parent);
-		if (from === undefined) return { kind: 'outcome-unknown', main: head.id };
+		// A commit's parent is a commit on `main`, or one a merge took in (a `git push` on the commit Git's `main` is, before its export).
+		const base = history.baseOf(commit.parent);
+		if (base === undefined) return { kind: 'outcome-unknown', main: head.id };
+		const from = base.from;
 		if (expect !== undefined) {
 			const path = history.spelling(expect.path) ?? expect.path;
 			const hash = trees.read(head.tree, path);
@@ -447,11 +453,11 @@ export function createServer({
 		const said = commit.message === undefined ? {} : { message: commit.message };
 		if (commit.parent === head.id) {
 			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false, ...said }, commit.files);
-			return record(commit, 'applied', commit.id, from, spelled);
+			return record(commit, 'applied', commit.id, base, spelled);
 		}
 
 		// Merge where the commit's history and main's meet, path by path.
-		const parentTree = history.at(from).tree;
+		const parentTree = base.tree;
 		const out: CommitFile[] = [];
 		let blocks = false;
 		for (const file of commit.files) {
@@ -501,7 +507,7 @@ export function createServer({
 		);
 		// The merge that takes a commit with a message in carries it: it is the commit Git readers meet.
 		advance({ id, parents: [head.id, commit.id], author, time: mergeTime, blocks, ...said }, out);
-		return record(commit, 'merged', id, from, spelled);
+		return record(commit, 'merged', id, base, spelled);
 	}
 
 	/**
@@ -530,7 +536,7 @@ export function createServer({
 	// ------------------------------------------------------------------------
 
 	const flusher = createFlusher({ history, store, git, faults });
-	const receiver = createReceiver({ history, store, git, clock, limits, flusher, apply: (commit, session, during) => push(commit, session, { rate: false, during, on: commit.parent }) });
+	const receiver = createReceiver({ history, store, git, clock, limits, flusher, faults, apply: (commit, session, during) => push(commit, session, { rate: false, during }) });
 
 	/**
 	 * RULE: after a flush, drop what the window no longer keeps, then every
@@ -540,8 +546,12 @@ export function createServer({
 	function collect() {
 		store.transaction(() => {
 			prune();
-			const roots = [meta.get('git_tree') ?? trees.empty];
-			for (const { plan } of store.all<{ plan: string }>('SELECT plan FROM journal')) for (const commit of (JSON.parse(plan) as { commits: { tree: string }[] }).commits) roots.push(commit.tree);
+			const roots = [meta.get('git_tree') ?? trees.empty, ...flusher.joins().map((join) => join.tree)];
+			for (const { plan } of store.all<{ plan: string }>('SELECT plan FROM journal')) {
+				const planned = JSON.parse(plan) as { commits: { tree: string }[]; join?: { tree: string } };
+				for (const commit of planned.commits) roots.push(commit.tree);
+				if (planned.join !== undefined) roots.push(planned.join.tree);
+			}
 			history.sweep(roots);
 		});
 	}
@@ -595,24 +605,16 @@ export function createServer({
 	}
 	reschedule();
 
-	type PushOptions = { rate?: boolean; expect?: Expect; during?: () => void };
-	/**
-	 * Take a live commit; `during` runs in its transaction once it lands (the
-	 * receiver's journal row). With `on`, the commit lands only if `main` is
-	 * still `on`, the live head a Git push was checked against, and is null,
-	 * changing nothing, if it moved: a push is never merged (receive.ts).
-	 */
-	function push(commit: LiveCommit, session: Session | undefined, options: PushOptions & { on: string }): PushAnswer | null;
-	function push(commit: LiveCommit, session?: Session, options?: PushOptions): PushAnswer;
-	function push(commit: LiveCommit, session?: Session, { rate = true, expect, during, on }: PushOptions & { on?: string } = {}): PushAnswer | null {
+	type PushOptions = { rate?: boolean; expect?: Expect; during?: (answer: PushAnswer & { kind: 'applied' | 'merged' }) => void };
+	/** Take a live commit; `during` runs in its transaction once it lands (the receiver's journal row). */
+	function push(commit: LiveCommit, session?: Session, { rate = true, expect, during }: PushOptions = {}): PushAnswer {
 		pending = [];
 		const answer = store.transaction(() => {
-			if (on !== undefined && main().id !== on) return null;
 			const answer = pushInside(commit, session, rate, expect);
-			if (answer.kind === 'applied' || answer.kind === 'merged') during?.();
+			if (answer.kind === 'applied' || answer.kind === 'merged') during?.(answer);
 			return answer;
 		});
-		if (answer !== null && (answer.kind === 'applied' || answer.kind === 'merged')) {
+		if (answer.kind === 'applied' || answer.kind === 'merged') {
 			notify();
 			pushed();
 		} else pending = [];
@@ -751,14 +753,10 @@ export function createServer({
 		},
 		/**
 		 * Take a `git push` of `refs/heads/main` whose objects are already in
-		 * Git: fast-forward only (D1). Refused because live edits are not in
-		 * Git yet, it starts a flush, so the client can fetch and retry.
+		 * Git: a fast-forward of Git's `main`, merged into live `main` like
+		 * any commit (receive.ts).
 		 */
-		async receive(...args: Parameters<typeof receiver.receive>) {
-			const answer = await receiver.receive(...args);
-			if (answer.kind === 'refused' && answer.code === 'unflushed') flushInBackground();
-			return answer;
-		},
+		receive: (...args: Parameters<typeof receiver.receive>) => receiver.receive(...args),
 		/** Live commits made and kept, answers kept, the texts' bytes and tree nodes kept, and flushes, for tests and the benchmark. */
 		history: () => ({
 			commits: meta.number('made'),

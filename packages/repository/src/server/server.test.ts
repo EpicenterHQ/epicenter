@@ -11,7 +11,7 @@
  * - idempotency: a resend gets its answer brought up to now; after the window, `flushed`; a parent past the window with no record, `outcome-unknown`
  * - catch-up is a tree diff in pages; the change feed names each commit, its parents and changed paths with hashes
  * - a fresh instance over the same Store answers as the first did
- * - the Git receive path checks every pushed commit and refuses merges, broken notes, other file modes, Epicenter's files and other refs
+ * - the Git receive path checks every pushed commit and refuses merges, broken notes, other file modes, Epicenter's files and other refs; a live commit that lands meanwhile is merged with the push (receive.test.ts covers push-as-merge)
  * - blobs: a pointer is admitted only once its bytes are here at its size; a blob write lands only over the blob its writer saw (compare-and-swap); the blob limit and the quota refuse uploads; a `git push` may replace, move or delete a binary whose bytes are here
  */
 import { describe, expect, test } from 'bun:test';
@@ -429,7 +429,7 @@ describe('the Git receive path', () => {
 		expect(await world.git.readRef(MAIN)).toBe(head);
 	});
 
-	test('a live commit that lands while a push is checked refuses the push as unflushed (no merge), and Git does not move', async () => {
+	test('a live commit that lands while a push is checked is merged with it, and Git moves to exactly the pushed commit', async () => {
 		const world = setup();
 		world.server.push(make(world.server, [{ path: 'n/a.md', text: note('a\n') }]), alice);
 		await world.server.flush();
@@ -450,9 +450,9 @@ describe('the Git receive path', () => {
 			},
 		};
 		server = createServer({ store: world.store, git: racing, clock: () => EPOCH });
-		expect(await server.receive({ ref: MAIN, old: head, next }, alice)).toMatchObject({ kind: 'refused', code: 'unflushed' });
-		expect(await world.git.readRef(MAIN)).toBe(head);
-		expect(server.read('n/b.md')).toBeNull();
+		expect(await server.receive({ ref: MAIN, old: head, next }, alice)).toMatchObject({ kind: 'accepted', main: next, merged: true });
+		expect(await world.git.readRef(MAIN)).toBe(next);
+		expect(server.read('n/b.md')).toBe(note('b\n'));
 		expect(server.read('n/c.md')).toBe(note('c\n'));
 	});
 

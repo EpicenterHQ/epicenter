@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS buckets (user TEXT PRIMARY KEY, tokens REAL NOT NULL,
 CREATE TABLE IF NOT EXISTS uploads (oid TEXT PRIMARY KEY, size INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS flushes (n INTEGER PRIMARY KEY, oid TEXT NOT NULL, tree TEXT NOT NULL, through INTEGER NOT NULL, message TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS journal (n INTEGER PRIMARY KEY, state TEXT NOT NULL, plan TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS received (next TEXT PRIMARY KEY, merged INTEGER NOT NULL, at INTEGER NOT NULL);
 `;
 
 /** One commit as history keeps it. `place` is its index on `main`, null for a device's commit a merge took in. */
@@ -162,6 +163,19 @@ export function openHistory(store: SqlDriver) {
 		main: () => at(top()),
 		/** A commit's place on `main`, or undefined when it is not on `main` or was pruned. */
 		placeOf: (id: string) => first<{ place: number | null }>(store, 'SELECT place FROM commits WHERE id = ?', [id])?.place ?? undefined,
+		/**
+		 * What a commit on `id` is merged against: its tree, and the place on
+		 * `main` after which changes are its writer's news (its own place, or
+		 * for a commit a merge took in, that merge's place). Undefined when
+		 * history no longer keeps it.
+		 */
+		baseOf(id: string): { from: number; tree: string } | undefined {
+			const row = first<{ place: number | null; tree: string; merged_into: string | null }>(store, 'SELECT place, tree, merged_into FROM commits WHERE id = ?', [id]);
+			if (row === undefined) return undefined;
+			if (row.place !== null) return { from: row.place, tree: row.tree };
+			const into = row.merged_into === null ? undefined : first<{ place: number | null }>(store, 'SELECT place FROM commits WHERE id = ?', [row.merged_into])?.place;
+			return into === undefined || into === null ? undefined : { from: into, tree: row.tree };
+		},
 		textIn,
 		/** Was `path` deleted on `main` after place `from`? */
 		deletedSince: (from: number, path: string) => first(store, 'SELECT 1 FROM deletes WHERE path = ? AND place > ? LIMIT 1', [path, from]) !== undefined,

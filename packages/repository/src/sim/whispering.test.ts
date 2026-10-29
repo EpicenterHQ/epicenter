@@ -287,11 +287,13 @@ test('a git push that replaces a binary passes; one whose bytes are missing is r
 	const other = expectOk(await alice.repo.audio.create({ stem: 'r2' }, webm(11, MB)));
 	await until(() => server.uploaded(other.oid) !== null);
 	const replaced = await commitOn(head, { 'recordings/r1.webm': writePointer(other) });
-	expect(await server.receive({ ref: MAIN, old: head, next: replaced }, ALICE)).toMatchObject({ kind: 'refused', code: 'unflushed' });
+	// Alice's second recording is live but not in Git yet: the push is merged over it.
+	expect(await server.receive({ ref: MAIN, old: head, next: replaced }, ALICE)).toMatchObject({ kind: 'accepted', merged: true });
+	expect(server.read('recordings/r1.webm')).toBe(writePointer(other));
 	await server.flush();
 	const now = (await git.readRef(MAIN)) as string;
-	const replacedNow = await commitOn(now, { 'recordings/r1.webm': writePointer(other) });
+	const replacedNow = await commitOn(now, { 'recordings/r1.webm': writePointer(first) });
 	expect(await server.receive({ ref: MAIN, old: now, next: replacedNow }, ALICE)).toMatchObject({ kind: 'accepted' });
-	expect(server.read('recordings/r1.webm')).toBe(writePointer(other));
+	expect(server.read('recordings/r1.webm')).toBe(writePointer(first));
 	expect(first.oid).not.toBe(other.oid);
 });
