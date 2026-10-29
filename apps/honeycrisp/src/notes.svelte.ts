@@ -12,7 +12,7 @@
  */
 import { fileOfPath, type Navigate, pathOfFile } from '@epicenter/app';
 import { ancestors } from '@epicenter/folder/file-browser';
-import type { WriteError } from '@epicenter/repository';
+import type { BlobWriteError } from '@epicenter/repository';
 import { toast } from '@epicenter/ui/sonner';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';
@@ -72,7 +72,7 @@ export const unreadableOf = (folders: readonly FolderFile[]) => problemsOf(folde
  * shown at once and resolves once this device stored it; a note the server
  * later refuses stays here, held with its reason.
  */
-export async function report(saved: Promise<Result<unknown, WriteError>>, failure: string) {
+export async function report(saved: Promise<Result<unknown, BlobWriteError>>, failure: string) {
 	const { error } = await saved;
 	if (error !== null && error.name !== 'Closed') toast.error(failure, { description: error.message });
 }
