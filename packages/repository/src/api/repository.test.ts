@@ -297,8 +297,8 @@ test('a blob collection creates, replaces, opens and deletes bytes at named path
 	expect([file.name, file.type, await file.text()]).toEqual(['r1.webm', 'audio/webm', 'second take']);
 	expect(expectOk(await repo.files.open('recordings/r1.webm')).size).toBe(replaced.size);
 	// The plain file API adds bytes under any path, and a note's create stays text.
-	expectOk(await repo.files.create('attachments/photo.png', new Blob(['png'])));
-	expect(expectOk(await repo.files.open('attachments/photo.png')).type).toBe('image/png');
+	expectOk(await repo.files.create('photos/beach.png', new Blob(['png'])));
+	expect(expectOk(await repo.files.open('photos/beach.png')).type).toBe('image/png');
 	expect(expectErr(await repo.files.open('recordings/none.webm')).name).toBe('Missing');
 	expectOk(await repo.audio.delete({ stem: 'r1' }));
 	expect(expectErr(await repo.audio.open({ stem: 'r1' })).name).toBe('Missing');

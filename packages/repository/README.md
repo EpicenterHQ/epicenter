@@ -1,6 +1,6 @@
 # @epicenter/repository
 
-A repository of Markdown files that an app reads and writes on the device,
+A repository of Markdown notes and other files that an app reads and writes on the device,
 and that syncs with a server when it has one. Each device holds a replica:
 the files as this device has them, in SQLite, with whatever it has not sent
 yet. The server keeps the live history, merges what devices send, and
@@ -23,9 +23,9 @@ Two rules shape everything a person sees:
 | `src/core/` | Pure code: hashes, trees, commit ids, the three-way merge and conflict blocks, Markdown frontmatter, the door rules every file must pass, templates and lenses (`defineApp`). |
 | `src/server/` | The server as a state machine over ports (`Store`, `GitObjects`, a timer): live history, pushes answered as applied, merged or refused, catch-up, and the flush into Git. |
 | `src/wire/` | HTTP and one WebSocket per device: commits, catch-ups and their answers, and every change event, in one ordered sequence. |
-| `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text, the position, the commit in flight, held work; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blobs. |
+| `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text, the position, the commit in flight, held work; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blob bytes on the device (`blobs.ts`), put and opened (`bytes.ts`), and the upload track (`uploads.ts`). |
 | `src/hosts/browser/` | The browser host: a replica in this origin's private storage (`.epicenter/replicas/<id>/`), owned by one tab's worker under a Web Lock. |
-| `src/bun/` | Bun adapters: SQLite, a Git store on disk, and the development server. |
+| `src/bun/` | Bun adapters: SQLite, a Git store on disk, blob bytes on disk (a device's and a server's), and the development server. |
 | `src/api/` | The app API: `defineApp`, the repository handle, the editor. The package root exports it. |
 | `src/sim/` | The property test and scenario tests, over the real modules, in memory and over the real wire. |
 
@@ -176,6 +176,88 @@ A write to a path a collection keeps in memory shows there at once, as that
 collection's own write would. A subscriber hears `files: true` when any
 file changed, and `revision()` moves, so a listing re-runs.
 
+### Blobs: every file that is not a note
+
+The file-type rule: a Markdown file (`.md` in any case) is a note and
+merges; **every other file is a blob**, kept in the repository as a Git LFS
+pointer whose oid is the bytes' SHA-256. `.gitattributes` is the same in
+every repository (`ATTRIBUTES`, `core/door.ts`): every file through LFS,
+notes and itself back to text. An app names its blob paths, as it names
+notes:
+
+```ts
+export const whisperingApp = defineApp({
+	recordings: { path: 'recordings/{stem}.md', schema: Type.Object({ title: Type.String() }) },
+	audio: { path: 'recordings/{stem}.webm', blob: true },
+});
+
+const { data, error } = await repo.audio.create({ stem }, blob); // { oid, size, text, revision }: sealed here, works offline
+await repo.audio.replace({ stem }, other);
+const { data: file } = await repo.audio.open({ stem }); // a File typed audio/webm, from here or fetched and verified first
+await repo.audio.delete({ stem });
+
+await repo.files.create('photos/beach.png', picked); // the plain file API takes bytes at any path
+const { data: photo } = await repo.files.open('photos/beach.png');
+```
+
+```svelte
+<script lang="ts">
+	import { attachment } from '@epicenter/svelte/repository';
+	const audio = attachment(repo, () => `recordings/${stem}.webm`); // one object URL per use, revoked on change and destroy
+</script>
+
+{#if audio.current.status === 'here'}<audio src={audio.current.url} controls></audio>
+{:else if audio.current.status === 'fetching'}Loading audio
+{:else if audio.current.status === 'unavailable'}<button onclick={audio.current.retry}>Retry</button>
+{:else}Audio not found{/if}
+```
+
+**One rule for blob writes, compare-and-swap** (`settlePointer`,
+`core/settle.ts`, on the server and in the replica's rebase): a write lands
+only where the path still holds the blob its writer saw, which the engine
+takes from the commit's parent; apps never pass it. A create expects no
+file (`Exists` at once if this device shows one), a replace expects one
+(`NotFound` if not). A create or replace that does not land is held with
+why ("a file with this name was just added elsewhere", "this file changed
+on another device"): its person keeps theirs under another name or
+discards it. A delete that does not land leaves the file, as a lost delete
+of a note does. A blob never joins a save group, so a note saved with it
+never waits on its bytes; a blob rename is a delete plus a create of the
+same oid. A `git push` is a fast-forward, so it may add, replace, move and
+delete binaries.
+
+**A pointer never names bytes its level cannot reach:**
+
+| Level | What holds |
+| --- | --- |
+| Device | `put` checks the size against the server's blob limit (from its hello), seals the bytes into this device's store (hashed while written), and only then stores the pointer. A pointer whose bytes the server does not hold yet is *owed*: saved here, out of every commit, `sending` with "its bytes are uploading". |
+| Upload track | `startUploads` sends owed bytes through the LFS batch API, beside the commit flow: bytes the server holds are marked present, an upload action PUTs the store's `Blob`, then the pointer goes in the next commit. A refusal holds every pointer naming those bytes, with why (too large, over the quota, or on neither side); failures go again after a doubling wait. It runs in the browser's worker and in `openLocalRepository` (given an `lfs` client). |
+| Server | Presence (`uploads`, oid and size) is recorded only once the bytes are durable in its byte store; a pointer is admitted only at its size (`blob-missing`). Uploads are bounded by `limits.blob` (2 GiB) and `limits.quota` (10 GB). |
+
+Two byte ports, apart: a device's `BlobStore` (`client/blobs.ts`: memory,
+OPFS in the browser, `createFileBlobStore` in Bun) names bytes by sealing
+them, and `seal(stream, { expect })` stores nothing for bytes that are not
+the ones expected, so a download is verified before it is kept. A server's
+`LfsStore` (`server/lfs-store.ts`: memory, `createFileLfsStore` at
+`<repo-dir>/epicenter/blobs/<oid>`, and an R2 adapter not deployed yet)
+is told the oid and size and keeps only bytes that are them, never
+overwriting. Each passes its conformance checks.
+
+The wire serves the Git LFS routes with the same authentication as every
+route (a reader downloads only): `POST /info/lfs/objects/batch` (basic
+transfer, SHA-256; per-object 422 past the blob limit, 507 past the quota,
+404 for a download of bytes not here), `PUT /lfs/objects/<oid>` (streamed
+into the store, never buffered: a 1 GiB PUT peaked at 90 MiB of server
+RSS), and `GET /lfs/objects/<oid>` (immutable). Every request body has one
+deadline, the timeout plus its declared length at `WireLimits.minRate`.
+The client follows whatever `href` a batch answer gives, so a server that
+presigns direct uploads needs no client change.
+
+Nothing evicts bytes yet. An eviction policy (a later phase) must keep every
+oid the replica owes: those bytes exist only on this device until the
+server holds them. Bytes produced natively (a desktop recording) will be
+sealed where they are produced, behind the same store contract.
+
 ### Edit a note's text
 
 `openEditor(params)` returns the one editor of a note, shared by every view
@@ -251,3 +333,5 @@ From `packages/repository`:
 | `W_RUNS=200 W_STEPS=200 bun test src/sim/wire.property.test.ts -t socket` | The same over the real wire (`H_` for HTTP). |
 | `bun run test:browser` | The browser host and a Svelte page on the API, in Chromium and WebKit, two profiles syncing through the dev server. |
 | `bun scripts/bench-open.ts 100000` | Opening, a page session, a full catch-up and a reset at 100,000 notes. |
+| `bun scripts/bench-lfs-put.ts` | The Bun server's RSS while a PUT streams in (1 GiB to a hashing store that keeps nothing, 256 MiB to the file store). |
+| `bun scripts/bench-blobs/put.ts 256` | A browser worker's PUT of an OPFS `File`, in Chromium and WebKit: its time and the browser's peak memory. |

@@ -202,5 +202,12 @@ rebase, a change from elsewhere, typing in another view) is applied in place
 as `Transaction.remote` and kept out of the undo history, so the cursor stays
 where the person was typing and Undo takes back only their keystrokes.
 
+A blob (any file that is not a note) shows through
+`attachment(repo, () => path)` from `@epicenter/svelte/repository`: its
+`current` is `here` (with one object URL, revoked when the path or its
+bytes change and when the component goes), `fetching`, `unavailable` (with
+`retry()`, also tried again when the repository's status changes) or
+`missing`. See the repository README's blob section.
+
 The package also exports agent conversation bindings and status display
 helpers. Those are independent of Folder editing.
