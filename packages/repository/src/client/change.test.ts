@@ -11,6 +11,7 @@
  * - A create over a note that exists keeps it and appends the new one as one block
  * - A batch is one transaction and one save: a change that cannot apply stores none of the batch
  * - Each stored change makes one revision, which its answer and its watchers carry
+ * - A change through another spelling of a stored path answers the stored text, under the spelling it was given
  */
 import { expect, test } from 'bun:test';
 import { unwrap } from 'wellcrafted/result';
@@ -85,4 +86,13 @@ test('later changes in a batch apply over earlier ones, and the batch is one rev
 	expect(changed.texts).toEqual({ [PATH]: note('one\n', 'title: A\ndone: false\n'), 'notes/b.md': note('b\n') });
 	expect(heard).toEqual([[[PATH, 'notes/b.md'], changed.revision]]);
 	expect(replica.revision()).toBe(changed.revision);
+});
+
+test('a change through another spelling of a stored path answers the stored text, under the spelling it was given', () => {
+	const replica = open();
+	replica.write(PATH, note('one\n'));
+	const changed = expectOk(replica.change([{ kind: 'write', path: 'notes/A.md', text: note('two\n') }]));
+	expect(changed.texts).toEqual({ 'notes/A.md': note('two\n') });
+	expect(replica.read(PATH)).toBe(note('two\n'));
+	expect(expectOk(replica.change([{ kind: 'patch', path: 'Notes/a.md', fields: { title: 'Z' } }])).texts).toEqual({ 'Notes/a.md': note('two\n', 'title: Z\n') });
 });

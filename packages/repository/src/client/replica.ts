@@ -116,7 +116,7 @@ export type Change =
 	/** Exact source: `text`, made from `over`; where the file moved since `over`, the two are merged. Without `over`, the caller asserts it started from what this device shows now. */
 	| { kind: 'write'; path: string; text: string | null; over?: string | null };
 
-/** What a change answers: each path's text after it, and the revision that change made (or the one already there, if it changed nothing). */
+/** What a change answers: each path's text after it, keyed as the caller spelled the path, and the revision that change made (or the one already there, if it changed nothing). */
 export type Changed = { texts: Record<string, string | null>; revision: number };
 
 export const ChangeError = defineErrors({
@@ -647,8 +647,8 @@ function createReplica({
 				set(path, { ...f, mine: next, saved: true, ...(together.length === 0 ? {} : { together }) });
 			}
 			commit();
-			// The revision this transaction makes once it commits, if it changed anything.
-			return { texts: Object.fromEntries(paths.map((path) => [path, record(path).mine])), revision: revision + (changed.size > 0 ? 1 : 0) };
+			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
+			return { texts: Object.fromEntries(Object.keys(changes).map((given) => [given, record(spelled(given)).mine])), revision: revision + (changed.size > 0 ? 1 : 0) };
 		});
 	}
 
@@ -657,8 +657,11 @@ function createReplica({
 		return atomically(() => {
 			const texts: Record<string, string | null> = {};
 			const over: Record<string, string | null> = {};
+			/** Each path as the caller spelled it, and as this device stores it. */
+			const spellings = new Map<string, string>();
 			for (const c of changes) {
 				const path = spelled(c.path);
+				spellings.set(c.path, path);
 				const current = path in texts ? (texts[path] ?? null) : record(path).mine;
 				switch (c.kind) {
 					case 'create':
@@ -685,7 +688,8 @@ function createReplica({
 						c satisfies never;
 				}
 			}
-			return Ok(writeAll(texts, { over }));
+			const written = writeAll(texts, { over });
+			return Ok({ ...written, texts: Object.fromEntries([...spellings].map(([given, path]) => [given, written.texts[path] ?? null])) });
 		});
 	}
 
