@@ -253,8 +253,9 @@ export type OpenReplica = ReturnType<typeof createOpenReplica>;
 
 /**
  * Make a new replica of `repository` in this origin, for `account` (null: a
- * guest), synced with `server` (null: none yet), and open it in this tab.
- * The origin holds at most one replica per repository and account.
+ * guest), synced with `server` (null: none yet), and open it in this tab,
+ * with the manifest its worker writes as it first opens it. The origin
+ * holds at most one replica per repository and account.
  */
 export async function createBrowserReplica({
 	repository,
@@ -262,7 +263,7 @@ export async function createBrowserReplica({
 	account,
 	url,
 	...options
-}: { repository: string; name: string; account: string | null; url: string | null } & BrowserReplicaOptions): Promise<Result<ReplicaTab, BrowserReplicaError>> {
+}: { repository: string; name: string; account: string | null; url: string | null } & BrowserReplicaOptions): Promise<Result<ReplicaTab & { manifest: Manifest }, BrowserReplicaError>> {
 	const existing = (await listReplicas()).find((manifest) => manifest.repository === repository && manifest.account === account);
 	if (existing !== undefined) return BrowserReplicaError.AlreadyHere({ replica: existing.replica });
 	const manifest: Manifest = {
@@ -272,7 +273,7 @@ export async function createBrowserReplica({
 		account,
 		url: url === null ? null : new URL(url.endsWith('/') ? url : `${url}/`).href,
 	};
-	return Ok(openTab(manifest.replica, manifest, options));
+	return Ok(Object.assign(openTab(manifest.replica, manifest, options), { manifest }));
 }
 
 /** Open the replica `replica` of this origin in this tab. */

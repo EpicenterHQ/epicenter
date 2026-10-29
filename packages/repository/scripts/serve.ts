@@ -1,7 +1,11 @@
 /**
  * Serve one repository over the repository's wire on this machine:
  *
- *   bun packages/repository/scripts/serve.ts <repo-dir> [--port 8787] [--host 127.0.0.1] [--origin http://127.0.0.1:5173 ...]
+ *   bun packages/repository/scripts/serve.ts <repo-dir> [--repository <name>] [--port 8787] [--host 127.0.0.1] [--origin http://127.0.0.1:5173 ...]
+ *
+ * An app reaches it from its repository chooser: the server
+ * `http://127.0.0.1:8787/`, the repository `<name>` (by default the
+ * directory's name without `.git`), and any name to sync as.
  *
  * `<repo-dir>` is a bare Git repository, created when missing; live history
  * is kept in `<repo-dir>/epicenter/live.sqlite` and flushed into Git after a
@@ -14,9 +18,8 @@
  *   curl -H 'Authorization: Bearer me' http://127.0.0.1:8787/catch-up?from=
  *   curl -X PUT -H 'Authorization: Bearer me' -H 'If-None-Match: *' --data-binary $'---\ntitle: Hi\n---\n' http://127.0.0.1:8787/files/notes/hi.md
  *
- * Today's apps still sync through `scripts/serve-legacy.ts`.
  */
-import { resolve } from 'node:path';
+import { basename, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { openDiskRepository, serveRepository } from '../src/bun/serve.js';
 import { authenticateBearer } from '../src/wire/wire.js';
@@ -25,6 +28,7 @@ const { values, positionals } = parseArgs({
 	args: Bun.argv.slice(2),
 	allowPositionals: true,
 	options: {
+		repository: { type: 'string' },
 		port: { type: 'string', default: '8787' },
 		host: { type: 'string', default: '127.0.0.1' },
 		origin: { type: 'string', multiple: true, default: [] },
@@ -32,13 +36,14 @@ const { values, positionals } = parseArgs({
 });
 const [dir] = positionals;
 if (dir === undefined) {
-	console.error('Usage: bun packages/repository/scripts/serve.ts <repo-dir> [--port 8787] [--host 127.0.0.1] [--origin <url> ...]');
+	console.error('Usage: bun packages/repository/scripts/serve.ts <repo-dir> [--repository <name>] [--port 8787] [--host 127.0.0.1] [--origin <url> ...]');
 	process.exit(2);
 }
 const server = await openDiskRepository(resolve(dir));
+// The name a replica binds to, which a person enters in an app's repository chooser.
+const repository = values.repository ?? basename(resolve(dir)).replace(/\.git$/, '');
 const served = serveRepository({
-	// A repository on disk is identified by its directory.
-	repository: resolve(dir),
+	repository,
 	// This machine's server; a replica binds to it.
 	serverId: `local:${values.host}`,
 	server,
@@ -47,7 +52,7 @@ const served = serveRepository({
 	port: Number(values.port),
 	origins: values.origin,
 });
-console.log(`Serving ${resolve(dir)} at ${served.url} (Authorization: Bearer <name>)`);
+console.log(`Serving ${resolve(dir)} as the repository '${repository}' at ${served.url} (Authorization: Bearer <name>)`);
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
 	process.on(signal, () => {
 		void server
