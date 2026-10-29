@@ -1,10 +1,15 @@
 /**
  * Push Starvation: does a `git push` ever land while people autosave?
  *
- * Measures the receive path as built (receive.ts, flush.ts, server.ts, no
- * source changes): `receive` refuses a push as `unflushed` while live history
- * runs ahead of Git, or when a live commit lands during its asynchronous Git
- * checks, and a refusal already starts a background flush (server.ts).
+ * Measures the receive path as built (receive.ts, flush.ts, server.ts). At
+ * d1feeba6b7 `receive` refused a push as `unflushed` while live history ran
+ * ahead of Git, or when a live commit landed during its asynchronous Git
+ * checks. Under push-as-merge (this branch's prototype) it takes any push
+ * whose old value is Git's `main` and merges it into live `main`; the only
+ * refusal left that typing can cause is `main-moved` (a flush moved Git's
+ * `main` between fetch and push). After each run the script flushes and
+ * checks that every landed push is in Git's history and that Git's `main`
+ * holds the live tree.
  *
  * Everything runs in virtual time on one timer queue: the server's clock and
  * its alarm (the real schedule, 60 s quiet, at most 5 min busy), a latency on
@@ -18,8 +23,8 @@
  *
  * Pusher strategies (all on unmodified server code):
  * - `retry`: a plain Git client. On any refusal, wait 1 s, fetch, rebase, push.
- * - `wait-flush`: on `unflushed`, wait until the flush the refusal started
- *   has finished, then fetch, rebase and push at once (refusal, flush, retry).
+ * - `wait-flush`: on a refusal, wait until any flush in progress has
+ *   finished, then fetch, rebase and push at once.
  * - `fetch-flush`: every fetch asks the server to flush first (`server.flush`,
  *   as `git fetch` may, ADR-0692), then reads Git's `main`; refusal retries at once.
  *
@@ -33,9 +38,8 @@
  * reaches `receive` at its end, and the answer takes half a fetch to return.
  *
  * Refusal causes:
- * - `pending`: `unflushed` at the start of `receive` (live history ahead of Git)
- * - `landed`: `unflushed` because a save landed during the push's Git checks
- *   (the live head moved; told apart by whether `receive` reached `readCommit`)
+ * - `pending` and `landed` (d1feeba6b7 only): `unflushed` at the start of
+ *   `receive`, or because a save landed during the push's Git checks
  * - `main-moved`: a flush moved Git's `main` between fetch and push
  *
  * "Git commits written" counts rows in the server's `flushes` table: one per
@@ -45,6 +49,7 @@
  */
 import { openBunSqlite } from '../src/bun/sqlite.js';
 import { commitId, type LiveCommit } from '../src/core/commit.js';
+import { ATTRIBUTES } from '../src/core/door.js';
 import { type GitObjects, MAIN } from '../src/server/git-store.js';
 import { createMemoryGitStore } from '../src/server/memory-git.js';
 import { createServer, type Server, type Session } from '../src/server/server.js';
@@ -153,7 +158,7 @@ function createWriter(index: number, random: () => number) {
 // One run
 // ============================================================================
 
-type Attempt = { at: number; answer: 'accepted' | 'pending' | 'landed' | 'main-moved' | string };
+type Attempt = { at: number; answer: 'accepted' | 'pending' | 'landed' | 'main-moved' | string; merged?: boolean; oid?: string };
 type LogicalPush = { started: number; attempts: Attempt[]; landed: number | null };
 
 async function runOnce({ people, strategy, profile, pattern, seed }: { people: number; strategy: Strategy; profile: Profile; pattern: Pattern; seed: number }) {
@@ -252,7 +257,7 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 	// The pusher: one commit at a time, retried until it lands.
 	const pushes: LogicalPush[] = [];
 	let line = 0;
-	async function attempt(lineText: string): Promise<Attempt['answer']> {
+	async function attempt(lineText: string): Promise<Omit<Attempt, 'at'>> {
 		if (strategy === 'fetch-flush') {
 			await vt.sleep(profile.fetch / 2);
 			await server.flush();
@@ -269,9 +274,9 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 		const reads = readCommits;
 		const answer = await server.receive({ ref: MAIN, old, next }, agentSession);
 		await vt.sleep(profile.fetch / 2);
-		if (answer.kind === 'accepted') return 'accepted';
-		if (answer.code === 'unflushed') return readCommits > reads ? 'landed' : 'pending';
-		return answer.code;
+		if (answer.kind === 'accepted') return { answer: 'accepted', merged: answer.merged, oid: next };
+		if ((answer.code as string) === 'unflushed') return { answer: readCommits > reads ? 'landed' : 'pending' };
+		return { answer: answer.code };
 	}
 	(async () => {
 		while (vt.now() < end) {
@@ -279,8 +284,9 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 			pushes.push(push);
 			const lineText = `Step ${++line} done.`;
 			while (vt.now() < end) {
-				const answer = await attempt(lineText);
-				push.attempts.push({ at: vt.now(), answer });
+				const result = await attempt(lineText);
+				const answer = result.answer;
+				push.attempts.push({ at: vt.now(), ...result });
 				if (answer === 'accepted') {
 					push.landed = vt.now();
 					break;
@@ -294,7 +300,26 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 	})();
 	await vt.run(end);
 	const flushes = server.history().flushes;
-	return { pushes, saves, saveRefusals, flushes, end };
+	// What was measured stops at `end`; an attempt still in flight may finish during the check below and is not counted.
+	const measured = pushes.map((push) => ({ ...push, attempts: [...push.attempts] }));
+	// History check: flush what is left, then every landed push is in Git's history and Git's main holds the live tree.
+	const final = server.flush();
+	await vt.run(end + 600_000);
+	await final;
+	const head = (await raw.readRef(MAIN)) as string;
+	const reachable = new Set<string>();
+	for (const stack = [head]; stack.length > 0; ) {
+		const oid = stack.pop() as string;
+		if (reachable.has(oid)) continue;
+		reachable.add(oid);
+		stack.push(...((await raw.readCommit(oid))?.parents ?? []));
+	}
+	const landedOids = pushes.flatMap((push) => push.attempts.filter((a) => a.answer === 'accepted').map((a) => a.oid as string));
+	const gitTexts = new Map<string, string>();
+	for (const [path, entry] of await raw.readTree((await raw.readCommit(head))?.tree as string)) gitTexts.set(path, decoder.decode((await raw.readBlob(entry.oid)) ?? new Uint8Array()));
+	const live = new Map([['.gitattributes', ATTRIBUTES], ...server.snapshot()]);
+	const historyOk = landedOids.every((oid) => reachable.has(oid)) && gitTexts.size === live.size && [...live].every(([path, text]) => gitTexts.get(path) === text);
+	return { pushes: measured, saves, saveRefusals, flushes, end, historyOk };
 }
 
 // ============================================================================
@@ -309,8 +334,8 @@ const quantile = (values: number[], q: number) => {
 const s = (ms: number) => (Number.isNaN(ms) ? '-' : `${(ms / 1000).toFixed(1)}s`);
 
 console.log(`push starvation: ${minutes} virtual minutes per run, ${seeds} seeds, schedule 60 s quiet / 5 min busy\n`);
-console.log('| people | pattern | strategy | profile | pushes landed | attempts | accepted/attempt | retries to land p50/p90/max | time to land p50/p90/max | stuck at end (age) | refusals pending/landed/main-moved/other | saves | Git commits written |');
-console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+console.log('| people | pattern | strategy | profile | pushes landed | attempts | accepted/attempt | merged | retries to land p50/p90/max | time to land p50/p90/max | stuck at end (age) | refusals pending/landed/main-moved/other | saves | Git commits written | history ok |');
+console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
 const started = performance.now();
 for (const people of peopleCounts)
 	for (const pattern of patterns)
@@ -321,6 +346,7 @@ for (const people of peopleCounts)
 			let saves = 0;
 			let saveRefusals = 0;
 			let flushes = 0;
+			let historyOk = true;
 			const ends: number[] = [];
 			for (let seed = 1; seed <= seeds; seed++) {
 				const run = await runOnce({ people, strategy, profile, pattern, seed });
@@ -328,6 +354,7 @@ for (const people of peopleCounts)
 				saves += run.saves;
 				saveRefusals += run.saveRefusals;
 				flushes += run.flushes;
+				historyOk &&= run.historyOk;
 				ends.push(run.end);
 			}
 			const landed = all.filter((push) => push.landed !== null);
@@ -340,7 +367,7 @@ for (const people of peopleCounts)
 			const end = ends[0] as number;
 			const stuckAges = stuck.map((push) => end - push.started);
 			console.log(
-				`| ${people} | ${pattern} | ${strategy} | ${name} | ${landed.length}/${all.length} | ${attempts.length} | ${((100 * count('accepted')) / Math.max(1, attempts.length)).toFixed(1)}% | ${quantile(retries, 0.5)}/${quantile(retries, 0.9)}/${retries.length === 0 ? '-' : Math.max(...retries)} | ${s(quantile(times, 0.5))}/${s(quantile(times, 0.9))}/${s(times.length === 0 ? NaN : Math.max(...times))} | ${stuck.length}${stuck.length > 0 ? ` (${stuckAges.map((age) => s(age)).join(', ')})` : ''} | ${count('pending')}/${count('landed')}/${count('main-moved')}/${other} | ${saves}${saveRefusals > 0 ? ` (${saveRefusals} refused)` : ''} | ${flushes} |`,
+				`| ${people} | ${pattern} | ${strategy} | ${name} | ${landed.length}/${all.length} | ${attempts.length} | ${((100 * count('accepted')) / Math.max(1, attempts.length)).toFixed(1)}% | ${attempts.filter((a) => a.merged === true).length} | ${quantile(retries, 0.5)}/${quantile(retries, 0.9)}/${retries.length === 0 ? '-' : Math.max(...retries)} | ${s(quantile(times, 0.5))}/${s(quantile(times, 0.9))}/${s(times.length === 0 ? NaN : Math.max(...times))} | ${stuck.length}${stuck.length > 0 ? ` (${stuckAges.map((age) => s(age)).join(', ')})` : ''} | ${count('pending')}/${count('landed')}/${count('main-moved')}/${other} | ${saves}${saveRefusals > 0 ? ` (${saveRefusals} refused)` : ''} | ${flushes} | ${historyOk ? 'yes' : 'NO'} |`,
 			);
 		}
 console.log(`\n(${((performance.now() - started) / 1000).toFixed(1)} s wall)`);
