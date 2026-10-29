@@ -413,3 +413,22 @@ test('what shows between a stored change and its answer is the stored note, not 
 	gate.release();
 	expectOk(await batch);
 });
+
+test('closing the repository reports only typing no write carried, not a write the worker already has', async () => {
+	const { alice, gate, repo } = twoDevices(app);
+	alice.replica.write(PATH, note('one'));
+	alice.replica.write('notes/two.md', note('two'));
+	await settled();
+	const sent = expectOk(await repo.notes.openEditor({ stem: 'plan' }));
+	const typing = expectOk(await repo.notes.openEditor({ stem: 'two' }));
+	gate.hold();
+	sent.update(note('typed'));
+	typing.update(note('two!'));
+	await settled();
+	// More typing after the write went: that part is not carried.
+	typing.update(note('two!?'));
+	expect(repo.close()).toEqual([{ path: 'notes/two.md', draft: note('two!?') }]);
+	gate.release();
+	await settled();
+	expect(alice.replica.read(PATH)).toBe(note('typed'));
+});

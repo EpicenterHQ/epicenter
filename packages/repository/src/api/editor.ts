@@ -381,7 +381,7 @@ export function createEditors(deps: Deps) {
 					draft = base;
 					flight = null;
 				}
-				const unsaved = dirty();
+				const unsaved = draft !== (flight?.sent ?? base);
 				setState({ status: 'closed' });
 				tell(null);
 				for (const close of closers.splice(0)) close(unsaved ? EditorError.Unsaved({ path, draft, reason: 'the repository closed' }) : Ok(undefined));
@@ -474,9 +474,10 @@ export function createEditors(deps: Deps) {
 		lost() {
 			for (const editor of editors.values()) editor.lost();
 		},
-		/** The repository closed: every editor stops, and the drafts none could save are returned. */
+		/** The repository closed: every editor stops, and the typing no write carried is returned. */
 		closeAll(): Unsaved[] {
-			const unsaved = [...editors.values()].filter((editor) => editor.dirty()).map(({ path, draft }) => ({ path, draft: draft() }));
+			// A write already handed to the worker is stored: a session that ends finishes the calls it was sent. Only typing no write carried is unsaved.
+			const unsaved = [...editors.values()].filter((editor) => editor.draft() !== editor.typedOver()).map(({ path, draft }) => ({ path, draft: draft() }));
 			for (const editor of editors.values()) editor.end();
 			return unsaved;
 		},
