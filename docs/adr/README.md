@@ -895,7 +895,8 @@ When you add an ADR, add its row here.
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Proposed (implemented; supersedes the working-document model) |
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Proposed (renumbered from 0689) |
-| [0692](0692-people-edit-a-live-document-and-agents-merge-through-git.md) | People and agents write one Git repository through ordered mutations | Proposed |
+| [0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) | Every write is a live commit on its parent, taken through the repository's server | Proposed (rewritten to design B as built) |
 | [0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) | Repositories are addressed, and every page is an owner, a repository, or an app on one | Accepted (amends 0686 at its data area; revisits 0687) |
 | [0694](0694-installing-an-app-is-trusting-it.md) | Installing an app is trusting it | Accepted (revisits 0687; mount contract and installs unbuilt) |
 | [0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) | One sync engine runs on every device, and a folder on disk is its watched projection | Accepted (revisits 0692's retired desktop folder; watcher unbuilt) |
+| [0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) | A page writes a repository only through its worker, over collections its app declares | Proposed (split from 0692; blob handles unbuilt) |

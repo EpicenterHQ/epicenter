@@ -1,6 +1,6 @@
 # Repository engine, slice 1: the core in Bun
 
-In-flight spec for ADR-0692 (`docs/adr/0692-people-edit-a-live-document-and-agents-merge-through-git.md`, Proposed). Read the ADR first; it is the design. This slice builds the engine and server core as one new package, tested end to end in Bun with no browser and no Cloudflare. Later slices add the browser driver and an app (slice 2) and the Durable Object, Artifacts, read endpoints and CLI (slice 3).
+In-flight spec for ADR-0692 (`docs/adr/0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md`, Proposed). Read the ADR first; it is the design. This slice builds the engine and server core as one new package, tested end to end in Bun with no browser and no Cloudflare. Later slices add the browser driver and an app (slice 2) and the Durable Object, Artifacts, read endpoints and CLI (slice 3).
 
 ## Package
 

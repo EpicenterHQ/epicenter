@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-10-29
-- **Revisits:** [ADR-0692](0692-people-edit-a-live-document-and-agents-merge-through-git.md) at "the live desktop folder is retired": the desktop keeps a live folder, written and watched by the same engine as the browser.
+- **Revisits:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) at "the live desktop folder is retired": the desktop keeps a live folder, written and watched by the same engine as the browser.
 - **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose append-only history this relies on; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md).
 - **Unbuilt:** the watcher, the desktop host of the engine, `epicenter sync` and `epicenter commit`, a Git store other than the memory and disk stores, receiving `git push` outside the spike.
 
