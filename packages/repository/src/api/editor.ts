@@ -1,0 +1,408 @@
+/**
+ * The editor of one note: the one owner of what a person types into it,
+ * shared by every view of the note (opened once per view, closed once per
+ * view). It holds the draft and its base, the last text the worker
+ * confirmed that the draft was made over.
+ *
+ * - One write is in flight at a time; keystrokes made meanwhile change only
+ *   the draft, and go together in the next write.
+ * - Each write names its base (`edit-body` from it, or exact source over
+ *   it), so the worker merges whatever reached it meanwhile, once.
+ * - The worker answers with its resulting text. Where that differs from
+ *   what was sent, the typing since is carried onto it by position, never
+ *   merged again, so a conflict block the merge wrote is not written twice.
+ *   Where typing and the worker's change touch the same characters,
+ *   autosave pauses with both kept (`paused`: the draft is yours, `theirs`
+ *   is the worker's), until `resolve`.
+ * - A clean editor follows changes from elsewhere; a dirty one keeps its
+ *   draft and lets its next write merge them, in revision order.
+ * - A failed write keeps the draft and its base (`failed`, with `retry`);
+ *   nothing the repository rolls back reaches the draft. A write lost with
+ *   its session goes again when the next session opens.
+ * - `close` flushes. What it cannot save it reports, and the draft stays
+ *   (shown in lists, and saved when a session allows) until `discard`.
+ *
+ * By default the editor edits the body, under whatever frontmatter the note
+ * has, so a field set elsewhere never meets the typing; `source: true`
+ * edits the exact text.
+ */
+import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
+import type { Delta, Row } from '../client/page.js';
+import { type Change, type Changed, ChangeError } from '../client/replica.js';
+import { diffText, rebase, type TextChange } from '../core/diff.js';
+import { bodyOf, withBody } from '../core/markdown.js';
+import type { RepositoryError, RepositoryStatus, Session, WriteError } from './repository.js';
+
+export type EditorOptions = {
+	/** Edit the exact text, frontmatter and all; by default, the body. */
+	source?: boolean;
+};
+
+export type EditorState =
+	/** Everything typed is stored. */
+	| { status: 'saved' }
+	/** Typing is being saved, or waits for a session to save it. */
+	| { status: 'saving' }
+	/** Typing touches what the worker changed in the same place: autosave waits for `resolve`. The draft is yours; `theirs` is the worker's. */
+	| { status: 'paused'; theirs: string }
+	/** The last write failed; the draft is kept. `retry` sends it again. */
+	| { status: 'failed'; error: WriteError }
+	/** The repository closed: the draft is kept for reading, and nothing more is saved. */
+	| { status: 'closed' };
+
+export const EditorError = defineErrors({
+	/** The editor was closed with typing it could not save: `draft` holds it, and the editor keeps it until discarded. */
+	Unsaved: ({ path, draft, reason }: { path: string; draft: string; reason: string }) => ({ message: `${path} has typing that is not saved: ${reason}`, path, draft, reason }),
+	/** The note is open in an editor of the other kind (body or source). */
+	OtherMode: ({ path }: { path: string }) => ({ message: `${path} is open in another kind of editor`, path }),
+});
+export type EditorError = InferErrors<typeof EditorError>;
+
+/** What a view is told: when the draft was replaced from outside (a rebase, a change followed), the changes that turn the draft it shows into the new one. */
+export type EditorChange = { replaced: TextChange[] | null };
+
+export type Editor = {
+	path: string;
+	source: boolean;
+	/** What the person sees and types into: the body, or the exact text. */
+	draft(): string;
+	state(): EditorState;
+	/** The person typed: `draft` is the new text. */
+	update(draft: string): void;
+	/** Be told when the draft is replaced from outside or the state changes; returns the function that stops it. */
+	subscribe(listener: (change: EditorChange) => void): () => void;
+	/** Send the draft again after a failure. */
+	retry(): void;
+	/** Settle a paused editor with the text the person made of both: it is saved over `theirs`. */
+	resolve(text: string): void;
+	/** This view is done: once the last view closes, the draft is saved, or why it was not is reported. */
+	close(): Promise<Result<undefined, EditorError>>;
+	/** Drop the draft, unsaved or not. */
+	discard(): void;
+};
+
+/** What the editors need of their repository. */
+type Deps = {
+	session(): Session | null;
+	status(): RepositoryStatus;
+	revision(): number;
+	/** A kept note's text as the worker last said, or undefined when the path is not kept in memory. */
+	stored(path: string): string | null | undefined;
+	row(path: string): Promise<Row | null>;
+	send(changes: Change[]): Promise<Result<Changed, WriteError>>;
+	/** Show `path` again: its draft changed. */
+	refresh(path: string): void;
+	unavailable(): RepositoryError;
+};
+
+type Entry = Editor & {
+	views: number;
+	/** The draft over a note's text, for lists. */
+	over(text: string): string;
+	dirty(): boolean;
+	heard(revision: number, text: string | null): void;
+	reopened(text: string | null): void;
+	lost(): void;
+	end(): void;
+};
+
+/** A write lost with its session goes again in the next one. */
+const lostWithSession = (error: WriteError) => error.name === 'Closed' || error.name === 'Unavailable';
+
+/** The editors of one repository, by path. */
+export function createEditors(deps: Deps) {
+	const editors = new Map<string, Entry>();
+	const opening = new Map<string, Promise<Result<Entry, WriteError | EditorError>>>();
+
+	function make(path: string, source: boolean, text: string, revision: number): Entry {
+		const content = (of: string) => (source ? of : bodyOf(of));
+		let base = content(text);
+		let draft = base;
+		let seen = revision;
+		let flight: { sent: string } | null = null;
+		let state: EditorState = { status: 'saved' };
+		let queued = false;
+		/** Changes from elsewhere heard while a write was in flight, applied in order after its answer. */
+		let heardInFlight: { revision: number; text: string | null }[] = [];
+		const listeners = new Set<(change: EditorChange) => void>();
+		const closers: ((result: Result<undefined, EditorError>) => void)[] = [];
+		let ended = false;
+
+		const tell = (replaced: TextChange[] | null) => {
+			for (const listener of listeners) listener({ replaced });
+		};
+		const setState = (next: EditorState) => {
+			state = next;
+		};
+		const dirty = () => draft !== base || flight !== null;
+
+		/** Answer the views waiting to close, once the draft is saved or cannot be now. */
+		function settleClosing() {
+			if (closers.length === 0 || entry.views > 0) return;
+			if (!dirty()) {
+				editors.delete(path);
+				setState({ status: 'saved' });
+				deps.refresh(path);
+				for (const close of closers.splice(0)) close(Ok(undefined));
+				return;
+			}
+			const reason =
+				state.status === 'failed'
+					? state.error.message
+					: state.status === 'paused'
+						? 'it touches a change made elsewhere in the same place'
+						: state.status === 'closed'
+							? 'the repository closed'
+							: deps.session() === null
+								? `the repository is ${deps.status().status}`
+								: null;
+			if (reason === null) return;
+			for (const close of closers.splice(0)) close(EditorError.Unsaved({ path, draft, reason }));
+		}
+
+		function schedule() {
+			if (queued) return;
+			queued = true;
+			queueMicrotask(() => {
+				queued = false;
+				void flush();
+			});
+		}
+
+		async function flush() {
+			if (ended || flight !== null || state.status === 'paused' || state.status === 'failed' || state.status === 'closed') return settleClosing();
+			if (draft === base) {
+				setState({ status: 'saved' });
+				tell(null);
+				return settleClosing();
+			}
+			if (deps.session() === null) {
+				setState({ status: 'saving' });
+				tell(null);
+				return settleClosing();
+			}
+			const sent = draft;
+			flight = { sent };
+			setState({ status: 'saving' });
+			tell(null);
+			const change: Change = source ? { kind: 'write', path, text: sent, over: base } : { kind: 'edit-body', path, from: base, to: sent };
+			answered(sent, await deps.send([change]));
+		}
+
+		function answered(sent: string, result: Result<Changed, WriteError>) {
+			flight = null;
+			const later = heardInFlight;
+			heardInFlight = [];
+			if (ended) return;
+			const text = result.error === null ? result.data.texts[path] : undefined;
+			if (result.error !== null || text === undefined || text === null) {
+				// The draft and its base stay: nothing the repository rolls back reaches them.
+				setState({ status: 'failed', error: result.error ?? ChangeError.NotFound({ path }).error });
+				deps.refresh(path);
+				tell(null);
+				return settleClosing();
+			}
+			const merged = content(text);
+			seen = Math.max(seen, result.data.revision);
+			if (merged !== sent) {
+				const carried = rebase(sent, draft, merged);
+				base = merged;
+				if (carried === null) setState({ status: 'paused', theirs: merged });
+				else {
+					draft = carried.text;
+					tell(carried.changes);
+				}
+			} else base = merged;
+			for (const { revision, text: heardText } of later) heard(revision, heardText);
+			deps.refresh(path);
+			if (state.status === 'paused') {
+				tell(null);
+				return settleClosing();
+			}
+			if (draft !== base) return void flush();
+			setState({ status: 'saved' });
+			tell(null);
+			settleClosing();
+		}
+
+		/** A change from elsewhere: a clean editor follows it; a dirty one lets its next write merge it. */
+		function heard(revision: number, text: string | null) {
+			if (ended || revision <= seen) return;
+			if (flight !== null) {
+				heardInFlight.push({ revision, text });
+				return;
+			}
+			seen = revision;
+			if (text === null || draft !== base || state.status === 'paused' || state.status === 'failed' || state.status === 'closed') return;
+			const next = content(text);
+			if (next === draft) return;
+			const replaced = diffText(draft, next);
+			base = draft = next;
+			deps.refresh(path);
+			tell(replaced);
+		}
+
+		const entry: Entry = {
+			path,
+			source,
+			views: 1,
+			draft: () => draft,
+			state: () => state,
+			update(next) {
+				if (ended || next === draft) return;
+				draft = next;
+				if (state.status === 'saved') setState({ status: 'saving' });
+				deps.refresh(path);
+				schedule();
+			},
+			subscribe(listener) {
+				listeners.add(listener);
+				return () => {
+					listeners.delete(listener);
+				};
+			},
+			retry() {
+				if (ended || state.status !== 'failed') return;
+				setState({ status: 'saving' });
+				tell(null);
+				schedule();
+			},
+			resolve(text) {
+				if (ended || state.status !== 'paused') return;
+				const replaced = diffText(draft, text);
+				draft = text;
+				setState({ status: 'saving' });
+				deps.refresh(path);
+				tell(replaced);
+				schedule();
+			},
+			close() {
+				if (entry.views > 0) entry.views--;
+				if (entry.views > 0) return Promise.resolve(Ok(undefined));
+				const closed = new Promise<Result<undefined, EditorError>>((resolve) => closers.push(resolve));
+				if (flight === null) void flush();
+				else settleClosing();
+				return closed;
+			},
+			discard() {
+				entry.end();
+				editors.delete(path);
+				deps.refresh(path);
+			},
+			over: (text) => (source ? draft : withBody(text, draft)),
+			dirty,
+			heard,
+			/** A new session: a clean editor follows the note as it is there; a dirty one, or one whose write was lost with the last session, saves again. */
+			reopened(text) {
+				if (ended) return;
+				if (state.status === 'failed' && lostWithSession(state.error)) setState({ status: 'saving' });
+				if (draft === base && state.status === 'saved') {
+					seen = deps.revision();
+					if (text !== null) {
+						const next = content(text);
+						if (next !== draft) {
+							const replaced = diffText(draft, next);
+							base = draft = next;
+							deps.refresh(path);
+							tell(replaced);
+						}
+					}
+					return settleClosing();
+				}
+				seen = deps.revision();
+				schedule();
+			},
+			lost() {
+				if (!ended) settleClosing();
+			},
+			end() {
+				if (ended) return;
+				ended = true;
+				const unsaved = dirty();
+				setState({ status: 'closed' });
+				tell(null);
+				for (const close of closers.splice(0)) close(unsaved ? EditorError.Unsaved({ path, draft, reason: 'the repository closed' }) : Ok(undefined));
+			},
+		};
+		return entry;
+	}
+
+	async function open(path: string, { source = false }: EditorOptions = {}): Promise<Result<Editor, WriteError | EditorError>> {
+		const existing = editors.get(path);
+		if (existing !== undefined) {
+			if (existing.source !== source) return EditorError.OtherMode({ path });
+			existing.views++;
+			return Ok(existing);
+		}
+		const already = opening.get(path);
+		if (already !== undefined) {
+			const opened = await already;
+			if (opened.error !== null) return opened;
+			return open(path, { source });
+		}
+		const starting = (async (): Promise<Result<Entry, WriteError | EditorError>> => {
+			if (deps.session() === null) return { data: null, error: deps.unavailable() };
+			const revision = deps.revision();
+			let text = deps.stored(path);
+			if (text === undefined) {
+				try {
+					text = (await deps.row(path))?.text ?? null;
+				} catch {
+					return { data: null, error: deps.unavailable() };
+				}
+			}
+			if (text === null) return ChangeError.NotFound({ path });
+			const entry = make(path, source, text, revision);
+			editors.set(path, entry);
+			return Ok(entry);
+		})();
+		opening.set(path, starting);
+		const opened = await starting;
+		opening.delete(path);
+		return opened;
+	}
+
+	return {
+		open,
+		/** What a list shows for `path`: its draft over the note, when an editor holds one. */
+		draftOver(path: string, text: string | null) {
+			const editor = editors.get(path);
+			return editor === undefined || text === null ? text : editor.over(text);
+		},
+		/** Whether an editor of `path` holds typing not yet stored. */
+		unsaved: (path: string) => editors.get(path)?.dirty() ?? false,
+		/** A stored change, in revision order. */
+		heard(delta: Delta) {
+			for (const [path, editor] of editors) {
+				if (path in delta.rows) editor.heard(delta.revision, delta.rows[path]?.text ?? null);
+				else if (delta.paths.includes(path))
+					// Not kept in memory: its text is read, at this revision or later.
+					void deps.row(path).then(
+						(row) => editor.heard(delta.revision, row?.text ?? null),
+						() => {},
+					);
+			}
+		},
+		/** A new session opened and its snapshot is in. */
+		reopened() {
+			for (const [path, editor] of editors) {
+				const kept = deps.stored(path);
+				if (kept !== undefined) editor.reopened(kept);
+				else
+					void deps.row(path).then(
+						(row) => editor.reopened(row?.text ?? null),
+						() => {},
+					);
+			}
+		},
+		/** The session ended. */
+		lost() {
+			for (const editor of editors.values()) editor.lost();
+		},
+		/** The repository closed: every editor stops, reporting what it could not save. */
+		closeAll() {
+			for (const editor of editors.values()) editor.end();
+		},
+	};
+}

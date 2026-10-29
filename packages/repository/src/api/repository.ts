@@ -30,6 +30,7 @@ import { type App, type Definitions, type Lens, type NoteName, schemaIssues } fr
 import { bodyOf, parseMarkdown, withBody, writeMarkdown } from '../core/markdown.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
+import { createEditors, type Editor, type EditorError, type EditorOptions } from './editor.js';
 
 // ============================================================================
 // The host: where the replica runs, and its sessions
@@ -107,6 +108,8 @@ export type Writes<TPath extends string, TNoteSchema extends TSchema> = {
 	delete(params: Params<TPath>): Promise<Result<Written, WriteError>>;
 	/** Exact source: `text`, made from `over` (merged where the note moved since); without `over`, over what the worker holds. */
 	write(params: Params<TPath>, text: string | null, options?: { over?: string | null }): Promise<Result<Written, WriteError>>;
+	/** The editor of one note, shared by every view of it: each view closes it when done. */
+	openEditor(params: Params<TPath>, options?: EditorOptions): Promise<Result<Editor, WriteError | EditorError>>;
 };
 
 /** A collection kept in memory: every note, synchronously. */
@@ -228,6 +231,20 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		return (issues.length === 0 ? { ...base, valid: true, fields: read } : { ...base, valid: false, fields: read, issues }) as Note;
 	}
 
+	const editors = createEditors({
+		session: () => (status.status === 'open' ? session : null),
+		status: () => status,
+		revision: () => revision,
+		stored: (path) => (classify(path)?.lens.memory === true ? (stored.get(path)?.text ?? null) : undefined),
+		row: (path) => (session === null ? Promise.reject(new Error('No session is open')) : session.row(path)),
+		send: (changes) => send(changes),
+		refresh: (path) => {
+			refresh(path);
+			emit();
+		},
+		unavailable: () => RepositoryError.Unavailable({ status: status.status }).error,
+	});
+
 	/** Show `path` as stored, its pending writes and its editor's draft over it; true when what shows changed. */
 	function refresh(path: string) {
 		const classified = classify(path);
@@ -239,12 +256,13 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		let text = row?.text ?? null;
 		const writes = pending.get(path) ?? [];
 		for (const { change } of writes) text = project(text, change);
+		text = editors.draftOver(path, text);
 		const before = notes.get(path);
 		if (text === null) {
 			if (before === undefined) return;
 			notes.delete(path);
 		} else {
-			const state = writes.length > 0 || row === undefined ? SENDING : row.state;
+			const state = writes.length > 0 || editors.unsaved(path) || row === undefined ? SENDING : row.state;
 			if (before !== undefined && before.text === text && sameState(before.state, state)) return;
 			notes.set(path, toNote(lens, path, params, text, row?.text === text ? row.fields : undefined, state));
 		}
@@ -269,6 +287,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			refresh(path);
 		}
 		heard(delta.paths);
+		editors.heard(delta);
 	}
 
 	/** A new session: its snapshot replaces what is stored, keeping every note that did not change, then the changes heard since. */
@@ -302,6 +321,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		for (const lens of lenses) touched.add(lens.name);
 		setStatus({ status: 'open' });
 		emit();
+		editors.reopened();
 	}
 
 	const stopHost = host.subscribe((state) => {
@@ -316,6 +336,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		stopWatching?.();
 		stopWatching = null;
 		setStatus(state);
+		editors.lost();
 		emit();
 	});
 
@@ -375,6 +396,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			patch: at(changes.patch),
 			delete: at(changes.delete),
 			write: at(changes.write),
+			async openEditor(params: Record<string, unknown>, options: EditorOptions = {}): Promise<Result<Editor, WriteError | EditorError>> {
+				const path = changes.pathOf(params);
+				if (path.error !== null) return path;
+				return editors.open(path.data, options);
+			},
 		};
 		if (!lens.memory)
 			return {
@@ -450,6 +476,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		},
 		close() {
 			if (status.status === 'closed') return;
+			editors.closeAll();
 			setStatus({ status: 'closed' });
 			session = null;
 			stopWatching?.();

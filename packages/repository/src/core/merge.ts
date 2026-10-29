@@ -229,7 +229,8 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 	return parts;
 }
 
-type Hunk = { start: number; end: number; sideStart: number; sideEnd: number };
+/** One run of `base` (`start` to `end`) that `side` replaces with its own run (`sideStart` to `sideEnd`). */
+export type Hunk = { start: number; end: number; sideStart: number; sideEnd: number };
 type SourcedHunk = Hunk & { source: 'current' | 'incoming' };
 
 function mergeSequence(base: string[], current: string[], incoming: string[]): Part[] {
@@ -289,7 +290,7 @@ const TABLE_LIMIT = 1_000_000;
  * both sides (patience diff), so memory stays bounded for large notes; a large
  * region with no anchor becomes one replacement hunk.
  */
-function diff(base: string[], side: string[]): Hunk[] {
+export function diff(base: string[], side: string[]): Hunk[] {
 	const matches: [number, number][] = [];
 	matchRegion(base, side, 0, base.length, 0, side.length, matches);
 	const hunks: Hunk[] = [];
