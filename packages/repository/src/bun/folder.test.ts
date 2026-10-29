@@ -157,6 +157,22 @@ test('commit with nothing new reports the real outcome of a commit an earlier ru
 	expect(lines.at(-1)).toEqual({ landed: landedHere[0] ?? 'none', conflicts: [], kept: [] });
 }, 30_000);
 
+test('--agent names who writes from the folder on every run: one that differs from the folder\'s label is refused, never ignored', async () => {
+	const { server, served, folder, print, base, lines } = setup();
+	const person = folder('person');
+	expect(await sync({ ...base, dir: person, join: { repository: 'me/home', server: served.url }, once: true }, print)).toBe(0);
+	writeFileSync(join(person, 'a.md'), note('a\n'));
+	lines.length = 0;
+	expect(await commit({ ...base, dir: person, message: 'As an agent', agent: 'claude' }, print)).toBe(1);
+	expect(lines).toEqual([{ error: expect.stringContaining('claude') }]);
+	expect(server.read('a.md')).toBeNull();
+	const agent = folder('agent');
+	expect(await sync({ ...base, dir: agent, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
+	writeFileSync(join(agent, 'b.md'), note('b\n'));
+	expect(await commit({ ...base, dir: agent, message: 'As claude', agent: 'claude' }, print)).toBe(0);
+	expect(await sync({ ...base, dir: agent, agent: 'codex', once: true }, print)).toBe(1);
+}, 30_000);
+
 test('a second engine over a held replica is refused, and a copy is refused until --join makes it new', async () => {
 	const { served, folder, print, base, lines, root } = setup();
 	const dir = folder('home');

@@ -61,6 +61,12 @@ export const FolderError = defineErrors({
 	NotAFolder: ({ dir }: { dir: string }) => ({ message: `${dir} is not a folder`, dir }),
 	BadIdentity: ({ dir, reason }: { dir: string; reason: string }) => ({ message: `${dir}/${IDENTITY} cannot be read: ${reason}`, dir, reason }),
 	BadAgent: ({ agent }: { agent: string }) => ({ message: `"${agent}" is not an author label: a letter first, then letters, digits, - or _`, agent }),
+	/** `--agent` names a writer other than the one this folder writes as: its replica's commits name one device, set when it joined. */
+	OtherAgent: ({ agent, label }: { agent: string; label: string | null }) => ({
+		message: `this folder writes as ${label === null ? 'its person' : label}, not ${agent}; join a folder of its own with --join and --agent ${agent}`,
+		agent,
+		label,
+	}),
 	BadAddress: ({ address }: { address: string }) => ({ message: `"${address}" is not a repository address (owner/name)`, address }),
 	JoinedElsewhere: ({ dir, repository }: { dir: string; repository: string | null }) => ({
 		message: `${dir} already keeps ${repository ?? 'a repository kept only here'}; join from an empty folder, or remove ${IDENTITY} to make it a new one`,
@@ -146,7 +152,7 @@ export type FolderOptions = {
 	dir: string;
 	/** Join `owner/name` on `server` (a new folder, or a copy made new). */
 	join?: { repository: string; server: string };
-	/** The author label of every save and commit from this folder (an agent's name). */
+	/** The author label of every save and commit from this folder (an agent's name): recorded when the folder joins, and refused on a later run that names another. */
 	agent?: string;
 	/** The account's token (else `EPICENTER_TOKEN`). */
 	token?: string;
@@ -211,6 +217,8 @@ export async function openFolderEngine({ dir: given, join: joining, agent, token
 	}
 	const original = copyOf(dir, identity, dataDir);
 	if (original !== null) return FolderError.Copy({ dir, original });
+	// RULE: `--agent` names who writes on every run, and the replica names one writer for good: one that differs is refused, never ignored.
+	if (agent !== undefined && agent !== identity.agent) return FolderError.OtherAgent({ agent, label: identity.agent ?? null });
 	if (identity.server !== null && (token === undefined || token === '')) return FolderError.NoToken();
 
 	const home = join(dataDir, 'replicas', identity.replica);

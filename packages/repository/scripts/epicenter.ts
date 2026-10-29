@@ -2,7 +2,10 @@
  * The folder commands over this package's engine (`src/bun/folder-commands.ts`):
  *
  *   bun run epicenter -- sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]
- *   bun run epicenter -- commit <dir> -m <message> [--token <t>] [--json]
+ *   bun run epicenter -- commit <dir> -m <message> [--token <t>] [--agent <name>] [--json]
+ *
+ * `--agent` names who writes: recorded when a folder joins, and an error on
+ * a later run that names another writer than the folder's.
  *
  * The token is `--token` or `EPICENTER_TOKEN`. The desktop replaces
  * `packages/cli`'s Git commands with these in one change (see the README).
@@ -26,7 +29,7 @@ const { values, positionals } = parseArgs({
 const print = (line: Line) => console.log(values.json ? JSON.stringify(line) : plain(line));
 const [command, dir] = positionals;
 const usage = () => {
-	console.error('Usage: epicenter sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]\n       epicenter commit <dir> -m <message> [--json]');
+	console.error('Usage: epicenter sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]\n       epicenter commit <dir> -m <message> [--token <t>] [--agent <name>] [--json]');
 	process.exit(1);
 };
 if (dir === undefined) usage();

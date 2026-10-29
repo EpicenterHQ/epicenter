@@ -438,7 +438,9 @@ nothing new, it reports the commits earlier runs left unsent instead. A
 commit with a message is never amended by a later save.
 `--agent <name>` only labels the author: it is the commit's device, so
 conflict blocks read `alice/claude`, and the flushed Git commit names it
-in `Epicenter-Device`.
+in `Epicenter-Device`. It is recorded when the folder joins, since a
+replica names one writer for good; a later run that names another is an
+error, never ignored.
 
 | Exit | Line (`--json`: one JSON value per line) | Meaning |
 | --- | --- | --- |
@@ -446,7 +448,7 @@ in `Epicenter-Device`.
 | 0 | `{"unchanged": true}` | Nothing differed from the record, and no earlier commit is unsent |
 | 2 | `{"held": [{"path", "reason"}]}` | Nothing landed; the call and its message are held by these files of it; the files are as left |
 | 2 | `{"pending": "<id>" \| null}` | Offline, or no outcome yet; `<id>` is the commit in flight carrying it; the next `commit` or `sync` sends it, once |
-| 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy |
+| 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy, an `--agent` other than the folder's |
 
 `sync` also prints `joined`, `caught-up`, `held` (everything the replica
 holds) and `stopped`.
