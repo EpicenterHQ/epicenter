@@ -27,7 +27,7 @@ import type { Delta, Row, SaveError, Snapshot } from '../client/page.js';
 import { SaveError as SaveErrors } from '../client/page.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
 import { type App, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
-import { bodyOf, parseMarkdown, writeMarkdown } from '../core/markdown.js';
+import { bodyOf, parseMarkdown, splitMarkdown, writeMarkdown } from '../core/markdown.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
 import { createEditors, type Editor, type EditorError, type Unsaved } from './editor.js';
@@ -170,6 +170,19 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 // ============================================================================
 
 type NoteLens = Extract<Lens, { kind: 'note' }>;
+const headerOf = (text: string) => text.slice(0, splitMarkdown(text).bodyStart);
+const byPath = (a: Note, b: Note) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+/** Where `path` is in a list ordered by path, or -1. */
+function indexOf(list: Note[], path: string) {
+	let lo = 0;
+	let hi = list.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if ((list[mid]?.path ?? '') < path) lo = mid + 1;
+		else hi = mid;
+	}
+	return list[lo]?.path === path ? lo : -1;
+}
 const SENDING: FileStatus = { status: 'sending' };
 const sameState = (a: FileStatus, b: FileStatus) => a.status === b.status && a.reason === b.reason;
 
@@ -270,12 +283,21 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		if (text === null) {
 			if (before === undefined) return;
 			notes.delete(path);
+			lists.delete(lens.name);
 		} else {
 			const state = writes.length > 0 || editors.unsaved(path) || row === undefined ? SENDING : row.state;
 			if (before !== undefined && before.text === text && sameState(before.state, state)) return;
-			notes.set(path, toNote(lens, path, params, text, row?.text === text ? row.fields : undefined, state));
+			// Typing in the body leaves the frontmatter as it was: its fields are read again only when it changes.
+			const note =
+				before !== undefined && headerOf(before.text) === headerOf(text)
+					? ({ ...before, text, body: bodyOf(text), state } as Note)
+					: toNote(lens, path, params, text, row?.text === text ? row.fields : undefined, state);
+			notes.set(path, note);
+			const list = lists.get(lens.name);
+			const at = before === undefined || list === undefined ? -1 : indexOf(list, path);
+			if (list !== undefined && at >= 0) lists.set(lens.name, list.with(at, note));
+			else lists.delete(lens.name);
 		}
-		lists.delete(lens.name);
 		touched.add(lens.name);
 	}
 
@@ -439,7 +461,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			all() {
 				let list = lists.get(lens.name);
 				if (list === undefined) {
-					list = [...notes.values()].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+					list = [...notes.values()].sort(byPath);
 					lists.set(lens.name, list);
 				}
 				return list;

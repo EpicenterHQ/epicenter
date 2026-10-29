@@ -10,6 +10,7 @@
  * - Writes are refused while no session is open, and project nothing
  * - A write shows at once, is cleared by its answer, and is dropped when it fails
  * - A new session's snapshot keeps the object of every note that did not change
+ * - Typing in a body keeps the note's fields as read and replaces it in the ordered list, without sorting it again
  * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
  */
 import { expect, test } from 'bun:test';
@@ -163,4 +164,26 @@ test('a closed repository refuses writes and lets its host go', async () => {
 	expect(expectErr(await repo.todos.create({ stem: 'x' })).name).toBe('Unavailable');
 	local.resume();
 	expect(repo.status()).toEqual({ status: 'closed' });
+});
+
+test("typing in a note's body keeps its fields as read and the list in order, without reading or sorting the rest again", async () => {
+	const { repo } = setup((replica) => {
+		for (const name of ['apple', 'milk', 'eggs']) replica.write(`todos/${name}.md`, todo(name, false, 'one\n'));
+	});
+	await settled();
+	const before = repo.todos.all();
+	const milk = repo.todos.get({ stem: 'milk' });
+	const editor = expectOk(await repo.todos.openEditor({ stem: 'milk' }));
+	editor.update(editor.draft().replace('\none\n', '\none two\n'));
+	const after = repo.todos.all();
+	expect(after).not.toBe(before);
+	expect(after.map((note) => note.path)).toEqual(['todos/apple.md', 'todos/eggs.md', 'todos/milk.md']);
+	expect(after[0]).toBe(before[0]);
+	expect(after[2]).toMatchObject({ body: 'one two\n', state: { status: 'sending' } });
+	expect(after[2]?.fields).toBe(milk?.fields);
+	// A change to the frontmatter is read again.
+	editor.update(editor.draft().replace('done: false', 'done: true'));
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({ valid: true, fields: { done: true } });
+	await settled();
+	expectOk(await editor.close());
 });
