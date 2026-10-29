@@ -30,7 +30,7 @@
  * Key behaviors (after every step, and at quiescence):
  * - No save lost: every owed token is in the folder (scratch included), an editor's write in progress, a replica, or the server; at quiescence, in the server's text or in a held file
  * - None applied twice: at quiescence no token appears twice in a server text or a file outside its conflict blocks, nor twice in any one side of a block (read the same way); a base section is never counted
- * - A commit is one group: no push first sent after a commit, without its message, lands the text that commit read at one of its paths before the commit lands (unless a writer made the path hold that text again since: a copy, a delete, a blob moved back), and each message lands in at most one commit
+ * - A commit is one group: no push first sent after a commit, without its message, lands the text that commit read at one of its paths before the commit lands (unless this device had committed that text there before the commit, which is that earlier commit's work, or a writer made the path hold that text again since: a copy, a delete, a blob moved back), and each message lands in at most one commit
  * - Own writes never echo: once quiet, a further idle period and a scan send nothing
  * - Convergence: at quiescence every file equals the replica's `mine` and `mine` equals the server's, except held files; every file the repository cannot take is held
  * - Ignored stays ignored: the server never holds a dot path or a dropping, and the engine never writes or removes one
@@ -564,15 +564,16 @@ async function run(seed: number, steps: number) {
 				if (live) return null;
 				const message = `Commit ${token()}`;
 				await folder.crash({ watch: false });
-				// What this device has in flight at each path: a save equal to it settles into that commit (the replica's rule), so it is not this commit's work.
-				const inFlight = new Map<string, string | null>();
+				// What this device committed before this call at each path, unsent or in flight: a save equal to it is that earlier commit's work, which goes on its own unless this call is cut over it (the replica's rule), so it is not this commit's.
+				const before = new Map<string, string | null>();
 				for (const { commit } of folder.replica.query<{ commit: string }>('SELECT commit_json AS "commit" FROM "epicenter/inflight"', []))
-					for (const file of (JSON.parse(commit) as { files: { path: string; text: string | null }[] }).files) inFlight.set(file.path, file.text);
+					for (const file of (JSON.parse(commit) as { files: { path: string; text: string | null }[] }).files) before.set(file.path, file.text);
+				for (const { path, text } of folder.replica.query<{ path: string; text: string | null }>('SELECT path, text FROM "epicenter/unsent"', [])) before.set(path, text);
 				const { saved } = await until(world, folder.engine.commit(message));
 				if (process.env.F_TRACE) log.push(`   (commit at ${world.net.now()}: ${saved.join(', ')}; held ${JSON.stringify(folder.replica.held())}; unsent ${folder.replica.unsent().join(', ')})`);
-				// Only files with work of this commit's own: a save that changed nothing beyond what is in flight here, or else the file as the server has it, says nothing.
+				// Only files with work of this commit's own: a save that changed nothing beyond what this device committed before it, or else the file as the server has it, says nothing.
 				const files = folder.replica.files();
-				const working = saved.filter((p) => files.get(p)?.mine !== (inFlight.has(p) ? inFlight.get(p) : files.get(p)?.base));
+				const working = saved.filter((p) => files.get(p)?.mine !== (before.has(p) ? before.get(p) : files.get(p)?.base));
 				if (working.length > 0) groups.set(message, { paths: new Set(working.map((p) => fold(p))), texts: new Map(working.map((p) => [fold(p), folder.replica.read(p)])), at: world.net.now() });
 				folder.device.setOnline(true);
 				await runFor(world, random.int(0, 3_000));

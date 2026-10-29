@@ -43,9 +43,11 @@ commit -m`, `repo.commit(build, { message })`). Its commit is one of its own
 and is never amended: a later save of one of its files, under another
 message or none, waits until it is sent. The message goes into history as
 that commit's Git commit message, with an `Epicenter-Device` trailer naming
-who wrote it. A call without a message is amended as ever, and a later
-save's call takes it in. When a later save joins a held call, the group says
-the newer call's message, or the older's when the newer has none.
+who wrote it. A call without a message is amended as ever: a later save's
+call takes it in when that save is committed over it, and until then it goes
+on its own, so a later call that is held or waiting never holds it, even
+where it saved the same text. When a later save joins a held call, the group
+says the newer call's message, or the older's when the newer has none.
 
 **A call has one outcome, and the replica reports it.** `landed`, in its
 commit (or in `main` as it found it, when nothing of it needed sending),

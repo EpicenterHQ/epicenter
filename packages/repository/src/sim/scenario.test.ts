@@ -20,6 +20,7 @@
  * - An agent's batch meeting a moved `main` merges as anyone's save does, its files in one commit; the server refuses commits with no parent, a bad id, or a path named twice
  * - Every save commits while online; saves while a commit is in flight, or offline, amend one unsent commit; a sent commit is never rewritten
  * - A commit sent once whose parent left the window merges again after a full catch-up
+ * - A held call holds only its own work: an earlier unsent commit below it goes alone, even when the held call has a message and saved the same text there
  */
 import { expect, test } from 'bun:test';
 import { parses, writePointer } from '../core/markdown.js';
@@ -428,6 +429,29 @@ test('a later save the door refuses holds only its own call: the unsent commit b
 	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
 	expect(alice.replica.held()).toEqual([{ path: PATH, reason: 'does not parse' }]);
 	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'synced' });
+});
+
+test('a held call with a message holds no earlier unsent commit, even one whose text it saved again: that commit goes alone, and the message lands once, when its call goes (seed 1300247)', () => {
+	const { world, alice, settle } = setup();
+	const landed: { message: string | null; paths: string[] }[] = [];
+	world.onRequest((device, request, reply) => {
+		if (device === 'alice' && request.type === 'push' && reply.type === 'answer' && (reply.answer.kind === 'applied' || reply.answer.kind === 'merged'))
+			landed.push({ message: request.commit.message ?? null, paths: request.commit.files.map((f) => f.path).sort() });
+	});
+	// While a commit is in flight, a save without a message is committed; then a call with a message saves the same text there, and a file the door refuses.
+	alice.replica.write('notes/x.md', note('x\n'));
+	alice.replica.write(PATH, note('one\n'));
+	alice.replica.writeAll({ [PATH]: note('one\n'), 'notes/bad.md': broken('two\n') }, { message: 'Said' });
+	settle();
+	expect(landed).toEqual([
+		{ message: null, paths: ['notes/x.md'] },
+		{ message: null, paths: [PATH] },
+	]);
+	expect(alice.replica.held()).toEqual([{ path: 'notes/bad.md', reason: 'does not parse' }]);
+	alice.replica.write('notes/bad.md', note('two\n'));
+	settle();
+	expect(landed.slice(2)).toEqual([{ message: 'Said', paths: ['notes/bad.md'] }]);
+	expect(alice.replica.busy()).toBe(false);
 });
 
 test("a save waiting on a held partner is not undone by an older commit of the same path (seed 2315)", () => {
