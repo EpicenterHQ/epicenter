@@ -1463,6 +1463,8 @@ function createReplica({
 		/** Why nothing is being sent: a rejection only the person or the account can fix, until the next connection; or null. */
 		rejection: () => stalled,
 		position: () => position,
+		/** The commit sent and not yet answered (its id, message and files), or null: what a writer awaiting its own commit's verdict watches for. */
+		sent: (): LiveCommit | null => inflight,
 		stats: () => ({ ...stats }),
 
 		// ------------------------------------------------------------------------

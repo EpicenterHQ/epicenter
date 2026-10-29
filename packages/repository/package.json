@@ -16,7 +16,8 @@
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test --path-ignore-patterns='browser-tests/**'",
 		"test:browser": "bun test browser-tests/",
-		"serve": "bun scripts/serve.ts"
+		"serve": "bun scripts/serve.ts",
+		"epicenter": "bun scripts/epicenter.ts"
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.4.0",

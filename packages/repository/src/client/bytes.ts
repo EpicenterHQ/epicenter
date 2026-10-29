@@ -57,6 +57,25 @@ export type Put = Changed & { sealed: Record<string, Sealed> };
 /** Why a put stored nothing. */
 export type PutError = BlobError | BlobStoreError | ChangeError | SaveError;
 
+/**
+ * Bring the bytes `pointer` names to `store` from the server's LFS endpoint,
+ * verified as they are sealed: phase 8's read path, which a page's `open`
+ * and the folder engine's projection share. Nothing is stored for bytes
+ * that are not the ones named.
+ */
+export async function downloadBlob({ lfs, store }: { lfs: LfsClient | null; store: BlobStore<Blob> }, path: string, pointer: Sealed): Promise<Result<undefined, OpenError>> {
+	if (lfs === null) return OpenError.Missing({ path });
+	const asked = await lfs.batch('download', [pointer]);
+	if (asked.error !== null) return OpenError.Unavailable({ path, reason: asked.error.message });
+	const answer = asked.data.find((each) => each.oid === pointer.oid);
+	const action = answer?.actions?.download;
+	if (action === undefined) return answer?.error?.code === 404 ? OpenError.Missing({ path }) : OpenError.Unavailable({ path, reason: answer?.error?.message ?? 'no download was offered' });
+	const body = await lfs.get(action);
+	if (body.error !== null) return body.error.name === 'Refused' && body.error.status === 404 ? OpenError.Missing({ path }) : OpenError.Unavailable({ path, reason: body.error.message });
+	const sealed = await store.seal(body.data, { expect: pointer });
+	return sealed.error === null ? Ok(undefined) : OpenError.Unavailable({ path, reason: sealed.error.message });
+}
+
 export function serveBytes({
 	replica,
 	store,
@@ -71,18 +90,7 @@ export function serveBytes({
 	/** Downloads in flight, one per oid. */
 	const fetching = new Map<string, Promise<Result<undefined, OpenError>>>();
 
-	async function download(path: string, pointer: Sealed): Promise<Result<undefined, OpenError>> {
-		if (lfs === null) return OpenError.Missing({ path });
-		const asked = await lfs.batch('download', [pointer]);
-		if (asked.error !== null) return OpenError.Unavailable({ path, reason: asked.error.message });
-		const answer = asked.data.find((each) => each.oid === pointer.oid);
-		const action = answer?.actions?.download;
-		if (action === undefined) return answer?.error?.code === 404 ? OpenError.Missing({ path }) : OpenError.Unavailable({ path, reason: answer?.error?.message ?? 'no download was offered' });
-		const body = await lfs.get(action);
-		if (body.error !== null) return body.error.name === 'Refused' && body.error.status === 404 ? OpenError.Missing({ path }) : OpenError.Unavailable({ path, reason: body.error.message });
-		const sealed = await store.seal(body.data, { expect: pointer });
-		return sealed.error === null ? Ok(undefined) : OpenError.Unavailable({ path, reason: sealed.error.message });
-	}
+	const download = (path: string, pointer: Sealed) => downloadBlob({ lfs, store }, path, pointer);
 
 	return {
 		/**
