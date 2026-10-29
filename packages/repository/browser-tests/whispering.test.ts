@@ -183,6 +183,8 @@ for (const [engine, browser] of [
 					gates.alice.stop();
 					gates.bob.stop();
 					await served.stop();
+					// A flush leaves none due, so no alarm fires on this server after its directory is gone.
+					await server.flush().catch(() => {});
 					await rm(dir, { recursive: true, force: true });
 				}
 			},
