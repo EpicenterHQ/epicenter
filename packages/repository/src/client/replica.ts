@@ -180,7 +180,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_jso
 CREATE TABLE IF NOT EXISTS "epicenter/groups" (path TEXT NOT NULL, other TEXT NOT NULL, PRIMARY KEY (path, other)) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/messages" (path TEXT NOT NULL, level TEXT NOT NULL CHECK (level IN ('saved', 'committed')), message TEXT NOT NULL, PRIMARY KEY (path, level)) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/passed" (id TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, fold TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/fetched" (hash TEXT PRIMARY KEY, text TEXT NOT NULL) STRICT;
 CREATE INDEX IF NOT EXISTS "epicenter/files/fold" ON "epicenter/files" (fold);
 CREATE INDEX IF NOT EXISTS "epicenter/files/saved" ON "epicenter/files" (path) WHERE saved = 1;
@@ -188,7 +188,6 @@ CREATE INDEX IF NOT EXISTS "epicenter/files/held" ON "epicenter/files" (path) WH
 CREATE INDEX IF NOT EXISTS "epicenter/files/unknown" ON "epicenter/files" (path) WHERE unknown = 1;
 CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) WHERE text IS NOT base;
 CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
-CREATE INDEX IF NOT EXISTS "epicenter/staged/fold" ON "epicenter/staged" (fold);
 CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEGER NOT NULL) STRICT;
 `;
 
@@ -206,9 +205,6 @@ export const UPLOADING = 'its bytes are uploading';
 
 /** A database made before the `fold` column (phase 5) gets it, filled from each path, before the schema indexes it. */
 function addFold(driver: SqlDriver) {
-	// The staging table holds nothing across a restart: one made before it kept each path's folded identity is made again.
-	const staged = driver.all<{ name: string }>('PRAGMA table_info("epicenter/staged")').map((column) => column.name);
-	if (staged.length > 0 && !staged.includes('fold')) driver.exec('DROP TABLE "epicenter/staged"');
 	const columns = driver.all<{ name: string }>('PRAGMA table_info("epicenter/files")').map((column) => column.name);
 	if (columns.length === 0 || columns.includes('fold')) return;
 	driver.transaction(() => {
@@ -925,12 +921,7 @@ function createReplica({
 	 * device's sent commit, whose text the local work above it was made on.
 	 * `deleted` when the path was deleted at some point since this device's base.
 	 */
-	function integrate(named: string, text: string | null, landed: boolean, deleted = false) {
-		// RULE: the server names a path in `main`'s spelling; a file this device spells another way (its own create, crossing one there) is that file, so the two meet, never stand side by side.
-		const path =
-			first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE path = ?', [named])?.path ??
-			first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1', [fold(named)])?.path ??
-			named;
+	function integrate(path: string, text: string | null, landed: boolean, deleted = false) {
 		const f = record(path);
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
@@ -1189,7 +1180,7 @@ function createReplica({
 
 	/** Stage one page of a catch-up. */
 	function stage(page: CatchUp) {
-		for (const file of page.files) driver.run('INSERT INTO "epicenter/staged" (path, fold, hash, deleted) VALUES (?, ?, ?, ?)', [file.path, fold(file.path), file.hash, file.deleted === true ? 1 : 0]);
+		for (const file of page.files) driver.run('INSERT INTO "epicenter/staged" (path, hash, deleted) VALUES (?, ?, ?)', [file.path, file.hash, file.deleted === true ? 1 : 0]);
 	}
 	/** Forget a staged catch-up and the texts read for it. */
 	/** Every staged row up to this one needs no text read: the next read of a catch-up's texts looks after it. */
@@ -1240,7 +1231,7 @@ function createReplica({
 		// In a full listing, every local file not named is absent.
 		if (reply.full)
 			// Paths only: each record, its texts with it, is read inside `integrate`, one file at a time.
-			for (const path of pathsWhere('(base IS NOT NULL OR unknown = 1) AND fold NOT IN (SELECT fold FROM "epicenter/staged")')) integrate(path, null, false);
+			for (const path of pathsWhere('(base IS NOT NULL OR unknown = 1) AND path NOT IN (SELECT path FROM "epicenter/staged")')) integrate(path, null, false);
 		for (const [path, f] of filesWhere('unknown = 1')) {
 			const { unknown: _, ...rest } = f;
 			set(path, rest);
