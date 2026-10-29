@@ -32,12 +32,12 @@ import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { BlobStoreError, Sealed } from '../../client/blobs.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
-import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock } from './layout.js';
+import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock, type Syncing } from './layout.js';
 import type { Collection, Delta, FileEntry, Row, Snapshot } from '../../client/page.js';
 import { type Init, SaveError, type TabMessage, type WorkerMessage } from './messages.js';
 import type { ReplicaMethods } from './worker.js';
 
-export { listReplicas, type Manifest } from './layout.js';
+export { listReplicas, type Manifest, type Syncing } from './layout.js';
 export { SaveError } from './messages.js';
 export type { Collection, Delta, Row, Snapshot } from '../../client/page.js';
 
@@ -255,29 +255,20 @@ export type OpenReplica = ReturnType<typeof createOpenReplica>;
 
 /**
  * Make a new replica of `owner`'s `repository` (owner null: yours) in this
- * origin, for `account` (null: a guest), synced with `server` (null: none
- * yet), and open it in this tab, with the manifest its worker writes as it
+ * origin, syncing as `account` with the server at `url` (both null: kept
+ * only here), and open it in this tab, with the manifest its worker writes as it
  * first opens it. The origin holds at most one replica per owner,
  * repository and account.
  */
-export async function createBrowserReplica({
-	owner,
-	repository,
-	name,
-	account,
-	url,
-	...options
-}: { owner: string | null; repository: string; name: string; account: string | null; url: string | null } & BrowserReplicaOptions): Promise<Result<ReplicaTab & { manifest: Manifest }, BrowserReplicaError>> {
+export async function createBrowserReplica(
+	given: { owner: string | null; repository: string; name: string } & Syncing & BrowserReplicaOptions,
+): Promise<Result<ReplicaTab & { manifest: Manifest }, BrowserReplicaError>> {
+	const { owner, repository, name, account, url: _, ...options } = given;
 	const existing = (await listReplicas()).find((manifest) => manifest.owner === owner && manifest.repository === repository && manifest.account === account);
 	if (existing !== undefined) return BrowserReplicaError.AlreadyHere({ replica: existing.replica });
-	const manifest: Manifest = {
-		replica: crypto.randomUUID(),
-		owner,
-		repository,
-		name,
-		account,
-		url: url === null ? null : new URL(url.endsWith('/') ? url : `${url}/`).href,
-	};
+	const identity = { replica: crypto.randomUUID(), owner, repository, name };
+	const manifest: Manifest =
+		given.url === null ? { ...identity, account: null, url: null } : { ...identity, account: given.account, url: new URL(given.url.endsWith('/') ? given.url : `${given.url}/`).href };
 	return Ok(Object.assign(openTab(manifest.replica, manifest, options), { manifest }));
 }
 

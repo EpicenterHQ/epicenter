@@ -50,7 +50,7 @@ for (const [engine, browser] of [
 				const { context, cleanup } = await launchProfile(browser);
 				try {
 					const page = await loadReplicaPage(context, site.url, { page: context.pages()[0] });
-					const { replica } = await page.evaluate((repository) => replicas.create(repository, { account: 'alice' }), uniqueRepository('reopen'));
+					const { replica } = await page.evaluate((repository) => replicas.create(repository), uniqueRepository('reopen'));
 					if (replica === null) throw new Error('the replica was not created');
 					expect(await page.evaluate(() => replicas.write('notes/a.md', '---\ntitle: A\n---\none\n'))).toMatchObject({ error: null });
 					for (let round = 0; round < 3; round++) expect(await page.evaluate((replica) => replicas.reopen(replica), replica)).toEqual({ status: 'open' });
@@ -69,11 +69,11 @@ for (const [engine, browser] of [
 				try {
 					const repository = uniqueRepository('reload');
 					const page = await loadReplicaPage(context, site.url, { page: context.pages()[0] });
-					const { replica } = await page.evaluate((repository) => replicas.create(repository, { account: 'alice' }), repository);
+					const { replica } = await page.evaluate((repository) => replicas.create(repository), repository);
 					if (replica === null) throw new Error('the replica was not created');
 					expect(await page.evaluate(() => replicas.write('notes/a.md', `---\ntitle: A\n---\none\n`))).toMatchObject({ data: { texts: { 'notes/a.md': note('one\n') } }, error: null });
-					// One replica per repository and account in an origin.
-					expect(await page.evaluate((repository) => replicas.create(repository, { account: 'alice' }), repository)).toMatchObject({ error: 'AlreadyHere' });
+					// One replica per owner, repository and account in an origin.
+					expect(await page.evaluate((repository) => replicas.create(repository), repository)).toMatchObject({ error: 'AlreadyHere' });
 
 					await page.reload();
 					await page.waitForFunction(() => globalThis.replicas !== undefined);
@@ -84,7 +84,7 @@ for (const [engine, browser] of [
 					expect(await page.evaluate(() => replicas.query('SELECT path FROM notes'))).toEqual([{ path: 'notes/a.md' }]);
 
 					const listed = (await page.evaluate(() => replicas.list())).filter((manifest) => manifest.replica === replica);
-					expect(listed).toEqual([{ replica, owner: null, repository, name: repository, account: 'alice', url: null }]);
+					expect(listed).toEqual([{ replica, owner: null, repository, name: repository, account: null, url: null }]);
 					const layout = await page.evaluate((replica) => replicas.layout(replica), replica);
 					expect(layout?.root).toEqual(['manifest.json', 'objects/', 'sqlite/']);
 					// The VFS's own files only: no blob, no manifest, in its directory.

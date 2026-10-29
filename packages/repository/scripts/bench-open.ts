@@ -45,7 +45,8 @@ import { fold } from '../src/core/door.js';
 import { compileTemplate } from '../src/core/templates.js';
 import { unwrap } from 'wellcrafted/result';
 
-const binding = { repository: 'bench', server: null, account: null };
+// The account every hello names: the server's sessions are 'reader'.
+const binding = { repository: 'bench', server: null, account: 'reader' };
 const options = (filename: string) => ({
 	driver: openBunSqlite(filename),
 	binding,
@@ -204,7 +205,7 @@ async function session(filename: string) {
 function serve(replica: Replica, server: Server, user: string, sample: () => void) {
 	const sent: Request[] = [];
 	replica.attach((request) => sent.push(request));
-	unwrap(replica.hello({ repository: 'bench', server: 'bench', account: null, user, main: server.main() }));
+	unwrap(replica.hello({ repository: 'bench', server: 'bench', user, main: server.main() }));
 	for (let request = sent.shift(); request !== undefined; request = sent.shift()) {
 		const reply: Reply =
 			request.type === 'push'

@@ -445,7 +445,7 @@ test('a notification arriving while a catch-up is out waits for it: the catch-up
 	const caughtUp = (rid: number, main: string, full: boolean) => replica.reply({ type: 'caught-up', rid, catchUp: { main, full, files: [], commits: [], next: null } });
 	caughtUp(1, 'A', true);
 	// A connection opens naming a main other than A: a catch-up from A goes out, answered (as over HTTP, apart from events) while main was still A.
-	replica.hello({ repository: 'test', server: 'memory', account: 'alice', user: 'alice', main: 'B' });
+	replica.hello({ repository: 'test', server: 'memory', user: 'alice', main: 'B' });
 	expect(requests.at(-1)).toMatchObject({ type: 'catch-up', from: 'A' });
 	// B lands next, and its notification (a delete: nothing to read) overtakes the catch-up's reply.
 	replica.notify({ commit: 'B', parents: ['A'], files: [{ path: PATH, hash: null }] });

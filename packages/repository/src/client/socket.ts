@@ -31,7 +31,7 @@ export function connectSocket(replica: ReplicaEnd, client: WireClient, { retry =
 			message(message) {
 				switch (message.type) {
 					case 'head': {
-						const { error } = replica.hello({ server: message.server, repository: message.repository, account: message.account, user: message.user, main: message.main, limits: message.limits });
+						const { error } = replica.hello({ server: message.server, repository: message.repository, user: message.user, main: message.main, limits: message.limits });
 						if (error !== null) {
 							log?.error(error);
 							stopped = true;

@@ -147,14 +147,13 @@ test('a database bound to another repository, server or account is refused, and 
 	expect(expectErr(open(driver, { binding: { ...BINDING, account: null } })).name).toBe('BoundElsewhere');
 	expect(expectOk(open(driver)).binding()).toEqual(BINDING);
 
-	const hello = { ...BINDING, server: SERVER, main: 'm', user: 'alice' };
+	const hello = { repository: BINDING.repository, server: SERVER, main: 'm', user: 'alice' };
 	expect(expectErr(replica.hello({ ...hello, server: 'elsewhere' })).field).toBe('server');
-	expect(expectErr(replica.hello({ ...hello, account: 'bob', user: 'bob' })).field).toBe('account');
-	// A guest's session names no account: an account's replica refuses it, and a guest's replica refuses an account's.
-	expect(expectErr(replica.hello({ ...hello, account: null, user: 'guest-1' })).field).toBe('account');
-	const guest = expectOk(open(openBunSqlite(), { binding: { ...BINDING, account: null } }));
-	expect(expectErr(guest.hello(hello)).field).toBe('account');
-	expectOk(guest.hello({ ...hello, account: null, user: 'guest-1' }));
+	// A session's user is its account: a replica refuses any other's.
+	expect(expectErr(replica.hello({ ...hello, user: 'bob' })).field).toBe('account');
+	// A repository kept only here has no account, so no server's hello passes it.
+	const kept = expectOk(open(openBunSqlite(), { binding: { ...BINDING, server: null, account: null } }));
+	expect(expectErr(kept.hello(hello)).field).toBe('account');
 	expectOk(replica.hello(hello));
 
 	// A replica that has met no server records the first one it meets, for good, and a host that does not know it opens it with null.
@@ -342,7 +341,7 @@ test('one clash is one block: unsent text replayed over an arrived block that of
 	const device = (account: string) => {
 		const replica = unwrap(open(openBunSqlite(), { binding: { ...BINDING, account }, device: `${account}-laptop` }));
 		const link = connect(replica, server);
-		const hello = () => expectOk(replica.hello({ ...BINDING, account, server: SERVER, main: server.main(), user: account }));
+		const hello = () => expectOk(replica.hello({ repository: BINDING.repository, server: SERVER, main: server.main(), user: account }));
 		hello();
 		return {
 			replica,

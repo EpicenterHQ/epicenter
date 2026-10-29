@@ -11,7 +11,7 @@ import { collectionsOf } from '../src/api/local.js';
 import type { Editor } from '../src/api/editor.js';
 import { type Host, type HostState, openRepository, type Session } from '../src/api/repository.js';
 import { bodyOf } from '../src/core/markdown.js';
-import { createBrowserReplica, openBrowserReplica, type ReplicaTab } from '../src/hosts/browser/index.js';
+import { createBrowserReplica, openBrowserReplica, type ReplicaTab, type Syncing } from '../src/hosts/browser/index.js';
 import { reactive } from '../../svelte/src/repository/index.js';
 import App from './api-page/App.svelte';
 import { todosApp } from './api-page/app.js';
@@ -88,8 +88,8 @@ async function until(check: () => boolean, what: string, timeout = 15_000) {
 }
 
 const calls = {
-	async create(name: string, { account, url, token }: { account: string; url: string; token: string }) {
-		const created = await createBrowserReplica({ owner: null, repository: name, name, account, url, ...options(token) });
+	async create(name: string, { token, ...syncing }: Syncing & { token: string }) {
+		const created = await createBrowserReplica({ owner: null, repository: name, name, ...syncing, ...options(token) });
 		if (created.error !== null) throw new Error(created.error.message);
 		return show(created.data);
 	},

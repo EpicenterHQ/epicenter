@@ -86,7 +86,7 @@ for (const [engine, browser] of [
 				const profile = await launchProfile(browser);
 				try {
 					const page = await loadApiPage(profile.context, site.url, { page: profile.context.pages()[0] });
-					await page.evaluate((repository) => api.create(repository, { account: 'alice', url: null as unknown as string, token: 'alice' }), `frozen-${crypto.randomUUID().slice(0, 8)}`);
+					await page.evaluate((repository) => api.create(repository, { account: null, url: null, token: 'alice' }), `frozen-${crypto.randomUUID().slice(0, 8)}`);
 					await page.evaluate(() => api.untilOpen());
 					expect(await page.evaluate(() => api.add('milk', 'milk', ''))).toBeNull();
 					await typeAboveAHeldWrite(page, 'milk', 'M', 'ilk');

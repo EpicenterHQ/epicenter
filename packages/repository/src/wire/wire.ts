@@ -66,12 +66,8 @@ import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type Re
 // Ports and protocol
 // ============================================================================
 
-/**
- * A session as the host verified it, with when it expires (ms since the
- * epoch), if it does. `guest`: a session with no account (its user is the
- * guest's id), which only a guest's replica takes.
- */
-export type Verified = Session & { expires?: number; guest?: true };
+/** A session as the host verified it, with when it expires (ms since the epoch), if it does. Its user is the account it is signed in as. */
+export type Verified = Session & { expires?: number };
 
 /** Who is asking, as the host verifies it; null when the request carries no valid credential. */
 export type Authenticate = (request: Request) => Verified | null | Promise<Verified | null>;
@@ -104,11 +100,11 @@ export type SocketRequest = { type: 'push'; rid: number; commit: LiveCommit } | 
 export type SocketMessage =
 	/**
 	 * The repository this socket reaches, the server's stable id and the
-	 * account it is signed in as (null for a guest), so a replica bound
-	 * elsewhere refuses it; the session's user, whom its commits name; and
-	 * the bounds on one push.
+	 * session's user (the account it is signed in as, whom its commits
+	 * name), so a replica bound elsewhere refuses it; and the bounds on one
+	 * push.
 	 */
-	| { type: 'head'; main: string; repository: string; server: string; account: string | null; user: string; limits: { request: number; files: number } }
+	| { type: 'head'; main: string; repository: string; server: string; user: string; limits: { request: number; files: number } }
 	| ({ type: 'commit' } & Event)
 	| { type: 'answer'; rid: number; status: number; answer: PushAnswer }
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
@@ -495,7 +491,6 @@ export function createWire({
 				main: server.main(),
 				repository,
 				server: serverId,
-				account: verified.guest === true ? null : verified.user,
 				user: verified.user,
 				limits: server.sizing(),
 			} satisfies SocketMessage),

@@ -89,17 +89,17 @@ export type Reply =
 /**
 /**
  * Which repository a replica holds, on which server (its stable id, which
- * the server's hello names; null: none met yet, so a local repository), for
- * which account (null: a guest's, which only a guest session's hello passes;
- * adopting it into an account is a separate, explicit step).
+ * the server's hello names; null: none met yet), for which account: the
+ * user every hello must name. Null: a repository kept only on this device,
+ * which no server's hello passes.
  */
 export type Binding = { repository: string; server: string | null; account: string | null };
 
 /** The server's bounds on one push: its bytes as JSON, and its files. */
 export type Sizing = { request: number; files: number };
 
-/** What the first exchange of a connection says: where the transport reached (the server's id), the session's user (whom its commits name), `main` there, and the server's bounds on a push. */
-export type Hello = { repository: string; server: string; account: string | null; user: string; main: string; limits?: Sizing };
+/** What the first exchange of a connection says: where the transport reached (the server's id), the session's user (the account it is signed in as, whom its commits name), `main` there, and the server's bounds on a push. */
+export type Hello = { repository: string; server: string; user: string; main: string; limits?: Sizing };
 
 /**
  * One change to a file, made over the text this device shows when it is
@@ -1317,8 +1317,8 @@ function createReplica({
 		 * something, so it catches up.
 		 */
 		hello(hello: Hello): Result<undefined, ReplicaError> {
-			for (const field of ['repository', 'account'] as const)
-				if (hello[field] !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound: binding[field], given: hello[field] });
+			if (hello.repository !== binding.repository) return ReplicaError.BoundElsewhere({ field: 'repository', bound: binding.repository, given: hello.repository });
+			if (hello.user !== binding.account) return ReplicaError.BoundElsewhere({ field: 'account', bound: binding.account, given: hello.user });
 			if (binding.server !== null && hello.server !== binding.server) return ReplicaError.BoundElsewhere({ field: 'server', bound: binding.server, given: hello.server });
 			if (binding.server === null) {
 				// The first server this replica meets is its server for good.

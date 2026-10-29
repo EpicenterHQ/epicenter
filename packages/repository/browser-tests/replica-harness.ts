@@ -12,6 +12,7 @@ import {
 	type ReplicaTab,
 	type ReplicaTabState,
 	storagePersistence,
+	type Syncing,
 } from '../src/hosts/browser/index.js';
 import { replicaDirectory, replicaLock, replicasDirectory } from '../src/hosts/browser/layout.js';
 import { entriesOf } from '../src/hosts/browser/opfs.js';
@@ -77,8 +78,8 @@ async function settle() {
 
 const api = {
 	/** Make a replica of `repository` and open it here; answers its id. */
-	async create(repository: string, { account = null, url = null, token }: { account?: string | null; url?: string | null; token?: string } = {}) {
-		const created = await createBrowserReplica({ owner: null, repository, name: repository, account, url, ...options(token) });
+	async create(repository: string, { token, ...syncing }: Syncing & { token?: string } = { account: null, url: null }) {
+		const created = await createBrowserReplica({ owner: null, repository, name: repository, ...syncing, ...options(token) });
 		if (created.error !== null) return { error: created.error.name, replica: null };
 		tab = created.data;
 		await settle();

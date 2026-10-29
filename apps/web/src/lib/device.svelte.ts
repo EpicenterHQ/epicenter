@@ -15,6 +15,7 @@ import {
 	listBrowserRepositories,
 	type Manifest,
 	removeBrowserRepository,
+	type Syncing,
 } from '@epicenter/repository/browser';
 import { Ok, type Result } from 'wellcrafted/result';
 import { installedLens } from './installed.svelte.js';
@@ -36,17 +37,16 @@ export const addressOf = (manifest: Pick<Manifest, 'owner' | 'repository'>) =>
 export const ownerOf = (segment: string) => (segment === YOU ? null : segment);
 
 /** What a server takes as whom a request is from: until accounts exist, the development server's `Authorization: Bearer <name>`. */
-export const headersOf = (manifest: Pick<Manifest, 'account' | 'url'>): Record<string, string> =>
-	manifest.url === null || manifest.account === null ? {} : { authorization: `Bearer ${manifest.account}` };
+export const headersOf = (syncing: Syncing): Record<string, string> => (syncing.url === null ? {} : { authorization: `Bearer ${syncing.account}` });
 
 /** Where a copy keeps its files, in a person's words. */
 export const whereOf = (manifest: Manifest) =>
-	manifest.url === null ? 'Only on this device' : `Synced with ${new URL(manifest.url).host} as ${manifest.account ?? 'a guest'}`;
+	manifest.url === null ? 'Only on this device' : `Synced with ${new URL(manifest.url).host} as ${manifest.account}`;
 
 /** The link that joins `manifest`'s repository from another browser; null for one kept only here. To others, you are your account on its server. */
 export function joinLinkOf(manifest: Manifest, origin: string) {
 	if (manifest.url === null) return null;
-	const owner = manifest.owner ?? manifest.account ?? YOU;
+	const owner = manifest.owner ?? manifest.account;
 	const link = new URL(addressOf({ owner, repository: manifest.repository }), origin);
 	link.searchParams.set('server', manifest.url);
 	return link.href;
@@ -93,7 +93,7 @@ function localIdFor(name: string, manifests: readonly Manifest[]) {
  * Make a copy in this browser and let it go once its worker has written its
  * manifest, so the repository's page opens the one handle it keeps.
  */
-async function make(options: { owner: string | null; repository: string; name: string; account: string | null; url: string | null }): Promise<Result<Manifest, BrowserReplicaError>> {
+async function make(options: { owner: string | null; repository: string; name: string } & Syncing): Promise<Result<Manifest, BrowserReplicaError>> {
 	const created = await createBrowserRepository({ app: installedLens(), ...options, headers: headersOf(options) });
 	if (created.error !== null) return created;
 	const { repository, manifest } = created.data;

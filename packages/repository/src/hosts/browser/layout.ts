@@ -2,7 +2,7 @@
  * The replica layout in this origin's private storage:
  *
  *   .epicenter/replicas/<replicaId>/
- *     manifest.json   which repository and whose, its display name, the account (null: a guest's), the server (null: none yet)
+ *     manifest.json   which repository and whose, its display name, and the account and server it syncs with (both null: kept only here)
  *     sqlite/         the opfs-sahpool VFS's directory, which it alone owns (it deletes it whole on removeVfs)
  *     objects/<oid>   sealed blob bytes
  *     removing        present while a removal is unfinished
@@ -36,22 +36,38 @@ export const OBJECTS = 'objects';
 const MANIFEST = 'manifest.json';
 const REMOVING = 'removing';
 
-const ManifestSchema = Type.Object(
-	{
-		replica: Type.String({ pattern: REPLICA_ID.source }),
-		/** Who owns the repository, as its address names them (null: you, the person using this device, addressed `~`). */
-		owner: Type.Union([Type.String(), Type.Null()]),
-		repository: Type.String(),
-		name: Type.String(),
-		account: Type.Union([Type.String(), Type.Null()]),
-		/** Where the replica's server is reached (null: a local repository); the server's id lives in the replica. */
-		url: Type.Union([Type.String(), Type.Null()]),
-	},
-	{ additionalProperties: false },
-);
+const identity = {
+	replica: Type.String({ pattern: REPLICA_ID.source }),
+	/** Who owns the repository, as its address names them (null: you, the person using this device, addressed `me`). */
+	owner: Type.Union([Type.String(), Type.Null()]),
+	repository: Type.String(),
+	name: Type.String(),
+};
+
+/**
+ * A replica's manifest: a repository kept only here has no account and no
+ * server; one that syncs has both, and every session with its server is
+ * that account's (there are no sessions without one).
+ */
+const ManifestSchema = Type.Union([
+	Type.Object({ ...identity, account: Type.Null(), url: Type.Null() }, { additionalProperties: false }),
+	Type.Object(
+		{
+			...identity,
+			/** The account it syncs as: the user every hello from its server names. */
+			account: Type.String(),
+			/** Where the replica's server is reached; the server's id lives in the replica. */
+			url: Type.String(),
+		},
+		{ additionalProperties: false },
+	),
+]);
 
 /** What a replica's manifest says. */
 export type Manifest = Static<typeof ManifestSchema>;
+
+/** Whom a new replica syncs as, and with which server: both, or neither for one kept only here. */
+export type Syncing = { account: null; url: null } | { account: string; url: string };
 
 /** `.epicenter/replicas`, created when missing. */
 export async function replicasDirectory() {

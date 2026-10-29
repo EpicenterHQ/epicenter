@@ -86,7 +86,7 @@ export function twoDevices<TDefs extends Definitions>(app: App<TDefs>) {
 		const replica = unwrap(openReplica({ driver: faulty, binding: { repository: 'r', server: null, account: user }, device: `${user}-device`, app, after: () => {}, now: () => 0 }));
 		const sent: Request[] = [];
 		replica.attach((request) => sent.push(request));
-		unwrap(replica.hello({ repository: 'r', server: 'test', account: user, user, main: server.main() }));
+		unwrap(replica.hello({ repository: 'r', server: 'test', user, main: server.main() }));
 		return {
 			replica,
 			/** Make every stored change fail until called with false. */
@@ -99,7 +99,7 @@ export function twoDevices<TDefs extends Definitions>(app: App<TDefs>) {
 			},
 			/** Hear what is on the server now. */
 			catchUp() {
-				unwrap(replica.hello({ repository: 'r', server: 'test', account: user, user, main: server.main() }));
+				unwrap(replica.hello({ repository: 'r', server: 'test', user, main: server.main() }));
 				this.sync();
 			},
 		};

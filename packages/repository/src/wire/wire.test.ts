@@ -33,7 +33,6 @@ const EPOCH = Date.UTC(2026, 9, 28, 12);
 const note = (body: string) => `---\ntitle: A\n---\n${body}`;
 const SESSIONS: Record<string, Verified> = {
 	alice: { user: 'alice', role: 'writer' },
-	guest: { user: 'guest-7f3a', role: 'writer', guest: true },
 	bob: { user: 'bob', role: 'writer' },
 	rita: { user: 'rita', role: 'reader' },
 	eve: { user: 'eve', role: null },
@@ -373,7 +372,6 @@ describe("the device's socket", () => {
 			main: base,
 			repository: 'test',
 			server: 'test-server',
-			account: 'rita',
 			user: 'rita',
 			limits: { request: LIMITS.request, files: LIMITS.files },
 		});
@@ -439,29 +437,6 @@ describe("the device's socket", () => {
 		const gone = open(served.url, 'gone');
 		await until(() => gone.closed.length === 1);
 		expect(gone.messages).toEqual([]);
-	});
-
-	test("a guest session's socket names no account: a guest replica takes it and writes as the session's user", async () => {
-		const { served, clock, server } = setup();
-		const guest = open(served.url, 'guest');
-		await until(() => guest.messages.length === 1);
-		expect(guest.messages[0]).toMatchObject({ type: 'head', account: null, user: 'guest-7f3a', server: 'test-server' });
-		const client = createWireClient({ url: served.url, openSocket: socketWithHeaders({ authorization: 'Bearer guest' }) });
-		const replica = unwrap(
-			openReplica({
-				driver: openBunSqlite(),
-				binding: { repository: 'test', server: 'test-server', account: null },
-				device: 'tablet',
-				after: (ms, run) => setTimeout(run, ms),
-				now: () => clock.now,
-			}),
-		);
-		const connection = connectSocket(replica, client, { retry: 50 });
-		stops.push(async () => connection.close());
-		await until(() => replica.position() !== null);
-		replica.write('n/g.md', note('guest\n'));
-		await until(() => server.read('n/g.md') === note('guest\n'));
-		expect(replica.state('n/g.md')).toEqual({ status: 'synced' });
 	});
 
 	test('a replica whose socket dropped resumes from its last head by catching up, and syncs through the wire', async () => {
