@@ -15,7 +15,7 @@ import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { openBunSqlite } from './bun/sqlite.js';
-import { defineApp } from './define.js';
+import { defineApp } from './core/lens.js';
 import { offlineTransport } from './engine/ports.js';
 import { ALLOWED_READS, REFUSED_READS } from './read-only.test-support.js';
 import { openRepository } from './repository.js';

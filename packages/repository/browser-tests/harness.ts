@@ -5,7 +5,7 @@
 import { Type } from 'typebox';
 import { openBrowserRepository, type RepositoryTab, type TabState } from '../src/browser/index.js';
 import { lockName } from '../src/browser/messages.js';
-import { defineApp } from '../src/define.js';
+import { defineApp } from '../src/core/lens.js';
 import type { Repository } from '../src/repository.js';
 
 const app = defineApp({

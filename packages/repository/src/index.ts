@@ -1,20 +1,25 @@
 export {
 	type App,
-	type BatchHandles,
 	type BlobDefinition,
-	type BlobEntry,
-	type BlobHandle,
 	type Definitions,
 	defineApp,
+	type NoteDefinition,
+	type NoteName,
+	slug,
+	type TextStatus,
+	timestamp,
+} from './core/lens.js';
+export {
+	type BatchHandles,
+	type BlobEntry,
+	type BlobHandle,
 	type Handles,
 	type HoldReason,
 	type LaterVerdict,
 	type Live,
 	type Note,
-	type NoteDefinition,
 	type NoteHandle,
 	type NoteInput,
-	type NoteName,
 	type OpenFile,
 	type OpenNote,
 	type Notice,
@@ -22,12 +27,9 @@ export {
 	SendError,
 	type SendHandles,
 	type SendOptions,
-	slug,
 	type Snapshot,
 	type Sync,
 	type TextFile,
-	type TextStatus,
-	timestamp,
 	type Verdict,
 	WriteError,
 } from './define.js';
@@ -55,4 +57,4 @@ export type {
 } from './protocol.js';
 export type { ContentOverlap } from './core/merge.js';
 export type { SqlDriver, SqlValue } from './sql.js';
-export type { Params, ParamsArg } from './templates.js';
+export type { Params, ParamsArg } from './core/templates.js';

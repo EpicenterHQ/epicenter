@@ -10,11 +10,12 @@
  * - Bad names, reserved names, bad templates, kind mismatches and overlaps throw
  * - A Markdown path classifies only to note templates
  * - Views extract parameters and fields and skip hidden, nested and deleted files
+ * - `app.check` reports parsing and, for a note name, schema issues, without a repository
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { defineApp, slug, timestamp } from './define.js';
+import { defineApp, slug, timestamp } from './lens.js';
 
 const Task = Type.Object({ title: Type.String(), done: Type.Boolean() });
 
@@ -138,6 +139,16 @@ describe('views', () => {
 			{ project: 'acme', file: 'a.png', oid: 'abc', size: 3 },
 		]);
 	});
+});
+
+test('app.check reports parsing, then the named schema', () => {
+	const app = sampleApp();
+	expect(app.check('---\ntitle: [\n---\n')).toMatchObject({ parses: false, line: 3 });
+	expect(app.check('---\ntitle: A\ndone: false\n---\n')).toEqual({ parses: true, matches: null });
+	expect(app.check('---\ntitle: A\ndone: false\n---\n', { as: 'tasks' })).toEqual({ parses: true, matches: true });
+	expect(app.check('---\ntitle: A\n---\n', { as: 'tasks' })).toMatchObject({ parses: true, matches: false });
+	// @ts-expect-error a blob name is not a note name
+	app.check('', { as: 'photos' });
 });
 
 test('slug and timestamp make stems', () => {

@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { defineApp } from '../define.js';
+import { defineApp } from '../core/lens.js';
 import { openRepository } from '../repository.js';
 import { createWebSocketTransport } from './client.js';
 import { serveRepository } from './server.js';

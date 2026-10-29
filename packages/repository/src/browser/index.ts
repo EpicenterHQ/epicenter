@@ -21,7 +21,8 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
-import { type App, type Definitions, type Live, type SendError, type Verdict, WriteError } from '../define.js';
+import type { App, Definitions, Lens } from '../core/lens.js';
+import { type Live, type SendError, type Verdict, WriteError } from '../define.js';
 import type { EngineAnswers, EngineRequest } from '../engine/engine.js';
 import { createRepository, type EnginePort, type Repository } from '../repository.js';
 import { type Described, type Init, lockName, REPOSITORY_NAME, type TabMessage, type WorkerMessage } from './messages.js';
@@ -70,9 +71,9 @@ export type RepositoryTab<TDefs extends Definitions> = Live<TabState<TDefs>> & {
 	close(): void;
 };
 
-const describe = (app: App): Described =>
+const describe = (lenses: Lens[]): Described =>
 	Object.fromEntries(
-		app.lenses.map((lens) => [
+		lenses.map((lens) => [
 			lens.name,
 			lens.kind === 'note'
 				? { path: lens.template.source, fields: lens.fields }
@@ -244,7 +245,7 @@ export function openBrowserRepository<const TDefs extends Definitions>({
 			if (current()) set({ status: 'unavailable', error: BrowserRepositoryError.Unavailable({ reason }).error, retry: () => take('available') });
 			finish();
 		});
-		post({ type: 'init', name, definitions: describe(app), server: server ?? null } satisfies Init);
+		post({ type: 'init', name, definitions: describe(app.lenses), server: server ?? null } satisfies Init);
 
 		const me: Session = {
 			ended: ended.promise,

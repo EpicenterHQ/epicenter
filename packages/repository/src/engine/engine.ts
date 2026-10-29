@@ -21,7 +21,8 @@
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { App, Definitions, HoldReason, LaterVerdict, Lens, Notice, SendOptions, Sync, Verdict } from '../define.js';
+import type { App, Definitions, Lens } from '../core/lens.js';
+import type { HoldReason, LaterVerdict, Notice, SendOptions, Sync, Verdict } from '../define.js';
 import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, lfsOid } from '../core/hash.js';
 import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../core/markdown.js';
@@ -31,7 +32,7 @@ import { describe } from '../policy.js';
 import type { Policy } from '../policy.js';
 import type { Batch, BatchOutcome, Broadcast, Change, ChangeOutcome, FileState, Move } from '../protocol.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
-import { buildPath, isFilePath } from '../templates.js';
+import { buildPath, isFilePath } from '../core/templates.js';
 import { type BlobStore, createMemoryBlobStore, type Transport } from './ports.js';
 
 /** The function that parses a file's fields, registered where the driver can. */

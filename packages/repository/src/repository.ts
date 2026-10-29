@@ -10,21 +10,16 @@
  * the caller's thread (`openRepository`, used by Bun and tests), or the
  * owning browser tab's connection to its worker (`openBrowserRepository`).
  */
-import type { TSchema } from 'typebox';
-import { Check, Errors } from 'typebox/value';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
+import { type App, type Definitions, type Lens, type NoteName, schemaIssues, type TextStatus } from './core/lens.js';
 import type {
-	App,
 	BatchHandles,
 	BlobEntry,
-	Definitions,
 	Handles,
 	LaterVerdict,
-	Lens,
 	Live,
-	NoteName,
 	Notice,
 	OpenFile,
 	Saved,
@@ -33,7 +28,6 @@ import type {
 	SendOptions,
 	Sync,
 	TextFile,
-	TextStatus,
 	Verdict,
 } from './define.js';
 import { WriteError } from './define.js';
@@ -48,7 +42,7 @@ import {
 import { gitBlobHash } from './core/hash.js';
 import { parseMarkdown, parsePointer, parses, splitMarkdown, writeMarkdown } from './core/markdown.js';
 import type { SqlValue } from './sql.js';
-import { buildPath, matchTemplate } from './templates.js';
+import { buildPath, matchTemplate } from './core/templates.js';
 
 /** What the app API needs from wherever the engine runs. */
 export type EnginePort = {
@@ -73,12 +67,6 @@ const ClientDiagnostic = defineErrors({
 
 type Params = Record<string, unknown>;
 type NoteChange = { fields?: Record<string, unknown>; body?: string };
-
-/** How `fields` fails `schema`, one line per issue; none when they match. */
-function schemaIssues(schema: TSchema, fields: Record<string, unknown>): string[] {
-	if (Check(schema, fields)) return [];
-	return Errors(schema, fields).map((error) => `${error.instancePath || '/'} ${error.message}`);
-}
 
 /** A note read from a file row. Fields that fail the schema are returned raw, with issues. */
 function noteOf(lens: Extract<Lens, { kind: 'note' }>, file: FileRead) {
@@ -375,16 +363,6 @@ export function createRepository<const TDefs extends Definitions>(
 		};
 	}
 
-	/** Whether `text` parses, and, given a note name, whether its fields match that name's schema. */
-	function status(text: string, name?: string): TextStatus {
-		const parsed = parseMarkdown(text);
-		if (parsed.error !== null) return { parses: false, line: parsed.error.line, message: parsed.error.reason };
-		const lens = name === undefined ? undefined : app.lenses.find((candidate) => candidate.name === name);
-		if (lens?.kind !== 'note') return { parses: true, matches: null };
-		const issues = schemaIssues(lens.schema, parsed.data.fields);
-		return issues.length === 0 ? { parses: true, matches: true } : { parses: true, matches: false, issues };
-	}
-
 	const listFiles = async ({ sync }: { sync?: Sync['state'] } = {}) => (await port.read({ kind: 'files', sync })).map(textFileOf);
 
 	const listNotices = () =>
@@ -496,7 +474,7 @@ export function createRepository<const TDefs extends Definitions>(
 			/** Hold the file open: reads are synchronous and follow every change, as a note's `open`. */
 			open: openFile,
 			/** Whether a text parses, and, given a note name, whether it matches that name's schema. */
-			status: (text: string, name?: NoteName<TDefs>): TextStatus => status(text, name),
+			status: (text: string, name?: NoteName<TDefs>): TextStatus => app.check(text, { as: name }),
 		},
 		/**
 		 * What happened to this device's saved changes that the person should

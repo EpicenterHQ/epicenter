@@ -14,8 +14,9 @@
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { type BatchHandles, defineApp, type Handles } from './define.js';
-import type { Params } from './templates.js';
+import { defineApp } from './core/lens.js';
+import type { Params } from './core/templates.js';
+import type { BatchHandles, Handles } from './define.js';
 
 const app = defineApp({
 	tasks: {

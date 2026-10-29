@@ -7,7 +7,7 @@
  */
 import type { TSchema } from 'typebox';
 import { createLogger } from 'wellcrafted/logger';
-import { type Definitions, defineApp } from '../define.js';
+import { type Definitions, defineApp } from '../core/lens.js';
 import { type Engine, openEngine } from '../engine/engine.js';
 import { offlineTransport } from '../engine/ports.js';
 import type { SqlDriver } from '../sql.js';

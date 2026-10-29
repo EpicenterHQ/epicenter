@@ -28,7 +28,7 @@ import { expectOk } from 'wellcrafted/testing';
 import { openBunGitStore } from './bun/git.js';
 import { openBunSqlite } from './bun/sqlite.js';
 import { createInProcessTransport } from './bun/transport.js';
-import { defineApp } from './define.js';
+import { defineApp } from './core/lens.js';
 import { offlineTransport, type Transport } from './engine/ports.js';
 import { gitBlobHash } from './core/hash.js';
 import { BODY_SQL } from './core/markdown.js';
