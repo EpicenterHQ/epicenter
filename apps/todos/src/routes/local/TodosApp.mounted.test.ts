@@ -379,3 +379,20 @@ test('a repository that does not open offers to choose another, from every scree
 	press(button(opened.target, 'Choose another repository'));
 	expect(left).toBe(2);
 });
+
+test("a todo's notes that could not open while the repository was away open once it is back", async () => {
+	const device = freshDevice();
+	const other = device.tab();
+	await until(() => other.status().status === 'open', 'the other tab');
+	unwrap(await other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false }, body: 'Two litres' }));
+	const local = device.host();
+	const opened = mountPage(local.repository);
+	await until(() => opened.has('[data-todo="todos/milk.md"]'), 'the list');
+	local.end({ status: 'opening' });
+	await until(() => opened.has('[data-testid="repository-status"]'), 'the bar');
+	press(opened.get('[data-todo="todos/milk.md"]'));
+	await until(() => opened.text(DETAIL)?.includes('cannot be edited while the repository is opening') ?? false, 'why the notes did not open');
+	local.resume();
+	await until(() => opened.has(NOTES), 'the notes, once the repository is back');
+	expect(editorText(opened.get(NOTES))).toBe('Two litres');
+});

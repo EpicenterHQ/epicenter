@@ -55,11 +55,17 @@
 	/** Why the editor did not open, when the todo is here and trying again may open it. */
 	let unopened = $state<string>();
 	let destroyed = false;
+	/** Whether the editor did not open only because the repository was not open: it opens again once it is. */
+	let waitingForOpen = $state(false);
 	function openEditor() {
 		unopened = undefined;
+		waitingForOpen = false;
 		void repo.todos.openEditor({ stem: id }).then((opened) => {
 			if (opened.error !== null) {
-				if (opened.error.name !== 'NotFound') unopened = opened.error.message;
+				if (opened.error.name !== 'NotFound') {
+					unopened = opened.error.message;
+					waitingForOpen = opened.error.name === 'Unavailable';
+				}
 				return;
 			}
 			if (destroyed) void opened.data.close();
@@ -67,6 +73,9 @@
 		});
 	}
 	openEditor();
+	$effect(() => {
+		if (repo.status().status === 'open' && waitingForOpen) openEditor();
+	});
 	onDestroy(() => {
 		destroyed = true;
 		void editor?.close().then(({ error }) => {
