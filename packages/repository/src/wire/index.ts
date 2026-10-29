@@ -1,4 +1,4 @@
-export { createWireClient, type SocketConnection, type WireClient, WireClientError } from './client.js';
+export { createLfsClient, type LfsAction, type LfsClient, LfsClientError, type LfsObjectAnswer, createWireClient, type SocketConnection, type WireClient, WireClientError } from './client.js';
 export {
 	type Authenticate,
 	authenticateBearer,

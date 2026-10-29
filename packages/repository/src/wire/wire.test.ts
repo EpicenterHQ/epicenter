@@ -17,6 +17,7 @@
  * - the dev server serves a listed origin across origins
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { request as httpRequest } from 'node:http';
 import { unwrap } from 'wellcrafted/result';
 import { openReplica, type Replica } from '../client/replica.js';
 import { connectSocket } from '../client/socket.js';
@@ -24,9 +25,11 @@ import { openBunSqlite } from '../bun/sqlite.js';
 import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
+import { writePointer } from '../core/markdown.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
+import { createMemoryLfsStore } from '../server/memory-lfs-store.js';
 import { createServer, type Limits, LIMITS, type Server } from '../server/server.js';
-import { createWireClient } from './client.js';
+import { createLfsClient, createWireClient } from './client.js';
 import { type Authenticate, authenticateBearer, type SocketMessage, type Verified, type WireLimits } from './wire.js';
 
 const EPOCH = Date.UTC(2026, 9, 28, 12);
@@ -50,19 +53,144 @@ function setup({
 }: { limits?: Partial<Limits>; wire?: Partial<WireLimits>; authenticate?: Authenticate } = {}) {
 	const clock = { now: EPOCH };
 	const server = createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock: () => clock.now, ...(limits === undefined ? {} : { limits }) });
-	const served = serveRepository({ repository: 'test', serverId: 'test-server', server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
+	const lfs = createMemoryLfsStore();
+	const served = serveRepository({ repository: 'test', serverId: 'test-server', server, authenticate, lfs, ...(wire === undefined ? {} : { limits: wire }) });
 	stops.push(served.stop);
 	const url = (path: string) => new URL(path, served.url).href;
 	const as = (user: string, headers: Record<string, string> = {}) => ({ authorization: `Bearer ${user}`, ...headers });
 	const post = (body: unknown, user = 'alice') =>
 		fetch(url('commits'), { method: 'POST', headers: as(user, { 'content-type': 'application/json' }), body: typeof body === 'string' ? body : JSON.stringify(body) });
-	return { clock, server, served, url, as, post };
+	return { clock, server, lfs, served, url, as, post };
 }
 
 function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), mode = 'merge' as LiveCommit['mode'], time = new Date(EPOCH).toISOString() } = {}): LiveCommit {
 	const body = { parent, mode, author: { user, device: 'laptop' }, time, files };
 	return { id: commitId(body), ...body };
 }
+
+describe('Git LFS', () => {
+	const media = 'application/vnd.git-lfs+json';
+	const bytes = new TextEncoder().encode('an uploaded LFS object');
+	const object = async () => ({ oid: Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) => byte.toString(16).padStart(2, '0')).join(''), size: bytes.length });
+	const batch = (url: (path: string) => string, as: (user: string, headers?: Record<string, string>) => Record<string, string>, operation: string, objects: unknown[], user = 'alice') =>
+		fetch(url('info/lfs/objects/batch'), { method: 'POST', headers: as(user, { accept: media, 'content-type': media }), body: JSON.stringify({ operation, transfers: ['basic'], hash_algo: 'sha256', objects }) });
+
+	test('batch, upload and download stream verified bytes and record presence only afterward', async () => {
+		const { url, as, server } = setup();
+		const item = await object();
+		expect(server.uploaded(item.oid)).toBeNull();
+		expect(server.push(make(server, [{ path: 'media/a.bin', text: writePointer(item) }]), { user: 'alice', role: 'writer' })).toMatchObject({ kind: 'refused', code: 'blob-missing' });
+		const offered = await batch(url, as, 'upload', [item]);
+		expect(offered.status).toBe(200);
+		expect(offered.headers.get('content-type')).toContain(media);
+		const action = (await offered.json()).objects[0].actions.upload;
+		expect(action.href).toBe(url(`lfs/objects/${item.oid}`));
+		const sent = await fetch(action.href, { method: 'PUT', headers: as('alice', { 'content-length': String(item.size) }), body: bytes });
+		expect(sent.status).toBe(200);
+		expect(server.uploaded(item.oid)).toBe(item.size);
+		expect(server.push(make(server, [{ path: 'media/a.bin', text: writePointer(item) }]), { user: 'alice', role: 'writer' })).toMatchObject({ kind: 'applied' });
+		expect((await (await batch(url, as, 'upload', [item])).json()).objects[0].actions).toBeUndefined();
+		const download = (await (await batch(url, as, 'download', [item], 'rita')).json()).objects[0].actions.download;
+		const read = await fetch(download.href, { headers: as('rita') });
+		expect(read.status).toBe(200);
+		expect(read.headers.get('content-length')).toBe(String(item.size));
+		expect(new Uint8Array(await read.arrayBuffer())).toEqual(bytes);
+	});
+
+	test('PUT without Content-Length is refused before bytes are read', async () => {
+		const { url, as, server } = setup();
+		const item = await object();
+		const status = await new Promise<number>((resolve, reject) => {
+			const sent = httpRequest(url(`lfs/objects/${item.oid}`), { method: 'PUT', headers: as('alice', { 'transfer-encoding': 'chunked' }) }, (response) => { response.resume(); resolve(response.statusCode ?? 0); });
+			sent.on('error', reject);
+			sent.end(bytes);
+		});
+		expect(status).toBe(411);
+		expect(server.uploaded(item.oid)).toBeNull();
+	});
+
+	test('a stalled PUT reaches the shared body deadline and stores nothing', async () => {
+		const { url, as, server } = setup({ wire: { timeout: 30, minRate: 1024 * 1024 } });
+		const item = await object();
+		const status = await new Promise<number>((resolve, reject) => {
+			const sent = httpRequest(url(`lfs/objects/${item.oid}`), { method: 'PUT', headers: as('alice', { 'content-length': String(item.size) }) }, (response) => { response.resume(); resolve(response.statusCode ?? 0); });
+			sent.on('error', reject);
+			sent.write(bytes.slice(0, 3));
+			setTimeout(() => sent.end(), 100);
+		});
+		expect(status).toBe(408);
+		expect(server.uploaded(item.oid)).toBeNull();
+	});
+
+	test('a zero-length object uses the same PUT path', async () => {
+		const { url, as, server } = setup();
+		const oid = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+		const response = await fetch(url(`lfs/objects/${oid}`), { method: 'PUT', headers: as('alice', { 'content-length': '0' }), body: new Uint8Array() });
+		expect(response.status).toBe(200);
+		expect(server.uploaded(oid)).toBe(0);
+	});
+
+	test('a mismatch, a reader upload, and missing length do not mark presence', async () => {
+		const { url, as, server } = setup();
+		const item = await object();
+		expect((await batch(url, as, 'upload', [item], 'rita')).status).toBe(403);
+		expect((await fetch(url(`lfs/objects/${item.oid}`), { method: 'PUT', headers: as('rita'), body: bytes })).status).toBe(403);
+		const wrong = await fetch(url(`lfs/objects/${item.oid}`), { method: 'PUT', headers: as('alice', { 'content-length': String(item.size) }), body: new Uint8Array(item.size) });
+		expect(wrong.status).toBe(422);
+		expect(server.uploaded(item.oid)).toBeNull();
+		expect((await (await batch(url, as, 'download', [item])).json()).objects[0].error.code).toBe(404);
+	});
+
+	test('too large and quota errors are per object in a mixed batch', async () => {
+		const { url, as } = setup({ limits: { blob: bytes.length, quota: 0 } });
+		const item = await object();
+		const answers = (await (await batch(url, as, 'upload', [item, { ...item, size: item.size + 1 }])).json()).objects;
+		expect(answers.map((answer: { error: { code: number } }) => answer.error.code)).toEqual([507, 422]);
+	});
+
+	test('a different batch hash algorithm gets the specified per-object 409', async () => {
+		const { url, as } = setup();
+		const item = await object();
+		const response = await fetch(url('info/lfs/objects/batch'), { method: 'POST', headers: as('alice', { 'content-type': media }), body: JSON.stringify({ operation: 'upload', objects: [item], hash_algo: 'sha512' }) });
+		expect(response.status).toBe(200);
+		expect((await response.json()).objects[0].error.code).toBe(409);
+	});
+
+	test('an existing object cannot be recorded at a different declared size', async () => {
+		const { url, as, server, lfs } = setup();
+		const item = await object();
+		unwrap(await lfs.put(item.oid, item.size, new Blob([bytes as BlobPart]).stream() as ReadableStream<Uint8Array>));
+		const wrong = { ...item, size: item.size + 1 };
+		const offered = (await (await batch(url, as, 'upload', [wrong])).json()).objects[0];
+		expect(offered.error.code).toBe(422);
+		const sent = await fetch(url(`lfs/objects/${item.oid}`), { method: 'PUT', headers: as('alice', { 'content-length': String(wrong.size) }), body: new Uint8Array(wrong.size) });
+		expect(sent.status).toBe(422);
+		expect(server.uploaded(item.oid)).toBeNull();
+	});
+
+	test('the LFS client follows batch action URLs and streams bytes', async () => {
+		const { served } = setup();
+		const item = await object();
+		const writer = createLfsClient({ url: served.url, headers: { authorization: 'Bearer alice' } });
+		const upload = unwrap(await writer.batch('upload', [item]))[0]?.actions?.upload;
+		expect(upload).toBeDefined();
+		unwrap(await writer.put(upload!, new Blob([bytes as BlobPart]), item.size));
+		const reader = createLfsClient({ url: served.url, headers: { authorization: 'Bearer rita' } });
+		const download = unwrap(await reader.batch('download', [item]))[0]?.actions?.download;
+		expect(download).toBeDefined();
+		const body = unwrap(await reader.get(download!));
+		expect(new Uint8Array(await new Response(body).arrayBuffer())).toEqual(bytes);
+	});
+
+	test('the LFS client exposes per-object refusals and classifies HTTP failures', async () => {
+		const { served, url } = setup({ limits: { readBurst: 0 } });
+		const item = await object();
+		const client = createLfsClient({ url: served.url, headers: { authorization: 'Bearer rita' } });
+		expect(unwrap(await client.batch('download', [item]))[0]?.error?.code).toBe(404);
+		expect((await client.batch('upload', [item])).error?.name).toBe('Refused');
+		expect((await client.get({ href: url(`lfs/objects/${item.oid}`), header: { authorization: 'Bearer rita' } })).error?.name).toBe('Retryable');
+	});
+});
 
 /** Poll until `check` holds, in real time. */
 async function until(check: () => boolean, ms = 3_000) {
@@ -616,10 +744,12 @@ test("the dev server answers a listed origin's preflight and marks its responses
 	expect(preflight.status).toBe(204);
 	expect(preflight.headers.get('access-control-allow-origin')).toBe('http://app.test');
 	expect(preflight.headers.get('access-control-allow-headers')).toContain('authorization');
+	expect(preflight.headers.get('access-control-allow-headers')).toContain('content-length');
 	const listed = await fetch(new URL('tickets', served.url), { method: 'POST', headers: { origin: 'http://app.test', authorization: 'Bearer alice' } });
 	expect(listed.status).toBe(200);
 	expect(listed.headers.get('access-control-allow-origin')).toBe('http://app.test');
 	expect(listed.headers.get('access-control-expose-headers')).toContain('etag');
+	expect(listed.headers.get('access-control-expose-headers')).toContain('content-length');
 	const other = await fetch(new URL('tickets', served.url), { method: 'POST', headers: { origin: 'http://elsewhere.test', authorization: 'Bearer alice' } });
 	expect(other.headers.get('access-control-allow-origin')).toBeNull();
 });

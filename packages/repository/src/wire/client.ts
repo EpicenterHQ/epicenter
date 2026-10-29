@@ -180,3 +180,58 @@ export function createWireClient({
 }
 export type WireClient = ReturnType<typeof createWireClient>;
 export type SocketConnection = ReturnType<WireClient['socket']>;
+
+export type LfsAction = { href: string; header?: Record<string, string>; expires_at?: string; expires_in?: number };
+export type LfsObjectAnswer = {
+	oid: string;
+	size: number;
+	actions?: { upload?: LfsAction; download?: LfsAction; verify?: LfsAction };
+	error?: { code: number; message: string };
+};
+
+export const LfsClientError = defineErrors({
+	Network: ({ cause }: { cause: unknown }) => ({ message: 'The LFS server could not be reached', cause }),
+	Retryable: ({ status }: { status: number }) => ({ message: `The LFS server answered ${status}; retry later`, status }),
+	Refused: ({ status, message }: { status: number; message: string }) => ({ message, status }),
+	Unexpected: ({ status, message }: { status: number; message: string }) => ({ message, status }),
+});
+export type LfsClientError = InferErrors<typeof LfsClientError>;
+
+/** A basic-transfer client; action URLs and headers come from the batch response. */
+export function createLfsClient({ url, headers = {} }: { url: string; headers?: Record<string, string> }) {
+	const endpoint = new URL('info/lfs/objects/batch', url.endsWith('/') ? url : `${url}/`);
+	const media = 'application/vnd.git-lfs+json';
+	async function sent(target: string | URL, init: RequestInit): Promise<Result<Response, LfsClientError>> {
+		const response = await tryAsync({ try: () => fetch(target, init), catch: (cause) => LfsClientError.Network({ cause }) });
+		if (response.error !== null) return response;
+		if (response.data.status === 429 || response.data.status >= 500) return LfsClientError.Retryable({ status: response.data.status });
+		if (response.data.status >= 400 && response.data.status < 500) return LfsClientError.Refused({ status: response.data.status, message: (await response.data.text()).slice(0, 200) });
+		return response;
+	}
+	return {
+		async batch(operation: 'upload' | 'download', objects: { oid: string; size: number }[]): Promise<Result<LfsObjectAnswer[], LfsClientError>> {
+			const result = await sent(endpoint, { method: 'POST', headers: { ...headers, accept: media, 'content-type': media }, body: JSON.stringify({ operation, transfers: ['basic'], hash_algo: 'sha256', objects }) });
+			if (result.error !== null) return Err(result.error);
+			try {
+				const answer: unknown = await result.data.json();
+				if (typeof answer !== 'object' || answer === null || !('objects' in answer) || !Array.isArray(answer.objects)) throw new Error('No objects in batch answer');
+				return Ok(answer.objects as LfsObjectAnswer[]);
+			} catch (cause) { return LfsClientError.Unexpected({ status: result.data.status, message: String(cause) }); }
+		},
+		async put(action: LfsAction, body: Blob | ReadableStream<Uint8Array>, size: number): Promise<Result<void, LfsClientError>> {
+			const init: RequestInit & { duplex?: 'half' } = { method: 'PUT', headers: { ...action.header, ...(body instanceof Blob ? {} : { 'content-length': String(size) }) }, body, ...(body instanceof Blob ? {} : { duplex: 'half' as const }) };
+			const result = await sent(action.href, init);
+			return result.error !== null ? Err(result.error) : Ok(undefined);
+		},
+		async verify(action: LfsAction, object: { oid: string; size: number }): Promise<Result<void, LfsClientError>> {
+			const result = await sent(action.href, { method: 'POST', headers: { ...action.header, 'content-type': media }, body: JSON.stringify(object) });
+			return result.error !== null ? Err(result.error) : Ok(undefined);
+		},
+		async get(action: LfsAction): Promise<Result<ReadableStream<Uint8Array>, LfsClientError>> {
+			const result = await sent(action.href, { headers: action.header });
+			if (result.error !== null) return Err(result.error);
+			return result.data.body === null ? LfsClientError.Unexpected({ status: result.data.status, message: 'The object response has no body' }) : Ok(result.data.body);
+		},
+	};
+}
+export type LfsClient = ReturnType<typeof createLfsClient>;

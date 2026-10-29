@@ -20,6 +20,9 @@
  *   DELETE /files/<path>     If-Match: "<hash>": the same, deleting
  *   GET    /catch-up         ?from=<commit>&to=&after=&path=...: one catch-up page
  *   GET    /blobs/<hash>     a text by its Git blob hash: immutable, so cached for good, but never by a shared cache
+ *   POST   /info/lfs/objects/batch   Git LFS basic-transfer actions and per-object errors
+ *   PUT    /lfs/objects/<oid>        stream, verify, and record server-side object bytes
+ *   GET    /lfs/objects/<oid>        stream immutable object bytes to a member
  *
  * Every request, reads included, is authenticated first (401 without a
  * session, or with one that has expired) and must come from a member (403
@@ -32,7 +35,8 @@
  * precondition), 412 when a fast-forward found main moved (or a file is not
  * at the hash named), with main's texts for the paths it touched, 429 rate,
  * 403 a reader or another author, 413 too large, and 422 a malformed one. A request body is capped
- * before it is parsed, and a request not read within `timeout` gets 408.
+ * before it is parsed, and a request body has `timeout` plus its declared
+ * length divided by `minRate` to finish or gets 408.
  *
  * The socket is authenticated when it connects, and the host closes it
  * (4401) when the session expires. A browser cannot set a WebSocket's
@@ -61,6 +65,7 @@ import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import type { Sizing } from '../client/replica.js';
 import { gitBlobHash } from '../core/hash.js';
+import { LFS_OID, type LfsStore } from '../server/lfs-store.js';
 import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type RequestCode, rejection, type Server, type Session } from '../server/server.js';
 
 // ============================================================================
@@ -124,11 +129,16 @@ export type WireLimits = {
 	body: number;
 	/** Milliseconds to authenticate a request and read its body. */
 	timeout: number;
+	/** The slowest a request body may arrive, in bytes a second: its deadline is `timeout` plus its declared length at this rate. */
+	minRate: number;
 	/** Milliseconds a socket ticket can be presented after it is issued. */
 	ticket: number;
 };
 
-export const WIRE_LIMITS: WireLimits = { body: LIMITS.request, timeout: 10_000, ticket: 30_000 };
+/** The Git LFS batch API's media type. */
+const LFS_MEDIA = 'application/vnd.git-lfs+json';
+
+export const WIRE_LIMITS: WireLimits = { body: LIMITS.request, timeout: 10_000, minRate: 1024 * 1024, ticket: 30_000 };
 
 /** What `POST /tickets` answers: the ticket, and when it lapses (ms since the epoch). */
 export type Ticket = { ticket: string; expires: number };
@@ -268,6 +278,7 @@ export function createWire({
 	server,
 	authenticate,
 	sockets,
+	lfs,
 	limits: given = {},
 	clock = () => Date.now(),
 }: {
@@ -276,6 +287,7 @@ export function createWire({
 	/** The server's stable id, as the host names it (the hosted service, or a self-hosted install): a replica binds to it. */
 	serverId: string;
 	server: Server;
+	lfs: LfsStore;
 	authenticate: Authenticate;
 	sockets: SocketHub;
 	limits?: Partial<WireLimits>;
@@ -283,6 +295,7 @@ export function createWire({
 	clock?: () => number;
 }) {
 	const limits = { ...WIRE_LIMITS, ...given };
+	const lfsJson = (status: number, value: unknown) => json(status, value, { 'content-type': LFS_MEDIA });
 	/** Events of a commit taken from a socket wait here until its answer is sent, so the device hears its answer first. */
 	let holding: string[] | null = null;
 	const unsubscribe = server.subscribe((event) => {
@@ -418,6 +431,120 @@ export function createWire({
 		return new Response(text, { headers: { ...headers, 'content-type': 'text/plain; charset=utf-8' } });
 	}
 
+	// ------------------------------------------------------------------------
+	// Git LFS: the batch API (basic transfer, SHA-256), and the bytes themselves
+	// ------------------------------------------------------------------------
+
+	type LfsAction = { href: string; header?: Record<string, string> };
+	type LfsObject = { oid: string; size: number; actions?: Record<string, LfsAction>; error?: { code: number; message: string } };
+	const isLfsObject = (value: unknown): value is { oid: string; size: number } =>
+		typeof value === 'object' &&
+		value !== null &&
+		'oid' in value &&
+		typeof value.oid === 'string' &&
+		LFS_OID.test(value.oid) &&
+		'size' in value &&
+		typeof value.size === 'number' &&
+		Number.isSafeInteger(value.size) &&
+		value.size >= 0;
+	/** An action on this server's copy of `oid`, carrying the asker's credential so a Git client can follow it. */
+	const actionOn = (request: Request, oid: string): LfsAction => {
+		const authorization = request.headers.get('authorization');
+		return { href: new URL(`/lfs/objects/${oid}`, request.url).href, header: authorization === null ? {} : { authorization } };
+	};
+	const SIZE_DISAGREES = { code: 422, message: 'Object size disagrees with stored bytes' };
+
+	/**
+	 * Whether the server holds `oid` at `size`: by its presence record, or by
+	 * bytes already on its byte store (a crash between storing and recording),
+	 * which it then records. A size that disagrees with what is held is an error.
+	 */
+	async function held(oid: string, size: number): Promise<boolean | typeof SIZE_DISAGREES> {
+		const recorded = server.uploaded(oid);
+		if (recorded !== null) return recorded === size || SIZE_DISAGREES;
+		const stored = await lfs.get(oid);
+		if (stored === null) return false;
+		await stored.body.cancel().catch(() => {});
+		if (stored.size !== size) return SIZE_DISAGREES;
+		server.upload(oid, size);
+		return true;
+	}
+
+	/**
+	 * `POST /info/lfs/objects/batch` (git-lfs docs/api/batch.md). Upload:
+	 * bytes held get no actions; bytes refused get a per-object error (422
+	 * past the blob limit; 507, the spec's code for insufficient storage,
+	 * past the quota, per object so one batch can mix answers); the rest get
+	 * an `upload` action here. Download: a `download` action, or 404.
+	 */
+	async function lfsBatch(request: Request, session: Session, expired: Promise<typeof EXPIRED>) {
+		if (!request.headers.get('content-type')?.toLowerCase().startsWith(LFS_MEDIA)) return lfsJson(415, { message: 'Expected Git LFS JSON' });
+		const { data: text, error } = await readBody(request, limits.body, expired);
+		if (error !== null) return unread(error);
+		const parsed = trySync({ try: (): unknown => JSON.parse(text), catch: () => BodyError.NotText() });
+		if (parsed.error !== null) return lfsJson(400, { message: 'The body is not JSON' });
+		const input = parsed.data as { operation?: unknown; objects?: unknown; transfers?: unknown; hash_algo?: unknown } | null;
+		if (typeof input !== 'object' || input === null || (input.operation !== 'upload' && input.operation !== 'download') || !Array.isArray(input.objects) || !input.objects.every(isLfsObject))
+			return lfsJson(422, { message: 'Invalid batch request' });
+		if (input.transfers !== undefined && (!Array.isArray(input.transfers) || !input.transfers.includes('basic'))) return lfsJson(422, { message: 'Only basic transfer is supported' });
+		const asked = input.objects as { oid: string; size: number }[];
+		if (input.hash_algo !== undefined && input.hash_algo !== 'sha256')
+			return lfsJson(200, { transfer: 'basic', hash_algo: 'sha256', objects: asked.map(({ oid, size }) => ({ oid, size, error: { code: 409, message: 'Only SHA-256 is supported' } })) });
+		if (input.operation === 'upload' && session.role === 'reader') return lfsJson(403, { message: 'A reader may not upload' });
+		const objects: LfsObject[] = [];
+		for (const { oid, size } of asked) {
+			if (input.operation === 'download') {
+				objects.push(server.uploaded(oid) === size ? { oid, size, actions: { download: actionOn(request, oid) } } : { oid, size, error: { code: 404, message: 'Object does not exist' } });
+				continue;
+			}
+			const here = await held(oid, size);
+			if (here === true) objects.push({ oid, size });
+			else if (here !== false) objects.push({ oid, size, error: here });
+			else {
+				const refusal = server.uploadRefusal(oid, size);
+				if (refusal === null) objects.push({ oid, size, actions: { upload: actionOn(request, oid) } });
+				else objects.push({ oid, size, error: refusal === 'too-large' ? { code: 422, message: 'Object is too large' } : { code: 507, message: 'Insufficient storage capacity' } });
+			}
+		}
+		return lfsJson(200, { transfer: 'basic', hash_algo: 'sha256', objects });
+	}
+
+	/**
+	 * `PUT /lfs/objects/<oid>` with its `Content-Length`: the body streams
+	 * into the byte store, which keeps only bytes that are `oid` at that
+	 * length, and presence is recorded only once they are durable there.
+	 */
+	async function lfsPut(request: Request, session: Session, oid: string, signal: AbortSignal) {
+		if (session.role === 'reader') return failure(403, 'A reader may not upload');
+		if (!LFS_OID.test(oid)) return failure(404, 'No such object');
+		const declared = request.headers.get('content-length');
+		if (declared === null) return failure(411, 'Content-Length is required');
+		const size = Number(declared);
+		if (!Number.isSafeInteger(size) || size < 0) return failure(400, 'Invalid Content-Length');
+		const here = await held(oid, size);
+		if (here !== true && here !== false) return failure(here.code, here.message);
+		const refusal = here ? null : server.uploadRefusal(oid, size);
+		if (refusal !== null) return failure(refusal === 'too-large' ? 413 : 507, refusal === 'too-large' ? 'Object is too large' : 'Insufficient storage capacity');
+		const source = request.body ?? new ReadableStream<Uint8Array>({ start: (controller) => controller.close() });
+		// The request's deadline cuts the stream, so a stalled upload stores nothing.
+		const result = await lfs.put(oid, size, source.pipeThrough(new TransformStream<Uint8Array, Uint8Array>(), { signal }));
+		if (result.error !== null) return failure(signal.aborted ? 408 : result.error.name === 'Mismatch' ? 422 : 500, result.error.message);
+		server.upload(oid, size);
+		return new Response(null, { status: 200, headers: NO_STORE });
+	}
+
+	/** `GET /lfs/objects/<oid>`: bytes the server holds, immutable. */
+	async function lfsGet(oid: string) {
+		if (!LFS_OID.test(oid)) return failure(404, 'No such object');
+		const item = await lfs.get(oid);
+		if (item === null) return failure(404, 'No such object');
+		if (server.uploaded(oid) !== item.size) {
+			await item.body.cancel().catch(() => {});
+			return failure(404, 'No such object');
+		}
+		return new Response(item.body, { headers: { ...IMMUTABLE, 'content-length': String(item.size), 'content-type': 'application/octet-stream' } });
+	}
+
 	const notAllowed = (allow: string) => failure(405, 'Method not allowed', { allow });
 	const SLOW_DOWN = 'Too many reads; slow down';
 	/** A read out of the member's read bucket: undefined when admitted, otherwise the 429. */
@@ -438,10 +565,17 @@ export function createWire({
 		return session === null || lapsed(session) ? 'Sign in to use this repository' : session;
 	}
 
-	async function route(request: Request, session: Verified, expired: Promise<typeof EXPIRED>): Promise<Response | undefined> {
+	async function route(request: Request, session: Verified, expired: Promise<typeof EXPIRED>, signal: AbortSignal): Promise<Response | undefined> {
 		const url = new URL(request.url);
 		const { pathname } = url;
 		const { method } = request;
+		if (pathname === '/info/lfs/objects/batch') return method === 'POST' ? lfsBatch(request, session, expired) : notAllowed('POST');
+		if (pathname.startsWith('/lfs/objects/')) {
+			const oid = pathname.slice('/lfs/objects/'.length);
+			if (method === 'PUT') return lfsPut(request, session, oid, signal);
+			if (method === 'GET') return throttled(session) ?? lfsGet(oid);
+			return notAllowed('GET, PUT');
+		}
 		if (pathname === '/commits') return method === 'POST' ? postCommit(request, session, expired) : notAllowed('POST');
 		if (pathname === '/tickets') return method === 'POST' ? issueTicket(session) : notAllowed('POST');
 		if (pathname === '/catch-up') return method === 'GET' ? (throttled(session) ?? catchUp(url)) : notAllowed('GET');
@@ -467,15 +601,18 @@ export function createWire({
 		/** Answer one request; undefined when the host took it over (a WebSocket upgrade). */
 		async handle(request: Request): Promise<Response | undefined> {
 			let timer: ReturnType<typeof setTimeout> | undefined;
+			const deadline = new AbortController();
+			const length = Number(request.headers.get('content-length') ?? 0);
+			const duration = limits.timeout + Math.ceil(Math.max(0, Number.isFinite(length) ? length : 0) / limits.minRate * 1000);
 			const expired = new Promise<typeof EXPIRED>((resolve) => {
-				timer = setTimeout(() => resolve(EXPIRED), limits.timeout);
+				timer = setTimeout(() => { deadline.abort(); resolve(EXPIRED); }, duration);
 			});
 			try {
 				const session = await Promise.race([sessionOf(request), expired]);
 				if (session === EXPIRED) return failure(408, 'The request was not authenticated in time');
 				if (typeof session === 'string') return failure(401, session, { 'www-authenticate': 'Bearer' });
 				if (!server.mayRead(session)) return failure(403, 'Not a member of this repository');
-				return await route(request, session, expired);
+				return await route(request, session, expired, deadline.signal);
 			} finally {
 				clearTimeout(timer);
 			}

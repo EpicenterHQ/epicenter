@@ -48,6 +48,7 @@ const served = serveRepository({
 	// This machine's server; a replica binds to it.
 	serverId: `local:${values.host}`,
 	server,
+	dir: resolve(dir),
 	authenticate: authenticateBearer((token) => ({ user: token, role: 'owner' })),
 	hostname: values.host,
 	port: Number(values.port),

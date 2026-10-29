@@ -17,17 +17,20 @@ import type { Server as BunServer } from 'bun';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { type Alarm, openServer, type Server } from '../server/server.js';
-import { type Authenticate, createWire, SESSION_EXPIRED, type Verified, type WireLimits } from '../wire/wire.js';
+import type { LfsStore } from '../server/lfs-store.js';
+import { createMemoryLfsStore } from '../server/memory-lfs-store.js';
+import { type Authenticate, createWire, SESSION_EXPIRED, type Verified, type WireLimits, WIRE_LIMITS } from '../wire/wire.js';
 import { openBunGitStore } from './git.js';
 import { openBunSqlite } from './sqlite.js';
+import { createFileLfsStore } from './lfs-store.js';
 
 const EVENTS = 'events';
 
 /** What a listed origin may send and read across origins. */
 const CORS = {
 	'access-control-allow-methods': 'GET, POST, PUT, DELETE',
-	'access-control-allow-headers': 'authorization, content-type, if-match, if-none-match, epicenter-device',
-	'access-control-expose-headers': 'etag, retry-after',
+	'access-control-allow-headers': 'authorization, accept, content-type, content-length, if-match, if-none-match, epicenter-device',
+	'access-control-expose-headers': 'etag, retry-after, content-length',
 	'access-control-max-age': '600',
 };
 
@@ -51,6 +54,8 @@ export function serveRepository({
 	repository,
 	serverId,
 	server,
+	lfs,
+	dir,
 	authenticate,
 	hostname = '127.0.0.1',
 	port = 0,
@@ -63,6 +68,10 @@ export function serveRepository({
 	/** This server's stable id, which every socket's hello names and a replica binds to. */
 	serverId: string;
 	server: Server;
+	/** Server-side object bytes; defaults to the file store when `dir` is given. */
+	lfs?: LfsStore;
+	/** The bare repository directory for the default file store. */
+	dir?: string;
 	authenticate: Authenticate;
 	hostname?: string;
 	port?: number;
@@ -76,6 +85,7 @@ export function serveRepository({
 		repository,
 		serverId,
 		server,
+		lfs: lfs ?? (dir === undefined ? createMemoryLfsStore() : createFileLfsStore(join(dir, 'epicenter', 'blobs'))),
 		authenticate,
 		...(limits === undefined ? {} : { limits }),
 		sockets: {
@@ -88,6 +98,8 @@ export function serveRepository({
 	bun = Bun.serve<SocketData>({
 		hostname,
 		port,
+		maxRequestBodySize: Math.max(server.sizing().blob, limits?.body ?? WIRE_LIMITS.body),
+		idleTimeout: 255,
 		async fetch(request) {
 			const origin = request.headers.get('origin');
 			const allowed = origin !== null && origins.includes(origin);
