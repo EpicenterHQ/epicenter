@@ -74,11 +74,16 @@ const overlaps = (x: TextChange, y: TextChange) => x.from < y.to && y.from < x.t
  * the worker inserted there goes after it. Null when the two touch the
  * same characters, which positions alone cannot settle.
  *
+ * `typed`, the typing from `sent` to `draft` when the caller knows it (an
+ * editor's own change set), places it exactly; the diff of the two finds it
+ * otherwise, and with repeated characters may place it on the other side
+ * of a worker's insertion.
+ *
  * `changes` turn `draft` into the result, for an editor to apply in place
- * so the cursor and the undo history map through them.
+ * so the cursor and the undo history map through them; `typed` in the
+ * answer is the typing again, over `merged`.
  */
-export function rebase(sent: string, draft: string, merged: string): { text: string; changes: TextChange[] } | null {
-	const typed = diffText(sent, draft);
+export function rebase(sent: string, draft: string, merged: string, typed: TextChange[] = diffText(sent, draft)): { text: string; changes: TextChange[]; typed: TextChange[] } | null {
 	const worker = diffText(sent, merged);
 	for (const x of typed) for (const y of worker) if (overlaps(x, y)) return null;
 	const changes: TextChange[] = [];
@@ -91,7 +96,79 @@ export function rebase(sent: string, draft: string, merged: string): { text: str
 		for (let x = typed[t]; x !== undefined && before(x, y); x = typed[++t]) shift += x.insert.length - (x.to - x.from);
 		changes.push({ from: y.from + shift, to: y.to + shift, insert: y.insert });
 	}
-	return { text: applyChanges(draft, changes), changes };
+	// The typing again, now over `merged`: each change moved by the worker's changes before it.
+	const carried: TextChange[] = [];
+	let moved = 0;
+	let w = 0;
+	for (const x of typed) {
+		for (let y = worker[w]; y !== undefined && !before(x, y); y = worker[++w]) moved += y.insert.length - (y.to - y.from);
+		carried.push({ from: x.from + moved, to: x.to + moved, insert: x.insert });
+	}
+	return { text: applyChanges(draft, changes), changes, typed: carried };
+}
+
+type Op = { retain: number } | { remove: number } | { insert: string };
+
+/** `changes` over a text of `length` as a run of operations, the text's whole length covered. */
+function opsOf(changes: TextChange[], length: number): Op[] {
+	const ops: Op[] = [];
+	let at = 0;
+	for (const change of changes) {
+		if (change.from > at) ops.push({ retain: change.from - at });
+		if (change.to > change.from) ops.push({ remove: change.to - change.from });
+		if (change.insert !== '') ops.push({ insert: change.insert });
+		at = change.to;
+	}
+	if (length > at) ops.push({ retain: length - at });
+	return ops;
+}
+
+/**
+ * The changes `first` then `second` make together: `first` turns a text of
+ * `length` into another, and `second` turns that one into a third.
+ */
+export function composeChanges(first: TextChange[], second: TextChange[], length: number): TextChange[] {
+	const a = opsOf(first, length);
+	const middle = length + first.reduce((sum, change) => sum + change.insert.length - (change.to - change.from), 0);
+	const b = opsOf(second, middle);
+	const out: TextChange[] = [];
+	let at = 0;
+	const edit = (remove: number, insert: string) => {
+		const last = out.at(-1);
+		if (last !== undefined && last.to === at) {
+			last.to += remove;
+			last.insert += insert;
+		} else out.push({ from: at, to: at + remove, insert });
+		at += remove;
+	};
+	let i = 0;
+	let j = 0;
+	// What is left of the operation each side is in.
+	let x: Op | undefined = a[0];
+	let y: Op | undefined = b[0];
+	const nextA = () => (x = a[++i]);
+	const nextB = () => (y = b[++j]);
+	while (x !== undefined || y !== undefined) {
+		if (y !== undefined && 'insert' in y) {
+			edit(0, y.insert);
+			nextB();
+		} else if (x !== undefined && 'remove' in x) {
+			edit(x.remove, '');
+			nextA();
+		} else if (x === undefined || y === undefined) break;
+		else {
+			const xs = 'retain' in x ? x.retain : x.insert.length;
+			const ys = 'retain' in y ? y.retain : y.remove;
+			const n = Math.min(xs, ys);
+			if ('retain' in x && 'retain' in y) at += n;
+			else if ('retain' in x) edit(n, '');
+			else if ('retain' in y) edit(0, x.insert.slice(0, n));
+			// An insertion the second removed is no change at all.
+			x = xs > n ? ('retain' in x ? { retain: xs - n } : { insert: x.insert.slice(n) }) : a[++i];
+			y = ys > n ? ('retain' in y ? { retain: ys - n } : { remove: ys - n }) : b[++j];
+		}
+	}
+	return out.filter((change) => change.to > change.from || change.insert !== '');
 }
 
 /**

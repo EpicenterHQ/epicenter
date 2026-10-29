@@ -36,7 +36,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, Row } from '../client/page.js';
 import { type Change, type Changed, ChangeError } from '../client/replica.js';
-import { diffText, rebase, type TextChange } from '../core/diff.js';
+import { applyChanges, composeChanges, diffText, rebase, type TextChange } from '../core/diff.js';
 import type { RepositoryError, RepositoryStatus, Session, WriteError } from './repository.js';
 
 export type EditorState =
@@ -73,8 +73,8 @@ export type Editor = {
 	/** The note's exact text as the person has it. A view of the body shows `bodyOf(draft)` and types through `withBody(draft, body)`. */
 	draft(): string;
 	state(): EditorState;
-	/** The person typed: `draft` is the new text. */
-	update(draft: string): void;
+	/** The person typed: `draft` is the new text, and `changes` (a view's own change set, when it has one) turn the draft before into it. */
+	update(draft: string, changes?: TextChange[]): void;
 	/** Be told when the draft or the state changes (`replaced`: the draft was replaced from outside); returns the function that stops it. */
 	subscribe(listener: (change: EditorChange) => void): () => void;
 	/** Send the draft again after a failure. */
@@ -125,6 +125,8 @@ export function createEditors(deps: Deps) {
 		let draft = base;
 		let seen = revision;
 		let flight: { sent: string } | null = null;
+		/** The typing since the text it was made over (the write in flight's, or the base), as the views made it; null when a view did not say, and a diff finds it. */
+		let typing: TextChange[] | null = [];
 		let state: EditorState = { status: 'saved' };
 		let queued = false;
 		/** Changes from elsewhere heard while a write was in flight, applied in order after its answer. */
@@ -194,6 +196,7 @@ export function createEditors(deps: Deps) {
 			}
 			const sent = draft;
 			flight = { sent };
+			typing = [];
 			setState({ status: 'saving' });
 			tell(null);
 			answered(sent, await deps.send([{ kind: 'write', path, text: sent, over: base }]));
@@ -207,6 +210,7 @@ export function createEditors(deps: Deps) {
 			const text = result.error === null ? result.data.texts[path] : undefined;
 			if (result.error !== null || text === undefined || text === null) {
 				// The draft and its base stay: nothing the repository rolls back reaches them.
+				typing = null;
 				setState({ status: 'failed', error: result.error ?? ChangeError.NotFound({ path }).error });
 				deps.refresh(path);
 				tell(null);
@@ -239,8 +243,9 @@ export function createEditors(deps: Deps) {
 				base = next;
 				return;
 			}
-			const carried = rebase(over, draft, next);
+			const carried = rebase(over, draft, next, typing ?? undefined);
 			base = next;
+			typing = carried?.typed ?? null;
 			if (carried === null) {
 				setState({ status: 'paused', theirs: next });
 				return;
@@ -284,9 +289,11 @@ export function createEditors(deps: Deps) {
 			views: 1,
 			draft: () => draft,
 			state: () => state,
-			update(next) {
+			update(next, changes) {
 				if (ended || next === draft) return;
-				const typed = diffText(draft, next);
+				const given = changes !== undefined && applyChanges(draft, changes) === next;
+				const typed = given ? changes : diffText(draft, next);
+				typing = given && typing !== null ? composeChanges(typing, typed, (flight?.sent ?? base).length) : null;
 				draft = next;
 				if (state.status === 'saved') setState({ status: 'saving' });
 				deps.refresh(path);
@@ -309,6 +316,7 @@ export function createEditors(deps: Deps) {
 				if (ended || state.status !== 'paused') return;
 				const replaced = diffText(draft, text);
 				draft = text;
+				typing = null;
 				setState({ status: 'saving' });
 				deps.refresh(path);
 				tell(replaced);

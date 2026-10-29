@@ -9,10 +9,11 @@
  * - Typing and a worker's change at different places both survive; where they meet, typing stays with its line
  * - Typing after a sent last line lands inside the conflict block that line went into, on its incoming side
  * - Typing that touches what the worker changed is not rebased
+ * - Two change sets compose into one; typing known by its changes is placed exactly, and comes back over the merged text
  * - A body view sees an exact text's changes in the body's positions, the frontmatter's left out
  */
 import { expect, test } from 'bun:test';
-import { applyChanges, bodyChanges, diffText, rebase } from './diff.js';
+import { applyChanges, bodyChanges, composeChanges, diffText, rebase } from './diff.js';
 import { bodyOf } from './markdown.js';
 
 /** A small seeded generator, so a failure names its seed. */
@@ -86,4 +87,28 @@ test("a body view sees an exact text's changes in the body's positions, the fron
 	const plain = 'one\n';
 	const headed = '---\ntitle: A\n---\none!\n';
 	expect(applyChanges(plain, bodyChanges(plain, headed, diffText(plain, headed)))).toBe('one!\n');
+});
+
+test('two change sets compose into one that makes both, for any three texts', () => {
+	for (let seed = 1; seed <= 500; seed++) {
+		const next = random(seed);
+		const [a, b, c] = [text(next, next(30)), text(next, next(30)), text(next, next(30))];
+		const composed = composeChanges(diffText(a, b), diffText(b, c), a.length);
+		expect(applyChanges(a, composed)).toBe(c);
+		for (const [index, change] of composed.entries()) expect(change.from).toBeGreaterThanOrEqual(composed[index - 1]?.to ?? 0);
+	}
+});
+
+test('typing known by its changes is placed exactly, and comes back over the merged text', () => {
+	// The person typed b at the end of ab while the worker inserted X after a: a diff would guess the typed b is the first one.
+	const typed = [{ from: 2, to: 2, insert: 'b' }];
+	expect(rebase('ab', 'abb', 'aXb', typed)?.text).toBe('aXbb');
+	for (let seed = 1; seed <= 300; seed++) {
+		const next = random(seed);
+		const sent = text(next, 20 + next(20));
+		const draft = text(next, 1) + sent + text(next, 2);
+		const merged = sent.slice(0, 10) + text(next, 3) + sent.slice(10);
+		const carried = rebase(sent, draft, merged);
+		if (carried !== null) expect(applyChanges(merged, carried.typed)).toBe(carried.text);
+	}
 });
