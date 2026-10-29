@@ -2,8 +2,9 @@
  * Todos Sync Browser Tests
  *
  * The built site in Chromium and WebKit, two persistent profiles as two
- * people, each on a site of its own, syncing one repository through the
- * repository's development server on Bun.
+ * people, each on a site of its own, each making a replica of one repository
+ * in the repository chooser and syncing it through the repository's
+ * development server on Bun as themselves.
  *
  * Key behaviors:
  * - A todo added on one profile reaches the other; a toggle there comes back
@@ -14,10 +15,12 @@ import { chromium, webkit } from 'playwright';
 import { buildTodos, notesOf, opened, openProfile, serveSite, startServer, TIMEOUT, until } from './support.js';
 
 const sites = { alice: serveSite(), bob: serveSite() };
+// A repository no other run uses: Playwright's WebKit keeps one origin's storage across profiles.
+const repository = `todos-${crypto.randomUUID().slice(0, 8)}`;
 let server: Awaited<ReturnType<typeof startServer>>;
 beforeAll(async () => {
-	server = await startServer('todos', [sites.alice.url.origin, sites.bob.url.origin]);
-	await buildTodos({ VITE_TODOS_SERVER: server.url });
+	server = await startServer(repository, [sites.alice.url.origin, sites.bob.url.origin]);
+	await buildTodos();
 }, 180_000);
 afterAll(async () => {
 	sites.alice.stop(true);
@@ -33,8 +36,9 @@ for (const [engine, browser] of [
 		test(
 			'a todo, a toggle and its notes sync between two profiles, and survive a reload',
 			async () => {
-				const alice = await openProfile(browser, sites.alice.url.href);
-				const bob = await openProfile(browser, sites.bob.url.href);
+				const synced = (account: string) => ({ server: { url: server.url, repository, account } });
+				const alice = await openProfile(browser, sites.alice.url.href, synced('alice'));
+				const bob = await openProfile(browser, sites.bob.url.href, synced('bob'));
 				try {
 					const title = `Buy milk ${engine}`;
 					await alice.page.getByLabel('New todo title').fill(title);

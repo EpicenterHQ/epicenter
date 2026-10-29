@@ -14,12 +14,18 @@
 
 	let {
 		notes,
+		repository,
 		syncsTo,
+		onLeave,
 		filesOpen,
 		onToggleFiles,
 	}: {
 		notes: Notes;
+		/** The repository's name in this browser. */
+		repository: string;
 		syncsTo?: string;
+		/** Back to this browser's repositories. */
+		onLeave: () => void;
 		filesOpen: boolean;
 		onToggleFiles: () => void;
 	} = $props();
@@ -32,13 +38,14 @@
 
 <header class="flex h-12 shrink-0 items-center gap-2 border-b px-3">
 	<h1 class="text-sm font-semibold">Honeycrisp</h1>
+	<Button variant="ghost" size="sm" class="min-w-0 max-w-40 truncate" aria-label="{repository}: switch repository" tooltip="This browser's repositories" onclick={onLeave}>{repository}</Button>
 
 	<StatusPopover summary={status} details={[{ name: 'Sync', testid: 'status-saves', line: status }]}>
 		<StatusRow name="Where">
 			<span class="font-medium" data-testid="status-folder">{syncsTo === undefined ? 'This device' : 'This device and a server'}</span>
 			<span class="mt-0.5 block text-xs text-muted-foreground">
 				{syncsTo === undefined
-					? 'Notes are kept on this device. This build of Honeycrisp syncs with no server.'
+					? 'Notes are kept on this device. This repository syncs with no server.'
 					: `Notes are kept on this device and synced through ${new URL(syncsTo).host}. Edits made offline are sent when it is back.`}
 			</span>
 		</StatusRow>

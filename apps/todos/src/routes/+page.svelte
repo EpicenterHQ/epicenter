@@ -1,14 +1,15 @@
+<!--
+	Todos over one of this browser's repositories, chosen in the repository
+	chooser: kept only on this device, or synced with a server.
+-->
 <script lang="ts">
-	import { openTodos } from '$lib/open.js';
-	import OpenTodos from './local/OpenTodos.svelte';
-
-	/**
-	 * The server to sync with, set at build time, such as
-	 * `http://127.0.0.1:8787/` from `bun packages/repository/scripts/serve.ts`,
-	 * and whom to sync as. Without a server, Todos keeps its todos on this device.
-	 */
-	const server: string | undefined = import.meta.env.VITE_TODOS_SERVER || undefined;
-	const account: string = import.meta.env.VITE_TODOS_ACCOUNT || 'me';
+	import RepositoryChooser from '@epicenter/svelte/repository/chooser';
+	import { todosApp } from '$lib/definition.js';
+	import TodosApp from './local/TodosApp.svelte';
 </script>
 
-<OpenTodos open={() => openTodos({ server, account })} syncsTo={server} />
+<RepositoryChooser app={todosApp} name="Todos">
+	{#snippet children({ repo, manifest, leave })}
+		<TodosApp {repo} repository={manifest.name} syncsTo={manifest.url ?? undefined} onLeave={leave} />
+	{/snippet}
+</RepositoryChooser>

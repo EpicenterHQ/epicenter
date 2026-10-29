@@ -11,7 +11,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chromium, webkit } from 'playwright';
-import { opened, openProfile, startWorld, TIMEOUT, type World } from './support.js';
+import { opened, startWorld, TIMEOUT, type World } from './support.js';
 
 let world: World;
 beforeAll(async () => {
@@ -27,7 +27,7 @@ for (const [engine, browser] of [
 		test(
 			"a new note's title and body survive a reload and reach the server",
 			async () => {
-				const { page, cleanup } = await openProfile(browser, world.url('ada'));
+				const { page, cleanup } = await world.open(browser, 'ada');
 				try {
 					await page.getByRole('button', { name: 'New note' }).click();
 					const title = page.getByLabel('Title', { exact: true });

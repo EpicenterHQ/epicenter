@@ -15,7 +15,7 @@
  * - A write the replica refuses is reported, and the controls follow the stored note
  * - A note that does not fit opens into its source with its schema issue, and an edit keeps unnamed fields
  * - The header says a held todo is not sent
- * - A failed open shows the error, and Try again opens again
+ * - Storage that cannot be opened shows why, and Try again opens it
  * - The repository's status shows before the todos arrive and as a bar after, and the app is never mounted twice
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
@@ -23,7 +23,7 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { openReplica, type Replica } from '@epicenter/repository/client';
 import type { SqlDriver } from '../../../../../packages/repository/src/sql.js';
-import { Ok, unwrap } from 'wellcrafted/result';
+import { unwrap } from 'wellcrafted/result';
 import { createLocalHost } from '../../../../../packages/repository/src/api/local.js';
 import { openRepository } from '../../../../../packages/repository/src/api/repository.js';
 import { blur, button, click, editorText, setWide, type, typeInEditor } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
@@ -89,11 +89,11 @@ function freshDevice() {
 	};
 }
 
-/** Mount the page over the repository `open` opens; `close` unmounts it. */
-function mountPage(open: () => Promise<ReturnType<typeof Ok<TodosRepository>> | { data: null; error: { message: string } }>, syncsTo?: string) {
+/** Mount the page over `repository`; `close` unmounts it. */
+function mountPage(repository: TodosRepository, syncsTo?: string) {
 	const target = document.createElement('div');
 	document.body.append(target);
-	const view = mount(PageHost, { target, props: { open, syncsTo } });
+	const view = mount(PageHost, { target, props: { repository, syncsTo } });
 	let mounted = true;
 	const close = () => {
 		if (!mounted) return;
@@ -131,7 +131,7 @@ async function until(check: () => boolean, what: string) {
 /** Mount the page over a repository on `device` and wait until it lists the todos. */
 async function openPage(device: ReturnType<typeof freshDevice>, syncsTo?: string) {
 	const { repository } = device.host();
-	const opened = mountPage(async () => Ok(repository), syncsTo);
+	const opened = mountPage(repository, syncsTo);
 	await until(() => opened.has('[aria-label="Todos"]'), 'the list');
 	return opened;
 }
@@ -326,10 +326,11 @@ test('the header says a held todo is not sent, and never Synced while one waits'
 	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Sending') ?? false, 'the repair sending');
 });
 
-test('a failed open shows the error, and Try again opens again', async () => {
+test('storage that cannot be opened shows why, and Try again opens it', async () => {
 	const device = freshDevice();
-	let attempts = 0;
-	const opened = mountPage(async () => (++attempts === 1 ? { data: null, error: { message: 'Storage access is blocked' } } : Ok(device.host().repository)));
+	const local = device.host();
+	local.end({ status: 'unavailable', reason: 'Storage access is blocked', retry: () => local.resume() });
+	const opened = mountPage(local.repository);
 	await until(() => opened.text('[role="alert"]')?.includes('Storage access is blocked') ?? false, 'the refusal');
 	expect(opened.has(LIST)).toBe(false);
 	press(button(opened.target, 'Try again'));
@@ -342,7 +343,7 @@ test("the repository's status shows before the todos arrive and as a bar after, 
 	let used = 0;
 	// Another tab holds the replica, before this page's first session.
 	local.end({ status: 'elsewhere', useHere: () => used++ });
-	const opened = mountPage(async () => Ok(local.repository));
+	const opened = mountPage(local.repository);
 	await until(() => opened.target.textContent?.includes('Todos is open in another tab') ?? false, 'the takeover offer');
 	expect(opened.has(LIST)).toBe(false);
 	press(button(opened.target, 'Use here'));

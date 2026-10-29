@@ -14,7 +14,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chromium, type Page, webkit } from 'playwright';
-import { openProfile, startWorld, TIMEOUT, type World } from './support.js';
+import { startWorld, TIMEOUT, type World } from './support.js';
 
 let world: World;
 beforeAll(async () => {
@@ -43,8 +43,8 @@ for (const [engine, browser] of [
 		test(
 			"a note broken in its source is held on the device, and its repair reaches another profile",
 			async () => {
-				const alice = await openProfile(browser, world.url('alice'));
-				const bob = await openProfile(browser, world.url('bob'));
+				const alice = await world.open(browser, 'alice');
+				const bob = await world.open(browser, 'bob');
 				try {
 					const title = `Plan ${engine}`;
 					await alice.page.getByRole('button', { name: 'New note' }).click();

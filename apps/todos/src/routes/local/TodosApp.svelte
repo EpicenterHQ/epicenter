@@ -20,7 +20,20 @@
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
-	let { repo, syncsTo }: { repo: TodosRepository; syncsTo?: string } = $props();
+	let {
+		repo,
+		repository,
+		syncsTo,
+		onLeave,
+	}: {
+		repo: TodosRepository;
+		/** The repository's name in this browser. */
+		repository: string;
+		/** The server it syncs with, if any. */
+		syncsTo?: string;
+		/** Back to this browser's repositories. */
+		onLeave: () => void;
+	} = $props();
 
 	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
@@ -69,7 +82,7 @@
 {/snippet}
 
 <div class="flex h-full flex-col overflow-hidden">
-	<AppHeader pendingNewTodo={newTitle.trim() !== ''} {syncsTo} />
+	<AppHeader pendingNewTodo={newTitle.trim() !== ''} {repository} {syncsTo} {onLeave} />
 
 	{#if wide.current}
 		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">

@@ -13,7 +13,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type BrowserType, chromium, type Page, webkit } from 'playwright';
-import { openProfile, startWorld, TIMEOUT, type World } from './support.js';
+import { startWorld, TIMEOUT, type World } from './support.js';
 
 let world: World;
 beforeAll(async () => {
@@ -70,8 +70,8 @@ async function untilShown(page: Page, lines: string[], what: string) {
 const serverHas = (path: string, text: string) => async () => (await world.read(path))?.includes(text) ?? false;
 
 async function twoPeople(browser: BrowserType) {
-	const alice = await openProfile(browser, world.url('alice'));
-	const bob = await openProfile(browser, world.url('bob'));
+	const alice = await world.open(browser, 'alice');
+	const bob = await world.open(browser, 'bob');
 	return {
 		alice: alice.page,
 		bob: bob.page,
@@ -90,7 +90,7 @@ for (const [engine, browser] of [
 		test(
 			'headings, bold and a task checkbox render in place, and the checkbox toggles in the file',
 			async () => {
-				const { page, cleanup } = await openProfile(browser, world.url('alice'));
+				const { page, cleanup } = await world.open(browser, 'alice');
 				try {
 					const path = await createNote(page, `Preview ${engine}`, '# Groceries\n\nBuy **oat** milk\n\n- [ ] bread\n\nend');
 					// The cursor is on the last line, so every other line shows rendered.

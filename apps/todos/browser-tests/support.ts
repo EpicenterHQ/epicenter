@@ -16,9 +16,9 @@ export const TIMEOUT = 90_000;
 const app = join(import.meta.dir, '..');
 const build = join(app, 'build');
 
-/** Build Todos as it ships (`vite build`), with `env` set. */
-export async function buildTodos(env: Record<string, string> = {}) {
-	const built = Bun.spawn(['bun', 'run', 'build'], { cwd: app, stdout: 'ignore', stderr: 'pipe', env: { ...process.env, VITE_TODOS_SERVER: '', ...env } });
+/** Build Todos as it ships (`vite build`). */
+export async function buildTodos() {
+	const built = Bun.spawn(['bun', 'run', 'build'], { cwd: app, stdout: 'ignore', stderr: 'pipe' });
 	if ((await built.exited) !== 0) throw new Error(`The Todos build failed: ${await new Response(built.stderr).text()}`);
 }
 
@@ -61,15 +61,32 @@ export async function startServer(repository: string, origins: string[]) {
 	};
 }
 
-/** A persistent profile, as a person's browser has, opened on `url`; `cleanup` removes it. */
-export async function openProfile(browser: BrowserType, url: string) {
+/** What a person enters in the repository chooser to make a repository: nothing for one kept on this device. */
+export type NewRepository = { name?: string; server?: { url: string; repository: string; account: string } };
+
+/** Make a repository in the chooser on `page`, which opens it. */
+export async function createRepository(page: Page, { name, server }: NewRepository = {}) {
+	const form = page.getByRole('form', { name: 'New repository' });
+	await form.waitFor();
+	if (name !== undefined) await form.getByLabel('Name').fill(name);
+	if (server !== undefined) {
+		await form.getByLabel(/^Server/).fill(server.url);
+		await form.getByLabel('Repository on the server').fill(server.repository);
+		await form.getByLabel('Sync as').fill(server.account);
+	}
+	await form.getByRole('button', { name: 'Create' }).click();
+	await opened(page);
+}
+
+/** A persistent profile, as a person's browser has, opened on `url` with a new repository made in its chooser; `cleanup` removes it. */
+export async function openProfile(browser: BrowserType, url: string, repository: NewRepository = {}) {
 	const dir = await mkdtemp(join(tmpdir(), 'todos-profile-'));
 	// Wide enough for the list and the open todo side by side.
 	const context = await browser.launchPersistentContext(dir, { headless: true, viewport: { width: 1280, height: 800 } });
 	const page = context.pages()[0] ?? (await context.newPage());
 	page.on('pageerror', (error) => console.error('page error:', error));
 	await page.goto(url);
-	await opened(page);
+	await createRepository(page, repository);
 	return {
 		context,
 		page,

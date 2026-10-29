@@ -45,7 +45,7 @@ async function device(files: Record<string, string> = {}) {
 async function openPage(on: Device) {
 	const target = document.createElement('div');
 	document.body.append(target);
-	const component = mount(PageHost, { target, props: { open: on.open } });
+	const component = mount(PageHost, { target, props: { repository: on.open() } });
 	let mounted = true;
 	const close = async () => {
 		if (!mounted) return;

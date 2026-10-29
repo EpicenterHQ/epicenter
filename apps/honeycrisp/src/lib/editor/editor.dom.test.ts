@@ -34,7 +34,7 @@ afterEach(async () => {
 async function boundNote(text: string) {
 	const device = await openDevice({ 'notes/a.md': text });
 	cleanups.push(() => device.close());
-	const repo = expectOk(await device.open());
+	const repo = device.open();
 	await until(() => repo.status().status === 'open', 'the repository');
 	const editor = expectOk(await repo.notes.openEditor({ stem: 'a' }));
 	cleanups.push(() => editor.discard());

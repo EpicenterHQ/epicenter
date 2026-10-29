@@ -9,8 +9,21 @@
 	import FolderNav from './FolderNav.svelte';
 	import NoteList from './NoteList.svelte';
 
-	// The notes over the repository `OpenHoneycrisp` opened; mounted once, when they first arrive.
-	let { repo, syncsTo }: { repo: HoneycrispRepository; syncsTo?: string } = $props();
+	// The notes over the repository the chooser opened; mounted once, when they first arrive.
+	let {
+		repo,
+		repository,
+		syncsTo,
+		onLeave,
+	}: {
+		repo: HoneycrispRepository;
+		/** The repository's name in this browser. */
+		repository: string;
+		/** The server it syncs with, if any. */
+		syncsTo?: string;
+		/** Back to this browser's repositories. */
+		onLeave: () => void;
+	} = $props();
 
 	// The repository stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
@@ -38,7 +51,9 @@
 <div class="flex h-full flex-col overflow-hidden">
 	<AppHeader
 		{notes}
+		{repository}
 		{syncsTo}
+		{onLeave}
 		{filesOpen}
 		onToggleFiles={() => (filesOpen = !filesOpen)}
 	/>

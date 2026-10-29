@@ -12,14 +12,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDiskRepository, serveRepository } from '@epicenter/repository/bun';
 import { authenticateBearer } from '@epicenter/repository/wire';
-import type { BrowserType, Page } from 'playwright';
+import type { BrowserContext, BrowserType, Page } from 'playwright';
 
 export const TIMEOUT = 90_000;
 const app = join(import.meta.dir, '..');
 
 type Data = { target: string; person: string; upstream?: WebSocket; buffered: (string | Buffer)[] };
 
-/** Build Honeycrisp against a proxy, serve a site per person, and the repository server behind the proxy. */
+/** Build Honeycrisp, serve a site per person, and the repository server behind a proxy. */
 export async function startWorld(people: readonly string[]) {
 	const sites = new Map<string, string>();
 	const offline = new Set<string>();
@@ -43,8 +43,10 @@ export async function startWorld(people: readonly string[]) {
 
 	const dir = await mkdtemp(join(tmpdir(), 'honeycrisp-browser-'));
 	const server = await openDiskRepository(join(dir, 'repo.git'));
+	// A repository no other run uses: Playwright's WebKit keeps one origin's storage across profiles.
+	const repository = `honeycrisp-${crypto.randomUUID().slice(0, 8)}`;
 	const served = serveRepository({
-		repository: 'honeycrisp',
+		repository,
 		serverId: 'honeycrisp-browser',
 		server,
 		authenticate: authenticateBearer((token) => ({ user: token, role: 'writer' })),
@@ -95,16 +97,14 @@ export async function startWorld(people: readonly string[]) {
 		},
 	});
 
-	const built = Bun.spawn(['bun', 'run', 'build'], {
-		cwd: app,
-		stdout: 'ignore',
-		stderr: 'pipe',
-		env: { ...process.env, VITE_HONEYCRISP_SERVER: proxy.url.href },
-	});
+	const built = Bun.spawn(['bun', 'run', 'build'], { cwd: app, stdout: 'ignore', stderr: 'pipe' });
 	if ((await built.exited) !== 0) throw new Error(`The Honeycrisp build failed: ${await new Response(built.stderr).text()}`);
+	const url = (person: string) => `${sites.get(person)}/`;
 	return {
 		/** The site `person` opens. */
-		url: (person: string) => `${sites.get(person)}/`,
+		url,
+		/** `person`'s profile on their site, with a replica of the repository made in the chooser, syncing as them through the proxy. */
+		open: (browser: BrowserType, person: string) => openProfile(browser, url(person), { url: proxy.url.href, repository, account: person }),
 		/** Take `person` offline, dropping their socket, or bring them back. */
 		setOnline(person: string, value: boolean) {
 			if (value) offline.delete(person);
@@ -128,15 +128,38 @@ export async function startWorld(people: readonly string[]) {
 }
 export type World = Awaited<ReturnType<typeof startWorld>>;
 
-/** A persistent profile, as a person's browser has, opened on `url`; `cleanup` removes it. */
-export async function openProfile(browser: BrowserType, url: string) {
+/**
+ * A persistent profile, as a person's browser has, opened on `url`, with a
+ * repository made in the chooser (synced with `server`, if given); `cleanup`
+ * removes it.
+ */
+export async function openProfile(browser: BrowserType, url: string, server?: { url: string; repository: string; account: string }) {
 	const dir = await mkdtemp(join(tmpdir(), 'honeycrisp-profile-'));
 	// Wide enough for the folders, the list and the open note side by side.
 	const context = await browser.launchPersistentContext(dir, { headless: true, viewport: { width: 1400, height: 900 } });
 	const page = context.pages()[0] ?? (await context.newPage());
 	page.on('pageerror', (error) => console.error('page error:', error));
 	await page.goto(url);
+	const form = page.getByRole('form', { name: 'New repository' });
+	await form.waitFor();
+	// Playwright's WebKit shares one origin's storage across profiles, so this person's replica from an earlier profile may be listed: it is theirs, and opens.
+	const theirs = page.getByRole('listitem').filter({ hasText: server === undefined ? 'Only on this device' : `as ${server.account}` });
+	if (server !== undefined && (await theirs.count()) > 0) {
+		await theirs.first().getByRole('button', { name: 'Open' }).click();
+		await opened(page);
+		return profile(context, page, dir);
+	}
+	if (server !== undefined) {
+		await form.getByLabel(/^Server/).fill(server.url);
+		await form.getByLabel('Repository on the server').fill(server.repository);
+		await form.getByLabel('Sync as').fill(server.account);
+	}
+	await form.getByRole('button', { name: 'Create' }).click();
 	await opened(page);
+	return profile(context, page, dir);
+}
+
+function profile(context: BrowserContext, page: Page, dir: string) {
 	return {
 		context,
 		page,

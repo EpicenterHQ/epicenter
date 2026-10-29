@@ -21,7 +21,12 @@
 	} from './open-in-epicenter';
 
 	const repo = getRepository();
-	let { pendingNewTodo, syncsTo }: { pendingNewTodo: boolean; syncsTo?: string } = $props();
+	let {
+		pendingNewTodo,
+		repository,
+		syncsTo,
+		onLeave,
+	}: { pendingNewTodo: boolean; repository: string; syncsTo?: string; onLeave: () => void } = $props();
 
 	/** Todos the server has not answered yet, and todos held here with a reason. */
 	const sync = $derived(syncOf(repo.todos.all()));
@@ -53,12 +58,13 @@
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
 	<!-- On narrow screens the list itself says what this is; the width goes to status. -->
 	<h1 class="text-sm font-semibold max-sm:sr-only">Todos</h1>
+	<Button variant="ghost" size="sm" class="min-w-0 max-w-40 truncate" aria-label="{repository}: switch repository" tooltip="This browser's repositories" onclick={onLeave}>{repository}</Button>
 	<StatusPopover summary={status} details={[{ name: 'Sync', testid: 'status-files', line: status }]}>
 		<StatusRow name="Where">
 			<span class="font-medium" data-testid="status-folder">{syncsTo === undefined ? 'This device' : 'This device and a server'}</span>
 			<span class="mt-0.5 block text-xs text-muted-foreground">
 				{syncsTo === undefined
-					? 'Stored on this device. This build of Todos syncs with no server.'
+					? 'Stored on this device. This repository syncs with no server.'
 					: `Stored on this device and synced through ${new URL(syncsTo).host}. Edits made offline are sent when it is back.`}
 			</span>
 		</StatusRow>

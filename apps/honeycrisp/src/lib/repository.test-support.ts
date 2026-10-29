@@ -8,7 +8,7 @@
  */
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { openReplica, type Replica } from '@epicenter/repository/client';
-import { Ok, unwrap } from 'wellcrafted/result';
+import { unwrap } from 'wellcrafted/result';
 import { createLocalHost } from '../../../../packages/repository/src/api/local.js';
 import { openRepository } from '../../../../packages/repository/src/api/repository.js';
 import { honeycrispApp } from './data.js';
@@ -35,7 +35,7 @@ export async function openDevice(files: Record<string, string> = {}) {
 	};
 	return {
 		/** A repository over this device's replica, whose writes `refuseWrites` refuses, as the page would be given. */
-		open: async () => Ok(open(refusing)),
+		open: () => open(refusing),
 		/** Another repository over this device's replica. */
 		tab: () => open(replica),
 		/** The file's text as this device holds it. */
