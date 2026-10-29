@@ -285,6 +285,9 @@ export function openReplica(options: Parameters<typeof createReplica>[0]): Resul
 	return Ok(createReplica({ ...options, binding, device }));
 }
 
+/** How long a replica waits for an answer before it takes a request as lost, by default. */
+export const REQUEST_TIMEOUT = 2_000;
+
 function createReplica({
 	driver,
 	binding,
@@ -293,7 +296,7 @@ function createReplica({
 	app,
 	after,
 	now,
-	timeout = 2_000,
+	timeout = REQUEST_TIMEOUT,
 	gap = 500,
 }: {
 	driver: SqlDriver;

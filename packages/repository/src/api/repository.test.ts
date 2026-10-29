@@ -11,6 +11,7 @@
  * - A write shows at once, is cleared by its answer, and is dropped when it fails
  * - A new session's snapshot keeps the object of every note that did not change
  * - Typing in a body keeps the note's fields as read and replaces it in the ordered list, without sorting it again
+ * - A note not kept in memory is read, and edited, through another spelling of its path
  * - What shows before an answer is what the worker will make: a field set a moment ago still shows under body typing and a write made over an older text
  * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
  */
@@ -205,4 +206,13 @@ test('a field set a moment ago still shows while the body is typed, and under a 
 	await settled();
 	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({ fields: { title: 'Oat milk', done: true }, body: 'one two\n' });
 	expect(editor.draft()).toBe(todo('Oat milk', true, 'one two\n'));
+});
+
+test('a note not kept in memory is read, and edited, through another spelling of its path', async () => {
+	const { repo } = setup((replica) => replica.write('journal/day.md', '---\ntitle: Day\n---\nnotes\n'));
+	await settled();
+	expect(expectOk(await repo.entries.read({ stem: 'Day' }))?.path).toBe('journal/day.md');
+	const editor = expectOk(await repo.entries.openEditor({ stem: 'DAY' }));
+	expect(editor.path).toBe('journal/day.md');
+	expect(expectOk(await repo.entries.openEditor({ stem: 'day' }))).toBe(editor);
 });

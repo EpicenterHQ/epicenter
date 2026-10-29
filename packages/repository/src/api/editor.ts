@@ -35,7 +35,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, Row } from '../client/page.js';
-import { type Change, type Changed, ChangeError } from '../client/replica.js';
+import { type Change, type Changed, ChangeError, REQUEST_TIMEOUT } from '../client/replica.js';
 import { applyChanges, composeChanges, diffText, rebase, type TextChange } from '../core/diff.js';
 import { type Parties, settle } from '../core/settle.js';
 import type { RepositoryError, RepositoryStatus, Session, WriteError } from './repository.js';
@@ -53,10 +53,14 @@ export type EditorState =
 	| { status: 'closed' };
 
 export const EditorError = defineErrors({
+	/** A write to the note was sent and not answered within the replica's timeout, so no editor opened over it; the write still goes, and nothing was lost. */
+	Unanswered: ({ path }: { path: string }) => ({ message: `${path} has a change that has not been saved yet, so it cannot be edited now; try again`, path }),
 	/** The editor was closed with typing it could not save: `draft` holds it, and the editor keeps it until discarded. */
 	Unsaved: ({ path, draft, reason }: { path: string; draft: string; reason: string }) => ({ message: `${path} has typing that is not saved: ${reason}`, path, draft, reason }),
 });
 export type EditorError = InferErrors<typeof EditorError>;
+/** Why a close could not save: the only way it fails. */
+export type UnsavedError = Extract<EditorError, { name: 'Unsaved' }>;
 
 /** A draft an editor held unsaved when its repository closed. */
 export type Unsaved = { path: string; draft: string };
@@ -83,7 +87,7 @@ export type Editor = {
 	/** Settle a paused editor with the text the person made of both: it is saved over `theirs`. */
 	resolve(text: string): void;
 	/** This view is done: once the last view closes, the draft is saved, or why it was not is reported. */
-	close(): Promise<Result<undefined, EditorError>>;
+	close(): Promise<Result<undefined, UnsavedError>>;
 	/** Drop the draft, unsaved or not. */
 	discard(): void;
 };
@@ -121,13 +125,22 @@ const SHOWN: Parties = { current: { author: 'elsewhere', time: '-' }, incoming: 
 /** `text`, made over `over`, as the worker will apply it over `current`: merged where `current` moved since. */
 export const mergedOver = (over: string | null, current: string | null, text: string | null) => settle(over, current, text, { parties: SHOWN }).text;
 
+/** Whether `promise` settles within `ms`. */
+function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	const late = new Promise<false>((resolve) => {
+		timer = setTimeout(() => resolve(false), ms);
+	});
+	return Promise.race([promise.then(() => true as const), late]).finally(() => clearTimeout(timer));
+}
+
 /** A write lost with its session goes again in the next one. */
 const lostWithSession = (error: WriteError) => error.name === 'Closed' || error.name === 'Unavailable';
 
 /** The editors of one repository, by path. */
 export function createEditors(deps: Deps) {
 	const editors = new Map<string, Entry>();
-	const opening = new Map<string, Promise<Result<Entry, WriteError | EditorError>>>();
+	const opening = new Map<string, Promise<Result<Entry | { spelled: string }, WriteError | EditorError>>>();
 
 	function make(path: string, text: string, revision: number): Entry {
 		let base = text;
@@ -141,7 +154,7 @@ export function createEditors(deps: Deps) {
 		/** Changes from elsewhere heard while a write was in flight, applied in order after its answer. */
 		let heardInFlight: { revision: number; text: string | null }[] = [];
 		const listeners = new Set<(change: EditorChange) => void>();
-		const closers: ((result: Result<undefined, EditorError>) => void)[] = [];
+		const closers: ((result: Result<undefined, UnsavedError>) => void)[] = [];
 		let ended = false;
 
 		const tell = (replaced: TextChange[] | null, typed: TextChange[] | null = null) => {
@@ -333,7 +346,7 @@ export function createEditors(deps: Deps) {
 			close() {
 				if (entry.views > 0) entry.views--;
 				if (entry.views > 0) return Promise.resolve(Ok(undefined));
-				const closed = new Promise<Result<undefined, EditorError>>((resolve) => closers.push(resolve));
+				const closed = new Promise<Result<undefined, UnsavedError>>((resolve) => closers.push(resolve));
 				if (flight === null) void flush();
 				else settleClosing();
 				return closed;
@@ -384,18 +397,22 @@ export function createEditors(deps: Deps) {
 			if (opened.error !== null) return opened;
 			return open(path);
 		}
-		const starting = (async (): Promise<Result<Entry, WriteError | EditorError>> => {
-			// A write to this path still unanswered (a create just made) is what the editor opens over.
-			await deps.answered(path);
+		/** The editor, or the spelling of the path this device has when the note is stored under another one. */
+		const starting = (async (): Promise<Result<Entry | { spelled: string }, WriteError | EditorError>> => {
+			// A write to this path still unanswered (a create just made) is what the editor opens over, within the replica's bound on an answer.
+			if (!(await within(deps.answered(path), REQUEST_TIMEOUT))) return EditorError.Unanswered({ path });
 			if (deps.session() === null) return { data: null, error: deps.unavailable() };
 			const revision = deps.revision();
 			let text = deps.stored(path);
 			if (text === undefined) {
+				let row: Row | null;
 				try {
-					text = (await deps.row(path))?.text ?? null;
+					row = await deps.row(path);
 				} catch {
 					return { data: null, error: deps.unavailable() };
 				}
+				if (row !== null && row.path !== path) return Ok({ spelled: row.path });
+				text = row?.text ?? null;
 			}
 			if (text === null) return ChangeError.NotFound({ path });
 			const entry = make(path, text, revision);
@@ -405,7 +422,10 @@ export function createEditors(deps: Deps) {
 		opening.set(path, starting);
 		const opened = await starting;
 		opening.delete(path);
-		return opened;
+		if (opened.error !== null) return opened;
+		// One note, one editor: found under another spelling, it opens under the spelling this device has.
+		if ('spelled' in opened.data) return open(opened.data.spelled);
+		return Ok(opened.data);
 	}
 
 	return {

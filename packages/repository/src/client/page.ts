@@ -11,6 +11,7 @@
  */
 import { defineErrors, extractErrorMessage, type InferErrors } from 'wellcrafted/error';
 import type { Result } from 'wellcrafted/result';
+import { fold } from '../core/door.js';
 import { matchTemplate, type Template } from '../core/templates.js';
 import type { Change, Changed, ChangeError, FileStatus, Replica } from './replica.js';
 
@@ -61,9 +62,18 @@ export function servePage(
 		const state: FileStatus = unsent === undefined || unsent.has(path) ? replica.state(path) : { status: 'synced' };
 		return { path, text, fields, state };
 	}
-	function read(path: string): Row | null {
+	/** The row at exactly `path`, as a change to it is heard. */
+	function rowAt(path: string): Row | null {
 		const [found] = replica.query<{ text: string | null; fields: string | null }>('SELECT text, fields FROM "epicenter/files" WHERE path = ?', [path]);
 		return found === undefined ? null : rowOf(path, found.text, found.fields);
+	}
+	/** One note found by any spelling of its path (paths equal after NFC and case folding are one path), under the spelling this device has. */
+	function read(path: string): Row | null {
+		const [found] = replica.query<{ path: string; text: string | null; fields: string | null }>(
+			'SELECT path, text, fields FROM "epicenter/files" WHERE fold = ? AND text IS NOT NULL ORDER BY rowid LIMIT 1',
+			[fold(path)],
+		);
+		return found === undefined ? null : rowOf(found.path, found.text, found.fields);
 	}
 
 	return {
@@ -95,7 +105,7 @@ export function servePage(
 		watch(listener: (delta: Delta) => void) {
 			return replica.watch((paths, revision) => {
 				const rows: Record<string, Row | null> = {};
-				for (const path of paths) if (isKept(path)) rows[path] = read(path);
+				for (const path of paths) if (isKept(path)) rows[path] = rowAt(path);
 				listener({ revision, paths, rows });
 			});
 		},

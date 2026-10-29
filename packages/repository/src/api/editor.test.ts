@@ -8,6 +8,8 @@
  * was in flight onto the worker's resulting text by position.
  *
  * Key behaviors:
+ * - An editor waits for a write left unanswered no longer than the replica's timeout, and loses nothing
+ * - A note is found, written and edited through any spelling of its path, with one editor
  * - K1 against a remote same-line edit, then K2, K3 and a field patch while K1 is in flight: one conflict block, every keystroke, the fields kept
  * - A remote same-line edit landing between two of the person's writes: still one conflict block, holding every keystroke
  * - Typing on another line than a remote edit merges clean; a clean editor follows remote changes, and one heard during a write is taken after its answer
@@ -20,6 +22,7 @@
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
+import { REQUEST_TIMEOUT } from '../client/replica.js';
 import { applyChanges } from '../core/diff.js';
 import { findConflicts } from '../core/conflict.js';
 import { defineApp } from '../core/lens.js';
@@ -70,6 +73,36 @@ test('an editor opened right after a create, without waiting for it, opens over 
 	void repo.notes.create({ stem: 'new' }, { fields: { title: 'New' }, body: 'x\n' });
 	const editor = expectOk(await repo.notes.openEditor({ stem: 'new' }));
 	expect(editor.draft()).toBe(note('x\n', 'New'));
+});
+
+test('an editor waits for a write left unanswered only as long as the replica waits for an answer, losing nothing, and opens once it is answered', async () => {
+	const { repo, gate } = twoDevices(app);
+	await settled();
+	gate.hold();
+	const created = repo.notes.create({ stem: 'new' }, { fields: { title: 'New' }, body: 'x\n' });
+	const started = Date.now();
+	expect(expectErr(await repo.notes.openEditor({ stem: 'new' })).name).toBe('Unanswered');
+	expect(Date.now() - started).toBeGreaterThanOrEqual(REQUEST_TIMEOUT - 50);
+	// The create still goes: the note shows, sending.
+	expect(repo.notes.get({ stem: 'new' })).toMatchObject({ body: 'x\n', state: { status: 'sending' } });
+	gate.release();
+	expectOk(await created);
+	expect(expectOk(await repo.notes.openEditor({ stem: 'new' })).draft()).toBe(note('x\n', 'New'));
+});
+
+test('a note is found, written and edited through another spelling of its path, as the one note it is', async () => {
+	const { repo } = twoDevices(app);
+	await settled();
+	expectOk(await repo.notes.create({ stem: 'plan' }, { fields: { title: 'Plan' }, body: 'x\n' }));
+	expect(repo.notes.get({ stem: 'Plan' })?.path).toBe(PATH);
+	// A write through another spelling shows on the one note, and answers its text.
+	const patched = repo.notes.patch({ stem: 'PLAN' }, { pinned: true });
+	expect(repo.notes.all().map((each) => each.path)).toEqual([PATH]);
+	expect(expectOk(await patched).text).toBe('---\ntitle: Plan\npinned: true\n---\nx\n');
+	// One note, one editor, whichever spelling opens it.
+	const editor = expectOk(await repo.notes.openEditor({ stem: 'Plan' }));
+	expect(editor.path).toBe(PATH);
+	expect(expectOk(await repo.notes.openEditor({ stem: 'plan' }))).toBe(editor);
 });
 
 /** A note with title Base, synced to both devices, and Alice's editor on it. */

@@ -28,6 +28,7 @@ import { SaveError as SaveErrors } from '../client/page.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
 import { type App, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
 import { bodyOf, parseMarkdown, splitMarkdown, writeMarkdown } from '../core/markdown.js';
+import { fold } from '../core/door.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
 import { createEditors, type Editor, type EditorError, mergedOver, type Unsaved } from './editor.js';
@@ -213,6 +214,19 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	let revision = 0;
 	/** Each note kept in memory as the worker last said, by path. */
 	let stored = new Map<string, Row>();
+	/** The spelling of each kept note's path, by its fold: paths equal after NFC and case folding are one path. */
+	let spellings = new Map<string, string>();
+	/** `path` as this device spells it, when a note kept in memory is stored under another spelling of it. */
+	const spelled = (path: string) => spellings.get(fold(path)) ?? path;
+	function store(path: string, row: Row | null) {
+		if (row !== null) {
+			stored.set(path, row);
+			spellings.set(fold(path), path);
+			return;
+		}
+		stored.delete(path);
+		if (spellings.get(fold(path)) === path) spellings.delete(fold(path));
+	}
 	/** Writes sent and not yet answered, by path, in the order sent: shown over the stored note. `done` settles once its answer is in. */
 	const pending = new Map<string, { id: number; change: Change; done: Promise<void> }[]>();
 	let nextId = 1;
@@ -318,8 +332,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		if (delta.revision <= revision) return;
 		revision = delta.revision;
 		for (const [path, row] of Object.entries(delta.rows)) {
-			if (row === null) stored.delete(path);
-			else stored.set(path, row);
+			store(path, row);
 			refresh(path);
 		}
 		heard(delta.paths);
@@ -349,6 +362,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		if (session !== next) return;
 		const previous = stored;
 		stored = new Map(snapshot.rows.map((row) => [row.path, row]));
+		spellings = new Map(snapshot.rows.map((row) => [fold(row.path), row.path]));
 		revision = snapshot.revision;
 		for (const path of new Set([...previous.keys(), ...stored.keys()])) refresh(path);
 		hydrated = true;
@@ -413,7 +427,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 
 	/** The changes one collection's verbs make, for a path built from its parameters. */
 	function changesOf(lens: NoteLens) {
-		const pathOf = (params: Record<string, unknown>) => buildPath(lens.template, params);
+		/** The path the parameters name, as this device spells it. */
+		const pathOf = (params: Record<string, unknown>): Result<string, TemplateError> => {
+			const built = buildPath(lens.template, params);
+			return built.error === null ? Ok(spelled(built.data)) : built;
+		};
 		return {
 			pathOf,
 			create: (path: string, input: NoteInput<TSchema> = {}): Change => ({ kind: 'create', path, text: writeMarkdown(null, input as { fields?: Record<string, unknown>; body?: string }).data ?? input.body ?? '' }),
@@ -457,7 +475,8 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 					} catch {
 						return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
 					}
-					return Ok(row === null ? null : toNote(lens, path.data, params as Record<string, string>, row.text, row.fields, row.state));
+					// Found by any spelling of its path, it reads under the spelling this device has.
+					return Ok(row === null ? null : toNote(lens, row.path, classify(row.path)?.params ?? (params as Record<string, string>), row.text, row.fields, row.state));
 				},
 			};
 		const notes = notesOf.get(lens.name) ?? new Map<string, Note>();
