@@ -27,6 +27,17 @@
  * pushed commit, in the transaction that applies its live commit; the
  * compare-and-swap and completion are this machine's.
  *
+ * A push merged over live edits Git does not hold yet leaves a join: Git's
+ * `main` is the pushed commit, while live `main` is the merge that took it
+ * in. Its row does not move the flushed place, so the journal never claims
+ * Git holds an edit it lacks. The next flush exports those edits as a side
+ * chain from the first join's old value (Git's `main` when they were made,
+ * so each cut is a state that existed), and each join as one Git commit
+ * whose first parent is the pushed commit and whose second is the side
+ * chain's tip, with the live merge's tree. Every pushed commit stays an
+ * ancestor of `main`, no commit after it has a tree made without it, and
+ * `main` ends at the live tree.
+ *
  * Every Git commit's tree holds Epicenter's `.gitattributes`.
  */
 import { ATTRIBUTES } from '../core/door.js';
@@ -36,7 +47,7 @@ import { type GitObjects, MAIN, type Signature, type Tree } from './git-store.js
 import type { History } from './history.js';
 
 /** A step boundary, where a crash can stop a flush (named for what has just happened). */
-export type FlushStep = 'intended' | 'staging-pushed' | 'staged' | 'main-moved' | 'completed' | 'staging-deleted';
+export type FlushStep = 'received' | 'intended' | 'staging-pushed' | 'staged' | 'main-moved' | 'completed' | 'staging-deleted';
 
 export type FlushResult =
 	| { kind: 'flushed'; head: string; commits: { oid: string; message: string; author: string }[] }
@@ -57,7 +68,17 @@ type Planned = {
 	blobs: string[];
 };
 
-type Plan = { expected: string | null; staging: string; through: number; commits: Planned[] };
+/**
+ * A pushed commit Git's `main` moved to while live history ran ahead of
+ * Git, waiting for the flush that joins them: the push's old value, the
+ * pushed commit, its tree (the live tree it became, `.gitattributes`
+ * included), the place of the live merge that took it in, and the live
+ * commit it became (the next push on it is merged against this).
+ */
+export type Join = { old: string | null; oid: string; tree: string; place: number; side: string };
+
+/** `join`: the join a push's row leaves once Git moved. */
+type Plan = { expected: string | null; staging: string; through: number; commits: Planned[]; join?: Join };
 
 export const COMMITTER: Signature = { name: 'Epicenter', email: 'epicenter@users.epicenter.invalid' };
 /** A member's Git signature. */
@@ -86,12 +107,17 @@ export function createFlusher({
 		return next;
 	}
 
+	/** The joins waiting for a flush, oldest first. */
+	const joins = (): Join[] => JSON.parse(meta.get('joins') ?? '[]') as Join[];
+
 	/** The Git commits from the last flush to `main`, or null when Git already holds `main`'s content. */
 	function plan(): Plan | null {
 		const flushed = meta.number('flushed');
 		const top = history.top();
 		if (top <= flushed) return null;
 		const from = Math.max(flushed + 1, history.offset());
+		const waiting = joins();
+		const joined = new Map(waiting.map((join) => [join.place, join]));
 		// A merge that wrote a conflict block ends a Git commit; a commit with a message is a Git commit alone, so what came before it ends one too.
 		const cut = new Set<number>([top]);
 		for (let i = from; i <= top; i++) {
@@ -102,10 +128,19 @@ export function createFlusher({
 				cut.add(i);
 			}
 		}
+		// A join is a Git commit of its own, and the live state it merged into ends the side chain's commit before it.
+		for (const { place } of waiting) {
+			if (place - 1 > flushed) cut.add(place - 1);
+			cut.add(place);
+		}
 		const cuts = [...cut].sort((a, b) => a - b);
 		const attributes = history.keep(ATTRIBUTES);
-		let previousTree = meta.get('git_tree') ?? trees.empty;
-		let previousOid = meta.get('git_head');
+		const anchor = waiting[0];
+		// With joins waiting, Git's `main` is a pushed commit: live edits start from the commit Git's `main` was when they were made, whose tree is the flushed live tree.
+		let previousTree = anchor === undefined ? (meta.get('git_tree') ?? trees.empty) : trees.update(history.at(flushed).tree, [[['.gitattributes'], attributes]]);
+		let previousOid = anchor === undefined ? meta.get('git_head') : anchor.old;
+		/** Commits every later pushed commit descends from: a join on one of these needs no second parent. */
+		const behind = new Set<string | null>(anchor === undefined ? [] : [anchor.old]);
 		const commits: Planned[] = [];
 		let start = from;
 		for (const end of cuts) {
@@ -113,17 +148,37 @@ export function createFlusher({
 			start = end + 1;
 			const cut = history.at(end);
 			const tree = trees.update(cut.tree, [[['.gitattributes'], attributes]]);
-			// RULE: a cut that changes nothing is no Git commit, a message's included: Git records changes, and an unchanged tree has none to describe (the live commit keeps the message while it is kept).
-			if (tree === previousTree) continue;
-			const changed = trees.diff(previousTree, tree);
+			const join = joined.get(end);
+			let parents = previousOid === null || previousOid === '' ? [] : [previousOid];
+			let against = previousTree;
+			if (join !== undefined) {
+				// The join: first parent the pushed commit, so Git's first-parent history runs through every push and no commit after it lacks it.
+				const side = !behind.has(previousOid);
+				behind.add(join.oid);
+				if (!side && tree === join.tree) {
+					// Nothing live to join: the pushed commit is the state.
+					previousOid = join.oid;
+					previousTree = join.tree;
+					continue;
+				}
+				parents = side && previousOid !== null ? [join.oid, previousOid] : [join.oid];
+				against = join.tree;
+			} else if (tree === previousTree) {
+				// RULE: a cut that changes nothing is no Git commit, a message's included: Git records changes, and an unchanged tree has none to describe (the live commit keeps the message while it is kept).
+				continue;
+			}
+			const changed = trees.diff(against, tree);
 			const paths = changed.filter((path) => path !== '.gitattributes').sort();
 			const counts = new Map<string, number>();
 			for (const commit of range) if (commit.author.user !== 'epicenter') counts.set(commit.author.user, (counts.get(commit.author.user) ?? 0) + 1);
-			const subject = cut.blocks
-				? `Merge ${cut.author.user}'s change into ${paths[0] ?? 'main'}${paths.length > 1 ? ` and ${paths.length - 1} others` : ''}`
-				: paths.length === 1
-					? `Edit ${paths[0]}`
-					: `Edit ${paths[0] ?? 'main'} and ${paths.length - 1} others`;
+			const subject =
+				join !== undefined
+					? `Merge live edits into ${short(join.oid)}${cut.blocks ? ` with conflict blocks in ${paths[0] ?? 'main'}${paths.length > 1 ? ` and ${paths.length - 1} others` : ''}` : ''}`
+					: cut.blocks
+						? `Merge ${cut.author.user}'s change into ${paths[0] ?? 'main'}${paths.length > 1 ? ` and ${paths.length - 1} others` : ''}`
+						: paths.length === 1
+							? `Edit ${paths[0]}`
+							: `Edit ${paths[0] ?? 'main'} and ${paths.length - 1} others`;
 			const trailers = [
 				`Epicenter-Live: ${short(range[0]?.id ?? '')}..${short(cut.id)} (${range.length} commits)`,
 				// Who said it: the writer's label (an agent's name, or a device's id), which conflict blocks name too.
@@ -137,7 +192,6 @@ export function createFlusher({
 			const said = cut.message?.trim();
 			const message = said === undefined || said === '' ? `${subject}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n` : `${said}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n`;
 			const author = signatureOf([...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'epicenter');
-			const parents = previousOid === null || previousOid === '' ? [] : [previousOid];
 			const seconds = Math.floor(cut.at / 1000);
 			const oid = gitCommitHash({ tree, parents, message, author: { ...author, at: seconds }, committer: { ...COMMITTER, at: seconds } });
 			const blobs = [...new Set(changed.map((path) => trees.read(tree, path)).filter((hash): hash is string => hash !== null))];
@@ -146,7 +200,9 @@ export function createFlusher({
 			previousOid = oid;
 		}
 		if (commits.length === 0) {
+			// Git's `main` already has the live tree: it is the last pushed commit, or what it was.
 			meta.set('flushed', top);
+			store.run("DELETE FROM meta WHERE key = 'joins'");
 			return null;
 		}
 		const n = (first<{ n: number | null }>(store, 'SELECT MAX(n) AS n FROM flushes')?.n ?? 0) + 1;
@@ -190,6 +246,9 @@ export function createFlusher({
 			meta.set('git_head', last.oid);
 			meta.set('git_tree', last.tree);
 			meta.set('flushed', Math.max(meta.number('flushed'), plan.through));
+			// A merged push's row leaves its join; a flush joins every one (a push applied on Git's `main` happens only with none waiting).
+			if (plan.join !== undefined) meta.set('joins', JSON.stringify([...joins(), plan.join]));
+			else store.run("DELETE FROM meta WHERE key = 'joins'");
 			for (const commit of plan.commits)
 				store.run('INSERT INTO flushes (oid, tree, through, message) VALUES (?, ?, ?, ?)', [commit.oid, commit.tree, plan.through, commit.message]);
 			store.run("UPDATE journal SET state = 'completed' WHERE n = ?", [n]);
@@ -271,13 +330,16 @@ export function createFlusher({
 		 * then holds live history through place `through`. `staging` already
 		 * points at `next`.
 		 */
-		journalPushed({ old, next, tree, through, staging, user, at }: { old: string | null; next: string; tree: string; through: number; staging: string; user: string; at: number }) {
+		journalPushed({ old, next, tree, through, staging, user, at, join }: { old: string | null; next: string; tree: string; through: number; staging: string; user: string; at: number; join?: Join }) {
 			const commit: Planned = { oid: next, tree, parents: old === null ? [] : [old], message: 'git push\n', author: signatureOf(user), at, blobs: [] };
-			const plan: Plan = { expected: old, staging, through, commits: [commit] };
+			const plan: Plan = { expected: old, staging, through, commits: [commit], ...(join === undefined ? {} : { join }) };
 			store.run("INSERT INTO journal (state, plan) VALUES ('staged', ?)", [JSON.stringify(plan)]);
 		},
 		/** Finish the journal row in place: for the receiver, which already runs exclusively. */
 		finish: resume,
+		/** Finish any journal row, then flush what is new, in place: for the receiver. */
+		flushHere: run,
+		joins,
 		/** The row a diverged flush stopped at: what Git's `main` was expected to be. */
 		diverged: () => {
 			const row = first<{ plan: string }>(store, "SELECT plan FROM journal WHERE state = 'diverged'");

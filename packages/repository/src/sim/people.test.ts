@@ -307,7 +307,7 @@ test('a pending delete and an offline rename survive a flush and the window pass
 	expect([...world.server.snapshot().keys()]).toEqual(['notes/b.md', 'notes/d.md']);
 });
 
-test('D1: a Git push is fast-forward only: refused while live edits are not in Git or when main moved, applied on the flushed main', async () => {
+test('D1: a Git push is a fast-forward of Git\'s main, merged over live edits Git does not hold yet; refused when main moved', async () => {
 	const world = createWorld();
 	const alice = world.device('alice');
 	world.net.runFor(500);
@@ -322,13 +322,18 @@ test('D1: a Git push is fast-forward only: refused while live edits are not in G
 		return git.writeCommit({ tree: await git.writeTree(tree), parents: parent === null ? [] : [parent], message: 'from git\n', author, at: new Date(EPOCH) });
 	};
 	const push = (old: string | null, next: string) => world.server.receive({ ref: MAIN, old, next }, world.session('alice'));
-	const stale = await commitOn(null, note('from git\n'));
-	expect(await push(null, stale)).toMatchObject({ kind: 'refused', code: 'unflushed' });
-	await world.server.idle();
+	// Git is empty and the live edit is not in it yet: the push is merged over it, the note created twice (two creates hold both).
+	const early = await commitOn(null, note('from git\n'));
+	expect(await push(null, early)).toMatchObject({ kind: 'accepted', main: early, merged: true });
+	expect(world.server.read('notes/a.md')).toContain('from http');
+	expect(world.server.read('notes/a.md')).toContain('from git');
+	await world.flush();
 	const flushed = await git.readRef(MAIN);
+	const stale = await commitOn(null, note('from git, again\n'));
 	expect(await push(null, stale)).toMatchObject({ kind: 'refused', code: 'main-moved' });
+	// Nothing live is ahead of Git now: a push rebased on it is applied as it stands.
 	const rebased = await commitOn(flushed, note('from git, rebased\n'));
-	expect(await push(flushed, rebased)).toMatchObject({ kind: 'accepted', main: rebased, live: { kind: 'applied' } });
+	expect(await push(flushed, rebased)).toMatchObject({ kind: 'accepted', main: rebased, merged: false });
 	expect(await git.readRef(MAIN)).toBe(rebased);
 	expect(world.server.read('notes/a.md')).toBe(note('from git, rebased\n'));
 	// Git already holds it: the next flush has nothing to write.
