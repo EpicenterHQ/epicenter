@@ -87,6 +87,18 @@ export const BLOB_STORE_CHECKS: Record<string, (store: BlobStore<Blob>) => Promi
 		const { oid } = await sealed(store, streamOf(bytes));
 		check(await store.has(oid), 'a later seal of the whole stores it');
 	},
+	async 'a seal that expects other bytes stores nothing and says so'(store) {
+		const bytes = bytesOf(20_000, 7);
+		const oid = await oidOf(bytes);
+		const other = await oidOf(bytesOf(20_000, 8));
+		for (const expect of [{ oid: other, size: bytes.length }, { oid, size: bytes.length - 1 }, { oid, size: bytes.length + 1 }]) {
+			const { error } = await store.seal(streamOf(bytes, 4_096), { expect });
+			check(error?.name === 'Mismatch', `bytes that are not ${JSON.stringify(expect)} are refused`);
+			check(!(await store.has(oid)), 'nothing is stored for them');
+		}
+		const { data } = await store.seal(streamOf(bytes, 4_096), { expect: { oid, size: bytes.length } });
+		check(data?.oid === oid && (await store.has(oid)), 'the expected bytes are stored');
+	},
 	async 'an oid that is not here, or is not an oid, reads as nothing'(store) {
 		const absent = await oidOf(bytesOf(10, 4));
 		check((await store.read(absent)) === null && !(await store.has(absent)), 'an absent oid');

@@ -24,8 +24,8 @@ const log = createLogger('repository/browser-worker');
 const post = (message: WorkerMessage) => postMessage(message);
 
 /** A Result as it crosses to the tab: an error's `cause` may not be cloneable, so it goes as its message. */
-function plain<T, E extends { cause?: unknown }>(result: Result<T, E>): Result<T, E> {
-	if (result.error === null || result.error.cause === undefined) return result;
+function plain<T, E extends object>(result: Result<T, E>): Result<T, E> {
+	if (result.error === null || !('cause' in result.error) || result.error.cause === undefined) return result;
 	return { data: null, error: { ...result.error, cause: extractErrorMessage(result.error.cause) } };
 }
 
