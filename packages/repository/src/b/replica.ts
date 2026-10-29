@@ -50,7 +50,7 @@ type FileRecord = {
 	sent?: Level;
 	committed?: Level;
 	/** RULE: held for this text of `mine` (by hash): refused by the door, or a delete or removal that lost to an edit. Its person's next save resolves it. */
-	held?: { reason: string; hash: string | null };
+	held?: { reason: string; hash: string | null; below?: string | null };
 	/** RULE: this work's commit got `outcome-unknown`: the next catch-up puts it beside what is there, never merged blindly. */
 	unknown?: true;
 	/** RULE: paths saved with this one (a rename's two halves): they commit together, and one held holds them all. */
@@ -202,14 +202,16 @@ export function createReplica({
 			const path = spelled(given);
 			const { held: _, ...f } = record(path);
 			const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
-			let next = from === f.mine ? text : settle(from, f.mine, text, { labels}).text;
+			let next = from === f.mine ? text : settle(from, f.mine, text, { labels }).text;
 			// RULE: a new save over work held because it lost to an edit (a delete or a removal) is merged with that edit, never replacing it.
 			// Saving the held work unchanged is "anyway"; saving the shared text is "keep the edit".
 			const lostTo = record(path).held;
 			const shared = tip(f);
+			// A removal is merged from the text it removed from, so the rest of the held work stays (RULE); a delete's new text is another note.
 			if (lostTo !== undefined && lostTo.reason.startsWith('edited after you') && lostTo.hash === hashOf(f.mine) && next !== f.mine && next !== shared)
-				next = settle(f.mine, shared, next, { labels}).text;
-			const together = all.filter((other) => other !== path);
+				next = settle(lostTo.below === undefined ? f.mine : lostTo.below, shared, next, { labels }).text;
+			// RULE: a save joins any group the path is already in: a new text over a rename's unsent half must still go with the other half.
+			const together = [...new Set([...(f.together ?? []), ...all.filter((other) => other !== path)])];
 			set(path, { ...f, mine: next, ...(together.length === 0 ? {} : { together }) });
 		}
 		if (commitMode !== undefined) nextMode = commitMode;
@@ -306,10 +308,10 @@ export function createReplica({
 		const gone = deleted && !own;
 		// What of mine the shared text does not hold: a delete or a field removal that lost to an edit.
 		const lost = (from: string | null, mine: string | null, landed: string | null) => {
-			if (mine === null) return landed === null || from === null ? null : { reason: 'edited after you deleted it', keys: [] as string[] };
+			if (mine === null) return landed === null || from === null ? null : { reason: 'edited after you deleted it', keys: [] as string[], from };
 			if (parseMarkdown(mine).error !== null) return null;
 			const removed = Object.keys(fieldsOf(from)).filter((key) => !(key in fieldsOf(mine)) && key in fieldsOf(landed));
-			return removed.length === 0 ? null : { reason: `edited after you removed ${removed.join(', ')}`, keys: removed };
+			return removed.length === 0 ? null : { reason: `edited after you removed ${removed.join(', ')}`, keys: removed, from };
 		};
 		let committed: string | null | undefined;
 		// Only when nothing was typed above that work since.
@@ -323,20 +325,30 @@ export function createReplica({
 		const mineBelow = f.committed !== undefined ? f.committed.text : below;
 		const heldDelete = f.mine === null && f.held !== undefined && f.held.hash === null;
 		const settled = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, labels});
-		// The same for work not yet committed (a rename's half waiting for its partner).
-		if (f.committed === undefined && !heldDelete && f.mine !== below) lostWork ??= lost(below, f.mine, settled.text);
+		// The same for work not yet committed (a rename's half waiting for its partner), above any committed work, which still goes.
+		let above = false;
+		if (lostWork === null && !heldDelete && f.mine !== mineBelow) {
+			lostWork = lost(mineBelow, f.mine, settled.text);
+			above = f.committed !== undefined;
+		}
 		let mine = heldDelete ? null : settled.text;
-		let held = f.held !== undefined && f.held.hash === hashOf(f.mine) ? f.held.reason : null;
+		const kept = f.held !== undefined && f.held.hash === hashOf(f.mine) ? f.held : undefined;
+		let held = kept?.reason ?? null;
+		let heldBelow = kept?.below;
+		// RULE: held text that the rebase made admissible stays held: it is published only by a save of this path, not by the next save of any path.
+		const refused = kept === undefined && f.mine !== tip(f) ? admissible(path, f.mine) : null;
 		if (lostWork !== null) {
 			// RULE: the shared text kept an edit over my delete or removal: that alone stays as I left it, held, for me to save again or let go;
 			// the rest of my unsent work still goes.
-			if (lostWork.keys.length === 0) committed = undefined;
+			if (lostWork.keys.length === 0 && !above) committed = undefined;
 			mine = lostWork.keys.length === 0 ? null : (writeMarkdown(mine, { fields: Object.fromEntries(lostWork.keys.map((key) => [key, undefined])) }).data ?? mine);
 			held = lostWork.reason;
+			heldBelow = lostWork.keys.length === 0 ? undefined : lostWork.from;
 		}
 		const next: FileRecord = { base: text, mine };
 		if (committed !== undefined && committed !== text) next.committed = { text: committed };
-		if (held !== null && mine !== text) next.held = { reason: held, hash: hashOf(mine) };
+		if (held === null && refused !== null && mine !== text && admissible(path, mine) === null) held = 'merged while held: save it to send';
+		if (held !== null && mine !== text) next.held = { reason: held, hash: hashOf(mine), ...(heldBelow === undefined ? {} : { below: heldBelow }) };
 		// A group lasts until its own commit lands: while anything of it is unsent here.
 		if (f.together !== undefined && (!own || next.committed !== undefined || next.mine !== next.base)) next.together = f.together;
 		set(path, next);
@@ -541,6 +553,9 @@ export function createReplica({
 			const f = record(path);
 			const reason = heldReason(path, f);
 			if (reason !== null) return { status: 'held', reason };
+			// A path saved with a held one waits for it: say so, not "sending".
+			const partner = f.mine === tip(f) ? undefined : (f.together ?? []).find((other) => blocked(other));
+			if (partner !== undefined) return { status: 'held', reason: `saved with ${partner}, which is held` };
 			return f.sent !== undefined || f.committed !== undefined || f.mine !== f.base ? { status: 'sending' } : { status: 'synced' };
 		},
 		/** Why the last commit was refused (an agent's verdict), or null. */
