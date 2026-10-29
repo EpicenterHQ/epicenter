@@ -1,7 +1,7 @@
 export { type FlushResult, type FlushStep } from './flush.js';
 export { type CommitInfo, type GitObjects, MAIN, type Signature, type Tree, type TreeEntry } from './git-store.js';
 export { createMemoryGitStore, type MemoryGitStore } from './memory-git.js';
-export { type ReceiveAnswer, type ReceiveCode } from './receive.js';
+export { DIVERGED, type ReceiveAnswer, type ReceiveCode } from './receive.js';
 export {
 	type CatchUp,
 	type Clock,
@@ -22,6 +22,7 @@ export {
 	SCHEDULE,
 	type Schedule,
 	type Server,
+	type ServerState,
 	type Session,
 	type Store,
 	type Timer,

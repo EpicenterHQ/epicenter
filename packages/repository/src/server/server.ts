@@ -40,7 +40,7 @@ import { first, type SqlDriver } from '../sql.js';
 import { createFlusher, type FlushStep } from './flush.js';
 import { type GitObjects, MAIN } from './git-store.js';
 import { openHistory, type Stored } from './history.js';
-import { createReceiver } from './receive.js';
+import { createReceiver, DIVERGED } from './receive.js';
 
 // ============================================================================
 // Ports
@@ -230,7 +230,16 @@ const SERVER: Author = { user: 'epicenter', device: 'server' };
 
 const ServerDiagnostic = defineErrors({
 	FlushFailed: ({ cause }: { cause: unknown }) => ({ message: 'A scheduled flush failed; it runs again after the next push', cause }),
+	Diverged: ({ main, expected }: { main: string | null; expected: string | null }) => ({ message: DIVERGED, main, expected }),
 });
+
+/**
+ * Whether live history flows into Git: `live`, or `diverged` when Git's
+ * `main` moved outside Epicenter and is not `expected`. Diverged, live
+ * edits go on, but no flush or `git push` is taken until an operator puts
+ * Git's `main` back at `expected`.
+ */
+export type ServerState = { kind: 'live' } | { kind: 'diverged'; expected: string | null };
 const encoder = new TextEncoder();
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const bytes = (text: string) => encoder.encode(text).length;
@@ -466,7 +475,7 @@ export function createServer({
 	let lastPush = 0;
 	let lastFlush = clock();
 	const flusher = createFlusher({ history, store, git, faults });
-	const receiver = createReceiver({ history, store, git, clock, limits, flusher, apply: (commit, session) => push(commit, session, { rate: false }) });
+	const receiver = createReceiver({ history, store, git, clock, limits, flusher, apply: (commit, session, during) => push(commit, session, { rate: false, during }) });
 
 	/**
 	 * RULE: after a flush, drop what the window no longer keeps, then every
@@ -483,6 +492,7 @@ export function createServer({
 	}
 	const flushAndCollect = async () => {
 		const result = await flusher.flush();
+		if (result.kind === 'diverged') log?.error(ServerDiagnostic.Diverged({ main: result.main, expected: result.expected }));
 		collect();
 		return result;
 	};
@@ -503,9 +513,14 @@ export function createServer({
 	}
 
 	/** Take a live commit: fast-forward `main`, merge it in, or refuse it; a resend gets its recorded outcome. */
-	function push(commit: LiveCommit, session?: Session, { rate = true, expect }: { rate?: boolean; expect?: Expect } = {}): PushAnswer {
+	/** Take a live commit; `during` runs in its transaction once it lands (the receiver's journal row). */
+	function push(commit: LiveCommit, session?: Session, { rate = true, expect, during }: { rate?: boolean; expect?: Expect; during?: () => void } = {}): PushAnswer {
 		pending = [];
-		const answer = store.transaction(() => pushInside(commit, session, rate, expect));
+		const answer = store.transaction(() => {
+			const answer = pushInside(commit, session, rate, expect);
+			if (answer.kind === 'applied' || answer.kind === 'merged') during?.();
+			return answer;
+		});
 		if (answer.kind === 'applied' || answer.kind === 'merged') {
 			notify();
 			pushed();
@@ -516,6 +531,11 @@ export function createServer({
 	return {
 		/** The current `main`. */
 		main: () => main().id,
+		/** Whether live history flows into Git, or a flush is diverged (for the host's alerts). */
+		state: (): ServerState => {
+			const stuck = flusher.diverged();
+			return stuck === null ? { kind: 'live' } : { kind: 'diverged', expected: stuck.expected };
+		},
 		/** The server's clock, as the ISO instant a commit made here carries. */
 		time,
 		/** The bounds on one push a device sizes its commits to. */

@@ -16,9 +16,10 @@ import { describe, expect, test } from 'bun:test';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { MAIN } from './git-store.js';
+import { type GitObjects, MAIN } from './git-store.js';
 import { createMemoryGitStore } from './memory-git.js';
-import { createServer, type Event, type Limits, LIMITS, type Server, type Session } from './server.js';
+import { createLogger, memorySink } from 'wellcrafted/logger';
+import { createServer, type Event, type Limits, LIMITS, openServer, type Server, type Session } from './server.js';
 
 const EPOCH = Date.UTC(2026, 9, 28, 12);
 const alice: Session = { user: 'alice', role: 'writer' };
@@ -213,6 +214,101 @@ describe('the Git receive path', () => {
 			world.server.receive({ ref, old, next }, session);
 		return { ...world, head, commitOn, receive };
 	}
+
+	test('a flush that finds Git moved from outside says so: the server state, the log and the receiver; putting main back resumes it', async () => {
+		const { server, git, head, commitOn, store } = await flushed();
+		const { sink, events } = memorySink();
+		const logged = createServer({ store, git, clock: () => EPOCH, log: createLogger('test', sink), timer: (_, run) => run() });
+		const outside = await commitOn(head, { 'n/x.md': note('outside\n') });
+		await git.updateRef(MAIN, outside, head);
+		logged.push(make(logged, [{ path: 'n/a.md', text: note('two\n') }]), alice);
+		await logged.idle();
+		expect(events.map((event) => [event.level, event.message])).toContainEqual(['error', "Git's main moved outside Epicenter; flushes stop until an operator puts it back"]);
+		expect(logged.state()).toEqual({ kind: 'diverged', expected: head });
+		expect(await logged.receive({ ref: MAIN, old: outside, next: outside }, alice)).toMatchObject({ kind: 'refused', code: 'diverged' });
+		// The operator's recovery: Git's main back at the commit Epicenter expects; the next flush finishes.
+		await git.updateRef(MAIN, head, outside);
+		expect(await logged.flush()).toMatchObject({ kind: 'flushed' });
+		expect(logged.state()).toEqual({ kind: 'live' });
+		expect(server.read('n/a.md')).toBe(note('two\n'));
+	});
+
+	test('a push the live door would refuse is refused before Git moves, so a published main is never rewound', async () => {
+		const world = setup({ files: 2 });
+		world.server.push(make(world.server, [{ path: 'n/a.md', text: note('a\n') }]), alice);
+		await world.server.flush();
+		const head = (await world.git.readRef(MAIN)) as string;
+		const tree = await world.git.readTree((await world.git.readCommit(head))?.tree ?? '');
+		for (const name of ['b', 'c', 'd']) tree.set(`n/${name}.md`, { mode: '100644', oid: await world.git.writeBlob(new TextEncoder().encode(note(`${name}\n`))) });
+		const next = await world.git.writeCommit({ tree: await world.git.writeTree(tree), parents: [head], message: 'three\n', author: { name: 'alice', email: 'a@b' }, at: new Date(EPOCH) });
+		const moves: string[] = [];
+		const watched: GitObjects = {
+			...world.git,
+			updateRef: async (name, to, expected) => {
+				if (name === MAIN) moves.push(to);
+				return world.git.updateRef(name, to, expected);
+			},
+		};
+		const server = createServer({ store: world.store, git: watched, clock: () => EPOCH, limits: { files: 2 } });
+		expect(await server.receive({ ref: MAIN, old: head, next }, alice)).toMatchObject({ kind: 'refused', code: 'live', reason: 'too many files' });
+		expect(moves).toEqual([]);
+		expect(await world.git.readRef(MAIN)).toBe(head);
+	});
+
+	test('a live commit that lands while a push is checked refuses the push (no merge), and Git does not move', async () => {
+		const world = setup();
+		world.server.push(make(world.server, [{ path: 'n/a.md', text: note('a\n') }]), alice);
+		await world.server.flush();
+		const head = (await world.git.readRef(MAIN)) as string;
+		const tree = await world.git.readTree((await world.git.readCommit(head))?.tree ?? '');
+		tree.set('n/b.md', { mode: '100644', oid: await world.git.writeBlob(new TextEncoder().encode(note('b\n'))) });
+		const next = await world.git.writeCommit({ tree: await world.git.writeTree(tree), parents: [head], message: 'b\n', author: { name: 'alice', email: 'a@b' }, at: new Date(EPOCH) });
+		let server: Server | undefined;
+		let landed = false;
+		const racing: GitObjects = {
+			...world.git,
+			readBlob: async (oid) => {
+				if (!landed && server !== undefined) {
+					landed = true;
+					expect(server.push(make(server, [{ path: 'n/c.md', text: note('c\n') }]), alice).kind).toBe('applied');
+				}
+				return world.git.readBlob(oid);
+			},
+		};
+		server = createServer({ store: world.store, git: racing, clock: () => EPOCH });
+		expect(await server.receive({ ref: MAIN, old: head, next }, alice)).toMatchObject({ kind: 'refused', code: 'main-moved' });
+		expect(await world.git.readRef(MAIN)).toBe(head);
+		expect(server.read('n/b.md')).toBeNull();
+	});
+
+	test('a push is journaled like a flush: a crash after Git moved is finished by a fresh instance', async () => {
+		const world = setup();
+		world.server.push(make(world.server, [{ path: 'n/a.md', text: note('a\n') }]), alice);
+		await world.server.flush();
+		const head = (await world.git.readRef(MAIN)) as string;
+		const tree = await world.git.readTree((await world.git.readCommit(head))?.tree ?? '');
+		tree.set('n/b.md', { mode: '100644', oid: await world.git.writeBlob(new TextEncoder().encode(note('b\n'))) });
+		const next = await world.git.writeCommit({ tree: await world.git.writeTree(tree), parents: [head], message: 'b\n', author: { name: 'alice', email: 'a@b' }, at: new Date(EPOCH) });
+		const crashing = createServer({
+			store: world.store,
+			git: world.git,
+			clock: () => EPOCH,
+			faults: (step) => {
+				if (step === 'main-moved') throw new Error('crash');
+			},
+		});
+		await expect(crashing.receive({ ref: MAIN, old: head, next }, alice)).rejects.toThrow('crash');
+		expect(await world.git.readRef(MAIN)).toBe(next);
+		const fresh = await openServer({ store: world.store, git: world.git, clock: () => EPOCH });
+		expect(fresh.state()).toEqual({ kind: 'live' });
+		expect(fresh.read('n/b.md')).toBe(note('b\n'));
+		// Git holds everything live: the next push builds on it.
+		const after = await world.git.readTree((await world.git.readCommit(next))?.tree ?? '');
+		after.set('n/c.md', { mode: '100644', oid: await world.git.writeBlob(new TextEncoder().encode(note('c\n'))) });
+		const third = await world.git.writeCommit({ tree: await world.git.writeTree(after), parents: [next], message: 'c\n', author: { name: 'alice', email: 'a@b' }, at: new Date(EPOCH) });
+		expect(await fresh.receive({ ref: MAIN, old: next, next: third }, alice)).toMatchObject({ kind: 'accepted', main: third });
+		expect(await fresh.flush()).toEqual({ kind: 'nothing' });
+	});
 
 	test('every pushed commit is checked, not only the tip', async () => {
 		const { head, commitOn, receive, git, server } = await flushed();
