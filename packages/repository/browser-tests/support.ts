@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BrowserContext, BrowserType, Page } from 'playwright';
 import type {} from './harness.js';
+import type {} from './replica-harness.js';
 
 export const TIMEOUT = 60_000;
 
@@ -53,4 +54,13 @@ export async function openTab(
 export async function reopen(page: Page, name: string, server?: string) {
 	await page.waitForFunction(() => globalThis.harness !== undefined);
 	return page.evaluate(([name, server]) => harness.open(name, server), [name, server] as const);
+}
+
+/** Load the replica host's harness in `page` (a new tab by default). */
+export async function loadReplicaPage(context: BrowserContext, site: string, { page }: { page?: Page } = {}) {
+	const opened = page ?? (await context.newPage());
+	opened.on('pageerror', (error) => console.error('page error:', error));
+	await opened.goto(new URL('replica', site).href);
+	await opened.waitForFunction(() => globalThis.replicas !== undefined);
+	return opened;
 }

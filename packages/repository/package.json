@@ -13,6 +13,7 @@
 		"./conflict": "./src/core/conflict.ts",
 		"./bun": "./src/bun/index.ts",
 		"./browser": "./src/browser/index.ts",
+		"./hosts/browser": "./src/hosts/browser/index.ts",
 		"./legacy-ws": "./src/legacy-ws/index.ts",
 		"./legacy-ws/server": "./src/legacy-ws/server.ts",
 		"./svelte": "./src/svelte/index.ts"
