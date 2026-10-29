@@ -285,7 +285,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	 * folds to this one's (`twin`).
 	 */
 	async function spellingAt(path: string, listed: Listings): Promise<{ path: string; twin: boolean }> {
-		const others = [...new Set([...spellings(path), ...(await listed.beside(path))])];
+		const known = spellings(path);
+		const others = [...new Set([...known, ...(await listed.beside(path))])];
 		if (others.length === 0) return { path, twin: false };
 		const here = await fs.stat(path);
 		let twin = false;
@@ -293,7 +294,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			const there = await fs.stat(other);
 			if (there === null || there.kind === 'directory') continue;
 			// One file under two spellings: the one the engine already knows names it.
-			if (here !== null && here.ino === there.ino && here.ino !== 0) return { path: spellings(path).includes(other) ? other : path, twin: false };
+			if (here !== null && here.ino === there.ino && here.ino !== 0) return { path: known.includes(other) ? other : path, twin: false };
 			twin = true;
 		}
 		return { path, twin };
@@ -408,11 +409,11 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		const paired = new Set<Save>();
 		for (const appeared of saves) {
 			if (appeared.save.text === null || appeared.was !== null || appeared.save.record === null) continue;
-			const twin = vanished.find((v) => !paired.has(v.save) && v.was === appeared.save.record?.hash);
-			if (twin === undefined) continue;
-			paired.add(twin.save);
+			const half = vanished.find((v) => !paired.has(v.save) && v.was === appeared.save.record?.hash);
+			if (half === undefined) continue;
+			paired.add(half.save);
 			paired.add(appeared.save);
-			calls.push([twin.save, appeared.save]);
+			calls.push([half.save, appeared.save]);
 		}
 		for (const { save } of saves) if (!paired.has(save)) calls.push([save]);
 		return calls;
@@ -485,7 +486,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	const fetching = new Map<string, number>();
 
 	/** Write what the replica shows at `path` to the file, if the file is still what the engine last wrote there. */
-	async function project(path: string, listed: Listings = listings()) {
+	async function project(path: string, listed: Listings) {
 		if (ignored(path)) return;
 		const record = recorded(path);
 		const mine = mineAt(path);
