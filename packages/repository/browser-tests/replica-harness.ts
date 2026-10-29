@@ -78,7 +78,7 @@ async function settle() {
 const api = {
 	/** Make a replica of `repository` and open it here; answers its id. */
 	async create(repository: string, { account = null, url = null, token }: { account?: string | null; url?: string | null; token?: string } = {}) {
-		const created = await createBrowserReplica({ repository, name: repository, account, url, ...options(token) });
+		const created = await createBrowserReplica({ owner: null, repository, name: repository, account, url, ...options(token) });
 		if (created.error !== null) return { error: created.error.name, replica: null };
 		tab = created.data;
 		await settle();
@@ -96,6 +96,12 @@ const api = {
 		now.useHere();
 	},
 	close: () => tab?.close(),
+	/** Close the replica and, in the same task, open it again in this page. */
+	reopen(replica: string, { token }: { token?: string } = {}) {
+		tab?.close();
+		tab = openBrowserReplica({ replica, ...options(token) });
+		return settle();
+	},
 	manifest: () => current().manifest,
 	write: async (path: string, text: string | null) => plain(await current().change([{ kind: 'write', path, text }])),
 	read: (path: string) => current().read(path),

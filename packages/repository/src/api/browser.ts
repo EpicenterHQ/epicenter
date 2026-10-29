@@ -39,7 +39,7 @@ export function openBrowserRepository<TDefs extends Definitions>({ app, replica,
 export async function createBrowserRepository<TDefs extends Definitions>({
 	app,
 	...options
-}: { app: App<TDefs>; repository: string; name: string; account: string | null; url: string | null } & Options): Promise<Result<{ manifest: Manifest; repository: Repository<TDefs> }, BrowserReplicaError>> {
+}: { app: App<TDefs>; owner: string | null; repository: string; name: string; account: string | null; url: string | null } & Options): Promise<Result<{ manifest: Manifest; repository: Repository<TDefs> }, BrowserReplicaError>> {
 	const created = await createBrowserReplica({ ...options, collections: collectionsOf(app) });
 	if (created.error !== null) return created;
 	return Ok({ manifest: created.data.manifest, repository: openRepository({ app, host: browserHost(created.data) }) });
@@ -47,7 +47,7 @@ export async function createBrowserRepository<TDefs extends Definitions>({
 
 export { BrowserReplicaError, type Manifest } from '../hosts/browser/index.js';
 
-/** This browser's repositories, from their manifests: which repository each is, its name here, the account and the server (null: kept only here). */
+/** This browser's repositories, from their manifests: which repository each is and whose (null: yours), its name here, the account and the server (null: kept only here). */
 export const listBrowserRepositories = (): Promise<Manifest[]> => listReplicas();
 
 /** How long a removal waits for the replica to open in this tab before it gives up, having changed nothing. */

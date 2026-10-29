@@ -2,7 +2,7 @@
  * The replica layout in this origin's private storage:
  *
  *   .epicenter/replicas/<replicaId>/
- *     manifest.json   which repository, its display name, the account (null: a guest's), the server (null: none yet)
+ *     manifest.json   which repository and whose, its display name, the account (null: a guest's), the server (null: none yet)
  *     sqlite/         the opfs-sahpool VFS's directory, which it alone owns (it deletes it whole on removeVfs)
  *     objects/<oid>   sealed blob bytes
  *     removing        present while a removal is unfinished
@@ -39,6 +39,8 @@ const REMOVING = 'removing';
 const ManifestSchema = Type.Object(
 	{
 		replica: Type.String({ pattern: REPLICA_ID.source }),
+		/** Who owns the repository, as its address names them (null: you, the person using this device, addressed `~`). */
+		owner: Type.Union([Type.String(), Type.Null()]),
 		repository: Type.String(),
 		name: Type.String(),
 		account: Type.Union([Type.String(), Type.Null()]),

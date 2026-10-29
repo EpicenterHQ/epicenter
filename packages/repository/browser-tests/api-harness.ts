@@ -80,7 +80,7 @@ async function until(check: () => boolean, what: string, timeout = 15_000) {
 
 const calls = {
 	async create(name: string, { account, url, token }: { account: string; url: string; token: string }) {
-		const created = await createBrowserReplica({ repository: name, name, account, url, ...options(token) });
+		const created = await createBrowserReplica({ owner: null, repository: name, name, account, url, ...options(token) });
 		if (created.error !== null) throw new Error(created.error.message);
 		return show(created.data);
 	},

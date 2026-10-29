@@ -118,7 +118,7 @@
 		const shown = form.name.trim() || name;
 		busy = true;
 		failure = undefined;
-		const created = await createBrowserRepository({ app, repository, name: shown, account, url: synced ? url : null, headers: headersOf({ account, url: synced ? url : null }) });
+		const created = await createBrowserRepository({ app, owner: null, repository, name: shown, account, url: synced ? url : null, headers: headersOf({ account, url: synced ? url : null }) });
 		busy = false;
 		if (created.error !== null) {
 			failure = created.error.message;

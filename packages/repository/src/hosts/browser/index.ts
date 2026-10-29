@@ -252,22 +252,25 @@ function createOpenReplica({
 export type OpenReplica = ReturnType<typeof createOpenReplica>;
 
 /**
- * Make a new replica of `repository` in this origin, for `account` (null: a
- * guest), synced with `server` (null: none yet), and open it in this tab,
- * with the manifest its worker writes as it first opens it. The origin
- * holds at most one replica per repository and account.
+ * Make a new replica of `owner`'s `repository` (owner null: yours) in this
+ * origin, for `account` (null: a guest), synced with `server` (null: none
+ * yet), and open it in this tab, with the manifest its worker writes as it
+ * first opens it. The origin holds at most one replica per owner,
+ * repository and account.
  */
 export async function createBrowserReplica({
+	owner,
 	repository,
 	name,
 	account,
 	url,
 	...options
-}: { repository: string; name: string; account: string | null; url: string | null } & BrowserReplicaOptions): Promise<Result<ReplicaTab & { manifest: Manifest }, BrowserReplicaError>> {
-	const existing = (await listReplicas()).find((manifest) => manifest.repository === repository && manifest.account === account);
+}: { owner: string | null; repository: string; name: string; account: string | null; url: string | null } & BrowserReplicaOptions): Promise<Result<ReplicaTab & { manifest: Manifest }, BrowserReplicaError>> {
+	const existing = (await listReplicas()).find((manifest) => manifest.owner === owner && manifest.repository === repository && manifest.account === account);
 	if (existing !== undefined) return BrowserReplicaError.AlreadyHere({ replica: existing.replica });
 	const manifest: Manifest = {
 		replica: crypto.randomUUID(),
+		owner,
 		repository,
 		name,
 		account,
@@ -275,6 +278,15 @@ export async function createBrowserReplica({
 	};
 	return Ok(Object.assign(openTab(manifest.replica, manifest, options), { manifest }));
 }
+
+/**
+ * The lock requests of tabs this page closed, by replica, until each lets
+ * go. A tab this page opens on a replica it is still letting go of waits
+ * for it instead of finding the lock taken: the page leaving a repository
+ * and coming back to it (Back, or opening it to remove it) is not another
+ * tab holding it.
+ */
+const lettingGo = new Map<string, Promise<unknown>>();
 
 /** Open the replica `replica` of this origin in this tab. */
 export function openBrowserReplica({ replica, ...options }: { replica: string } & BrowserReplicaOptions): ReplicaTab {
@@ -500,10 +512,17 @@ function openTab(
 			session = null;
 			set({ status: 'closed' });
 			watchers.clear();
+			const released = held;
+			lettingGo.set(id, released);
+			void released.finally(() => {
+				if (lettingGo.get(id) === released) lettingGo.delete(id);
+			});
 		},
 	};
+	const before = lettingGo.get(id);
 	if (!REPLICA_ID.test(id)) unavailable(BrowserReplicaError.NotFound({ replica: id }).error);
-	else take('available');
+	else if (before === undefined) take('available');
+	else void before.finally(() => take('available'));
 	return tab;
 }
 
