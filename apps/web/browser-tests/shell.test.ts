@@ -10,7 +10,7 @@
  * Key behaviors:
  * - `/` opens `/me`: your repositories, installed apps, storage and account; home is made when first opened
  * - Apps are addressed by hostname and share one open repository; switching apps never opens it again
- * - A reload restores the repository, the app and the app's path from the URL alone
+ * - A reload restores the repository, the app and the app's path from the URL alone (Todos' todo, Honeycrisp's note)
  * - Back and Forward move between repositories, each showing its own files
  * - Storage, on `/me`, removes a copy, saying first what is only in this browser
  * - A link to an app that is not installed offers Install and Open in Files
@@ -114,6 +114,18 @@ for (const [engine, browser] of ENGINES) {
 					await page.getByText('No note selected').waitFor();
 					await page.goBack();
 					await apps(page).getByRole('link', { name: 'Honeycrisp' }).waitFor();
+					await page.goBack();
+					await page.getByRole('checkbox', { name: 'Complete Water plants' }).waitFor();
+
+					// Files shows the same repository's files, whichever app wrote them; still one repository.
+					await toRepository(page, 'Home').click();
+					await apps(page).getByRole('link', { name: 'Files' }).click();
+					await opened(page, 'files');
+					await page.getByRole('region', { name: 'Folder' }).locator('[data-folder="todos"]').click();
+					await page.getByRole('region', { name: 'Folder' }).locator('[data-file^="todos/"]').first().waitFor();
+					expect(pathOf(page)).toBe(`/me/home/${HOSTNAMES.files}/todos/`);
+					await page.goBack();
+					await page.goBack();
 					await page.goBack();
 					await page.getByRole('checkbox', { name: 'Complete Water plants' }).waitFor();
 					expect(await workers(page)).toBe(started);
