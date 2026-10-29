@@ -900,4 +900,4 @@ When you add an ADR, add its row here.
 | [0694](0694-installing-an-app-is-trusting-it.md) | Installing an app is trusting it | Accepted (revisits 0687; mount contract and installs unbuilt) |
 | [0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) | One sync engine runs on every device, and a folder on disk is its watched projection | Accepted (revisits 0692's retired desktop folder; amended by 0697 at agent batches; watcher unbuilt) |
 | [0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) | A page writes a repository only through its worker, over collections its app declares | Proposed (split from 0692; blob collections built) |
-| [0697](0697-all-text-merges-from-everyone.md) | All text merges, from everyone | Proposed (amends 0695 at agent batches; `git push` keeps `unflushed` pending a prototype) |
+| [0697](0697-all-text-merges-from-everyone.md) | All text merges, from everyone | Proposed (amends 0695 at agent batches; a `git push` keeps Git's ref rule and merges like any commit) |

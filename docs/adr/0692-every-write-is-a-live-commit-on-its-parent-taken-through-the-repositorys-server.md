@@ -4,7 +4,7 @@
 - **Date:** 2026-10-29
 - **Would supersede:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the last edit to reach `main` wins each unit, and Epicenter writes no conflict marker): a clash is a conflict block in the note; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (a commit happens only at sync or when a person saves a version): the server flushes live history into Git on its own schedule.
 - **Would amend:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at "Repository content has one committed history: Git": live history runs ahead of Git until the next flush; [ADR-0534](0534-data-folders-are-the-only-data-model.md) at the device's copy: a device holds a replica database of the repository's files, not a folder it writes through; [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) at binary files ("Git LFS pointers ... are not designed"): every file that is not a note is a canonical LFS pointer, at any path an app names.
-- **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose rule `main` keeps; [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which runs the replica on every device and decides that typing is safe once it reaches the engine; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) (what a repository and its address are); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (the app API over the replica); [ADR-0697](0697-all-text-merges-from-everyone.md) (all text merges, from everyone: the one write rule this record runs, and the `git push` limitation); [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) (a path is a note's identity); [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (the server reads no schema).
+- **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose rule `main` keeps; [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which runs the replica on every device and decides that typing is safe once it reaches the engine; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) (what a repository and its address are); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (the app API over the replica); [ADR-0697](0697-all-text-merges-from-everyone.md) (all text merges, from everyone: the one write rule this record runs, a `git push` included); [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) (a path is a note's identity); [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (the server reads no schema).
 - **Unbuilt:** the hosted server (a Durable Object host, Cloudflare Artifacts as `GitObjects`, R2 for blob bytes behind presigned uploads); a `git push` transport into `receive` (the receiver and its checks are built, no receive-pack endpoint is); accounts and membership (the development server makes anyone the owner their `Authorization: Bearer <name>` names); the GitHub mirror and Action. (The `epicenter sync` and `epicenter commit` commands agents run are built in `packages/repository`.)
 
 ## Context
@@ -181,31 +181,70 @@ that wrote a conflict block, so the value that lost is in Git's history. It
 runs after 60 s with no push, at most 5 minutes after the last flush while
 pushes go on, and at once when asked (`server.flush`). It is a journaled
 state machine (intent, stage under a staging ref, compare-and-swap of Git's
-`main`, complete, prune) that finishes a crash at any step. A flushed
+`main`, complete, prune) that finishes a crash at any step. Staging writes
+every object the flush adds as one pack with the staging ref, in one
+request (`GitObjects.writePack`, Git's receive-pack), so a flush holds Git
+for the same five requests however many commits it writes. A flushed
 commit's subject names its paths (`Edit notes/trip.md`, or
 `Merge alice's change into notes/trip.md`), its body lists them, and its
 trailers are `Epicenter-Live: <first>..<last> (<n> commits)` and a
 `Co-authored-by` line per contributor; its author is the contributor with
-the most live commits in it and its committer is `Epicenter`. Git's history
-is first-parent: a live merge's second parent stays in live history. If
-Git's `main` moved from outside, the flush stops as `diverged`, and
-recovery is an operator's; Epicenter never rewinds or merges a `main` it
-did not write.
+the most live commits in it and its committer is
+`Epicenter <noreply@epicenter.so>`. Git's history is first-parent: a live
+merge's second parent stays in live history. If Git's `main` moved from
+outside, the flush stops as `diverged`, and recovery is an operator's;
+Epicenter never rewinds or merges a `main` it did not write.
 
-**A `git push` keeps Git's ref rule, and is taken only while Git holds
-every live edit.** `receive` (`server/receive.ts`) refuses a push whose old
-value is not Git's `main` (`main-moved`: fetch and rebase), when a pushed
-commit has other than one parent, and when any path a pushed commit changes
-fails the door. It also refuses one while live edits are not in Git yet
-(`unflushed`, which starts a flush so the client can fetch and retry): a
-limitation of Epicenter's, not Git's, which can starve a push on a
-repository someone is typing in, and which ADR-0697 keeps until a
-measurement and a prototype decide. Accepted, the push becomes one live
-commit on the live `main` Git holds, landing only if that is still `main`
-in the transaction that applies it (otherwise `unflushed`), and that
-transaction journals the move of Git's `main`, so a published `main` is
-never rewound. While `unflushed` stands, a push always saw the current
-bytes of every blob it replaces.
+**A `git push` keeps Git's ref rule, and merges like any commit.**
+`receive` (`server/receive.ts`) checks Git's own rule exactly: the push's
+old value must be Git's `main` (otherwise `main-moved`: fetch and rebase).
+Every pushed commit must have one parent and pass the door, and a pointer's
+bytes must be on the server. Live edits Git does not hold yet are no reason
+to refuse. The pushed change becomes one live commit on the live commit
+Git's `main` stands for: the flushed place, or, while an earlier push waits
+to be joined, the live commit that push became. It merges into live `main`
+like any commit: every note merges, and a blob by compare-and-swap, so a
+stale replace refuses the whole push with its path and Git does not move.
+The transaction that lands it journals the move of Git's `main` from the
+old value to exactly the pushed commit, and records the push in the
+`received` table. Git's `main` moves only after that, by compare-and-swap,
+so a published `main` is never rewound. The journal claims only what Git
+holds: a push with nothing live ahead of it moves the flushed place to
+`main`; a push merged over live edits leaves the flushed place where it
+was and leaves a join. The answer is `accepted`, with the pushed commit
+(`main`), Git's head, whether it was `merged`, and `published` (false only
+while a flush is diverged). A push sent again, its answer lost or the server
+crashed after taking it, finds its row in `received` and is answered
+`accepted` again, never taken twice.
+
+**The next flush joins a merged push to the live edits it was merged
+over.** It writes those edits as a side chain from the push's old value
+(the commit Git's `main` was when they were made, so each commit is a state
+that existed), with conflict-block and labelled-message commits as usual.
+It then writes one join commit, whose first parent is the pushed commit and
+whose second is the side chain's tip, with the live merge's tree. `git log
+--first-parent` therefore runs through every push, and no commit after a
+push has a tree made without it. A join is authored by
+`Epicenter <noreply@epicenter.so>`, with every writer it merges in as a
+`Co-authored-by`; its pusher authored the pushed commit. A second push from
+the first pushed commit before the flush is taken under the same ref rule
+and merged against the first push's live commit. The commit a merge took in
+(a device's commit, or a push's live commit) may be the parent of any
+writer's commit, which merges against its tree from that merge's place.
+Restricting this to the receiver would thread a receiver-only flag through
+the live commit path (`push`, `pushInside`, and a resend's answer), and the
+merge it gives every writer is the correct three-way merge, where the
+answer before was `outcome-unknown`.
+
+**A waiting join is kept by the window, like all live history.** Once the
+window drops a join's place, its pushed commit stands as the state, and the
+next commit on it carries the live edits it was merged over, coarser, as
+any history the window dropped reaches Git. In practice a join waits for
+one scheduled flush (at most 5 minutes while pushes go on), well inside the
+10-minute window; only a stopped flush (`diverged`, or Git unreachable)
+lets the window pass. A push whose base the window dropped (the live commit
+Git's `main` stands for) flushes live history first, so Git's `main` moves
+and the push is answered `main-moved`.
 
 **A device keeps one WebSocket, and HTTP serves one-shot clients.**
 `createWire` (`wire/wire.ts`) serves one repository:
@@ -305,10 +344,10 @@ another repository, server or account is refused (`BoundElsewhere`).
   Artifacts cost about 2 s.
 - **A writer mode, with agents' commits refused when `main` moved:** see
   [ADR-0697](0697-all-text-merges-from-everyone.md).
-- **A conflicting `git push` merged by the server:** server merging stays on
-  the commit path, where the answer can name the merge commit, until the
-  push prototype in [ADR-0697](0697-all-text-merges-from-everyone.md) says
-  otherwise.
+- **A `git push` refused while live edits are not in Git (`unflushed`):**
+  it starved a push on any repository someone was typing in; see
+  [ADR-0697](0697-all-text-merges-from-everyone.md) for the measurement and
+  the other push shapes considered.
 - **Devices committing after a 0.5 to 2 s pause:** committing every save
   online measured p95 400 ms to the server at 10 typists, against 2.2 s.
 - **IndexedDB as the device store:** writing 50,000 records took 17 s in
@@ -324,7 +363,13 @@ every step that nothing typed and acknowledged is lost, every shared note
 parses, every device converges with the server, and hostile writes are
 refused or bounded, and that an agent's batch lands in one commit or is
 held whole; recent runs passed 500 fresh seeds at 200 steps in memory and
-200 over the wire. The LFS round trip is tested locally, in Bun and in
+200 over the wire. `server/receive.test.ts` runs a `git push` against a
+real bare repository through every hazard (a push behind live edits, a save
+during its checks, a stale blob, conflict cuts and labelled commits before
+it, a second push from the first, a join outliving the window, a crash at
+each push and export step), each ending in `git fsck --strict`, and a
+randomized test interleaves saves, pushes, flushes, crashes and time past
+the window (1,000 fresh seeds pass). The LFS round trip is tested locally, in Bun and in
 Chromium and WebKit through Playwright. Deployed spikes 3 and 4 (outside the tree) proved the flush state
 machine against Artifacts at every step boundary, the transport choice, and
 R2 verifying a blob's SHA-256 on `put`. Before acceptance: the Durable
