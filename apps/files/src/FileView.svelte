@@ -1,12 +1,13 @@
 <!--
 	One file. A Markdown file opens in the source editor, its exact text as
 	the repository holds it, saved as the person types; any other file
-	shows its text as this device holds it. Rename is a delete and a write
+	shows its bytes as media or a download. Rename is a delete and a write
 	in one transaction, once the editor has saved; Delete asks first.
 -->
 <script lang="ts">
-	import type { Editor, FileEntry } from '@epicenter/repository';
+	import { mediaType, type Editor, type FileEntry } from '@epicenter/repository';
 	import type { Repository } from '@epicenter/repository';
+	import { attachment } from '@epicenter/svelte/repository';
 	import SourceEditor from '@epicenter/svelte/repository/source-editor';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -36,6 +37,9 @@
 	const path = shownPath;
 	const name = nameOf(path);
 	const markdown = path.toLowerCase().endsWith('.md');
+	const media = mediaType(path);
+	// svelte-ignore state_referenced_locally
+	const bytes = attachment(repo, () => (markdown ? null : path));
 	const entry = $derived(files?.find((file) => file.path === path));
 
 	/** The file's text as this device holds it, read again after every change: null for none, undefined until read. */
@@ -85,6 +89,10 @@
 		}
 		failure = newPathProblem(files ?? [], to);
 		if (failure !== undefined) return;
+		if (to.toLowerCase().endsWith('.md') !== markdown) {
+			failure = markdown ? 'A note needs a .md path.' : 'A file of bytes cannot become a .md note by renaming it.';
+			return;
+		}
 		// Everything typed is saved first, so the rename carries it.
 		const closed = await editor?.close();
 		editor = undefined;
@@ -129,7 +137,9 @@
 	<div class="flex flex-wrap items-center gap-2 border-b px-4 py-2">
 		<div class="min-w-0 flex-1">
 			<h2 class="truncate text-sm font-medium">{name}</h2>
-			<p class="truncate font-mono text-xs text-muted-foreground" data-testid="file-path">{path}</p>
+			<p class="truncate font-mono text-xs text-muted-foreground" data-testid="file-path" title="Path to link from a note">{path}</p>
+			{#if entry?.state.status === 'held'}<p class="text-xs text-muted-foreground">Held: {entry.state.reason}</p>
+			{:else if entry?.state.status === 'sending'}<p class="text-xs text-muted-foreground">Not sent</p>{/if}
 		</div>
 		{#if text !== null && text !== undefined}
 			<Button size="sm" variant="outline" onclick={() => (renaming = path)}>Rename</Button>
@@ -163,7 +173,24 @@
 			{unopened}
 			<Button size="sm" variant="outline" onclick={openEditor}>Try again</Button>
 		</p>
-	{:else if !markdown && text !== undefined}
-		<pre class="min-h-40 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap" aria-label="Text of {name}">{text}</pre>
+	{:else if !markdown && bytes.current.status === 'fetching'}
+		<p class="px-4 py-3 text-sm text-muted-foreground">Loading file…</p>
+	{:else if !markdown && bytes.current.status === 'unavailable'}
+		<p class="flex items-center gap-2 px-4 py-3 text-sm" role="alert">{bytes.current.reason}<Button size="sm" variant="outline" onclick={bytes.current.retry}>Retry</Button></p>
+	{:else if !markdown && bytes.current.status === 'missing'}
+		<p class="px-4 py-3 text-sm">This file's bytes are not here or on the server</p>
+	{:else if !markdown && bytes.current.status === 'here'}
+		<div class="min-h-0 flex-1 overflow-auto p-4">
+			{#if media.startsWith('image/')}
+				<img src={bytes.current.url} alt={name} class="max-h-full max-w-full object-contain" />
+			{:else if media.startsWith('audio/')}
+				<audio src={bytes.current.url} controls aria-label={name}></audio>
+			{:else if media.startsWith('video/')}
+				<!-- svelte-ignore a11y_media_has_caption -->
+				<video src={bytes.current.url} controls aria-label={name} class="max-h-full max-w-full"></video>
+			{:else}
+				<a href={bytes.current.url} download={name}>Download {name}</a>
+			{/if}
+		</div>
 	{/if}
 </section>

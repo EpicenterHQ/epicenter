@@ -10,7 +10,7 @@
  * - A Markdown file opens its exact text in the source editor, and typing saves it
  * - A new file is made in the folder shown, and opens
  * - Rename is a delete and a write, carrying what was typed; Delete asks first and returns to the folder
- * - Any other file shows its text, and a path with no file says so
+ * - Other files show their bytes as media or downloads, and a path with no file says so
  */
 import '../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
@@ -26,6 +26,14 @@ import { manifest } from './manifest.js';
 const { flushSync } = await import('svelte');
 const { confirmationDialog } = await import('@epicenter/ui/confirmation-dialog');
 const { mount } = await import('./bundle.js');
+
+const objectUrls: string[] = [];
+URL.createObjectURL = () => {
+	const url = `blob:test/${objectUrls.length}`;
+	objectUrls.push(url);
+	return url;
+};
+URL.revokeObjectURL = () => {};
 
 const cleanups: (() => unknown)[] = [];
 afterEach(async () => {
@@ -45,7 +53,7 @@ async function until(check: () => boolean, what: string) {
 }
 
 /** Files mounted at `path` over a replica that starts with `files`. */
-async function openFiles(files: Record<string, string>, path = '/') {
+async function openFiles(files: Record<string, string>, path = '/', blobs: Record<string, Blob> = {}) {
 	const replica = unwrap(openReplica({ driver: openBunSqlite(), binding: { repository: 'r', server: null, account: null }, device: 'this-device', app: manifest.collections, after: () => {}, now: () => 0 }));
 	for (const [at, text] of Object.entries(files)) replica.write(at, text);
 	const repo = openRepository({ app: manifest.collections, host: createLocalHost({ replica, app: manifest.collections }).host });
@@ -66,6 +74,8 @@ async function openFiles(files: Record<string, string>, path = '/') {
 		repo.close();
 		target.remove();
 	});
+	await until(() => repo.status().status === 'open', 'repository open');
+	for (const [at, blob] of Object.entries(blobs)) unwrap(await repo.files.create(at, blob));
 	const query = <T extends Element = HTMLElement>(selector: string) => target.querySelector<T>(selector) ?? document.querySelector<T>(selector);
 	const get = <T extends Element = HTMLElement>(selector: string) => {
 		const found = query<T>(selector);
@@ -141,9 +151,57 @@ test('rename is a delete and a write, carrying what was typed; delete asks first
 	expect(files.replica.read('archive/a.md')).toBeNull();
 });
 
-test('any other file shows its text, and a path with no file says so', async () => {
-	const files = await openFiles({ 'data/list.txt': 'one\ntwo\n' }, '/data/list.txt');
-	await until(() => files.query('[aria-label="Text of list.txt"]')?.textContent === 'one\ntwo\n', 'the text');
+test('a non-note file offers its bytes as a download, and a path with no file says so', async () => {
+	const files = await openFiles({}, '/data/list.txt', { 'data/list.txt': new Blob(['one\ntwo\n']) });
+	await until(() => files.query('a[download="list.txt"]') !== null, 'the download');
+	expect(files.get<HTMLAnchorElement>('a[download="list.txt"]').href).toContain('blob:test/');
+	expect(files.query('[aria-label="Text of list.txt"]')).toBeNull();
 	const missing = await openFiles({}, '/data/gone.md');
 	await until(() => missing.query(FILE)?.textContent?.includes('No file is at data/gone.md') ?? false, 'no file');
+});
+
+test('an image opens from an object URL', async () => {
+	const files = await openFiles({}, '/pictures/cat.png', { 'pictures/cat.png': new Blob([new Uint8Array([137, 80, 78, 71])]) });
+	await until(() => files.query('img[alt="cat.png"]') !== null, 'the image');
+	expect(files.get<HTMLImageElement>('img[alt="cat.png"]').src).toContain('blob:test/');
+	expect(files.query('[aria-label="Text of cat.png"]')).toBeNull();
+});
+
+test('a blob rename keeps its pointer and bytes, and delete removes the path', async () => {
+	const files = await openFiles({}, '/pictures/cat.png', { 'pictures/cat.png': new Blob(['picture']) });
+	await until(() => files.query('img[alt="cat.png"]') !== null, 'the image');
+	const pointer = files.replica.read('pictures/cat.png');
+	files.pressText('Rename');
+	await until(() => files.query('form[aria-label="Rename"]') !== null, 'the rename form');
+	type(files.get('form[aria-label="Rename"] input'), 'pictures/dog.png');
+	files.submit('form[aria-label="Rename"]');
+	await until(() => files.at.path === '/pictures/dog.png', 'the renamed image');
+	expect(files.replica.read('pictures/cat.png')).toBeNull();
+	expect(files.replica.read('pictures/dog.png')).toBe(pointer);
+	await until(() => files.query('img[alt="dog.png"]') !== null, 'the renamed bytes');
+	files.pressText('Delete');
+	await confirmationDialog.confirm();
+	await until(() => files.at.path === '/pictures/', 'the folder after delete');
+	expect(files.replica.read('pictures/dog.png')).toBeNull();
+});
+
+test('Add file stores bytes under the shown folder and opens its path', async () => {
+	const files = await openFiles({ 'pictures/existing.md': '' }, '/pictures/');
+	await until(() => files.query('[data-file="pictures/existing.md"]') !== null, 'the folder');
+	const input = files.get<HTMLInputElement>('input[type="file"]');
+	Object.defineProperty(input, 'files', { configurable: true, value: [new File(['bytes'], 'photo.png', { type: 'image/png' })] });
+	input.dispatchEvent(new Event('change', { bubbles: true }));
+	await until(() => files.at.path === '/pictures/photo.png', 'the uploaded file');
+	await until(() => files.query('[data-testid="file-path"]')?.textContent === 'pictures/photo.png', 'the linkable path');
+	expect(files.replica.read('pictures/photo.png')).toContain('version https://git-lfs.github.com/spec/v1');
+});
+
+test('Add file explains an existing name', async () => {
+	const files = await openFiles({}, '/pictures/', { 'pictures/photo.png': new Blob(['existing']) });
+	await until(() => files.query('[data-file="pictures/photo.png"]') !== null, 'the existing file');
+	const input = files.get<HTMLInputElement>('input[type="file"]');
+	Object.defineProperty(input, 'files', { configurable: true, value: [new File(['new'], 'photo.png')] });
+	input.dispatchEvent(new Event('change', { bubbles: true }));
+	await until(() => files.query('[role="alert"]')?.textContent?.includes('already') ?? false, 'the refusal');
+	expect(files.get('[role="alert"]').textContent).toContain('already');
 });

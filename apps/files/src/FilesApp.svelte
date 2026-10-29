@@ -43,6 +43,8 @@
 
 	let name = $state('');
 	let refusal = $state<string>();
+	let uploadRefusal = $state<string>();
+	let picker = $state<HTMLInputElement>();
 	async function create(event: SubmitEvent) {
 		event.preventDefault();
 		if (files === undefined) return;
@@ -55,6 +57,37 @@
 			return;
 		}
 		name = '';
+		await navigate(pathOfFile(at));
+	}
+
+	async function addFile(event: Event) {
+		const input = event.currentTarget as HTMLInputElement;
+		const picked = input.files?.[0];
+		input.value = '';
+		if (picked === undefined || files === undefined) return;
+		const at = inFolder(folder, picked.name);
+		const problem = newPathProblem(files, at);
+		uploadRefusal = problem?.startsWith('A file is already at ') ? `A file named ${picked.name} is already here.` : problem;
+		if (uploadRefusal !== undefined) return;
+		let created;
+		try {
+			created = at.toLowerCase().endsWith('.md') ? await repo.files.create(at, await picked.text()) : await repo.files.create(at, picked);
+		} catch {
+			uploadRefusal = `Could not read ${picked.name}.`;
+			return;
+		}
+		if (created.error !== null) {
+			const error = created.error;
+			switch (error.name) {
+				case 'Exists': uploadRefusal = `A file named ${picked.name} is already here.`; break;
+				case 'TooLarge': uploadRefusal = `This file is too large. The limit is ${(error.limit / 1_000_000).toFixed(1)} MB.`; break;
+				case 'QuotaExceeded': uploadRefusal = 'This device has no room left for this file.'; break;
+				case 'Unavailable': uploadRefusal = 'The repository is unavailable. Try again when it opens.'; break;
+				default: uploadRefusal = error.message;
+			}
+			return;
+		}
+		uploadRefusal = undefined;
 		await navigate(pathOfFile(at));
 	}
 </script>
@@ -120,6 +153,11 @@
 					{/if}
 					<Button type="submit" size="sm">Create</Button>
 				</form>
+				<div class="space-y-2 border-t p-3">
+				<input bind:this={picker} type="file" class="sr-only" aria-label="Choose file to add" onchange={(event) => void addFile(event)} />
+				<Button type="button" size="sm" variant="outline" onclick={() => picker?.click()}>Add file</Button>
+				{#if uploadRefusal !== undefined}<p class="text-xs text-destructive" role="alert">{uploadRefusal}</p>{/if}
+				</div>
 			{/if}
 		</section>
 
