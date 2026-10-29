@@ -415,6 +415,12 @@ export function createServer({
 	return {
 		/** The current `main`. */
 		main: () => main().id,
+		/**
+		 * Whether `session` may read this repository: any member may. The
+		 * reads below (`read`, `catchUp`, `fetch`, `subscribe`) do not check;
+		 * the host asks this first, as the wire does for every read.
+		 */
+		mayRead: (session: Session | undefined) => session !== undefined && session.role !== null,
 		read: (path: string) => history.textIn(main().tree, path),
 		/** Every path and text on `main`, sorted. */
 		snapshot: () =>

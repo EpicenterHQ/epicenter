@@ -6,6 +6,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./server": "./src/server/index.ts",
+		"./wire": "./src/wire/index.ts",
 		"./legacy-server": "./src/legacy-server/index.ts",
 		"./merge": "./src/core/merge.ts",
 		"./conflict": "./src/core/conflict.ts",
@@ -19,6 +20,7 @@
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test --path-ignore-patterns='browser-tests/**'",
 		"test:browser": "bun test browser-tests/",
+		"serve": "bun scripts/serve.ts",
 		"serve:legacy": "bun scripts/serve-legacy.ts"
 	},
 	"dependencies": {
