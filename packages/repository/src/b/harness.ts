@@ -8,12 +8,24 @@
  * history after 60 s of quiet, at most every 5 minutes while busy, and on
  * demand.
  */
+import { openBunSqlite } from '../bun/sqlite.js';
+import { createMemoryGitStore } from '../server/memory-git.js';
+import { type Committed, createServer, type Event, SCHEDULE, type Session } from '../server/server.js';
 import { createNet, type LinkOptions } from './net.js';
 import { createMemoryStore, createReplica, type Reply, type Request } from './replica.js';
-import { type Committed, createServer, type Event } from './server.js';
 
-export const QUIET = 60_000;
-export const BUSY = 5 * 60_000;
+export const QUIET = SCHEDULE.quiet;
+export const BUSY = SCHEDULE.busy;
+/** The server's clock reads virtual time from this instant. */
+export const EPOCH = Date.UTC(2026, 9, 28);
+
+/** A server alone over an in-memory Store and Git, for tests that push to it directly. */
+export function createTestServer({ clock = () => EPOCH, limits }: { clock?: () => number; limits?: Parameters<typeof createServer>[0]['limits'] } = {}) {
+	return createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock, ...(limits === undefined ? {} : { limits }) });
+}
+
+/** A writer's session, as a host would verify it. */
+export const writer = (user: string): Session => ({ user, role: 'writer' });
 
 export function createWorld({
 	seed = 1,
@@ -43,26 +55,18 @@ export function createWorld({
 	const requestHooks: ((device: string, request: Request, reply: Reply) => void)[] = [];
 	/** The repository's members: every device's person, and `mallory`, a member who writes straight to the server. */
 	const members = new Set(['mallory']);
-	const server = createServer({ now: net.now, members, onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)) });
-	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0, flushes: 0 };
-	let lastPush = 0;
-	let lastFlush = 0;
-
-	function flush() {
-		const flushed = server.flush();
-		lastFlush = net.now();
-		if (flushed !== null) counts.flushes++;
-		return flushed;
-	}
-	/** The quiet-time trigger: 60 s after the last push with none since, or 5 minutes after the last flush. */
-	function pushed() {
-		lastPush = net.now();
-		if (lastPush - lastFlush >= BUSY) flush();
-		const at = lastPush;
-		net.after(QUIET, () => {
-			if (lastPush === at) flush();
-		});
-	}
+	const git = createMemoryGitStore();
+	// The server flushes on its own schedule (quiet 60 s, at most every 5 minutes) on virtual time.
+	const server = createServer({
+		store: openBunSqlite(),
+		git,
+		clock: () => EPOCH + net.now(),
+		timer: net.after,
+		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
+	});
+	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0 };
+	/** The session the host would verify for `user`: a writer if a member. */
+	const session = (user: string): Session => ({ user, role: members.has(user) ? 'writer' : null });
 
 	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward' } = {}) {
 		members.add(name);
@@ -78,8 +82,7 @@ export function createWorld({
 			counts[request.type]++;
 			switch (request.type) {
 				case 'push': {
-					const answer = server.push(request.commit, { member: name });
-					if (answer.kind === 'applied' || answer.kind === 'merged') pushed();
+					const answer = server.push(request.commit, session(name));
 					return { type: 'answer', rid: request.rid, answer };
 				}
 				case 'catch-up': {
@@ -186,8 +189,10 @@ export function createWorld({
 		device,
 		/** LFS bytes reach the server (the upload track). */
 		upload: (oid: string) => server.upload(oid),
-		/** Flush live history into Git commits now (`epicenter pull`, `git fetch`). */
-		flush,
+		git,
+		session,
+		/** Flush live history into Git commits now (`epicenter pull`, `git fetch`); resolves when the flush does. */
+		flush: () => server.flush(),
 		/** Turn all loss and stalls off (the quiescence phase). */
 		calm() {
 			requests.loss = { up: 0, down: 0 };
@@ -198,7 +203,7 @@ export function createWorld({
 		onCommit: (hook: (committed: Committed) => void) => commitHooks.push(hook),
 		/** Every request the server answered, with its reply. */
 		onRequest: (hook: (device: string, request: Request, reply: Reply) => void) => requestHooks.push(hook),
-		counts: () => ({ ...counts }),
+		counts: () => ({ ...counts, flushes: server.history().flushes }),
 		/** Run until no event is left; false if it never went idle. */
 		settle: (limit?: number) => net.runUntilIdle(limit),
 	};

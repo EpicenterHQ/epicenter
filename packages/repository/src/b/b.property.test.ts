@@ -39,7 +39,8 @@ import { type Device, createWorld } from './harness.js';
 import { escapeLines } from '../core/conflict.js';
 import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
-import type { Committed, PushAnswer } from './server.js';
+import { MAIN } from '../server/git-store.js';
+import type { Committed, PushAnswer } from '../server/server.js';
 
 const RUNS = Number(process.env.B_RUNS ?? 40);
 const FROM = Number(process.env.B_FROM ?? 1);
@@ -191,7 +192,7 @@ function run(seed: number) {
 	const hostile = (member: string, files: LiveCommit['files'], { author = member, parent = world.server.main(), id }: { author?: string; parent?: string; id?: string } = {}) => {
 		const body = { parent, mode: 'merge' as const, author: { user: author, device: 'x' }, time: 't', files };
 		const commit = { id: id ?? commitId(body), ...body };
-		return world.server.push(commit, { member });
+		return world.server.push(commit, world.session(member));
 	};
 	const accepted = (answer: PushAnswer) => answer.kind === 'applied' || answer.kind === 'merged';
 	const hostileSteps: (() => string)[] = [
@@ -488,7 +489,7 @@ function run(seed: number) {
 	const stats: Record<string, number> = {};
 	for (const d of everyone) for (const [key, value] of Object.entries(d.replica.stats())) stats[key] = (stats[key] ?? 0) + value;
 	const conflicts = [...server.values()].filter((text) => text?.includes('<<<<<<< ')).length;
-	return { requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.stats().refused };
+	return { world, requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.stats().refused };
 }
 
 const totals: Record<string, number> = {};
@@ -497,9 +498,19 @@ const add = (key: string, n: number) => {
 };
 
 for (const seed of SEEDS)
-	test(`design B keeps every invariant under seed ${seed}`, () => {
+	test(`design B keeps every invariant under seed ${seed}`, async () => {
 		const result = run(seed);
 		expect(result.requests.push).toBeGreaterThan(0);
+		// Flushes ran on their schedule during the run; once the last is done, Git's main is the server's main.
+		const { world } = result;
+		await world.server.idle();
+		await world.flush();
+		const head = await world.git.readRef(MAIN);
+		const tree = head === null ? new Map() : await world.git.readTree((await world.git.readCommit(head))?.tree ?? '');
+		const decoder = new TextDecoder();
+		const inGit = new Map<string, string>();
+		for (const [path, entry] of tree) if (path !== '.gitattributes') inGit.set(path, decoder.decode((await world.git.readBlob(entry.oid)) ?? new Uint8Array()));
+		expect(inGit).toEqual(world.server.snapshot());
 		for (const [key, n] of Object.entries({ ...result.requests, ...result.stats })) add(key, n);
 		for (const [kind, n] of Object.entries(result.notices)) add(`notice:${kind}`, n);
 		add('conflicted files', result.conflicts);

@@ -20,8 +20,8 @@
  */
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { createWorld } from './harness.js';
-import { createServer, LIMITS } from './server.js';
+import { createTestServer, createWorld, EPOCH, writer } from './harness.js';
+import { LIMITS } from '../server/server.js';
 
 // ============================================================================
 // 1. A busy note
@@ -138,13 +138,12 @@ const author = { user: 'bench', device: 'bench' };
 
 function catchUp(total: number, behind: number | 'outside the window') {
 	let clock = 0;
-	const server = createServer({
-		now: () => clock,
-		members: ['bench'],
+	const server = createTestServer({
+		clock: () => EPOCH + clock,
 		// Seeding writes every note in one commit, so the request limits are lifted; the page stays at its default.
 		limits: { request: Number.POSITIVE_INFINITY, files: Number.POSITIVE_INFINITY, burst: Number.POSITIVE_INFINITY },
 	});
-	const session = { member: 'bench' };
+	const session = writer('bench');
 	const path = (i: number) => `notes/${(i % 256).toString(16).padStart(2, '0')}/n${i}.md`;
 	const commit = (files: LiveCommit['files']) => {
 		const draft = { parent: server.main(), mode: 'fast-forward' as const, author, time: 't', files };

@@ -30,7 +30,7 @@
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { admissible, fold } from '../core/door.js';
-import type { CatchUp, Event, PushAnswer } from './server.js';
+import type { CatchUp, Event, PushAnswer } from '../server/server.js';
 import { appendBlock, settle } from '../core/settle.js';
 
 export type Request =
@@ -135,7 +135,7 @@ export function createReplica({
 	let lastRefusal: string | null = null;
 	/** Who each side of a block this device writes is: `main` as it arrived, and this device's person, now. */
 	const parties = () => ({ current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}`, time: new Date(now()).toISOString() } });
-	const stats = { pushes: 0, applied: 0, merged: 0, refused: 0, catchUps: 0, fetches: 0, timeouts: 0, late: 0, notifications: 0, placed: 0, commits: 0, unknown: 0 };
+	const stats = { pushes: 0, applied: 0, merged: 0, refused: 0, catchUps: 0, fetches: 0, timeouts: 0, late: 0, notifications: 0, placed: 0, commits: 0, unknown: 0, flushed: 0 };
 
 	const save = () => {
 		state.files = Object.fromEntries(files);
@@ -390,12 +390,27 @@ export function createReplica({
 		needCatchUp = true;
 	}
 
+	/**
+	 * The commit landed long ago and its answer is gone: the texts it touched
+	 * are `main`'s now, built on it, and a full catch-up brings the rest.
+	 */
+	function onFlushed(answer: Extract<PushAnswer, { kind: 'flushed' }>) {
+		stats.flushed++;
+		state.inflight = null;
+		for (const file of answer.files) integrate(file.path, file.text, true);
+		state.position = null;
+		needCatchUp = true;
+	}
+
 	function onAnswer(answer: PushAnswer) {
 		switch (answer.kind) {
 			case 'applied':
 			case 'merged':
 				onLanded(answer);
 				place();
+				return;
+			case 'flushed':
+				onFlushed(answer);
 				return;
 			case 'refused':
 				onRefused(answer);

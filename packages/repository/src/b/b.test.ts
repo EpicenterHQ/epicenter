@@ -25,10 +25,9 @@ import { expect, test } from 'bun:test';
 import { parses } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { BLOCK_CAP } from '../core/settle.js';
-import { createWorld, QUIET } from './harness.js';
+import { createTestServer, createWorld, QUIET, writer } from './harness.js';
 import type { Request } from './replica.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
-import { createServer } from './server.js';
 
 const PATH = 'notes/a.md';
 const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`;
@@ -270,8 +269,8 @@ test("an agent's fast-forward commit is refused when main moved and changes noth
 });
 
 test('the server refuses a commit with no parent, a bad id, or a path named twice, and a resend gets the recorded outcome', () => {
-	const server = createServer({ members: ['x'] });
-	const session = { member: 'x' };
+	const server = createTestServer();
+	const session = writer('x');
 	const make = (files: LiveCommit['files'], mode: LiveCommit['mode'] = 'merge'): LiveCommit => {
 		const body = { parent: server.main(), mode, author: { user: 'x', device: 'x' }, time: 't', files };
 		return { id: commitId(body), ...body };
@@ -331,7 +330,7 @@ test('a commit sent once whose parent left the retention window merges again aft
 });
 
 test('a stale-parent flood writes each different text once, an identical one not again, and is refused past the block cap', () => {
-	const server = createServer({ members: ['x', 'm'] });
+	const server = createTestServer();
 	let clock = 0;
 	// Each commit is new (its own time, so its own id): a resend of one would just get its recorded outcome.
 	const make = (parent: string, files: LiveCommit['files'], user = 'x'): LiveCommit => {
@@ -339,14 +338,14 @@ test('a stale-parent flood writes each different text once, an identical one not
 		return { id: commitId(body), ...body };
 	};
 	const root = server.main();
-	expect(server.push(make(root, [{ path: PATH, text: note('one\n') }]), { member: 'x' })).toMatchObject({ kind: 'applied' });
+	expect(server.push(make(root, [{ path: PATH, text: note('one\n') }]), writer('x'))).toMatchObject({ kind: 'applied' });
 	// Every flood commit stands on the parent before the note existed: each is another note at the path (D3).
 	const same = note('flood\n', 'flood');
-	for (let i = 0; i < 3; i++) expect(server.push(make(root, [{ path: PATH, text: same }], 'm'), { member: 'm' })).toMatchObject({ kind: 'merged' });
+	for (let i = 0; i < 3; i++) expect(server.push(make(root, [{ path: PATH, text: same }], 'm'), writer('m'))).toMatchObject({ kind: 'merged' });
 	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(1);
-	for (let i = 1; i < BLOCK_CAP; i++) expect(server.push(make(root, [{ path: PATH, text: note(`flood ${i}\n`, 'flood') }], 'm'), { member: 'm' })).toMatchObject({ kind: 'merged' });
+	for (let i = 1; i < BLOCK_CAP; i++) expect(server.push(make(root, [{ path: PATH, text: note(`flood ${i}\n`, 'flood') }], 'm'), writer('m'))).toMatchObject({ kind: 'merged' });
 	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
-	expect(server.push(make(root, [{ path: PATH, text: note('one more\n', 'flood') }], 'm'), { member: 'm' })).toMatchObject({
+	expect(server.push(make(root, [{ path: PATH, text: note('one more\n', 'flood') }], 'm'), writer('m'))).toMatchObject({
 		kind: 'refused',
 		reason: 'the note has too many conflict blocks',
 	});
