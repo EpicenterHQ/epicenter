@@ -467,3 +467,13 @@ test("an editor waits for the unanswered writes to any spelling of its note's pa
 	expectOk(await created);
 	expect(expectOk(await opening).path).toBe('notes/Day.md');
 });
+
+test('an editor that cannot open while the repository is not open says so, as a note that cannot be edited now', async () => {
+	const { alice, local, repo } = twoDevices(app);
+	alice.replica.write(PATH, note('one'));
+	await settled();
+	local.end();
+	const error = expectErr(await repo.notes.openEditor({ stem: 'plan' }));
+	expect(error).toMatchObject({ name: 'Unavailable', status: 'opening' });
+	expect(error.message).toBe(`${PATH} cannot be edited while the repository is opening`);
+});

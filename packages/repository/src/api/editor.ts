@@ -38,7 +38,7 @@ import type { Delta, Row } from '../client/page.js';
 import { type Change, type Changed, ChangeError, REQUEST_TIMEOUT } from '../client/replica.js';
 import { applyChanges, composeChanges, diffText, rebase, type TextChange } from '../core/diff.js';
 import { type Parties, settle } from '../core/settle.js';
-import type { RepositoryError, RepositoryStatus, Session, WriteError } from './repository.js';
+import type { RepositoryStatus, Session, WriteError } from './repository.js';
 
 export type EditorState =
 	/** Everything typed is stored. */
@@ -53,6 +53,8 @@ export type EditorState =
 	| { status: 'closed' };
 
 export const EditorError = defineErrors({
+	/** The repository is not open (or its session ended while the editor opened), so the note cannot be edited now; it opens once the repository is open again. */
+	Unavailable: ({ path, status }: { path: string; status: Exclude<RepositoryStatus['status'], 'open'> }) => ({ message: `${path} cannot be edited while the repository is ${status}`, path, status }),
 	/** A write to the note was sent and not answered within the replica's timeout, so no editor opened over it; the write still goes, and nothing was lost. */
 	Unanswered: ({ path }: { path: string }) => ({ message: `${path} has a change that has not been saved yet, so it cannot be edited now; try again`, path }),
 	/** The editor was closed with typing it could not save: `draft` holds it, and the editor keeps it until discarded. */
@@ -107,7 +109,6 @@ type Deps = {
 	send(changes: Change[]): Promise<Result<Changed, WriteError>>;
 	/** Show `path` again: its draft changed. */
 	refresh(path: string): void;
-	unavailable(): RepositoryError;
 };
 
 type Entry = Editor & {
@@ -127,6 +128,9 @@ const SHOWN: Parties = { current: { author: 'elsewhere', time: '-' }, incoming: 
 /** `text`, made over `over`, as the worker will apply it over `current`: merged where `current` moved since. */
 export const mergedOver = (over: string | null, current: string | null, text: string | null) => settle(over, current, text, { parties: SHOWN }).text;
 
+/** Why an editor did not open: a session that ended mid-open reads as opening again. */
+const notOpen = (status: RepositoryStatus['status']) => (status === 'open' ? 'opening' : status);
+
 /** Whether `promise` settles within `ms`. */
 function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -142,6 +146,7 @@ const lostWithSession = (error: WriteError) => error.name === 'Closed' || error.
 /** The editors of one repository, by path. */
 export function createEditors(deps: Deps) {
 	const editors = new Map<string, Entry>();
+	const unavailable = (path: string) => EditorError.Unavailable({ path, status: notOpen(deps.status().status) });
 	const opening = new Map<string, Promise<Result<Entry | { spelled: string }, WriteError | EditorError>>>();
 
 	function make(path: string, text: string, revision: number): Entry {
@@ -410,7 +415,7 @@ export function createEditors(deps: Deps) {
 			if (!(await within(deps.answered(path), REQUEST_TIMEOUT))) return EditorError.Unanswered({ path });
 			// What was just stored may keep another spelling of the path (a create over a deleted note's), as the replica does.
 			if (deps.spelled(path) !== path) return Ok({ spelled: deps.spelled(path) });
-			if (deps.session() === null) return { data: null, error: deps.unavailable() };
+			if (deps.session() === null) return unavailable(path);
 			const revision = deps.revision();
 			let text = deps.stored(path);
 			if (text === undefined) {
@@ -418,7 +423,7 @@ export function createEditors(deps: Deps) {
 				try {
 					row = await deps.row(path);
 				} catch {
-					return { data: null, error: deps.unavailable() };
+					return unavailable(path);
 				}
 				if (row !== null && row.path !== path) return Ok({ spelled: row.path });
 				text = row?.text ?? null;

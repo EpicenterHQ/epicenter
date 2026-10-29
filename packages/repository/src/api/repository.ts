@@ -298,7 +298,6 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			refresh(path);
 			emit();
 		},
-		unavailable: () => RepositoryError.Unavailable({ status: status.status }).error,
 	});
 
 	/**
