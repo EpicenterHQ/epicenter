@@ -1,5 +1,5 @@
 /**
- * Design B Benchmarks (collapsed: live commits, no note identity)
+ * Design B Benchmarks (phase 0a: live commits, no stored notices, a retention window)
  *
  * 1. A busy note: 2, 5 and 10 people type into their own line of one note
  *    at 5 keystrokes a second, saved every 300 ms, at 150 ms one-way latency,
@@ -9,16 +9,18 @@
  *    on every device, the longest any typist's text stays off the server,
  *    and the live history written per minute. Virtual time; the server
  *    answers instantly.
- * 2. Catch-up from a position by walking history: a server of 5,000 or
- *    50,000 notes, a device 1, 100 or 5,000 commits behind (one changed note
- *    each). Reports the server's time, commits walked, reply bytes (paths,
- *    hashes and the commit ids walked) and the texts read by hash.
+ * 2. Catch-up from a position as a tree diff: a server of 5,000 or 50,000
+ *    notes, a device 1, 100 or 5,000 commits behind (one changed note each),
+ *    every position inside the retention window, and a device whose position
+ *    left it (a full listing). Reports the server's time for all pages, the
+ *    pages, reply bytes (paths, hashes and the commit ids passed) and the
+ *    texts read by hash.
  *
  * Run: bun run src/b/b.bench.ts
  */
 import { gitBlobHash } from '../hash.js';
 import { createWorld } from './harness.js';
-import { commitId, createServer, type LiveCommit } from './server.js';
+import { commitId, createServer, LIMITS, type LiveCommit } from './server.js';
 
 // ============================================================================
 // 1. A busy note
@@ -36,7 +38,7 @@ function typists(count: number, { seconds = 20, latency = 150, seed = 1 } = {}) 
 	const first = devices[0];
 	if (first === undefined) throw new Error('no typists');
 	world.net.runFor(1_000);
-	first.replica.write({ [PATH]: `---\ntitle: Shared\n---\n${devices.map((d) => `${d.name}:`).join('\n')}\n` });
+	first.replica.write(PATH, `---\ntitle: Shared\n---\n${devices.map((d) => `${d.name}:`).join('\n')}\n`);
 	world.net.runFor(3_000);
 	const baseline = world.counts();
 	const history0 = world.server.history();
@@ -57,7 +59,7 @@ function typists(count: number, { seconds = 20, latency = 150, seed = 1 } = {}) 
 			const text = device.replica.read(PATH) ?? '';
 			const line = lineOf(text, device.name);
 			const next = line + 'x'.repeat(keys);
-			device.replica.write({ [PATH]: text.replace(`${line}\n`, `${next}\n`) });
+			device.replica.write(PATH, text.replace(`${line}\n`, `${next}\n`));
 			chunks.push({ name: device.name, length: next.length, at: world.net.now() });
 			world.net.after(300, tick);
 		};
@@ -127,38 +129,60 @@ console.log('\n1. A busy note, 150 ms one-way, 5 keys/s saved every 300 ms, 20 s
 console.table([2, 5, 10].map((n) => typists(n)));
 
 // ============================================================================
-// 2. Catch-up by walking history
+// 2. Catch-up as a tree diff
 // ============================================================================
 
 const body = (i: number, v = 0) => `---\ntitle: Note ${i}\nversion: ${v}\n---\n${'Some words of a note, about a line long. '.repeat(4)}\n`;
 const author = { user: 'bench', device: 'bench' };
 
-function catchUp(total: number, behind: number) {
-	const server = createServer();
+function catchUp(total: number, behind: number | 'outside the window') {
+	let clock = 0;
+	const server = createServer({
+		now: () => clock,
+		members: ['bench'],
+		// Seeding writes every note in one commit, so the request limits are lifted; the page stays at its default.
+		limits: { request: Number.POSITIVE_INFINITY, files: Number.POSITIVE_INFINITY, burst: Number.POSITIVE_INFINITY },
+	});
+	const session = { member: 'bench' };
 	const path = (i: number) => `notes/${(i % 256).toString(16).padStart(2, '0')}/n${i}.md`;
 	const commit = (files: LiveCommit['files']) => {
 		const draft = { parent: server.main(), mode: 'fast-forward' as const, author, time: 't', files };
-		const answer = server.push({ id: commitId(draft), ...draft });
+		const answer = server.push({ id: commitId(draft), ...draft }, session);
 		if (answer.kind !== 'applied') throw new Error(`seeding failed: ${answer.kind}`);
 	};
 	commit(Array.from({ length: total }, (_, i) => ({ path: path(i), text: body(i) })));
 	const position = server.main();
-	for (let i = 0; i < behind; i++) commit([{ path: path(i), text: body(i, 1) }]);
-	const runs = 10;
-	let reply = server.catchUp({ from: position });
+	const count = behind === 'outside the window' ? 100 : behind;
+	for (let i = 0; i < count; i++) commit([{ path: path(i), text: body(i, 1) }]);
+	if (behind === 'outside the window') {
+		clock += LIMITS.window + 1;
+		commit([{ path: path(0), text: body(0, 2) }]);
+	}
+	const all = () => {
+		const pages = [server.catchUp({ from: position })];
+		for (let page = pages[0]; page?.next != null; ) {
+			page = server.catchUp({ from: position, to: pages[0]?.main, after: page.next });
+			pages.push(page);
+		}
+		return pages;
+	};
+	const runs = 5;
+	let pages = all();
 	const t0 = performance.now();
-	for (let n = 0; n < runs; n++) reply = server.catchUp({ from: position });
-	const walkMs = (performance.now() - t0) / runs;
-	const hashes = reply.files.flatMap((f) => (f.hash === null ? [] : [f.hash]));
+	for (let n = 0; n < runs; n++) pages = all();
+	const ms = (performance.now() - t0) / runs;
+	const files = pages.flatMap((page) => page.files);
+	const hashes = files.flatMap((f) => (f.hash === null ? [] : [f.hash]));
 	const texts = server.fetch(hashes);
-	const ids = JSON.stringify(reply.commits).length;
+	const ids = JSON.stringify(pages.flatMap((page) => page.commits)).length;
 	return {
 		files: total,
 		'commits behind': behind,
-		'commits walked': reply.walked,
-		'paths in reply': reply.files.length,
-		'walk ms': +walkMs.toFixed(2),
-		'reply KB': +(JSON.stringify(reply).length / 1024).toFixed(1),
+		full: pages[0]?.full,
+		pages: pages.length,
+		'paths in reply': files.length,
+		'server ms': +ms.toFixed(2),
+		'reply KB': +(JSON.stringify(pages).length / 1024).toFixed(1),
 		'of which commit ids KB': +(ids / 1024).toFixed(1),
 		'texts read': hashes.length,
 		'read KB': +(JSON.stringify(texts).length / 1024).toFixed(1),
@@ -166,5 +190,5 @@ function catchUp(total: number, behind: number) {
 	};
 }
 
-console.log('\n2. Catch-up by walking history (256 directories, one changed note per commit)\n');
-console.table([5_000, 50_000].flatMap((total) => [1, 100, 5_000].map((behind) => catchUp(total, behind))));
+console.log('\n2. Catch-up as a tree diff (256 directories, one changed note per commit, 1,000 paths a page)\n');
+console.table([5_000, 50_000].flatMap((total) => ([1, 100, 5_000, 'outside the window'] as const).map((behind) => catchUp(total, behind))));
