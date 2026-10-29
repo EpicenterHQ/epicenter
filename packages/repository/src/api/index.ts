@@ -1,32 +1,30 @@
 /**
- * The repository API a page uses: an app's collections declared once
- * (`defineApp`), and one repository handle over a host. The browser host
- * is `@epicenter/repository/api/browser`; the in-process host, for Bun and
- * tests, is here.
+ * The repository API an app uses: its collections declared once
+ * (`defineApp`), one repository handle over them, the editor of a note and
+ * what a body view of it needs. The browser host is
+ * `@epicenter/repository/api/browser`; `openLocalRepository` opens one
+ * over a replica in this process (Bun, a script).
  */
-export { type App, defineApp, type NoteDefinition, type NoteName, timestamp } from '../core/lens.js';
-export { type Collection, type Delta, type Row, SaveError, type Snapshot } from '../client/page.js';
-export { type Change, type Changed, ChangeError, type FileStatus } from '../client/replica.js';
-export { collectionsOf, createLocalHost, openLocalRepository } from './local.js';
+export { type App, type Definitions, defineApp, type NoteDefinition, type NoteName, type TextStatus, timestamp } from '../core/lens.js';
+export { SaveError } from '../client/page.js';
+export { ChangeError, type FileStatus } from '../client/replica.js';
+export { openLocalRepository } from './local.js';
 export { type Editor, type EditorChange, EditorError, type EditorState, type Unsaved } from './editor.js';
-export { applyChanges, bodyChanges, diffText, rebase, type TextChange } from '../core/diff.js';
+export { bodyChanges, type TextChange } from '../core/diff.js';
 export { bodyOf, withBody } from '../core/markdown.js';
-export { type Definitions, type TextStatus } from '../core/lens.js';
 export {
+	type Committed,
 	type FieldPatch,
-	type Host,
-	type HostState,
+	type InvalidNote,
 	type MemoryCollection,
 	type Note,
 	type NoteInput,
-	openRepository,
 	type Repository,
 	type RepositoryChange,
 	RepositoryError,
 	type RepositoryStatus,
-	type Session,
 	type StoredCollection,
-	type Writes,
+	type ValidNote,
 	type WriteError,
 	type Written,
 } from './repository.js';

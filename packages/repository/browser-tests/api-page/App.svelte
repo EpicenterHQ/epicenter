@@ -30,8 +30,13 @@
 <ul>
 	{#each repo.todos.all() as todo (todo.path)}
 		<li data-testid="todo" data-stem={todo.params.stem}>
-			<input type="checkbox" checked={todo.valid && todo.fields.done} onchange={() => void repo.todos.patch(todo.params, { done: !(todo.valid && todo.fields.done) })} />
-			<button type="button" onclick={() => void select(todo.params.stem)}>{todo.fields.title}</button>
+			{#if todo.valid}
+				<input type="checkbox" checked={todo.fields.done} onchange={() => void repo.todos.patch(todo.params, { done: !todo.fields.done })} />
+				<button type="button" onclick={() => void select(todo.params.stem)}>{todo.fields.title}</button>
+			{:else}
+				<button type="button" onclick={() => void select(todo.params.stem)}>{todo.params.stem}</button>
+				<span data-testid="issues">{todo.issues.join('; ')}</span>
+			{/if}
 			<span data-testid="body">{todo.body}</span>
 		</li>
 	{/each}

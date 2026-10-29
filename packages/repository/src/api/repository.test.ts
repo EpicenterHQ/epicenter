@@ -20,7 +20,7 @@ import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Replica } from '../client/replica.js';
 import { defineApp } from '../core/lens.js';
 import { createLocalHost } from './local.js';
-import { openRepository, type RepositoryChange } from './repository.js';
+import { type InvalidNote, type Note, openRepository, type RepositoryChange, type ValidNote } from './repository.js';
 
 const todos = Type.Object({ title: Type.String(), done: Type.Boolean() });
 const app = defineApp({
@@ -57,6 +57,10 @@ test('a collection kept in memory lists every note whole, invalid ones with thei
 	expect(milk).toMatchObject({ path: 'todos/milk.md', params: { stem: 'milk' }, valid: true, fields: { title: 'Milk', done: false }, body: 'two litres\n', text: todo('Milk', false, 'two litres\n') });
 	expect(odd).toMatchObject({ valid: false, fields: { title: 'Odd' } });
 	expect(odd?.valid === false && odd.issues.length).toBeGreaterThan(0);
+	// Narrowed once, a note is one of the two named shapes.
+	const named = (note: Note<'todos/{stem}.md', typeof todos>): ValidNote<'todos/{stem}.md', typeof todos> | InvalidNote<'todos/{stem}.md'> => note;
+	const titles = repo.todos.all().map(named).map((note) => (note.valid ? note.fields.title : note.issues.length));
+	expect(titles).toHaveLength(3);
 	expect(broken).toMatchObject({ valid: false, fields: {}, state: { status: 'held' } });
 	expect(repo.todos.get({ stem: 'milk' })).toBe(milk);
 	// The same array until a note changes.

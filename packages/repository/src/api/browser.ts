@@ -9,58 +9,12 @@
 import type { Result } from 'wellcrafted/result';
 import { Ok } from 'wellcrafted/result';
 import type { App, Definitions } from '../core/lens.js';
-import {
-	type BrowserReplicaError,
-	type BrowserReplicaOptions,
-	createBrowserReplica,
-	type OpenReplica,
-	openBrowserReplica,
-	type ReplicaTab,
-} from '../hosts/browser/index.js';
+import { type BrowserReplicaError, type BrowserReplicaOptions, createBrowserReplica, openBrowserReplica } from '../hosts/browser/index.js';
+import { browserHost } from './browser-host.js';
 import { collectionsOf } from './local.js';
-import { type Host, type HostState, openRepository, type Repository, type Session } from './repository.js';
+import { openRepository, type Repository } from './repository.js';
 
 type Options = Omit<BrowserReplicaOptions, 'collections'>;
-
-function sessionOf(replica: OpenReplica): Session {
-	return {
-		snapshot: () => replica.snapshot(),
-		row: (path) => replica.row(path),
-		query: (sql, params) => replica.query(sql, params),
-		change: (changes) => replica.change(changes),
-		watch: (listener) => replica.watch(listener),
-	};
-}
-
-/** A replica tab as a repository's host: one session per time the tab opens the replica. */
-export function browserHost(tab: ReplicaTab): Host {
-	const sessions = new WeakMap<OpenReplica, Session>();
-	return {
-		subscribe(onState) {
-			return tab.subscribe((state) => {
-				let next: HostState;
-				switch (state.status) {
-					case 'open': {
-						let session = sessions.get(state.replica);
-						if (session === undefined) {
-							session = sessionOf(state.replica);
-							sessions.set(state.replica, session);
-						}
-						next = { status: 'open', session };
-						break;
-					}
-					case 'unavailable':
-						next = { status: 'unavailable', reason: state.error.message, retry: state.retry };
-						break;
-					default:
-						next = state;
-				}
-				onState(next);
-			});
-		},
-		close: () => tab.close(),
-	};
-}
 
 /** Open `app`'s repository over the replica `replica` of this origin, in this tab. */
 export function openBrowserRepository<TDefs extends Definitions>({ app, replica, ...options }: { app: App<TDefs>; replica: string } & Options): Repository<TDefs> {

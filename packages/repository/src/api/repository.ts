@@ -84,15 +84,23 @@ export type WriteError = RepositoryError | ChangeError | SaveError | TemplateErr
 /** A stored write: the note's text after it (null: no note) and the revision it made. */
 export type Written = { text: string | null; revision: number };
 
-/** A note as a page reads it. Fields that do not fit the schema are as written, with issues. */
-export type Note<TPath extends string = string, TNoteSchema extends TSchema = TSchema> = {
+/** A stored batch: the revision it made. */
+export type Committed = { revision: number };
+
+type NoteParts<TPath extends string> = {
 	path: string;
 	params: Params<TPath>;
 	/** The exact text. */
 	text: string;
 	body: string;
 	state: FileStatus;
-} & ({ valid: true; fields: Static<TNoteSchema> } | { valid: false; fields: Record<string, unknown>; issues: string[] });
+};
+/** A note whose fields fit its schema. */
+export type ValidNote<TPath extends string = string, TNoteSchema extends TSchema = TSchema> = NoteParts<TPath> & { valid: true; fields: Static<TNoteSchema> };
+/** A note whose frontmatter does not parse or does not fit its schema: its fields as written, and why. */
+export type InvalidNote<TPath extends string = string> = NoteParts<TPath> & { valid: false; fields: Record<string, unknown>; issues: string[] };
+/** A note as a page reads it: narrow on `valid` once. */
+export type Note<TPath extends string = string, TNoteSchema extends TSchema = TSchema> = ValidNote<TPath, TNoteSchema> | InvalidNote<TPath>;
 
 export type NoteInput<TNoteSchema extends TSchema> = { fields?: Partial<Static<TNoteSchema>>; body?: string };
 
@@ -152,7 +160,7 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 	/** One read-only SQL statement over the app's views. */
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>>;
 	/** Several writes as one transaction and one save. */
-	commit(build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> }) => void): Promise<Result<Changed, WriteError>>;
+	commit(build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> }) => void): Promise<Result<Committed, WriteError>>;
 	/** Stop: every editor stops and the host lets the replica go. Returns the drafts that could not be saved, for the caller to keep or drop (an account change). */
 	close(): Unsaved[];
 };
@@ -478,7 +486,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			}
 			build(handles);
 			if (invalid !== null) return Promise.resolve({ data: null, error: invalid });
-			return send(batch);
+			return send(batch).then((result): Result<Committed, WriteError> => (result.error === null ? Ok({ revision: result.data.revision }) : result));
 		},
 		close(): Unsaved[] {
 			if (status.status === 'closed') return [];

@@ -6,9 +6,10 @@
  * is in flight. Calls a test makes are on `globalThis.api`.
  */
 import { mount } from 'svelte';
-import { browserHost } from '../src/api/browser.js';
+import { browserHost } from '../src/api/browser-host.js';
 import { collectionsOf } from '../src/api/local.js';
-import { type Editor, type Host, type HostState, openRepository, type Session } from '../src/api/index.js';
+import type { Editor } from '../src/api/editor.js';
+import { type Host, type HostState, openRepository, type Session } from '../src/api/repository.js';
 import { bodyOf } from '../src/core/markdown.js';
 import { createBrowserReplica, openBrowserReplica, type ReplicaTab } from '../src/hosts/browser/index.js';
 import { reactive } from '../../svelte/src/repository/index.js';
@@ -88,7 +89,7 @@ const calls = {
 	untilOpen: () => until(() => repository?.status().status === 'open', 'the repository to open'),
 	untilStatus: (status: string) => until(() => repository?.status().status === status, `the repository to be ${status}`),
 	add: async (stem: string, title: string, body: string) => (await repo().todos.create({ stem }, { fields: { title, done: false }, body })).error,
-	todos: () => repo().todos.all().map((todo) => ({ stem: todo.params.stem, done: todo.valid && todo.fields.done, body: todo.body, state: todo.state.status })),
+	todos: () => repo().todos.all().map((todo) => ({ stem: todo.params.stem, done: todo.valid ? todo.fields.done : null, body: todo.body, state: todo.state.status })),
 	untilBody: (stem: string, body: string) => until(() => repo().todos.get({ stem })?.body === body, `${stem} to read ${JSON.stringify(body)}`),
 	/** Write a todo's body as exact source made from `over`, as another app or device would. */
 	writeBody: async (stem: string, body: string, over: string) => {
