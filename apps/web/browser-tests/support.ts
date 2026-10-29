@@ -25,6 +25,10 @@ const build = join(shell, 'build');
 /** Who owns the world's synced repository, as its link names them. */
 export const OWNER = 'team';
 
+/** Each first-party app's hostname, its address segment. */
+export const HOSTNAMES = { files: 'files.epicenter.so', todos: 'todos.epicenter.so', honeycrisp: 'honeycrisp.epicenter.so' } as const;
+export type AppName = keyof typeof HOSTNAMES;
+
 type Data = { target: string; person: string; upstream?: WebSocket; buffered: (string | Buffer)[] };
 
 /** Build the shell as it ships (`vite build`). */
@@ -132,10 +136,10 @@ export async function startWorld(people: readonly string[]) {
 		/** `person`'s profile on their site, opened at `path` (by default `/`, their home). */
 		local: (browser: BrowserType, person: string, path = '/') => openProfile(browser, `${site(person)}${path}`),
 		/** `person`'s profile with this browser's copy of the synced repository, joined by its link as them, open in `app`. */
-		async open(browser: BrowserType, person: string, app: 'todos' | 'honeycrisp') {
+		async open(browser: BrowserType, person: string, app: AppName) {
 			const profile = await openProfile(browser, link(person));
 			await joined(profile.page, person);
-			await profile.page.goto(`${site(person)}${address}/${app}`);
+			await profile.page.goto(`${site(person)}${address}/${HOSTNAMES[app]}`);
 			await opened(profile.page, app);
 			return profile;
 		},
@@ -203,7 +207,7 @@ function profile(context: BrowserContext, page: Page, dir: string) {
 export const workers = (page: Page) => page.evaluate(() => (globalThis as unknown as { workers: number }).workers);
 
 /** Wait for a repository's page. */
-export const repositoryPage = (page: Page) => page.getByRole('list', { name: 'Apps' }).waitFor();
+export const repositoryPage = (page: Page) => page.getByRole('list', { name: 'Apps', exact: true }).waitFor();
 
 /**
  * On a join link: join as `account`, unless this browser already has the
@@ -212,7 +216,7 @@ export const repositoryPage = (page: Page) => page.getByRole('list', { name: 'Ap
  */
 export async function joined(page: Page, account: string) {
 	const form = page.getByRole('form', { name: 'Join a synced repository' });
-	const apps = page.getByRole('list', { name: 'Apps' });
+	const apps = page.getByRole('list', { name: 'Apps', exact: true });
 	await form.or(apps).first().waitFor();
 	if (await form.isVisible()) {
 		await form.getByLabel('Sync as').fill(account);
@@ -221,9 +225,10 @@ export async function joined(page: Page, account: string) {
 	await apps.waitFor();
 }
 
-/** Wait for `app` to show the repository: Todos lists its todos, Honeycrisp its notes. */
-export async function opened(page: Page, app: 'todos' | 'honeycrisp') {
-	if (app === 'todos') await page.getByRole('list', { name: 'Todos' }).waitFor();
+/** Wait for `app` to show the repository: Files its folder, Todos its todos, Honeycrisp its notes. */
+export async function opened(page: Page, app: AppName) {
+	if (app === 'files') await page.getByRole('region', { name: 'Folder' }).waitFor();
+	else if (app === 'todos') await page.getByRole('list', { name: 'Todos' }).waitFor();
 	else await page.getByRole('region', { name: 'Notes' }).waitFor();
 }
 

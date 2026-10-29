@@ -19,6 +19,6 @@
 	onDestroy(() => void closeRepository(open));
 </script>
 
-<RepositoryGate repo={open.repo} name={open.manifest.name} onLeave={() => void goto('/-/storage')}>
+<RepositoryGate repo={open.repo} name={open.manifest.name} onLeave={() => void goto('/me')}>
 	{@render children()}
 </RepositoryGate>

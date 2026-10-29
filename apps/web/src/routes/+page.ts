@@ -1,6 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 
-// `/` opens your home: every owner's home repository is named `home`, and `me` is you.
+// `/` is you (ADR-0693): your repositories, installed apps, storage and account.
 export function load() {
-	redirect(307, '/me/home');
+	redirect(307, '/me');
 }

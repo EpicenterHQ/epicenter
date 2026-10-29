@@ -25,3 +25,6 @@ export const FIRST_PARTY: readonly Bundle[] = [
 
 /** The bundle this shell has for `hostname`, if any. */
 export const bundleFor = (hostname: string) => FIRST_PARTY.find((entry) => entry.manifest.hostname === hostname);
+
+/** Files' hostname: the app any link falls back to when its own app is not installed. */
+export const FILES = 'files.epicenter.so';

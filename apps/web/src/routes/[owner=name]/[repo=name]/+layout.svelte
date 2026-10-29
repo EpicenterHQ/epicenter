@@ -65,7 +65,7 @@
 {:else if homeFailure !== undefined}
 	<main class="mx-auto flex min-h-dvh w-full max-w-lg flex-col justify-center gap-4 p-6">
 		<p class="text-sm text-destructive" role="alert">Could not make your home: {homeFailure}</p>
-		<p><Button variant="outline" size="sm" href="/-/storage">This browser's repositories</Button></p>
+		<p><Button variant="outline" size="sm" href="/me">Your repositories and storage</Button></p>
 	</main>
 {:else}
 	<main class="mx-auto flex min-h-dvh w-full max-w-lg flex-col gap-6 p-6" aria-label="Not in this browser">
@@ -77,8 +77,8 @@
 			<JoinForm owner={page.params.owner} {repository} server={server ?? ''} onJoined={() => void repositories.refresh()} />
 		{/key}
 		<p class="flex gap-2">
-			<Button size="sm" variant="ghost" href="/">Home</Button>
-			<Button size="sm" variant="ghost" href="/-/storage">This browser's repositories</Button>
+			<Button size="sm" variant="ghost" href="/me/home">Home</Button>
+			<Button size="sm" variant="ghost" href="/me">Your repositories and storage</Button>
 		</p>
 	</main>
 {/if}

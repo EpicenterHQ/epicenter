@@ -2,7 +2,7 @@
  * Todos Browser Smoke Test
  *
  * Builds the shell as it ships (`vite build`), serves the static site from
- * 127.0.0.1, and drives Todos in your home (`/me/home/todos`) in Chromium and
+ * 127.0.0.1, and drives Todos in your home (`/me/home/todos.epicenter.so`) in Chromium and
  * WebKit with persistent profiles: the shell opens the repository through
  * the browser host, so todos live in SQLite in OPFS, owned by the tab's
  * worker. Nothing syncs.
@@ -17,7 +17,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { chromium, webkit } from 'playwright';
 import { notesOf, opened, startWorld, type World } from '../support.js';
 
-const HOME_TODOS = '/me/home/todos';
+const HOME_TODOS = '/me/home/todos.epicenter.so';
 let world: World;
 // A site per test and engine: each person's home is `me/home`, and Playwright's WebKit shares one origin's storage across profiles.
 beforeAll(async () => {
