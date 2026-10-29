@@ -1,6 +1,6 @@
 # 0695. One sync engine runs on every device, and a folder on disk is its watched projection
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-29
 - **Revisits:** [ADR-0692](0692-people-edit-a-live-document-and-agents-merge-through-git.md) at "the live desktop folder is retired": the desktop keeps a live folder, written and watched by the same engine as the browser.
 - **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose append-only history this relies on; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md).

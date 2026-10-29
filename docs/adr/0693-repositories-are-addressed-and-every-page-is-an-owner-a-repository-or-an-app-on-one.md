@@ -1,8 +1,8 @@
 # 0693. Repositories are addressed, and every page is an owner, a repository, or an app on one
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-10-29
-- **Would supersede:** [ADR-0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) at "one data area" per site: an app's data is the repository it is opened on, not an area derived from its hostname.
+- **Amends:** [ADR-0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) at "one data area" per site: an app's data is the repository it is opened on, not an area derived from its hostname.
 - **Revisits:** [ADR-0687](0687-opening-a-site-url-opens-its-derived-folder.md), for the same reason.
 - **Relates:** [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md), whose owner namespace this keeps; [ADR-0694](0694-installing-an-app-is-trusting-it.md) (what an app is); [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) (how devices sync).
 - **Unbuilt:** accounts, organizations, grants, redirects on rename and transfer. The web shell (`apps/web`) routes `/me/home` and `/<owner>/<repo>` on one origin today.

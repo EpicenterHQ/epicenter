@@ -4,6 +4,7 @@
 - **Date:** 2026-10-23
 - **Supersedes as a direction:** The proposed source-install runner in [ADR-0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md). The legacy bundled-app path remains during migration.
 - **Unbuilt:** Published first-party URLs, migration of every bundled app, and Windows/Linux origin and activation probes.
+- **Amended by:** [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) at "one data area": an app's data is the repository it is opened on.
 - **Amended by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) at window close: the host asks the page over the Folder channel; the page answers after its writes land; a second request asks natively.
 
 ## Context
