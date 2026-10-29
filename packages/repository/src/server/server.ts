@@ -16,7 +16,8 @@
  * `admissible` (the predicate the device runs too); and the tree rules hold:
  * paths equal after NFC and case folding are one path, a blob's path is
  * immutable and its bytes present, and a merge may not grow a note past
- * 1 MB or past `BLOCK_CAP` conflict blocks.
+ * 1 MB or past `BLOCK_CAP` conflict blocks (the two named exceptions to
+ * "a person is never refused because of someone else").
  *
  * Idempotency is the commit id: a resend inside the retention window gets
  * its recorded answer, brought up to now; a resend after its answer left
@@ -132,7 +133,7 @@ export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, st
 	'blob-missing': "the blob's bytes are missing",
 	'blob-immutable': "a blob's path is immutable",
 	'merge-too-large': 'the merge would grow the note past 1 MB',
-	'too-many-blocks': 'the note has too many conflict blocks',
+	'too-many-blocks': 'this note has unresolved conflicts; resolve some first',
 	'no-session': 'no session',
 	'not-member': 'not a member',
 	reader: 'a reader may not write',
@@ -436,9 +437,9 @@ export function createServer({
 				parties: { current: { author: `${who.user}/${who.device}`, time: head.time }, incoming: { author: `${author.user}/${author.device}`, time: commit.time } },
 			});
 			if (settled.text !== null && isNote(file.path)) {
-				// RULE, the one named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
+				// RULE, the first named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
 				if (bytes(settled.text) > MAX_FILE_BYTES) return refusal('merge-too-large', file.path, head.id);
-				// RULE: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood); its writer holds it, or an agent redoes it.
+				// RULE, the second named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: a person holds it with the reason until blocks are resolved, an agent redoes it.
 				if (findConflicts(settled.text).length > Math.max(BLOCK_CAP, ours === null ? 0 : findConflicts(ours).length))
 					return refusal('too-many-blocks', file.path, head.id);
 			}

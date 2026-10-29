@@ -350,12 +350,14 @@ test('a stale-parent flood writes each different text once, an identical one not
 	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 	expect(server.push(make(root, [{ path: PATH, text: note('one more\n', 'flood') }], 'm'), writer('m'))).toMatchObject({
 		kind: 'refused',
-		reason: 'the note has too many conflict blocks',
+		code: 'too-many-blocks',
+		reason: 'this note has unresolved conflicts; resolve some first',
+		path: PATH,
 	});
 	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 });
 
-test("a person's merge past the block cap is held with the reason on their device", () => {
+test("a person's merge past the block cap, caused by other people's blocks, is held with the reason on their device", () => {
 	const { world, alice, bob, settle } = setup();
 	const blocks = Array.from({ length: BLOCK_CAP }, (_, i) => `<<<<<<< main\n||||||| base\n=======\nold ${i}\n>>>>>>> m/m\n`).join('');
 	alice.replica.write(PATH, note(`one\n.\n.\n${blocks}`));
@@ -366,7 +368,9 @@ test("a person's merge past the block cap is held with the reason on their devic
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'the note has too many conflict blocks' });
+	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'this note has unresolved conflicts; resolve some first' });
+	// Her text is kept, and goes once she resolves blocks and saves.
+	expect(alice.replica.read(PATH)).toContain('ONE\n');
 	expect(findConflicts(world.server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 	expect(world.server.read(PATH)).toContain('uno\n');
 });

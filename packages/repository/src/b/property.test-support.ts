@@ -46,7 +46,7 @@ import { escapeLines } from '../core/conflict.js';
 import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { MAIN } from '../server/git-store.js';
-import { type Committed, LIMITS, type PushAnswer } from '../server/server.js';
+import { type Committed, LIMITS, type PushAnswer, REASONS } from '../server/server.js';
 
 /**
  * What the property test needs of a world: the memory harness's surface,
@@ -517,7 +517,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				const reason = held.get(path);
 				if (text === null) continue;
 				// Too many blocks: the person resolves them by keeping every side's lines, which removes nothing typed.
-				const unblocked = reason === 'the note has too many conflict blocks' ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
+				const unblocked = reason === REASONS['too-many-blocks'] ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
 				const fixed = parses(unblocked) && !hasFiller(unblocked) ? unblocked : repair(unblocked);
 				if (fixed === text && text === world.server.read(path) && reason === undefined) continue;
 				save(d, { [path]: fixed }, []);
