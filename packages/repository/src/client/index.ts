@@ -9,3 +9,4 @@ export {
 	type Request,
 } from './replica.js';
 export { connectSocket, type ReplicaEnd } from './socket.js';
+export { type BlobStore, BlobStoreError, createMemoryBlobStore, OID, type Sealed } from './blobs.js';

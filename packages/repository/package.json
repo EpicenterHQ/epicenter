@@ -25,6 +25,7 @@
 		"serve:legacy": "bun scripts/serve-legacy.ts"
 	},
 	"dependencies": {
+		"@noble/hashes": "^2.4.0",
 		"@sqlite.org/sqlite-wasm": "^3.54.1-build1",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
