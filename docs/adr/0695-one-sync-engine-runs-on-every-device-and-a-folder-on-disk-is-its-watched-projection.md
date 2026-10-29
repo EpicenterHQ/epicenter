@@ -5,7 +5,7 @@
 - **Revisits:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) at "the live desktop folder is retired": the desktop keeps a live folder, written and watched by the same engine as the browser.
 - **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose append-only history this relies on; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md).
 - **Amended by:** [ADR-0697](0697-all-text-merges-from-everyone.md) at "an agent's work lands as one commit or not at all" and "refused if `main` moved since it looked, so the agent redoes its work": an agent's batch merges like anyone's save, and lands in one commit or is held whole.
-- **Unbuilt:** the watcher, the desktop host of the engine, `epicenter sync` and `epicenter commit`, a Git store other than the memory and disk stores, receiving `git push` outside the spike.
+- **Unbuilt:** the desktop host of the engine (its sidecar running one `epicenter sync` per folder), a Git store other than the memory and disk stores, receiving `git push` outside the spike. Built in `packages/repository`: the folder engine and its watcher, and `epicenter sync` and `epicenter commit`.
 
 ## Context
 

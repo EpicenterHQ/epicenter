@@ -4,7 +4,7 @@
 - **Date:** 2026-10-29
 - **Revisits:** [ADR-0687](0687-opening-a-site-url-opens-its-derived-folder.md): opening a site's URL still starts installation, and the site's code is served from what was installed.
 - **Relates:** [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) (where apps run); [ADR-0680](0680-rust-serves-each-installed-app-from-a-pinned-build-on-its-own-origin.md) (pinned builds on desktop); [ADR-0674](0674-standalone-apps-release-independently-from-one-monorepo.md).
-- **Unbuilt:** the `mount` contract, installing by hostname, the installed-app record, hash-pinned serving, the Files app. Todos and Honeycrisp are compiled into the web shell today.
+- **Unbuilt:** installing an app another host serves (fetching its manifest and module from `https://<hostname>/`), and serving what was installed pinned to its hash (first-party bundles record a source hash that nothing enforces yet). Built: the `mount` contract (`@epicenter/app`), routing to an app by its hostname, the installed-app record, and the Files app; Todos, Honeycrisp and Files are compiled into the web shell as bundles.
 
 ## Context
 
