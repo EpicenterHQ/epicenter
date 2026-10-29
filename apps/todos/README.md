@@ -1,10 +1,10 @@
 # Todos
 
-Todos keeps each todo as a Markdown file, `todos/<id>.md`, in a repository on this device ([`@epicenter/repository`](../../packages/repository)). The page opens it with the repository's browser host: one SQLite file in this origin's private storage (OPFS), owned by one tab's worker. A second tab offers Use here, which moves the repository to it; the first tab then says it moved. It opens without an account. When the build names a server, the repository syncs through it; without one, Todos keeps everything on this device.
+Todos keeps each todo as a Markdown file, `todos/<id>.md`, in a repository ([`@epicenter/repository`](../../packages/repository)). The page opens one of this browser's repositories from the repository chooser (`RepositoryChooser` from `@epicenter/svelte`): each is a replica in this origin's private storage (OPFS), owned by one tab's worker, kept only on this device or synced with a server. The first visit makes one; later visits open the last one again; the repository's name in the header goes back to the list, to open, make or remove another. A second tab offers Use here, which moves the repository to it; the first tab keeps showing its todos under a bar that says so. Todos opens without an account.
 
-A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name stay in the file when a todo is edited. **Edit source** opens a todo's whole file, frontmatter included, in the source editor (`<SourceEditor>` from `@epicenter/svelte`), whose status line says whether the frontmatter parses and whether the todo matches the schema, with each issue. A file that does not read as a todo is listed under **Needs repair** and opens straight into its source. Frontmatter that parses never syncs text that does not: that text is saved on this device and held, not sent, until it parses again; a file that does not parse saves every step of its repair.
+A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. The checkbox and the title each set their one field, so fields the schema does not name, and a change made elsewhere to the rest of the todo, stay. The notes are a view of the todo's editor; **Edit source** opens the same editor on the todo's whole file, frontmatter included (`<SourceEditor>` from `@epicenter/svelte`), whose status says whether the frontmatter parses and whether the todo matches the schema, with each issue. A file that does not read as a todo is listed under **Needs repair** and opens straight into its source. Text whose frontmatter does not parse is saved on this device and held, not sent, until it parses again; the status says so, and the header counts it as **Not sent**.
 
-Every edit applies on this device at once and shows at once: the list is a live query, and the open todo is held open, so its controls read the note synchronously and write through it. Nothing waits for a save, and nothing is left unsaved when the page closes. Edits made offline wait in the repository's outbox and are sent when the server is reachable; edits from elsewhere merge with them. An edit resolves once it is saved on this device; if the engine cannot save it, Todos says so in a toast and the controls show the stored todo again. What the server later does with a saved edit that the person should know appears under the header as a notice until dismissed; a change the server could not take keeps the text this device showed, to copy.
+The todos are held in page memory, so the list and the open todo read them at once, and every edit shows at once. An edit resolves once it is saved on this device; if it cannot be saved, Todos says so in a toast and the controls show the stored todo again. Edits made offline are sent when the server is reachable, and edits from elsewhere merge with them: where two people changed the same words, the todo keeps both, as a labelled conflict block in its text.
 
 ## Run the browser app
 
@@ -14,18 +14,17 @@ From the repository root:
 bun dev:todos:ui
 ```
 
-Open the URL Vite prints. The header says **On this device**. Open a second tab at the same URL: both tabs use the first tab's worker, and each sees the other's edits. Closing the first tab hands the repository to the next.
+Open the URL Vite prints and make a repository kept on this device: the header says **On this device**. Open a second tab at the same URL: it offers Use here, and the first tab then says Todos is open in another tab.
 
-To sync, serve a repository on this machine and build Todos against it:
+To sync, serve a repository on this machine:
 
 ```sh
-bun packages/repository/scripts/serve-legacy.ts /tmp/todos.git
-VITE_TODOS_SERVER='ws://127.0.0.1:8787/?user=me' bun dev:todos:ui
+bun packages/repository/scripts/serve.ts /tmp/todos.git --origin http://127.0.0.1:5186
 ```
 
-Use a second browser profile, with another `user`, as a second person. The header says **Sending…** while edits wait for the server, **Not sent** while a todo's text is held on this device until its frontmatter parses, and **Synced** once the server has everything. The server commits to `/tmp/todos.git` a minute after a change, so `git clone /tmp/todos.git` shows the todos as files.
+In the repository chooser, make a repository with the server `http://127.0.0.1:8787/`, the repository `todos`, and a name to sync as. Use a second browser profile, with another name, as a second person. The header says **Sending…** while edits wait for the server, **Not sent** while a todo's text is held on this device, and **Synced** once the server has everything. The server commits to `/tmp/todos.git` a minute after a change, so `git clone /tmp/todos.git` shows the todos as files.
 
-The Playwright smoke test builds the site and drives it in Chromium and WebKit with persistent profiles:
+The Playwright tests build the site and drive it in Chromium and WebKit with persistent profiles, alone and as two people syncing through the development server:
 
 ```sh
 bun run --cwd apps/todos test:browser
@@ -89,11 +88,11 @@ The CLI opens `openFolder({ directory, tables: todosTables })`. It saves ordinar
 
 ## Earlier browser data
 
-Earlier Todos builds kept their folder in IndexedDB, and before that in OPFS. This build opens its repository independently and does not read or migrate either; their bytes stay where they are. A profile with only older data shows an empty list.
+Earlier Todos builds kept their folder in IndexedDB, and before that in OPFS, and the build before this one opened a fixed repository named `todos` with an engine since removed. This build lists only this browser's replicas and does not read or migrate any of those; their bytes stay where they are. A profile with only older data shows the chooser.
 
 ## Boundaries and checks
 
-`src/routes/+page.svelte` mounts `OpenTodos` with `openBrowserRepository({ app: todosApp, name: 'todos', server })`; it owns opening, Try again, and close. `src/routes/local/` reads the repository through Svelte context with `live` and `opened` from `@epicenter/repository/svelte`, reports writes it could not save, and shows the repository's notices (`Notices.svelte`). `apps/todos/scripts/native.ts` still uses `@epicenter/folder` over a directory, with the same schema; it does not read the repository. Todos has no account, inference, or sync action.
+`src/routes/+page.svelte` mounts the repository chooser over `todosApp`, with `TodosApp` inside it. `src/routes/local/` reads the repository through Svelte context (`reactive` from `@epicenter/svelte/repository`), writes with `create`, `patch` and `delete`, edits a todo's notes and source through its editor (`openEditor`), and reports writes it could not save. `apps/todos/scripts/native.ts` still uses `@epicenter/folder` over a directory, with the same schema; it does not read the repository. Todos has no account, inference, or sync action.
 
 From the repository root:
 

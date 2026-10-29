@@ -1,7 +1,9 @@
 # @epicenter/svelte
 
-This package makes a Folder mirror reactive in Svelte 5, and edits a
-repository file's source. The Folder reports
+This package makes a Folder mirror reactive in Svelte 5, and an
+`@epicenter/repository` repository too: its reads tracked, an app's chooser
+over this browser's repositories, and a note's editor in CodeMirror. The
+Folder reports
 what storage last returned or accepted. Each text editor owns a `edit` for
 what the person typed until that value's save answers. `<OpenFolder>` owns
 opening, refresh on return, and close.
@@ -137,39 +139,75 @@ bytes are indistinguishable from that case.
 
 **Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through Folder instructions like any editor. Fields are never collaborative; they stay last-write-wins per field. No layer writes files except through the Folder. Agents may write files directly or issue the same Folder instructions through Epicenter; either way their changes reach editors through the Folder copy.
 
-## Edit a repository file's source
+## A repository in Svelte
 
-`<SourceEditor>` from `@epicenter/svelte/source-editor` edits any synced
-Markdown file in an `@epicenter/repository` repository as its whole text,
-frontmatter included, in CodeMirror. It holds the file open through
-`repo.files.open(path)` and saves as the person types. Key it by the path.
+`@epicenter/svelte/repository` makes an `@epicenter/repository` handle
+reactive. `reactive(repo)` is the repository with the same methods, its reads
+tracked: a collection's `all()` and `get()` re-run when that collection's
+notes change, `status()` when the status does, and `revision()` after any
+change, so an effect that reads it re-runs a SQL query or a `read()`.
+`tracked(editor)` is an editor's draft and state as reactive getters.
 
 ```svelte
 <script lang="ts">
-  import SourceEditor from '@epicenter/svelte/source-editor';
+  const open = $derived(repo.todos.all().filter((todo) => todo.valid && !todo.fields.done));
 </script>
-
-{#key path}
-  <SourceEditor {repo} {path} lens="notes" />
-{/key}
 ```
 
-Its status line says, for the text on screen, whether the frontmatter parses
-(and the line where it breaks) and, given `lens`, whether the note matches
-that name's schema, with each issue. Every keystroke is saved on the device.
-No synced file ever goes from parsing to not parsing, so a text that would
-break frontmatter that parses is saved on the device and held, not sent,
-and the status says "Saved on this device; waiting for the frontmatter to
-parse" until it parses again. The repository keeps held text through
-changes from elsewhere and sends it as soon as it parses. A file whose
-frontmatter does not parse saves every step of its repair. A save the
-repository refuses, for its size, its bytes or its path, shows its error and
-stays in the editor, unsent until the text changes.
+An app's page opens its repository through the chooser, which lists this
+browser's repositories (each with where it syncs), opens one, makes one (kept
+on this device, or synced with a server given its address, the repository's
+name there, and whom to sync as), and removes one, saying what removal would
+delete. The last one opened opens again on the next visit.
 
-`@epicenter/svelte/codemirror` exports the editor behind it,
-`createSourceEditor`, and the binding it shares with editors an app composes
-itself: `textBinding` writes each local change, and `applyExternal` shows a
-change from elsewhere as the smallest edits, kept out of the undo history.
+```svelte
+<script lang="ts">
+  import RepositoryChooser from '@epicenter/svelte/repository/chooser';
+  import { todosApp } from '$lib/definition.js';
+  import TodosApp from './local/TodosApp.svelte';
+</script>
+
+<RepositoryChooser app={todosApp} name="Todos">
+  {#snippet children({ repo, manifest, leave })}
+    <TodosApp {repo} repository={manifest.name} syncsTo={manifest.url ?? undefined} onLeave={leave} />
+  {/snippet}
+</RepositoryChooser>
+```
+
+The chooser puts the app under `RepositoryGate`
+(`@epicenter/svelte/repository/gate`): until the repository's notes first
+arrive, its status is the page (opening, waiting for another tab, open in
+another tab with Use here, unavailable with Try again); from then on the app
+stays mounted, and the status is a bar above it, so the page hiding and
+showing again never remounts it. `leave` closes the repository and goes back
+to the list, which shows any typing it could not save, to copy. The chooser
+sends `Authorization: Bearer <name>` as whom to sync as, which the
+repository's development server accepts; it is the credential until
+repositories have accounts of their own.
+
+`<SourceEditor>` (`@epicenter/svelte/repository/source-editor`) shows a
+note's editor (`openEditor`) in CodeMirror: its exact text by default, or its
+body (`shows="body"`). Both are views of one editor, so a note's body and
+source can be open at once. Given `check`, its status says as the person
+types whether the frontmatter parses (with the line where YAML found the
+break) and whether the note fits its schema, with each issue; given the
+note's `state`, it says when the text is saved here and held, not sent, and
+why. A save that pauses because typing touched a change made elsewhere
+offers Keep mine and Use theirs; a failed save keeps the typing, with Try
+again. The caller opens and closes the editor.
+
+```svelte
+<SourceEditor {editor} check={(text) => app.check(text, { as: 'notes' })} state={note.state} />
+<SourceEditor {editor} shows="body" label="Notes" />
+```
+
+An app that composes its own CodeMirror editor binds it with
+`editorBinding(editor, { shows })` from `@epicenter/svelte/repository`, or
+makes one with `createEditorView`. Each local change hands the editor the new
+exact text with CodeMirror's change set; a change from outside the view (a
+rebase, a change from elsewhere, typing in another view) is applied in place
+as `Transaction.remote` and kept out of the undo history, so the cursor stays
+where the person was typing and Undo takes back only their keystrokes.
 
 The package also exports agent conversation bindings and status display
 helpers. Those are independent of Folder editing.

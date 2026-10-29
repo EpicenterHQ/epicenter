@@ -1,7 +1,8 @@
 # Honeycrisp App
 
-Markdown notes in a repository on this device (`@epicenter/repository`),
-synced when the build names a server. Read [the README](README.md) for the
+Markdown notes in a repository (`@epicenter/repository`), one of this
+browser's replicas chosen in the repository chooser, synced when it has a
+server. Read [the README](README.md) for the
 current page flow and verify it against the code.
 
 ## The repository is the data
@@ -11,35 +12,33 @@ current page flow and verify it against the code.
 - Do not add Yjs, a CRDT, or an account. Nothing in `src/` may import `@y/*`,
   `yjs`, `@epicenter/auth`, or `@epicenter/sync`. The bundle test checks this.
 - Do not add a migration or compatibility path for earlier Honeycrisp data.
-- Reads are live queries (`live` from `@epicenter/repository/svelte`); the
-  open note is held open (`opened`). Writes go through the repository's
-  handles, apply at once, resolve once saved on the device, and are reported
-  with `report` when they cannot be saved. What the server later does with a
-  saved write is a notice (`repo.notices`), shown by `Notices.svelte`; never
+- Notes and folders are read from page memory (`repo.notes.all()`,
+  `get()`, tracked by `reactive`). Writes go through the repository (`create`,
+  `patch`, `delete`, `commit`), show at once, resolve once saved on the
+  device, and are reported with `report` when they cannot be saved; never
   wait for the server in an action.
-- A write names only the fields and body it changes. Never rewrite a whole
-  note to change part of it.
+- A field control sets only its field (`patch`); the body is written through
+  the note's editor. Never rewrite a whole note to change part of it.
 - A save moves no timestamp (ADR-0573). The list orders by `createdAt`.
 
 ## Editor ownership
 
-- `src/lib/editor/` owns the CodeMirror editor and imports nothing from
-  Honeycrisp's UI; `NoteDetail` gives `NoteEditor` a body source.
-- The editor's state owns the cursor and the undo history. Its mount depends
-  on nothing reactive; changes from elsewhere arrive through `follow`, as
-  `Transaction.remote` changes outside the history.
-- Local changes write with `note.edit(body)`, never `write({ body })`, so a
-  change that arrived while typing is merged, not replaced. Write the text
-  with `state.sliceDoc()`, which keeps the body's line breaks.
+- `src/lib/editor/` owns the CodeMirror view and imports nothing from
+  Honeycrisp's UI. `FileDetail` opens the note's one editor (`openEditor`)
+  and gives it to `NoteDetail`'s body view and to the source view.
+- The view's state owns the cursor and the undo history. Its mount depends
+  on nothing reactive; `editorBinding` hands local changes to the editor and
+  applies changes from elsewhere as `Transaction.remote` changes outside the
+  history.
 
 ## Lifecycle and boundary
 
-- `OpenHoneycrisp` opens the repository, shows Try again on failure, and
-  closes it on unmount. `HoneycrispApp` creates the `notes` state and provides
-  the repository through context.
+- The repository chooser opens the repository and puts `HoneycrispApp` under
+  the repository gate, which mounts it once. `HoneycrispApp` creates the
+  `notes` state and provides the repository through context.
 - Do not import Bun or Node modules under `src/`. Tests use
-  `src/lib/repository.test-support.ts`, the real engine on `bun:sqlite` with a
-  scripted server.
+  `src/lib/repository.test-support.ts`, the repository API on a replica on
+  `bun:sqlite`, with no server.
 
 ## Words a person reads
 
