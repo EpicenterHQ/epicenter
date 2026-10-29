@@ -11,37 +11,22 @@
  * - Create, edit, complete, and delete a todo
  * - Each survives a reload
  * - A todo's source shows a schema mismatch as it is typed, and it clears when fixed
+ * - Its notes and its source are two views of one editor
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { chromium, type Page, webkit } from 'playwright';
+import { chromium, webkit } from 'playwright';
+import { buildTodos, notesOf, opened, serveSite } from './support.js';
 
-const app = join(import.meta.dir, '..');
-const build = join(app, 'build');
-let server: ReturnType<typeof Bun.serve>;
+let server: ReturnType<typeof serveSite>;
 
 beforeAll(async () => {
-	const built = Bun.spawn(['bun', 'run', 'build'], { cwd: app, stdout: 'ignore', stderr: 'pipe', env: { ...process.env, VITE_TODOS_SERVER: '' } });
-	if ((await built.exited) !== 0) throw new Error(`The Todos build failed: ${await new Response(built.stderr).text()}`);
-	server = Bun.serve({
-		hostname: '127.0.0.1',
-		port: 0,
-		async fetch(request) {
-			const { pathname } = new URL(request.url);
-			const file = Bun.file(join(build, pathname));
-			// A single-page app: every route is the index page.
-			return new Response(pathname !== '/' && (await file.exists()) ? file : Bun.file(join(build, 'index.html')));
-		},
-	});
+	await buildTodos();
+	server = serveSite();
 }, 120_000);
 afterAll(() => server?.stop(true));
-
-/** Wait for the page to open the repository and list the todos. */
-async function opened(page: Page) {
-	await page.getByRole('list', { name: 'Todos' }).waitFor();
-}
 
 for (const [engine, browser] of [
 	['chromium', chromium],
@@ -67,14 +52,18 @@ for (const [engine, browser] of [
 					await expect(title.inputValue()).resolves.toBe('Buy milk');
 
 					await title.fill('Buy oat milk');
-					await page.getByLabel('Notes').fill('Two litres');
+					await notesOf(page).click();
+					await page.keyboard.type('Two litres');
+					// A reload before the tab's worker stored the last keystrokes can lose them.
+					await page.getByTestId('editor-status').getByText('Saved', { exact: true }).waitFor();
 					await page.getByRole('checkbox', { name: 'Done' }).click();
 					await page.getByRole('checkbox', { name: 'Reopen Buy oat milk' }).waitFor();
 
 					await page.reload();
 					await opened(page);
 					await expect(title.inputValue()).resolves.toBe('Buy oat milk');
-					await expect(page.getByLabel('Notes').inputValue()).resolves.toBe('Two litres');
+					await notesOf(page).waitFor();
+					await expect(notesOf(page).innerText()).resolves.toBe('Two litres');
 					await expect(page.getByRole('checkbox', { name: 'Done' }).getAttribute('aria-checked')).resolves.toBe('true');
 					await expect(page.getByRole('checkbox', { name: 'Reopen Buy oat milk' }).getAttribute('aria-checked')).resolves.toBe('true');
 
@@ -109,7 +98,7 @@ for (const [engine, browser] of [
 					await page.getByRole('button', { name: 'Edit source' }).click();
 
 					const source = page.getByRole('textbox', { name: /^Source of todos\// });
-					const status = page.getByTestId('source-status');
+					const status = page.getByTestId('editor-status');
 					await status.getByText('Matches the schema').waitFor();
 					await source.locator('.cm-line', { hasText: 'done: false' }).click();
 					await page.keyboard.press('End');

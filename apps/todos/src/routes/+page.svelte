@@ -1,17 +1,14 @@
 <script lang="ts">
-	import { openBrowserRepository } from '@epicenter/repository/browser';
-	import { todosApp } from '$lib/definition.js';
+	import { openTodos } from '$lib/open.js';
 	import OpenTodos from './local/OpenTodos.svelte';
 
 	/**
 	 * The server to sync with, set at build time, such as
-	 * `ws://127.0.0.1:8787/?user=me` from `bun packages/repository/scripts/serve-legacy.ts`.
-	 * Without one, Todos keeps its todos on this device.
+	 * `http://127.0.0.1:8787/` from `bun packages/repository/scripts/serve.ts`,
+	 * and whom to sync as. Without a server, Todos keeps its todos on this device.
 	 */
 	const server: string | undefined = import.meta.env.VITE_TODOS_SERVER || undefined;
+	const account: string = import.meta.env.VITE_TODOS_ACCOUNT || 'me';
 </script>
 
-<OpenTodos
-	open={() => openBrowserRepository({ app: todosApp, name: 'todos', server: server === undefined ? undefined : { url: server } })}
-	syncsTo={server}
-/>
+<OpenTodos open={() => openTodos({ server, account })} syncsTo={server} />

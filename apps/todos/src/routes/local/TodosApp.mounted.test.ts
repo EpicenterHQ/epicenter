@@ -2,30 +2,33 @@
  * Local Todos Mounted Tests
  *
  * Mounts the real Todos views in jsdom, as the page mounts them, over the
- * repository engine running in this process on `bun:sqlite` with no server.
- * A second client of the same engine stands in for a change made elsewhere
- * on this device; the browser host itself, which gives the repository to one
- * tab at a time, is covered by the Playwright smoke test. jsdom matches no media
- * query, so the view lays out as on a narrow screen.
+ * repository API on a replica in this process (`bun:sqlite`, no server). A
+ * second repository over the same replica stands in for a change made
+ * elsewhere on this device; the browser host itself, which gives the
+ * replica to one tab at a time, is covered by the Playwright tests. jsdom
+ * matches no media query, so the view lays out as on a narrow screen.
  *
  * Key behaviors:
  * - Add, edit, complete, and delete persist across close and reopen
  * - Another tab's change updates a clean todo without replacing its controls
- * - Typing shows at once and keeps fields written elsewhere
- * - A write the engine refuses is reported, and the controls follow the stored note
+ * - A title typed here and done set elsewhere both survive
+ * - A write the replica refuses is reported, and the controls follow the stored note
  * - A note that does not fit opens into its source with its schema issue, and an edit keeps unnamed fields
+ * - The header says a held todo is not sent
  * - A failed open shows the error, and Try again opens again
- * - Open in another tab offers Use here; waiting and moved say so
- * - A change the server could not take is a notice, with its text, until dismissed
+ * - The repository's status shows before the todos arrive and as a bar after, and the app is never mounted twice
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, mock, test } from 'bun:test';
-import { createRepository, type EnginePort, offlineTransport, openEngine, type Transport, WriteError } from '@epicenter/repository';
-import { Ok } from 'wellcrafted/result';
 import { openBunSqlite } from '@epicenter/repository/bun';
-import { blur, button, click, setWide, type } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
+import { openReplica, type Replica } from '@epicenter/repository/client';
+import type { SqlDriver } from '../../../../../packages/repository/src/sql.js';
+import { Ok, unwrap } from 'wellcrafted/result';
+import { createLocalHost } from '../../../../../packages/repository/src/api/local.js';
+import { openRepository } from '../../../../../packages/repository/src/api/repository.js';
+import { blur, button, click, editorText, setWide, type, typeInEditor } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { todosApp } from '../../lib/definition.js';
-import type { TodosRepository, TodosTab } from '../../lib/repository.js';
+import type { TodosRepository } from '../../lib/repository.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
 const state = await import('../../lib/app-state.test-support.svelte.ts');
@@ -46,67 +49,48 @@ afterEach(async () => {
 const DETAIL = 'section[aria-label="Todo"]';
 const LIST = '[aria-label="Todo list"]';
 const TITLE = `${DETAIL} input[aria-label="Title"]`;
-const NOTES = `${DETAIL} textarea[aria-label="Notes"]`;
+const NOTES = `${DETAIL} [aria-label="Notes"]`;
 const DONE = `${DETAIL} button[aria-label="Done"]`;
 const SUMMARY = '[data-testid="status-summary"]';
 
-/** A fresh device: one engine, which every client of the test shares. */
+/** A fresh device: one replica on one database, which every repository of the test opens. */
 function freshDevice() {
-	const engine = openEngine({ app: todosApp, driver: openBunSqlite(), transport: offlineTransport });
-	cleanup.push(() => engine.close());
-	/** When set, the engine refuses every write, as a full disk would. */
+	const driver: SqlDriver = openBunSqlite();
+	const replica = unwrap(openReplica({ driver, binding: { repository: 'todos', server: null, account: null }, device: 'this-device', app: todosApp, after: () => {}, now: () => 0 }));
+	/** When set, the replica refuses every change, as a full disk would. */
 	let refuse = false;
-	const port: EnginePort = {
-		read: (request) => engine.read(request),
-		submit(ops) {
-			if (!refuse) return engine.submit(ops);
-			const failed = WriteError.Unparseable({ path: 'todos/', reason: 'the disk is full' });
-			return Promise.resolve(failed);
+	const refusing: Replica = {
+		...replica,
+		change(changes) {
+			if (refuse) throw new Error('the disk is full');
+			return replica.change(changes);
 		},
-		send: (ops) => engine.send(ops),
-		dismiss: (id) => engine.dismiss(id),
-		onChange: (listener) => engine.onChange(listener),
-		// A client closing leaves the engine to the others.
-		close() {},
 	};
 	return {
-		/** Another client of this device's engine. */
-		tab: (): TodosRepository => createRepository(todosApp, port),
+		replica,
+		/** A repository over this device's replica, with the host that runs it. */
+		host() {
+			const local = createLocalHost({ replica: refusing, app: todosApp });
+			const repository: TodosRepository = openRepository({ app: todosApp, host: local.host });
+			cleanup.push(() => repository.close());
+			return { ...local, repository };
+		},
+		/** Another repository over this device's replica. */
+		tab: (): TodosRepository => {
+			const repository = openRepository({ app: todosApp, host: createLocalHost({ replica, app: todosApp }).host });
+			cleanup.push(() => repository.close());
+			return repository;
+		},
+		/** The todo's exact text as the replica holds it. */
+		text: (stem: string) => replica.read(`todos/${stem}.md`),
 		refuseWrites(value: boolean) {
 			refuse = value;
 		},
 	};
 }
 
-type TabState = ReturnType<TodosTab['state']>;
-
-/** A tab whose state the test sets, as the browser host would report it. */
-function tabOf(first: TabState) {
-	let state = first;
-	const watchers = new Set<(state: TabState) => void>();
-	const tab: TodosTab = {
-		state: () => state,
-		subscribe(onChange) {
-			watchers.add(onChange);
-			onChange(state);
-			return () => watchers.delete(onChange);
-		},
-		close() {},
-	};
-	return {
-		tab,
-		set(next: TabState) {
-			state = next;
-			for (const watcher of watchers) watcher(next);
-		},
-	};
-}
-
-/** A tab that owns `repository`. */
-const owning = (repository: TodosRepository) => tabOf({ status: 'open', repository }).tab;
-
-/** Mount the page over the tab `open` opens; `close` unmounts it. */
-function mountPage(open: () => TodosTab, syncsTo?: string) {
+/** Mount the page over the repository `open` opens; `close` unmounts it. */
+function mountPage(open: () => Promise<ReturnType<typeof Ok<TodosRepository>> | { data: null; error: { message: string } }>, syncsTo?: string) {
 	const target = document.createElement('div');
 	document.body.append(target);
 	const view = mount(PageHost, { target, props: { open, syncsTo } });
@@ -127,6 +111,7 @@ function mountPage(open: () => TodosTab, syncsTo?: string) {
 			// SAFETY: callers choose T for the element matched by their selector.
 			return element as T;
 		},
+		has: (selector: string) => target.querySelector(selector) !== null,
 		text: (selector: string) => target.querySelector(selector)?.textContent?.trim(),
 	};
 }
@@ -143,10 +128,11 @@ async function until(check: () => boolean, what: string) {
 	throw new Error(`Timed out waiting for ${what}`);
 }
 
-/** Mount the page over a tab of `device` and wait until it lists the todos. */
-async function openPage(device: ReturnType<typeof freshDevice>) {
-	const opened = mountPage(() => owning(device.tab()));
-	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
+/** Mount the page over a repository on `device` and wait until it lists the todos. */
+async function openPage(device: ReturnType<typeof freshDevice>, syncsTo?: string) {
+	const { repository } = device.host();
+	const opened = mountPage(async () => Ok(repository), syncsTo);
+	await until(() => opened.has('[aria-label="Todos"]'), 'the list');
 	return opened;
 }
 
@@ -156,10 +142,11 @@ const press = (element: Element) => element.dispatchEvent(new MouseEvent('click'
 async function onMilk() {
 	const device = freshDevice();
 	const other = device.tab();
-	void other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false }, body: 'Two litres' });
+	await until(() => other.status().status === 'open', 'the other tab');
+	unwrap(await other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false }, body: 'Two litres' }));
 	resetUrl('http://localhost/?todo=milk');
 	const opened = await openPage(device);
-	await until(() => opened.get(TITLE).value === 'Milk', 'milk to open');
+	await until(() => opened.get(TITLE).value === 'Milk' && opened.has(NOTES), 'milk to open');
 	return { ...opened, device, other };
 }
 
@@ -167,32 +154,30 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	const device = freshDevice();
 	const first = await openPage(device);
 	await until(() => first.text('[aria-label="Todos"]')?.includes('No todos yet') ?? false, 'the empty list');
-	expect(first.target.querySelector('[data-testid="save-version"]')).toBeNull();
-	expect(first.target.querySelector('[data-testid="sync"]')).toBeNull();
 
 	type(first.get('[aria-label="New todo title"]'), 'Buy milk');
 	flushSync();
 	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain('Todo not added');
 	click(first.get(LIST), 'Add');
-	await until(() => first.get(TITLE).value === 'Buy milk', 'the new todo to open');
+	await until(() => first.get(TITLE).value === 'Buy milk' && first.has(NOTES), 'the new todo to open');
 	const id = page.url.searchParams.get('todo');
 	if (id === null) throw new Error('The new todo did not open');
 	expect(first.get(SUMMARY).getAttribute('aria-label')).toContain('On this device');
 
 	type(first.get(TITLE), 'Buy oat milk');
-	type(first.get<HTMLTextAreaElement>(NOTES), 'Two litres');
+	typeInEditor(first.get(NOTES), 'Two litres');
 	press(first.get(DONE));
 	flushSync();
-	// Each shows at once, before the engine answers.
+	// Each shows at once, before the replica answers.
 	expect(first.get(TITLE).value).toBe('Buy oat milk');
 	expect(first.get(DONE).getAttribute('aria-checked')).toBe('true');
+	await until(() => device.text(id) === '---\ntitle: Buy oat milk\ndone: true\n---\nTwo litres', 'every edit stored');
 	first.close();
 
 	const second = await openPage(device);
-	await until(() => second.get(TITLE).value === 'Buy oat milk', 'the todo to reopen');
-	expect(second.get<HTMLTextAreaElement>(NOTES).value).toBe('Two litres');
+	await until(() => second.get(TITLE).value === 'Buy oat milk' && second.has(NOTES), 'the todo to reopen');
+	expect(editorText(second.get(NOTES))).toBe('Two litres');
 	expect(second.get(DONE).getAttribute('aria-checked')).toBe('true');
-	expect((await device.tab().todos.get({ stem: id }))?.text).toBe('---\ntitle: Buy oat milk\ndone: true\n---\nTwo litres');
 
 	click(second.get(DETAIL), 'Delete');
 	await until(() => document.querySelector('[role="alertdialog"]') !== null, 'the confirmation');
@@ -200,65 +185,50 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	if (dialog === null) throw new Error('The delete confirmation did not open');
 	click(dialog, 'Delete');
 	await until(() => page.url.searchParams.get('todo') === null, 'the delete');
+	await until(() => device.text(id) === null, 'the delete stored');
 	second.close();
 
 	const third = await openPage(device);
 	await until(() => third.text('[aria-label="Todos"]')?.includes('No todos yet') ?? false, 'an empty list');
-	expect(await device.tab().todos.get({ stem: id })).toBeNull();
 });
 
 test("another tab's change updates a clean todo without replacing its controls", async () => {
-	const { get, other } = await onMilk();
+	const { get, other, device } = await onMilk();
 	const title = get(TITLE);
-	const notes = get<HTMLTextAreaElement>(NOTES);
+	const notes = get(NOTES);
 
-	void other.todos.write({ stem: 'milk' }, { body: 'Three litres' });
-	await until(() => get<HTMLTextAreaElement>(NOTES).value === 'Three litres', 'the other tab’s notes');
+	unwrap(await other.todos.write({ stem: 'milk' }, '---\ntitle: Milk\ndone: false\n---\nThree litres'));
+	await until(() => editorText(get(NOTES)) === 'Three litres', 'the other tab’s notes');
 	expect(get(TITLE)).toBe(title);
 	expect(get(NOTES)).toBe(notes);
 	expect(title.value).toBe('Milk');
 
 	type(title, 'Oat milk');
-	type(notes, 'Three litres, unsweetened');
+	typeInEditor(notes, 'Three litres, unsweetened');
 	flushSync();
-	expect(notes.value).toBe('Three litres, unsweetened');
+	expect(editorText(notes)).toBe('Three litres, unsweetened');
 	blur(title);
-	const saved = await other.todos.get({ stem: 'milk' });
-	expect(saved?.fields).toEqual({ title: 'Oat milk', done: false });
-	expect(saved?.body).toBe('Three litres, unsweetened');
+	await until(() => device.text('milk') === '---\ntitle: Oat milk\ndone: false\n---\nThree litres, unsweetened', 'both saved');
 });
 
-test('notes typed while a change from elsewhere is arriving keep that change', async () => {
-	const { get, other } = await onMilk();
-	void other.todos.write({ stem: 'milk' }, { body: 'Two litres\n\nfrom the shop\n' });
-	await until(() => get<HTMLTextAreaElement>(NOTES).value === 'Two litres\n\nfrom the shop\n', 'the longer notes');
-	// The other tab's change is saved; before this tab shows it, the person types on another line.
-	void other.todos.write({ stem: 'milk' }, { body: 'Two litres\n\nfrom the market\n' });
-	type(get<HTMLTextAreaElement>(NOTES), 'Three litres\n\nfrom the shop\n');
-	await until(() => get<HTMLTextAreaElement>(NOTES).value === 'Three litres\n\nfrom the market\n', 'both changes');
-	expect((await other.todos.get({ stem: 'milk' }))?.body).toBe('Three litres\n\nfrom the market\n');
-});
-
-test('title typed here and done set elsewhere both survive', async () => {
-	const { get, other } = await onMilk();
+test('a title typed here and done set elsewhere both survive', async () => {
+	const { get, other, device } = await onMilk();
 	type(get(TITLE), 'Oat milk');
 	flushSync();
-	void other.todos.set({ stem: 'milk' }, 'done', true);
+	unwrap(await other.todos.patch({ stem: 'milk' }, { done: true }));
 	await until(() => get(DONE).getAttribute('aria-checked') === 'true', 'done from the other tab');
 	expect(get(TITLE).value).toBe('Oat milk');
-	const saved = await other.todos.get({ stem: 'milk' });
-	expect(saved?.fields).toEqual({ title: 'Oat milk', done: true });
-	expect(saved?.body).toBe('Two litres');
+	await until(() => device.text('milk') === '---\ntitle: Oat milk\ndone: true\n---\nTwo litres', 'both fields stored');
 });
 
 test('rapid typing shows and saves the latest title', async () => {
-	const { get, other } = await onMilk();
+	const { get, device } = await onMilk();
 	for (const typed of ['O', 'Oa', 'Oat', 'Oat milk']) {
 		type(get(TITLE), typed);
 		flushSync();
 		expect(get(TITLE).value).toBe(typed);
 	}
-	expect((await other.todos.get({ stem: 'milk' }))?.fields.title).toBe('Oat milk');
+	await until(() => device.text('milk')?.includes('title: Oat milk') ?? false, 'the latest title stored');
 	await until(() => get(TITLE).value === 'Oat milk', 'the latest title to stay');
 });
 
@@ -267,15 +237,14 @@ test('a deleted todo shows absence even when its editor was already open', async
 	const ghost = await openPage(freshDevice());
 	await until(() => ghost.text(DETAIL)?.includes('This todo is no longer here') ?? false, 'the missing todo');
 	ghost.close();
-	const { target, get, text, other } = await onMilk();
-	expect(get(TITLE).value).toBe('Milk');
-	void other.todos.delete({ stem: 'milk' });
+	const { target, text, other } = await onMilk();
+	unwrap(await other.todos.delete({ stem: 'milk' }));
 	await until(() => text(DETAIL)?.includes('This todo is no longer here') ?? false, 'the deletion observation');
 	expect(target.querySelector(TITLE)).toBeNull();
 	expect(target.querySelector('button[aria-label="Complete Milk"]')).toBeNull();
 });
 
-test('a write the engine refuses is reported, and the controls follow the stored note', async () => {
+test('a write the replica refuses is reported, and the controls follow the stored note', async () => {
 	const { get, device } = await onMilk();
 	setWide(true);
 	cleanup.push(() => setWide(false));
@@ -291,7 +260,7 @@ test('a write the engine refuses is reported, and the controls follow the stored
 	await until(() => document.body.textContent?.includes('Could not update todo') ?? false, 'the Done error');
 	await until(() => get(DONE).getAttribute('aria-checked') === 'false', 'the stored done');
 	expect(get('button[aria-label="Complete Milk"]').getAttribute('aria-checked')).toBe('false');
-	expect((await device.tab().todos.get({ stem: 'milk' }))?.fields).toEqual({ title: 'Milk', done: false });
+	expect(device.text('milk')).toBe('---\ntitle: Milk\ndone: false\n---\nTwo litres');
 });
 
 test('a failed Add reports the error', async () => {
@@ -318,98 +287,79 @@ test('a new title not added does not prompt before a browser reload', async () =
 test('a note that does not fit opens into its source with its schema issue, and an edit keeps unnamed fields', async () => {
 	const device = freshDevice();
 	const other = device.tab();
+	await until(() => other.status().status === 'open', 'the other tab');
 	// Written as another program might: `done` is not a boolean, and `owner` is not in the schema.
-	void other.batch((b) => {
-		b.todos.create({ stem: 'odd' }, { fields: { title: 'Odd', done: 'soon' as never }, body: 'Notes\n' });
-		b.todos.create({ stem: 'extra' }, { fields: { title: 'Extra', done: false, owner: 'sam' } as never });
-	});
+	unwrap(
+		await other.commit((batch) => {
+			batch.todos.write({ stem: 'odd' }, '---\ntitle: Odd\ndone: soon\n---\nNotes\n');
+			batch.todos.write({ stem: 'extra' }, '---\ntitle: Extra\ndone: false\nowner: sam\n---\n');
+		}),
+	);
 	const opened = await openPage(device);
-	await until(() => opened.target.querySelector('[aria-label="Needs repair"]') !== null, 'the repair list');
+	await until(() => opened.has('[aria-label="Needs repair"]'), 'the repair list');
 	expect(opened.text('[aria-label="Needs repair"]')).toContain('todos/odd.md');
 
 	click(opened.get('[aria-label="Needs repair"]'), 'Repair');
 	const SOURCE = `${DETAIL} [aria-label="Source of todos/odd.md"]`;
-	await until(() => opened.target.querySelector(SOURCE) !== null, 'the source');
-	expect([...opened.get(SOURCE).querySelectorAll('.cm-line')].map((line) => line.textContent)).toEqual([
-		'---',
-		'title: Odd',
-		'done: soon',
-		'---',
-		'Notes',
-		'',
-	]);
-	await until(() => opened.text('[data-testid="source-status"]')?.includes('/done must be boolean') ?? false, 'the schema issue');
+	await until(() => opened.has(SOURCE), 'the source');
+	expect(editorText(opened.get(SOURCE))).toBe('---\ntitle: Odd\ndone: soon\n---\nNotes\n');
+	await until(() => opened.text('[data-testid="editor-status"]')?.includes('/done must be boolean') ?? false, 'the schema issue');
 
 	press(opened.get('[data-todo="todos/extra.md"]'));
 	await until(() => opened.get(TITLE).value === 'Extra', 'extra to open');
 	type(opened.get(TITLE), 'Extra, renamed');
-	expect((await other.todos.get({ stem: 'extra' }))?.fields).toEqual({ title: 'Extra, renamed', done: false, owner: 'sam' });
-	expect((await other.todos.get({ stem: 'odd' }))?.text).toBe('---\ntitle: Odd\ndone: soon\n---\nNotes\n');
+	await until(() => device.text('extra') === '---\ntitle: Extra, renamed\ndone: false\nowner: sam\n---\n', 'the rename, keeping owner');
+	expect(device.text('odd')).toBe('---\ntitle: Odd\ndone: soon\n---\nNotes\n');
 });
 
-test('the header says a held file is not sent, and never Synced while one waits', async () => {
+test('the header says a held todo is not sent, and never Synced while one waits', async () => {
 	const device = freshDevice();
 	const other = device.tab();
-	void other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false } });
-	const opened = mountPage(() => owning(device.tab()), 'https://sync.example');
-	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
-	// Offline, the create is still sending.
+	await until(() => other.status().status === 'open', 'the other tab');
+	unwrap(await other.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false } }));
+	const opened = await openPage(device, 'https://sync.example');
+	// With no server reached, the create is still sending.
 	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Sending') ?? false, 'sending');
-	void other.files.writeText('todos/milk.md', '---\ntitle: [Milk\ndone: false\n---\n');
-	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Not sent') ?? false, 'the held file');
-	void other.files.writeText('todos/milk.md', '---\ntitle: Milk\ndone: false\n---\n');
+	unwrap(await other.todos.write({ stem: 'milk' }, '---\ntitle: [Milk\ndone: false\n---\n'));
+	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Not sent') ?? false, 'the held todo');
+	unwrap(await other.todos.write({ stem: 'milk' }, '---\ntitle: Milk\ndone: false\n---\n'));
 	await until(() => opened.get(SUMMARY).getAttribute('aria-label')?.includes('Sending') ?? false, 'the repair sending');
 });
 
 test('a failed open shows the error, and Try again opens again', async () => {
 	const device = freshDevice();
-	const held = tabOf({ status: 'opening' });
-	const error = { name: 'Unavailable', message: 'Storage access is blocked', reason: 'blocked' } as const;
-	held.set({ status: 'unavailable', error, retry: () => held.set({ status: 'open', repository: device.tab() }) });
-	const opened = mountPage(() => held.tab);
+	let attempts = 0;
+	const opened = mountPage(async () => (++attempts === 1 ? { data: null, error: { message: 'Storage access is blocked' } } : Ok(device.host().repository)));
 	await until(() => opened.text('[role="alert"]')?.includes('Storage access is blocked') ?? false, 'the refusal');
-	expect(opened.target.querySelector(LIST)).toBeNull();
+	expect(opened.has(LIST)).toBe(false);
 	press(button(opened.target, 'Try again'));
-	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
+	await until(() => opened.has('[aria-label="Todos"]'), 'the list');
 });
 
-test('a repository open in another tab offers Use here, and a moved one says so', async () => {
+test("the repository's status shows before the todos arrive and as a bar after, and the app is never mounted twice", async () => {
 	const device = freshDevice();
-	const held = tabOf({ status: 'opening' });
+	const local = device.host();
 	let used = 0;
-	held.set({ status: 'elsewhere', useHere: () => used++ });
-	const opened = mountPage(() => held.tab);
+	// Another tab holds the replica, before this page's first session.
+	local.end({ status: 'elsewhere', useHere: () => used++ });
+	const opened = mountPage(async () => Ok(local.repository));
 	await until(() => opened.target.textContent?.includes('Todos is open in another tab') ?? false, 'the takeover offer');
+	expect(opened.has(LIST)).toBe(false);
 	press(button(opened.target, 'Use here'));
 	expect(used).toBe(1);
-	held.set({ status: 'waiting', reason: 'busy' });
+	local.end({ status: 'waiting', reason: 'busy' });
 	await until(() => opened.target.textContent?.includes('Waiting for the other tab') ?? false, 'the wait');
-	held.set({ status: 'open', repository: device.tab() });
-	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
-	held.set({ status: 'moved', useHere: () => used++ });
-	await until(() => opened.target.textContent?.includes('Todos moved to another tab') ?? false, 'the moved notice');
-	expect(opened.target.querySelector(LIST)).toBeNull();
-});
+	local.resume();
+	await until(() => opened.has('[aria-label="Todos"]'), 'the list');
+	const list = opened.get(LIST);
 
-test('a change the server could not take is shown as a notice, with its text to copy, until dismissed', async () => {
-	const transport: Transport = {
-		connect: () => ({
-			connected: () => true,
-			hello: async () => Ok({ kind: 'changes' as const, seq: 0, files: [], through: 0 }),
-			push: async () => Ok({ kind: 'refused' as const, path: '', reason: 'batch 1 arrived after 3', overlaps: [] }),
-			close() {},
-		}),
-	};
-	const engine = openEngine({ app: todosApp, driver: openBunSqlite(), transport });
-	cleanup.push(() => engine.close());
-	const opened = mountPage(() => owning(createRepository(todosApp, engine)));
-	await until(() => opened.target.querySelector('[aria-label="Todos"]') !== null, 'the list');
-	type(opened.get('[aria-label="New todo title"]'), 'Buy tea');
-	flushSync();
-	click(opened.get(LIST), 'Add');
-	await until(() => opened.text('[aria-label="Notices"]')?.includes('could not be saved to the server') ?? false, 'the notice');
-	expect(opened.text('[aria-label="Notices"]')).toContain('batch 1 arrived after 3');
-	expect(button(opened.target, 'Copy text')).toBeDefined();
-	press(button(opened.target, 'Dismiss'));
-	await until(() => opened.target.querySelector('[aria-label="Notices"]') === null, 'the notice to go');
+	// Another tab takes it: the list stays, under a bar that offers it back.
+	local.end({ status: 'moved', useHere: () => used++ });
+	await until(() => opened.get('[data-testid="repository-status"]').getAttribute('data-status') === 'moved', 'the moved bar');
+	expect(opened.get(LIST)).toBe(list);
+	press(button(opened.get('[data-testid="repository-status"]'), 'Use here'));
+	expect(used).toBe(2);
+	local.resume();
+	await until(() => !opened.has('[data-testid="repository-status"]'), 'the bar to go');
+	expect(opened.get(LIST)).toBe(list);
 });

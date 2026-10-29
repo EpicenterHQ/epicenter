@@ -1,10 +1,10 @@
 <!--
 	The todo list over this device's repository: adding a todo, the notes
 	that read as todos, and the ones that do not, each with its file and why.
-	The list is a live query, so it follows every change here and elsewhere.
+	The list reads the todos the page holds in memory, so it follows every
+	change here and elsewhere.
 -->
 <script lang="ts">
-	import { live } from '@epicenter/repository/svelte';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -28,11 +28,11 @@
 		title?: string;
 	} = $props();
 
-	const notes = live(repo.todos.live());
-	const todos = $derived(todosOf(notes.current ?? []));
-	const repairs = $derived(repairsOf(notes.current ?? []));
+	const notes = $derived(repo.todos.all());
+	const todos = $derived(todosOf(notes));
+	const repairs = $derived(repairsOf(notes));
 
-	/** Add the todo and open it: it is on this device as soon as this returns. */
+	/** Add the todo and open it: it shows at once, and its detail opens once it is stored. */
 	function add() {
 		const typed = title.trim();
 		if (typed === '') return;
@@ -60,14 +60,12 @@
 			{#each todos as todo (todo.path)}
 				<TodoRow {todo} selected={open === todo.params.stem} {onOpen} />
 			{:else}
-				{#if notes.current !== undefined}
-					<li>
-						<Empty.Root>
-							<Empty.Title>No todos yet</Empty.Title>
-							<Empty.Description>Add your first todo above.</Empty.Description>
-						</Empty.Root>
-					</li>
-				{/if}
+				<li>
+					<Empty.Root>
+						<Empty.Title>No todos yet</Empty.Title>
+						<Empty.Description>Add your first todo above.</Empty.Description>
+					</Empty.Root>
+				</li>
 			{/each}
 		</ul>
 

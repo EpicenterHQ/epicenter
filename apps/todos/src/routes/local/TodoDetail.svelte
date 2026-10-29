@@ -1,25 +1,27 @@
 <!--
-	The open todo, held open in the repository: its controls read the note
-	synchronously and write through it, so what a person types shows at
-	once and changes from elsewhere arrive while it is open. The notes are
-	written as an edit of the body shown, so typing while a change from
-	elsewhere arrives keeps that change. Edit source
-	opens the todo's whole file, frontmatter included, in the source editor;
-	a note that does not read as a todo opens straight into it, to repair.
+	The open todo. Its controls read the note the page holds in memory and
+	write through the repository: the checkbox and the title set their
+	field (`patch`), so a change made elsewhere to the rest of the note
+	stays. Its notes are a view of the note's editor (`openEditor`), the one
+	owner of what the person types into it: the body view and Edit source
+	(the whole file, frontmatter included) are two views of one draft, so
+	switching between them loses nothing. A note that does not read as a
+	todo opens straight into its source, to repair, and stays there.
 -->
 <script lang="ts">
-	import { opened } from '@epicenter/repository/svelte';
-	import SourceEditor from '@epicenter/svelte/source-editor';
+	import type { Editor } from '@epicenter/repository/api';
+	import SourceEditor from '@epicenter/svelte/repository/source-editor';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Input } from '@epicenter/ui/input';
-	import { Textarea } from '@epicenter/ui/textarea';
+	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
 	import { onDestroy } from 'svelte';
-	import { getRepository } from '$lib/repository.js';
+	import { todosApp } from '$lib/definition.js';
 	import { labelOf, reportWrite, todoPath } from '$lib/local-todos.js';
+	import { getRepository } from '$lib/repository.js';
 
 	const repo = getRepository();
 	let {
@@ -36,37 +38,40 @@
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
 	const path = todoPath(id);
+	const note = $derived(repo.todos.get({ stem: id }));
+
 	/**
 	 * Whether the source shows instead of the todo's controls. A note that
 	 * does not read as a todo turns it on, so its repair stays in the source
 	 * editor once it reads as one again.
 	 */
 	let editingSource = $state(false);
-	// Closed as this view goes, so the note never calls back into it afterward.
-	let held: { close(): void } | undefined;
+	$effect(() => {
+		if (note !== undefined && !note.valid) editingSource = true;
+	});
+
+	/** The note's editor, once open; it opens after a todo just added is stored. */
+	let editor = $state.raw<Editor>();
 	let destroyed = false;
-	const opening = repo.todos.open({ stem: id }).then((note) => {
-		if (destroyed) note.close();
-		else held = note;
-		const toRepair = (shown: ReturnType<typeof note.read>) => {
-			if (shown !== null && !shown.valid) editingSource = true;
-		};
-		toRepair(note.read());
-		note.subscribe(toRepair);
-		return opened(note);
+	void repo.todos.openEditor({ stem: id }).then((opened) => {
+		if (opened.error !== null) return;
+		if (destroyed) void opened.data.close();
+		else editor = opened.data;
 	});
 	onDestroy(() => {
 		destroyed = true;
-		held?.close();
+		void editor?.close().then(({ error }) => {
+			if (error !== null) toast.warning('These notes are not saved yet', { description: `${error.reason}. They are kept here and saved once they can be.` });
+		});
 	});
 
-	function confirmDelete(todo: Awaited<typeof opening>, label: string) {
+	function confirmDelete(label: string) {
 		confirmationDialog.open({
 			title: `Delete “${label}”?`,
 			description: `This deletes ${path}. Other files stay where they are.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			onConfirm() {
-				void reportWrite(todo.delete(), 'Could not delete todo');
+				void reportWrite(repo.todos.delete({ stem: id }), 'Could not delete todo');
 				onDeleted?.();
 			},
 		});
@@ -81,7 +86,7 @@
 	{/if}
 {/snippet}
 
-{#snippet fileBar(todo: Awaited<typeof opening>, label: string, valid: boolean)}
+{#snippet fileBar(label: string, valid: boolean)}
 	<div class="flex shrink-0 items-center gap-2 border-t px-4 py-2">
 		<span class="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground" data-testid="file-path">{path}</span>
 		{#if valid}
@@ -89,53 +94,56 @@
 				{editingSource ? 'Open as todo' : 'Edit source'}
 			</Button>
 		{/if}
-		<Button size="sm" variant="ghost-destructive" onclick={() => confirmDelete(todo, label)}>Delete</Button>
+		<Button size="sm" variant="ghost-destructive" onclick={() => confirmDelete(label)}>Delete</Button>
 	</div>
 {/snippet}
 
 <section class="flex h-full min-h-0 flex-col overflow-y-auto" aria-label="Todo">
-	{#await opening then todo}
-		{@const note = todo.current}
-		{#if note?.valid && !editingSource}
-			<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
-				{@render back()}
-				<Checkbox
-					aria-label="Done"
-					bind:checked={() => note.fields.done, (done) => void reportWrite(todo.set('done', done), 'Could not update todo')}
-				/>
-				<div class="min-w-0 flex-1 space-y-2">
-					<Input
-						class="text-base font-medium"
-						placeholder="Title"
-						aria-label="Title"
-						bind:value={() => note.fields.title, (title) => void reportWrite(todo.set('title', title), 'Could not save the title')}
-					/>
-				</div>
-			</div>
-			<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
-				<Textarea
-					class="min-h-0 flex-1 field-sizing-fixed resize-none"
-					placeholder="Notes in Markdown"
-					aria-label="Notes"
-					bind:value={() => note.body, (body) => void reportWrite(todo.edit(body), 'Could not save the notes')}
+	{#if note?.valid && !editingSource}
+		{@const fields = note.fields}
+		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
+			{@render back()}
+			<Checkbox
+				aria-label="Done"
+				bind:checked={() => fields.done, (done) => void reportWrite(repo.todos.patch({ stem: id }, { done }), 'Could not update todo')}
+			/>
+			<div class="min-w-0 flex-1 space-y-2">
+				<Input
+					class="text-base font-medium"
+					placeholder="Title"
+					aria-label="Title"
+					bind:value={() => fields.title, (title) => void reportWrite(repo.todos.patch({ stem: id }, { title }), 'Could not save the title')}
 				/>
 			</div>
-			{@render fileBar(todo, labelOf(note), true)}
-		{:else if note}
-			<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
-				{@render back()}
-				<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>
-			</div>
-			<SourceEditor {repo} {path} lens="todos" label="Source of {path}" class="min-h-48 flex-1" />
-			{@render fileBar(todo, note.valid ? labelOf(note) : `${id}.md`, note.valid)}
-		{:else}
-			<Empty.Root class="flex-1">
-				<Empty.Title>This todo is no longer here</Empty.Title>
-				<Empty.Description>It was deleted, here or on another device.</Empty.Description>
-				{#if onBack}
-					<Button variant="outline" size="sm" onclick={onBack}><ArrowLeftIcon /> Back to todos</Button>
-				{/if}
-			</Empty.Root>
+		</div>
+		<div class="flex min-h-48 flex-1 flex-col px-3 py-3 sm:px-4">
+			{#if editor !== undefined}
+				<SourceEditor {editor} shows="body" label="Notes" class="min-h-0 flex-1 rounded-md border" />
+			{/if}
+		</div>
+		{@render fileBar(labelOf(note), true)}
+	{:else if note}
+		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
+			{@render back()}
+			<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>
+		</div>
+		{#if editor !== undefined}
+			<SourceEditor
+				{editor}
+				check={(text) => todosApp.check(text, { as: 'todos' })}
+				state={note.state}
+				label="Source of {path}"
+				class="min-h-48 flex-1"
+			/>
 		{/if}
-	{/await}
+		{@render fileBar(note.valid ? labelOf(note) : `${id}.md`, note.valid)}
+	{:else}
+		<Empty.Root class="flex-1">
+			<Empty.Title>This todo is no longer here</Empty.Title>
+			<Empty.Description>It was deleted, here or on another device.</Empty.Description>
+			{#if onBack}
+				<Button variant="outline" size="sm" onclick={onBack}><ArrowLeftIcon /> Back to todos</Button>
+			{/if}
+		</Empty.Root>
+	{/if}
 </section>

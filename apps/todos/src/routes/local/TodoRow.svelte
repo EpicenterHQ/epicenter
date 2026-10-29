@@ -31,7 +31,7 @@
 >
 	<div class="flex items-center gap-2">
 		<Checkbox
-			bind:checked={() => todo.fields.done, (done) => void reportWrite(repo.todos.set(todo.params, 'done', done), 'Could not update todo')}
+			bind:checked={() => todo.fields.done, (done) => void reportWrite(repo.todos.patch(todo.params, { done }), 'Could not update todo')}
 			aria-label="{todo.fields.done ? 'Reopen' : 'Complete'} {label}"
 		/>
 		<Button

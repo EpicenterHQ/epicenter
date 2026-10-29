@@ -3,8 +3,9 @@
 	the list, and the open todo. Which todo is open is the URL's
 	`?todo=<id>`, so it survives a reload and the breakpoint.
 
-	The repository needs no account; it syncs only when the build names a
-	server. The header offers no Save version, Sync, or Connect.
+	It mounts once, when the todos first arrive, and stays for the page's
+	life. The repository needs no account; it syncs only when a server is
+	set. The header offers no Save version, Sync, or Connect.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
@@ -16,7 +17,6 @@
 	import { page } from '$app/state';
 	import { todoPath } from '$lib/local-todos.js';
 	import AppHeader from './AppHeader.svelte';
-	import Notices from './Notices.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
@@ -68,9 +68,8 @@
 	{/if}
 {/snippet}
 
-<div class="flex h-dvh flex-col overflow-hidden">
+<div class="flex h-full flex-col overflow-hidden">
 	<AppHeader pendingNewTodo={newTitle.trim() !== ''} {syncsTo} />
-	<Notices notices={repo.notices} />
 
 	{#if wide.current}
 		<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">

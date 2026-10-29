@@ -1,7 +1,7 @@
 <!--
 	The header over this device's repository: the app's name and, when the
-	build syncs, whether edits are still waiting to reach the server, or are
-	held here until their frontmatter parses. It
+	build syncs, whether todos are still waiting to reach the server, or are
+	held here with a reason (a frontmatter that does not parse). It
 	offers no Save version, Sync, or Connect. Standalone Todos also offers
 	Open in Epicenter (`open-in-epicenter.ts`).
 -->
@@ -10,7 +10,7 @@
 	import StatusPopover from '@epicenter/svelte/status-popover';
 	import StatusRow from '@epicenter/svelte/status-row';
 	import { type StatusLine, syncLine } from '@epicenter/svelte/status-line';
-	import { live } from '@epicenter/repository/svelte';
+	import { syncOf } from '$lib/local-todos.js';
 	import { getRepository } from '$lib/repository.js';
 	import { onMount } from 'svelte';
 	import {
@@ -23,14 +23,13 @@
 	const repo = getRepository();
 	let { pendingNewTodo, syncsTo }: { pendingNewTodo: boolean; syncsTo?: string } = $props();
 
-	/** Files with edits the server has not answered yet, and files held here until they parse. */
-	const sendingFiles = live(repo.files.live({ sync: 'sending' }));
-	const heldFiles = live(repo.files.live({ sync: 'held' }));
+	/** Todos the server has not answered yet, and todos held here with a reason. */
+	const sync = $derived(syncOf(repo.todos.all()));
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
 		if (syncsTo === undefined) return { label: 'On this device', tone: 'neutral' };
-		return syncLine({ sending: sendingFiles.current?.length ?? 0, held: heldFiles.current?.length ?? 0 });
+		return syncLine(sync);
 	});
 
 	const shell = currentShell();
