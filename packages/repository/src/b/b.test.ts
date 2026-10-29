@@ -239,7 +239,6 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 	);
 	expect(alice.replica.read(PATH)).toBe(note('one\nbob\n'));
 	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
-	console.log(alice.replica.stats(), alice.replica.held(), world.server.read("notes/b.md"));
 	expect(alice.replica.held()).toEqual([]);
 });
 
@@ -247,7 +246,7 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 // Agents, the server's refusals, cadence, the window
 // ============================================================================
 
-test("an agent's fast-forward commit is refused when main moved and changes nothing; on main it applies, and merge mode is merged", () => {
+test("an agent's fast-forward commit is refused when main moved and changes nothing; on main it applies", () => {
 	const world = createWorld({ latency: { min: 20, max: 20 } });
 	const alice = world.device('alice');
 	const agent = world.device('agent', { mode: 'fast-forward' });
@@ -264,11 +263,6 @@ test("an agent's fast-forward commit is refused when main moved and changes noth
 	agent.replica.edit(PATH, () => note('one\nalice\nagent\n'));
 	world.net.runFor(2_000);
 	expect(world.server.read(PATH)).toBe(note('one\nalice\nagent\n'));
-	alice.replica.edit(PATH, () => note('zero\none\nalice\nagent\n'));
-	world.net.runFor(5);
-	agent.replica.edit(PATH, () => note('one\nalice\nagent\nagain\n'), { commitMode: 'merge' });
-	world.net.runFor(2_000);
-	expect(world.server.read(PATH)).toBe(note('zero\none\nalice\nagent\nagain\n'));
 });
 
 test('the server refuses a commit with no parent, a bad id, or a path named twice, and a resend gets the recorded outcome', () => {
@@ -450,8 +444,8 @@ test('a notification arriving while a catch-up is out waits for it: the catch-up
 	replica.attach((request) => requests.push(request));
 	const caughtUp = (rid: number, main: string, full: boolean) => replica.reply({ type: 'caught-up', rid, catchUp: { main, full, files: [], commits: [], next: null } });
 	caughtUp(1, 'A', true);
-	// The stream reopens: a catch-up from A goes out, and the server answers it while main is still A.
-	replica.streamOpened();
+	// A connection opens naming a main other than A: a catch-up from A goes out, answered (as over HTTP, apart from events) while main was still A.
+	replica.hello({ repository: 'test', server: 'memory', account: 'alice', user: 'alice', main: 'B' });
 	expect(requests.at(-1)).toMatchObject({ type: 'catch-up', from: 'A' });
 	// B lands next, and its notification (a delete: nothing to read) overtakes the catch-up's reply.
 	replica.notify({ commit: 'B', parents: ['A'], files: [{ path: PATH, hash: null }] });

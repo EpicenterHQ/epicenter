@@ -33,8 +33,7 @@
  * collide with one:
  *
  *   "epicenter/replica"   key and value: the binding (repository, server,
- *                         account), the position, the next request id, the
- *                         mode of the next commit
+ *                         account), the position, the next request id
  *   "epicenter/files"     per path: `text` (mine, what the person sees),
  *                         its `fields` and `body` for the app's views, `base`
  *                         and its `hash`, `saved`, `held` (the reason), and
@@ -243,7 +242,6 @@ function createReplica({
 	const hashes = new Map<string, string | null>();
 	let position: string | null = null;
 	let next = 1;
-	let nextMode = mode;
 	/** The last refusal or rejection, for an agent awaiting its verdict; cleared when a commit lands. */
 	let lastRefusal: Verdict | null = null;
 	/** The server's bounds on a push, from the connection's first exchange. */
@@ -285,7 +283,6 @@ function createReplica({
 		sentTexts = new Map(inflight?.files.map((f) => [f.path, f.text]));
 		position = meta.get('position');
 		next = Number(meta.get('next') ?? 1);
-		nextMode = (meta.get('mode') as typeof mode | null) ?? mode;
 		passedN = first<{ n: number | null }>(driver, 'SELECT MAX(n) AS n FROM "epicenter/passed"')?.n ?? 0;
 	}
 	load();
@@ -298,11 +295,6 @@ function createReplica({
 		const rid = next++;
 		meta.set('next', String(next));
 		return rid;
-	};
-	const setMode = (next: typeof mode) => {
-		if (next === nextMode) return;
-		nextMode = next;
-		meta.set('mode', next === mode ? null : next);
 	};
 	const setInflight = (commit: LiveCommit | null) => {
 		const before = [...sentTexts.keys()];
@@ -541,7 +533,7 @@ function createReplica({
 	}
 
 	/** Save texts: each merged here with `mine` if `mine` moved since the text the caller started from. */
-	function writeAll(changes: Record<string, string | null>, { over, commitMode }: { over?: Record<string, string | null>; commitMode?: 'merge' | 'fast-forward' } = {}) {
+	function writeAll(changes: Record<string, string | null>, { over }: { over?: Record<string, string | null> } = {}) {
 		atomically(() => {
 			// Paths equal after NFC and case folding are one path: a save goes to the spelling this device has.
 			const spelled = (path: string) => {
@@ -558,7 +550,6 @@ function createReplica({
 				const together = [...new Set([...(f.together ?? []), ...paths.filter((other) => other !== path)])];
 				set(path, { ...f, mine: next, saved: true, ...(together.length === 0 ? {} : { together }) });
 			}
-			if (commitMode !== undefined) setMode(commitMode);
 			commit();
 		});
 	}
@@ -608,7 +599,7 @@ function createReplica({
 		}
 		const body = {
 			parent,
-			mode: nextMode,
+			mode,
 			author: { user, device },
 			time: new Date(now()).toISOString(),
 			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
@@ -619,7 +610,6 @@ function createReplica({
 			const { committed: _, ...rest } = f;
 			set(path, rest);
 		}
-		setMode(mode);
 		stats.pushes++;
 		request({ type: 'push', rid: takeRid(), commit: sent });
 	}
@@ -1080,15 +1070,15 @@ function createReplica({
 		 * loaded text); if `mine` moved since, the two are merged here. Without
 		 * `over`, the caller asserts it started from what `read` shows now.
 		 */
-		write(path: string, next: string | null, { over, commitMode }: { over?: string | null; commitMode?: 'merge' | 'fast-forward' } = {}) {
-			writeAll({ [path]: next }, { ...(over === undefined ? {} : { over: { [path]: over } }), ...(commitMode === undefined ? {} : { commitMode }) });
+		write(path: string, next: string | null, { over }: { over?: string | null } = {}) {
+			writeAll({ [path]: next }, over === undefined ? {} : { over: { [path]: over } });
 		},
 		/** Save several paths in one commit (a rename is a delete of the old path and a write of the new one). */
 		writeAll,
 		/** Change a path from what it shows now. */
-		edit(path: string, change: (text: string | null) => string | null, options: { commitMode?: 'merge' | 'fast-forward' } = {}) {
+		edit(path: string, change: (text: string | null) => string | null) {
 			const text = files.get(path)?.mine ?? null;
-			writeAll({ [path]: change(text) }, { over: { [path]: text }, ...options });
+			writeAll({ [path]: change(text) }, { over: { [path]: text } });
 		},
 
 		// ------------------------------------------------------------------------
@@ -1145,14 +1135,6 @@ function createReplica({
 					reading = null;
 					gathering = null;
 				}
-				pump();
-			});
-		},
-		/** The notification stream opened: anything may have been missed, so catch up. */
-		streamOpened() {
-			if (!alive) return;
-			atomically(() => {
-				needCatchUp = true;
 				pump();
 			});
 		},

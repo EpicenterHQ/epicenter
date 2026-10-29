@@ -45,6 +45,9 @@ export function createTestServer({ clock = () => EPOCH, limits }: { clock?: () =
 	return createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock, ...(limits === undefined ? {} : { limits }) });
 }
 
+/** The memory world's binding for a person's replica. */
+const BINDING = (account: string) => ({ repository: 'test', server: 'memory', account });
+
 /** A writer's session, as a host would verify it. */
 export const writer = (user: string): Session => ({ user, role: 'writer' });
 
@@ -97,8 +100,7 @@ export function createWorld({
 		members.add(name);
 		// The device's database: a restart opens a new replica over it; a lost device gets a new one.
 		let driver = openBunSqlite();
-		const make = () =>
-			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'memory', account: name }, device: name, mode, after: net.after, now: () => EPOCH + net.now(), timeout }));
+		const make = () => unwrap(openReplica({ driver, binding: BINDING(name), device: name, mode, after: net.after, now: () => EPOCH + net.now(), timeout }));
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;
@@ -158,7 +160,8 @@ export function createWorld({
 			});
 			unsubscribe = server.subscribe((event) => current.down(event));
 			notifications = current;
-			replica.streamOpened();
+			// The stream's first exchange, as a socket's hello: a main other than the device's position means it may have missed something.
+			unwrap(replica.hello({ ...BINDING(name), user: name, main: server.main(), limits: server.sizing() }));
 		}
 
 		function reopen() {

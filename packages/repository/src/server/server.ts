@@ -467,7 +467,7 @@ export function createServer({
 			const reason = admissible(file.path, settled.text);
 			if (reason !== null) return refusal('inadmissible', file.path, head.id, reason);
 			out.push({ path: file.path, text: settled.text });
-			if (settled.disposition === 'conflict' || settled.disposition === 'different-note') blocks = true;
+			if (settled.blocks) blocks = true;
 		}
 		// The device's commit stays a real commit: the merge's second parent.
 		const mergeTime = time();

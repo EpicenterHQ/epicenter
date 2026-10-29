@@ -480,9 +480,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		const text = agent.replica.read(path);
 		if (text === null) return null;
 		const t = token();
-		const commitMode = random.chance(0.3) ? 'merge' : 'fast-forward';
-		agent.replica.write(path, `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`, { commitMode });
-		return `agent appends ${t} to ${path} (${commitMode})`;
+		agent.replica.write(path, `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`);
+		return `agent appends ${t} to ${path}`;
 	};
 
 	for (let n = 0; n < STEPS; n++) {
