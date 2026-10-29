@@ -145,7 +145,7 @@ bytes are indistinguishable from that case.
 reactive. `reactive(repo)` is the repository with the same methods, its reads
 tracked: a collection's `all()` and `get()` re-run when that collection's
 notes change, `status()` when the status does, and `revision()` after any
-change, so an effect that reads it re-runs a SQL query or a `read()`.
+change to any file, so an effect that reads it re-runs a SQL query or a `read()`.
 `tracked(editor)` is an editor's draft and state as reactive getters.
 
 ```svelte
@@ -164,9 +164,18 @@ it, so the page hiding and showing again never remounts it. Given
 repository.
 
 ```svelte
-<RepositoryGate {repo} name={manifest.name} onLeave={() => goto('/-/storage')}>
-  <TodosApp {repo} repository={manifest.name} repositoryHref="/me/home" />
+<RepositoryGate {repo} name={manifest.name} onLeave={() => goto('/me')}>
+  <AppHost {bundle} {repo} {path} {navigate} />
 </RepositoryGate>
+```
+
+`mountSvelte(Root)` from `@epicenter/svelte/app` is a Svelte root as an
+app's `mount` ([`@epicenter/app`](../app)): the root gets `{ repo, path,
+navigate }` with the repository's reads tracked, and its own tooltip,
+confirmation dialog and toast providers; `setPath` updates `path` in place.
+
+```ts
+export const mount = mountSvelte<typeof manifest>(TodosApp);
 ```
 
 `<SourceEditor>` (`@epicenter/svelte/repository/source-editor`) shows a

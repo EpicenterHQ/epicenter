@@ -2,39 +2,41 @@
 
 Honeycrisp is a Markdown notes app. Every note is one Markdown file,
 `notes/<stem>.md`, in a repository
-([`@epicenter/repository`](../../packages/repository)). It is a lens: this
-package exports its definition (`@epicenter/honeycrisp`: `honeycrispApp`,
-which claims `notes/{stem}.md` and `folders/{stem}.md`) and its Svelte root
-(`@epicenter/honeycrisp/app`: `HoneycrispApp`), with no routes and no
-repository chooser. The web shell ([`apps/web`](../web)) opens a repository
-from the URL and mounts `HoneycrispApp` at `/<owner>/<repo>/honeycrisp`, so
-Honeycrisp opens any repository; your home's notes are at
-`/me/home/honeycrisp`. Its file browser lists every file of the repository,
-other apps' included. It opens without an account.
+([`@epicenter/repository`](../../packages/repository)). It is an app at
+`honeycrisp.epicenter.so`
+([ADR-0694](../../docs/adr/0694-installing-an-app-is-trusting-it.md),
+contract in [`@epicenter/app`](../../packages/app)). This package exports its
+manifest (`@epicenter/honeycrisp`: `manifest`, whose collections are
+`honeycrispApp`, claiming `notes/{stem}.md` and `folders/{stem}.md`) and its
+bundle (`@epicenter/honeycrisp/bundle`: `mount`), with no repository
+chooser. The web shell ([`apps/web`](../web)) mounts it at
+`/<owner>/<repo>/honeycrisp.epicenter.so` over any repository; your home's
+notes are at `/me/home/honeycrisp.epicenter.so`. Its file browser lists
+every file of the repository, other apps' included. It opens without an
+account.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.
 Licensed under AGPL-3.0-or-later.
 
-## The root's contract
+## As an app
 
-```svelte
-<HoneycrispApp {repo} repository="Home" syncsTo="http://127.0.0.1:8787/" repositoryHref="/me/home" />
-```
-
-`repo` is the open repository, its reads tracked (`reactive`), under the
-shell's `RepositoryGate`; it may hold other apps' collections. `repository`
-is its name in this browser, `syncsTo` its server, and `repositoryHref` the
-repository's page, where the header's repository name goes. Honeycrisp has
-no settings yet; when it has, they follow the shell's settings by audience
-([`apps/web`](../web/README.md#settings-by-audience)).
+`src/bundle.ts` is `mountSvelte(HoneycrispApp)` (`@epicenter/svelte/app`),
+so the root gets the contract's `{ repo, path, navigate }`, its reads
+tracked; `repo` may hold other apps' collections. The path is the file the
+detail shows (`/notes/<stem>.md`, `/` for none; `fileOfPath` from
+`@epicenter/app`), so a note survives a reload and Back returns to what was
+open before. The repository's name and where its files stand are the
+shell's bar above the app. Honeycrisp has no settings yet; when it has,
+they follow ADR-0693 ("Settings are data").
 
 ## Run it
 
-From the repository root, `bun dev:web` and open `/me/home/honeycrisp`. To
-sync, see [the shell's README](../web/README.md#join-a-synced-repository).
-The header says **Sending…** while edits wait for the server, **Not sent**
-while a note's text is held on this device, and **Synced** once the server
-has everything.
+From the repository root, `bun dev:web` and open
+`/me/home/honeycrisp.epicenter.so`. To sync, see
+[the shell's README](../web/README.md#join-a-synced-repository). The shell's
+bar says **Sending…** while edits wait for the server, **Not sent** while a
+file's text is held on this device, and **Synced** once the server has
+everything.
 
 Checks, from `apps/honeycrisp`:
 
@@ -132,8 +134,6 @@ note cannot say which folder it is in.
 
 | Control | What it does |
 | --- | --- |
-| Repository name | The repository's page in the shell: its apps, and this browser's other repositories. |
-| Status | Where notes are kept, and whether edits are waiting for the server. |
 | Files (Ctrl+B) | The files this device holds: open any as its source, and delete a note or folder file. |
 
 ## Layout
@@ -145,6 +145,7 @@ note cannot say which folder it is in.
 | `src/editor/` | The CodeMirror editor: `note-editor.ts` composes it from `live-preview.ts`, `conflicts.ts` and `editorBinding` from `@epicenter/svelte/repository`, and `NoteEditor.svelte` mounts it over a note's editor. It knows nothing of Honeycrisp's UI. |
 | `src/note-source.ts` | A note's list preview and the name a person sees. |
 | `src/components/` | `HoneycrispApp` (the root), header, folder list, note list, the note view, files. |
+| `src/bundle.ts` | The bundle's `mount`. |
 
 ## Changed promises
 

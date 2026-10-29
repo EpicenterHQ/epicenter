@@ -100,7 +100,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 
 | App | Status | Notes |
 | --- | --- | --- |
-| [Web shell](apps/web) | Runs, development | One origin for every first-party app over any repository, addressed `/<owner>/<repo>/<app>`; `/` opens your home, `/me/home`. |
+| [Web shell](apps/web) | Runs, development | One origin where installed apps (Files, Todos, Honeycrisp) run over any repository, addressed `/<owner>/<repo>/<hostname>/<...path>`; `/` opens `/me`. |
 | [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes over a repository, in the web shell. Metadata stays in frontmatter and logical folders preserve note identity. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |

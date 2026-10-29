@@ -64,7 +64,7 @@ import { createBrowserRepository, listBrowserRepositories, openBrowserRepository
 const [first] = await listBrowserRepositories(); // { replica, owner, repository, name, account, url }
 const repo = openBrowserRepository({ app: todosApp, replica: first.replica });
 
-// A new one: kept only here (url null), or synced with a server. Owner null is you.
+// A new one: kept only here (account and url both null), or synced with a server as an account (both set). Owner null is you.
 const created = await createBrowserRepository({ app: todosApp, owner: 'grace', repository: 'todos', name: 'Todos', account: 'ada', url: 'http://127.0.0.1:8787/', headers: { authorization: 'Bearer ada' } });
 ```
 
@@ -73,15 +73,17 @@ It refuses while any of its files has not reached a server (for a
 repository kept only here, every file), unless `discardUnsent: true`.
 
 A replica's manifest names whose repository it is (`owner`, null for you),
-as its address does (`/<owner>/<repository>`, `~` for you); the origin
-holds one replica per owner, repository and account. A tab that opens a
+as its address does (`/<owner>/<repository>`, `me` for you); the origin
+holds one replica per owner, repository and account. Every session with a
+server is an account's: a replica accepts a server's hello only when its
+user is the replica's account, so one kept only here takes none. A tab that opens a
 replica this page has just closed waits for the page to let it go, so
 leaving a repository and coming straight back opens it rather than reading
 as open in another tab.
 
 Apps do not call these directly: the web shell (`apps/web`) opens the
-repository its URL names, under one lens for every first-party app, and its
-Storage page lists and removes them.
+repository its URL names, under one lens for every installed app, and
+`/me` lists and removes them.
 
 In Bun (a script, a test), `openLocalRepository({ app, replica })` opens the
 same handle over a replica in this process.

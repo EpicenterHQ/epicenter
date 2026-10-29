@@ -1,8 +1,8 @@
 # Honeycrisp App
 
-Markdown notes in a repository (`@epicenter/repository`): a lens and a
-Svelte root that the web shell (`apps/web`) mounts over whichever repository
-its URL names, synced when it has a server. Read [the README](README.md) for the
+Markdown notes in a repository (`@epicenter/repository`): an app (a manifest
+and a bundle, `@epicenter/app`) that the web shell (`apps/web`) mounts over
+whichever repository its URL names, synced when it has a server. Read [the README](README.md) for the
 current page flow and verify it against the code.
 
 ## The repository is the data

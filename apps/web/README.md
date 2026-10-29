@@ -1,87 +1,93 @@
 # Web shell
 
-One origin for every first-party app. The shell opens a repository from the
-URL and shows any first-party app over it: an app is a lens that claims
-files by path, so any of them opens any repository. Apps are packages
-([`apps/todos`](../todos), [`apps/honeycrisp`](../honeycrisp)) that export
-their definition and root component; the shell owns routing, opening, and
-storage. Nothing first-party goes around the repository API
-([`@epicenter/repository`](../../packages/repository)).
+One origin where a person's installed apps run over any repository in this
+browser. The shell owns the URL, history, the open repository, the
+installed apps and storage. An app owns everything after its hostname
+segment. Pages and addresses follow
+[ADR-0693](../../docs/adr/0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md).
+Apps, their contract and installation follow
+[ADR-0694](../../docs/adr/0694-installing-an-app-is-trusting-it.md); the
+contract itself is [`@epicenter/app`](../../packages/app). Nothing goes
+around the repository API ([`@epicenter/repository`](../../packages/repository)).
 
-## The model
+## Pages
 
-- **Owners and repositories.** An owner (a person, or an organization with
-  equal owners) owns repositories. A repository is the unit of sharing.
-- **Addresses.** `/<owner>/<repo>/<app>`, on one origin.
-  - `/<owner>/<repo>` is the repository's page: every first-party app, each
-    marked when the repository has files it claims (Has data, or No data
-    yet), the link that joins it from another browser when it syncs, and
-    this browser's other repositories.
-  - `/<owner>/<repo>/<app>` is that app over the repository: `todos` or
-    `honeycrisp`.
-  - Every shell page that is not a repository lives under `/-/`: `/-/storage`
-    (this browser's copies) now, later `/-/sign-in`.
-  - Owner, repository and app names match `[a-z][a-z0-9-]*`: a letter
-    first, so no name can be `-` or `_app` (where the build serves its
-    files). The routes accept only such names (`src/params/name.ts`).
-  - The same `<owner>/<repo>` names the repository on its server and, later,
-    as a Git remote.
-- **`me` is you.** Before sign-in it is the person using this device; once
-  accounts exist (phase 10), `me` redirects to your owner name. `me` is the
-  only reserved owner name. There is no pseudo-owner such as `local`: a
-  repository kept only on this device is still yours, at `/me/<repo>`.
-- **Home.** Every owner's home repository is named `home`, people and
-  organizations alike. `/` and `/me` open `/me/home`, and `/<owner>` opens
-  `/<owner>/home`. Your home is made the first time it is used, kept on this
-  device until accounts exist. There is no home pointer, no setting that
-  picks another home, and no rule of its own for removing it.
-- **Apps are lenses.** An app claims folders by content (`todos/`, `notes/`),
-  never by its own name, so any first-party app opens any repository, and a
-  browser keeps one copy of each repository for all of them.
-- **Other apps** are websites that ask for a repository: once the person
-  approves, a website is a client of that repository, as an agent or the CLI
-  is. None runs on the shell's origin. Not built yet.
-
-## Settings by audience
-
-Settings are layered as Git layers config. Only what the apps need is
-built, and neither Todos nor Honeycrisp has settings yet. When one does:
-
-| Audience | Where |
+| Address | Page |
 | --- | --- |
-| Everyone who shares the repository | A note in the repository: `settings/<app>.md`. |
-| You, for one repository | This device's storage; it does not follow you to another device. |
-| You, everywhere | A note in your home repository. |
-| Secrets | The device only, never a repository. |
+| `/` | Opens `/me`. |
+| `/me` | You. It lists your repositories in this browser (Home first, made when first opened) and your installed apps. It also has Storage (every copy in this browser, with Remove; a new repository; Join), and Account, which is not built yet. |
+| `/<owner>` | That owner's repositories in this browser. |
+| `/<owner>/<repo>` | The repository. It lists the installed apps with data in it, plus Files, and offers the other installed apps to start there. It also shows where this copy syncs, with its join link. All of this is derived from its files each time: nothing records which apps a repository uses. |
+| `/<owner>/<repo>/<hostname>/<...path>` | The app installed at that hostname, over the repository. The rest of the address is the app's path. A bar above it names the repository (its page is one click away) and where its files stand. |
 
-An app reads at most the repository it shows and your home for settings;
-no setting is kept in your home keyed by another repository's id.
+- An owner or repository name is `[a-z][a-z0-9-]*` (`src/lib/name.ts`). An
+  app segment must be a hostname (`isHostname`, `src/params/hostname.ts`).
+  No name has a dot, so the third segment is always an app.
+- `me` is you: the person using this browser until accounts exist. Your home
+  is `me/home`.
+- A link naming an app that is not installed shows **Install `<hostname>`**
+  and **Open in Files**, which opens the same path in Files. Only the
+  bundles this shell carries install yet.
+- Any other address is a not-found page (`src/routes/+error.svelte`).
+
+## Apps are bundles
+
+An app is a manifest and a module with `mount(element, { repo, path,
+navigate })`. The shell carries the first-party bundles: Files, Todos and
+Honeycrisp (`src/lib/catalog.ts`). Each manifest is read without loading the
+app, and each module loads, as a chunk of its own, the first time the app
+is mounted (`src/lib/AppHost.svelte`). `navigate` moves the URL. A URL that
+changes under the app is `setPath`, or a fresh mount for an app without
+one. Each app brings its own tooltip, dialog and toast providers
+(`@epicenter/svelte/app`), so the shell renders none of them.
+
+## Installed apps
+
+The installed apps are a record in this browser's `localStorage`, which
+only the person changes (`src/lib/installed.ts`); they are not a file in
+any repository. A new device starts with Files, Todos and Honeycrisp,
+installed through the same `install` as any app. Each entry records
+`hostname`, `name`, `hash` and `installedAt`.
+
+`hash` pins the bundle installed. A first-party bundle is compiled into the
+shell, so its hash is the SHA-256 of its package's source as this build
+compiled it (`vite.config.ts`). It is recorded and not enforced, since the
+shell can only run the code it carries. What remains for a bundle served
+from its own hostname:
+
+- fetching its manifest and module from `https://<hostname>/`;
+- hashing what was fetched, and serving the pinned files from then on (from
+  Cache Storage, or the desktop's pinned builds, ADR-0680);
+- an update as a new hash the person approves on `/me`;
+- refusing an install whose collections clash with an installed app's (two
+  apps naming one collection, or templates that could claim one file);
+- Remove on `/me`, and moving the record to the account once accounts exist.
 
 ## One handle per open repository
 
-The `[owner=name]/[repo=name]` layout opens the repository the address names once, with
-every first-party app's lens together (`lens` in `src/lib/apps.ts`), under
-`RepositoryGate` from `@epicenter/svelte`. Moving between that repository's
-page and its apps keeps the handle: nothing opens again. Another address
-(a link, Back or Forward) closes it and opens that repository instead.
-Closing lists any typing that could not be saved, with Copy text, on
-whatever page comes next. Two apps that name a collection alike, or whose
-templates could claim one file, are refused when the shell loads.
+The `[owner=name]/[repo=name]` layout opens the repository the address
+names once, under `RepositoryGate` from `@epicenter/svelte`. It opens with
+every installed app's collections together (`lensOf`, `src/lib/lens.ts`).
+Moving between the repository's page and its apps keeps the handle, and
+nothing opens again. Another address (a link, Back, Forward) closes it and
+opens that repository instead. Installing an app changes the lens, so the
+open repository opens again with it. Closing lists any typing that could
+not be saved, with Copy text, on whatever page comes next.
 
-A copy in this browser is a replica in this origin's private storage (OPFS),
-owned by one tab's worker; its manifest records whose repository it is
-(`owner`, null for you), its id, its name here, the account, and the server.
-The shell keeps no list of its own; `src/lib/device.svelte.ts` lists the
-manifests.
+A copy in this browser is a replica in this origin's private storage
+(OPFS), owned by one tab's worker. Its manifest records whose repository it
+is (`owner`, null for you), its id, its name here, and, when it syncs, the
+account and the server. A copy kept only here has neither. The shell keeps
+no list of its own: `src/lib/device.svelte.ts` lists the manifests.
 
 ## Join a synced repository
 
 A repository that syncs shows its join link on its page:
 `/<owner>/<repo>?server=<url>`. Opening it in a browser without a copy asks
-whom to sync as, then makes this browser's copy bound to that server; once
+whom to sync as, then makes this browser's copy bound to that server. Once
 there is a copy, the address opens it and `server` leaves the URL. The Join
-form in Storage takes the same four values. Until accounts exist, whom to
-sync as is any name the development server takes as the credential
+form on `/me` takes the same four values. Until accounts exist, whom to sync
+as is any name the development server takes as the credential
 (`Authorization: Bearer <name>`).
 
 From the repository root:
@@ -96,25 +102,23 @@ sync as any name, and open the same link in a second browser profile as
 another name. The server commits to `/tmp/team.git` a minute after a change,
 so `git clone /tmp/team.git` shows the files.
 
-## Storage
+## Settings
 
-`/-/storage` lists this browser's copies with their addresses and where each
-syncs, makes a new repository of yours kept on this device, and joins a
-synced one. Remove asks first; a copy with files that have not reached a
-server says how many are only in this browser before Remove anyway.
+Settings follow ADR-0693 ("Settings are data"). No app has settings yet.
 
 ## Layout
 
 | Path | Role |
 | --- | --- |
-| `src/lib/apps.ts` | The first-party apps (address segment, name, lens, root) and the one lens every repository opens with. |
+| `src/lib/catalog.ts` | The bundles this shell can install, the defaults, and Files' hostname. |
+| `src/lib/installed.ts`, `installed.svelte.ts` | The installed-apps record, and this browser's copy of it with the lens it implies. |
+| `src/lib/lens.ts` | Every installed app's collections as one lens. |
+| `src/lib/AppHost.svelte` | One app, mounted through its contract. |
+| `src/lib/RepositoryBar.svelte` | The bar above every app: the repository, and where its files stand. |
 | `src/lib/device.svelte.ts` | This browser's copies, addresses, `me`, home, create, join and remove. |
-| `src/lib/open.svelte.ts` | The open repository's context, and typing left unsaved when it closes. |
-| `src/lib/Opened.svelte` | One open repository under the gate. |
-| `src/routes/[owner=name]/[repo=name]/` | The layout that opens the repository, its page, and `[app=name]/`. |
-| `src/routes/-/storage/` | Storage. |
-| `src/lib/name.ts`, `src/params/name.ts` | The name rule, and the route matcher that applies it. |
-| `browser-tests/` | Playwright: the shell, Todos, and Honeycrisp, in Chromium and WebKit. |
+| `src/lib/open.svelte.ts`, `Opened.svelte` | The open repository's context, under the gate, and typing left unsaved when it closes. |
+| `src/routes/[owner=name]/` | The owner page; under it, the layout that opens the repository, its page, and `[app=hostname]/[...path]/`. |
+| `browser-tests/` | Playwright: the shell, Files, Todos and Honeycrisp, in Chromium and WebKit. |
 
 ## Checks
 
@@ -123,6 +127,6 @@ From `apps/web`:
 | Command | What it checks |
 | --- | --- |
 | `bun run typecheck` | The shell and its browser tests. |
-| `bun run test` | The bundle: no Yjs, Node or Bun module, and no folder engine. |
+| `bun run test` | The bundle (no Yjs, Node or Bun module, no folder engine, every app's module included), the name rule, and the installed-apps record. |
 | `bun run build` | The static site, into `build/`. |
-| `bun run test:browser` | The built site with persistent profiles, one origin per person: home, apps sharing one handle, reload, Back and Forward, Storage, joining by link, and each app's own flows. |
+| `bun run test:browser` | The built site with persistent profiles, one origin per person. It covers every page, hostname routing, apps sharing one open repository, reload and Back/Forward from the URL, Storage, a link to a missing app, joining by link, Files syncing between two profiles, and each app's own flows. |
