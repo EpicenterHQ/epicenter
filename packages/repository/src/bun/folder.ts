@@ -42,7 +42,7 @@ import { socketWithHeaders } from './serve.js';
 import { openBunSqlite } from './sqlite.js';
 
 /** Where a folder's identity lives, under the folder Epicenter alone writes. */
-export const IDENTITY = `${OWN}/repository`;
+const IDENTITY = `${OWN}/repository`;
 
 const IdentitySchema = Type.Object({
 	/** `owner/name`, or null for a repository kept only in this folder. */
@@ -55,7 +55,7 @@ const IdentitySchema = Type.Object({
 export type Identity = Type.Static<typeof IdentitySchema>;
 
 /** An author label: a letter first, then letters, digits, `-` and `_`. */
-export const AGENT = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const AGENT = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
 export const FolderError = defineErrors({
 	NotAFolder: ({ dir }: { dir: string }) => ({ message: `${dir} is not a folder`, dir }),

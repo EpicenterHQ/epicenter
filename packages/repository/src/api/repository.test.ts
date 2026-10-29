@@ -301,10 +301,22 @@ test('a blob collection creates, replaces, opens and deletes bytes at named path
 	// The plain file API adds bytes under any path, and a note's create stays text.
 	expectOk(await repo.files.create('photos/beach.png', new Blob(['png'])));
 	expect(expectOk(await repo.files.open('photos/beach.png')).type).toBe('image/png');
-	expect(expectErr(await repo.files.open('recordings/none.webm')).name).toBe('Missing');
+	expect(expectErr(await repo.files.open('recordings/none.webm')).name).toBe('NotFound');
 	expectOk(await repo.audio.delete({ stem: 'r1' }));
-	expect(expectErr(await repo.audio.open({ stem: 'r1' })).name).toBe('Missing');
+	expect(expectErr(await repo.audio.open({ stem: 'r1' })).name).toBe('NotFound');
 	expect(replica.read('recordings/r1.webm')).toBeNull();
+	// Text at a path that is not a note is its bytes' pointer (a blob moved by writing it), or refused at once: nothing is stored to be held.
+	const beach = expectOk(await repo.files.read('photos/beach.png'));
+	expectOk(await repo.files.write('photos/moved.png', beach?.text ?? null));
+	expect(expectErr(await repo.files.create('photos/note.png', 'not bytes')).name).toBe('NotPointer');
+	expect(expectErr(await repo.files.write('photos/beach.png', 'not bytes')).name).toBe('NotPointer');
+	expect(expectErr(await repo.commit((batch) => {
+		batch.files.write('photos/moved.png', null);
+		batch.files.write('photos/beach.png', 'not bytes');
+	})).name).toBe('NotPointer');
+	expect(replica.read('photos/note.png')).toBeNull();
+	expect(replica.read('photos/moved.png')).toBe(beach?.text ?? 'none');
+	expect(replica.held()).toEqual([]);
 });
 
 test('a batch of two notes and a new blob, with a delayed upload, lands as one commit; a refused upload holds the whole batch', async () => {

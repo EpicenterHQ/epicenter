@@ -12,7 +12,7 @@
  */
 import '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { defineApp, type Files, openLocalRepository, OpenError } from '@epicenter/repository';
+import { BlobError, defineApp, type Files, openLocalRepository } from '@epicenter/repository';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { openReplica } from '@epicenter/repository/client';
 import { unwrap } from 'wellcrafted/result';
@@ -88,7 +88,7 @@ test('bytes here show through one object URL, revoked when the path changes and 
 
 test('an open that cannot reach its bytes is unavailable, and retry opens it again', async () => {
 	let failing = true;
-	const { repo, source, target } = await setup((files) => async (path) => (failing ? OpenError.Unavailable({ path, reason: 'offline' }) : files.open(path)));
+	const { repo, source, target } = await setup((files) => async (path) => (failing ? BlobError.Unfetched({ path, reason: 'offline' }) : files.open(path)));
 	expectOk(await repo.audio.create({ stem: 'r1' }, new Blob(['one'])));
 	const component = mount(AttachmentHost, { target, props: { repo: source, path: 'recordings/r1.webm' } });
 	cleanups.push(() => unmount(component));

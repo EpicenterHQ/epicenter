@@ -378,4 +378,3 @@ export function createMemoryFolderFs({
 		},
 	};
 }
-export type MemoryFolderFs = ReturnType<typeof createMemoryFolderFs>;

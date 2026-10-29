@@ -156,7 +156,7 @@ function hashOfMine(path: string, text: string) {
 /** How the saves one reconcile finds are grouped: each its own call (a rename's two halves together), or all one call with a message. */
 export type Call = 'each' | { message: string };
 
-export type FolderEngineOptions = {
+type FolderEngineOptions = {
 	fs: FolderFs;
 	replica: Replica;
 	/** The replica's database: the record lives beside the replica's tables. */

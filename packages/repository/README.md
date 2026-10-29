@@ -316,7 +316,7 @@ if (opened.error === null) {
   the unanswered writes to any spelling of the path, at most the replica's
   request timeout (`EditorError.Unanswered` after that, with the write still
   going), then opens under the spelling this device keeps. While the
-  repository is not open it answers `EditorError.Unavailable`.
+  repository is not open it answers `RepositoryError.Unavailable`.
 
 `@epicenter/svelte` binds an editor to CodeMirror (`editorBinding`,
 `createEditorView`, `<SourceEditor>`), so a change from elsewhere arrives in

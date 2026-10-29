@@ -22,19 +22,21 @@
  * hear that anything changed.
  */
 import type { Static, TSchema } from 'typebox';
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, FileEntry, Row, SaveError, Snapshot } from '../client/page.js';
 import { SaveError as SaveErrors } from '../client/page.js';
 import type { BlobStoreError, Sealed } from '../client/blobs.js';
-import type { BlobError, BlobPut, OpenError, Put, PutError } from '../client/bytes.js';
+import { BlobError, type BlobPut, type Put, type PutError } from '../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
 import { type App, type BlobName, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
-import { bodyOf, parseMarkdown, splitMarkdown, writeMarkdown } from '../core/markdown.js';
-import { fold } from '../core/door.js';
+import { bodyOf, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown } from '../core/markdown.js';
+import { fold, isNote } from '../core/door.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
 import { createEditors, type Editor, type EditorError, mergedOver, type Unsaved } from './editor.js';
+import { RepositoryError, type RepositoryStatus } from './status.js';
+
+export { RepositoryError, type RepositoryStatus } from './status.js';
 
 // ============================================================================
 // The host: where the replica runs, and its sessions
@@ -56,21 +58,8 @@ export type Session = {
 	/** Seal each blob, then store a pointer to it at its path together with `changes`, in one transaction and one group; the change it makes is heard with `token`. */
 	put(blobs: BlobPut[], changes: Change[], token: number): Promise<Result<Put, PutError>>;
 	/** A blob's bytes as a File: from this device, or fetched and verified first. */
-	open(path: string): Promise<Result<File, OpenError>>;
+	open(path: string): Promise<Result<File, BlobError>>;
 };
-
-/** Where the repository stands in this page. `open`: its notes are here and it saves. */
-export type RepositoryStatus =
-	| { status: 'opening' }
-	/** This page owns the replica, but another page's worker has not let go of it yet. */
-	| { status: 'waiting'; reason: string }
-	| { status: 'open' }
-	/** Another tab owns the replica; `useHere` takes it. */
-	| { status: 'elsewhere'; useHere(): void }
-	/** Another tab took the replica from this one. */
-	| { status: 'moved'; useHere(): void }
-	| { status: 'unavailable'; reason: string; retry(): void }
-	| { status: 'closed' };
 
 /** A host's state: a repository status, with the session while one is open. */
 export type HostState = Exclude<RepositoryStatus, { status: 'open' }> | { status: 'open'; session: Session };
@@ -85,14 +74,11 @@ export type Host = {
 // What a page reads and writes
 // ============================================================================
 
-export const RepositoryError = defineErrors({
-	/** The repository cannot save now (it is opening, elsewhere, or closed): nothing was saved. */
-	Unavailable: ({ status }: { status: RepositoryStatus['status'] }) => ({ message: `The repository is ${status}, so nothing was saved`, status }),
-});
-export type RepositoryError = InferErrors<typeof RepositoryError>;
 
 /** Why a write was not stored. */
 export type WriteError = RepositoryError | ChangeError | SaveError | TemplateError;
+/** Why the plain file API's text write was not stored: a write's reasons, or text at a path that is not a note. */
+export type FileWriteError = WriteError | Extract<BlobError, { name: 'NotPointer' }>;
 
 /** A stored write: the note's text after it (null: no note) and the revision it made. */
 export type Written = { text: string | null; revision: number };
@@ -140,7 +126,7 @@ export type BlobWritten = Written & Sealed;
 export type BlobWriteError = WriteError | BlobError | BlobStoreError;
 
 /** Why a blob could not be opened. */
-export type OpenBlobError = OpenError | RepositoryError | TemplateError;
+export type OpenBlobError = BlobError | RepositoryError | TemplateError;
 
 /**
  * A collection of blobs, named by the app (`recordings/{stem}.webm`). A
@@ -226,14 +212,14 @@ export type Files = {
 	 * other file is bytes, a blob collection's create: refused at once where
 	 * this device shows a file.
 	 */
-	create(path: string, text: string): Promise<Result<Written, WriteError>>;
+	create(path: string, text: string): Promise<Result<Written, FileWriteError>>;
 	create(path: string, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
 	/** Other bytes at a path this device shows a file that is not a note at. */
 	replace(path: string, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
 	/** A file's bytes as a File typed by its extension: from this device, or fetched and verified first. */
 	open(path: string): Promise<Result<File, OpenBlobError>>;
 	/** Exact text (null deletes), merged where the file moved since `over`. */
-	write(path: string, text: string | null, options?: { over?: string | null }): Promise<Result<Written, WriteError>>;
+	write(path: string, text: string | null, options?: { over?: string | null }): Promise<Result<Written, FileWriteError>>;
 	delete(path: string): Promise<Result<Written, WriteError>>;
 	/** The one editor of the file's exact text, shared by every view of it. */
 	openEditor(path: string): Promise<Result<Editor, WriteError | EditorError>>;
@@ -669,6 +655,8 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	}
 
 	/** The changes the plain file API makes, at `path` as this device spells it. */
+	/** RULE: a file that is not a note holds bytes: text there is the pointer to them (a blob moved by writing its pointer), or it is refused at once, never stored to be held. */
+	const notPointer = (path: string, text: string | null) => (text === null || isNote(path) || parsePointer(text) !== null ? null : BlobError.NotPointer({ path }));
 	const fileChanges = {
 		create: (path: string, text: string): Change => ({ kind: 'create', path: spelled(path), text }),
 		write: (path: string, text: string | null, { over }: { over?: string | null } = {}): Change =>
@@ -694,12 +682,16 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		}),
 		create: ((path: string, content: string | Blob) => {
 			if (content instanceof Blob) return putBlob(path, content, false);
+			const refused = notPointer(path, content);
+			if (refused !== null) return Promise.resolve(refused);
 			const change = fileChanges.create(path, content);
 			return one(change.path, change);
 		}) as Files['create'],
 		replace: (path, blob) => putBlob(path, blob, true),
 		open: openBlob,
 		write: (path, text, options) => {
+			const refused = notPointer(path, text);
+			if (refused !== null) return Promise.resolve(refused);
 			const change = fileChanges.write(path, text, options);
 			return one(change.path, change);
 		},
@@ -725,7 +717,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			const batch: Change[] = [];
 			const blobs: BlobPut[] = [];
 			const handles: Record<string, unknown> = {};
-			let invalid: TemplateError | null = null;
+			let invalid: TemplateError | BlobError | null = null;
 			for (const lens of lenses) {
 				const changes = changesOf(lens);
 				const add =
@@ -753,9 +745,16 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 				};
 			}
 			handles.files = {
-				create: (path: string, content: string | Blob) => (content instanceof Blob ? blobs.push({ path: spelled(path), blob: content, replace: false }) : batch.push(fileChanges.create(path, content))),
+				create: (path: string, content: string | Blob) => {
+					if (content instanceof Blob) return void blobs.push({ path: spelled(path), blob: content, replace: false });
+					invalid ??= notPointer(path, content)?.error ?? null;
+					batch.push(fileChanges.create(path, content));
+				},
 				replace: (path: string, blob: Blob) => blobs.push({ path: spelled(path), blob, replace: true }),
-				write: (path: string, text: string | null, options?: { over?: string | null }) => batch.push(fileChanges.write(path, text, options)),
+				write: (path: string, text: string | null, options?: { over?: string | null }) => {
+					invalid ??= notPointer(path, text)?.error ?? null;
+					batch.push(fileChanges.write(path, text, options));
+				},
 				delete: (path: string) => batch.push(fileChanges.delete(path)),
 			} satisfies Record<keyof BatchFiles, unknown>;
 			build(handles);

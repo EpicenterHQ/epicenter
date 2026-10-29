@@ -8,7 +8,8 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
-import { type BlobPut, type Bytes, type OpenError, type Put, type PutError, serveBytes } from '../../client/bytes.js';
+import { type BlobPut, type Bytes, type Put, type PutError, serveBytes } from '../../client/bytes.js';
+import type { BlobError } from '../../client/bytes.js';
 import { type PageServer, servePage } from '../../client/page.js';
 import { type Change, openReplica, type Replica } from '../../client/replica.js';
 import { connectSocket } from '../../client/socket.js';
@@ -69,7 +70,7 @@ function replicaMethods(replica: Replica, page: PageServer, bytes: Bytes) {
 			return plain(await bytes.put(blobs, changes, token));
 		},
 		/** A blob's bytes as a File, from this replica's objects or fetched and verified first; it outlives this worker. */
-		open: (path: string): Promise<Result<File, OpenError>> => bytes.open(path),
+		open: (path: string): Promise<Result<File, BlobError>> => bytes.open(path),
 	};
 }
 export type ReplicaMethods = ReturnType<typeof replicaMethods>;

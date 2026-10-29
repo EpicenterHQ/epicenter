@@ -29,7 +29,8 @@
 import { defineErrors, extractErrorMessage, type InferErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { BlobPut, OpenError, Put, PutError } from '../../client/bytes.js';
+import type { BlobPut, Put, PutError } from '../../client/bytes.js';
+import type { BlobError } from '../../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
 import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock, type Syncing } from './layout.js';
@@ -235,7 +236,7 @@ function createOpenReplica({
 			return save(() => call('put', blobs, changes, token));
 		},
 		/** A blob's bytes as a File, which the page reads or shows with its own object URL: from here, or fetched and verified first. */
-		open: (path: string): Promise<Result<File, OpenError>> => call('open', path),
+		open: (path: string): Promise<Result<File, BlobError>> => call('open', path),
 		/** Be told each change once it is stored, in revision order: its paths, and the rows now of those kept in memory; returns the function that stops it. */
 		watch(listener: (delta: Delta) => void) {
 			changes.add(listener);

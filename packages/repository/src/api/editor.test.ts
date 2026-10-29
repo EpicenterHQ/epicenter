@@ -28,6 +28,7 @@ import { findConflicts } from '../core/conflict.js';
 import { defineApp } from '../core/lens.js';
 import { bodyOf, parseMarkdown, withBody } from '../core/markdown.js';
 import { settled, twoDevices } from './api.test-support.js';
+import { RepositoryError } from './status.js';
 
 const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.String(), pinned: Type.Optional(Type.Boolean()) }) } });
 const PATH = 'notes/plan.md';
@@ -469,14 +470,14 @@ test("an editor waits for the unanswered writes to any spelling of its note's pa
 	expect(expectOk(await opening).path).toBe('notes/Day.md');
 });
 
-test('an editor that cannot open while the repository is not open says so, as a note that cannot be edited now', async () => {
+test('an editor that cannot open while the repository is not open says so with the error every write and read gives then', async () => {
 	const { alice, local, repo } = twoDevices(app);
 	alice.replica.write(PATH, note('one'));
 	await settled();
 	local.end();
 	const error = expectErr(await repo.notes.openEditor({ stem: 'plan' }));
 	expect(error).toMatchObject({ name: 'Unavailable', status: 'opening' });
-	expect(error.message).toBe(`${PATH} cannot be edited while the repository is opening`);
+	expect(error).toEqual(RepositoryError.Unavailable({ status: 'opening' }).error);
 });
 
 test('a list shows a note held or failed as held with why, never as sending', async () => {

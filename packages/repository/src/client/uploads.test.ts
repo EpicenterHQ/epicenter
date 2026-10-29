@@ -174,13 +174,13 @@ test('another device opens the bytes: fetched once, verified, then read from its
 	expect(await oidOf(new Uint8Array(await file.arrayBuffer()))).toBe(put.oid);
 	expect(unwrap(second).size).toBe(put.size);
 	expect(await bob.store.has(put.oid)).toBe(true);
-	expect((await bob.bytes().open('recordings/none.webm')).error).toMatchObject({ name: 'Missing' });
-	expect((await bob.bytes().open('notes/a.md')).error).toMatchObject({ name: 'Missing' });
+	expect((await bob.bytes().open('recordings/none.webm')).error).toMatchObject({ name: 'NotFound' });
+	expect((await bob.bytes().open('notes/a.md')).error).toMatchObject({ name: 'NotFound' });
 	// Offline, from its own store.
 	await served.stop();
 	expect(unwrap(await bob.bytes().open(PATH)).size).toBe(put.size);
 	const unknown = { oid: 'e'.repeat(64), size: 4 };
 	bob.replica.write('recordings/elsewhere.webm', writePointer(unknown));
-	expect((await bob.bytes().open('recordings/elsewhere.webm')).error).toMatchObject({ name: 'Unavailable' });
+	expect((await bob.bytes().open('recordings/elsewhere.webm')).error).toMatchObject({ name: 'Unfetched' });
 	expect(server.read(PATH)).toBe(writePointer(put));
 });

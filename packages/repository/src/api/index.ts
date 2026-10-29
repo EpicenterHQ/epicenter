@@ -7,7 +7,8 @@
  */
 export { type App, type BlobDefinition, type BlobName, combineApps, type Definitions, defineApp, type NoteDefinition, type NoteName, type TextStatus, timestamp } from '../core/lens.js';
 export { SaveError } from '../client/page.js';
-export { BlobError, OpenError } from '../client/bytes.js';
+export { BlobError } from '../client/bytes.js';
+export { TemplateError } from '../core/templates.js';
 export { BlobStoreError } from '../client/blobs.js';
 export { extensionOf, mediaType } from '../core/media.js';
 export { ChangeError, type FileStatus } from '../client/replica.js';
@@ -24,6 +25,7 @@ export {
 	type FieldPatch,
 	type FileEntry,
 	type Files,
+	type FileWriteError,
 	type FileText,
 	type InvalidNote,
 	type MemoryCollection,

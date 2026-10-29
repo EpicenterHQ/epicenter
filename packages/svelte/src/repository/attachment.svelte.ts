@@ -52,7 +52,7 @@ export function attachment(repo: AttachmentSource, getPath: () => string | null 
 			if (error === null) {
 				url = URL.createObjectURL(file);
 				state = { status: 'here', url, file };
-			} else if (error.name === 'Missing') state = { status: 'missing' };
+			} else if (error.name === 'NotFound') state = { status: 'missing' };
 			else state = { status: 'unavailable', reason: error.message, retry: () => void attempt++ };
 		})();
 		const stop = repo.subscribe((change) => {

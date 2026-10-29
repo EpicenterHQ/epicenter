@@ -28,25 +28,22 @@ import { type BlobStore, type BlobStoreError, type Sealed } from './blobs.js';
 import type { SaveError } from './page.js';
 import type { Change, Changed, ChangeError, Replica } from './replica.js';
 
+/** Why a blob was not stored or opened. */
 export const BlobError = defineErrors({
 	/** A create found a file at the path on this device: nothing was stored. */
 	Exists: ({ path }: { path: string }) => ({ message: `There is already a file at ${path}`, path }),
-	/** A replace found no file at the path on this device: nothing was stored. */
+	/** No file is at the path on this device (a replace, an open), or the server has no such bytes: nothing was stored or opened. */
 	NotFound: ({ path }: { path: string }) => ({ message: `There is no file at ${path}`, path }),
 	/** A Markdown path is a note, never a blob. */
 	NotBlob: ({ path }: { path: string }) => ({ message: `${path} is a note, not a file of bytes`, path }),
+	/** Text at a path that is not a note, other than a pointer to bytes: a file of bytes is written as a Blob. */
+	NotPointer: ({ path }: { path: string }) => ({ message: `${path} is not a note: write its bytes as a Blob`, path }),
 	/** The bytes are more than the repository takes: nothing was sealed. */
 	TooLarge: ({ size, limit }: { size: number; limit: number }) => ({ message: `The file is ${size} bytes; this repository takes at most ${limit}`, size, limit }),
+	/** The bytes are not here and could not be fetched now (offline, the server failing): try again. */
+	Unfetched: ({ path, reason }: { path: string; reason: string }) => ({ message: `${path} cannot be read now: ${reason}`, path, reason }),
 });
 export type BlobError = InferErrors<typeof BlobError>;
-
-export const OpenError = defineErrors({
-	/** No blob is at the path, or the server has no such bytes. */
-	Missing: ({ path }: { path: string }) => ({ message: `There is no file at ${path}`, path }),
-	/** The bytes are not here and could not be fetched now (offline, the server failing): try again. */
-	Unavailable: ({ path, reason }: { path: string; reason: string }) => ({ message: `${path} cannot be read now: ${reason}`, path, reason }),
-});
-export type OpenError = InferErrors<typeof OpenError>;
 
 /** One blob to store at a path: a create, or with `replace` a replace, of the file this device shows there. */
 export type BlobPut = { path: string; blob: Blob; replace: boolean };
@@ -63,17 +60,17 @@ export type PutError = BlobError | BlobStoreError | ChangeError | SaveError;
  * and the folder engine's projection share. Nothing is stored for bytes
  * that are not the ones named.
  */
-export async function downloadBlob({ lfs, store }: { lfs: LfsClient | null; store: BlobStore<Blob> }, path: string, pointer: Sealed): Promise<Result<undefined, OpenError>> {
-	if (lfs === null) return OpenError.Missing({ path });
+export async function downloadBlob({ lfs, store }: { lfs: LfsClient | null; store: BlobStore<Blob> }, path: string, pointer: Sealed): Promise<Result<undefined, BlobError>> {
+	if (lfs === null) return BlobError.NotFound({ path });
 	const asked = await lfs.batch('download', [pointer]);
-	if (asked.error !== null) return OpenError.Unavailable({ path, reason: asked.error.message });
+	if (asked.error !== null) return BlobError.Unfetched({ path, reason: asked.error.message });
 	const answer = asked.data.find((each) => each.oid === pointer.oid);
 	const action = answer?.actions?.download;
-	if (action === undefined) return answer?.error?.code === 404 ? OpenError.Missing({ path }) : OpenError.Unavailable({ path, reason: answer?.error?.message ?? 'no download was offered' });
+	if (action === undefined) return answer?.error?.code === 404 ? BlobError.NotFound({ path }) : BlobError.Unfetched({ path, reason: answer?.error?.message ?? 'no download was offered' });
 	const body = await lfs.get(action);
-	if (body.error !== null) return body.error.name === 'Refused' && body.error.status === 404 ? OpenError.Missing({ path }) : OpenError.Unavailable({ path, reason: body.error.message });
+	if (body.error !== null) return body.error.name === 'Refused' && body.error.status === 404 ? BlobError.NotFound({ path }) : BlobError.Unfetched({ path, reason: body.error.message });
 	const sealed = await store.seal(body.data, { expect: pointer });
-	return sealed.error === null ? Ok(undefined) : OpenError.Unavailable({ path, reason: sealed.error.message });
+	return sealed.error === null ? Ok(undefined) : BlobError.Unfetched({ path, reason: sealed.error.message });
 }
 
 export function serveBytes({
@@ -88,7 +85,7 @@ export function serveBytes({
 	lfs: LfsClient | null;
 }) {
 	/** Downloads in flight, one per oid. */
-	const fetching = new Map<string, Promise<Result<undefined, OpenError>>>();
+	const fetching = new Map<string, Promise<Result<undefined, BlobError>>>();
 
 	const download = (path: string, pointer: Sealed) => downloadBlob({ lfs, store }, path, pointer);
 
@@ -124,10 +121,10 @@ export function serveBytes({
 			return Ok({ ...changed.data, sealed });
 		},
 		/** A blob's bytes as a `File` typed by its path's extension: from this device, or fetched and verified first. */
-		async open(path: string): Promise<Result<File, OpenError>> {
+		async open(path: string): Promise<Result<File, BlobError>> {
 			const text = replica.read(path);
 			const pointer = text === null || isNote(path) ? null : parsePointer(text);
-			if (pointer === null) return OpenError.Missing({ path });
+			if (pointer === null) return BlobError.NotFound({ path });
 			let bytes = await store.read(pointer.oid);
 			if (bytes === null) {
 				let running = fetching.get(pointer.oid);
@@ -138,7 +135,7 @@ export function serveBytes({
 				const fetched = await running;
 				if (fetched.error !== null) return fetched;
 				bytes = await store.read(pointer.oid);
-				if (bytes === null) return OpenError.Unavailable({ path, reason: 'the bytes were fetched and then gone' });
+				if (bytes === null) return BlobError.Unfetched({ path, reason: 'the bytes were fetched and then gone' });
 			}
 			// A File over the store's own handle: its bytes are not copied.
 			return Ok(new File([bytes], path.slice(path.lastIndexOf('/') + 1), { type: mediaType(path) }));
