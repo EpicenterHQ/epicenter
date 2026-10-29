@@ -163,6 +163,8 @@ export function createReceiver({
 		};
 		// One transaction: the live commit, and the journal row that moves Git's main to the pushed commit. Git moves only after both are kept.
 		const live = apply({ id: commitId(body), ...body }, session, () => {
+			// The live tree as Git holds it, so the next flush diffs against Git's tree from the nodes it keeps.
+			history.trees.update(history.main().tree, [[['.gitattributes'], history.keep(ATTRIBUTES)]]);
 			flusher.journalPushed({ old, next, tree, through: history.top(), staging, user: session.user, at });
 		});
 		if (live.kind !== 'applied') {

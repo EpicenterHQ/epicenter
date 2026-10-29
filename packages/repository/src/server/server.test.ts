@@ -394,6 +394,9 @@ describe('the Git receive path', () => {
 		const third = await world.git.writeCommit({ tree: await world.git.writeTree(after), parents: [next], message: 'c\n', author: { name: 'alice', email: 'a@b' }, at: new Date(EPOCH) });
 		expect(await fresh.receive({ ref: MAIN, old: next, next: third }, alice)).toMatchObject({ kind: 'accepted', main: third });
 		expect(await fresh.flush()).toEqual({ kind: 'nothing' });
+		// The next flush diffs against the tree Git holds: its commit names the one path a live edit changed.
+		fresh.push(make(fresh, [{ path: 'n/a.md', text: note('a2\n') }]), alice);
+		expect(await fresh.flush()).toMatchObject({ kind: 'flushed', commits: [{ message: expect.stringMatching(/^Edit n\/a\.md\n/) }] });
 	});
 
 	test('every pushed commit is checked, not only the tip', async () => {
