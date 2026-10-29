@@ -280,6 +280,30 @@ export function createWireWorld(
 			},
 		});
 
+		/** Drop every connection. */
+		function disconnect() {
+			if (link !== null) link.open = false;
+			link = null;
+			if (socket !== null) {
+				socket.open = false;
+				socket.connection.close();
+			}
+			socket = null;
+			attached = false;
+		}
+
+		/**
+		 * A new replica gets new connections, as a reloaded page does: replies
+		 * to the old one's requests die with its connections, so its request
+		 * ids, which the new one may reuse, never answer the new one's.
+		 */
+		function reconnect() {
+			if (!online) return;
+			disconnect();
+			openLink();
+			openSocket();
+		}
+
 		openLink();
 		openSocket();
 
@@ -293,14 +317,7 @@ export function createWireWorld(
 				if (next === online) return;
 				online = next;
 				if (next) return reopen();
-				if (link !== null) link.open = false;
-				link = null;
-				if (socket !== null) {
-					socket.open = false;
-					socket.connection.close();
-				}
-				socket = null;
-				attached = false;
+				disconnect();
 				replica.attach(null);
 			},
 			loseNextReply: () => {
@@ -310,13 +327,13 @@ export function createWireWorld(
 			restart() {
 				replica.close();
 				replica = make();
-				if (attached) replica.attach(send);
+				reconnect();
 			},
 			lose() {
 				replica.close();
 				store = createMemoryStore();
 				replica = make();
-				if (attached) replica.attach(send);
+				reconnect();
 			},
 			storeBytes: () => store.bytes(),
 		};

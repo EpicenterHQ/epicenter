@@ -145,6 +145,21 @@ export function createWorld({
 			});
 		}
 
+		/**
+		 * A new replica gets new connections, as a reloaded page does: replies
+		 * to the old one's requests die with its connection, so its request
+		 * ids, which the new one may reuse, never answer the new one's.
+		 */
+		function reconnect() {
+			if (!online) return;
+			link?.close();
+			link = null;
+			notifications?.close();
+			notifications = null;
+			openRequests();
+			openStream();
+		}
+
 		openRequests();
 		openStream();
 
@@ -170,14 +185,14 @@ export function createWorld({
 			restart() {
 				replica.close();
 				replica = make();
-				if (link !== null) replica.attach(link.up);
+				reconnect();
 			},
 			/** The device's storage is gone for good: it comes back as a fresh replica that knows nothing. */
 			lose() {
 				replica.close();
 				store = createMemoryStore();
 				replica = make();
-				if (link !== null) replica.attach(link.up);
+				reconnect();
 			},
 			storeBytes: () => store.bytes(),
 		};

@@ -426,3 +426,14 @@ test("a save waiting on a held partner is not undone by an older commit of the s
 	expect(alice.replica.read(PATH)).toBeNull();
 	expect(alice.replica.busy()).toBe(false);
 });
+
+test('a device that restarts or loses its storage never hears replies meant for the replica it replaced (seed 15595)', () => {
+	const { world, alice, settle } = setup();
+	for (const replace of [() => alice.restart(), () => alice.lose()]) {
+		// A push in flight when the replica is replaced: its reply belongs to the old replica, whose request ids the new one may reuse.
+		alice.replica.write(PATH, note(`${world.net.now()}\n`));
+		replace();
+		settle();
+		expect(alice.replica.stats().late).toBe(0);
+	}
+});
