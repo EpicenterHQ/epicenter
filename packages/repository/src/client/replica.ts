@@ -824,16 +824,36 @@ function createReplica({
 		}
 	}
 
-	/** Texts this device already holds, by hash. */
-	function known() {
+	/** Hashes of texts this device hashed lately, so a level is hashed once, not at every notification. */
+	const hashed = new Map<string, string>();
+	const hashOf = (text: string) => {
+		let hash = hashed.get(text);
+		if (hash === undefined) {
+			// Bounded: what is held changes, and an old text only costs one more hash.
+			if (hashed.size >= 4 * files.size + 64) hashed.clear();
+			hash = gitBlobHash(text);
+			hashed.set(text, hash);
+		}
+		return hash;
+	};
+
+	/**
+	 * Texts this device already holds at `paths`, by hash: each path's base
+	 * (whose hash is stored) and its other levels. RULE: only the paths a
+	 * notification or catch-up names, so its cost follows what it names, not
+	 * the repository; a text held at another path is fetched.
+	 */
+	function known(paths: Iterable<string>) {
 		const texts = new Map<string, string>();
-		for (const [path, f] of all()) {
+		for (const path of paths) {
+			const f = record(path);
 			const hash = hashes.get(path) ?? null;
 			if (f.base !== null && hash !== null) texts.set(hash, f.base);
-			for (const level of [f.mine, f.sent?.text ?? null, f.committed?.text ?? null]) if (level !== null) texts.set(gitBlobHash(level), level);
+			for (const level of [f.mine, f.sent?.text ?? null, f.committed?.text ?? null]) if (level !== null && level !== f.base) texts.set(hashOf(level), level);
 		}
 		return texts;
 	}
+	const named = (listed: { files: { path: string }[] }) => listed.files.map((f) => f.path);
 	const missing = (wanted: (string | null)[], have: Map<string, string>) => [...new Set(wanted.filter((h): h is string => h !== null && !have.has(h)))];
 
 	function applyCatchUp(reply: CatchUp, texts: Map<string, string>) {
@@ -880,7 +900,7 @@ function createReplica({
 		// The socket needs this too, between a catch-up's pages, which name the commit the first page answered.
 		const catchingUp = () => pending?.kind === 'catch-up' || gathering !== null || (reading !== null && 'catchUp' in reading);
 		for (let event = following(); event !== undefined && inflight === null && !catchingUp(); event = following()) {
-			const have = known();
+			const have = known(named(event));
 			const lacking = missing(
 				event.files.map((f) => f.hash),
 				have,
@@ -932,7 +952,7 @@ function createReplica({
 					break;
 				}
 				gathering = null;
-				const have = known();
+				const have = known(named(whole));
 				const lacking = missing(
 					whole.files.map((f) => f.hash),
 					have,
@@ -948,7 +968,7 @@ function createReplica({
 			case 'fetched': {
 				const was = reading;
 				reading = null;
-				const texts = new Map([...known(), ...Object.entries(message.texts)]);
+				const texts = new Map([...(was === null ? [] : known(named('catchUp' in was ? was.catchUp : was.event))), ...Object.entries(message.texts)]);
 				if (was !== null && 'catchUp' in was) applyCatchUp(was.catchUp, texts);
 				else if (was !== null && was.event.files.some((f) => f.hash !== null && !texts.has(f.hash))) {
 					// The server no longer keeps a text the notification names (its commit left the window): catch up instead.

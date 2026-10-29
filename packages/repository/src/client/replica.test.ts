@@ -19,11 +19,12 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createTestServer, writer } from '../b/harness.js';
+import { createTestServer, STAMP, writer } from '../b/harness.js';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { defineApp } from '../core/lens.js';
 import type { LiveCommit } from '../core/commit.js';
-import type { Server } from '../server/server.js';
+import { commitId } from '../core/commit.js';
+import type { Event, Server } from '../server/server.js';
 import type { SqlDriver } from '../sql.js';
 import { type Binding, openReplica, type Replica, type Reply, type Request } from './replica.js';
 
@@ -189,6 +190,36 @@ test("a commit carries the host's clock as its time", () => {
 	replica.write(PATH, note('one\n'));
 	const [push] = link.sent;
 	expect(push).toMatchObject({ type: 'push', commit: { time: '2026-10-29T10:30:00.000Z' } });
+});
+
+test('a notification costs what it names, not every text the device holds', () => {
+	const server = createTestServer({ limits: { request: 64 * 1024 * 1024, files: 5_000 } });
+	const bob = writer('bob');
+	const text = (i: number, version = 0) => note(`${'word '.repeat(1_000)}${version}\n`, `n${i}`);
+	const commit = (files: LiveCommit['files']) => {
+		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		return { id: commitId(body), ...body };
+	};
+	server.push(commit(Array.from({ length: 2_000 }, (_, i) => ({ path: `notes/${i}.md`, text: text(i) }))), bob);
+	const replica = unwrap(open(openBunSqlite()));
+	const link = connect(replica, server);
+	link.deliver();
+	expect(replica.paths()).toHaveLength(2_000);
+	const events: Event[] = [];
+	server.subscribe((event) => events.push(event));
+	let spent = 0;
+	for (let k = 0; k < 20; k++) {
+		server.push(commit([{ path: `notes/${k}.md`, text: text(k, k + 1) }]), bob);
+		const event = events.shift();
+		if (event === undefined) throw new Error('every commit is an event');
+		const start = performance.now();
+		replica.notify(event);
+		link.deliver();
+		spent += performance.now() - start;
+	}
+	expect(replica.position()).toBe(server.main());
+	// Hashing every text held took about 90 ms a notification at this size; reading one path's levels takes a few.
+	expect(spent / 20).toBeLessThan(15);
 });
 
 test("the app's views read what the person sees, held text included, and a watcher hears each change once it is stored", () => {
