@@ -25,7 +25,8 @@ Two rules shape everything a person sees:
 | `src/wire/` | HTTP and one WebSocket per device: commits, catch-ups and their answers, and every change event, in one ordered sequence. |
 | `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text, the position, the commit in flight, held work; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blob bytes on the device (`blobs.ts`), put and opened (`bytes.ts`), and the upload track (`uploads.ts`). |
 | `src/hosts/browser/` | The browser host: a replica in this origin's private storage (`.epicenter/replicas/<id>/`), owned by one tab's worker under a Web Lock. |
-| `src/bun/` | Bun adapters: SQLite, a Git store on disk, blob bytes on disk (a device's and a server's), and the development server. |
+| `src/folder/` | The folder engine, host-free: a folder on disk as a projection of one replica (`engine.ts`), over the folder port (`fs.ts`) whose writes never destroy a save. |
+| `src/bun/` | Bun adapters: SQLite, a Git store on disk, blob bytes on disk (a device's and a server's), the development server, the folder port over `node:fs`, and `epicenter sync` and `epicenter commit` (`folder.ts`, `folder-commands.ts`). |
 | `src/api/` | The app API: `defineApp`, the repository handle, the editor. The package root exports it. |
 | `src/sim/` | The property test and scenario tests, over the real modules, in memory and over the real wire. |
 
@@ -322,6 +323,130 @@ if (opened.error === null) {
 place, the cursor stays where the person was typing, and Undo takes back
 only their keystrokes.
 
+## A folder on disk
+
+A folder is the desktop's front end of the same engine the browser runs
+(ADR-0695, as amended by ADR-0697): a projection of one replica, kept by
+`src/folder/engine.ts`. Two directions, one rule each.
+
+- **Out.** When the replica's text for a path changes, the engine writes it
+  to the file, but only over bytes it wrote itself: the file must still
+  hash to what its record says. A file that differs holds a save the
+  engine has not read, and it reads that first.
+- **In.** A file whose bytes differ from the record is a save: a Markdown
+  file a `write` over the text the engine last wrote there, any other
+  file a blob write (sealed into the device store, uploaded by the upload
+  track) expecting the pointer it last wrote, a missing file a delete.
+
+Both are one function, `reconcile(paths, call)`. Watcher events, the
+startup scan, the scan after a dropped event, the periodic scan and
+`epicenter commit` run it over different paths. `call` says only how the
+saves it finds are grouped:
+
+- `'each'`: each save is its own call, so a note never waits on someone
+  else's upload. A vanished path and an appeared one with equal bytes are
+  one rename, one group.
+- a message (`commit -m`): every save is one group with the message. It
+  lands in one commit or is held whole (ADR-0697).
+
+Events are hints. A file whose hash equals the record is nothing, so the
+engine's own writes never come back as saves. A file modified within the
+last quiet window (150 ms) is read once it has been still for one, so an
+in-place save is never read half written.
+
+**The write.** The folder port's `replace` and `remove` capture by rename:
+whatever is at the path is renamed into `.epicenter/tmp/` at that
+instant, and the new bytes are linked into the empty path. The link fails
+when an editor created the file meanwhile, and the editor's file stays.
+What was captured is compared with the record: the engine's own bytes are
+dropped after one more quiet window (a writer still holding the file open
+writes into them); anything else is a save that raced, and goes in as one.
+
+**The record.** `"epicenter/disk"` sits in the replica's database. Per
+path it keeps the bytes' SHA-256, their size, mtime and inode, when they
+were recorded, and the text (a note's, or a blob's pointer). A save's
+record and the replica's change commit in one transaction. Each write is
+journaled before it happens (`"epicenter/displaced"`), so a crash is
+recovered without reading the engine's own file as a save, or an empty
+path as a delete. A scan skips hashing a file whose size, mtime and inode
+match its record, unless it was modified within 2 s of being recorded
+(Git's racy rule). It finds deletes as records no file answered.
+
+**What it leaves alone.** A path with any segment starting with `.` is
+never read or written. Neither are editor droppings that persist under
+names a person could not mean (`DROPPINGS`): `name~`, `4913`, `#name#`,
+`~$name`, JetBrains' `___jb_tmp___` and `___jb_old___`, `.part`,
+`.crdownload`. Symlinks and other files that are not regular are listed as
+unreadable, never followed. So is a `.md` file that is not UTF-8, until it
+is saved readable. A valid text the door refuses goes in and is held with
+the door's reason.
+
+**Spellings.** A file whose path folds (NFC and case) to one the replica
+has is that file on a case-insensitive file system. On a case-sensitive
+one it is a twin: a save to the replica's path, removed by the same
+capture once its text is in.
+
+### Identity and place
+
+```txt
+<folder>/.epicenter/repository                its identity: repository (owner/name or null), server, account, replica id, agent
+<data>/replicas/<replica id>/replica.sqlite   the replica and the record, held with locking_mode = EXCLUSIVE
+<data>/replicas/<replica id>/objects/         the device's blob bytes
+```
+
+`<data>` is `EPICENTER_DATA_DIR`, else `~/Library/Application
+Support/so.epicenter`, as the desktop resolves it. The replica lives
+outside the folder, so a folder inside a file-syncing service never syncs
+a live SQLite file, and a folder may be moved or renamed. One engine holds
+a replica: a second (a running `sync`, another `commit`) is refused, and a
+crash releases it. A folder that is a copy of another (same replica id,
+the original still there) is refused until `--join` makes it new. The
+identity holds no secret: the token is `--token` or `EPICENTER_TOKEN`.
+`listRepositoryFolders(root)` lists the children of `EPICENTER_FOLDER_DIR`
+(else `~/Epicenter`) that hold an identity. Others, the desktop's
+reverse-DNS app folders among them, are left alone.
+
+### `epicenter sync` and `epicenter commit`
+
+```sh
+bun run epicenter -- sync ~/Epicenter/home --join me/home --server http://127.0.0.1:8787/ --token ada
+bun run epicenter -- sync ~/Epicenter/home            # later: the identity says what it is
+bun run epicenter -- sync /work/home --join wong/home --server https://... --agent claude --once
+bun run epicenter -- commit /work/home -m "Summarize October's notes"
+```
+
+`sync` catches up, scans, then watches until a signal, letting what is in
+flight finish (5 s). With `--once` it sends everything and exits. `commit
+-m` runs before connecting: every difference from the record goes to the
+replica as one group carrying the message. Then it connects and waits for
+the verdict. A commit with a message is never amended by a later save.
+`--agent <name>` only labels the author: it is the commit's device, so
+conflict blocks read `alice/claude`, and the flushed Git commit names it
+in `Epicenter-Device`.
+
+| Exit | Line (`--json`: one JSON value per line) | Meaning |
+| --- | --- | --- |
+| 0 | `{"landed": "<id>", "conflicts": [...]}` | One commit; `conflicts` names files where its merge wrote a conflict block |
+| 0 | `{"unchanged": true}` | Nothing differed from the record, and nothing was unsent |
+| 2 | `{"held": [{"path", "reason"}], "commit": "<id>" \| null}` | Nothing landed; the group and its message are held; the files are as left |
+| 2 | `{"pending": "<id>" \| null}` | Offline, or no verdict yet; the next `commit` or `sync` sends it, once |
+| 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy |
+
+`sync` also prints `joined`, `caught-up`, `held`, `unreadable` and
+`stopped`.
+
+### The desktop, later
+
+The desktop's `epicenter` sidecar runs one `epicenter sync` per folder
+under the root (`listRepositoryFolders`), from `@epicenter/repository/bun`
+(`openFolderEngine`, `syncFolder`, `commitFolder`). Its windows reach the
+same replica through that process with the page protocol `servePage`
+speaks (`api/local.ts` is the in-process form), never a second engine over
+the same folder: the replica's lock refuses one. That change replaces
+`packages/cli`'s Git `sync`, `clone`, `status`, `history` and
+`save-version` (ADR-0546, over `@epicenter/folder`) in one step, so no
+build ships two engines behind one command name.
+
 ## The development server
 
 ```sh
@@ -367,6 +492,10 @@ From `packages/repository`:
 | `bun run test` | Core, server, wire, client, API and the property tests at their default seeds. |
 | `B_RUNS=1000 B_STEPS=200 B_FROM=1 bun test src/sim/property.test.ts` | The property test in memory, for more seeds (`B_SEED=n` replays one). |
 | `W_RUNS=200 W_STEPS=200 bun test src/sim/wire.property.test.ts -t socket` | The same over the real wire (`H_` for HTTP). |
+| `F_RUNS=500 F_STEPS=200 bun test src/sim/folder.property.test.ts` | The folder engine's property test (`F_SEED=n` replays one, `F_TWINS=0` turns case twins off). |
+| `bun test src/bun/folder.matrix.test.ts` | Each recorded editor save pattern, and the installed vim and nvim headless, against a live engine on the real file system. |
+| `bun scripts/folder-race.ts` | Saves destroyed by a naive write, capture by rename, and atomic swap, racing an editor for 60 s each. |
+| `bun scripts/bench-folder.ts --notes 100000` | Cold and warm scans, peak RSS, database size, and a 1,000-file commit. |
 | `bun run test:browser` | The browser host and a Svelte page on the API, in Chromium and WebKit, two profiles syncing through the dev server. |
 | `bun scripts/bench-open.ts 100000` | Opening, a page session, a full catch-up and a reset at 100,000 notes. |
 | `bun scripts/bench-lfs-put.ts` | The Bun server's RSS while a PUT streams in (1 GiB to a hashing store that keeps nothing, 256 MiB to the file store). |
