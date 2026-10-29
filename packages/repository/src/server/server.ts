@@ -88,14 +88,72 @@ export type PushAnswer =
 	 */
 	| { kind: 'flushed'; main: string; files: FileState[] }
 	/**
-	 * Nothing changed: `main` moved and the commit asked to fast-forward, or
-	 * the door refused it (`path` names the file at fault). For `main moved`,
-	 * `files` are `main`'s texts for the paths the commit touched, so a writer
-	 * can redo its change without asking again.
+	 * Nothing changed: the door refused one file's text (`path`), so the
+	 * device holds that text with the reason; the rest of the commit may go
+	 * again without it.
 	 */
-	| { kind: 'refused'; reason: string; path?: string; main: string; files?: FileState[] }
+	| { kind: 'refused'; code: TextCode; reason: string; path: string; main: string }
+	/**
+	 * Nothing changed: the request itself was not taken (who sent it, its
+	 * size or rate, its form, or a condition on `main`). No text is at
+	 * fault: the device keeps its work and fixes the request (waits, splits
+	 * it, catches up) or reports it. For `main-moved` and `file-moved`,
+	 * `files` are `main`'s texts for the paths the commit touched, so a
+	 * writer can redo its change without asking again.
+	 */
+	| { kind: 'rejected'; code: RequestCode; reason: string; main: string; files?: FileState[] }
 	/** RULE: the commit's parent is older than the retention window, and the server has no record of it: it cannot say what happened. */
 	| { kind: 'outcome-unknown'; main: string };
+
+/** Why the door refused a file's text. `inadmissible`'s reason is the door's own (core/door). */
+export type TextCode = 'path-too-long' | 'inadmissible' | 'blob-missing' | 'blob-immutable' | 'merge-too-large' | 'too-many-blocks';
+
+/** Why a request was not taken. */
+export type RequestCode =
+	| 'no-session'
+	| 'not-member'
+	| 'reader'
+	| 'not-author'
+	| 'rate'
+	| 'too-large'
+	| 'too-many-files'
+	| 'no-parent'
+	| 'bad-id'
+	| 'bad-time'
+	| 'clock-ahead'
+	| 'path-twice'
+	| 'main-moved'
+	| 'file-moved'
+	| 'no-precondition';
+
+/** What each code says to a person; code branches on the code, never on this. */
+export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, string> = {
+	'path-too-long': 'the path is too long',
+	'blob-missing': "the blob's bytes are missing",
+	'blob-immutable': "a blob's path is immutable",
+	'merge-too-large': 'the merge would grow the note past 1 MB',
+	'too-many-blocks': 'the note has too many conflict blocks',
+	'no-session': 'no session',
+	'not-member': 'not a member',
+	reader: 'a reader may not write',
+	'not-author': 'the author is not the session',
+	rate: 'rate',
+	'too-large': 'request too large',
+	'too-many-files': 'too many files',
+	'no-parent': 'no parent',
+	'bad-id': 'the id is not the hash of the commit',
+	'bad-time': 'the time is not an ISO instant',
+	'clock-ahead': "the time is ahead of the server's clock",
+	'path-twice': 'a path is named twice',
+	'main-moved': 'main moved',
+	'file-moved': 'the file moved',
+	'no-precondition': 'no precondition',
+};
+
+/** A request rejection, as an answer. */
+export const rejection = (code: RequestCode, main: string, files?: FileState[]): PushAnswer => ({ kind: 'rejected', code, reason: REASONS[code], main, ...(files === undefined ? {} : { files }) });
+/** A text refusal, as an answer: the door's own reason for `inadmissible`. */
+const refusal = (code: TextCode, path: string, main: string, reason = REASONS[code as Exclude<TextCode, 'inadmissible'>]): PushAnswer => ({ kind: 'refused', code, reason, path, main });
 
 /**
  * A one-file precondition (HTTP's `If-Match` and `If-None-Match: *`),
@@ -270,41 +328,43 @@ export function createServer({
 	/** The door: who may push this, and is it something the repository may hold? */
 	function admit(commit: LiveCommit, session: Session | undefined, rate: boolean): PushAnswer | null {
 		const head = main().id;
-		const refuse = (reason: string, path?: string): PushAnswer => ({ kind: 'refused', reason, main: head, ...(path === undefined ? {} : { path }) });
-		if (session === undefined) return refuse('no session');
-		if (session.role === null) return refuse('not a member');
-		if (session.role === 'reader') return refuse('a reader may not write');
+		const reject = (code: RequestCode) => rejection(code, head);
+		if (session === undefined) return reject('no-session');
+		if (session.role === null) return reject('not-member');
+		if (session.role === 'reader') return reject('reader');
 		const now = clock();
 		const bucket = first<{ tokens: number; at: number }>(store, 'SELECT tokens, at FROM buckets WHERE user = ?', [session.user]) ?? { tokens: limits.burst, at: now };
 		const tokens = Math.min(limits.burst, bucket.tokens + ((now - bucket.at) / 1000) * limits.rate);
 		if (rate && tokens < 1) {
 			store.run('INSERT OR REPLACE INTO buckets (user, tokens, at) VALUES (?, ?, ?)', [session.user, tokens, now]);
-			return refuse('rate');
+			return reject('rate');
 		}
 		store.run('INSERT OR REPLACE INTO buckets (user, tokens, at) VALUES (?, ?, ?)', [session.user, rate ? tokens - 1 : tokens, now]);
-		if (commit.parent === undefined) return refuse('no parent');
+		if (commit.parent === undefined) return reject('no-parent');
 		// The id is checked before any recorded outcome is read, so a replayed id with other files is refused.
-		if (commitId(commit) !== commit.id) return refuse('the id is not the hash of the commit');
-		if (commit.author.user !== session.user) return refuse('the author is not the session');
+		if (commitId(commit) !== commit.id) return reject('bad-id');
+		if (commit.author.user !== session.user) return reject('not-author');
 		// RULE: `time` is a label people read (in conflict blocks), never an order: an ISO instant, not ahead of the server's clock by more than the skew. An earlier one is a commit sent again after time offline.
-		if (!isInstant(commit.time)) return refuse('the time is not an ISO instant');
-		if (Date.parse(commit.time) > now + limits.skew) return refuse("the time is ahead of the server's clock");
-		if (bytes(JSON.stringify(commit)) > limits.request) return refuse('request too large');
-		if (commit.files.length > limits.files) return refuse('too many files');
+		if (!isInstant(commit.time)) return reject('bad-time');
+		if (Date.parse(commit.time) > now + limits.skew) return reject('clock-ahead');
+		if (bytes(JSON.stringify(commit)) > limits.request) return reject('too-large');
+		if (commit.files.length > limits.files) return reject('too-many-files');
 		const paths = new Set<string>();
+		for (const file of commit.files) {
+			if (paths.has(fold(file.path))) return reject('path-twice');
+			paths.add(fold(file.path));
+		}
 		const tree = main().tree;
 		for (const file of commit.files) {
-			if (bytes(file.path) > limits.path) return refuse('bad path', file.path);
-			if (paths.has(fold(file.path))) return refuse('a path is named twice', file.path);
-			paths.add(fold(file.path));
+			if (bytes(file.path) > limits.path) return refusal('path-too-long', file.path, head);
 			// D4 and the door's content rules: the same predicate the device runs.
 			const reason = admissible(file.path, file.text);
-			if (reason !== null) return refuse(reason, file.path);
+			if (reason !== null) return refusal('inadmissible', file.path, head, reason);
 			const pointer = file.text === null ? null : parsePointer(file.text);
 			if (pointer === null) continue;
-			if (first(store, 'SELECT 1 FROM uploads WHERE oid = ?', [pointer.oid]) === undefined) return refuse("the blob's bytes are missing", file.path);
+			if (first(store, 'SELECT 1 FROM uploads WHERE oid = ?', [pointer.oid]) === undefined) return refusal('blob-missing', file.path, head);
 			const there = history.textIn(tree, history.spelling(file.path) ?? file.path);
-			if (there !== null && there !== file.text) return refuse("a blob's path is immutable", file.path);
+			if (there !== null && there !== file.text) return refusal('blob-immutable', file.path, head);
 		}
 		return null;
 	}
@@ -322,8 +382,8 @@ export function createServer({
 
 	function pushInside(commit: LiveCommit, session: Session | undefined, rate: boolean, expect?: Expect): PushAnswer {
 		prune();
-		const refusal = admit(commit, session, rate);
-		if (refusal !== null) return refusal;
+		const turned = admit(commit, session, rate);
+		if (turned !== null) return turned;
 		const recorded = first<{ answer: string; paths: string }>(store, 'SELECT answer, paths FROM outcomes WHERE id = ?', [commit.id]);
 		if (recorded !== undefined) {
 			// RULE: a resend gets its verdict brought up to now: `main` and every file changed since its parent, as they are now.
@@ -345,11 +405,10 @@ export function createServer({
 			const path = history.spelling(expect.path) ?? expect.path;
 			const hash = trees.read(head.tree, path);
 			const holds = expect.is === 'absent' ? hash === null : expect.is === 'present' ? hash !== null : hash !== null && expect.is.includes(hash);
-			if (!holds) return { kind: 'refused', reason: 'the file moved', main: head.id, files: [state(path)] };
+			if (!holds) return rejection('file-moved', head.id, [state(path)]);
 		}
 		const forward = commit.parent === head.id;
-		const refuse = (reason: string, path?: string): PushAnswer => ({ kind: 'refused', reason, main: head.id, ...(path === undefined ? {} : { path }) });
-		if (commit.mode === 'fast-forward' && !forward) return { kind: 'refused', reason: 'main moved', main: head.id, files: commit.files.map((f) => state(f.path, from)) };
+		if (commit.mode === 'fast-forward' && !forward) return rejection('main-moved', head.id, commit.files.map((f) => state(f.path, from)));
 		const author = { user: session?.user ?? commit.author.user, device: commit.author.device };
 		if (forward) {
 			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false }, commit.files);
@@ -369,14 +428,14 @@ export function createServer({
 			});
 			if (settled.text !== null && isNote(file.path)) {
 				// RULE, the one named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
-				if (bytes(settled.text) > MAX_FILE_BYTES) return refuse('the merge would grow the note past 1 MB', file.path);
+				if (bytes(settled.text) > MAX_FILE_BYTES) return refusal('merge-too-large', file.path, head.id);
 				// RULE: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood); its writer holds it, or an agent redoes it.
 				if (findConflicts(settled.text).length > Math.max(BLOCK_CAP, ours === null ? 0 : findConflicts(ours).length))
-					return refuse('the note has too many conflict blocks', file.path);
+					return refusal('too-many-blocks', file.path, head.id);
 			}
 			// Every merge result passes the door too.
 			const reason = admissible(file.path, settled.text);
-			if (reason !== null) return refuse(reason, file.path);
+			if (reason !== null) return refusal('inadmissible', file.path, head.id, reason);
 			out.push({ path: file.path, text: settled.text });
 			if (settled.disposition === 'conflict' || settled.disposition === 'different-note') blocks = true;
 		}
@@ -459,6 +518,8 @@ export function createServer({
 		main: () => main().id,
 		/** The server's clock, as the ISO instant a commit made here carries. */
 		time,
+		/** The bounds on one push a device sizes its commits to. */
+		sizing: () => ({ request: limits.request, files: limits.files }),
 		/**
 		 * Whether `session` may read this repository: any member may. The
 		 * reads below (`read`, `catchUp`, `fetch`, `subscribe`) do not check;
@@ -546,7 +607,7 @@ export function createServer({
 		 */
 		async receive(...args: Parameters<typeof receiver.receive>) {
 			const answer = await receiver.receive(...args);
-			if (answer.kind === 'refused' && answer.reason.startsWith('live edits')) flushInBackground();
+			if (answer.kind === 'refused' && answer.code === 'unflushed') flushInBackground();
 			return answer;
 		},
 		/** Live commits made and kept, answers kept, the texts' bytes and tree nodes kept, and flushes, for tests and the benchmark. */

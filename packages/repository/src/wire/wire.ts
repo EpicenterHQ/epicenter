@@ -23,11 +23,12 @@
  * Every request, reads included, is authenticated first (401 without a
  * session, or with one that has expired) and must come from a member (403
  * otherwise, `server.mayRead`). A write's answer is JSON whatever its
- * status: 200 applied, merged or flushed; 409 outcome-unknown; and for a
- * refusal, 428 with no parent (or no precondition), 412 when a fast-forward
- * found main moved (or a file is not at the hash named), with main's texts
- * for the paths it touched, 429 rate, 403 a reader or another author, 413
- * too large, and 422 anything the door refuses. A request body is capped
+ * status: 200 applied, merged or flushed; 409 outcome-unknown; 422 a text
+ * the door refuses (`refused`, naming its path); and for a request
+ * rejection (`rejected`, by its code), 428 with no parent (or no
+ * precondition), 412 when a fast-forward found main moved (or a file is not
+ * at the hash named), with main's texts for the paths it touched, 429 rate,
+ * 403 a reader or another author, 413 too large, and 422 a malformed one. A request body is capped
  * before it is parsed, and a request not read within `timeout` gets 408.
  *
  * The socket is authenticated when it connects, and the host closes it
@@ -50,7 +51,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type Server, type Session } from '../server/server.js';
+import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type RequestCode, rejection, type Server, type Session } from '../server/server.js';
 
 // ============================================================================
 // Ports and protocol
@@ -88,8 +89,8 @@ export type SocketRequest = { type: 'push'; rid: number; commit: LiveCommit } | 
 
 /** What a socket carries down: main when it opens, each commit on main (never texts), and the replies to its own requests. */
 export type SocketMessage =
-	/** The repository this socket reaches and the account it is signed in as, so a replica bound elsewhere refuses it. */
-	| { type: 'head'; main: string; repository: string; user: string }
+	/** The repository this socket reaches and the account it is signed in as, so a replica bound elsewhere refuses it, and the bounds on one push. */
+	| { type: 'head'; main: string; repository: string; user: string; limits: { request: number; files: number } }
 	| ({ type: 'commit' } & Event)
 	| { type: 'answer'; rid: number; status: number; answer: PushAnswer }
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
@@ -150,19 +151,23 @@ const BodyError = defineErrors({
 });
 type BodyError = InferErrors<typeof BodyError>;
 
-/** The status of a refusal, by reason; any other reason is the door's (422). */
-const REFUSED: Record<string, number> = {
-	'no session': 401,
-	'not a member': 403,
-	'a reader may not write': 403,
-	'the author is not the session': 403,
-	'no parent': 428,
-	'no precondition': 428,
-	'main moved': 412,
-	'the file moved': 412,
+/** The status of a request rejection, by code; a text refusal is the door's (422). */
+const REJECTED: Record<RequestCode, number> = {
+	'no-session': 401,
+	'not-member': 403,
+	reader: 403,
+	'not-author': 403,
+	'no-parent': 428,
+	'no-precondition': 428,
+	'main-moved': 412,
+	'file-moved': 412,
 	rate: 429,
-	'request too large': 413,
-	'too many files': 413,
+	'too-large': 413,
+	'too-many-files': 413,
+	'bad-id': 422,
+	'bad-time': 422,
+	'clock-ahead': 422,
+	'path-twice': 422,
 };
 
 /** The HTTP status of a write's answer. */
@@ -175,7 +180,9 @@ export function statusOf(answer: PushAnswer): number {
 		case 'outcome-unknown':
 			return 409;
 		case 'refused':
-			return REFUSED[answer.reason] ?? 422;
+			return 422;
+		case 'rejected':
+			return REJECTED[answer.code];
 		default:
 			return answer satisfies never;
 	}
@@ -278,13 +285,13 @@ export function createWire({
 
 	const answer = (pushed: PushAnswer, headers: Record<string, string> = {}) =>
 		json(statusOf(pushed), pushed, statusOf(pushed) === 429 ? { 'retry-after': '1', ...headers } : headers);
-	const refused = (reason: string, extra: Partial<Extract<PushAnswer, { kind: 'refused' }>> = {}) => answer({ kind: 'refused', reason, main: server.main(), ...extra });
+	const rejected = (code: RequestCode) => answer(rejection(code, server.main()));
 
 	/** A body that could not be read: too large is the commit's refusal, so its writer holds it; the rest are the request's. */
 	function unread(error: BodyError) {
 		switch (error.name) {
 			case 'TooLarge':
-				return refused('request too large');
+				return rejected('too-large');
 			case 'TimedOut':
 				return failure(408, error.message);
 			case 'NotText':
@@ -307,7 +314,7 @@ export function createWire({
 	async function writeFile(request: Request, session: Session, path: string, expired: Promise<typeof EXPIRED>) {
 		const ifMatch = request.headers.get('if-match');
 		const create = request.method === 'PUT' && request.headers.get('if-none-match')?.trim() === '*';
-		if (ifMatch === null && !create) return refused('no precondition');
+		if (ifMatch === null && !create) return rejected('no-precondition');
 		let text: string | null = null;
 		if (request.method === 'PUT') {
 			const { data, error } = await readBody(request, limits.body, expired);
@@ -413,7 +420,7 @@ export function createWire({
 		 * anything, and which repository and account the socket is, so a
 		 * replica bound elsewhere refuses it.
 		 */
-		hello: (verified: Verified) => JSON.stringify({ type: 'head', main: server.main(), repository, user: verified.user } satisfies SocketMessage),
+		hello: (verified: Verified) => JSON.stringify({ type: 'head', main: server.main(), repository, user: verified.user, limits: server.sizing() } satisfies SocketMessage),
 		/**
 		 * Take one message from a socket whose session is `verified`, replying
 		 * on `end`. A message past the body limit is refused unread: a push
@@ -426,7 +433,7 @@ export function createWire({
 			const reply = (sent: SocketMessage) => end.send(JSON.stringify(sent));
 			if (encoder.encode(message).length > limits.body) {
 				const rid = /^\{"type":"push","rid":(\d+),/.exec(message)?.[1];
-				const answer: PushAnswer = { kind: 'refused', reason: 'request too large', main: server.main() };
+				const answer = rejection('too-large', server.main());
 				if (rid !== undefined) return reply({ type: 'answer', rid: Number(rid), status: statusOf(answer), answer });
 				return reply({ type: 'error', rid: null, status: 413, error: 'The message is larger than the limit' });
 			}

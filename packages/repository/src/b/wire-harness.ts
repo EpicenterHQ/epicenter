@@ -222,7 +222,7 @@ export function createWireWorld(
 			switch (message.type) {
 				case 'head': {
 					// The binding is checked first; then the device resumes from its last head, catching up only when main is not where it stands.
-					const { error } = replica.hello({ server: client.url, repository: message.repository, account: message.user, main: message.main });
+					const { error } = replica.hello({ server: client.url, repository: message.repository, account: message.user, main: message.main, limits: message.limits });
 					if (error !== null) throw new Error(`${name}: ${error.message}`);
 					if (transport === 'socket') attach();
 					return true;

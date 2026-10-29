@@ -10,8 +10,11 @@
  * types into). A save commits the files saved since they last went out, at
  * once, except held text: a text the door refuses, or one the server
  * refused, which stays held with its reason until its person saves that
- * file again. One commit is sent at a time, on top of the position; while
- * one is in flight, or offline, the unsent commit is amended.
+ * file again. One commit is sent at a time, on top of the position, sized
+ * to the server's bounds; while one is in flight, or offline, the unsent
+ * commit is amended. A request the server rejects (rate, size, who is
+ * asking, its form) holds no text: the work stays committed and goes again
+ * once the request is fixed.
  *
  * Saves are conditional: `write(path, next, { over })` names the text the
  * caller started from, and if `mine` moved since, the two are merged here,
@@ -31,7 +34,7 @@
  *
  *   "epicenter/replica"   key and value: the binding (repository, server,
  *                         account), the position, the next request id, the
- *                         mode of the next commit, the last refusal
+ *                         mode of the next commit
  *   "epicenter/files"     per path: `text` (mine, what the person sees),
  *                         its `fields` and `body` for the app's views, `base`
  *                         and its `hash`, `saved`, `held` (the reason), and
@@ -58,7 +61,7 @@ import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
 import { BODY_SQL, parseMarkdown, parsePointer } from '../core/markdown.js';
 import { appendBlock, settle } from '../core/settle.js';
-import type { CatchUp, Event, PushAnswer } from '../server/server.js';
+import type { CatchUp, Event, PushAnswer, RequestCode, TextCode } from '../server/server.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
 
 // ============================================================================
@@ -78,8 +81,11 @@ export type Reply =
 /** Which repository a replica holds, on which server, for which account (null: a guest's). */
 export type Binding = { repository: string; server: string; account: string | null };
 
-/** What the first exchange of a connection says: where the transport reached, as whom, and `main` there. */
-export type Hello = Binding & { main: string };
+/** The server's bounds on one push: its bytes as JSON, and its files. */
+export type Sizing = { request: number; files: number };
+
+/** What the first exchange of a connection says: where the transport reached, as whom, `main` there, and the server's bounds on a push. */
+export type Hello = Binding & { main: string; limits?: Sizing };
 
 export const ReplicaError = defineErrors({
 	BoundElsewhere: ({ field, bound, given }: { field: keyof Binding; bound: string | null; given: string | null }) => ({
@@ -91,8 +97,11 @@ export const ReplicaError = defineErrors({
 });
 export type ReplicaError = InferErrors<typeof ReplicaError>;
 
-/** One file's state, as a person sees it. */
+/** One file's state, as a person sees it: `reason` says why it is held, or why it is not sending (the server rejected the request). */
 export type FileStatus = { status: 'synced' | 'sending' | 'held'; reason?: string };
+
+/** The last refusal or rejection of this device's commit, until one lands. */
+export type Verdict = { code: TextCode | RequestCode; reason: string };
 
 // ============================================================================
 // The database
@@ -152,6 +161,7 @@ function fieldsOf(text: string | null): string | null {
 	return parsed.error === null ? JSON.stringify(parsed.data.fields) : null;
 }
 
+const encoder = new TextEncoder();
 const sameGroup = (a: string[] | undefined, b: string[] | undefined) => (a ?? []).join('\0') === (b ?? []).join('\0');
 
 /**
@@ -226,8 +236,14 @@ function createReplica({
 	let position: string | null = null;
 	let next = 1;
 	let nextMode = mode;
-	/** The reason of the last refusal, for an agent awaiting its verdict. */
-	let lastRefusal: string | null = null;
+	/** The last refusal or rejection, for an agent awaiting its verdict; cleared when a commit lands. */
+	let lastRefusal: Verdict | null = null;
+	/** The server's bounds on a push, from the connection's first exchange. */
+	let sizing: Sizing | null = null;
+	/** RULE: after a commit was rejected as too large, at most this many files go in one. */
+	let cap: number | null = null;
+	/** A rejection only the person or the account can fix: no commit goes until the next connection. */
+	let stalled: Verdict | null = null;
 	/** The commit sent and not yet answered: sent again, unchanged, until it is. */
 	let inflight: LiveCommit | null = null;
 	/** How many times the commit in flight has been sent: once means an `outcome-unknown` answer was a refusal, not a lost landing. */
@@ -262,7 +278,6 @@ function createReplica({
 		position = meta.get('position');
 		next = Number(meta.get('next') ?? 1);
 		nextMode = (meta.get('mode') as typeof mode | null) ?? mode;
-		lastRefusal = meta.get('refusal');
 		passedN = first<{ n: number | null }>(driver, 'SELECT MAX(n) AS n FROM "epicenter/passed"')?.n ?? 0;
 	}
 	load();
@@ -456,6 +471,40 @@ function createReplica({
 	/** RULE: committed files that can go now: a commit waits while a path saved with it is held (a rename's halves go together), or while the server asked this member to slow down. */
 	const ready = () => (now() < backoffUntil ? [] : all().filter(([path, f]) => f.committed !== undefined && !blocked(path)));
 
+	/** The files saved together with `path` that can go now: a rename's halves, and any path saved with either. */
+	function unit(path: string, among: Map<string, FileView>, into = new Set<string>()) {
+		if (into.has(path) || !among.has(path)) return into;
+		into.add(path);
+		for (const other of among.get(path)?.together ?? []) unit(other, among, into);
+		return into;
+	}
+
+	/**
+	 * RULE: a commit fits the server's bounds (its bytes as JSON and its
+	 * files, and the cap a too-large rejection set): whole groups of files
+	 * saved together, in order, as many as fit, and at least the first group.
+	 * The rest stays committed and goes in the next commit.
+	 */
+	function sized(going: [string, FileView][]): [string, FileView][] {
+		const files = Math.min(sizing?.files ?? Number.POSITIVE_INFINITY, cap ?? Number.POSITIVE_INFINITY);
+		// Room for the commit's id, parent, author and time.
+		const request = (sizing?.request ?? Number.POSITIVE_INFINITY) - 1_024;
+		const among = new Map(going);
+		const taken = new Set<string>();
+		let count = 0;
+		let size = 0;
+		for (const [path] of going) {
+			if (taken.has(path)) continue;
+			const group = [...unit(path, among)];
+			const bytes = group.reduce((sum, p) => sum + encoder.encode(JSON.stringify({ path: p, text: among.get(p)?.committed?.text ?? null })).length + 1, 0);
+			if (taken.size > 0 && (count + group.length > files || size + bytes > request)) continue;
+			for (const p of group) taken.add(p);
+			count += group.length;
+			size += bytes;
+		}
+		return going.filter(([path]) => taken.has(path));
+	}
+
 	/**
 	 * Take the files saved since they last went out into the unsent commit
 	 * (amended while one is in flight or offline). One the door refuses is
@@ -541,7 +590,7 @@ function createReplica({
 		const parent = position;
 		if (needCatchUp || parent === null) return catchUp();
 		if (reading !== null || gathering !== null) return;
-		const going = ready();
+		const going = stalled === null ? sized(ready()) : [];
 		// RULE: a ready commit goes before reading notifications: its answer brings everything since its parent, and on a busy note there is always another notification.
 		if (going.length === 0) {
 			if (waiting.has(parent)) place();
@@ -619,6 +668,8 @@ function createReplica({
 	function onLanded(answer: Extract<PushAnswer, { kind: 'applied' | 'merged' }>) {
 		if (answer.kind === 'applied') stats.applied++;
 		else stats.merged++;
+		lastRefusal = null;
+		cap = null;
 		for (const id of answer.commits) pass(id);
 		prune();
 		// Each path of the commit takes its own sent text as landed, so the commit in flight is cleared after.
@@ -628,27 +679,31 @@ function createReplica({
 		pass(answer.main);
 	}
 
+	/** An agent's change is dropped: it reads again and redoes its task. */
+	function dropSent() {
+		for (const file of inflight?.files ?? []) {
+			const { sent: _, committed: __, ...rest } = record(file.path);
+			set(file.path, { ...rest, mine: rest.base });
+		}
+		setInflight(null);
+		needCatchUp = true;
+	}
+
+	/** The door refused one file's text: that file is held with the reason, the files saved with it wait for it, and the rest goes again. */
 	function onRefused(answer: Extract<PushAnswer, { kind: 'refused' }>) {
 		stats.refused++;
-		const sent = inflight;
-		lastRefusal = answer.reason;
-		meta.set('refusal', answer.reason);
-		for (const file of sent?.files ?? []) {
+		lastRefusal = { code: answer.code, reason: answer.reason };
+		if (mode === 'fast-forward') return dropSent();
+		for (const file of inflight?.files ?? []) {
 			const { sent: level, ...rest } = record(file.path);
-			if (mode === 'fast-forward') {
-				// An agent's change is dropped: it reads again and redoes its task.
-				const { committed: _, ...clean } = rest;
-				set(file.path, { ...clean, mine: rest.base });
-				continue;
-			}
 			// RULE: a person's refused text is never dropped: what the door refused is held with the reason; the rest goes again.
-			const atFault = answer.path === undefined || answer.path === file.path;
-			const partner = answer.path !== undefined && (rest.together ?? []).includes(answer.path);
-			if (answer.reason !== 'rate' && !atFault && partner) {
+			if (file.path !== answer.path) {
 				// Saved with the path at fault (a rename's other half): it waits with it, uncommitted.
-				const { committed: _, ...clean } = rest;
-				set(file.path, { ...clean, saved: true });
-			} else if (answer.reason === 'rate' || !atFault) set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+				if ((rest.together ?? []).includes(answer.path)) {
+					const { committed: _, ...clean } = rest;
+					set(file.path, { ...clean, saved: true });
+				} else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+			}
 			// RULE: saved again since it was sent (a rename's delete, more typing): the refusal judged a text the person replaced, so the newer save goes, and is judged itself.
 			else if (rest.committed !== undefined) set(file.path, rest);
 			else {
@@ -657,10 +712,47 @@ function createReplica({
 			}
 		}
 		setInflight(null);
-		if (mode === 'fast-forward') needCatchUp = true;
-		if (answer.reason === 'rate') {
-			backoffUntil = now() + 1_000;
-			later(1_000, pump);
+	}
+
+	/**
+	 * The request was not taken, and no text is at fault: the work stays
+	 * committed. RULE: rate waits a second; too large splits the next commit
+	 * (one group of files saved together that is too large alone is held,
+	 * each file on its own, so its person saves fewer at once); main moved, for an agent, drops
+	 * its change; anything else only the person or the account can fix,
+	 * so nothing more is sent until the next connection, and the files say why.
+	 */
+	function onRejected(answer: Extract<PushAnswer, { kind: 'rejected' }>) {
+		stats.refused++;
+		lastRefusal = { code: answer.code, reason: answer.reason };
+		if (answer.code === 'main-moved' && mode === 'fast-forward') return dropSent();
+		const sent = inflight?.files ?? [];
+		const among = new Map(sent.map((f) => [f.path, record(f.path)] as const));
+		const alone = sent.length > 0 && unit(sent[0]?.path ?? '', among).size === sent.length;
+		const tooLarge = answer.code === 'too-large' || answer.code === 'too-many-files';
+		for (const file of sent) {
+			const { sent: level, ...rest } = record(file.path);
+			if (tooLarge && alone && rest.committed === undefined) {
+				// The group is too large to go together: each file is held on its own, so each can be saved alone.
+				const { committed: _, together: __, ...clean } = rest;
+				set(file.path, { ...clean, held: { reason: `${answer.reason}: save fewer files at once` } });
+			} else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+		}
+		setInflight(null);
+		switch (answer.code) {
+			case 'rate':
+				backoffUntil = now() + 1_000;
+				later(1_000, pump);
+				return;
+			case 'too-large':
+			case 'too-many-files':
+				if (!alone) cap = Math.max(1, Math.floor(sent.length / 2));
+				return;
+			case 'main-moved':
+				needCatchUp = true;
+				return;
+			default:
+				stalled = { code: answer.code, reason: answer.reason };
 		}
 	}
 
@@ -720,6 +812,9 @@ function createReplica({
 				return;
 			case 'refused':
 				onRefused(answer);
+				return;
+			case 'rejected':
+				onRejected(answer);
 				return;
 			case 'outcome-unknown':
 				onUnknown();
@@ -880,7 +975,8 @@ function createReplica({
 		// A path saved with a held one waits for it: say so, not "sending".
 		const partner = f.saved === undefined && f.committed === undefined ? undefined : (f.together ?? []).find((other) => blocked(other));
 		if (partner !== undefined) return { status: 'held', reason: `saved with ${partner}, which is held` };
-		return f.sent !== undefined || f.committed !== undefined || f.saved !== undefined ? { status: 'sending' } : { status: 'synced' };
+		if (f.sent === undefined && f.committed === undefined && f.saved === undefined) return { status: 'synced' };
+		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
 	}
 
 	return {
@@ -958,8 +1054,10 @@ function createReplica({
 			gathering !== null ||
 			inflight !== null ||
 			all().some(([path, f]) => f.committed !== undefined || (f.saved !== undefined && !blocked(path))),
-		/** Why the last commit was refused (an agent's verdict), or null. */
+		/** Why this device's last commit was refused or rejected (an agent's verdict), until one lands; or null. */
 		lastRefusal: () => lastRefusal,
+		/** Why nothing is being sent: a rejection only the person or the account can fix, until the next connection; or null. */
+		rejection: () => stalled,
 		position: () => position,
 		stats: () => ({ ...stats }),
 
@@ -976,10 +1074,14 @@ function createReplica({
 		hello(hello: Hello): Result<undefined, ReplicaError> {
 			for (const field of ['repository', 'server', 'account'] as const)
 				if (hello[field] !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound: binding[field], given: hello[field] });
-			if (alive && hello.main !== position) atomically(() => {
-				needCatchUp = true;
-				pump();
-			});
+			sizing = hello.limits ?? null;
+			if (alive && (hello.main !== position || stalled !== null))
+				atomically(() => {
+					// A new connection may carry a session that fixes a rejection: try again.
+					stalled = null;
+					if (hello.main !== position) needCatchUp = true;
+					pump();
+				});
 			return Ok(undefined);
 		},
 		/** Requests can be sent (online), or not (null). */
@@ -987,6 +1089,8 @@ function createReplica({
 			if (!alive) return;
 			atomically(() => {
 				send = sender;
+				// A new connection may carry a session that fixes a rejection: try again.
+				if (sender !== null) stalled = null;
 				if (sender === null) {
 					pending = null;
 					reading = null;

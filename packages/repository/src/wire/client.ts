@@ -21,7 +21,7 @@ export const WireClientError = defineErrors({
 });
 export type WireClientError = InferErrors<typeof WireClientError>;
 
-const ANSWERS = new Set<string>(['applied', 'merged', 'flushed', 'refused', 'outcome-unknown'] satisfies PushAnswer['kind'][]);
+const ANSWERS = new Set<string>(['applied', 'merged', 'flushed', 'refused', 'rejected', 'outcome-unknown'] satisfies PushAnswer['kind'][]);
 const isAnswer = (body: unknown): body is PushAnswer =>
 	typeof body === 'object' && body !== null && 'kind' in body && typeof body.kind === 'string' && ANSWERS.has(body.kind);
 

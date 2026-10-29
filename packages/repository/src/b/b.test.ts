@@ -259,7 +259,7 @@ test("an agent's fast-forward commit is refused when main moved and changes noth
 	agent.replica.edit(PATH, () => note('one\nagent\n'));
 	world.net.runFor(2_000);
 	expect(world.server.read(PATH)).toBe(note('one\nalice\n'));
-	expect(agent.replica.lastRefusal()).toBe('main moved');
+	expect(agent.replica.lastRefusal()).toEqual({ code: 'main-moved', reason: 'main moved' });
 	expect(agent.replica.read(PATH)).toBe(note('one\nalice\n'));
 	agent.replica.edit(PATH, () => note('one\nalice\nagent\n'));
 	world.net.runFor(2_000);
@@ -282,13 +282,13 @@ test('the server refuses a commit with no parent, a bad id, or a path named twic
 	expect(server.push(first, session)).toMatchObject({ kind: 'applied', main: first.id });
 	expect(server.push(first, session)).toMatchObject({ kind: 'applied', main: first.id });
 	expect(server.history().commits).toBe(1);
-	expect(server.push({ ...make([]), parent: undefined } as unknown as LiveCommit, session)).toMatchObject({ kind: 'refused', reason: 'no parent' });
-	expect(server.push({ ...make([{ path: PATH, text: 'x' }]), id: 'forged' }, session)).toMatchObject({ kind: 'refused', reason: 'the id is not the hash of the commit' });
+	expect(server.push({ ...make([]), parent: undefined } as unknown as LiveCommit, session)).toMatchObject({ kind: 'rejected', code: 'no-parent', reason: 'no parent' });
+	expect(server.push({ ...make([{ path: PATH, text: 'x' }]), id: 'forged' }, session)).toMatchObject({ kind: 'rejected', code: 'bad-id', reason: 'the id is not the hash of the commit' });
 	expect(server.push(make([{ path: 'notes/b.md', text: '---\n---\nb\n' }, { path: 'notes/B.md', text: '---\n---\nc\n' }]), session)).toMatchObject({
-		kind: 'refused',
-		reason: 'a path is named twice',
+		kind: 'rejected',
+		code: 'path-twice',
 	});
-	expect(server.push(make([{ path: PATH, text: broken('one\n') }], 'fast-forward'), session)).toMatchObject({ kind: 'refused', reason: 'does not parse' });
+	expect(server.push(make([{ path: PATH, text: broken('one\n') }], 'fast-forward'), session)).toMatchObject({ kind: 'refused', code: 'inadmissible', reason: 'does not parse', path: PATH });
 	expect(server.snapshot()).toEqual(new Map([[PATH, note('one\n')]]));
 });
 

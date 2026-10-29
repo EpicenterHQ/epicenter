@@ -23,7 +23,7 @@ import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
-import { createServer, type Limits, type Server, type Session } from '../server/server.js';
+import { createServer, type Limits, LIMITS, type Server, type Session } from '../server/server.js';
 import { createWireClient } from './client.js';
 import { type Authenticate, authenticateBearer, type SocketMessage, type WireLimits } from './wire.js';
 
@@ -136,7 +136,7 @@ describe('POST /commits', () => {
 		const { parent: _, ...orphan } = make(server, [{ path: 'n/a.md', text: note('a\n') }]);
 		const response = await post(orphan);
 		expect(response.status).toBe(428);
-		expect(await response.json()).toMatchObject({ kind: 'refused', reason: 'no parent' });
+		expect(await response.json()).toMatchObject({ kind: 'rejected', code: 'no-parent', reason: 'no parent' });
 	});
 
 	test("a stale fast-forward commit is 412, with main's texts for its paths", async () => {
@@ -146,7 +146,8 @@ describe('POST /commits', () => {
 		const response = await post(make(server, [{ path: 'n/a.md', text: note('two\n') }], { parent: base, mode: 'fast-forward' }));
 		expect(response.status).toBe(412);
 		expect(await response.json()).toEqual({
-			kind: 'refused',
+			kind: 'rejected',
+			code: 'main-moved',
 			reason: 'main moved',
 			main: server.main(),
 			files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }],
@@ -158,7 +159,7 @@ describe('POST /commits', () => {
 		expect((await post(make(server, [{ path: 'n/a.md', text: note('a\n') }]))).status).toBe(200);
 		const response = await post(make(server, [{ path: 'n/b.md', text: note('b\n') }]));
 		expect([response.status, response.headers.get('retry-after')]).toEqual([429, '1']);
-		expect(await response.json()).toMatchObject({ kind: 'refused', reason: 'rate' });
+		expect(await response.json()).toMatchObject({ kind: 'rejected', code: 'rate', reason: 'rate' });
 	});
 
 	test('a reader, or a commit by another author, is 403', async () => {
@@ -197,7 +198,7 @@ describe('limits', () => {
 		const big = make(server, [{ path: 'n/a.md', text: note('x'.repeat(2_000)) }]);
 		const declared = await post(big);
 		expect(declared.status).toBe(413);
-		expect(await declared.json()).toMatchObject({ kind: 'refused', reason: 'request too large', main: server.main() });
+		expect(await declared.json()).toMatchObject({ kind: 'rejected', code: 'too-large', reason: 'request too large', main: server.main() });
 		// No Content-Length: the body is counted as it arrives.
 		const bytes = new TextEncoder().encode(JSON.stringify(big));
 		const stream = new ReadableStream({
@@ -259,7 +260,7 @@ describe('PUT and DELETE /files/<path>', () => {
 		const current = { path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) };
 		const stale = await fetch(url('files/n/a.md'), { method: 'PUT', headers: as('bob', { 'if-match': `"${gitBlobHash(note('zero\n'))}"` }), body: note('two\n') });
 		expect(stale.status).toBe(412);
-		expect(await stale.json()).toEqual({ kind: 'refused', reason: 'the file moved', main, files: [current] });
+		expect(await stale.json()).toEqual({ kind: 'rejected', code: 'file-moved', reason: 'the file moved', main, files: [current] });
 		const again = await fetch(url('files/n/a.md'), { method: 'PUT', headers: as('bob', { 'if-none-match': '*' }), body: note('two\n') });
 		expect(again.status).toBe(412);
 		const deleted = await fetch(url('files/n/a.md'), { method: 'DELETE', headers: as('bob', { 'if-match': '"0000000000000000000000000000000000000000"' }) });
@@ -274,7 +275,7 @@ describe('PUT and DELETE /files/<path>', () => {
 		expect([read.status, await read.text()]).toEqual([200, note('alice\n')]);
 		const create = await fetch(url('files/Notes/A.md'), { method: 'PUT', headers: as('bob', { 'if-none-match': '*' }), body: note('bob\n') });
 		expect(create.status).toBe(412);
-		expect(await create.json()).toMatchObject({ kind: 'refused', reason: 'the file moved', files: [{ path: 'notes/a.md', text: note('alice\n') }] });
+		expect(await create.json()).toMatchObject({ kind: 'rejected', code: 'file-moved', reason: 'the file moved', files: [{ path: 'notes/a.md', text: note('alice\n') }] });
 		expect(server.read('notes/a.md')).toBe(note('alice\n'));
 		const update = await fetch(url('files/Notes/A.md'), { method: 'PUT', headers: as('bob', { 'if-match': `"${gitBlobHash(note('alice\n'))}"` }), body: note('bob\n') });
 		expect(update.status).toBe(200);
@@ -348,7 +349,7 @@ describe("the device's socket", () => {
 		const rita = open(served.url, 'rita');
 		await until(() => alice.messages.length === 1 && rita.messages.length === 1);
 		const base = server.main();
-		expect(rita.messages[0]).toEqual({ type: 'head', main: base, repository: 'test', user: 'rita' });
+		expect(rita.messages[0]).toEqual({ type: 'head', main: base, repository: 'test', user: 'rita', limits: { request: LIMITS.request, files: LIMITS.files } });
 		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
 		alice.socket.send({ type: 'push', rid: 7, commit });
 		await alice.socket.ping();
@@ -374,7 +375,7 @@ describe("the device's socket", () => {
 		await rita.socket.ping();
 		const replies = alice.messages.filter((m) => m.type === 'answer' || m.type === 'caught-up');
 		expect(replies).toEqual([
-			{ type: 'answer', rid: 1, status: 412, answer: { kind: 'refused', reason: 'main moved', main: server.main(), files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }] } },
+			{ type: 'answer', rid: 1, status: 412, answer: { kind: 'rejected', code: 'main-moved', reason: 'main moved', main: server.main(), files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }] } },
 			{ type: 'answer', rid: 3, status: 422, answer: expect.objectContaining({ kind: 'refused', path: 'n/c.md' }) },
 			{ type: 'caught-up', rid: 4, catchUp: server.catchUp({ from: base }) },
 		]);
@@ -389,7 +390,7 @@ describe("the device's socket", () => {
 		alice.socket.send({ type: 'nonsense', rid: 10 } as never);
 		await alice.socket.ping();
 		expect(alice.messages.slice(1)).toEqual([
-			{ type: 'answer', rid: 9, status: 413, answer: { kind: 'refused', reason: 'request too large', main: server.main() } },
+			{ type: 'answer', rid: 9, status: 413, answer: { kind: 'rejected', code: 'too-large', reason: 'request too large', main: server.main() } },
 			{ type: 'error', rid: null, status: 400, error: 'Not a socket request' },
 		]);
 		expect(server.read('n/a.md')).toBeNull();

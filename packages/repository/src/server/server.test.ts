@@ -41,21 +41,21 @@ describe('admission', () => {
 	test('a session is required, and only a writer of this repository may write as themselves', () => {
 		const { server } = setup();
 		const commit = make(server, [{ path: 'notes/a.md', text: note('a\n') }]);
-		expect(server.push(commit)).toMatchObject({ kind: 'refused', reason: 'no session' });
-		expect(server.push(commit, { user: 'alice', role: null })).toMatchObject({ kind: 'refused', reason: 'not a member' });
-		expect(server.push(commit, { user: 'alice', role: 'reader' })).toMatchObject({ kind: 'refused', reason: 'a reader may not write' });
-		expect(server.push(commit, { user: 'mallory', role: 'writer' })).toMatchObject({ kind: 'refused', reason: 'the author is not the session' });
+		expect(server.push(commit)).toMatchObject({ kind: 'rejected', code: 'no-session', reason: 'no session' });
+		expect(server.push(commit, { user: 'alice', role: null })).toMatchObject({ kind: 'rejected', code: 'not-member', reason: 'not a member' });
+		expect(server.push(commit, { user: 'alice', role: 'reader' })).toMatchObject({ kind: 'rejected', code: 'reader', reason: 'a reader may not write' });
+		expect(server.push(commit, { user: 'mallory', role: 'writer' })).toMatchObject({ kind: 'rejected', code: 'not-author', reason: 'the author is not the session' });
 		expect(server.push(commit, { user: 'alice', role: 'owner' })).toMatchObject({ kind: 'applied' });
 	});
 
 	test('each limit holds', () => {
 		const { server, clock } = setup({ files: 2, path: 20, request: 2_000, burst: 3, rate: 1 });
 		const text = note('x\n');
-		expect(server.push(make(server, [1, 2, 3].map((i) => ({ path: `n/${i}.md`, text }))), alice)).toMatchObject({ reason: 'too many files' });
-		expect(server.push(make(server, [{ path: `notes/${'é'.repeat(10)}.md`, text }]), alice)).toMatchObject({ reason: 'bad path' });
-		expect(server.push(make(server, [{ path: 'n/a.md', text: note('x'.repeat(3_000)) }]), alice)).toMatchObject({ reason: 'request too large' });
+		expect(server.push(make(server, [1, 2, 3].map((i) => ({ path: `n/${i}.md`, text }))), alice)).toMatchObject({ kind: 'rejected', code: 'too-many-files' });
+		expect(server.push(make(server, [{ path: `notes/${'é'.repeat(10)}.md`, text }]), alice)).toMatchObject({ kind: 'refused', code: 'path-too-long', path: `notes/${'é'.repeat(10)}.md` });
+		expect(server.push(make(server, [{ path: 'n/a.md', text: note('x'.repeat(3_000)) }]), alice)).toMatchObject({ kind: 'rejected', code: 'too-large' });
 		// The three refusals above used the burst; the bucket refills at one push a second.
-		expect(server.push(make(server, [{ path: 'n/a.md', text }]), alice)).toMatchObject({ kind: 'refused', reason: 'rate' });
+		expect(server.push(make(server, [{ path: 'n/a.md', text }]), alice)).toMatchObject({ kind: 'rejected', code: 'rate', reason: 'rate' });
 		clock.now += 1_000;
 		expect(server.push(make(server, [{ path: 'n/a.md', text }]), alice)).toMatchObject({ kind: 'applied' });
 	});
@@ -63,10 +63,10 @@ describe('admission', () => {
 	test("a commit's time is an ISO instant no later than the server's clock allows; an earlier one is a resend's", () => {
 		const { server } = setup();
 		const files = [{ path: 'n/a.md', text: note('a\n') }];
-		expect(server.push(make(server, files, { time: 'yesterday' }), alice)).toMatchObject({ kind: 'refused', reason: 'the time is not an ISO instant' });
+		expect(server.push(make(server, files, { time: 'yesterday' }), alice)).toMatchObject({ kind: 'rejected', code: 'bad-time', reason: 'the time is not an ISO instant' });
 		expect(server.push(make(server, files, { time: new Date(EPOCH + LIMITS.skew + 1).toISOString() }), alice)).toMatchObject({
-			kind: 'refused',
-			reason: "the time is ahead of the server's clock",
+			kind: 'rejected',
+			code: 'clock-ahead',
 		});
 		expect(server.push(make(server, files, { time: new Date(EPOCH - 3 * 24 * 3_600_000).toISOString() }), alice)).toMatchObject({ kind: 'applied' });
 	});
@@ -80,6 +80,7 @@ describe('admission', () => {
 		expect(server.push(make(server, [{ path: 'n/a.md', text: big }], { parent: base }), alice).kind).toBe('merged');
 		expect(server.push(make(server, [{ path: 'n/a.md', text: note(`${'c'.repeat(600_000)}\n`) }], { parent: base }), alice)).toMatchObject({
 			kind: 'refused',
+			code: 'merge-too-large',
 			reason: 'the merge would grow the note past 1 MB',
 			path: 'n/a.md',
 		});
@@ -91,7 +92,8 @@ describe('admission', () => {
 		expect(server.push(make(server, [{ path: 'n/a.md', text: note('one\n') }]), alice).kind).toBe('applied');
 		const body = { parent: base, mode: 'fast-forward' as const, author: { user: 'alice', device: 'laptop' }, time: new Date(EPOCH).toISOString(), files: [{ path: 'n/a.md', text: note('two\n') }] };
 		expect(server.push({ id: commitId(body), ...body }, alice)).toEqual({
-			kind: 'refused',
+			kind: 'rejected',
+			code: 'main-moved',
 			reason: 'main moved',
 			main: server.main(),
 			files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }],
@@ -109,7 +111,7 @@ describe('idempotency', () => {
 		const resent = server.push(first, alice);
 		expect(resent).toMatchObject({ kind: 'applied', main: second.id, commits: [first.id, second.id] });
 		// An id with other files is a forgery, not a resend.
-		expect(server.push({ ...make(server, [{ path: 'n/a.md', text: note('other\n') }]), id: first.id }, alice)).toMatchObject({ reason: 'the id is not the hash of the commit' });
+		expect(server.push({ ...make(server, [{ path: 'n/a.md', text: note('other\n') }]), id: first.id }, alice)).toMatchObject({ kind: 'rejected', code: 'bad-id' });
 		await server.flush();
 		clock.now += LIMITS.window + 1;
 		const fresh = createServer({ store, git, clock: () => clock.now });
@@ -216,7 +218,7 @@ describe('the Git receive path', () => {
 		const { head, commitOn, receive, git, server } = await flushed();
 		const broken = await commitOn(head, { 'n/a.md': '---\ntitle: [\n---\n' });
 		const repaired = await commitOn(broken, { 'n/a.md': note('fixed\n') });
-		expect(await receive(repaired)).toMatchObject({ kind: 'refused', reason: 'does not parse', commit: broken, path: 'n/a.md' });
+		expect(await receive(repaired)).toMatchObject({ kind: 'refused', code: 'file', reason: 'does not parse', commit: broken, path: 'n/a.md' });
 		expect(await git.readRef(MAIN)).toBe(head);
 		expect(server.read('n/a.md')).toBe(note('a\n'));
 	});
@@ -230,7 +232,7 @@ describe('the Git receive path', () => {
 		expect(await receive(await commitOn(head, { '.gitattributes': '* binary\n' }))).toMatchObject({ reason: 'Epicenter owns this file' });
 		expect(await receive(await commitOn(head, { 'n/A.md': note('twin\n') }))).toMatchObject({ reason: "'n/a.md' and 'n/A.md' are one path" });
 		expect(await receive(side, { ref: 'refs/heads/other' })).toMatchObject({ reason: 'only a fast-forward of refs/heads/main is accepted' });
-		expect(await receive(side, { session: { user: 'alice', role: 'reader' } })).toMatchObject({ reason: 'a reader may not write' });
+		expect(await receive(side, { session: { user: 'alice', role: 'reader' } })).toMatchObject({ kind: 'refused', code: 'reader' });
 		expect(await receive(side)).toMatchObject({ kind: 'accepted', main: side });
 	});
 });
