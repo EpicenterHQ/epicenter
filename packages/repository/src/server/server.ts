@@ -97,6 +97,13 @@ export type PushAnswer =
 	/** RULE: the commit's parent is older than the retention window, and the server has no record of it: it cannot say what happened. */
 	| { kind: 'outcome-unknown'; main: string };
 
+/**
+ * A one-file precondition (HTTP's `If-Match` and `If-None-Match: *`),
+ * checked inside the push once the path is in `main`'s spelling: the file
+ * is absent, present, or at one of these hashes.
+ */
+export type Expect = { path: string; is: 'absent' | 'present' | string[] };
+
 /** A notification: the new commit, its parents, and the paths changed since its first parent, with hashes. No texts. */
 export type Event = { commit: string; parents: string[]; files: { path: string; hash: string | null }[] };
 
@@ -313,7 +320,7 @@ export function createServer({
 		return answer;
 	}
 
-	function pushInside(commit: LiveCommit, session: Session | undefined, rate: boolean): PushAnswer {
+	function pushInside(commit: LiveCommit, session: Session | undefined, rate: boolean, expect?: Expect): PushAnswer {
 		prune();
 		const refusal = admit(commit, session, rate);
 		if (refusal !== null) return refusal;
@@ -334,6 +341,12 @@ export function createServer({
 		const head = main();
 		const from = history.placeOf(commit.parent);
 		if (from === undefined) return { kind: 'outcome-unknown', main: head.id };
+		if (expect !== undefined) {
+			const path = history.spelling(expect.path) ?? expect.path;
+			const hash = trees.read(head.tree, path);
+			const holds = expect.is === 'absent' ? hash === null : expect.is === 'present' ? hash !== null : hash !== null && expect.is.includes(hash);
+			if (!holds) return { kind: 'refused', reason: 'the file moved', main: head.id, files: [state(path)] };
+		}
 		const forward = commit.parent === head.id;
 		const refuse = (reason: string, path?: string): PushAnswer => ({ kind: 'refused', reason, main: head.id, ...(path === undefined ? {} : { path }) });
 		if (commit.mode === 'fast-forward' && !forward) return { kind: 'refused', reason: 'main moved', main: head.id, files: commit.files.map((f) => state(f.path, from)) };
@@ -412,9 +425,9 @@ export function createServer({
 	}
 
 	/** Take a live commit: fast-forward `main`, merge it in, or refuse it; a resend gets its recorded outcome. */
-	function push(commit: LiveCommit, session?: Session, { rate = true } = {}): PushAnswer {
+	function push(commit: LiveCommit, session?: Session, { rate = true, expect }: { rate?: boolean; expect?: Expect } = {}): PushAnswer {
 		pending = [];
-		const answer = store.transaction(() => pushInside(commit, session, rate));
+		const answer = store.transaction(() => pushInside(commit, session, rate, expect));
 		if (answer.kind === 'applied' || answer.kind === 'merged') {
 			notify();
 			pushed();
@@ -433,7 +446,8 @@ export function createServer({
 		 * the host asks this first, as the wire does for every read.
 		 */
 		mayRead: (session: Session | undefined) => session !== undefined && session.role !== null,
-		read: (path: string) => history.textIn(main().tree, path),
+		/** `main`'s text at a path, in any spelling of it. */
+		read: (path: string) => history.textIn(main().tree, history.spelling(path) ?? path),
 		/** Every path and text on `main`, sorted. */
 		snapshot: () =>
 			new Map(
@@ -442,8 +456,12 @@ export function createServer({
 					.sort()
 					.map((path) => [path, history.textIn(main().tree, path) as string]),
 			),
-		/** Take a live commit: fast-forward `main`, merge it in, or refuse it; a resend gets its recorded outcome. */
-		push: (commit: LiveCommit, session?: Session) => push(commit, session),
+		/**
+		 * Take a live commit: fast-forward `main`, merge it in, or refuse it; a
+		 * resend gets its recorded outcome. `expect` is a one-file
+		 * precondition, refused as `the file moved` when it does not hold.
+		 */
+		push: (commit: LiveCommit, session?: Session, { expect }: { expect?: Expect } = {}) => push(commit, session, expect === undefined ? {} : { expect }),
 		/**
 		 * What changed on `main` since `from`, as a tree diff, plus `paths` the
 		 * device names, one page at a time: a later page names `to` (the commit

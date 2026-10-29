@@ -50,7 +50,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { type CatchUp, type Event, LIMITS, type PushAnswer, type Server, type Session } from '../server/server.js';
+import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type Server, type Session } from '../server/server.js';
 
 // ============================================================================
 // Ports and protocol
@@ -266,10 +266,10 @@ export function createWire({
 	 * Take one commit, from either transport: its answer and that answer's
 	 * status, or why the value is not a live commit.
 	 */
-	function takeCommit(value: unknown, session: Session): { status: number; answer: PushAnswer } | { status: 400; error: string } {
+	function takeCommit(value: unknown, session: Session, expect?: Expect): { status: number; answer: PushAnswer } | { status: 400; error: string } {
 		if (!Check(CommitSchema, value)) return { status: 400, error: 'Not a live commit' };
 		// The schema allows a missing parent only so the door can refuse it in its order (428); nothing else differs from LiveCommit.
-		const answer = server.push(value as LiveCommit, session);
+		const answer = server.push(value as LiveCommit, session, expect === undefined ? {} : { expect });
 		return { status: statusOf(answer), answer };
 	}
 
@@ -314,11 +314,9 @@ export function createWire({
 			if (error !== null) return unread(error);
 			text = data;
 		}
-		// From here to the push nothing awaits, so main cannot move between the check and the commit.
-		const current = server.read(path);
-		const hash = current === null ? null : gitBlobHash(current);
-		const holds = ifMatch !== null ? matches(ifMatch, hash) : hash === null;
-		if (!holds) return refused('the file moved', { files: [{ path, text: current, hash }] });
+		// The server checks the condition inside the push, against the file in main's spelling of the path.
+		const tags = ifMatch?.split(',').map((tag) => tag.trim());
+		const is: Expect['is'] = ifMatch === null ? 'absent' : ifMatch.trim() === '*' ? 'present' : (tags ?? []).filter((tag) => /^"[0-9a-f]{40}"$/.test(tag)).map((tag) => tag.slice(1, -1));
 		const commit = {
 			parent: server.main(),
 			mode: 'fast-forward' as const,
@@ -326,7 +324,7 @@ export function createWire({
 			time: server.time(),
 			files: [{ path, text }],
 		};
-		const taken = takeCommit({ id: commitId(commit), ...commit }, session);
+		const taken = takeCommit({ id: commitId(commit), ...commit }, session, { path, is });
 		if ('error' in taken) return failure(400, taken.error);
 		const pushed = taken.answer;
 		return answer(pushed, pushed.kind === 'applied' && text !== null ? { etag: `"${gitBlobHash(text)}"` } : {});

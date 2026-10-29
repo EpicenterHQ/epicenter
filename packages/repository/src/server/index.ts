@@ -8,6 +8,7 @@ export {
 	type Committed,
 	createServer,
 	type Event,
+	type Expect,
 	type FileState,
 	LIMITS,
 	type Limits,

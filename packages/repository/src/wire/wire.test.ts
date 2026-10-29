@@ -267,6 +267,20 @@ describe('PUT and DELETE /files/<path>', () => {
 		expect(server.main()).toBe(main);
 	});
 
+	test("a path's other spelling is the same file: its read, its ETag and its create-if-absent see the file main has", async () => {
+		const { server, url, as } = setup();
+		await fetch(url('files/notes/a.md'), { method: 'PUT', headers: as('alice', { 'if-none-match': '*' }), body: note('alice\n') });
+		const read = await fetch(url('files/Notes/A.md'), { headers: as('bob') });
+		expect([read.status, await read.text()]).toEqual([200, note('alice\n')]);
+		const create = await fetch(url('files/Notes/A.md'), { method: 'PUT', headers: as('bob', { 'if-none-match': '*' }), body: note('bob\n') });
+		expect(create.status).toBe(412);
+		expect(await create.json()).toMatchObject({ kind: 'refused', reason: 'the file moved', files: [{ path: 'notes/a.md', text: note('alice\n') }] });
+		expect(server.read('notes/a.md')).toBe(note('alice\n'));
+		const update = await fetch(url('files/Notes/A.md'), { method: 'PUT', headers: as('bob', { 'if-match': `"${gitBlobHash(note('alice\n'))}"` }), body: note('bob\n') });
+		expect(update.status).toBe(200);
+		expect(server.read('notes/a.md')).toBe(note('bob\n'));
+	});
+
 	test('a reader may read a file but not write one (403)', async () => {
 		const { url, as } = setup();
 		const response = await fetch(url('files/n/a.md'), { method: 'PUT', headers: as('rita', { 'if-none-match': '*' }), body: note('a\n') });
