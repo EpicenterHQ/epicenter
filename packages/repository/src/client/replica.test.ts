@@ -463,7 +463,8 @@ test('a call saved with a message is a commit alone that carries it, never amend
 	expect(link.pushes[1]?.files.find((f) => f.path === 'notes/a.md')?.text).toBe(note('a\n'));
 	expect(server.read('notes/a.md')).toBe(note('a again\n'));
 	expect(replica.busy()).toBe(false);
-	expect(replica.query('SELECT * FROM "epicenter/messages"')).toEqual([]);
+	// Every call's work is done: no file is in one.
+	expect(replica.query('SELECT path FROM "epicenter/files" WHERE call IS NOT NULL UNION SELECT path FROM "epicenter/unsent"')).toEqual([]);
 });
 
 test('a group held with a message keeps it, and its writer saving the held file again sends the whole group once, with the newest message', () => {

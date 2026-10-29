@@ -22,7 +22,7 @@
  * - A commit sent once whose parent left the window merges again after a full catch-up
  */
 import { expect, test } from 'bun:test';
-import { parses } from '../core/markdown.js';
+import { parses, writePointer } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { BLOCK_CAP } from '../core/settle.js';
 import { createTestServer, createWorld, EPOCH, QUIET, STAMP, writer } from './harness.js';
@@ -398,16 +398,36 @@ test('a refusal arriving after its path was saved again holds nothing: the newer
 
 test('a commit waiting on a held partner does not stop the device taking in changes from elsewhere (seed 1475)', () => {
 	const { world, alice, bob, settle } = setup();
-	// While a commit is in flight, two paths saved together are committed, then one of them is broken: the other's commit waits for it.
-	alice.replica.write('notes/x.md', note('x\n'));
-	alice.replica.writeAll({ [PATH]: note('one\n'), 'notes/b.md': note('two\n') });
-	alice.replica.write(PATH, broken('one\n'));
+	const pointer = (c: string) => writePointer({ oid: c.repeat(64), size: 3 });
+	for (const c of ['a', 'b', 'c']) {
+		world.server.upload(c.repeat(64), 3);
+		for (const device of [alice, bob]) device.replica.present(c.repeat(64), 3);
+	}
+	alice.replica.write('img/z.png', pointer('a'));
 	settle();
-	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'held', reason: `saved with ${PATH}, which is held` });
+	// While a commit is in flight, a note and new bytes at a blob path are committed together; other bytes land at that path first, so hers are held, and the note's commit waits for them.
+	alice.replica.write('notes/x.md', note('x\n'));
+	alice.replica.writeAll({ [PATH]: note('one\n'), 'img/z.png': pointer('b') });
+	bob.replica.write('img/z.png', pointer('c'));
+	settle();
+	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'saved with img/z.png, which is held' });
 	bob.replica.write('notes/c.md', note('bob\n'));
 	settle();
 	expect(alice.replica.read('notes/c.md')).toBe(note('bob\n'));
 	expect(alice.replica.position()).toBe(world.server.main());
+});
+
+test('a later save the door refuses holds only its own call: the unsent commit below it goes with the rest of its call', () => {
+	const { world, alice, settle } = setup();
+	// While a commit is in flight, two paths saved together are committed; then one of them is saved again, broken.
+	alice.replica.write('notes/x.md', note('x\n'));
+	alice.replica.writeAll({ [PATH]: note('one\n'), 'notes/b.md': note('two\n') });
+	alice.replica.write(PATH, broken('one\n'));
+	settle();
+	expect(world.server.read(PATH)).toBe(note('one\n'));
+	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
+	expect(alice.replica.held()).toEqual([{ path: PATH, reason: 'does not parse' }]);
+	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'synced' });
 });
 
 test("a save waiting on a held partner is not undone by an older commit of the same path (seed 2315)", () => {

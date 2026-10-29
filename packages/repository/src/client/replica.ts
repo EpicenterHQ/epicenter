@@ -40,16 +40,17 @@
  *   "epicenter/files"     per path: `text` (mine, what the person sees),
  *                         its `fields` and `body` for the app's views, `base`
  *                         and its `hash`, `saved`, `held` (the reason),
- *                         `unknown`, and `fold` (the path after NFC and case
- *                         folding, so one spelling finds the other)
+ *                         `unknown`, `fold` (the path after NFC and case
+ *                         folding, so one spelling finds the other), and
+ *                         `call`: the call whose saved or held text it is
  *   "epicenter/unsent"    the unsent commit: per path, its text (null deletes)
- *   "epicenter/inflight"  the commit sent and not yet answered, and how many
- *                         times it was sent; its files are the `sent` level
- *   "epicenter/groups"    paths saved in one call (a rename's two halves, a
- *                         note and the blob it names), while any is unsent
- *   "epicenter/messages"  per path and level (`saved` or `committed`), the
- *                         message of the call that saved it (`epicenter
- *                         commit -m`), until its commit is sent
+ *                         and the call that made it
+ *   "epicenter/inflight"  the commit sent and not yet answered, how many
+ *                         times it was sent, and each file's call; its files
+ *                         are the `sent` level
+ *   "epicenter/calls"     one row per call (a `writeAll`): its message
+ *                         (`epicenter commit -m`), and the call it joined
+ *                         when a later save met its work
  *   "epicenter/passed"    recent positions, so a late notification is old
  *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
  *   "epicenter/fetched"   texts read by hash for that catch-up
@@ -161,6 +162,13 @@ export type Verdict = { code: TextCode | RequestCode; reason: string };
 // The database
 // ============================================================================
 
+/** Columns added since a table was first made: a database made before them gets them (`addColumns`). */
+const COLUMNS = {
+	files: 'call INTEGER',
+	unsent: 'call INTEGER NOT NULL DEFAULT 0',
+	inflight: "calls TEXT NOT NULL DEFAULT '{}'",
+} as const;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS "epicenter/replica" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/files" (
@@ -173,12 +181,14 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	hash TEXT,
 	saved INTEGER NOT NULL DEFAULT 0,
 	held TEXT,
-	unknown INTEGER NOT NULL DEFAULT 0
+	unknown INTEGER NOT NULL DEFAULT 0,
+	${COLUMNS.files}
 ) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/groups" (path TEXT NOT NULL, other TEXT NOT NULL, PRIMARY KEY (path, other)) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/messages" (path TEXT NOT NULL, level TEXT NOT NULL CHECK (level IN ('saved', 'committed')), message TEXT NOT NULL, PRIMARY KEY (path, level)) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT, ${COLUMNS.unsent}) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL, ${COLUMNS.inflight}) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/calls" (id INTEGER PRIMARY KEY, message TEXT, joined INTEGER) STRICT;
+DROP TABLE IF EXISTS "epicenter/groups";
+DROP TABLE IF EXISTS "epicenter/messages";
 CREATE TABLE IF NOT EXISTS "epicenter/passed" (id TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/fetched" (hash TEXT PRIMARY KEY, text TEXT NOT NULL) STRICT;
@@ -187,6 +197,8 @@ CREATE INDEX IF NOT EXISTS "epicenter/files/saved" ON "epicenter/files" (path) W
 CREATE INDEX IF NOT EXISTS "epicenter/files/held" ON "epicenter/files" (path) WHERE held IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "epicenter/files/unknown" ON "epicenter/files" (path) WHERE unknown = 1;
 CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) WHERE text IS NOT base;
+CREATE INDEX IF NOT EXISTS "epicenter/files/call" ON "epicenter/files" (call) WHERE call IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "epicenter/unsent/call" ON "epicenter/unsent" (call);
 CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
 CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEGER NOT NULL) STRICT;
 `;
@@ -197,49 +209,67 @@ CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEG
  * work are read (`"epicenter/files/unsent"`, a partial index), and a note,
  * whose fields may name an `oid`, is never one.
  */
-const OWED_SQL = `FROM "epicenter/files" f WHERE f.text IS NOT f.base AND f.held IS NULL AND f.path NOT LIKE '%.md' AND json_extract(f.fields, '$.oid') IS NOT NULL
+const OWED_WHERE = `f.text IS NOT f.base AND f.held IS NULL AND f.path NOT LIKE '%.md' AND json_extract(f.fields, '$.oid') IS NOT NULL
 	AND NOT EXISTS (SELECT 1 FROM "epicenter/objects" o WHERE o.oid = json_extract(f.fields, '$.oid'))`;
+const OWED_SQL = `FROM "epicenter/files" f WHERE ${OWED_WHERE}`;
+/**
+ * Files of call `?1` that keep it from going, held ones first: held, or
+ * owed their bytes. A file's text is its saved call's while saved or held,
+ * else its unsent commit's.
+ */
+const BLOCKER_SQL = `SELECT path, held FROM (
+	SELECT f.path, f.held, f.rowid AS n FROM "epicenter/files" f WHERE f.call = ?1 AND (f.held IS NOT NULL OR (${OWED_WHERE}))
+	UNION ALL
+	SELECT f.path, f.held, f.rowid AS n FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path WHERE u.call = ?1 AND f.call IS NULL AND (${OWED_WHERE})
+) ORDER BY held IS NULL, n LIMIT 1`;
 
 /** What a file waiting on its bytes says. */
 export const UPLOADING = 'its bytes are uploading';
 
-/** A database made before the `fold` column (phase 5) gets it, filled from each path, before the schema indexes it. */
-function addFold(driver: SqlDriver) {
-	const columns = driver.all<{ name: string }>('PRAGMA table_info("epicenter/files")').map((column) => column.name);
-	if (columns.length === 0 || columns.includes('fold')) return;
+/** A database made before a column gets it, before the schema indexes it: `fold` (phase 5) filled from each path, and the calls (work from before them is call 0). */
+function addColumns(driver: SqlDriver) {
+	const columnsOf = (table: string) => driver.all<{ name: string }>(`PRAGMA table_info("${table}")`).map((column) => column.name);
 	driver.transaction(() => {
-		driver.run(`ALTER TABLE "epicenter/files" ADD COLUMN fold TEXT NOT NULL DEFAULT ''`);
-		for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/files"')) driver.run('UPDATE "epicenter/files" SET fold = ? WHERE path = ?', [fold(path), path]);
+		const files = columnsOf('epicenter/files');
+		if (files.length > 0 && !files.includes('fold')) {
+			driver.run(`ALTER TABLE "epicenter/files" ADD COLUMN fold TEXT NOT NULL DEFAULT ''`);
+			for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/files"')) driver.run('UPDATE "epicenter/files" SET fold = ? WHERE path = ?', [fold(path), path]);
+		}
+		for (const [table, column] of Object.entries(COLUMNS)) {
+			const have = columnsOf(`epicenter/${table}`);
+			if (have.length > 0 && !have.includes(column.split(' ')[0] ?? '')) driver.run(`ALTER TABLE "epicenter/${table}" ADD COLUMN ${column}`);
+		}
 	});
 }
 
 /** A level of a file: its text, null for no file. */
 type Level = { text: string | null };
+/** Work at a level: its text, and the call that made it. */
+type Work = Level & { call: number };
 
 type FileRecord = {
 	base: string | null;
 	mine: string | null;
-	/** In the unsent commit. */
-	committed?: Level;
+	/** In the unsent commit, made by its call. */
+	committed?: Work;
 	/** Saved since it last went out: the next commit takes it, unless it is held or waits for a held partner. */
 	saved?: true;
 	/** RULE: held, with why: the person's own text that cannot go. Only a save of this path clears it. */
 	held?: { reason: string };
 	/** RULE: this work's commit got `outcome-unknown`: the next catch-up puts it beside what is there, never merged blindly. */
 	unknown?: true;
-	/** RULE: paths saved in one call with this one (a rename's two halves, a note and its blob): they commit together, and one held or owed holds them all. */
-	together?: string[];
+	/** RULE: the call whose saved or held text `mine` is: what one call saves commits together (a rename's two halves, a note and its blob), and one file of it held or owed holds them all. */
+	call?: number;
 };
 
-/** A file as the logic reads it: the stored record and, while its commit is in flight, the text it sent. */
-type FileView = FileRecord & { sent?: Level };
+/** A file as the logic reads it: the stored record and, while its commit is in flight, the text it sent and that commit's call for it. */
+type FileView = FileRecord & { sent?: Work };
 
 /** A file as stored, with its base's hash. */
 type Stored = FileRecord & { hash: string | null };
 
-/** One file's row, its unsent text and its group, in one read. */
-const FILE_SQL = `SELECT f.text, f.base, f.hash, f.saved, f.held, f.unknown, u.path IS NOT NULL AS committed, u.text AS committed_text,
-	(SELECT json_group_array(other) FROM (SELECT g.other FROM "epicenter/groups" g WHERE g.path = f.path ORDER BY g.rowid)) AS together
+/** One file's row and its unsent work, in one read. */
+const FILE_SQL = `SELECT f.text, f.base, f.hash, f.saved, f.held, f.unknown, f.call, u.path IS NOT NULL AS committed, u.text AS committed_text, u.call AS committed_call
 	FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?`;
 type FileRow = {
 	text: string | null;
@@ -248,9 +278,10 @@ type FileRow = {
 	saved: number;
 	held: string | null;
 	unknown: number;
+	call: number | null;
 	committed: number;
 	committed_text: string | null;
-	together: string;
+	committed_call: number | null;
 };
 
 /** Texts a catch-up's pages name that this device lacks: not its base at that path, nor read already. RULE: only the paths a catch-up names, so its cost follows what it names, not the repository; a text held at another path is read. */
@@ -276,7 +307,8 @@ function fieldsOf(text: string | null): string | null {
 }
 
 const encoder = new TextEncoder();
-const sameGroup = (a: string[] | undefined, b: string[] | undefined) => (a ?? []).join('\0') === (b ?? []).join('\0');
+/** Calls kept after their work is done, so a writer asks about its own call long after it went. */
+const CALLS_KEPT = 4_096;
 
 /**
  * Open the replica kept in `driver` for `binding`. A database that holds
@@ -290,7 +322,7 @@ const sameGroup = (a: string[] | undefined, b: string[] | undefined) => (a ?? []
  */
 export function openReplica(options: Parameters<typeof createReplica>[0]): Result<Replica, ReplicaError> {
 	const { driver } = options;
-	addFold(driver);
+	addColumns(driver);
 	driver.exec(SCHEMA);
 	const stored = new Map(driver.all<{ key: string; value: string }>(`SELECT key, value FROM "epicenter/replica" WHERE key IN ('repository', 'server', 'account', 'device')`).map(({ key, value }) => [key, value]));
 	const binding = { ...options.binding };
@@ -372,18 +404,19 @@ function createReplica({
 	let inflight: LiveCommit | null = null;
 	/** How many times the commit in flight has been sent: once means an `outcome-unknown` answer was a refusal, not a lost landing. */
 	let attempts = 0;
-	/** The texts of the commit in flight, by path: each file's `sent` level. */
-	let sentTexts = new Map<string, string | null>();
+	/** The work of the commit in flight, by path: each file's `sent` level, and its call. */
+	let sentWork = new Map<string, Work>();
 	let passedN = 0;
 	/** Counts changes stored: each transaction that changes a file's text or state makes the next one. */
 	let revision = 0;
 
 	/** Read what a restart keeps beside the files: the commit in flight, the position, the counters. */
 	function load() {
-		const flight = first<{ commit_json: string; attempts: number }>(driver, 'SELECT commit_json, attempts FROM "epicenter/inflight"');
+		const flight = first<{ commit_json: string; attempts: number; calls: string }>(driver, 'SELECT commit_json, attempts, calls FROM "epicenter/inflight"');
 		inflight = flight === undefined ? null : (JSON.parse(flight.commit_json) as LiveCommit);
 		attempts = flight?.attempts ?? 0;
-		sentTexts = new Map(inflight?.files.map((f) => [f.path, f.text]));
+		const calls = JSON.parse(flight?.calls ?? '{}') as Record<string, number>;
+		sentWork = new Map(inflight?.files.map((f) => [f.path, { text: f.text, call: calls[f.path] ?? 0 }]));
 		position = meta.get('position');
 		next = Number(meta.get('next') ?? 1);
 		passedN = first<{ n: number | null }>(driver, 'SELECT MAX(n) AS n FROM "epicenter/passed"')?.n ?? 0;
@@ -400,14 +433,15 @@ function createReplica({
 		meta.set('next', String(next));
 		return rid;
 	};
-	const setInflight = (commit: LiveCommit | null) => {
-		const before = [...sentTexts.keys()];
+	/** The commit in flight is `commit` now, each file of it made by `calls[path]`; or none. */
+	const setInflight = (commit: LiveCommit | null, calls: Record<string, number> = {}) => {
+		const before = [...sentWork.keys()];
 		for (const path of [...before, ...(commit?.files.map((f) => f.path) ?? [])]) changed.add(path);
 		inflight = commit;
 		attempts = commit === null ? 0 : 1;
-		sentTexts = new Map(commit?.files.map((f) => [f.path, f.text]));
+		sentWork = new Map(commit?.files.map((f) => [f.path, { text: f.text, call: calls[f.path] ?? 0 }]));
 		driver.run('DELETE FROM "epicenter/inflight"');
-		if (commit !== null) driver.run('INSERT INTO "epicenter/inflight" (id, commit_json, attempts) VALUES (?, ?, ?)', [commit.id, JSON.stringify(commit), attempts]);
+		if (commit !== null) driver.run('INSERT INTO "epicenter/inflight" (id, commit_json, attempts, calls) VALUES (?, ?, ?, ?)', [commit.id, JSON.stringify(commit), attempts, JSON.stringify(calls)]);
 		// A file whose only level was the text it sent goes with it.
 		for (const path of before) {
 			const f = stored(path);
@@ -434,12 +468,12 @@ function createReplica({
 		if (row.saved === 1) f.saved = true;
 		if (row.held !== null) f.held = { reason: row.held };
 		if (row.unknown === 1) f.unknown = true;
-		if (row.committed === 1) f.committed = { text: row.committed_text };
-		const together = JSON.parse(row.together) as string[];
-		if (together.length > 0) f.together = together;
+		if (row.committed === 1) f.committed = { text: row.committed_text, call: row.committed_call ?? 0 };
+		// Saved or held work from before calls had ids is call 0.
+		if (f.saved !== undefined || f.held !== undefined) f.call = row.call ?? 0;
 		return f;
 	}
-	const sentOf = (path: string): Level | undefined => (sentTexts.has(path) ? { text: sentTexts.get(path) ?? null } : undefined);
+	const sentOf = (path: string): Work | undefined => sentWork.get(path);
 	const record = (path: string): FileView => {
 		const { hash: _, ...f } = stored(path) ?? { base: null, mine: null, hash: null };
 		const sent = sentOf(path);
@@ -463,64 +497,53 @@ function createReplica({
 	const committedFiles = (): [string, FileView][] =>
 		pathsOf('SELECT u.path FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path ORDER BY f.rowid').map((path) => [path, record(path)]);
 
-	/** Store a file's record (its `sent` level lives in the commit in flight). RULE: a file is in a group only while it has work: once it has nothing to send, it leaves. */
-	function set(path: string, { sent: _, ...given }: FileView) {
+	/**
+	 * Store a file's record (its `sent` level lives in the commit in flight).
+	 * RULE: a file is in a call only while it has work there: `call` names
+	 * the call of saved or held text, so once the file has neither, it
+	 * leaves. Calls are stored as the call each joined, if it joined one.
+	 */
+	function set(path: string, { sent: _, call: given, ...rest }: FileView) {
 		const before = stored(path);
-		const idle = given.mine === given.base && given.committed === undefined && given.saved === undefined && given.held === undefined && !sentTexts.has(path);
-		const { together: grouped, ...rest } = given;
-		const next: FileRecord = idle || grouped === undefined ? rest : { ...rest, together: grouped };
-		const empty =
-			next.base === null &&
-			next.mine === null &&
-			next.committed === undefined &&
-			next.held === undefined &&
-			next.together === undefined &&
-			next.saved === undefined &&
-			!sentTexts.has(path);
+		const next: FileRecord = { ...rest };
+		if (next.committed !== undefined) next.committed = { text: next.committed.text, call: callOf(next.committed.call) };
+		if ((next.saved !== undefined || next.held !== undefined) && given !== undefined) next.call = callOf(given);
+		const empty = next.base === null && next.mine === null && next.committed === undefined && next.held === undefined && next.saved === undefined && !sentWork.has(path);
 		if (empty) {
 			if (before === undefined) return;
 			changed.add(path);
 			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
 			driver.run('DELETE FROM "epicenter/unsent" WHERE path = ?', [path]);
-			driver.run('DELETE FROM "epicenter/groups" WHERE path = ?', [path]);
-			driver.run('DELETE FROM "epicenter/messages" WHERE path = ?', [path]);
 			return;
 		}
-		// RULE: a message lasts while the level it names does: an unsent commit that went (sent, or settled by a catch-up) takes its message with it, and so does a save once it is neither saved nor held.
-		if (messages && next.committed === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'committed'`, [path]);
-		if (messages && next.saved === undefined && next.held === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'saved'`, [path]);
 		const row =
 			before === undefined ||
 			before.base !== next.base ||
 			before.mine !== next.mine ||
 			before.saved !== next.saved ||
 			before.held?.reason !== next.held?.reason ||
-			before.unknown !== next.unknown;
+			before.unknown !== next.unknown ||
+			before.call !== next.call;
 		if (row) {
 			changed.add(path);
 			const hash = before !== undefined && before.base === next.base ? before.hash : next.base === null ? null : gitBlobHash(next.base);
 			const fields = before !== undefined && before.mine === next.mine ? undefined : fieldsOf(next.mine);
-			const values: SqlValue[] = [path, fold(path), next.mine, next.base, hash, next.saved ? 1 : 0, next.held?.reason ?? null, next.unknown ? 1 : 0];
+			const values: SqlValue[] = [path, fold(path), next.mine, next.base, hash, next.saved ? 1 : 0, next.held?.reason ?? null, next.unknown ? 1 : 0, next.call ?? null];
 			if (fields === undefined)
 				driver.run(
-					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown',
+					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, call) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, call = excluded.call',
 					values,
 				);
 			else
 				driver.run(
-					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, fields = excluded.fields',
+					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, call, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, call = excluded.call, fields = excluded.fields',
 					[...values, fields],
 				);
 		}
-		if (before?.committed?.text !== next.committed?.text || (before?.committed === undefined) !== (next.committed === undefined)) {
+		if (before?.committed?.text !== next.committed?.text || before?.committed?.call !== next.committed?.call || (before?.committed === undefined) !== (next.committed === undefined)) {
 			changed.add(path);
 			if (next.committed === undefined) driver.run('DELETE FROM "epicenter/unsent" WHERE path = ?', [path]);
-			else driver.run('INSERT OR REPLACE INTO "epicenter/unsent" (path, text) VALUES (?, ?)', [path, next.committed.text]);
-		}
-		if (!sameGroup(before?.together, next.together)) {
-			changed.add(path);
-			driver.run('DELETE FROM "epicenter/groups" WHERE path = ?', [path]);
-			for (const other of next.together ?? []) driver.run('INSERT INTO "epicenter/groups" (path, other) VALUES (?, ?)', [path, other]);
+			else driver.run('INSERT OR REPLACE INTO "epicenter/unsent" (path, text, call) VALUES (?, ?, ?)', [path, next.committed.text, next.committed.call]);
 		}
 	}
 
@@ -621,54 +644,63 @@ function createReplica({
 		return pointer !== null && first(driver, 'SELECT 1 FROM "epicenter/objects" WHERE oid = ?', [pointer.oid]) === undefined;
 	}
 
-	/** The message of the call that saved `path`, while its commit is unsent. */
-	type MessageLevel = 'saved' | 'committed';
-	/** Whether any message may be stored: most replicas never hold one, so a store skips their cleanup. */
-	let messages = first(driver, 'SELECT 1 FROM "epicenter/messages" LIMIT 1') !== undefined;
-	/** The message a level of `path` carries: its save's (`saved`), or its unsent commit's (`committed`). */
-	const messageOf = (path: string, level: MessageLevel = 'committed') =>
-		first<{ message: string }>(driver, 'SELECT message FROM "epicenter/messages" WHERE path = ? AND level = ?', [path, level])?.message ?? null;
-	const sayAt = (path: string, level: MessageLevel, message: string | null) => {
-		if (message === null) driver.run('DELETE FROM "epicenter/messages" WHERE path = ? AND level = ?', [path, level]);
-		else {
-			messages = true;
-			driver.run('INSERT OR REPLACE INTO "epicenter/messages" (path, level, message) VALUES (?, ?, ?)', [path, level, message]);
-		}
-	};
+	// --------------------------------------------------------------------------
+	// Calls: what one `writeAll` saved, one group
+	// --------------------------------------------------------------------------
 
-
-	/**
-	 * `path`'s group, each file read once: it, and every file saved with it
-	 * that still counts it as one of theirs (an edge only one side holds is
-	 * one that went out or settled without the other), and what keeps the
-	 * group from going: a held file, or else one owed its bytes.
-	 */
-	function groupOf(path: string) {
-		const members = new Set<string>();
-		let held: string | null = null;
-		let owed: string | null = null;
-		for (const visit: [string, string | null][] = [[path, null]]; visit.length > 0; ) {
-			const [at, from] = visit.pop() as [string, string | null];
-			if (members.has(at)) continue;
-			const f = record(at);
-			if (from !== null && !(f.together ?? []).includes(from)) continue;
-			members.add(at);
-			if (held === null && heldReason(f) !== null) held = at;
-			if (owed === null && owes(at, f)) owed = at;
-			for (const other of f.together ?? []) visit.push([other, at]);
-		}
-		const blocker = held !== null ? { path: held, held: true } : owed !== null ? { path: owed, held: false } : null;
-		return { members, blocker };
+	/** A new call, saying `message` (or none); calls long done are forgotten as new ones are made. */
+	function newCall(message: string | null) {
+		driver.run('INSERT INTO "epicenter/calls" (message) VALUES (?)', [message]);
+		const call = first<{ id: number }>(driver, 'SELECT last_insert_rowid() AS id')?.id ?? 0;
+		if (call % 256 === 0)
+			driver.run(
+				`DELETE FROM "epicenter/calls" WHERE id <= ? AND id NOT IN (SELECT call FROM "epicenter/files" WHERE call IS NOT NULL) AND id NOT IN (SELECT call FROM "epicenter/unsent") AND id NOT IN (SELECT value FROM "epicenter/inflight", json_each("epicenter/inflight".calls))`,
+				[call - CALLS_KEPT],
+			);
+		return call;
 	}
-	/** Whether a path waits on its group, for one pass over many paths: each group is walked once. */
-	function blockedAll() {
-		const known = new Map<string, boolean>();
-		return (path: string) => {
-			let blocked = known.get(path);
+	/** The call `call` is now: itself, or the call it joined. */
+	function callOf(call: number) {
+		for (let at = call; ; ) {
+			const joined = first<{ joined: number | null }>(driver, 'SELECT joined FROM "epicenter/calls" WHERE id = ?', [at])?.joined ?? null;
+			if (joined === null) return at;
+			at = joined;
+		}
+	}
+	/** What a call says: its message (`epicenter commit -m`), or null. */
+	const messageOf = (call: number) => first<{ message: string | null }>(driver, 'SELECT message FROM "epicenter/calls" WHERE id = ?', [callOf(call)])?.message ?? null;
+	/**
+	 * RULE: two calls whose work meets at a file are one group from then on:
+	 * `from`'s saved, held and unsent work becomes `into`'s, and the group
+	 * says the newer call's message (or the older's, when the newer has
+	 * none). A call it had joined before follows it.
+	 */
+	function join(from: number, into: number) {
+		const [older, newer] = [callOf(from), callOf(into)].sort((a, b) => a - b) as [number, number];
+		if (older === newer) return;
+		const target = callOf(into);
+		const source = target === older ? newer : older;
+		const message = messageOf(newer) ?? messageOf(older);
+		for (const path of pathsOf('SELECT path FROM "epicenter/files" WHERE call = ? UNION SELECT path FROM "epicenter/unsent" WHERE call = ?', [source, source])) changed.add(path);
+		driver.run('UPDATE "epicenter/files" SET call = ? WHERE call = ?', [target, source]);
+		driver.run('UPDATE "epicenter/unsent" SET call = ? WHERE call = ?', [target, source]);
+		driver.run('UPDATE "epicenter/calls" SET message = ? WHERE id = ?', [message, target]);
+		driver.run('UPDATE "epicenter/calls" SET joined = ? WHERE id = ? OR joined = ?', [target, source, source]);
+	}
+
+	/** What keeps `call` from going: a file of it held, else one owed its bytes; null when nothing does. */
+	function blocker(call: number): { path: string; held: boolean } | null {
+		const found = first<{ path: string; held: string | null }>(driver, BLOCKER_SQL, [call]);
+		return found === undefined ? null : { path: found.path, held: found.held !== null };
+	}
+	/** Whether a call waits on a file of it, for one pass over many files: each call is asked once. */
+	function blockedCalls() {
+		const known = new Map<number, boolean>();
+		return (call: number) => {
+			let blocked = known.get(call);
 			if (blocked === undefined) {
-				const group = groupOf(path);
-				blocked = group.blocker !== null;
-				for (const member of group.members) known.set(member, blocked);
+				blocked = blocker(call) !== null;
+				known.set(call, blocked);
 			}
 			return blocked;
 		};
@@ -676,54 +708,51 @@ function createReplica({
 
 	/** Whether a file saved and not yet committed can go now. */
 	const savedReady = () => {
-		const blocked = blockedAll();
-		return pathsOf('SELECT path FROM "epicenter/files" WHERE saved = 1').some((path) => !blocked(path));
+		const blocked = blockedCalls();
+		return driver.all<{ call: number }>('SELECT DISTINCT call FROM "epicenter/files" WHERE saved = 1').some(({ call }) => !blocked(call));
 	};
 
-	/** RULE: committed files that can go now: a commit waits while a file of its group is held or owed (a rename's halves, a note and its blob, go together), or while the server asked this member to slow down. */
+	/** RULE: committed files that can go now: a commit waits while a file of its call is held or owed (a rename's halves, a note and its blob, go together), or while the server asked this member to slow down. */
 	const ready = () => {
 		if (now() < backoffUntil) return [];
-		const blocked = blockedAll();
-		return committedFiles().filter(([path]) => !blocked(path));
+		const blocked = blockedCalls();
+		return committedFiles().filter(([, f]) => !blocked(f.committed?.call ?? 0));
 	};
-
-	/** The files saved together with `path` that can go now: a rename's halves, and any path saved with either. */
-	function unit(path: string, among: Map<string, FileView>, into = new Set<string>()) {
-		if (into.has(path) || !among.has(path)) return into;
-		into.add(path);
-		for (const other of among.get(path)?.together ?? []) if (among.get(other)?.together?.includes(path) === true) unit(other, among, into);
-		return into;
-	}
 
 	/**
 	 * RULE: a commit fits the server's bounds (its bytes as JSON and its
-	 * files, and the cap a too-large rejection set): whole groups of files
-	 * saved together, in order, as many as fit, and at least the first group.
-	 * The rest stays committed and goes in the next commit.
+	 * files, and the cap a too-large rejection set): whole calls, in order,
+	 * as many as fit, and at least the first. The rest stays committed and
+	 * goes in the next commit. The commit says the message of its call, if
+	 * that call has one.
 	 */
-	function sized(going: [string, FileView][]): [string, FileView][] {
+	function sized(going: [string, FileView][]): { files: [string, FileView][]; message: string | null } {
 		const files = Math.min(sizing?.files ?? Number.POSITIVE_INFINITY, cap ?? Number.POSITIVE_INFINITY);
 		// Room for the commit's id, parent, author and time.
 		const request = (sizing?.request ?? Number.POSITIVE_INFINITY) - 1_024;
-		const among = new Map(going);
+		const calls = new Map<number, [string, FileView][]>();
+		for (const entry of going) {
+			const call = entry[1].committed?.call ?? 0;
+			const unit = calls.get(call);
+			if (unit === undefined) calls.set(call, [entry]);
+			else unit.push(entry);
+		}
 		const taken = new Set<string>();
 		let count = 0;
 		let size = 0;
-		/** RULE: a group saved with a message is a commit alone, so the message describes exactly what it saved. */
+		/** RULE: a call with a message is a commit alone, so the message describes exactly what it saved. */
 		let said: string | null = null;
-		for (const [path] of going) {
-			if (taken.has(path)) continue;
-			const group = [...unit(path, among)];
-			const message = group.map((p) => messageOf(p)).find((m) => m !== null) ?? null;
+		for (const [call, unit] of calls) {
+			const message = messageOf(call);
 			if (taken.size > 0 && (message !== null || said !== null)) continue;
-			const bytes = group.reduce((sum, p) => sum + encoder.encode(JSON.stringify({ path: p, text: among.get(p)?.committed?.text ?? null })).length + 1, 0) + (message === null ? 0 : encoder.encode(JSON.stringify(message)).length);
-			if (taken.size > 0 && (count + group.length > files || size + bytes > request)) continue;
-			for (const p of group) taken.add(p);
-			count += group.length;
+			const bytes = unit.reduce((sum, [p, f]) => sum + encoder.encode(JSON.stringify({ path: p, text: f.committed?.text ?? null })).length + 1, 0) + (message === null ? 0 : encoder.encode(JSON.stringify(message)).length);
+			if (taken.size > 0 && (count + unit.length > files || size + bytes > request)) continue;
+			for (const [p] of unit) taken.add(p);
+			count += unit.length;
 			size += bytes;
 			said = message;
 		}
-		return going.filter(([path]) => taken.has(path));
+		return { files: going.filter(([path]) => taken.has(path)), message: said };
 	}
 
 	/**
@@ -739,29 +768,26 @@ function createReplica({
 				set(path, { ...rest, held: { reason: refusal } });
 			}
 		}
-		const blocked = blockedAll();
-		/** RULE: a commit with a message is never amended: a save of one of its files under another message (or none) waits until it is sent. An unsent commit without a message is amended as ever, and takes the save's. */
-		const waits = (path: string, f: FileView) => f.committed !== undefined && messageOf(path) !== null && messageOf(path) !== messageOf(path, 'saved');
-		const saved = filesWhere('saved = 1');
-		/** RULE: a call with a message goes whole: while one of its files waits, all of them do. */
-		const waitingCalls = new Set(saved.filter(([path, f]) => waits(path, f)).map(([path]) => messageOf(path, 'saved')).filter((m) => m !== null));
-		for (const [path, f] of saved) {
-			if (blocked(path)) continue;
-			if (waits(path, f)) continue;
-			const call = messageOf(path, 'saved');
-			if (call !== null && waitingCalls.has(call)) continue;
+		const blocked = blockedCalls();
+		/** RULE: a commit with a message is never amended: a call that saved over a file whose unsent commit is another call's with a message waits whole until that commit is sent. */
+		const waiting = new Set(
+			driver
+				.all<{ call: number }>(
+					'SELECT DISTINCT f.call AS call FROM "epicenter/files" f JOIN "epicenter/unsent" u ON u.path = f.path JOIN "epicenter/calls" c ON c.id = u.call WHERE f.saved = 1 AND u.call IS NOT f.call AND c.message IS NOT NULL',
+				)
+				.map((row) => row.call),
+		);
+		for (const [path, f] of filesWhere('saved = 1')) {
+			const call = f.call ?? 0;
+			if (blocked(call) || waiting.has(call)) continue;
+			// RULE: an unsent commit without a message is amended as ever: its call joins the one whose save goes over it, which it then says.
+			if (f.committed !== undefined) join(f.committed.call, call);
 			const { saved: _, ...rest } = f;
 			const under = (f.sent ?? { text: f.base }).text;
-			const said = messageOf(path, 'saved');
-			sayAt(path, 'saved', null);
 			if (f.mine === under) {
 				const { committed: __, ...clean } = rest;
-				sayAt(path, 'committed', null);
 				set(path, clean);
-			} else {
-				if (said !== null) sayAt(path, 'committed', said);
-				set(path, { ...rest, committed: { text: f.mine } });
-			}
+			} else set(path, { ...rest, committed: { text: f.mine, call } });
 		}
 		stats.commits++;
 		pump();
@@ -799,28 +825,31 @@ function createReplica({
 		});
 	}
 
-	/** Save texts: each merged here with `mine` if `mine` moved since the text the caller started from. */
+	/**
+	 * Save texts as one call, which says `message` if given: each merged here
+	 * with `mine` if `mine` moved since the text the caller started from.
+	 */
 	function writeAll(changes: Record<string, string | null>, { over, message }: { over?: Record<string, string | null>; message?: string } = {}): Changed {
 		return atomically(() => {
-			const paths = Object.keys(changes).map(spelled);
-			// RULE: a message names everything this call saved, and every file already saved with it (a held group joined again takes the new message).
+			const call = newCall(message ?? null);
+			// RULE: a save joins the call of the saved or held text it replaces at its path: a new text over a held file of a group, or over a rename's half not yet committed, still goes with the rest. An unsent commit below it is met when this save is cut (`commit`).
+			for (const given of Object.keys(changes)) {
+				const f = record(spelled(given));
+				if (f.call !== undefined) join(f.call, call);
+			}
 			for (const [given, text] of Object.entries(changes)) {
 				const path = spelled(given);
 				const { held: _, ...f } = record(path);
 				const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
-				// RULE: a save joins the paths saved in this call, and any group the path is already in: a new text over a rename's unsent half must still go with the other half.
-				const together = [...new Set([...(f.together ?? []), ...paths.filter((other) => other !== path)])];
-				const grouped = together.length === 0 ? {} : { together };
 				if (!isNote(path)) {
-					// A blob never merges: a write over a blob that moved since `over` is held with why, and its group with it.
+					// A blob never merges: a write over a blob that moved since `over` is held with why, and its call with it.
 					const swapped = from === f.mine ? { text } : settlePointer(from, f.mine, text);
-					set(path, 'refused' in swapped ? { ...f, ...grouped, mine: text, held: { reason: swapped.refused } } : { ...f, ...grouped, mine: swapped.text, saved: true });
+					set(path, 'refused' in swapped ? { ...f, call, mine: text, held: { reason: swapped.refused } } : { ...f, call, mine: swapped.text, saved: true });
 					continue;
 				}
 				const next = from === f.mine ? text : settle(from, f.mine, text, { parties: parties() }).text;
-				set(path, { ...f, ...grouped, mine: next, saved: true });
+				set(path, { ...f, call, mine: next, saved: true });
 			}
-			if (message !== undefined) for (const path of paths) sayAt(path, 'saved', message);
 			if (batching > 0) cutDue = true;
 			else commit();
 			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
@@ -908,16 +937,12 @@ function createReplica({
 		const parent = position;
 		if (needCatchUp || parent === null) return catchUp();
 		if (reading !== null || gathering !== null) return;
-		const going = stalled === null ? sized(ready()) : [];
+		const { files: going, message } = stalled === null ? sized(ready()) : { files: [], message: null };
 		// RULE: a ready commit goes before reading notifications: its answer brings everything since its parent, and on a busy note there is always another notification.
 		if (going.length === 0) {
 			if (waiting.has(parent)) place();
 			return;
 		}
-		// RULE: a commit says the newest message among its files (a held group its writer fixed under a new message goes under that one).
-		const marks = going.map(() => '?').join(', ');
-		const message =
-			first<{ message: string }>(driver, `SELECT message FROM "epicenter/messages" WHERE level = 'committed' AND path IN (${marks}) ORDER BY rowid DESC LIMIT 1`, going.map(([path]) => path))?.message ?? null;
 		const body = {
 			parent,
 			author: { user, device },
@@ -926,12 +951,10 @@ function createReplica({
 			...(message === null ? {} : { message }),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
-		setInflight(sent);
+		setInflight(sent, Object.fromEntries(going.map(([path, f]) => [path, f.committed?.call ?? 0])));
 		for (const [path, f] of going) {
 			const { committed: _, ...rest } = f;
 			set(path, rest);
-			// The message is the commit's now: it comes back to its files only if the commit does.
-			sayAt(path, 'committed', null);
 		}
 		stats.pushes++;
 		request({ type: 'push', rid: takeRid(), commit: sent });
@@ -958,13 +981,17 @@ function createReplica({
 		const other = first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? AND path != ? ORDER BY rowid LIMIT 1', [fold(path), path])?.path;
 		if (other === undefined) return;
 		const f = record(other);
-		const said = { saved: messageOf(other, 'saved'), committed: messageOf(other, 'committed') };
-		driver.run('UPDATE "epicenter/groups" SET other = ? WHERE other = ?', [path, other]);
-		sentTexts.delete(other);
+		sentWork.delete(other);
 		set(other, { base: null, mine: null });
-		if (f.sent !== undefined) sentTexts.set(path, f.sent.text);
+		if (f.sent !== undefined) sentWork.set(path, f.sent);
 		set(path, f);
-		for (const level of ['saved', 'committed'] as const) if (said[level] !== null) sayAt(path, level, said[level]);
+	}
+
+	/** RULE: where a file's unsent and saved work become one held text, their calls join: what holds it holds them both. */
+	function oneCall(f: FileView) {
+		const call = f.call ?? f.committed?.call ?? 0;
+		if (f.committed !== undefined) join(f.committed.call, call);
+		return callOf(call);
 	}
 
 	/**
@@ -983,7 +1010,7 @@ function createReplica({
 			const work = f.mine;
 			// A delete is an intent, not typed text: where the path is as this device last had it, nothing landed there and the delete goes again; where it changed, the text stays, as a delete that lost to an edit does.
 			if (work === null && text !== null && text === f.base) {
-				set(path, { base: text, mine: null, committed: { text: null }, ...(f.together === undefined ? {} : { together: f.together }) });
+				set(path, { base: text, mine: null, committed: { text: null, call: oneCall(f) } });
 				return;
 			}
 			const mine =
@@ -994,8 +1021,8 @@ function createReplica({
 						: isNote(path)
 							? appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } })
 							: work;
-			// Held work keeps its group (set): it goes again with the rest of what was saved with it, or not at all.
-			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }), ...(f.together === undefined ? {} : { together: f.together }) });
+			// Held work keeps its call: it goes again with the rest of what was saved with it, or not at all.
+			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' }, call: oneCall(f) }) });
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
@@ -1009,13 +1036,13 @@ function createReplica({
 		const mine = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, parties: parties() }).text;
 		const next: FileRecord = { base: text, mine };
 		// `mine` is the newest save: once it is `main`'s text, an older commit below it has nothing left to say.
-		if (committed !== undefined && committed !== text && mine !== text) next.committed = { text: committed };
+		if (f.committed !== undefined && committed !== undefined && committed !== text && mine !== text) next.committed = { text: committed, call: f.committed.call };
 		if (mine !== text) {
 			if (f.held !== undefined) next.held = f.held;
 			if (f.saved !== undefined) next.saved = true;
 		}
-		// A group lasts while this file has work (set).
-		if (f.together !== undefined) next.together = f.together;
+		// The saved or held text keeps its call (set).
+		if (f.call !== undefined) next.call = f.call;
 		set(path, next);
 	}
 
@@ -1051,12 +1078,13 @@ function createReplica({
 		}
 		const next: FileRecord = { base: text, mine };
 		if (mine !== text) {
-			if (committed !== undefined) next.committed = { text: committed };
+			if (f.committed !== undefined && committed !== undefined) next.committed = { text: committed, call: f.committed.call };
 			if (held !== undefined) next.held = held;
 			else if (f.saved !== undefined) next.saved = true;
 		}
-		// A group lasts while this file has work (set).
-		if (f.together !== undefined) next.together = f.together;
+		// Held work holds the call it came from, and its saved text's with it (set).
+		if (held !== undefined) next.call = oneCall(f);
+		else if (f.call !== undefined) next.call = f.call;
 		set(path, next);
 	}
 
@@ -1093,25 +1121,27 @@ function createReplica({
 	function onRefused(answer: Extract<PushAnswer, { kind: 'refused' }>) {
 		stats.refused++;
 		lastRefusal = { code: answer.code, reason: answer.reason };
-		for (const file of inflight?.files ?? []) {
-			const { sent: level, ...rest } = record(file.path);
-			// RULE: a writer's refused text is never dropped: what the door refused is held with the reason. Saved again since it was sent (more typing), the refusal judged a text its writer replaced, so the newer save goes, and is judged itself.
-			if (file.path === answer.path && rest.committed === undefined) set(file.path, { ...rest, held: { reason: answer.reason } });
-			else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
-		}
-		comeBack();
+		// RULE: a writer's refused text is never dropped: what the door refused is held with the reason. Saved again since it was sent (more typing), the refusal judged a text its writer replaced, so the newer save goes, and is judged itself.
+		for (const file of inflight?.files ?? []) takeBack(file, file.path === answer.path ? { reason: answer.reason } : null);
 		setInflight(null);
 	}
 
-	/** The commit in flight comes back unsent: its files take its message again, so it goes again as it was said. */
-	function comeBack() {
-		const message = inflight?.message;
-		if (message === undefined) return;
-		for (const file of inflight?.files ?? []) {
-			const f = record(file.path);
-			if (f.committed !== undefined) sayAt(file.path, 'committed', message);
-			else if (f.held !== undefined) sayAt(file.path, 'saved', message);
-		}
+	/**
+	 * The commit in flight came back unsent (refused, rejected, its outcome
+	 * unknown): `file`'s sent work is unsent again, in its call, or held with
+	 * `hold`'s reason where nothing newer was committed over it. Newer work
+	 * at the file meets it as a later save does: an unsent commit made over
+	 * it takes it in, held text joins it, and saved text meets it when cut.
+	 */
+	function takeBack(file: { path: string; text: string | null }, hold: { reason: string } | null, extra: { unknown?: true } = {}) {
+		const { sent: work = { text: file.text, call: 0 }, ...rest } = record(file.path);
+		if (hold !== null && rest.committed === undefined) {
+			if (rest.call !== undefined) join(work.call, rest.call);
+			set(file.path, { ...rest, ...extra, call: rest.call ?? work.call, held: hold });
+		} else if (rest.committed !== undefined) {
+			join(work.call, rest.committed.call);
+			set(file.path, { ...rest, ...extra });
+		} else set(file.path, { ...rest, ...extra, committed: work });
 	}
 
 	/**
@@ -1126,16 +1156,11 @@ function createReplica({
 		stats.refused++;
 		lastRefusal = { code: answer.code, reason: answer.reason };
 		const sent = inflight?.files ?? [];
-		const among = new Map(sent.map((f) => [f.path, record(f.path)] as const));
-		const alone = sent.length > 0 && unit(sent[0]?.path ?? '', among).size === sent.length;
+		/** The commit is one call's work. */
+		const alone = sent.length > 0 && new Set([...sentWork.values()].map((work) => callOf(work.call))).size === 1;
 		const tooLarge = answer.code === 'too-large' || answer.code === 'too-many-files';
-		for (const file of sent) {
-			const { sent: level, ...rest } = record(file.path);
-			// The group is too large to go together: it is held whole, so none of it lands without the rest.
-			if (tooLarge && alone && rest.committed === undefined) set(file.path, { ...rest, held: { reason: `${answer.reason}: what was saved together goes together; save less at once` } });
-			else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
-		}
-		comeBack();
+		// The call is too large to go together: it is held whole, so none of it lands without the rest.
+		for (const file of sent) takeBack(file, tooLarge && alone ? { reason: `${answer.reason}: what was saved together goes together; save less at once` } : null);
 		setInflight(null);
 		switch (answer.code) {
 			case 'rate':
@@ -1162,11 +1187,7 @@ function createReplica({
 		stats.unknown++;
 		const sent = inflight;
 		const once = attempts <= 1;
-		for (const file of sent?.files ?? []) {
-			const { sent: level, ...rest } = record(file.path);
-			set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text }, ...(once ? {} : { unknown: true as const }) });
-		}
-		comeBack();
+		for (const file of sent?.files ?? []) takeBack(file, null, once ? {} : { unknown: true });
 		setInflight(null);
 		if (!once) for (const [path, f] of committedFiles()) set(path, { ...f, unknown: true });
 		setPosition(null);
@@ -1260,7 +1281,7 @@ function createReplica({
 	function lacking(limit: number) {
 		const working = new Set([
 			...pathsOf('SELECT path FROM "epicenter/staged" WHERE path IN (SELECT path FROM "epicenter/unsent") OR path IN (SELECT path FROM "epicenter/files" WHERE text IS NOT base)'),
-			...[...sentTexts.keys()].filter((path) => first(driver, 'SELECT 1 FROM "epicenter/staged" WHERE path = ?', [path]) !== undefined),
+			...[...sentWork.keys()].filter((path) => first(driver, 'SELECT 1 FROM "epicenter/staged" WHERE path = ?', [path]) !== undefined),
 		]);
 		for (const [hash, text] of known(working)) driver.run('INSERT OR IGNORE INTO "epicenter/fetched" (hash, text) VALUES (?, ?)', [hash, text]);
 		// From the first row still lacking, not from the first row: each batch reads past the rows before it once, so a catch-up's reads stay linear. A row that lacked a text stays at or after it until read, so a lost read is asked again.
@@ -1436,7 +1457,7 @@ function createReplica({
 		if (reason !== null) return { status: 'held', reason };
 		if (owes(path, f)) return { status: 'sending', reason: UPLOADING };
 		// A path saved with a held or owed one waits for it: say which, and why.
-		const waits = f.saved === undefined && f.committed === undefined ? null : groupOf(path).blocker;
+		const waits = (f.call === undefined ? null : blocker(f.call)) ?? (f.committed === undefined ? null : blocker(f.committed.call));
 		if (waits !== null) return waits.held ? { status: 'held', reason: `saved with ${waits.path}, which is held` } : { status: 'sending', reason: `saved with ${waits.path}, whose bytes are uploading` };
 		if (f.sent === undefined && f.committed === undefined && f.saved === undefined) return { status: 'synced' };
 		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
@@ -1462,7 +1483,7 @@ function createReplica({
 			driver.all<{ path: string; reason: string }>('SELECT path, held AS reason FROM "epicenter/files" WHERE held IS NOT NULL ORDER BY rowid'),
 		/** Paths whose text has not reached the server: unsent, in flight, or held. */
 		unsent: () =>
-			[...new Set([...pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT base'), ...pathsOf('SELECT path FROM "epicenter/unsent"'), ...sentTexts.keys()])].sort(),
+			[...new Set([...pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT base'), ...pathsOf('SELECT path FROM "epicenter/unsent"'), ...sentWork.keys()])].sort(),
 		/**
 		 * One read-only SQL statement over what this device shows: the
 		 * app's views (one per name), or `"epicenter/files"` itself, whose

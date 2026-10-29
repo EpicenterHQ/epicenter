@@ -664,7 +664,7 @@ async function run(seed: number, steps: number) {
 		if (did !== null) log.push(`${i}: ${did}`);
 		if (process.env.F_WATCH !== undefined) {
 			const w = process.env.F_WATCH;
-			log.push(`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.path IS NOT NULL AS committed, (SELECT group_concat(other) FROM "epicenter/groups" g WHERE g.path = f.path) AS together, (SELECT group_concat(level || \'=\' || message) FROM "epicenter/messages" m WHERE m.path = f.path) AS said FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?', [w]))}}`);
+			log.push(`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.path IS NOT NULL AS committed, f.call, u.call AS committed_call, (SELECT message FROM "epicenter/calls" c WHERE c.id = f.call) AS said FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?', [w]))}}`);
 		}
 		await runFor(world, random.int(0, 600));
 		checkStep(did ?? `step ${i}`);
