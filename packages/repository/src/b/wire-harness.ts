@@ -19,8 +19,9 @@
  * everything sent before it). What arrived is then taken in device order,
  * so the timing draws are deterministic too.
  *
- * When a socket opens, its `head` tells the replica whether it must catch
- * up: a device resumes from its last head.
+ * When a socket opens, its `head` names the repository and account, which
+ * the replica checks against its binding, and `main`, which tells it
+ * whether it must catch up: a device resumes from its last head.
  */
 import { openBunSqlite } from '../bun/sqlite.js';
 import { serveRepository, socketWithHeaders } from '../bun/serve.js';
@@ -29,9 +30,10 @@ import { type Committed, createServer, type Session } from '../server/server.js'
 import { createWireClient, type SocketConnection } from '../wire/client.js';
 import { authenticateBearer, type SocketMessage } from '../wire/wire.js';
 import { type Device, EPOCH } from './harness.js';
+import { unwrap } from 'wellcrafted/result';
+import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createNet } from './net.js';
 import type { PropertyWorld, WorldOptions } from './property.test-support.js';
-import { createMemoryStore, createReplica, type Reply, type Request } from './replica.js';
 
 export type Transport = 'socket' | 'http';
 
@@ -106,8 +108,9 @@ export function createWireWorld(
 		members.add(name);
 		const authorization = { authorization: `Bearer ${name}` };
 		const client = createWireClient({ url: served.url, headers: authorization, openSocket: socketWithHeaders(authorization) });
-		let store = createMemoryStore();
-		const make = () => createReplica({ device: name, mode, store, after: net.after, now: net.now, timeout });
+		let driver = openBunSqlite();
+		const make = () =>
+			unwrap(openReplica({ driver, binding: { repository: 'test', server: client.url, account: name }, device: name, mode, after: net.after, now: net.now, timeout }));
 		let replica = make();
 		let online = true;
 		/** HTTP requests: each delayed and lost on its own. */
@@ -216,11 +219,13 @@ export function createWireWorld(
 
 		function take(current: Socket, message: SocketMessage) {
 			switch (message.type) {
-				case 'head':
+				case 'head': {
+					// The binding is checked first; then the device resumes from its last head, catching up only when main is not where it stands.
+					const { error } = replica.hello({ server: client.url, repository: message.repository, account: message.user, main: message.main });
+					if (error !== null) throw new Error(`${name}: ${error.message}`);
 					if (transport === 'socket') attach();
-					// Resume from the last head: catch up only when main is not where this device stands.
-					if (message.main !== replica.position()) replica.streamOpened();
 					return true;
+				}
 				case 'error':
 					throw new Error(`${name}: the socket refused a request: ${message.error}`);
 				case 'commit': {
@@ -322,11 +327,11 @@ export function createWireWorld(
 			},
 			lose() {
 				replica.close();
-				store = createMemoryStore();
+				driver.close();
+				driver = openBunSqlite();
 				replica = make();
 				reconnect();
 			},
-			storeBytes: () => store.bytes(),
 		};
 	}
 

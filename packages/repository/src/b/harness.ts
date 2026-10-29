@@ -4,15 +4,16 @@
  * delayed on its own, lost, or answered with a reply that is lost; and a
  * notification stream, delayed and reordered per message, which a lost
  * message closes and which reopens and resumes by catching up. Devices go
- * offline and restart from what they persisted. The server flushes live
+ * offline and restart from their databases. The server flushes live
  * history after 60 s of quiet, at most every 5 minutes while busy, and on
  * demand.
  */
 import { openBunSqlite } from '../bun/sqlite.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import { type Committed, createServer, type Event, SCHEDULE, type Session } from '../server/server.js';
+import { unwrap } from 'wellcrafted/result';
+import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createNet, type LinkOptions } from './net.js';
-import { createMemoryStore, createReplica, type Reply, type Request } from './replica.js';
 
 export const QUIET = SCHEDULE.quiet;
 export const BUSY = SCHEDULE.busy;
@@ -70,8 +71,10 @@ export function createWorld({
 
 	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward' } = {}) {
 		members.add(name);
-		let store = createMemoryStore();
-		const make = () => createReplica({ device: name, mode, store, after: net.after, now: net.now, timeout });
+		// The device's database: a restart opens a new replica over it; a lost device gets a new one.
+		let driver = openBunSqlite();
+		const make = () =>
+			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'memory', account: name }, device: name, mode, after: net.after, now: net.now, timeout }));
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;
@@ -181,7 +184,7 @@ export function createWorld({
 			},
 			/** The reply to the next request this device sends is lost (the server still acts on it). */
 			loseNextReply: () => link?.loseNextDown(),
-			/** Drop the replica and build it again from what it persisted. */
+			/** Drop the replica and open it again from its database. */
 			restart() {
 				replica.close();
 				replica = make();
@@ -190,11 +193,11 @@ export function createWorld({
 			/** The device's storage is gone for good: it comes back as a fresh replica that knows nothing. */
 			lose() {
 				replica.close();
-				store = createMemoryStore();
+				driver.close();
+				driver = openBunSqlite();
 				replica = make();
 				reconnect();
 			},
-			storeBytes: () => store.bytes(),
 		};
 	}
 

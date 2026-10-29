@@ -26,7 +26,9 @@ import { parses } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { BLOCK_CAP } from '../core/settle.js';
 import { createTestServer, createWorld, QUIET, writer } from './harness.js';
-import { createMemoryStore, createReplica, type Request } from './replica.js';
+import { unwrap } from 'wellcrafted/result';
+import { openBunSqlite } from '../bun/sqlite.js';
+import { openReplica, type Request } from '../client/replica.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 
 const PATH = 'notes/a.md';
@@ -440,7 +442,7 @@ test('a device that restarts or loses its storage never hears replies meant for 
 
 test('a notification arriving while a catch-up is out waits for it: the catch-up never moves the position back (seed 18504)', () => {
 	const requests: Request[] = [];
-	const replica = createReplica({ device: 'alice', store: createMemoryStore(), after: () => {}, now: () => 0 });
+	const replica = unwrap(openReplica({ driver: openBunSqlite(), binding: { repository: 'test', server: 'memory', account: 'alice' }, device: 'alice', after: () => {}, now: () => 0 }));
 	replica.attach((request) => requests.push(request));
 	const caughtUp = (rid: number, main: string, full: boolean) => replica.reply({ type: 'caught-up', rid, catchUp: { main, full, files: [], commits: [], next: null } });
 	caughtUp(1, 'A', true);

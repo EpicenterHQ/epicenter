@@ -15,14 +15,16 @@
  * - a replica whose socket dropped resumes from its last head by catching up
  */
 import { afterEach, describe, expect, test } from 'bun:test';
-import { createMemoryStore, createReplica, type Replica } from '../b/replica.js';
+import { unwrap } from 'wellcrafted/result';
+import { openReplica, type Replica } from '../client/replica.js';
+import { connectSocket } from '../client/socket.js';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import { createServer, type Limits, type Server, type Session } from '../server/server.js';
-import { connectReplica, createWireClient } from './client.js';
+import { createWireClient } from './client.js';
 import { type Authenticate, authenticateBearer, type SocketMessage, type WireLimits } from './wire.js';
 
 const EPOCH = Date.UTC(2026, 9, 28, 12);
@@ -402,7 +404,6 @@ describe("the device's socket", () => {
 		const sockets: WebSocket[] = [];
 		const replicas: Replica[] = [];
 		const connect = (user: string) => {
-			const replica = createReplica({ device: user, store: createMemoryStore(), after: (ms, run) => setTimeout(run, ms), now: () => Date.now(), timeout: 1_000 });
 			const client = createWireClient({
 				url: served.url,
 				headers: { authorization: `Bearer ${user}` },
@@ -412,8 +413,18 @@ describe("the device's socket", () => {
 					return socket;
 				},
 			});
+			const replica = unwrap(
+				openReplica({
+					driver: openBunSqlite(),
+					binding: { repository: 'test', server: client.url, account: user },
+					device: user,
+					after: (ms, run) => setTimeout(run, ms),
+					now: () => Date.now(),
+					timeout: 1_000,
+				}),
+			);
 			stops.push(async () => connection.close());
-			const connection = connectReplica(replica, client, { retry: 50 });
+			const connection = connectSocket(replica, client, { retry: 50 });
 			replicas.push(replica);
 			return replica;
 		};

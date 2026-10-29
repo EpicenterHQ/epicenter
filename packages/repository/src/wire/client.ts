@@ -5,13 +5,13 @@
  * (a push is one `POST /commits`, a catch-up page one `GET /catch-up`, a
  * read by hash one `GET /blobs/<hash>` per text, so each is cached for
  * good): reads by hash always go this way, and a one-shot client can send
- * everything this way. `connectReplica` binds a replica in real time; the
- * property test drives the same client on virtual time instead.
+ * everything this way. A replica's socket transport (client/socket.ts)
+ * drives it in real time; the property test drives the same client on
+ * virtual time instead.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import type { Logger } from 'wellcrafted/logger';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { Replica, Reply, Request as ReplicaRequest } from '../b/replica.js';
+import type { Reply, Request as ReplicaRequest } from '../client/replica.js';
 import type { CatchUp, PushAnswer } from '../server/server.js';
 import { PING, PONG, type SocketMessage, type SocketRequest } from './wire.js';
 
@@ -91,6 +91,8 @@ export function createWireClient({
 	}
 
 	return {
+		/** The repository's base URL: the server a replica binds to. */
+		url: base.href,
 		/** Carry one replica request; its reply, or why there is none (the replica's timeout then asks again). */
 		send(request: ReplicaRequest): Promise<Result<Reply, WireClientError>> {
 			switch (request.type) {
@@ -140,62 +142,3 @@ export function createWireClient({
 }
 export type WireClient = ReturnType<typeof createWireClient>;
 export type SocketConnection = ReturnType<WireClient['socket']>;
-
-/**
- * Bind a replica to a repository server over the wire, in real time. Its
- * pushes and catch-ups go on the socket, whose answers and events come back
- * in one ordered sequence; texts by hash are HTTP reads. While the socket is
- * down the replica is offline, and the socket reopens after `retry` ms. On
- * each open the server names `main`; the replica catches up only if that is
- * not where it stands.
- */
-export function connectReplica(replica: Replica, client: WireClient, { retry = 1_000, log }: { retry?: number; log?: Logger } = {}) {
-	let stopped = false;
-	let socket: SocketConnection | null = null;
-	function open() {
-		const current = client.socket({
-			message(message) {
-				switch (message.type) {
-					case 'head':
-						replica.attach((request) => {
-							if (request.type !== 'fetch') return current.send(request);
-							void client.send(request).then(({ data: reply, error }) => {
-								if (stopped) return;
-								// No reply: the replica's own timeout sends the request again.
-								if (error !== null) return log?.warn(error);
-								replica.reply(reply);
-							});
-						});
-						if (message.main !== replica.position()) replica.streamOpened();
-						return;
-					case 'commit': {
-						const { type: _, ...event } = message;
-						return replica.notify(event);
-					}
-					case 'answer':
-						return replica.reply({ type: 'answer', rid: message.rid, answer: message.answer });
-					case 'caught-up':
-						return replica.reply(message);
-					case 'error':
-						return log?.warn(WireClientError.Unexpected({ status: message.status, body: message.error }));
-					default:
-						return message satisfies never;
-				}
-			},
-			closed() {
-				replica.attach(null);
-				if (!stopped) setTimeout(open, retry);
-			},
-		});
-		socket = current;
-	}
-	open();
-	return {
-		/** Stop: close the socket and take the replica offline. */
-		close() {
-			stopped = true;
-			socket?.close();
-			replica.attach(null);
-		},
-	};
-}

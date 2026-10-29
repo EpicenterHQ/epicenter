@@ -1,4 +1,4 @@
-export { connectReplica, createWireClient, type SocketConnection, type WireClient, WireClientError } from './client.js';
+export { createWireClient, type SocketConnection, type WireClient, WireClientError } from './client.js';
 export {
 	type Authenticate,
 	authenticateBearer,
