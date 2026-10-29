@@ -309,6 +309,9 @@ export function createWireWorld(
 			get replica() {
 				return replica;
 			},
+			get driver() {
+				return driver;
+			},
 			isOnline: () => online,
 			setOnline(next: boolean) {
 				if (next === online) return;

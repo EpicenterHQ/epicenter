@@ -198,6 +198,10 @@ export function createWorld({
 			get replica() {
 				return replica;
 			},
+			/** The device's database, which a host keeps beside the replica (the folder engine's record). */
+			get driver() {
+				return driver;
+			},
 			isOnline: () => online,
 			setOnline(next: boolean) {
 				if (next === online) return;
