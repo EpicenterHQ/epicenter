@@ -11,7 +11,8 @@
  * - A true overlap is reported, never blended (cat/cart/coat)
  * - Frontmatter merges by parsed key; a clash keeps current, a key's unseen delete loses
  * - Two creates merge fields and keep both bodies; both they and delete versus edit are reported
- * - An overlap touching an existing block adds a separate, adjacent block; blocks never nest
+ * - An edit of lines a block offers as a side continues that side: one clash is one block, however many writes follow
+ * - Any other overlap touching an existing block adds a separate, adjacent block; blocks never nest
  * - Large notes merge in bounded memory
  */
 import { describe, expect, test } from 'bun:test';
@@ -180,6 +181,19 @@ describe('examples', () => {
 		const blocks = findConflicts(marked);
 		expect(blocks).toHaveLength(2);
 		for (const block of blocks) expect(block.current + block.incoming).not.toContain('<<<<<<< ');
+	});
+
+	test('one clash is one block: an edit of lines a block offers as a side continues that side, however many writes follow', () => {
+		// Bob's oneR met Alice's oneA; Alice's later writes were made from oneA, then oneAB.
+		const first = withBlocks(merge('one\n', 'oneR\n', 'oneA\n'), labels) ?? '';
+		const later = { ...labels, incoming: { author: 'alice', time: 't3', version: 'i2' } };
+		const second = withBlocks(merge('intro\noneA\n', `intro\n${first}`, 'intro\noneAB\n'), later) ?? '';
+		expect(second).toBe(`intro\n${OPEN}oneR\n${BASE}one\n=======\noneAB\n>>>>>>> incoming alice t3 i2\n`);
+		const third = withBlocks(merge('intro\noneAB\n', second, 'intro\noneABC\n'), later) ?? '';
+		expect(findConflicts(third)).toMatchObject([{ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' }]);
+		// The block may be on either side: here the writer's own text holds it, and main edited the line it offers.
+		const mirrored = withBlocks(merge('oneR\n', 'oneRS\n', first), labels) ?? '';
+		expect(mirrored).toBe(`${OPEN}oneRS\n${BASE}one\n=======\noneA\n${CLOSE}`);
 	});
 
 	test('an overlap touching an existing block keeps both sides', () => {

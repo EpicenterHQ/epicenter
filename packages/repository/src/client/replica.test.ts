@@ -11,6 +11,7 @@
  * - A database bound to another repository, server or account is refused at open, and a hello naming another is refused; a replica with no server refuses every hello
  * - A commit in flight whose answer was lost survives closing and reopening the database file: the reopened replica keeps its device id and sends the same commit, which lands once
  * - No text is kept in memory: reads and saves read the database, and a catch-up's pages are staged there, started again after a restart
+ * - One clash is one block: unsent text replayed over a block that offers its base continues that block
  * - The app's views read what the person sees, held text included, and a watcher hears each changed path after its change is stored
  */
 import { expect, test } from 'bun:test';
@@ -22,6 +23,7 @@ import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createTestServer, STAMP, writer } from '../sim/harness.js';
 import { openBunSqlite } from '../bun/sqlite.js';
+import { findConflicts } from '../core/conflict.js';
 import { defineApp } from '../core/lens.js';
 import type { LiveCommit } from '../core/commit.js';
 import { commitId } from '../core/commit.js';
@@ -331,4 +333,39 @@ test("the app's views read what the person sees, held text included, and a watch
 	expect(replica.query<{ body: string }>('SELECT body FROM notes')).toEqual([{ body: 'two\n' }]);
 	expect(replica.query('SELECT path, held IS NOT NULL AS held FROM "epicenter/files"')).toEqual([{ path: PATH, held: 1 }]);
 	expect(() => replica.query('DELETE FROM "epicenter/files"')).toThrow();
+});
+
+test('one clash is one block: unsent text replayed over an arrived block that offers its base continues that block', () => {
+	const server = createTestServer();
+	const device = (account: string) => {
+		const replica = unwrap(open(openBunSqlite(), { binding: { ...BINDING, account }, device: `${account}-laptop` }));
+		const link = connect(replica, server);
+		const hello = () => expectOk(replica.hello({ ...BINDING, account, server: SERVER, main: server.main(), user: account }));
+		hello();
+		return {
+			replica,
+			sync: () => link.deliver(writer(account)),
+			catchUp() {
+				hello();
+				link.deliver(writer(account));
+			},
+		};
+	};
+	const alice = device('alice');
+	const bob = device('bob');
+	alice.replica.write(PATH, note('one\n'));
+	alice.sync();
+	bob.catchUp();
+	// K1 lands; K2 is saved and unsent when Bob's same-line edit arrives, merged into a block with K1.
+	alice.replica.write(PATH, note('oneA\n'));
+	alice.sync();
+	alice.replica.write(PATH, note('oneAB\n'));
+	bob.replica.write(PATH, note('oneR\n'));
+	bob.sync();
+	alice.catchUp();
+	const text = alice.replica.read(PATH) ?? '';
+	expect(findConflicts(text)).toMatchObject([{ current: 'oneAB\n', base: 'one\n', incoming: 'oneR\n' }]);
+	alice.sync();
+	bob.catchUp();
+	expect(bob.replica.read(PATH)).toBe(text);
 });

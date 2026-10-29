@@ -7,7 +7,7 @@
  * Key behaviors:
  * - a change against an unchanged base lands as is; a repeat lands as nothing
  * - a delete loses to an edit it had not seen; an edit brings a deleted note back
- * - a field both sides set keeps current's value and writes incoming's as a block (D2)
+ * - a field both sides set keeps current's value and writes incoming's as a block (D2); a later edit of that field continues the block
  * - a path created twice, or deleted since base, keeps current and appends incoming whole (D3)
  * - an identical block is never written twice
  */
@@ -37,6 +37,14 @@ describe('settle', () => {
 		expect(parseMarkdown(settled.text ?? '').data?.fields).toEqual({ title: 'Mine' });
 		expect(settled.text).toContain('title: Theirs');
 		expect(findConflicts(settled.text ?? '')).toHaveLength(1);
+	});
+
+	test("a later edit of a field a block already offers continues that block's side", () => {
+		const first = settle(note('Base'), note('Mine'), note('Theirs'), { parties }).text ?? '';
+		const second = settle(note('Theirs'), first, note('Theirs again'), { parties: { ...parties, incoming: { author: 'alice/laptop', time: 't3' } } });
+		expect(second.blocks).toBe(true);
+		expect(parseMarkdown(second.text ?? '').data?.fields).toEqual({ title: 'Mine' });
+		expect(findConflicts(second.text ?? '')).toMatchObject([{ current: 'title: Mine\n', base: 'title: Base\n', incoming: 'title: Theirs again\n', sides: { incoming: { time: 't3' } } }]);
 	});
 
 	test('a path created twice or deleted since base holds another note (D3)', () => {

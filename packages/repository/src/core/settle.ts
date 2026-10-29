@@ -10,7 +10,10 @@
  * `incoming`'s as a labelled block in the body. A path that was deleted since
  * `base`, or that two writers created, holds another note (D3): `current`
  * stays and `incoming` is appended whole as one block. A block identical to
- * one already in the note is not written again. Two pointers never meet
+ * one already in the note is not written again, and one clash is one block
+ * however many writes follow it: an edit of what a block already offers as
+ * a side continues that side (`merge`'s rule, applied to a field's block
+ * here). Two pointers never meet
  * here: a blob's path is named by its content and immutable.
  *
  * No fallback for a merge that does not parse (D4, which deleted that rule):
@@ -22,7 +25,7 @@
  * 242,652 fuzzed triples and 1,000 property seeds never reached it.
  */
 import { stringify } from 'yaml';
-import { block, type Labels, type Party, versionOf, withBlock } from './conflict.js';
+import { block, findConflicts, type Labels, type Party, sideOffering, versionOf, withBlock, withSide } from './conflict.js';
 import { merge, withBlocks } from './merge.js';
 
 export type Settled = {
@@ -83,7 +86,13 @@ export function settle(
 			base: overlap.base === undefined ? '' : stringifyField(overlap.key, overlap.base),
 			incoming: stringifyField(overlap.key, overlap.incoming),
 		};
-		text = withBlock(text, block(values, labels));
+		// One clash is one block: a field's block that offers this edit's base value as a side is continued, not joined by another.
+		const continued = values.base === '' ? undefined : findConflicts(text).find((existing) => sideOffering(existing, values.base) !== null);
+		const side = continued === undefined ? null : sideOffering(continued, values.base);
+		text =
+			continued === undefined || side === null
+				? withBlock(text, block(values, labels))
+				: `${text.slice(0, continued.from)}${withSide(continued, side, values.incoming, labels.incoming)}${text.slice(continued.to)}`;
 		conflict = true;
 	}
 	return { text, blocks: conflict };

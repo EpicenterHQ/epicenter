@@ -48,11 +48,14 @@ export const escapeLines = (text: string) => text.split('\n').map(escapeLine).jo
 const field = (value: string) => value.replace(/\s+/g, '_') || '-';
 const label = (side: 'current' | 'incoming', { author, time, version }: Side) => `${side} ${field(author)} ${field(time)} ${field(version)}`;
 
+const unterminated = (text: string) => (text.endsWith('\n') ? text.slice(0, -1) : text);
+/** A section's lines, escaped and terminated. */
+const sectionLines = (text: string) => (text === '' ? '' : `${escapeLines(unterminated(text))}\n`);
+
 /** One block: each section's lines escaped, each delimiter labelled. */
 export function block({ current, base = '', incoming }: { current: string; base?: string; incoming: string }, labels: Labels) {
-	const section = (text: string) => (text === '' ? '' : `${escapeLines(text.endsWith('\n') ? text.slice(0, -1) : text)}\n`);
 	const baseLine = labels.base === undefined ? BASE : `${BASE} ${field(labels.base.version)}`;
-	return `${OPEN}${label('current', labels.current)}\n${section(current)}${baseLine}\n${section(base)}${SPLIT}\n${section(incoming)}${CLOSE}${label('incoming', labels.incoming)}\n`;
+	return `${OPEN}${label('current', labels.current)}\n${sectionLines(current)}${baseLine}\n${sectionLines(base)}${SPLIT}\n${sectionLines(incoming)}${CLOSE}${label('incoming', labels.incoming)}\n`;
 }
 
 /** A block as found: where it is, its sections unescaped, and its labels. */
@@ -130,6 +133,25 @@ export function findConflicts(text: string): Conflict[] {
 		i = close;
 	}
 	return found;
+}
+
+/** The side of `conflict` whose lines are `lines`, if one is: the alternative a later edit of those lines continues. */
+export function sideOffering(conflict: Conflict, lines: string): 'current' | 'incoming' | null {
+	if (unterminated(conflict.current) === unterminated(lines)) return 'current';
+	if (unterminated(conflict.incoming) === unterminated(lines)) return 'incoming';
+	return null;
+}
+
+/**
+ * `conflict` with one side's lines replaced by `text`, now labelled as
+ * written by `by`: the block a later edit of that side makes. Its other side
+ * and its base stay as they were.
+ */
+export function withSide(conflict: Conflict, side: 'current' | 'incoming', text: string, by: Side) {
+	const current = side === 'current' ? label('current', by) : conflict.labels.current;
+	const incoming = side === 'incoming' ? label('incoming', by) : conflict.labels.incoming;
+	const baseLine = conflict.labels.base === '' ? BASE : `${BASE} ${conflict.labels.base}`;
+	return `${OPEN}${current}\n${sectionLines(side === 'current' ? text : conflict.current)}${baseLine}\n${sectionLines(conflict.base)}${SPLIT}\n${sectionLines(side === 'incoming' ? text : conflict.incoming)}${CLOSE}${incoming}\n`;
 }
 
 /** A block with its labels removed, so two blocks with the same sections compare equal whoever wrote them. */

@@ -6,6 +6,7 @@
  * in src/sim/ cover how they combine.
  *
  * Key behaviors:
+ * - merging: one clash is one block, however many of a person's commits follow it on a stale parent
  * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds; a stale fast-forward commit is refused with main's texts
  * - idempotency: a resend gets its answer brought up to now; after the window, `flushed`; a parent past the window with no record, `outcome-unknown`
  * - catch-up is a tree diff in pages; the change feed names each commit, its parents and changed paths with hashes
@@ -15,6 +16,7 @@
 import { describe, expect, test } from 'bun:test';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
+import { findConflicts } from '../core/conflict.js';
 import { gitBlobHash } from '../core/hash.js';
 import { type GitObjects, MAIN } from './git-store.js';
 import { createMemoryGitStore } from './memory-git.js';
@@ -99,6 +101,26 @@ describe('admission', () => {
 			main: server.main(),
 			files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }],
 		});
+	});
+});
+
+describe('merging', () => {
+	test("one clash is one block: a person's second commit on a stale parent, after main already holds the block, continues it", () => {
+		const { server } = setup();
+		const bob: Session = { user: 'bob', role: 'writer' };
+		const start = server.main();
+		expect(server.push(make(server, [{ path: 'n/a.md', text: note('one\n') }], { parent: start }), alice).kind).toBe('applied');
+		const base = server.main();
+		expect(server.push(make(server, [{ path: 'n/a.md', text: note('oneA\n') }], { parent: base }), alice).kind).toBe('applied');
+		const afterK1 = server.main();
+		// Bob, from before Alice's edit, changes the same line: the server merges it into one block.
+		const merged = server.push(make(server, [{ path: 'n/a.md', text: note('oneR\n') }], { user: 'bob', parent: base }), bob);
+		expect(merged.kind).toBe('merged');
+		// Alice has not heard of it: her next commit's parent is her own last one.
+		const again = server.push(make(server, [{ path: 'n/a.md', text: note('oneAB\n') }], { parent: afterK1, time: new Date(EPOCH + 1).toISOString() }), alice);
+		expect(again.kind).toBe('merged');
+		const text = again.kind === 'merged' ? (again.files.find((file) => file.path === 'n/a.md')?.text ?? '') : '';
+		expect(findConflicts(text)).toMatchObject([{ current: 'oneAB\n', base: 'one\n', incoming: 'oneR\n' }]);
 	});
 });
 

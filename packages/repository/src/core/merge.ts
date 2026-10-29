@@ -14,8 +14,14 @@
  * The text is already settled the people's way, except that body overlaps hold
  * `current`. Every clash is reported in `overlaps`, and `settle` decides what
  * they mean: `withBlocks` writes the body ones as conflict blocks.
+ *
+ * One clash is one conflict block, however many writes follow it: an edit of
+ * lines that a block already offers as one of its sides continues that side,
+ * and adds no block (`continuedBlock`; `settle` does the same for a field's
+ * block). The server merging a commit onto a moved main, a device replaying
+ * unsent work over what arrived, and an editor's write all reach it here.
  */
-import { block, type Labels } from './conflict.js';
+import { block, findConflicts, type Labels, sideOffering, withSide } from './conflict.js';
 import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
 
 /** Something both sides changed, as the merge found it. */
@@ -420,13 +426,37 @@ function uniqueAnchors(
 // ============================================================================
 
 /**
+ * One clash is one conflict block, however many writes follow it. Where one
+ * side's span is a single block offering the base's lines as one of its
+ * sides, that block already is this clash: the other side, which edited
+ * those lines, continues that side of it (relabelled as its writer's), and
+ * no block of its own is written. Null where the span is not that.
+ */
+function continuedBlock(base: string, current: string, incoming: string, labels: Labels): string | null {
+	if (hasBlock(base)) return null;
+	for (const [held, edit, by] of [
+		[current, incoming, labels.incoming],
+		[incoming, current, labels.current],
+	] as const) {
+		if (hasBlock(edit)) continue;
+		const found = findConflicts(held);
+		const conflict = found[0];
+		if (found.length !== 1 || conflict === undefined || conflict.raw !== held) continue;
+		const side = sideOffering(conflict, base);
+		if (side !== null) return withSide(conflict, side, edit, by);
+	}
+	return null;
+}
+
+/**
  * Write each body overlap as a conflict block (core/conflict), current
  * (earlier in server order) first, with a base section.
  *
- * Blocks never nest. An overlap whose span holds an existing block keeps that
- * block whole and writes the plain lines both sides changed as a separate
- * block next to it, followed by any block only incoming had, so neither side
- * is lost. A CRLF text is written with LF blocks inside and its line endings
+ * Blocks never nest. An overlap that continues a block's side updates that
+ * block (`continuedBlock`). Any other overlap whose span holds an existing
+ * block keeps that block whole and writes the plain lines both sides changed
+ * as a separate block next to it, followed by any block only incoming had,
+ * so neither side is lost. A CRLF text is written with LF blocks inside and its line endings
  * restored after.
  */
 export function withBlocks(result: MergeResult, labels: Labels): string | null {
@@ -445,6 +475,12 @@ export function withBlocks(result: MergeResult, labels: Labels): string | null {
 		out += text.slice(at, start);
 		if (out !== '' && !out.endsWith('\n')) out += '\n';
 		if (overlap.unit === 'block') {
+			const continued = continuedBlock(base, current, incoming, labels);
+			if (continued !== null) {
+				out += continued;
+				at = end;
+				continue;
+			}
 			const mine = splitBlocks(current);
 			const theirs = splitBlocks(incoming);
 			out +=
