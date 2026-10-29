@@ -8,7 +8,7 @@
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import { gitBlobHash } from '../hash.js';
+import { gitBlobHash } from '../core/hash.js';
 import { breaksParsing } from '../markdown.js';
 import { merge, withMarkers } from '../merge.js';
 import { settle } from '../policy.js';

@@ -22,7 +22,9 @@
  * Rules the design does not state are marked `RULE:`.
  */
 import { createHash } from 'node:crypto';
-import { gitBlobHash } from '../hash.js';
+import { type Author, type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
+import { gitBlobHash } from '../core/hash.js';
+import { createTreeStore } from '../core/tree.js';
 import { parsePointer } from '../markdown.js';
 import { ATTRIBUTES, BLOCK_CAP, LIMIT, admissible, findConflicts, fold, isNote } from './door.js';
 import { settle } from './settle.js';
@@ -31,32 +33,8 @@ import { settle } from './settle.js';
 // Protocol
 // ============================================================================
 
-export type Author = { user: string; device: string };
-
-export type CommitFile = {
-	path: string;
-	/** The file's new text, or null to delete it. */
-	text: string | null;
-};
-
-/** A live commit on the wire. `id` is the SHA-1 of the canonical form of the rest. */
-export type LiveCommit = {
-	id: string;
-	parent: string;
-	mode: 'fast-forward' | 'merge';
-	author: Author;
-	time: string;
-	files: CommitFile[];
-};
-
 /** Who is asking: the member a session names. */
 export type Session = { member: string };
-
-/** The canonical form a commit id hashes, in a fixed order. */
-export function commitId(commit: Omit<LiveCommit, 'id'>) {
-	const files = commit.files.map((f) => [f.path, f.text]);
-	return gitBlobHash(JSON.stringify([commit.parent, commit.mode, commit.author.user, commit.author.device, commit.time, files]));
-}
 
 /** A path's text on `main`; `deleted` when the path was deleted at some point since the commit or position asked from. */
 export type FileState = { path: string; text: string | null; hash: string | null; deleted?: true };
@@ -133,91 +111,6 @@ type Stored = {
 	/** A merge that wrote a conflict block: a Git commit of its own at the next flush. */
 	blocks: boolean;
 };
-
-// ============================================================================
-// Trees: Git tree objects, content-addressed, so every commit's snapshot stays readable
-// ============================================================================
-
-type Entry = { tree: boolean; hash: string };
-
-function createTreeStore() {
-	const nodes = new Map<string, Map<string, Entry>>();
-	const store = (entries: Map<string, Entry>) => {
-		// Git sorts tree entries by name, a subtree as if its name ended in '/'.
-		const sorted = [...entries].sort(([a, x], [b, y]) => {
-			const ka = x.tree ? `${a}/` : a;
-			const kb = y.tree ? `${b}/` : b;
-			return ka < kb ? -1 : ka > kb ? 1 : 0;
-		});
-		const parts = sorted.map(([name, entry]) =>
-			Buffer.concat([Buffer.from(`${entry.tree ? '40000' : '100644'} ${name}\0`), Buffer.from(entry.hash, 'hex')]),
-		);
-		const body = Buffer.concat(parts);
-		const hash = createHash('sha1').update(`tree ${body.length}\0`).update(body).digest('hex');
-		nodes.set(hash, entries);
-		return hash;
-	};
-	const empty = store(new Map());
-
-	/** The tree with each path set to a blob hash, or removed for null. */
-	function update(tree: string, changes: [string[], string | null][]): string {
-		const entries = new Map(nodes.get(tree));
-		const below = new Map<string, [string[], string | null][]>();
-		for (const [segments, hash] of changes) {
-			const [name = '', ...rest] = segments;
-			if (rest.length === 0) {
-				if (hash === null) entries.delete(name);
-				else entries.set(name, { tree: false, hash });
-				continue;
-			}
-			below.set(name, [...(below.get(name) ?? []), [rest, hash]]);
-		}
-		for (const [name, sub] of below) {
-			const child = entries.get(name);
-			const next = update(child?.tree ? child.hash : empty, sub);
-			if (nodes.get(next)?.size === 0) entries.delete(name);
-			else entries.set(name, { tree: true, hash: next });
-		}
-		return store(entries);
-	}
-
-	/** The blob hash at a path in a tree, or null. */
-	function read(tree: string, path: string): string | null {
-		let at = tree;
-		const segments = path.split('/');
-		for (const [i, name] of segments.entries()) {
-			const entry = nodes.get(at)?.get(name);
-			if (entry === undefined) return null;
-			if (i === segments.length - 1) return entry.tree ? null : entry.hash;
-			if (!entry.tree) return null;
-			at = entry.hash;
-		}
-		return null;
-	}
-
-	/** Paths whose blob differs between two trees. */
-	function diff(from: string, to: string) {
-		const out: string[] = [];
-		const walk = (a: string, b: string, prefix: string) => {
-			if (a === b) return;
-			const left = nodes.get(a) ?? new Map<string, Entry>();
-			const right = nodes.get(b) ?? new Map<string, Entry>();
-			for (const name of new Set([...left.keys(), ...right.keys()])) {
-				const x = left.get(name);
-				const y = right.get(name);
-				if (x?.hash === y?.hash && x?.tree === y?.tree) continue;
-				const path = prefix + name;
-				if (x?.tree || y?.tree) walk(x?.tree ? x.hash : empty, y?.tree ? y.hash : empty, `${path}/`);
-				if ((x !== undefined && !x.tree) || (y !== undefined && !y.tree)) out.push(path);
-			}
-		};
-		walk(from, to, '');
-		return out;
-	}
-
-	return { empty, update, read, diff };
-}
-
 
 // ============================================================================
 // The server

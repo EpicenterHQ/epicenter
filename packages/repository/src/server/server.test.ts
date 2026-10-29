@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
 import { openBunGitStore } from '../bun/git.js';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { gitBlobHash } from '../hash.js';
+import { gitBlobHash } from '../core/hash.js';
 import type { Batch, Broadcast, Change } from '../protocol.js';
 import { type GitStore, MAIN, sequenceOf } from './git-store.js';
 import { pathEventsOf } from './history.js';

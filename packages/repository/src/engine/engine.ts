@@ -23,7 +23,7 @@ import { defineErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { App, Definitions, HoldReason, LaterVerdict, Lens, Notice, SendOptions, Sync, Verdict } from '../define.js';
 import { SendError, WriteError } from '../define.js';
-import { gitBlobHash, sha256 } from '../hash.js';
+import { gitBlobHash, lfsOid } from '../core/hash.js';
 import {
 	BODY_SQL,
 	parseMarkdown,
@@ -672,7 +672,7 @@ export function openEngine<const TDefs extends Definitions>({
 			return WriteError.BlobRefused({ path: path.data, reason: `'${op.type}' is not one of ${lens.blob.types.join(', ')}` });
 		if (lens.blob.maxSize !== undefined && op.bytes.length > lens.blob.maxSize)
 			return WriteError.BlobRefused({ path: path.data, reason: `${op.bytes.length} bytes is over ${lens.blob.maxSize}` });
-		const oid = await sha256(op.bytes);
+		const oid = await lfsOid(op.bytes);
 		const stored = await tryAsync({
 			try: () => blobs.put(oid, op.bytes, op.type),
 			catch: (cause) => WriteError.BlobUploadFailed({ path: path.data, cause }),

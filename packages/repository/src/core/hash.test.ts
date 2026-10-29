@@ -7,10 +7,10 @@
  *
  * Key behaviors:
  * - `gitBlobHash` equals `git hash-object` for text and bytes
- * - `sha256` is lowercase hex of the bytes
+ * - `lfsOid` is lowercase hex SHA-256 of the bytes
  */
 import { expect, test } from 'bun:test';
-import { gitBlobHash, sha256 } from './hash.js';
+import { gitBlobHash, lfsOid } from './hash.js';
 
 const gitHash = (content: string) =>
 	Bun.spawnSync(['git', 'hash-object', '--stdin'], { stdin: new TextEncoder().encode(content) })
@@ -22,8 +22,8 @@ test('gitBlobHash equals git hash-object', () => {
 		expect(gitBlobHash(content)).toBe(gitHash(content));
 });
 
-test('sha256 is lowercase hex of the bytes', async () => {
-	expect(await sha256(new TextEncoder().encode('abc'))).toBe(
+test('lfsOid is lowercase hex SHA-256 of the bytes', async () => {
+	expect(await lfsOid(new TextEncoder().encode('abc'))).toBe(
 		'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
 	);
 });

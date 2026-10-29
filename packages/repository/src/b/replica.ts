@@ -27,10 +27,10 @@
  * Its whole state round-trips through `store` as JSON. Rules the design does
  * not state are marked `RULE:`.
  */
-import { gitBlobHash } from '../hash.js';
+import { commitId, type LiveCommit } from '../core/commit.js';
+import { gitBlobHash } from '../core/hash.js';
 import { admissible, fold } from './door.js';
-import type { CatchUp, Event, LiveCommit, PushAnswer } from './server.js';
-import { commitId } from './server.js';
+import type { CatchUp, Event, PushAnswer } from './server.js';
 import { appendBlock, settle } from './settle.js';
 
 export type Request =

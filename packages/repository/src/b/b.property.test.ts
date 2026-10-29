@@ -38,7 +38,8 @@ import { parses, splitMarkdown, writeMarkdown } from '../markdown.js';
 import { type Device, createWorld } from './harness.js';
 import { escapeLines } from './door.js';
 import { createRandom } from './net.js';
-import { type Committed, commitId, type LiveCommit, type PushAnswer } from './server.js';
+import { commitId, type LiveCommit } from '../core/commit.js';
+import type { Committed, PushAnswer } from './server.js';
 
 const RUNS = Number(process.env.B_RUNS ?? 40);
 const FROM = Number(process.env.B_FROM ?? 1);

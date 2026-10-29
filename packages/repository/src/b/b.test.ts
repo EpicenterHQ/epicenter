@@ -26,7 +26,8 @@ import { parses } from '../markdown.js';
 import { BLOCK_CAP, findConflicts } from './door.js';
 import { createWorld, QUIET } from './harness.js';
 import type { Request } from './replica.js';
-import { commitId, createServer, type LiveCommit } from './server.js';
+import { commitId, type LiveCommit } from '../core/commit.js';
+import { createServer } from './server.js';
 
 const PATH = 'notes/a.md';
 const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`;

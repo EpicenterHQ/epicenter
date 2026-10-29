@@ -28,7 +28,8 @@ import { expect, test } from 'bun:test';
 import { writePointer } from '../markdown.js';
 import { admissible, findConflicts } from './door.js';
 import { createWorld, QUIET } from './harness.js';
-import { commitId, createServer, type LiveCommit } from './server.js';
+import { commitId, type LiveCommit } from '../core/commit.js';
+import { createServer } from './server.js';
 
 const note = (body: string, fields = 'title: A') => `---\n${fields}\n---\n${body}`;
 

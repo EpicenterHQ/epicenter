@@ -30,7 +30,7 @@ import { createInProcessTransport } from './bun/transport.js';
 import { defineApp } from './define.js';
 import { openRepository } from './repository.js';
 import { createMemoryBlobStore, type Transport } from './engine/ports.js';
-import { gitBlobHash } from './hash.js';
+import { gitBlobHash } from './core/hash.js';
 import type { Batch } from './protocol.js';
 import { MAIN, sequenceOf } from './server/git-store.js';
 import { createRepositoryServer, type ServerOptions } from './server/server.js';

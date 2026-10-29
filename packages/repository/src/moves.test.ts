@@ -26,7 +26,7 @@ import { openBunSqlite } from './bun/sqlite.js';
 import { createInProcessTransport } from './bun/transport.js';
 import { type BatchHandles, defineApp, type SendHandles } from './define.js';
 import type { Transport } from './engine/ports.js';
-import { gitBlobHash } from './hash.js';
+import { gitBlobHash } from './core/hash.js';
 import type { Batch } from './protocol.js';
 import { openRepository } from './repository.js';
 import { createRepositoryServer } from './server/server.js';

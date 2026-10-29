@@ -18,9 +18,10 @@
  *
  * Run: bun run src/b/b.bench.ts
  */
-import { gitBlobHash } from '../hash.js';
+import { commitId, type LiveCommit } from '../core/commit.js';
+import { gitBlobHash } from '../core/hash.js';
 import { createWorld } from './harness.js';
-import { commitId, createServer, LIMITS, type LiveCommit } from './server.js';
+import { createServer, LIMITS } from './server.js';
 
 // ============================================================================
 // 1. A busy note
