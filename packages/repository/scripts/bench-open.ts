@@ -17,7 +17,8 @@
  *
  * Run: bun scripts/bench-open.ts [notes=100000]
  *
- * Three more cases, each in a fresh process, report time and peak heap
+ * Three more cases, each in two fresh processes (one unsampled for its
+ * time, one sampled for its peak), report time and peak heap
  * (the heap at every read, and with what its strings hold outside it at
  * most every 25 ms, since that measure itself takes milliseconds):
  *
@@ -132,6 +133,13 @@ const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 
 /** Run `work`, sampling the heap every millisecond and at each `sample()` it calls; report its time and peak above where it started. */
 async function peakOf(label: string, work: (sample: () => void) => unknown) {
+	// Sampling costs time that grows with the heap (the catch-up's server is in this process): a case runs once for its time, unsampled, and once for its peak.
+	if (process.env.BENCH_SAMPLE === '0') {
+		const started = performance.now();
+		const result = await work(() => {});
+		console.log(JSON.stringify({ case: label, ms: Math.round(performance.now() - started), ...(result as object) }));
+		return;
+	}
 	Bun.gc(true);
 	const before = used();
 	let peak = before;
@@ -155,7 +163,7 @@ async function peakOf(label: string, work: (sample: () => void) => unknown) {
 	const ms = performance.now() - started;
 	take();
 	clearInterval(sampler);
-	console.log(JSON.stringify({ case: label, ms: Math.round(ms), peakHeap: mb(peak - before), peakRss: mb(process.resourceUsage().maxRSS * 1024), ...(result as object) }));
+	console.log(JSON.stringify({ case: label, sampledMs: Math.round(ms), peakHeap: mb(peak - before), peakRss: mb(process.resourceUsage().maxRSS * 1024), ...(result as object) }));
 }
 
 /** A driver that samples the heap after each read. */
@@ -254,19 +262,22 @@ else {
 		build(filename, count);
 		console.log(`built ${count} notes in ${Math.round(performance.now() - started)} ms: ${filename}`);
 	}
-	const run = (...args: string[]) => process.stdout.write(Bun.spawnSync(['bun', import.meta.path, ...args], { stdout: 'pipe', stderr: 'inherit' }).stdout.toString());
+	const once = (sample: string, args: string[]) =>
+		process.stdout.write(Bun.spawnSync(['bun', import.meta.path, ...args], { stdout: 'pipe', stderr: 'inherit', env: { ...process.env, BENCH_SAMPLE: sample } }).stdout.toString());
+	const run = (...args: string[]) => once('1', args);
 	for (let i = 0; i < 3; i++) run('--open', filename);
 	const scratch = `${filename}.scratch`;
 	const copy = () => {
 		for (const suffix of ['', '-wal', '-shm']) rmSync(scratch + suffix, { force: true });
 		copyFileSync(filename, scratch);
 	};
-	for (const kind of process.env.BENCH_CASES?.split(',') ?? ['session', 'catch-up', 'reset']) {
-		if (kind === 'catch-up') run('--catch-up', String(count));
-		else {
-			// Each case writes, so it runs on a copy of the built replica.
-			copy();
-			run(`--${kind}`, scratch);
+	for (const kind of process.env.BENCH_CASES?.split(',') ?? ['session', 'catch-up', 'reset'])
+		for (const sample of ['0', '1']) {
+			if (kind === 'catch-up') once(sample, ['--catch-up', String(count)]);
+			else {
+				// Each case writes, so it runs on a copy of the built replica.
+				copy();
+				once(sample, [`--${kind}`, scratch]);
+			}
 		}
-	}
 }
