@@ -118,6 +118,7 @@ function repair(text: string) {
 async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyWorld | Promise<PropertyWorld>, STEPS: number) {
 	const random = createRandom(seed * 7919 + 13);
 	const log: string[] = [];
+	const tracing = process.env.B_TRACE !== undefined;
 	const world = await makeWorld({
 		seed,
 		latency: { min: 5, max: 120 },
@@ -125,7 +126,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		streamLoss: 0.04,
 		stall: { chance: 0.03, ms: 4_000 },
 		timeout: 1_500,
-		...(process.env.B_TRACE === undefined ? {} : { trace: (line: string) => log.push(line) }),
+		...(tracing ? { trace: (line: string) => log.push(line) } : {}),
 	});
 	const people = ['alice', 'bob', 'carol'].map((name) => world.device(name));
 	const agent = world.device('agent', { mode: 'fast-forward' });
@@ -212,6 +213,20 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 
 	const serverText = () => [...world.server.snapshot().values()].join('\n');
 	const deviceText = () => everyone.flatMap((d) => [...d.replica.files().values()].map((f) => f.mine ?? '')).join('\n');
+	/** Every device's files, their state and position, and the server's main, for a traced failure. */
+	const dump = () =>
+		[
+			`server main ${world.server.main()}`,
+			...everyone.map((d) =>
+				[
+					`${d.name} at ${d.replica.position()}${d.replica.busy() ? ' (busy)' : ''}`,
+					...[...d.replica.files()].map(
+						([path, f]) =>
+							`  ${path} ${JSON.stringify(d.replica.state(path))}${f.settled ? '' : ' unsettled'}\n    base ${JSON.stringify(f.base?.slice(0, 300))}\n    mine ${JSON.stringify(f.mine?.slice(0, 300))}\n    tip  ${JSON.stringify(f.tip?.slice(0, 300))}`,
+					),
+				].join('\n'),
+			),
+		].join('\n');
 	const check = (step: string, quiet: boolean) => {
 		const server = serverText();
 		const devices = quiet ? '' : deviceText();
@@ -219,7 +234,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			if (!removed.has(t) && owed.has(t) && !server.includes(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text`);
 		for (const [t, who] of owed)
 			if (!removed.has(t) && !forgotten.has(t) && !server.includes(t) && (quiet || !devices.includes(t))) violations.push(`${step}: lost ${t} (${who})`);
-		if (violations.length > 0) throw new Error(`seed ${seed}\n${[...new Set(violations)].join('\n')}\n--- steps\n${log.join('\n')}`);
+		if (violations.length > 0) throw new Error(`seed ${seed}\n${[...new Set(violations)].join('\n')}\n--- steps\n${log.join('\n')}${tracing ? `\n--- devices\n${dump()}` : ''}`);
 	};
 
 	/** An editor buffer each person opened and has not saved yet. */
