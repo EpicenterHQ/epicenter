@@ -183,7 +183,7 @@ Costs:
 What the code contradicts today, each to change before Todos installs this way:
 
 - Todos' Epicenter build writes into Epicenter's bundle and serves at a fixed
-  path: `apps/todos/svelte.config.js:15` sets `pages` to
+  path: `683eb9fe0e:apps/todos/svelte.config.js:15` sets `pages` to
   `../epicenter/dist/todos`, and `:20` sets the absolute base `/apps/todos`.
   An installed app writes `output` in its own folder with a relative base and
   is served at `/apps/so.epicenter.todos/`.

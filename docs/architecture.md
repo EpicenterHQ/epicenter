@@ -108,5 +108,5 @@ close attempt. Application Quit remains a shell operation.
 The public surface and host-specific behavior are documented in
 [`packages/folder/README.md`](../packages/folder/README.md) and
 [`apps/epicenter/README.md`](../apps/epicenter/README.md). Run apps from the
-repository root with `bun dev:<app>`. For a browser Todos demo, use
-`bun dev:todos:ui`; for the native host, use `bun dev:epicenter`.
+repository root with `bun dev:<app>`. For Todos and Honeycrisp in a
+browser, use `bun dev:web` (the web shell); for the native host, use `bun dev:epicenter`.

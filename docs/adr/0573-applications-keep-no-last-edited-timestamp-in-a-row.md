@@ -7,8 +7,8 @@
 
 ## Context
 
-Honeycrisp's `notes` table declares `updatedAt` (`apps/honeycrisp/src/lib/data.ts`).
-`withBody` (`apps/honeycrisp/src/lib/note-source.ts`) moves it forward on every
+Honeycrisp's `notes` table declares `updatedAt` (`683eb9fe0e:apps/honeycrisp/src/lib/data.ts`).
+`withBody` (`683eb9fe0e:apps/honeycrisp/src/lib/note-source.ts`) moves it forward on every
 body change, and `NoteList.svelte` sorts notes by it and groups them under
 labels such as "Today" and "Yesterday".
 
@@ -17,7 +17,7 @@ a Sync keeps its old `updatedAt`, so the order is wrong for any change made
 outside the app. Every save also changes a second line of the file, and when
 two sides both edit a note, both moved `updatedAt`. Honeycrisp already filters
 that field out of the values a save reports replacing
-(`apps/honeycrisp/src/lib/notes.svelte.ts`: "Both sides moving `updatedAt` is
+(`683eb9fe0e:apps/honeycrisp/src/lib/notes.svelte.ts`: "Both sides moving `updatedAt` is
 not a change worth a notice").
 
 ## Decision

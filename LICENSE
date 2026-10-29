@@ -44,6 +44,7 @@ anyone who forks and distributes a modified binary shares the changes back.
     apps/local-books            @epicenter/local-books
     apps/posthog-reverse-proxy  @epicenter/posthog-reverse-proxy
     apps/vocab                  @epicenter/vocab
+    apps/web                    @epicenter/web
     apps/whispering             @epicenter/whispering
 
 ================================================================================

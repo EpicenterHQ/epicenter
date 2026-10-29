@@ -28,7 +28,7 @@ shell's reply is `WindowFolder { app, folder }`
 <!-- doc-path-check: ignore-next-line -->
 (`packages/svelte/src/folder-app.svelte`) takes `app={manifest}` and passes
 `manifest.id` on. App ids are folder ids: `TODOS_FOLDER_ID`
-(`apps/todos/src/lib/definition.ts:14`) and `WHISPERING_FOLDER_ID`
+(`683eb9fe0e:apps/todos/src/lib/definition.ts:14`) and `WHISPERING_FOLDER_ID`
 (`caf928c446fc:apps/whispering/src/lib/workspace/types.ts`) read `manifest.id` from
 each app's `epicenter.app.json`, and Capture and Honeycrisp pass
 `manifest.id` through `<FolderApp>`.

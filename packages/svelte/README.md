@@ -1,8 +1,8 @@
 # @epicenter/svelte
 
 This package makes a Folder mirror reactive in Svelte 5, and an
-`@epicenter/repository` repository too: its reads tracked, an app's chooser
-over this browser's repositories, and a note's editor in CodeMirror. The
+`@epicenter/repository` repository too: its reads tracked, the gate that
+shows its status around an app, and a note's editor in CodeMirror. The
 Folder reports
 what storage last returned or accepted. Each text editor owns a `edit` for
 what the person typed until that value's save answers. `<OpenFolder>` owns
@@ -154,36 +154,20 @@ change, so an effect that reads it re-runs a SQL query or a `read()`.
 </script>
 ```
 
-An app's page opens its repository through the chooser, which lists this
-browser's repositories (each with where it syncs), opens one, makes one (kept
-on this device, or synced with a server given its address, the repository's
-name there, and whom to sync as), and removes one, saying what removal would
-delete. The last one opened opens again on the next visit.
+The web shell (`apps/web`) opens each repository and puts the app under
+`RepositoryGate` (`@epicenter/svelte/repository/gate`): until the
+repository's notes first arrive, its status is the page (opening, waiting
+for another tab, open in another tab with Use here, unavailable with Try
+again); from then on the app stays mounted, and the status is a bar above
+it, so the page hiding and showing again never remounts it. Given
+`onLeave`, every screen before the notes arrive offers to choose another
+repository.
 
 ```svelte
-<script lang="ts">
-  import RepositoryChooser from '@epicenter/svelte/repository/chooser';
-  import { todosApp } from '$lib/definition.js';
-  import TodosApp from './local/TodosApp.svelte';
-</script>
-
-<RepositoryChooser app={todosApp} name="Todos">
-  {#snippet children({ repo, manifest, leave })}
-    <TodosApp {repo} repository={manifest.name} syncsTo={manifest.url ?? undefined} onLeave={leave} />
-  {/snippet}
-</RepositoryChooser>
+<RepositoryGate {repo} name={manifest.name} onLeave={() => goto('/-/storage')}>
+  <TodosApp {repo} repository={manifest.name} repositoryHref="/me/home" />
+</RepositoryGate>
 ```
-
-The chooser puts the app under `RepositoryGate`
-(`@epicenter/svelte/repository/gate`): until the repository's notes first
-arrive, its status is the page (opening, waiting for another tab, open in
-another tab with Use here, unavailable with Try again); from then on the app
-stays mounted, and the status is a bar above it, so the page hiding and
-showing again never remounts it. `leave` closes the repository and goes back
-to the list, which shows any typing it could not save, to copy. The chooser
-sends `Authorization: Bearer <name>` as whom to sync as, which the
-repository's development server accepts; it is the credential until
-repositories have accounts of their own.
 
 `<SourceEditor>` (`@epicenter/svelte/repository/source-editor`) shows a
 note's editor (`openEditor`) in CodeMirror: its exact text by default, or its

@@ -66,8 +66,8 @@ condition from `hostAppViteConfig` in `@epicenter/vite-config`, which
 turns it on in the bundled host build (`EPICENTER_HOST=1`):
 
 ```ts
-// apps/honeycrisp/vite.config.ts
-export default defineConfig(hostAppViteConfig(APPS.HONEYCRISP));
+// apps/capture/vite.config.ts
+export default defineConfig(hostAppViteConfig(APPS.CAPTURE));
 ```
 
 Inside, the condition list keeps Vite's defaults:

@@ -100,11 +100,12 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 
 | App | Status | Notes |
 | --- | --- | --- |
-| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes, bundled with Epicenter or in a browser tab. Metadata stays in frontmatter and logical folders preserve note identity. |
+| [Web shell](apps/web) | Runs, development | One origin for every first-party app over any repository, addressed `/<owner>/<repo>/<app>`; `/` opens your home, `/me/home`. |
+| [Honeycrisp](apps/honeycrisp) | Runs, development milestone | Markdown notes over a repository, in the web shell. Metadata stays in frontmatter and logical folders preserve note identity. |
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are local files. |
-| [Todos](apps/todos) | Runs, development milestone | Opens a local folder without sign-in; saves on this device. |
+| [Todos](apps/todos) | Runs, development milestone | Markdown todos over a repository, in the web shell, without sign-in. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
 | [Epicenter](apps/epicenter) | Runs, development | Desktop host for bundled folder apps and a generic native file view. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
@@ -149,17 +150,17 @@ cd epicenter
 bun install
 ```
 
-Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is `bun dev:honeycrisp`, and `bun run` with no arguments lists every target.
+Every app starts from the repo root. `bun dev:<app>` runs every process the app needs; for apps that talk to the hosted API, that includes the API worker on `localhost:8787`. `bun dev:<app>:ui` runs the app's frontend alone when that split exists, and `bun dev:api` runs just the backend. Bare `bun dev` is `bun dev:web`, and `bun run` with no arguments lists every target.
 
 | Command | Starts | App port |
 | --- | --- | --- |
-| `bun dev:honeycrisp` | Honeycrisp in the browser, no API | 5175 |
+| `bun dev:web` | The web shell: Todos and Honeycrisp over any repository, no API | 5190 |
 | `bun dev:api` | Hosted API worker alone | 8787 |
 | `bun dev:api-dashboard` | API + dashboard UI | 5178 |
 | `bun dev:landing` | Landing site, standalone | 4321 |
 | `bun dev:posthog-reverse-proxy` | PostHog reverse proxy Worker | wrangler default |
 
-`bun dev:whispering` runs Whispering's page in a browser tab; on the desktop it, like Honeycrisp, is bundled with Epicenter. `bun dev:todos`, `bun dev:vocab`, and `bun dev:epicenter` run those apps.
+`bun dev:whispering` runs Whispering's page in a browser tab; on the desktop it is bundled with Epicenter. `bun dev:vocab` and `bun dev:epicenter` run those apps.
 
 The API needs local Postgres and Infisical; see [apps/api/README.md](apps/api/README.md). Rust is needed for Tauri apps such as Epicenter. Local Books and Local Mail run their own multi-process dev flows; their READMEs document them.
 

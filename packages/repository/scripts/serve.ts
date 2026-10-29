@@ -3,9 +3,10 @@
  *
  *   bun packages/repository/scripts/serve.ts <repo-dir> [--repository <name>] [--port 8787] [--host 127.0.0.1] [--origin http://127.0.0.1:5173 ...]
  *
- * An app reaches it from its repository chooser: the server
- * `http://127.0.0.1:8787/`, the repository `<name>` (by default the
- * directory's name without `.git`), and any name to sync as.
+ * The web shell reaches it by a join link,
+ * `/<owner>/<name>?server=http://127.0.0.1:8787/`: the repository `<name>`
+ * (by default the directory's name without `.git`), any owner (this server
+ * does not check owners), and any name to sync as.
  *
  * `<repo-dir>` is a bare Git repository, created when missing; live history
  * is kept in `<repo-dir>/epicenter/live.sqlite` and flushed into Git after a
@@ -40,7 +41,7 @@ if (dir === undefined) {
 	process.exit(2);
 }
 const server = await openDiskRepository(resolve(dir));
-// The name a replica binds to, which a person enters in an app's repository chooser.
+// The name a replica binds to, which a join link names.
 const repository = values.repository ?? basename(resolve(dir)).replace(/\.git$/, '');
 const served = serveRepository({
 	repository,

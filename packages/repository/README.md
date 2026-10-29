@@ -61,19 +61,27 @@ this origin. This browser's repositories are its replicas:
 ```ts
 import { createBrowserRepository, listBrowserRepositories, openBrowserRepository, removeBrowserRepository } from '@epicenter/repository/browser';
 
-const [first] = await listBrowserRepositories(); // { replica, repository, name, account, url }
+const [first] = await listBrowserRepositories(); // { replica, owner, repository, name, account, url }
 const repo = openBrowserRepository({ app: todosApp, replica: first.replica });
 
-// A new one: kept only here (url null), or synced with a server.
-const created = await createBrowserRepository({ app: todosApp, repository: 'todos', name: 'Todos', account: 'ada', url: 'http://127.0.0.1:8787/', headers: { authorization: 'Bearer ada' } });
+// A new one: kept only here (url null), or synced with a server. Owner null is you.
+const created = await createBrowserRepository({ app: todosApp, owner: 'grace', repository: 'todos', name: 'Todos', account: 'ada', url: 'http://127.0.0.1:8787/', headers: { authorization: 'Bearer ada' } });
 ```
 
 `removeBrowserRepository({ replica })` deletes a replica from this browser.
 It refuses while any of its files has not reached a server (for a
 repository kept only here, every file), unless `discardUnsent: true`.
 
-Apps do not call these directly: `RepositoryChooser` in `@epicenter/svelte`
-lists, creates, opens and removes them, and remembers the last one opened.
+A replica's manifest names whose repository it is (`owner`, null for you),
+as its address does (`/<owner>/<repository>`, `~` for you); the origin
+holds one replica per owner, repository and account. A tab that opens a
+replica this page has just closed waits for the page to let it go, so
+leaving a repository and coming straight back opens it rather than reading
+as open in another tab.
+
+Apps do not call these directly: the web shell (`apps/web`) opens the
+repository its URL names, under one lens for every first-party app, and its
+Storage page lists and removes them.
 
 In Bun (a script, a test), `openLocalRepository({ app, replica })` opens the
 same handle over a replica in this process.
@@ -191,8 +199,9 @@ It serves one repository, named after its directory (`notes`, or
 `<dir>/epicenter/live.sqlite`, and flushes it into the bare Git repository a
 minute after the last change (at once on Ctrl-C). Each `--origin` lets an
 app's page call it. Anyone is the owner their `Authorization: Bearer <name>`
-names: development only. In an app's repository chooser, enter the server,
-the repository's name, and any name to sync as.
+names: development only. In the web shell, open
+`/<owner>/<name>?server=<url>` (any owner: this server does not check it)
+and enter any name to sync as.
 
 ## Checks
 

@@ -2,50 +2,51 @@
 
 Honeycrisp is a Markdown notes app. Every note is one Markdown file,
 `notes/<stem>.md`, in a repository
-([`@epicenter/repository`](../../packages/repository)). The page opens one of
-this browser's repositories from the repository chooser
-(`RepositoryChooser` from `@epicenter/svelte`): each is a replica in this
-origin's private storage (OPFS), owned by one tab's worker, kept only on this
-device or synced with a server. The first visit makes one; later visits open
-the last one again; the repository's name in the header goes back to the
-list. A second tab offers Use here, which moves the repository to it; the
-first tab keeps showing its notes under a bar that says so. It opens without
-an account.
+([`@epicenter/repository`](../../packages/repository)). It is a lens: this
+package exports its definition (`@epicenter/honeycrisp`: `honeycrispApp`,
+which claims `notes/{stem}.md` and `folders/{stem}.md`) and its Svelte root
+(`@epicenter/honeycrisp/app`: `HoneycrispApp`), with no routes and no
+repository chooser. The web shell ([`apps/web`](../web)) opens a repository
+from the URL and mounts `HoneycrispApp` at `/<owner>/<repo>/honeycrisp`, so
+Honeycrisp opens any repository; your home's notes are at
+`/me/home/honeycrisp`. Its file browser lists every file of the repository,
+other apps' included. It opens without an account.
 
 Part of the [Epicenter](https://github.com/EpicenterHQ/epicenter) monorepo.
 Licensed under AGPL-3.0-or-later.
 
-## Run it
+## The root's contract
 
-From the repository root:
-
-| Command | What it does |
-| --- | --- |
-| `bun dev:honeycrisp` | Starts the browser build on port 5175. |
-| `bun build:honeycrisp:ui` | Builds one portable SPA and offline service worker into `apps/honeycrisp/build`. |
-
-To sync, serve a repository on this machine:
-
-```sh
-bun packages/repository/scripts/serve.ts /tmp/notes.git --origin http://127.0.0.1:5175
+```svelte
+<HoneycrispApp {repo} repository="Home" syncsTo="http://127.0.0.1:8787/" repositoryHref="/me/home" />
 ```
 
-In the repository chooser, make a repository with the server
-`http://127.0.0.1:8787/`, the repository `notes`, and a name to sync as. Use a
-second browser profile, with another name, as a second person. The header
-says **Sending…** while edits wait for the server, **Not sent** while a
-note's text is held on this device, and **Synced** once the server has
-everything. The server commits to `/tmp/notes.git` a minute after a change, so
-`git clone /tmp/notes.git` shows the notes as files.
+`repo` is the open repository, its reads tracked (`reactive`), under the
+shell's `RepositoryGate`; it may hold other apps' collections. `repository`
+is its name in this browser, `syncsTo` its server, and `repositoryHref` the
+repository's page, where the header's repository name goes. Honeycrisp has
+no settings yet; when it has, they follow the shell's settings by audience
+([`apps/web`](../web/README.md#settings-by-audience)).
+
+## Run it
+
+From the repository root, `bun dev:web` and open `/me/home/honeycrisp`. To
+sync, see [the shell's README](../web/README.md#join-a-synced-repository).
+The header says **Sending…** while edits wait for the server, **Not sent**
+while a note's text is held on this device, and **Synced** once the server
+has everything.
 
 Checks, from `apps/honeycrisp`:
 
 | Command | What it checks |
 | --- | --- |
-| `bun run typecheck` | The page, the tests, and the browser tests. |
-| `bun run test` | The bundle contents, then `test:dom`. |
-| `bun run test:dom` | The editor and the whole page, mounted over the repository API on a replica in this process. |
-| `bun run test:browser` | The built site in Chromium and WebKit with persistent profiles, each person making their replica in the chooser and syncing through the development server. |
+| `bun run typecheck` | The package and its tests. |
+| `bun run test` | The pure modules, then `test:dom`. |
+| `bun run test:dom` | The editor and the whole root, mounted over the repository API on a replica in this process. |
+
+The browser tests (smoke, editor, source, two people syncing through the
+development server) and the bundle test are the shell's:
+`bun run --cwd apps/web test:browser` and `bun run --cwd apps/web test`.
 
 ## Where notes live
 
@@ -56,7 +57,7 @@ folders/
 └── <stem>.md
 ```
 
-`src/lib/data.ts` is the app's lens, `defineApp({ notes, folders })`, with each
+`src/data.ts` is the app's lens, `defineApp({ notes, folders })`, with each
 file's schema. A note's file stem is its identity. Its frontmatter holds
 `title`, `folderId`, `pinned`, `createdAt`, and `deletedAt`; its body is the
 note. The list shows the newest notes first, by `createdAt`, grouped under
@@ -131,7 +132,7 @@ note cannot say which folder it is in.
 
 | Control | What it does |
 | --- | --- |
-| Repository name | Back to this browser's repositories, to open, make or remove another. |
+| Repository name | The repository's page in the shell: its apps, and this browser's other repositories. |
 | Status | Where notes are kept, and whether edits are waiting for the server. |
 | Files (Ctrl+B) | The files this device holds: open any as its source, and delete a note or folder file. |
 
@@ -139,13 +140,11 @@ note cannot say which folder it is in.
 
 | Path | Role |
 | --- | --- |
-| `src/lib/data.ts` | The lens: `notes` and `folders`, with each file's schema. |
-| `src/lib/notes.svelte.ts` | The notes over the repository: the lists from memory, what the detail shows, and every action. |
-| `src/lib/editor/` | The CodeMirror editor: `note-editor.ts` composes it from `live-preview.ts`, `conflicts.ts` and `editorBinding` from `@epicenter/svelte/repository`, and `NoteEditor.svelte` mounts it over a note's editor. It knows nothing of Honeycrisp's UI. |
-| `src/lib/note-source.ts` | A note's list preview and the name a person sees. |
-| `src/routes/+page.svelte` | The repository chooser over `honeycrispApp`, with `HoneycrispApp` inside it. |
-| `src/routes/components/` | Header, folder list, note list, the note view, files. |
-| `browser-tests/` | Playwright tests of the built site. |
+| `src/data.ts` | The lens: `notes` and `folders`, with each file's schema. |
+| `src/notes.svelte.ts` | The notes over the repository: the lists from memory, what the detail shows, and every action. |
+| `src/editor/` | The CodeMirror editor: `note-editor.ts` composes it from `live-preview.ts`, `conflicts.ts` and `editorBinding` from `@epicenter/svelte/repository`, and `NoteEditor.svelte` mounts it over a note's editor. It knows nothing of Honeycrisp's UI. |
+| `src/note-source.ts` | A note's list preview and the name a person sees. |
+| `src/components/` | `HoneycrispApp` (the root), header, folder list, note list, the note view, files. |
 
 ## Changed promises
 
@@ -158,5 +157,6 @@ promises of the versions before it:
   show read-only.
 - There are no notices: a change the server refuses stays on this device,
   held with its reason, and a lost delete is not reported.
-- The host build keeps notes in the WebView's storage, as a browser does, not
-  in the directory the desktop shell grants.
+- There is no site of its own (`honeycrisp.epicenter.so` was deployed from
+  here) and no host build for Epicenter's desktop: Honeycrisp runs in the web
+  shell. Desktop repositories are phase 9.
