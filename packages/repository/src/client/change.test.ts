@@ -7,7 +7,7 @@
  *
  * Key behaviors:
  * - A patch sets fields on the note as it is now, keeping its other keys, their formatting and its body
- * - A body edit merges with the body alone, so a field set meanwhile stays and a remote line stays
+ * - Exact source over a text the note moved past merges, so a field set meanwhile stays and a remote line stays
  * - A create over a note that exists keeps it and appends the new one as one block
  * - A batch is one transaction and one save: a change that cannot apply stores none of the batch
  * - Each stored change makes one revision, which its answer and its watchers carry
@@ -33,19 +33,13 @@ test('a patch sets fields on the note as it is now, keeping its other keys, thei
 	expect(replica.read(PATH)).toBe(changed.texts[PATH] ?? null);
 });
 
-test('a body edit merges with the body alone: a field set meanwhile and a line written meanwhile both stay', () => {
+test('exact source over a text the note moved past merges: a field set meanwhile and a line written meanwhile both stay', () => {
 	const replica = open();
 	replica.write(PATH, note('one\ntwo\n'));
 	// Meanwhile, on this device: a field and the last line changed.
 	replica.write(PATH, note('one\nTWO\n', 'title: B\n'));
-	const changed = expectOk(replica.change([{ kind: 'edit-body', path: PATH, from: 'one\ntwo\n', to: 'ONE\ntwo\n' }]));
+	const changed = expectOk(replica.change([{ kind: 'write', path: PATH, text: note('ONE\ntwo\n'), over: note('one\ntwo\n') }]));
 	expect(changed.texts[PATH]).toBe(note('ONE\nTWO\n', 'title: B\n'));
-});
-
-test('a body edit from the body as it is now replaces it, under the frontmatter as it is now', () => {
-	const replica = open();
-	replica.write(PATH, note('one\n', 'title: B\n'));
-	expect(expectOk(replica.change([{ kind: 'edit-body', path: PATH, from: 'one\n', to: 'two\n' }])).texts[PATH]).toBe(note('two\n', 'title: B\n'));
 });
 
 test('a create over a note that exists keeps it and appends the new one as one block', () => {
@@ -72,7 +66,7 @@ test('a batch is one transaction: a change that cannot apply stores none of it',
 	const before = replica.revision();
 	expectErr(replica.change([{ kind: 'patch', path: PATH, fields: { title: 'Z' } }, { kind: 'patch', path: 'notes/gone.md', fields: { title: 'Z' } }]));
 	expect(expectErr(replica.change([{ kind: 'patch', path: 'notes/broken.md', fields: { title: 'Z' } }])).name).toBe('Unparseable');
-	expect(expectErr(replica.change([{ kind: 'edit-body', path: 'notes/gone.md', from: '', to: 'x' }])).name).toBe('NotFound');
+	expect(expectErr(replica.change([{ kind: 'patch', path: 'notes/gone.md', fields: { title: 'Z' } }])).name).toBe('NotFound');
 	expect(replica.read(PATH)).toBe(note('one\n'));
 	expect(replica.revision()).toBe(before);
 });

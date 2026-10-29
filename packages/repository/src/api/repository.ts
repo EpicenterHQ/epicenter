@@ -27,10 +27,10 @@ import type { Delta, Row, SaveError, Snapshot } from '../client/page.js';
 import { SaveError as SaveErrors } from '../client/page.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
 import { type App, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
-import { bodyOf, parseMarkdown, withBody, writeMarkdown } from '../core/markdown.js';
+import { bodyOf, parseMarkdown, writeMarkdown } from '../core/markdown.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
-import { createEditors, type Editor, type EditorError, type EditorOptions } from './editor.js';
+import { createEditors, type Editor, type EditorError } from './editor.js';
 
 // ============================================================================
 // The host: where the replica runs, and its sessions
@@ -109,7 +109,7 @@ export type Writes<TPath extends string, TNoteSchema extends TSchema> = {
 	/** Exact source: `text`, made from `over` (merged where the note moved since); without `over`, over what the worker holds. */
 	write(params: Params<TPath>, text: string | null, options?: { over?: string | null }): Promise<Result<Written, WriteError>>;
 	/** The editor of one note, shared by every view of it: each view closes it when done. */
-	openEditor(params: Params<TPath>, options?: EditorOptions): Promise<Result<Editor, WriteError | EditorError>>;
+	openEditor(params: Params<TPath>): Promise<Result<Editor, WriteError | EditorError>>;
 };
 
 /** A collection kept in memory: every note, synchronously. */
@@ -175,8 +175,6 @@ function project(text: string | null, change: Change): string | null {
 			return null;
 		case 'patch':
 			return text === null ? null : (writeMarkdown(text, { fields: change.fields }).data ?? text);
-		case 'edit-body':
-			return text === null ? null : withBody(text, change.to);
 	}
 }
 
@@ -396,10 +394,10 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			patch: at(changes.patch),
 			delete: at(changes.delete),
 			write: at(changes.write),
-			async openEditor(params: Record<string, unknown>, options: EditorOptions = {}): Promise<Result<Editor, WriteError | EditorError>> {
+			async openEditor(params: Record<string, unknown>): Promise<Result<Editor, WriteError | EditorError>> {
 				const path = changes.pathOf(params);
 				if (path.error !== null) return path;
-				return editors.open(path.data, options);
+				return editors.open(path.data);
 			},
 		};
 		if (!lens.memory)

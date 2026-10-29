@@ -8,6 +8,7 @@
  * changed lines. Its changes are in the first text's positions, sorted, and
  * never overlap.
  */
+import { bodyOf } from './markdown.js';
 import { diff } from './merge.js';
 
 /** Replace `from` to `to` of a text with `insert`. */
@@ -91,4 +92,18 @@ export function rebase(sent: string, draft: string, merged: string): { text: str
 		changes.push({ from: y.from + shift, to: y.to + shift, insert: y.insert });
 	}
 	return { text: applyChanges(draft, changes), changes };
+}
+
+/**
+ * `changes`, which turn the exact text `before` into `after`, as a view of
+ * the body sees them: in the body's positions, the frontmatter's own
+ * changes left out. Where a change crosses the frontmatter's edge (a note
+ * gaining or losing its header), the two bodies' diff.
+ */
+export function bodyChanges(before: string, after: string, changes: TextChange[]): TextChange[] {
+	const body = bodyOf(before);
+	const header = before.length - body.length;
+	const moved = changes.filter((change) => change.from >= header).map((change) => ({ from: change.from - header, to: change.to - header, insert: change.insert }));
+	const next = bodyOf(after);
+	return applyChanges(body, moved) === next ? moved : diffText(body, next);
 }

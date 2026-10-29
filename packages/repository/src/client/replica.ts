@@ -67,7 +67,7 @@ import { commitId, type LiveCommit } from '../core/commit.js';
 import { admissible, fold } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
-import { BODY_SQL, bodyOf, parseMarkdown, parsePointer, withBody, writeMarkdown } from '../core/markdown.js';
+import { BODY_SQL, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
 import { appendBlock, settle } from '../core/settle.js';
 import type { CatchUp, Event, PushAnswer, RequestCode, TextCode } from '../server/server.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
@@ -114,15 +114,13 @@ export type Change =
 	| { kind: 'patch'; path: string; fields: Record<string, unknown> }
 	| { kind: 'delete'; path: string }
 	/** Exact source: `text`, made from `over`; where the file moved since `over`, the two are merged. Without `over`, the caller asserts it started from what this device shows now. */
-	| { kind: 'write'; path: string; text: string | null; over?: string | null }
-	/** The body went from `from` to `to`, under the note's frontmatter as it is now; where the body moved since `from`, the two are merged. */
-	| { kind: 'edit-body'; path: string; from: string; to: string };
+	| { kind: 'write'; path: string; text: string | null; over?: string | null };
 
 /** What a change answers: each path's text after it, and the revision that change made (or the one already there, if it changed nothing). */
 export type Changed = { texts: Record<string, string | null>; revision: number };
 
 export const ChangeError = defineErrors({
-	/** A patch or body edit named a path this device shows no file at. */
+	/** A patch named a path this device shows no file at. */
 	NotFound: ({ path }: { path: string }) => ({ message: `There is no note at ${path}`, path }),
 	/** A patch named a note whose frontmatter does not parse, so it has no fields to set. */
 	Unparseable: ({ path, reason }: { path: string; reason: string }) => ({ message: `The frontmatter of ${path} does not parse: ${reason}`, path, reason }),
@@ -682,12 +680,6 @@ function createReplica({
 					case 'write':
 						texts[path] = c.text;
 						if (!(path in over)) over[path] = c.over === undefined ? current : c.over;
-						break;
-					case 'edit-body':
-						if (current === null) return ChangeError.NotFound({ path });
-						// RULE: the body went from `from` under the frontmatter as it is now, so a body edit merges with bodies alone, and a field set meanwhile stays.
-						texts[path] = withBody(current, c.to);
-						if (!(path in over)) over[path] = bodyOf(current) === c.from ? current : withBody(current, c.from);
 						break;
 					default:
 						c satisfies never;

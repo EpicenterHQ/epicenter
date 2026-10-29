@@ -6,8 +6,9 @@
  *
  * - One write is in flight at a time; keystrokes made meanwhile change only
  *   the draft, and go together in the next write.
- * - Each write names its base (`edit-body` from it, or exact source over
- *   it), so the worker merges whatever reached it meanwhile, once.
+ * - Each write is the exact text over its base (`write(text, { over })`),
+ *   so the worker merges whatever reached it meanwhile, once: a field set
+ *   elsewhere merges by key, and a delete made elsewhere loses to the edit.
  * - The worker answers with its resulting text. Where that differs from
  *   what was sent, the typing since is carried onto it by position, never
  *   merged again, so a conflict block the merge wrote is not written twice.
@@ -27,22 +28,16 @@
  * - `close` flushes. What it cannot save it reports, and the draft stays
  *   (shown in lists, and saved when a session allows) until `discard`.
  *
- * By default the editor edits the body, under whatever frontmatter the note
- * has, so a field set elsewhere never meets the typing; `source: true`
- * edits the exact text.
+ * One editor per path, over the exact text: a view of the body is a view of
+ * the same draft (`bodyOf`, `withBody`), so a note's body and source views
+ * share it and can switch freely.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, Row } from '../client/page.js';
 import { type Change, type Changed, ChangeError } from '../client/replica.js';
 import { diffText, rebase, type TextChange } from '../core/diff.js';
-import { bodyOf, withBody } from '../core/markdown.js';
 import type { RepositoryError, RepositoryStatus, Session, WriteError } from './repository.js';
-
-export type EditorOptions = {
-	/** Edit the exact text, frontmatter and all; by default, the body. */
-	source?: boolean;
-};
 
 export type EditorState =
 	/** Everything typed is stored. */
@@ -59,18 +54,20 @@ export type EditorState =
 export const EditorError = defineErrors({
 	/** The editor was closed with typing it could not save: `draft` holds it, and the editor keeps it until discarded. */
 	Unsaved: ({ path, draft, reason }: { path: string; draft: string; reason: string }) => ({ message: `${path} has typing that is not saved: ${reason}`, path, draft, reason }),
-	/** The note is open in an editor of the other kind (body or source). */
-	OtherMode: ({ path }: { path: string }) => ({ message: `${path} is open in another kind of editor`, path }),
 });
 export type EditorError = InferErrors<typeof EditorError>;
 
-/** What a view is told: when the draft was replaced from outside (a rebase, a change followed), the changes that turn the draft it shows into the new one. */
-export type EditorChange = { replaced: TextChange[] | null };
+/**
+ * What a view is told. `replaced`: the draft was replaced from outside (a
+ * rebase, a change followed). `typed`: the person typed, in this view or
+ * another. Either holds the changes that turn the draft before into the
+ * draft now; a view applies those it did not make itself.
+ */
+export type EditorChange = { replaced: TextChange[] | null; typed: TextChange[] | null };
 
 export type Editor = {
 	path: string;
-	source: boolean;
-	/** What the person sees and types into: the body, or the exact text. */
+	/** The note's exact text as the person has it. A view of the body shows `bodyOf(draft)` and types through `withBody(draft, body)`. */
 	draft(): string;
 	state(): EditorState;
 	/** The person typed: `draft` is the new text. */
@@ -103,8 +100,6 @@ type Deps = {
 
 type Entry = Editor & {
 	views: number;
-	/** The draft over a note's text, for lists. */
-	over(text: string): string;
 	dirty(): boolean;
 	heard(revision: number, text: string | null): void;
 	reopened(text: string | null): void;
@@ -120,9 +115,8 @@ export function createEditors(deps: Deps) {
 	const editors = new Map<string, Entry>();
 	const opening = new Map<string, Promise<Result<Entry, WriteError | EditorError>>>();
 
-	function make(path: string, source: boolean, text: string, revision: number): Entry {
-		const content = (of: string) => (source ? of : bodyOf(of));
-		let base = content(text);
+	function make(path: string, text: string, revision: number): Entry {
+		let base = text;
 		let draft = base;
 		let seen = revision;
 		let flight: { sent: string } | null = null;
@@ -134,8 +128,8 @@ export function createEditors(deps: Deps) {
 		const closers: ((result: Result<undefined, EditorError>) => void)[] = [];
 		let ended = false;
 
-		const tell = (replaced: TextChange[] | null) => {
-			for (const listener of listeners) listener({ replaced });
+		const tell = (replaced: TextChange[] | null, typed: TextChange[] | null = null) => {
+			for (const listener of listeners) listener({ replaced, typed });
 		};
 		const setState = (next: EditorState) => {
 			state = next;
@@ -191,8 +185,7 @@ export function createEditors(deps: Deps) {
 			flight = { sent };
 			setState({ status: 'saving' });
 			tell(null);
-			const change: Change = source ? { kind: 'write', path, text: sent, over: base } : { kind: 'edit-body', path, from: base, to: sent };
-			answered(sent, await deps.send([change]));
+			answered(sent, await deps.send([{ kind: 'write', path, text: sent, over: base }]));
 		}
 
 		function answered(sent: string, result: Result<Changed, WriteError>) {
@@ -209,7 +202,7 @@ export function createEditors(deps: Deps) {
 				return settleClosing();
 			}
 			seen = Math.max(seen, result.data.revision);
-			carry(sent, content(text));
+			carry(sent, text);
 			for (const { revision, text: heardText } of later) take(revision, heardText);
 			deps.refresh(path);
 			if (state.status === 'paused') {
@@ -260,7 +253,7 @@ export function createEditors(deps: Deps) {
 			seen = revision;
 			// A delete is no text to carry onto: the draft and its base stay, and a write over that base brings the note back.
 			if (text === null || draft !== base) return;
-			carry(base, content(text));
+			carry(base, text);
 		}
 
 		/** A change from elsewhere, taken after the answer to a write in flight. */
@@ -277,16 +270,16 @@ export function createEditors(deps: Deps) {
 
 		const entry: Entry = {
 			path,
-			source,
 			views: 1,
 			draft: () => draft,
 			state: () => state,
 			update(next) {
 				if (ended || next === draft) return;
+				const typed = diffText(draft, next);
 				draft = next;
 				if (state.status === 'saved') setState({ status: 'saving' });
 				deps.refresh(path);
-				tell(null);
+				tell(null, typed);
 				schedule();
 			},
 			subscribe(listener) {
@@ -323,7 +316,6 @@ export function createEditors(deps: Deps) {
 				editors.delete(path);
 				deps.refresh(path);
 			},
-			over: (text) => (source ? draft : withBody(text, draft)),
 			dirty,
 			heard,
 			/** A new session: a clean editor follows the note as it is there; a dirty one, or one whose write was lost with the last session, saves again. */
@@ -333,7 +325,7 @@ export function createEditors(deps: Deps) {
 				// The last write's outcome may be unknown, so a dirty editor saves over its base and the worker merges it once.
 				seen = deps.revision();
 				if (draft !== base || state.status !== 'saved') return schedule();
-				if (text !== null) carry(base, content(text));
+				if (text !== null) carry(base, text);
 				deps.refresh(path);
 				settleClosing();
 			},
@@ -352,10 +344,9 @@ export function createEditors(deps: Deps) {
 		return entry;
 	}
 
-	async function open(path: string, { source = false }: EditorOptions = {}): Promise<Result<Editor, WriteError | EditorError>> {
+	async function open(path: string): Promise<Result<Editor, WriteError | EditorError>> {
 		const existing = editors.get(path);
 		if (existing !== undefined) {
-			if (existing.source !== source) return EditorError.OtherMode({ path });
 			existing.views++;
 			return Ok(existing);
 		}
@@ -363,7 +354,7 @@ export function createEditors(deps: Deps) {
 		if (already !== undefined) {
 			const opened = await already;
 			if (opened.error !== null) return opened;
-			return open(path, { source });
+			return open(path);
 		}
 		const starting = (async (): Promise<Result<Entry, WriteError | EditorError>> => {
 			if (deps.session() === null) return { data: null, error: deps.unavailable() };
@@ -377,7 +368,7 @@ export function createEditors(deps: Deps) {
 				}
 			}
 			if (text === null) return ChangeError.NotFound({ path });
-			const entry = make(path, source, text, revision);
+			const entry = make(path, text, revision);
 			editors.set(path, entry);
 			return Ok(entry);
 		})();
@@ -389,10 +380,10 @@ export function createEditors(deps: Deps) {
 
 	return {
 		open,
-		/** What a list shows for `path`: its draft over the note, when an editor holds one. */
+		/** What a list shows for `path`: the draft, while an editor holds typing not yet stored. */
 		draftOver(path: string, text: string | null) {
 			const editor = editors.get(path);
-			return editor === undefined || text === null ? text : editor.over(text);
+			return editor?.dirty() ? editor.draft() : text;
 		},
 		/** Whether an editor of `path` holds typing not yet stored. */
 		unsaved: (path: string) => editors.get(path)?.dirty() ?? false,

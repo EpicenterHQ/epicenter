@@ -11,7 +11,7 @@
  */
 import '../svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { defineApp, openLocalRepository } from '@epicenter/repository/api';
+import { bodyOf, defineApp, openLocalRepository, withBody } from '@epicenter/repository/api';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { openReplica } from '@epicenter/repository/client';
 import { Type } from 'typebox';
@@ -69,9 +69,9 @@ test("an editor's draft and state are tracked", async () => {
 	await settled();
 	expectOk(await repo.todos.create({ stem: 'milk' }, { fields: { title: 'Milk' }, body: 'one\n' }));
 	const editor = tracked(expectOk(await repo.todos.openEditor({ stem: 'milk' })));
-	const drafts = follow(() => `${editor.state.status}:${editor.draft}`);
+	const drafts = follow(() => `${editor.state.status}:${bodyOf(editor.draft)}`);
 	flushSync();
-	editor.editor.update('one two\n');
+	editor.editor.update(withBody(editor.editor.draft(), 'one two\n'));
 	flushSync();
 	await settled();
 	flushSync();

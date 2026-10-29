@@ -9,6 +9,7 @@ import { mount } from 'svelte';
 import { browserHost } from '../src/api/browser.js';
 import { collectionsOf } from '../src/api/local.js';
 import { type Editor, type Host, type HostState, openRepository, type Session } from '../src/api/index.js';
+import { bodyOf } from '../src/core/markdown.js';
 import { createBrowserReplica, openBrowserReplica, type ReplicaTab } from '../src/hosts/browser/index.js';
 import { reactive } from '../../svelte/src/repository/index.js';
 import App from './api-page/App.svelte';
@@ -110,7 +111,8 @@ const calls = {
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
 	},
-	editorDraft: () => editor?.draft() ?? null,
+	/** The editor's draft as the body view shows it. */
+	editorDraft: () => (editor === undefined ? null : bodyOf(editor.draft())),
 	replacements: () => replacements,
 	editorState: () => editor?.state().status ?? null,
 	untilEditorSaved: () => until(() => editor?.state().status === 'saved', 'the editor to save'),

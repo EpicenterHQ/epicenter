@@ -1,18 +1,20 @@
 /**
  * Editor Tests
  *
- * One editor per note, shared by every view of it: it owns the draft and
- * the last text the worker confirmed and it incorporated, sends one write
- * at a time with the keystrokes since coalesced, and rebases what was typed
- * while a write was in flight onto the worker's resulting text by position.
+ * One editor per note, over its exact text, shared by every view of it (a
+ * body view shows the same draft's body): it owns the draft and the last
+ * text the worker confirmed, sends one write at a time over that text with
+ * the keystrokes since coalesced, and carries what was typed while a write
+ * was in flight onto the worker's resulting text by position.
  *
  * Key behaviors:
  * - K1 against a remote same-line edit, then K2, K3 and a field patch while K1 is in flight: one conflict block, every keystroke, the fields kept
  * - A remote same-line edit landing between two of the person's writes: still one conflict block, holding every keystroke
  * - Typing on another line than a remote edit merges clean; a clean editor follows remote changes, and one heard during a write is taken after its answer
  * - Typing that touches what the worker changed pauses autosave with both kept, until resolved
+ * - A note deleted elsewhere while the person types comes back with their typing
  * - A refused write, a worker lost mid-write, a close that cannot save and a repository closed (an account change) all keep the draft
- * - Views of one note share its editor: the last to close saves
+ * - Views of one note share its editor, body and source alike: the last to close saves
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -20,32 +22,33 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { applyChanges } from '../core/diff.js';
 import { findConflicts } from '../core/conflict.js';
 import { defineApp } from '../core/lens.js';
-import { bodyOf, parseMarkdown } from '../core/markdown.js';
+import { bodyOf, parseMarkdown, withBody } from '../core/markdown.js';
 import { settled, twoDevices } from './api.test-support.js';
 
 const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.String(), pinned: Type.Optional(Type.Boolean()) }) } });
 const PATH = 'notes/plan.md';
+const note = (body: string, title = 'Base') => `---\ntitle: ${title}\n---\n${body}`;
 
 test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1 is in flight: one conflict block, every keystroke, the fields kept', async () => {
 	const { alice, bob, gate, repo } = twoDevices(app);
-	alice.replica.write(PATH, '---\ntitle: Base\n---\none');
+	alice.replica.write(PATH, note('one'));
 	alice.sync();
 	bob.catchUp();
 	await settled();
 	const editor = expectOk(await repo.notes.openEditor({ stem: 'plan' }));
-	expect(editor.draft()).toBe('one');
+	expect(editor.draft()).toBe(note('one'));
 
 	// Bob changes the same line, and the title; Alice's replica has it before her first keystroke reaches it.
-	bob.replica.write(PATH, '---\ntitle: Remote\n---\noneR');
+	bob.replica.write(PATH, note('oneR', 'Remote'));
 	bob.sync();
 	alice.catchUp();
 	gate.hold();
-	editor.update('oneA');
+	editor.update(note('oneA'));
 	await settled();
 	// K1 is in flight. Alice types on, and pins the note.
-	editor.update('oneAB');
+	editor.update(note('oneAB'));
 	void repo.notes.patch({ stem: 'plan' }, { pinned: true });
-	editor.update('oneABC');
+	editor.update(note('oneABC'));
 	gate.release();
 	await settled();
 	await settled();
@@ -55,7 +58,7 @@ test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1
 	expect(blocks).toHaveLength(1);
 	expect(blocks[0]).toMatchObject({ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' });
 	expect(parseMarkdown(text).data?.fields).toEqual({ title: 'Remote', pinned: true });
-	expect(editor.draft()).toBe(bodyOf(text));
+	expect(editor.draft()).toBe(text);
 	expect(editor.state()).toEqual({ status: 'saved' });
 	expect(repo.notes.get({ stem: 'plan' })?.text).toBe(text);
 });
@@ -63,7 +66,7 @@ test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1
 /** A note with title Base, synced to both devices, and Alice's editor on it. */
 async function opened(body: string) {
 	const world = twoDevices(app);
-	world.alice.replica.write(PATH, `---\ntitle: Base\n---\n${body}`);
+	world.alice.replica.write(PATH, note(body));
 	world.alice.sync();
 	world.bob.catchUp();
 	await settled();
@@ -73,14 +76,15 @@ async function opened(body: string) {
 	editor.subscribe(({ replaced }) => {
 		if (replaced !== null) shown = applyChanges(shown, replaced);
 	});
-	const type = (text: string) => {
-		shown = text;
-		editor.update(text);
+	/** The person types the body `body`, in what they see. */
+	const type = (body: string) => {
+		shown = withBody(shown, body);
+		editor.update(shown);
 	};
-	return { ...world, editor, type, shown: () => shown };
+	return { ...world, editor, type, shown: () => bodyOf(shown) };
 }
 const remote = (world: Awaited<ReturnType<typeof opened>>, body: string) => {
-	world.bob.replica.write(PATH, `---\ntitle: Base\n---\n${body}`);
+	world.bob.replica.write(PATH, note(body));
 	world.bob.sync();
 	world.alice.catchUp();
 };
@@ -104,7 +108,7 @@ test("a remote same-line edit landing between two of the person's writes is one 
 	await settled();
 	const text = world.alice.replica.read(PATH) ?? '';
 	expect(findConflicts(text)).toMatchObject([{ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' }]);
-	expect(world.editor.draft()).toBe(bodyOf(text));
+	expect(world.editor.draft()).toBe(text);
 	expect(world.shown()).toBe(bodyOf(text));
 	expect(world.editor.state()).toEqual({ status: 'saved' });
 });
@@ -119,8 +123,8 @@ test('typing on another line than a remote edit merges clean, with every keystro
 	world.gate.release();
 	await settled();
 	await settled();
-	expect(world.alice.replica.read(PATH)).toBe('---\ntitle: Base\n---\nalphaXY\nBETA\n');
-	expect(world.editor.draft()).toBe('alphaXY\nBETA\n');
+	expect(world.alice.replica.read(PATH)).toBe(note('alphaXY\nBETA\n'));
+	expect(world.editor.draft()).toBe(note('alphaXY\nBETA\n'));
 	expect(world.shown()).toBe('alphaXY\nBETA\n');
 });
 
@@ -128,7 +132,7 @@ test('a clean editor follows a remote change in place, and one heard while a wri
 	const world = await opened('alpha\nbeta\n');
 	remote(world, 'alpha\nbeta\ngamma\n');
 	await settled();
-	expect(world.editor.draft()).toBe('alpha\nbeta\ngamma\n');
+	expect(world.editor.draft()).toBe(note('alpha\nbeta\ngamma\n'));
 	expect(world.shown()).toBe('alpha\nbeta\ngamma\n');
 	world.gate.hold();
 	world.type('ALPHA\nbeta\ngamma\n');
@@ -139,7 +143,7 @@ test('a clean editor follows a remote change in place, and one heard while a wri
 	world.gate.release();
 	await settled();
 	await settled();
-	expect(world.editor.draft()).toBe('ALPHA\nbeta\ngamma\ndelta\n');
+	expect(world.editor.draft()).toBe(note('ALPHA\nbeta\ngamma\ndelta\n'));
 	expect(world.shown()).toBe('ALPHA\nbeta\ngamma\ndelta\n');
 	expect(world.editor.state()).toEqual({ status: 'saved' });
 });
@@ -155,13 +159,28 @@ test('typing that touches what the worker changed pauses autosave with both kept
 	world.gate.release();
 	await settled();
 	await settled();
-	expect(world.editor.state()).toEqual({ status: 'paused', theirs: 'alphaX\nBETA\n' });
-	expect(world.editor.draft()).toBe('alphaX\nbeXta\n');
-	expect(world.alice.replica.read(PATH)).toBe('---\ntitle: Base\n---\nalphaX\nBETA\n');
-	world.editor.resolve('alphaX\nBEXTA\n');
+	expect(world.editor.state()).toEqual({ status: 'paused', theirs: note('alphaX\nBETA\n') });
+	expect(world.editor.draft()).toBe(note('alphaX\nbeXta\n'));
+	expect(world.alice.replica.read(PATH)).toBe(note('alphaX\nBETA\n'));
+	world.editor.resolve(note('alphaX\nBEXTA\n'));
 	await settled();
 	expect(world.editor.state()).toEqual({ status: 'saved' });
-	expect(world.alice.replica.read(PATH)).toBe('---\ntitle: Base\n---\nalphaX\nBEXTA\n');
+	expect(world.alice.replica.read(PATH)).toBe(note('alphaX\nBEXTA\n'));
+});
+
+test('a note deleted elsewhere while the person types comes back with their typing', async () => {
+	const world = await opened('one\n');
+	world.gate.hold();
+	world.type('one!\n');
+	world.bob.replica.write(PATH, null);
+	world.bob.sync();
+	world.alice.catchUp();
+	world.gate.release();
+	await settled();
+	await settled();
+	expect(world.editor.state()).toEqual({ status: 'saved' });
+	expect(world.alice.replica.read(PATH)).toBe(note('one!\n'));
+	expect(world.repo.notes.get({ stem: 'plan' })?.body).toBe('one!\n');
 });
 
 test('a refused write keeps the draft, shown in the list too, and retry saves it', async () => {
@@ -170,7 +189,7 @@ test('a refused write keeps the draft, shown in the list too, and retry saves it
 	world.type('one two\n');
 	await settled();
 	expect(world.editor.state()).toMatchObject({ status: 'failed', error: { name: 'Failed' } });
-	expect(world.editor.draft()).toBe('one two\n');
+	expect(world.editor.draft()).toBe(note('one two\n'));
 	// The repository dropped its projection of the write; the list still shows the typing.
 	expect(world.repo.notes.get({ stem: 'plan' })?.body).toBe('one two\n');
 	world.type('one two three\n');
@@ -180,7 +199,7 @@ test('a refused write keeps the draft, shown in the list too, and retry saves it
 	world.editor.retry();
 	await settled();
 	expect(world.editor.state()).toEqual({ status: 'saved' });
-	expect(world.alice.replica.read(PATH)).toBe('---\ntitle: Base\n---\none two three\n');
+	expect(world.alice.replica.read(PATH)).toBe(note('one two three\n'));
 });
 
 test('a worker lost mid-write keeps the draft, and the next session saves it once', async () => {
@@ -192,14 +211,14 @@ test('a worker lost mid-write keeps the draft, and the next session saves it onc
 	world.local.end();
 	world.gate.release();
 	await settled();
-	expect(world.editor.draft()).toBe('one two three\n');
+	expect(world.editor.draft()).toBe(note('one two three\n'));
 	expect(world.repo.notes.get({ stem: 'plan' })?.body).toBe('one two three\n');
 	world.type('one two three four\n');
 	world.local.resume();
 	await settled();
 	await settled();
 	expect(world.editor.state()).toEqual({ status: 'saved' });
-	expect(world.alice.replica.read(PATH)).toBe('---\ntitle: Base\n---\none two three four\n');
+	expect(world.alice.replica.read(PATH)).toBe(note('one two three four\n'));
 	expect(findConflicts(world.alice.replica.read(PATH) ?? '')).toEqual([]);
 });
 
@@ -208,16 +227,16 @@ test('a close that cannot save reports the draft and keeps it, saved once a sess
 	world.local.end();
 	world.type('one two\n');
 	const closed = expectErr(await world.editor.close());
-	expect(closed).toMatchObject({ name: 'Unsaved', draft: 'one two\n' });
+	expect(closed).toMatchObject({ name: 'Unsaved', draft: note('one two\n') });
 	// Still there, shown in the list, and found by the next view that opens the note.
 	expect(world.repo.notes.get({ stem: 'plan' })?.body).toBe('one two\n');
 	const again = expectOk(await world.repo.notes.openEditor({ stem: 'plan' }));
 	expect(again).toBe(world.editor);
-	expect(again.draft()).toBe('one two\n');
+	expect(again.draft()).toBe(note('one two\n'));
 	world.local.resume();
 	await settled();
 	await settled();
-	expect(world.alice.replica.read(PATH)).toBe('---\ntitle: Base\n---\none two\n');
+	expect(world.alice.replica.read(PATH)).toBe(note('one two\n'));
 	expectOk(await again.close());
 });
 
@@ -229,22 +248,23 @@ test('a repository closed with typing unsaved (an account change) reports it, an
 	world.type('one two three\n');
 	const closing = world.editor.close();
 	world.repo.close();
-	expect(expectErr(await closing)).toMatchObject({ name: 'Unsaved', draft: 'one two three\n' });
-	expect(world.editor.draft()).toBe('one two three\n');
+	expect(expectErr(await closing)).toMatchObject({ name: 'Unsaved', draft: note('one two three\n') });
+	expect(world.editor.draft()).toBe(note('one two three\n'));
 	expect(world.editor.state()).toEqual({ status: 'closed' });
 });
 
-test('views of one note share its editor: the last to close saves it', async () => {
+test('views of one note share its editor, a body view and a source view alike: the last to close saves it', async () => {
 	const world = await opened('one\n');
-	const second = expectOk(await world.repo.notes.openEditor({ stem: 'plan' }));
-	expect(second).toBe(world.editor);
-	expect(expectErr(await world.repo.notes.openEditor({ stem: 'plan' }, { source: true })).name).toBe('OtherMode');
+	const source = expectOk(await world.repo.notes.openEditor({ stem: 'plan' }));
+	expect(source).toBe(world.editor);
 	world.gate.hold();
+	// The body view types; the source view sets a field on the same draft.
 	world.type('one two\n');
+	source.update(source.draft().replace('title: Base', 'title: Both'));
 	await settled();
-	expectOk(await second.close());
+	expectOk(await source.close());
 	const last = world.editor.close();
 	world.gate.release();
 	expectOk(await last);
-	expect(world.alice.replica.read(PATH)).toBe('---\ntitle: Base\n---\none two\n');
+	expect(world.alice.replica.read(PATH)).toBe(note('one two\n', 'Both'));
 });

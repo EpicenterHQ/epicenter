@@ -38,6 +38,6 @@
 </ul>
 {#if editor !== undefined}
 	{#key editor}
-		<SourceEditor {editor} label={`Editing ${opening}`} />
+		<SourceEditor {editor} shows="body" label={`Editing ${opening}`} />
 	{/key}
 {/if}

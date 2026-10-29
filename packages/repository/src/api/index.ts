@@ -8,8 +8,9 @@ export { type App, defineApp, type NoteDefinition, type NoteName, timestamp } fr
 export { type Collection, type Delta, type Row, SaveError, type Snapshot } from '../client/page.js';
 export { type Change, type Changed, ChangeError, type FileStatus } from '../client/replica.js';
 export { collectionsOf, createLocalHost, openLocalRepository } from './local.js';
-export { type Editor, type EditorChange, EditorError, type EditorOptions, type EditorState } from './editor.js';
-export { applyChanges, diffText, rebase, type TextChange } from '../core/diff.js';
+export { type Editor, type EditorChange, EditorError, type EditorState } from './editor.js';
+export { applyChanges, bodyChanges, diffText, rebase, type TextChange } from '../core/diff.js';
+export { bodyOf, withBody } from '../core/markdown.js';
 export { type Definitions, type TextStatus } from '../core/lens.js';
 export {
 	type FieldPatch,

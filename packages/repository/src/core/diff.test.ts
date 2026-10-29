@@ -9,9 +9,11 @@
  * - Typing and a worker's change at different places both survive; where they meet, typing stays with its line
  * - Typing after a sent last line lands inside the conflict block that line went into, on its incoming side
  * - Typing that touches what the worker changed is not rebased
+ * - A body view sees an exact text's changes in the body's positions, the frontmatter's left out
  */
 import { expect, test } from 'bun:test';
-import { applyChanges, diffText, rebase } from './diff.js';
+import { applyChanges, bodyChanges, diffText, rebase } from './diff.js';
+import { bodyOf } from './markdown.js';
 
 /** A small seeded generator, so a failure names its seed. */
 function random(seed: number) {
@@ -72,4 +74,16 @@ test('typing that touches what the worker changed is not rebased', () => {
 	expect(rebase('one two', 'one', 'one TWO')).toBeNull();
 	// Touching is not overlapping: typing at the end of a changed word follows it.
 	expect(rebase('alpha\nbeta\n', 'alpha\nbetaY\n', 'alpha\nBETA\n')?.text).toBe('alpha\nBETAY\n');
+});
+
+test("a body view sees an exact text's changes in the body's positions, the frontmatter's left out", () => {
+	const before = '---\ntitle: A\n---\none\ntwo\n';
+	const after = '---\ntitle: Longer\n---\none\nTWO\n';
+	const seen = bodyChanges(before, after, diffText(before, after));
+	expect(seen.every((change) => change.from >= 4)).toBe(true);
+	expect(applyChanges(bodyOf(before), seen)).toBe(bodyOf(after));
+	// A header gained crosses the body's edge: the bodies' own diff.
+	const plain = 'one\n';
+	const headed = '---\ntitle: A\n---\none!\n';
+	expect(applyChanges(plain, bodyChanges(plain, headed, diffText(plain, headed)))).toBe('one!\n');
 });

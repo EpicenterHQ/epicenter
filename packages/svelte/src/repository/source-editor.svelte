@@ -1,7 +1,8 @@
 <!--
-	A note in CodeMirror over its repository editor: the body by default, or
-	the exact text when the editor was opened with `source: true`. The
-	editor saves as the person types; this view shows where that stands.
+	A note in CodeMirror over its repository editor: the exact text by
+	default, or the body (`shows="body"`). Both are views of one editor, so a
+	note's body and source can be open at once. The editor saves as the
+	person types; this view shows where that stands.
 	Typing the worker could not carry onto a change made in the same place
 	pauses saving with both kept: the person keeps theirs or takes the other.
 	A failed save keeps the typing, with Try again.
@@ -11,25 +12,29 @@
 
 	```svelte
 	<SourceEditor {editor} check={(text) => app.check(text, { as: 'notes' })} />
+	<SourceEditor {editor} shows="body" />
 	```
 -->
 <script lang="ts">
-	import type { Editor, EditorState, TextStatus } from '@epicenter/repository/api';
+	import { bodyOf, type Editor, type EditorState, type TextStatus } from '@epicenter/repository/api';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { onMount, untrack } from 'svelte';
-	import { createEditorView } from './codemirror.js';
+	import { createEditorView, type Shows } from './codemirror.js';
 
 	let {
 		editor,
 		check,
+		shows = 'source',
 		label = 'Note',
 		focusRequest = 0,
 		class: className = '',
 	}: {
 		editor: Editor;
-		/** Whether a text parses and fits its schema; for a source editor, shown as the person types. */
+		/** Whether the note's exact text parses and fits its schema, shown as the person types. */
 		check?: (text: string) => TextStatus;
+		/** The exact text, or the body under the frontmatter. */
+		shows?: Shows;
 		/** The editor's accessible name. */
 		label?: string;
 		/** Bumped to move focus into the editor. */
@@ -49,7 +54,7 @@
 			saving = current.state();
 			status = checking?.(current.draft());
 		};
-		const created = createEditorView({ parent: element, editor: current, label: untrack(() => label) });
+		const created = createEditorView({ parent: element, editor: current, shows: untrack(() => shows), label: untrack(() => label) });
 		view = created;
 		const stop = current.subscribe(read);
 		read();
@@ -79,7 +84,7 @@
 		{#if saving.status === 'paused'}
 			{@const theirs = saving.theirs}
 			<p class="text-muted-foreground">Someone changed this in the same place you were typing. Saving waits until you choose.</p>
-			<pre class="max-h-32 overflow-auto rounded bg-muted p-2" data-testid="editor-theirs">{theirs}</pre>
+			<pre class="max-h-32 overflow-auto rounded bg-muted p-2" data-testid="editor-theirs">{shows === 'body' ? bodyOf(theirs) : theirs}</pre>
 			<p class="flex gap-2">
 				<Button size="sm" onclick={() => editor.resolve(editor.draft())}>Keep mine</Button>
 				<Button size="sm" variant="outline" onclick={() => editor.resolve(theirs)}>Use theirs</Button>
