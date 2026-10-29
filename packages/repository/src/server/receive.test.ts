@@ -418,6 +418,8 @@ describe('a flush', () => {
 		const few = await requests(1);
 		const many = await requests(25);
 		expect(many.filter((name) => name === 'writePack')).toHaveLength(1);
+		// Read Git's main, read the staging ref, the pack with the staging ref, swap main, delete the staging ref.
+		expect(many).toEqual(['readRef', 'readRef', 'writePack', 'updateRef', 'deleteRef']);
 		expect(many).toEqual(few);
 	});
 });

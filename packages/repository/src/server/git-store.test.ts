@@ -1,8 +1,8 @@
 /**
  * GitObjects Conformance Tests
  *
- * The server plans every Git object id itself and checks the store wrote
- * that id, so every adapter must agree with Git byte for byte. One suite
+ * The server plans every Git object id itself and stages the objects as a
+ * pack, so every adapter must agree with Git byte for byte. One suite
  * runs against each adapter: the Bun store (the `git` CLI) and the memory
  * store (the simulated network's).
  *

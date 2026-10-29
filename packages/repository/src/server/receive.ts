@@ -18,7 +18,9 @@
  * as a flush is journaled (flush.ts), and records the push as received;
  * only then does Git's `main` move, by compare-and-swap. A merged push does
  * not move the flushed place: Git holds the push, not the live edits it was
- * merged over, which the next flush joins to it. A push the live door
+ * merged over, which the next flush joins to it. Once the window dropped
+ * the live commit Git's `main` stands for, live history is flushed first,
+ * so the push meets `main-moved` under Git's own rule. A push the live door
  * refuses never moves Git, so a published `main` is never rewound; a crash
  * after the transaction is finished by the next flush or push, and the push
  * sent again is answered accepted.
@@ -142,11 +144,10 @@ export function createReceiver({
 	/**
 	 * The live commit Git's `main` stands for: the flushed place, or, while a
 	 * pushed commit waits to be joined, the live commit it became. Undefined
-	 * once the window dropped it, like any live history (as of now: the
-	 * live commit a push becomes prunes first).
+	 * once the window dropped it, like any live history: ask after `prune`,
+	 * as the live commit a push becomes prunes first.
 	 */
 	function standsFor(): string | undefined {
-		prune();
 		const waiting = flusher.joins().at(-1);
 		if (waiting !== undefined) return history.baseOf(waiting.side) === undefined ? undefined : waiting.side;
 		const flushed = meta.number('flushed');
@@ -172,6 +173,7 @@ export function createReceiver({
 		// A row a crash left (a flush, or a push) was decided before this push: finish it, then check the ref against where it left Git.
 		if (first(store, 'SELECT 1 FROM journal LIMIT 1') !== undefined && (await flusher.finish()).kind === 'diverged') return refused('diverged', DIVERGED);
 		// RULE: a push merges on the live commit Git's `main` stands for; once the window dropped it, live history is flushed first (Git's `main` moves, so this push is refused below).
+		prune();
 		if (standsFor() === undefined && (await flusher.flushHere()).kind === 'diverged') return refused('diverged', DIVERGED);
 		const head = meta.get('git_head') || null;
 		if (old !== head || (await git.readRef(MAIN)) !== old) return refused('main-moved', 'main moved; fetch and rebase');
@@ -196,12 +198,17 @@ export function createReceiver({
 			files.push({ path, text: entry === undefined ? null : decoder.decode((await git.readBlob(entry.oid)) ?? new Uint8Array()) });
 		}
 		files.sort((a, b) => (a.path < b.path ? -1 : 1));
-		const parent = standsFor();
-		// Dropped during the checks (it was at the window's edge): sent again, the push finds it gone and flushes first.
-		if (parent === undefined) return refused('live', 'the live commit this push merges on left the window while the push was checked; push again');
 		const tree = chain.at(-1)?.tree as string;
 		const staging = `refs/heads/epicenter-receive-${next}`;
 		if (!(await git.updateRef(staging, next, null)) && (await git.readRef(staging)) !== next) throw new Error(`the staging ref ${staging} moved`);
+		// Asked again after the last wait, so nothing lands between this and the live commit.
+		prune();
+		const parent = standsFor();
+		if (parent === undefined) {
+			// Dropped during the checks (it was at the window's edge): sent again, the push finds it gone and flushes first.
+			await git.deleteRef(staging, next);
+			return refused('live', 'the live commit this push merges on left the window while the push was checked; push again');
+		}
 		const at = clock();
 		const body = {
 			parent,
