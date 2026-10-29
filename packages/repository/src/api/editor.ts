@@ -233,10 +233,9 @@ export function createEditors(deps: Deps) {
 		/**
 		 * The worker confirmed `next`, made of `over` (what was sent, or the
 		 * base): the typing over `over` is carried onto it by position, and
-		 * `next` becomes the base. So every write goes over a text the worker
-		 * holds, and the worker never merges this typing against a conflict
-		 * block. Where the typing touches what changed, autosave pauses with
-		 * both kept.
+		 * `next` becomes the base, so the next write goes over a text the
+		 * worker holds and a block its merge wrote is not written again. Where
+		 * the typing touches what changed, autosave pauses with both kept.
 		 */
 		function carry(over: string, next: string) {
 			if (next === over) {
