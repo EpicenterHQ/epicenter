@@ -1,49 +1,45 @@
 /**
- * Design B's replica, collapsed: a clone with a short local branch.
+ * Design B's replica, phase 0a: a clone with a short local branch.
  *
  * Per file, four levels: `base` (the text at the commit this device stands
  * on, its position), `sent` (the text in its commit awaiting an answer),
  * `committed` (the text in its newest commit, not yet sent), and `mine` (what
- * it shows and types into). Every save commits at once, leaving out held
- * text (which would break parsing; a missing file below counts as one that
- * must parse). One commit is sent at a time, on top of the position, in
- * merge mode for a person; while one is in flight, or while offline, the
- * newest unsent commit is amended. The answer is `main` and its texts, which
- * become the bases, with anything newer merged on top here.
+ * it shows and types into). Every save commits at once, except held text: a
+ * note that does not parse (D4), or text the server refused, which stays
+ * held with its reason until its person saves it again. One commit is sent
+ * at a time, on top of the position; while one is in flight, or offline, the
+ * newest unsent commit is amended.
  *
- * Notifications name a commit and its parents. One whose first parent is
- * the position is applied (its texts read by hash); one that cannot be
- * placed waits briefly, then the device catches up by walking history.
- * Requests go one at a time; a lost one is sent again, and a resent commit
- * is answered with its recorded outcome.
+ * Saves are conditional: `write(path, next, { over })` names the text the
+ * caller started from, and if `mine` moved since, the two are merged here,
+ * so a stale editor never reverts someone's synced change. `edit(path, fn)`
+ * does the same for a synchronous change.
  *
- * Its whole state round-trips through `store` as JSON. Rules the collapsed
- * design does not state are marked `RULE:`.
+ * There are no stored notices. A person reads two things: the text, whose
+ * conflict blocks say what contested, and each file's state (synced,
+ * sending, held with a reason). Whatever of theirs the shared text does not
+ * hold stays here as held work with a reason: a text the door refuses, work
+ * whose outcome is unknown, a delete or field removal that lost to an edit.
+ * Saving it again resolves it.
+ *
+ * Its whole state round-trips through `store` as JSON. Rules the design does
+ * not state are marked `RULE:`.
  */
 import { gitBlobHash } from '../hash.js';
-import { parseMarkdown, passesParseGate, sameValue } from '../markdown.js';
-import { merge, withMarkers } from '../merge.js';
-import { type CatchUp, commitId, type Event, type LiveCommit, type PushAnswer } from './server.js';
+import { parseMarkdown, writeMarkdown } from '../markdown.js';
+import { admissible, fold } from './door.js';
+import type { CatchUp, Event, LiveCommit, PushAnswer } from './server.js';
+import { commitId } from './server.js';
+import { appendBlock, settle } from './settle.js';
 
 export type Request =
 	| { type: 'push'; rid: number; commit: LiveCommit }
-	| { type: 'catch-up'; rid: number; from: string | null; paths: string[] }
+	| { type: 'catch-up'; rid: number; from: string | null; paths: string[]; to?: string; after?: string }
 	| { type: 'fetch'; rid: number; hashes: string[] };
 export type Reply =
 	| { type: 'answer'; rid: number; answer: PushAnswer }
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
 	| { type: 'fetched'; rid: number; texts: Record<string, string> };
-
-/** Something of yours that did not land as typed. Kept until dismissed. */
-export type Notice =
-	/** A field value someone else's change kept out. */
-	| { kind: 'field'; path: string; key: string; yours: unknown; kept: unknown }
-	/** Lines both sides changed, now a conflict block in the file. */
-	| { kind: 'overlap'; path: string; unit: string }
-	/** Your delete lost to an edit you had not seen; the file stays. */
-	| { kind: 'kept'; path: string }
-	/** Deleted elsewhere; your edit brought it back. */
-	| { kind: 'restored'; path: string };
 
 /** A level of a file: its text, null for no file. */
 type Level = { text: string | null };
@@ -53,6 +49,12 @@ type FileRecord = {
 	mine: string | null;
 	sent?: Level;
 	committed?: Level;
+	/** RULE: held for this text of `mine` (by hash): refused by the door, or a delete or removal that lost to an edit. Its person's next save resolves it. */
+	held?: { reason: string; hash: string | null };
+	/** RULE: this work's commit got `outcome-unknown`: the next catch-up puts it beside what is there, never merged blindly. */
+	unknown?: true;
+	/** RULE: paths saved with this one (a rename's two halves): they commit together, and one held holds them all. */
+	together?: string[];
 };
 
 type Persisted = {
@@ -62,10 +64,8 @@ type Persisted = {
 	files: Record<string, FileRecord>;
 	/** The commit sent and not yet answered: sent again, unchanged, until it is. */
 	inflight: LiveCommit | null;
-	/** A commit answered `flushed`: the next catch-up brings its texts. */
-	landing: LiveCommit | null;
-	notices: Notice[];
-	refusals: { paths: string[]; reason: string }[];
+	/** How many times the commit in flight has been sent: once means an `outcome-unknown` answer was a refusal, not a lost landing. */
+	attempts: number;
 	next: number;
 };
 
@@ -82,8 +82,9 @@ export function createMemoryStore(): Store & { bytes(): number } {
 	};
 }
 
-const fieldsOf = (text: string | null) => (text === null ? {} : (parseMarkdown(text).data?.fields ?? {}));
 const PASSED = 4096;
+const fieldsOf = (text: string | null) => (text === null ? {} : (parseMarkdown(text).data?.fields ?? {}));
+const hashOf = (text: string | null) => (text === null ? null : gitBlobHash(text));
 
 export function createReplica({
 	device,
@@ -111,25 +112,28 @@ export function createReplica({
 }) {
 	const loaded = store.load();
 	const state: Persisted =
-		loaded === null
-			? { position: null, passed: [], files: {}, inflight: null, landing: null, notices: [], refusals: [], next: 1 }
-			: (JSON.parse(loaded) as Persisted);
+		loaded === null ? { position: null, passed: [], files: {}, inflight: null, attempts: 0, next: 1 } : (JSON.parse(loaded) as Persisted);
 	const files = new Map(Object.entries(state.files));
 	const passed = new Set(state.passed);
 	/** Notifications not yet placed, by the commit they follow. */
 	const waiting = new Map<string, Event>();
 	let send: ((request: Request) => void) | null = null;
 	let pending: { rid: number; kind: Request['type'] } | null = null;
+	/** A catch-up being gathered page by page, then its texts read. */
+	let gathering: CatchUp | null = null;
 	/** A catch-up or notification whose texts are being read. */
 	let reading: { catchUp: CatchUp } | { event: Event } | null = null;
 	// A process starts by catching up.
 	let needCatchUp = true;
 	let gapArmed = false;
 	let alive = true;
-	/** A merge left work to commit, once the reply is taken in. */
-	let dirty = false;
 	let nextMode = mode;
-	const stats = { pushes: 0, applied: 0, merged: 0, refused: 0, catchUps: 0, fetches: 0, timeouts: 0, late: 0, notifications: 0, placed: 0, commits: 0 };
+	/** No push before this time: the server asked this member to slow down. */
+	let backoffUntil = 0;
+	/** The reason of the last refusal, for an agent awaiting its verdict. */
+	let lastRefusal: string | null = null;
+	const labels = { current: 'main', incoming: `${user}/${device}` };
+	const stats = { pushes: 0, applied: 0, merged: 0, refused: 0, catchUps: 0, fetches: 0, timeouts: 0, late: 0, notifications: 0, placed: 0, commits: 0, unknown: 0 };
 
 	const save = () => {
 		state.files = Object.fromEntries(files);
@@ -143,34 +147,73 @@ export function createReplica({
 	};
 	const record = (path: string): FileRecord => files.get(path) ?? { base: null, mine: null };
 	const set = (path: string, next: FileRecord) => {
-		const empty = next.base === null && next.mine === null && next.sent === undefined && next.committed === undefined;
+		const empty =
+			next.base === null && next.mine === null && next.sent === undefined && next.committed === undefined && next.held === undefined && next.together === undefined;
 		if (empty) files.delete(path);
 		else files.set(path, next);
 	};
 	/** What the server will have once this device's commits land. */
 	const tip = (f: FileRecord) => (f.committed ?? f.sent ?? { text: f.base }).text;
-	const notice = (next: Notice) => {
-		if (JSON.stringify(state.notices.at(-1)) !== JSON.stringify(next)) state.notices.push(next);
+	/** Why `mine` is held back, or null when it can go. */
+	const heldReason = (path: string, f: FileRecord) => {
+		if (f.held !== undefined && f.held.hash === hashOf(f.mine)) return f.held.reason;
+		if (f.mine !== tip(f)) return admissible(path, f.mine);
+		return null;
 	};
 
 	// ==========================================================================
-	// Committing and sending
+	// Saving, committing and sending
 	// ==========================================================================
 
-	/** Take `mine` into the newest unsent commit (a new one, or amended while one is in flight or offline), leaving held text out. */
+	/** Take `mine` into the newest unsent commit (amended while one is in flight or offline), leaving held text out. */
+	/** Held, or saved together with a path that is held. */
+	function blocked(path: string, seen = new Set<string>()): boolean {
+		if (seen.has(path)) return false;
+		seen.add(path);
+		const f = record(path);
+		return heldReason(path, f) !== null || (f.together ?? []).some((other) => blocked(other, seen));
+	}
+
 	function commit() {
-		dirty = false;
+		const waiting = new Set([...files.keys()].filter((path) => blocked(path)));
 		for (const [path, f] of [...files]) {
-			if (f.mine === tip(f) || !passesParseGate(path, tip(f), f.mine)) continue;
+			if (f.mine === tip(f) || waiting.has(path)) continue;
+			const { held: _, ...rest } = f;
 			const under = (f.sent ?? { text: f.base }).text;
 			if (f.mine === under) {
-				const { committed: _, ...rest } = f;
-				set(path, rest);
-			} else set(path, { ...f, committed: { text: f.mine } });
+				const { committed: __, ...clean } = rest;
+				set(path, clean);
+			} else set(path, { ...rest, committed: { text: f.mine } });
 		}
 		stats.commits++;
 		save();
 		pump();
+	}
+
+	/** Save texts: each merged here with `mine` if `mine` moved since the text the caller started from. */
+	function writeAll(changes: Record<string, string | null>, { over, commitMode }: { over?: Record<string, string | null>; commitMode?: 'merge' | 'fast-forward' } = {}) {
+		// Paths equal after NFC and case folding are one path: a save goes to the spelling this device has.
+		const spelled = (path: string) => {
+			const nfc = path.normalize('NFC');
+			return [...files.keys()].find((known) => fold(known) === fold(nfc)) ?? nfc;
+		};
+		const all = Object.keys(changes).map(spelled);
+		for (const [given, text] of Object.entries(changes)) {
+			const path = spelled(given);
+			const { held: _, ...f } = record(path);
+			const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
+			let next = from === f.mine ? text : settle(from, f.mine, text, { labels}).text;
+			// RULE: a new save over work held because it lost to an edit (a delete or a removal) is merged with that edit, never replacing it.
+			// Saving the held work unchanged is "anyway"; saving the shared text is "keep the edit".
+			const lostTo = record(path).held;
+			const shared = tip(f);
+			if (lostTo !== undefined && lostTo.reason.startsWith('edited after you') && lostTo.hash === hashOf(f.mine) && next !== f.mine && next !== shared)
+				next = settle(f.mine, shared, next, { labels}).text;
+			const together = all.filter((other) => other !== path);
+			set(path, { ...f, mine: next, ...(together.length === 0 ? {} : { together }) });
+		}
+		if (commitMode !== undefined) nextMode = commitMode;
+		commit();
 	}
 
 	function request(message: Request) {
@@ -183,6 +226,7 @@ export function createReplica({
 			stats.timeouts++;
 			pending = null;
 			reading = null;
+			gathering = null;
 			// A lost push is sent again as it is; a lost catch-up or read is asked again.
 			if (message.type !== 'push') needCatchUp = true;
 			pump();
@@ -192,24 +236,26 @@ export function createReplica({
 	function catchUp() {
 		stats.catchUps++;
 		needCatchUp = false;
-		const paths = state.landing?.files.map((f) => f.path) ?? [];
-		request({ type: 'catch-up', rid: state.next++, from: state.position, paths });
+		gathering = null;
+		request({ type: 'catch-up', rid: state.next++, from: state.position, paths: [] });
 	}
 
 	function pump() {
 		if (!alive || send === null || pending !== null) return;
 		if (state.inflight !== null) {
 			stats.pushes++;
+			state.attempts++;
 			request({ type: 'push', rid: state.next++, commit: state.inflight });
 			return save();
 		}
 		const parent = state.position;
-		if (needCatchUp || state.landing !== null || parent === null) {
+		if (needCatchUp || parent === null) {
 			catchUp();
 			return save();
 		}
-		if (reading !== null) return;
-		const ready = [...files].filter(([, f]) => f.committed !== undefined);
+		if (reading !== null || gathering !== null) return;
+		// RULE: a commit waits while a path saved with it is held (a rename's halves go together).
+		const ready = now() < backoffUntil ? [] : [...files].filter(([path, f]) => f.committed !== undefined && !blocked(path));
 		// RULE: a ready commit goes before reading notifications: its answer brings everything since its parent, and on a busy note there is always another notification.
 		if (ready.length === 0) {
 			if (waiting.has(parent)) place();
@@ -229,6 +275,7 @@ export function createReplica({
 		}
 		nextMode = mode;
 		state.inflight = sent;
+		state.attempts = 1;
 		stats.pushes++;
 		request({ type: 'push', rid: state.next++, commit: sent });
 		save();
@@ -238,43 +285,61 @@ export function createReplica({
 	// Taking what the server says
 	// ==========================================================================
 
-	/** Merge one level onto another; the server's text wins a field clash, and what of mine did not land is noted. */
-	function rebase(path: string, base: string | null, current: string | null, incoming: string | null) {
-		if (incoming === base) return current;
-		if (current === base) return incoming;
-		const result = merge(base, current, incoming);
-		for (const overlap of result.overlaps) {
-			if (overlap.unit === 'field' && overlap.incoming !== undefined && overlap.current !== undefined && !sameValue(overlap.current, overlap.incoming))
-				notice({ kind: 'field', path, key: overlap.key, yours: overlap.incoming, kept: overlap.current });
-			if (overlap.unit === 'file' && overlap.clash === 'deleted') notice({ kind: overlap.side === 'incoming' ? 'kept' : 'restored', path });
-		}
-		return withMarkers(result, { current: 'main', incoming: device });
-	}
-
 	/**
 	 * A path's text on `main` is now `text`. `landed` when that holds this
 	 * device's sent commit, whose text the local work above it was made on.
+	 * `deleted` when the path was deleted at some point since this device's base.
 	 */
-	function integrate(path: string, text: string | null, landed: boolean) {
+	function integrate(path: string, text: string | null, landed: boolean, deleted = false) {
 		const f = record(path);
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
 		if (f.sent !== undefined && !own) return;
-		const below = own ? (f.sent?.text ?? null) : f.base;
-		if (own) {
-			// RULE: a field this commit set that the server's merge kept out is noted here, from the commit and the answer; nothing else holds the value.
-			const before = fieldsOf(f.base);
-			const now_ = fieldsOf(text);
-			for (const [key, value] of Object.entries(fieldsOf(f.sent?.text ?? null)))
-				if (!sameValue(value, before[key]) && !sameValue(now_[key], value)) notice({ kind: 'field', path, key, yours: value, kept: now_[key] });
+		if (f.unknown) {
+			// RULE: work whose outcome is unknown is put beside what is there, held for its person, never merged blindly.
+			const work = f.committed !== undefined ? f.committed.text : f.mine;
+			const mine = work === text ? text : work === null || text === null ? work : appendBlock(text, work, { current: 'main', incoming: `${labels.incoming} (outcome unknown)` });
+			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown', hash: hashOf(mine) } }) });
+			return;
 		}
-		const committed = f.committed === undefined ? undefined : rebase(path, below, text, f.committed.text);
-		const mine = rebase(path, f.committed === undefined ? below : f.committed.text, committed ?? text, f.mine);
+		const below = own ? (f.sent?.text ?? null) : f.base;
+		const gone = deleted && !own;
+		// What of mine the shared text does not hold: a delete or a field removal that lost to an edit.
+		const lost = (from: string | null, mine: string | null, landed: string | null) => {
+			if (mine === null) return landed === null || from === null ? null : { reason: 'edited after you deleted it', keys: [] as string[] };
+			if (parseMarkdown(mine).error !== null) return null;
+			const removed = Object.keys(fieldsOf(from)).filter((key) => !(key in fieldsOf(mine)) && key in fieldsOf(landed));
+			return removed.length === 0 ? null : { reason: `edited after you removed ${removed.join(', ')}`, keys: removed };
+		};
+		let committed: string | null | undefined;
+		// Only when nothing was typed above that work since.
+		let lostWork = own && f.committed === undefined && f.mine === (f.sent?.text ?? null) ? lost(f.base, f.mine, text) : null;
+		if (f.committed !== undefined) {
+			const settled = settle(below, text, f.committed.text, { deletedSince: gone, labels });
+			if (f.mine === f.committed.text) lostWork ??= lost(below, f.committed.text, settled.text);
+			committed = settled.text;
+		}
+		// Held text in `mine` is rebased too, but stays held: it is published only by its person's save.
+		const mineBelow = f.committed !== undefined ? f.committed.text : below;
+		const heldDelete = f.mine === null && f.held !== undefined && f.held.hash === null;
+		const settled = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, labels});
+		// The same for work not yet committed (a rename's half waiting for its partner).
+		if (f.committed === undefined && !heldDelete && f.mine !== below) lostWork ??= lost(below, f.mine, settled.text);
+		let mine = heldDelete ? null : settled.text;
+		let held = f.held !== undefined && f.held.hash === hashOf(f.mine) ? f.held.reason : null;
+		if (lostWork !== null) {
+			// RULE: the shared text kept an edit over my delete or removal: that alone stays as I left it, held, for me to save again or let go;
+			// the rest of my unsent work still goes.
+			if (lostWork.keys.length === 0) committed = undefined;
+			mine = lostWork.keys.length === 0 ? null : (writeMarkdown(mine, { fields: Object.fromEntries(lostWork.keys.map((key) => [key, undefined])) }).data ?? mine);
+			held = lostWork.reason;
+		}
 		const next: FileRecord = { base: text, mine };
 		if (committed !== undefined && committed !== text) next.committed = { text: committed };
+		if (held !== null && mine !== text) next.held = { reason: held, hash: hashOf(mine) };
+		// A group lasts until its own commit lands: while anything of it is unsent here.
+		if (f.together !== undefined && (!own || next.committed !== undefined || next.mine !== next.base)) next.together = f.together;
 		set(path, next);
-		// RULE: a merge that leaves work committable (held text that parses now) commits it, as a save would.
-		if (mine !== tip(next) && passesParseGate(path, tip(next), mine)) dirty = true;
 	}
 
 	function onLanded(answer: Extract<PushAnswer, { kind: 'applied' | 'merged' }>) {
@@ -283,36 +348,61 @@ export function createReplica({
 		else stats.merged++;
 		for (const id of answer.commits) pass(id);
 		prune();
-		for (const file of answer.files) integrate(file.path, file.text, true);
-		for (const path of answer.restored) notice({ kind: 'restored', path });
-		for (const path of answer.kept) notice({ kind: 'kept', path });
-		for (const overlap of answer.overlaps)
-			if (overlap.unit === 'body' || overlap.unit === 'block') notice({ kind: 'overlap', path: overlap.path, unit: overlap.unit });
+		for (const file of answer.files) integrate(file.path, file.text, true, file.deleted === true);
 		state.position = answer.main;
 		pass(answer.main);
 	}
 
-	/** A commit whose outcome was pruned after a flush: rebuild its overlap notices from the flush's trailers, then catch up. */
-	function onFlushed(message: string) {
+	function onRefused(answer: Extract<PushAnswer, { kind: 'refused' }>) {
+		stats.refused++;
 		const sent = state.inflight;
 		state.inflight = null;
-		state.landing = sent;
-		for (const line of message.split('\n')) {
-			const overlap = /^Epicenter-Overlap: (.+?) (body|block|field \S+|file \S+) \(([^,]+), ([^)]+)\) in ([0-9a-f]{7})$/.exec(line);
-			if (overlap !== null && sent?.id.startsWith(overlap[5] ?? '-') && (overlap[2] === 'body' || overlap[2] === 'block'))
-				notice({ kind: 'overlap', path: overlap[1] ?? '', unit: overlap[2] });
+		lastRefusal = answer.reason;
+		for (const file of sent?.files ?? []) {
+			const { sent: level, ...rest } = record(file.path);
+			if (mode === 'fast-forward') {
+				// An agent's change is dropped: it reads again and redoes its task.
+				const { committed: _, ...clean } = rest;
+				set(file.path, { ...clean, mine: rest.base });
+				continue;
+			}
+			// RULE: a person's refused text is never dropped: what the door refused is held with the reason; the rest goes again.
+			const atFault = answer.path === undefined || answer.path === file.path;
+			const partner = answer.path !== undefined && (rest.together ?? []).includes(answer.path);
+			if (answer.reason !== 'rate' && !atFault && partner) {
+				// Saved with the path at fault (a rename's other half): it waits with it, uncommitted.
+				const { committed: _, ...clean } = rest;
+				set(file.path, clean);
+			} else if (answer.reason === 'rate' || !atFault) set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+			else {
+				const { committed: _, ...clean } = rest;
+				set(file.path, { ...clean, held: { reason: answer.reason, hash: hashOf(clean.mine) } });
+			}
 		}
-		needCatchUp = true;
+		if (mode === 'fast-forward') needCatchUp = true;
+		if (answer.reason === 'rate') {
+			backoffUntil = now() + 1_000;
+			after(1_000, pump);
+		}
 	}
 
-	/** RULE: the commit's parent was pruned: put its work back as unsent, catch up from nothing, and commit it again on top. */
-	function onUnknownParent() {
+	/**
+	 * The server cannot say what became of this commit (its parent or its
+	 * outcome left the window). RULE: sent once, it was refused, never landed,
+	 * so its work goes back as unsent and merges normally after a full
+	 * catch-up; sent more than once, an earlier send may have landed, so its
+	 * work is put beside what is there, held.
+	 */
+	function onUnknown() {
+		stats.unknown++;
 		const sent = state.inflight;
+		const once = state.attempts <= 1;
 		state.inflight = null;
 		for (const file of sent?.files ?? []) {
 			const { sent: level, ...rest } = record(file.path);
-			set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+			set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text }, ...(once ? {} : { unknown: true as const }) });
 		}
+		if (!once) for (const [path, f] of [...files]) if (f.committed !== undefined) set(path, { ...f, unknown: true });
 		state.position = null;
 		needCatchUp = true;
 	}
@@ -324,28 +414,12 @@ export function createReplica({
 				onLanded(answer);
 				place();
 				return;
-			case 'flushed':
-				onFlushed(answer.message);
-				return;
-			case 'unknown-parent':
-				onUnknownParent();
-				return;
 			case 'refused':
-			case 'invalid':
-			case 'precondition-required': {
-				stats.refused++;
-				const sent = state.inflight;
-				state.inflight = null;
-				const reason = answer.kind === 'precondition-required' ? 'no parent' : answer.reason;
-				state.refusals.push({ paths: sent?.files.map((f) => f.path) ?? [], reason });
-				// The change is dropped: an agent reads again and redoes its task. (A person's commit is never refused.)
-				for (const file of sent?.files ?? []) {
-					const { sent: _, committed: __, ...rest } = record(file.path);
-					set(file.path, { ...rest, mine: rest.base });
-				}
-				needCatchUp = true;
+				onRefused(answer);
 				return;
-			}
+			case 'outcome-unknown':
+				onUnknown();
+				return;
 			default:
 				answer satisfies never;
 		}
@@ -366,12 +440,16 @@ export function createReplica({
 			needCatchUp = true;
 			return;
 		}
-		const landed = new Set(state.landing?.files.map((f) => f.path) ?? []);
 		const named = new Set(reply.files.map((f) => f.path));
-		for (const file of reply.files) integrate(file.path, file.hash === null ? null : (texts.get(file.hash) ?? null), landed.has(file.path));
-		if (reply.full) for (const [path, f] of [...files]) if (!named.has(path) && f.base !== null) integrate(path, null, landed.has(path));
+		for (const file of reply.files) integrate(file.path, file.hash === null ? null : (texts.get(file.hash) ?? null), false, file.deleted === true);
+		// In a full listing, every local file not named is absent.
+		if (reply.full) for (const [path, f] of [...files]) if (!named.has(path) && (f.base !== null || f.unknown)) integrate(path, null, false);
+		for (const [path, f] of [...files])
+			if (f.unknown) {
+				const { unknown: _, ...rest } = f;
+				set(path, rest);
+			}
 		for (const id of reply.commits) pass(id);
-		state.landing = null;
 		state.position = reply.main;
 		pass(reply.main);
 		prune();
@@ -394,7 +472,8 @@ export function createReplica({
 	/** Apply waiting notifications that follow the position, reading their texts first. */
 	function place() {
 		const next = () => (state.position === null ? undefined : waiting.get(state.position));
-		for (let event = next(); event !== undefined; event = next()) {
+		// RULE: nothing is applied while a commit is in flight (a delete needs no read, so this is not implied); its answer brings everything since its parent.
+		for (let event = next(); event !== undefined && state.inflight === null; event = next()) {
 			const have = known();
 			const lacking = missing(event.files.map((f) => f.hash), have);
 			if (lacking.length > 0) {
@@ -419,7 +498,7 @@ export function createReplica({
 	}
 
 	// Work saved before a restart and not yet committed is committed now.
-	if ([...files].some(([path, f]) => f.mine !== tip(f) && passesParseGate(path, tip(f), f.mine))) commit();
+	if ([...files].some(([path, f]) => f.mine !== tip(f) && !blocked(path))) commit();
 
 	return {
 		device,
@@ -428,28 +507,44 @@ export function createReplica({
 		/** Every path this device shows. */
 		paths: () => [...files].filter(([, f]) => f.mine !== null).map(([path]) => path).sort(),
 		/** Every file's base and mine, and whether it has nothing unsent, for checks. */
-		files: () => new Map([...files].map(([path, f]) => [path, { base: f.base, mine: f.mine, settled: f.sent === undefined && f.committed === undefined }])),
+		files: () =>
+			new Map([...files].map(([path, f]) => [path, { base: f.base, mine: f.mine, tip: tip(f), settled: f.sent === undefined && f.committed === undefined }])),
 		/**
-		 * Save texts at once (null deletes) and commit them together; a rename
-		 * is a delete of the old path and a write of the new one. `commitMode`
-		 * sets the mode of the commit they go in.
+		 * Save one path: `over` is the text the caller started from (the editor's
+		 * loaded text); if `mine` moved since, the two are merged here. Without
+		 * `over`, the caller asserts it started from what `read` shows now.
 		 */
-		write(changes: Record<string, string | null>, { commitMode }: { commitMode?: 'merge' | 'fast-forward' } = {}) {
-			for (const [path, text] of Object.entries(changes)) set(path, { ...record(path), mine: text });
-			if (commitMode !== undefined) nextMode = commitMode;
-			commit();
+		write(path: string, next: string | null, { over, commitMode }: { over?: string | null; commitMode?: 'merge' | 'fast-forward' } = {}) {
+			writeAll({ [path]: next }, { ...(over === undefined ? {} : { over: { [path]: over } }), ...(commitMode === undefined ? {} : { commitMode }) });
 		},
-		/** Files whose shown text is held back because it would break parsing. */
-		held: () => [...files].filter(([path, f]) => f.mine !== tip(f) && !passesParseGate(path, tip(f), f.mine)).map(([path]) => path),
+		/** Save several paths in one commit (a rename is a delete of the old path and a write of the new one). */
+		writeAll,
+		/** Change a path from what it shows now. */
+		edit(path: string, change: (text: string | null) => string | null, options: { commitMode?: 'merge' | 'fast-forward' } = {}) {
+			const text = files.get(path)?.mine ?? null;
+			writeAll({ [path]: change(text) }, { over: { [path]: text }, ...options });
+		},
+		/** Files whose text is held back, with why. */
+		held: () => [...files].flatMap(([path, f]) => {
+			const reason = heldReason(path, f);
+			return reason === null ? [] : [{ path, reason }];
+		}),
 		/** Whether anything is waiting to send, for an answer, or to be caught up. */
 		busy: () =>
 			pending !== null ||
 			needCatchUp ||
+			gathering !== null ||
 			state.inflight !== null ||
-			state.landing !== null ||
-			[...files].some(([path, f]) => f.committed !== undefined || (f.mine !== tip(f) && passesParseGate(path, tip(f), f.mine))),
-		notices: () => [...state.notices],
-		refusals: () => [...state.refusals],
+			[...files].some(([path, f]) => f.committed !== undefined || (f.mine !== tip(f) && !blocked(path))),
+		/** One file's state: synced, sending, or held with why. */
+		state(path: string): { status: 'synced' | 'sending' | 'held'; reason?: string } {
+			const f = record(path);
+			const reason = heldReason(path, f);
+			if (reason !== null) return { status: 'held', reason };
+			return f.sent !== undefined || f.committed !== undefined || f.mine !== f.base ? { status: 'sending' } : { status: 'synced' };
+		},
+		/** Why the last commit was refused (an agent's verdict), or null. */
+		lastRefusal: () => lastRefusal,
 		position: () => state.position,
 		stats: () => ({ ...stats }),
 		/** Requests can be sent (online), or not (null). */
@@ -458,6 +553,7 @@ export function createReplica({
 			if (sender === null) {
 				pending = null;
 				reading = null;
+				gathering = null;
 			}
 			pump();
 		},
@@ -493,12 +589,20 @@ export function createReplica({
 					onAnswer(message.answer);
 					break;
 				case 'caught-up': {
-					const reply = message.catchUp;
+					const page = message.catchUp;
+					const whole: CatchUp = gathering === null ? page : { ...page, files: [...gathering.files, ...page.files] };
+					if (page.next !== null) {
+						// RULE: a catch-up comes in pages up to the server's limit; the device gathers them, then applies them at once.
+						gathering = whole;
+						request({ type: 'catch-up', rid: state.next++, from: state.position, paths: [], to: page.main, after: page.next });
+						break;
+					}
+					gathering = null;
 					const have = known();
-					const lacking = missing(reply.files.map((f) => f.hash), have);
-					if (lacking.length === 0) applyCatchUp(reply, have);
+					const lacking = missing(whole.files.map((f) => f.hash), have);
+					if (lacking.length === 0) applyCatchUp(whole, have);
 					else {
-						reading = { catchUp: reply };
+						reading = { catchUp: whole };
 						stats.fetches++;
 						request({ type: 'fetch', rid: state.next++, hashes: lacking });
 					}
@@ -516,7 +620,6 @@ export function createReplica({
 				default:
 					message satisfies never;
 			}
-			if (dirty) commit();
 			save();
 			pump();
 		},

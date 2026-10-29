@@ -41,8 +41,10 @@ export function createWorld({
 	const stream: LinkOptions = { ordered: false, lossCloses: true, latency, loss: { up: 0, down: streamLoss }, ...(stall === undefined ? {} : { stall }) };
 	const commitHooks: ((committed: Committed) => void)[] = [];
 	const requestHooks: ((device: string, request: Request, reply: Reply) => void)[] = [];
-	const server = createServer({ now: net.now, onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)) });
-	const counts = { push: 0, 'catch-up': 0, fetch: 0, walked: 0, notifications: 0, flushes: 0 };
+	/** The repository's members: every device's person, and `mallory`, a member who writes straight to the server. */
+	const members = new Set(['mallory']);
+	const server = createServer({ now: net.now, members, onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)) });
+	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0, flushes: 0 };
 	let lastPush = 0;
 	let lastFlush = 0;
 
@@ -63,6 +65,7 @@ export function createWorld({
 	}
 
 	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward' } = {}) {
+		members.add(name);
 		let store = createMemoryStore();
 		const make = () => createReplica({ device: name, mode, store, after: net.after, now: net.now, timeout });
 		let replica = make();
@@ -75,13 +78,12 @@ export function createWorld({
 			counts[request.type]++;
 			switch (request.type) {
 				case 'push': {
-					const answer = server.push(request.commit);
+					const answer = server.push(request.commit, { member: name });
 					if (answer.kind === 'applied' || answer.kind === 'merged') pushed();
 					return { type: 'answer', rid: request.rid, answer };
 				}
 				case 'catch-up': {
 					const catchUp = server.catchUp(request);
-					counts.walked += catchUp.walked;
 					return { type: 'caught-up', rid: request.rid, catchUp };
 				}
 				case 'fetch':
@@ -182,7 +184,9 @@ export function createWorld({
 		net,
 		server,
 		device,
-		/** Flush live history into one snapshot commit now (`epicenter pull`, `git fetch`). */
+		/** LFS bytes reach the server (the upload track). */
+		upload: (oid: string) => server.upload(oid),
+		/** Flush live history into Git commits now (`epicenter pull`, `git fetch`). */
 		flush,
 		/** Turn all loss and stalls off (the quiescence phase). */
 		calm() {
