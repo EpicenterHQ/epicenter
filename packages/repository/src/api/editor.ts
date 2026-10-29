@@ -116,7 +116,7 @@ type Entry = Editor & {
 	heard(revision: number, text: string | null): void;
 	reopened(text: string | null): void;
 	lost(): void;
-	end(): void;
+	end(options?: { dropped?: boolean }): void;
 };
 
 /** Who wrote each side of a conflict block shown before its answer: the worker labels the one it writes. */
@@ -352,8 +352,8 @@ export function createEditors(deps: Deps) {
 				return closed;
 			},
 			discard() {
-				entry.end();
-				editors.delete(path);
+				entry.end({ dropped: true });
+				if (editors.get(path) === entry) editors.delete(path);
 				deps.refresh(path);
 			},
 			dirty,
@@ -373,9 +373,14 @@ export function createEditors(deps: Deps) {
 			lost() {
 				if (!ended) settleClosing();
 			},
-			end() {
+			/** Stop for good. `dropped`: the person let the draft go (a discard, or a delete made here), so nothing is reported unsaved. */
+			end({ dropped = false }: { dropped?: boolean } = {}) {
 				if (ended) return;
 				ended = true;
+				if (dropped) {
+					draft = base;
+					flight = null;
+				}
 				const unsaved = dirty();
 				setState({ status: 'closed' });
 				tell(null);
@@ -460,6 +465,10 @@ export function createEditors(deps: Deps) {
 						() => {},
 					);
 			}
+		},
+		/** The note was deleted here: its editor ends, and its draft goes with it. */
+		deleted(path: string) {
+			editors.get(path)?.discard();
 		},
 		/** The session ended. */
 		lost() {

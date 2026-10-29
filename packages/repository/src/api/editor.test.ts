@@ -344,3 +344,39 @@ test('views of one note share its editor, a body view and a source view alike: t
 	expectOk(await last);
 	expect(world.alice.replica.read(PATH)).toBe(note('one two\n', 'Both'));
 });
+
+test('a note deleted here ends its editor: the draft goes with it, it is not listed, and nothing brings it back', async () => {
+	const { alice, repo } = twoDevices(app);
+	alice.replica.write(PATH, note('one'));
+	await settled();
+	const editor = expectOk(await repo.notes.openEditor({ stem: 'plan' }));
+	alice.fail(true);
+	editor.update(note('oneX'));
+	await settled();
+	await settled();
+	expect(editor.state().status).toBe('failed');
+	alice.fail(false);
+	expectOk(await repo.notes.delete({ stem: 'plan' }));
+	await settled();
+	expect(editor.state().status).toBe('closed');
+	expect(repo.notes.get({ stem: 'plan' })).toBeUndefined();
+	expect(repo.notes.all()).toEqual([]);
+	editor.retry();
+	expect((await editor.close()).error).toBeNull();
+	await settled();
+	await settled();
+	expect(alice.replica.read(PATH)).toBeNull();
+	// A delete in a batch ends the editor too.
+	alice.replica.write(PATH, note('two'));
+	await settled();
+	const again = expectOk(await repo.notes.openEditor({ stem: 'plan' }));
+	alice.fail(true);
+	again.update(note('twoX'));
+	await settled();
+	await settled();
+	alice.fail(false);
+	expectOk(await repo.commit((batch) => batch.notes.delete({ stem: 'plan' })));
+	await settled();
+	expect(again.state().status).toBe('closed');
+	expect(repo.notes.all()).toEqual([]);
+});

@@ -394,6 +394,8 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	async function send(changes: Change[]): Promise<Result<Changed, WriteError>> {
 		const current = status.status === 'open' ? session : null;
 		if (current === null) return RepositoryError.Unavailable({ status: status.status });
+		// A note deleted here takes its editor with it: one owner of the path, so no draft keeps it listed or brings it back.
+		for (const change of changes) if (change.kind === 'delete' || (change.kind === 'write' && change.text === null)) editors.deleted(change.path);
 		let finish = () => {};
 		const done = new Promise<void>((resolve) => {
 			finish = resolve;
