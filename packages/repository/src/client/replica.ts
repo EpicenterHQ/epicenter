@@ -855,7 +855,11 @@ function createReplica({
 				reading = null;
 				const texts = new Map([...known(), ...Object.entries(message.texts)]);
 				if (was !== null && 'catchUp' in was) applyCatchUp(was.catchUp, texts);
-				else if (was !== null && position === was.event.parents[0]) applyEvent(was.event, texts);
+				else if (was !== null && was.event.files.some((f) => f.hash !== null && !texts.has(f.hash))) {
+					// The server no longer keeps a text the notification names (its commit left the window): catch up instead.
+					waiting.delete(was.event.parents[0] ?? '');
+					needCatchUp = true;
+				} else if (was !== null && position === was.event.parents[0]) applyEvent(was.event, texts);
 				place();
 				break;
 			}

@@ -169,6 +169,28 @@ describe('catch-up and the change feed', () => {
 	});
 });
 
+describe('storage', () => {
+	test('texts and tree nodes no kept commit names are collected after a flush, so 200 saves of a 10 KB note leave a bounded store', async () => {
+		const { server, clock } = setup();
+		const text = (i: number) => note(`${'x'.repeat(10_000)} ${i}\n`);
+		for (let i = 0; i < 200; i++) {
+			expect(server.push(make(server, [{ path: 'n/a.md', text: text(i) }, { path: `n/deep/${i % 3}/b.md`, text: note(`${i}\n`) }]), alice).kind).toBe('applied');
+			clock.now += 1_000;
+		}
+		await server.flush();
+		expect(server.history().bytes).toBeGreaterThan(200 * 10_000);
+		clock.now += LIMITS.window + 1;
+		await server.flush();
+		const { bytes, nodes } = server.history();
+		expect(bytes).toBeLessThan(3 * 10_100);
+		expect(nodes).toBeLessThan(12);
+		// What main holds is still there, for reads and the next catch-up.
+		expect(server.read('n/a.md')).toBe(text(199));
+		expect(server.catchUp({ from: null }).files).toHaveLength(4);
+		expect(server.fetch([gitBlobHash(text(199))])).toEqual({ [gitBlobHash(text(199))]: text(199) });
+	});
+});
+
 describe('the Git receive path', () => {
 	async function flushed() {
 		const world = setup();

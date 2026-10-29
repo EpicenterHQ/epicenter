@@ -409,9 +409,28 @@ export function createServer({
 	const flusher = createFlusher({ history, store, git, faults });
 	const receiver = createReceiver({ history, store, git, clock, limits, flusher, apply: (commit, session) => push(commit, session, { rate: false }) });
 
+	/**
+	 * RULE: after a flush, drop what the window no longer keeps, then every
+	 * text and tree node that no kept commit, no flush in progress and Git's
+	 * last flushed tree names. Answers hold their texts inline.
+	 */
+	function collect() {
+		store.transaction(() => {
+			prune();
+			const roots = [meta.get('git_tree') ?? trees.empty];
+			for (const { plan } of store.all<{ plan: string }>('SELECT plan FROM journal')) for (const commit of (JSON.parse(plan) as { commits: { tree: string }[] }).commits) roots.push(commit.tree);
+			history.sweep(roots);
+		});
+	}
+	const flushAndCollect = async () => {
+		const result = await flusher.flush();
+		collect();
+		return result;
+	};
+
 	function flushInBackground() {
 		lastFlush = clock();
-		flusher.flush().catch((cause: unknown) => log?.error(ServerDiagnostic.FlushFailed({ cause })));
+		flushAndCollect().catch((cause: unknown) => log?.error(ServerDiagnostic.FlushFailed({ cause })));
 	}
 	/** The quiet-time trigger: `quiet` after the last push with none since, or `busy` after the last flush. */
 	function pushed() {
@@ -516,7 +535,7 @@ export function createServer({
 		 */
 		flush: () => {
 			lastFlush = clock();
-			return flusher.flush();
+			return flushAndCollect();
 		},
 		/** Resolves once no flush or Git push is in progress. */
 		idle: () => flusher.idle(),
@@ -530,12 +549,13 @@ export function createServer({
 			if (answer.kind === 'refused' && answer.reason.startsWith('live edits')) flushInBackground();
 			return answer;
 		},
-		/** Live commits made and kept, answers kept, and flushes, for tests and the benchmark. */
+		/** Live commits made and kept, answers kept, the texts' bytes and tree nodes kept, and flushes, for tests and the benchmark. */
 		history: () => ({
 			commits: meta.number('made'),
 			kept: history.top() - history.offset() + 1,
 			outcomes: first<{ n: number }>(store, 'SELECT COUNT(*) AS n FROM outcomes')?.n ?? 0,
 			bytes: first<{ n: number }>(store, 'SELECT COALESCE(SUM(LENGTH(text)), 0) AS n FROM blobs')?.n ?? 0,
+			nodes: first<{ n: number }>(store, 'SELECT COUNT(*) AS n FROM nodes')?.n ?? 0,
 			flushes: first<{ n: number }>(store, 'SELECT COUNT(*) AS n FROM flushes')?.n ?? 0,
 		}),
 	};

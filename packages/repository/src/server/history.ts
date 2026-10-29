@@ -6,7 +6,8 @@
  * here, so a crash loses nothing that was answered.
  *
  * Trees are Git tree objects (core/tree), stored as nodes by id; a commit's
- * snapshot stays readable for as long as its row is kept.
+ * snapshot stays readable for as long as its row is kept. Texts and nodes
+ * are kept only while a tree that names them is (`sweep`).
  */
 import type { Author, CommitFile } from '../core/commit.js';
 import { fold } from '../core/door.js';
@@ -207,6 +208,32 @@ export function openHistory(store: SqlDriver) {
 			store.run('DELETE FROM commits WHERE place < ?', [keep]);
 			store.run('DELETE FROM deletes WHERE place < ?', [keep]);
 			meta.set('offset', keep);
+		},
+		/**
+		 * Delete every text and tree node that no tree named by a kept commit
+		 * (on `main` or merged in) or by `roots` reaches. Mark and sweep: what
+		 * a kept tree reaches is walked once, shared subtrees included.
+		 */
+		sweep(roots: string[]) {
+			const reached = new Set<string>();
+			const texts = new Set<string>();
+			const walk = (tree: string) => {
+				if (reached.has(tree)) return;
+				reached.add(tree);
+				for (const entry of nodes.get(tree)?.values() ?? []) {
+					if (entry.kind === 'tree') walk(entry.hash);
+					else texts.add(entry.hash);
+				}
+			};
+			walk(trees.empty);
+			for (const { tree } of store.all<{ tree: string }>('SELECT DISTINCT tree FROM commits')) walk(tree);
+			for (const tree of roots) walk(tree);
+			for (const { hash } of store.all<{ hash: string }>('SELECT hash FROM nodes'))
+				if (!reached.has(hash)) {
+					store.run('DELETE FROM nodes WHERE hash = ?', [hash]);
+					cache.delete(hash);
+				}
+			for (const { hash } of store.all<{ hash: string }>('SELECT hash FROM blobs')) if (!texts.has(hash)) store.run('DELETE FROM blobs WHERE hash = ?', [hash]);
 		},
 		/** The newest place whose commit is older than `cutoff`, or -1. */
 		newestBefore: (cutoff: number) => first<{ place: number | null }>(store, 'SELECT MAX(place) AS place FROM commits WHERE place IS NOT NULL AND at < ?', [cutoff])?.place ?? -1,
