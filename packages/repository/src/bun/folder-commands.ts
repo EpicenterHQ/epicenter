@@ -8,8 +8,8 @@
  *
  * Each prints one JSON value per line with `json`, else the same as plain
  * lines: `joined`, `caught-up`, `sent`, `landed` (with `conflicts`),
- * `held` (path and reason), `unreadable` (path and reason), `pending`,
- * `unchanged`, `stopped`. Exit codes: 0 done, 1 usage or environment, 2
+ * `held` (path and reason: files the replica holds, and files in the
+ * folder the repository cannot take), `pending`, `unchanged`, `stopped`. Exit codes: 0 done, 1 usage or environment, 2
  * work not landed (held, pending).
  */
 import { findConflicts } from '../core/conflict.js';
@@ -22,7 +22,6 @@ export type Line =
 	| { sent: string[] }
 	| { landed: string; conflicts: string[] }
 	| { held: { path: string; reason: string }[]; commit: string | null }
-	| { unreadable: { path: string; reason: string }[] }
 	| { pending: string | null }
 	| { unchanged: true }
 	| { stopped: true }
@@ -37,7 +36,6 @@ export function plain(line: Line): string {
 	if ('sent' in line) return `Sent ${line.sent.join(', ')}`;
 	if ('landed' in line) return `Landed ${line.landed.slice(0, 7)}${line.conflicts.length === 0 ? '' : `; conflict blocks in ${line.conflicts.join(', ')}`}`;
 	if ('held' in line) return `Held: ${line.held.map((h) => `${h.path} (${h.reason})`).join(', ')}`;
-	if ('unreadable' in line) return `Unreadable: ${line.unreadable.map((u) => `${u.path} (${u.reason})`).join(', ')}`;
 	if ('pending' in line) return `Pending${line.pending === null ? '' : ` ${line.pending.slice(0, 7)}`}: it goes with the next commit or sync`;
 	if ('unchanged' in line) return 'Nothing differs from the last sync';
 	if ('stopped' in line) return 'Stopped';
@@ -78,9 +76,7 @@ export async function sync(options: FolderOptions & { once?: boolean; stop?: Pro
 		print({ 'caught-up': replica.position() });
 		await engine.start({ watch: options.once !== true });
 		const report = () => {
-			const unreadable = engine.unreadable();
-			if (unreadable.length > 0) print({ unreadable });
-			const held = replica.held();
+			const held = [...engine.held(), ...replica.held()];
 			if (held.length > 0) print({ held, commit: null });
 		};
 		if (options.once === true) {
@@ -119,8 +115,9 @@ export async function commit(options: FolderOptions & { message: string; wait?: 
 	try {
 		// Before connecting: no remote change can project into a file the commit is reading, and the record holds what the group read when answers come.
 		const saved = await engine.commit(options.message);
-		const unreadable = engine.unreadable();
-		if (unreadable.length > 0) print({ unreadable });
+		// Files in the folder the repository cannot take are not in the commit: they are named, and it goes without them.
+		const kept = engine.held();
+		if (kept.length > 0) print({ held: kept, commit: null });
 		if (saved.length === 0 && replica.unsent().length === 0) {
 			print({ unchanged: true });
 			return 0;

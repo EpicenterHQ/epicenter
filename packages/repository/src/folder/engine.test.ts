@@ -14,7 +14,8 @@
  * - A file made while the engine has the path captured was made over nothing, so nothing the engine took aside is deleted by it
  * - A crash between the capture and the link puts the file back, and nothing reads it as a delete
  * - `commit` sends every difference as one commit carrying the message; nothing differing changes nothing
- * - A `.md` file that is not UTF-8 is listed as unreadable, never sent, never overwritten; dot paths and editor droppings are never sent
+ * - A `.md` file that is not UTF-8 is held, never sent, never overwritten; dot paths and editor droppings are never sent
+ * - Two files whose names differ only in letters (a case-sensitive file system) are held, and the repository takes neither; the engine never writes such a pair itself
  * - A blob in the folder is sealed, uploaded, and lands; one from elsewhere is fetched before its file is written
  */
 import { expect, test } from 'bun:test';
@@ -22,6 +23,8 @@ import { findConflicts } from '../core/conflict.js';
 import { parsePointer } from '../core/markdown.js';
 import type { World } from '../sim/harness.js';
 import { createWorld } from '../sim/harness.js';
+import { TWIN } from './engine.js';
+import { fold } from '../core/door.js';
 import { createFolderDevice, type Lfs, runFor, step, until, uploadBlob } from '../sim/folder.test-support.js';
 
 const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`;
@@ -201,7 +204,7 @@ test('commit sends every difference as one commit carrying the message; nothing 
 	expect(await until(world, folder.engine.commit('Again'))).toEqual([]);
 });
 
-test('a .md file that is not UTF-8 is unreadable: never sent, never overwritten; dot paths and droppings are never sent', async () => {
+test('a .md file that is not UTF-8 is held: never sent, never overwritten; dot paths and droppings are never sent', async () => {
 	const { world, folder, other } = await setup();
 	folder.disk.write('notes/bad.md', new Uint8Array([0xff, 0xfe, 0x41]));
 	folder.disk.write('.obsidian/workspace.json', encoder.encode('{}'));
@@ -209,17 +212,70 @@ test('a .md file that is not UTF-8 is unreadable: never sent, never overwritten;
 	folder.disk.write('4913', encoder.encode(''));
 	folder.disk.write('.DS_Store', encoder.encode('x'));
 	await runFor(world, 2_000);
-	expect(folder.engine.unreadable()).toEqual([{ path: 'notes/bad.md', reason: 'not UTF-8 text' }]);
+	expect(folder.engine.held()).toEqual([{ path: 'notes/bad.md', reason: 'not UTF-8 text' }]);
 	expect([...world.server.snapshot().keys()]).toEqual([]);
 	other.replica.write('notes/bad.md', note('remote\n'));
 	await runFor(world, 2_000);
 	expect(folder.disk.bytes('notes/bad.md')).toEqual(new Uint8Array([0xff, 0xfe, 0x41]));
 	folder.disk.write('notes/bad.md', encoder.encode(note('readable\n')));
 	await runFor(world, 2_000);
-	expect(folder.engine.unreadable()).toEqual([]);
+	expect(folder.engine.held()).toEqual([]);
 	const merged = world.server.read('notes/bad.md') ?? '';
 	expect(merged).toContain('readable');
 	expect(findConflicts(merged).length > 0 || merged.includes('remote')).toBe(true);
+});
+
+test('two files whose names differ only in letters are held: the repository takes neither, and both go once one is renamed', async () => {
+	const { world, folder } = await setup();
+	folder.disk.write('notes/todo.md', encoder.encode(note('one\n')));
+	await runFor(world, 2_000);
+	folder.disk.write('notes/Todo.md', encoder.encode(note('twin\n')));
+	await runFor(world, 2_000);
+	expect(folder.engine.held()).toEqual([{ path: 'notes/Todo.md', reason: TWIN }]);
+	// A save to either is held while both are there: the repository has one file for the name.
+	folder.disk.write('notes/todo.md', encoder.encode(note('one\nedited\n')));
+	await runFor(world, 2_000);
+	expect(folder.engine.held()).toEqual([
+		{ path: 'notes/Todo.md', reason: TWIN },
+		{ path: 'notes/todo.md', reason: TWIN },
+	]);
+	expect(world.server.snapshot()).toEqual(new Map([['notes/todo.md', note('one\n')]]));
+	expect([...folder.replica.files().keys()]).toEqual(['notes/todo.md']);
+	// The person renames one.
+	folder.disk.rename('notes/Todo.md', 'notes/todo 2.md');
+	await runFor(world, 2_000);
+	expect(folder.engine.held()).toEqual([]);
+	expect(world.server.snapshot()).toEqual(
+		new Map([
+			['notes/todo.md', note('one\nedited\n')],
+			['notes/todo 2.md', note('twin\n')],
+		]),
+	);
+	expect(folder.disk.violations).toEqual([]);
+});
+
+test('the engine never writes a file beside one whose name differs only in letters: the folder takes main\'s spelling', async () => {
+	const { world, folder, other } = await setup();
+	// Ada creates Todo.md offline; bo's todo.md lands first, so main spells it todo.md.
+	folder.device.setOnline(false);
+	folder.disk.write('notes/Todo.md', encoder.encode(note('ada\n', 'Todo')));
+	await runFor(world, 1_000);
+	other.replica.write('notes/todo.md', note('bo\n', 'Todo'), { over: null });
+	await runFor(world, 1_000);
+	folder.device.setOnline(true);
+	const both: number[] = [];
+	for (const end = world.net.now() + 5_000; world.net.now() < end; ) {
+		if ((await step(world)) === false) await runFor(world, 10);
+		const spellings = folder.disk.paths().filter((path) => fold(path) === fold('notes/todo.md'));
+		if (spellings.length > 1) both.push(world.net.now());
+	}
+	expect(both).toEqual([]);
+	const text = world.server.read('notes/todo.md') ?? '';
+	expect(text).toContain('ada');
+	expect(text).toContain('bo');
+	expect(folder.disk.paths()).toEqual(['notes/todo.md']);
+	expect(folder.disk.text('notes/todo.md')).toBe(text);
+	expect(folder.engine.held()).toEqual([]);
 });
 
 test("a blob saved in the folder is sealed, uploaded and lands; one from elsewhere is fetched before its file is written", async () => {

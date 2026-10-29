@@ -52,6 +52,8 @@ export type FolderFs = {
 	walk(prefix: string, skip: (path: string) => boolean): AsyncIterable<Entry>;
 	/** What is at `path` now, without following a symlink; null for nothing. */
 	stat(path: string): Promise<Entry | null>;
+	/** The names of the entries directly in directory `dir` ('' for the root), as the file system spells them; none when it is not a directory. */
+	list(dir: string): Promise<string[]>;
 	/** A regular file's bytes as a `Blob` read when asked (null: absent, or not a regular file). */
 	read(path: string): Promise<Blob | null>;
 	/**
@@ -106,13 +108,16 @@ const parentsOf = (path: string) => {
  * It checks the engine's rule as it goes: `drop` of a scratch file the
  * engine has not read since it last changed is a violation (bytes the
  * engine did not write, destroyed unread), and so is a change through
- * `replace` or `remove` to a path an ignore rule covers.
+ * `replace` or `remove` to a path an ignore rule covers, or a file made by
+ * `replace` whose path folds (as `fold` says) to another file's in the
+ * folder when the call began.
  */
 export function createMemoryFolderFs({
 	after,
 	now,
 	faults = { delay: () => 0, drop: () => false, overflow: () => false },
 	ignored = () => false,
+	fold = null,
 	step = () => 0,
 }: {
 	after: (ms: number, run: () => void) => void;
@@ -120,6 +125,8 @@ export function createMemoryFolderFs({
 	faults?: EventFaults;
 	/** Paths the engine must never change: a change through the engine's calls is a violation. */
 	ignored?: (path: string) => boolean;
+	/** The repository's folding of paths: the engine making a file whose path folds to another file's is a violation. */
+	fold?: ((path: string) => string) | null;
 	/** Virtual ms each call takes before it acts, so writers on the same clock land between the engine's steps. */
 	step?: () => number;
 }) {
@@ -191,6 +198,13 @@ export function createMemoryFolderFs({
 			if (file !== undefined) return entryOf(path, file);
 			return isDirectory(path) ? { path, kind: 'directory', size: 0, mtime: 0, ino: 0 } : null;
 		},
+		async list(dir) {
+			await tick();
+			const prefix = dir === '' ? '' : `${dir}/`;
+			const names = new Set<string>();
+			for (const path of files.keys()) if (path.startsWith(prefix)) names.add(path.slice(prefix.length).split('/')[0] ?? '');
+			return [...names].sort();
+		},
 		async read(path) {
 			await tick();
 			const file = files.get(path);
@@ -198,6 +212,8 @@ export function createMemoryFolderFs({
 		},
 		async replace(path, blob, { scratch: name }) {
 			if (ignored(path)) violations.push(`the engine wrote ${path}, which is ignored`);
+			// The folder as the engine last looked, just before this call: a file beside which it must not make one.
+			const beside = fold === null || files.has(path) ? [] : [...files.keys()].filter((other) => other !== path && fold(other) === fold(path));
 			const bytes = await bytesOf(blob);
 			await tick();
 			const there = files.get(path);
@@ -210,6 +226,7 @@ export function createMemoryFolderFs({
 			await tick();
 			if (!free(path)) return Ok({ written: false, entry: null, displaced: there === undefined ? null : name });
 			const made: MemoryFile = { bytes, ino: inode++, mtime: now(), kind: 'file' };
+			for (const other of beside) if (files.has(other)) violations.push(`the engine wrote ${path} beside ${other}`);
 			files.set(path, made);
 			emit(path);
 			return Ok({ written: true, entry: entryOf(path, made), displaced: there === undefined ? null : name });

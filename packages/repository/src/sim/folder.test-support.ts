@@ -6,6 +6,7 @@
  * uploaded. Shared by the folder's scenario tests and its property test.
  */
 import { createMemoryBlobStore, createHasher, type Sealed } from '../client/blobs.js';
+import { fold } from '../core/door.js';
 import { writePointer } from '../core/markdown.js';
 import { createFolderEngine, type FolderEngine, ignored, QUIET } from '../folder/engine.js';
 import { createMemoryFolderFs, type EventFaults } from '../folder/fs.js';
@@ -55,7 +56,7 @@ export function createFolderDevice(
 	{ lfs, faults, quiet = QUIET, scanEvery = null, step }: { lfs: Lfs; faults?: EventFaults; quiet?: number; scanEvery?: number | null; step?: () => number },
 ) {
 	const device: Device = world.device(name);
-	const disk = createMemoryFolderFs({ after: world.net.after, now: world.net.now, ...(faults === undefined ? {} : { faults }), ...(step === undefined ? {} : { step }), ignored });
+	const disk = createMemoryFolderFs({ after: world.net.after, now: world.net.now, ...(faults === undefined ? {} : { faults }), ...(step === undefined ? {} : { step }), ignored, fold });
 	const store = createMemoryBlobStore();
 	let live = false;
 	const make = (): FolderEngine =>

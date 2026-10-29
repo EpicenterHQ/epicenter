@@ -30,11 +30,11 @@
  * Key behaviors (after every step, and at quiescence):
  * - No save lost: every owed token is in the folder (scratch included), an editor's write in progress, a replica, or the server; at quiescence, in the server's text or in a held file
  * - None applied twice: at quiescence no token appears twice in a server text or a file outside its conflict blocks, nor twice in any one side of a block (read the same way); a base section is never counted
- * - A commit is one group: no push first sent after a commit, without its message, lands the text that commit read at one of its paths before the commit lands (a delete or a blob pointer only if no writer touched the path since, as those recur), and each message lands in at most one commit
+ * - A commit is one group: no push first sent after a commit, without its message, lands the text that commit read at one of its paths before the commit lands (unless a writer made the path hold that text again since: a copy, a delete, a blob moved back), and each message lands in at most one commit
  * - Own writes never echo: once quiet, a further idle period and a scan send nothing
- * - Convergence: at quiescence every file equals the replica's `mine` and `mine` equals the server's, except held files; every unreadable file is listed
+ * - Convergence: at quiescence every file equals the replica's `mine` and `mine` equals the server's, except held files; every file the repository cannot take is held
  * - Ignored stays ignored: the server never holds a dot path or a dropping, and the engine never writes or removes one
- * - The engine never drops a capture it has not read (the memory port checks it)
+ * - The engine never drops a capture it has not read, and never writes a file whose path folds to another file's in the folder (the memory port checks both)
  *
  * F_SEED=n replays one sequence, F_RUNS=n runs n seeds from F_FROM
  * (default 1), F_STEPS=n sets the steps per seed, F_TWINS=0 turns case
@@ -43,10 +43,10 @@
  * where a token is, and F_LOG=n how many steps are shown.
  */
 import { expect, test } from 'bun:test';
-import { parsePointer } from '../core/markdown.js';
+import { parsePointer, writePointer } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { fold } from '../core/door.js';
-import { ignored } from '../folder/engine.js';
+import { ignored, TWIN } from '../folder/engine.js';
 import { createWorld, type Device } from './harness.js';
 import { createRandom, type Random } from './net.js';
 import { createFolderDevice, type FolderDevice, type Lfs, oidOf, runFor, until, uploadBlob } from './folder.test-support.js';
@@ -57,7 +57,7 @@ const RUNS = Number(env('RUNS') ?? 30);
 const FROM = Number(env('FROM') ?? 1);
 const STEPS = Number(env('STEPS') ?? 80);
 const QUIET = 150;
-/** Case twins on: F_TWINS=0 turns the step off (see the phase report: a replica spelling open finding). */
+/** Case twins on (a case-sensitive folder holding two spellings of one path): F_TWINS=0 turns the step off. */
 const TWINS = env('TWINS') !== '0';
 
 const NOTES = ['n/a.md', 'n/b.md', 'd/c.md', 'd/e/f.md'];
@@ -122,22 +122,43 @@ async function run(seed: number, steps: number) {
 	/** Each message's group, until its commit lands: the text the replica took for each path (what the commit says), and when. */
 	const groups = new Map<string, { paths: Set<string>; texts: Map<string, string | null>; at: number }>();
 	const landedMessages = new Map<string, Set<string>>();
-	/** When a writer in the folder last changed each path (a directory's, for a move of it): a later delete or pointer there is that writer's, not a group's. */
-	const touched = new Map<string, number>();
-	const touch = (...paths: string[]) => {
-		for (const p of paths) touched.set(fold(p), world.net.now());
+	/** What writers in the folder made each path hold, and when: a delete is null, a blob its pointer. A later push of the same text there may be that writer's save, not a group's. */
+	const made = new Map<string, { at: number; text: string | null }[]>();
+	const contentOf = (p: string, bytes: Uint8Array | null) => (bytes === null ? null : p.endsWith('.md') ? decoder.decode(bytes) : writePointer(oidOf(bytes)));
+	const make = (p: string, bytes: Uint8Array | null) => {
+		const list = made.get(fold(p)) ?? [];
+		list.push({ at: world.net.now(), text: contentOf(p, bytes) });
+		made.set(fold(p), list);
 	};
-	const lastTouched = (p: string) => Math.max(-1, ...[...touched].filter(([q]) => p === q || p.startsWith(`${q}/`)).map(([, at]) => at));
+	const madeSince = (p: string, text: string | null, at: number) => (made.get(p) ?? []).some((m) => m.at >= at && m.text === text);
 	{
 		const disk = folder.disk;
-		const [write, unlink, rename, writeInode, touchFile] = [disk.write, disk.unlink, disk.rename, disk.writeInode, disk.touch];
-		disk.write = (p, bytes) => (touch(p), write(p, bytes));
-		disk.unlink = (p) => (touch(p), unlink(p));
-		disk.rename = (from, to) => (touch(from, to), rename(from, to));
-		disk.touch = (p) => (touch(p), touchFile(p));
+		const [write, unlink, rename, writeInode] = [disk.write, disk.unlink, disk.rename, disk.writeInode];
+		disk.write = (p, bytes) => {
+			const done = write(p, bytes);
+			if (done) make(p, bytes);
+			return done;
+		};
+		disk.unlink = (p) => {
+			const done = unlink(p);
+			if (done) make(p, null);
+			return done;
+		};
+		disk.rename = (from, to) => {
+			const moving = disk.paths().filter((p) => p === from || p.startsWith(`${from}/`));
+			const done = rename(from, to);
+			if (done) for (const p of moving) {
+				make(p, null);
+				const there = `${to}${p.slice(from.length)}`;
+				make(there, disk.bytes(there));
+			}
+			return done;
+		};
 		disk.writeInode = (ino, bytes) => {
-			touch(...disk.paths().filter((p) => disk.inodeOf(p) === ino));
-			return writeInode(ino, bytes);
+			const at = disk.paths().filter((p) => disk.inodeOf(p) === ino);
+			const done = writeInode(ino, bytes);
+			for (const p of at) make(p, bytes);
+			return done;
 		};
 	}
 	let live = true;
@@ -258,6 +279,11 @@ async function run(seed: number, steps: number) {
 	const blobPath = () => random.pick(BLOBS);
 	const bytes = () => encoder.encode(`bytes ${random.int(0, 3)} ${random.int(0, 1_000_000)}`);
 	const busy = (p: string) => writing.has(p);
+	/** What bo's device shows at `p` under whichever spelling it keeps (`read` is exact): bo writes over what it read. */
+	const boRead = (p: string) => {
+		for (const [q, f] of bo.replica.files()) if (fold(q) === fold(p)) return f.mine;
+		return null;
+	};
 
 	const STEP_TABLE: [number, () => string | null | Promise<string | null>][] = [
 		// A guarded editor: loads what is there, adds a token, saves in a recorded style.
@@ -482,8 +508,8 @@ async function run(seed: number, steps: number) {
 				if (p === q) return null;
 				const [t, u] = [token(), token()];
 				bo.replica.change([
-					{ kind: 'write', path: p, text: appended(bo.replica.read(p), t) },
-					{ kind: 'write', path: q, text: appended(bo.replica.read(q), u) },
+					{ kind: 'write', path: p, text: appended(boRead(p), t) },
+					{ kind: 'write', path: q, text: appended(boRead(q), u) },
 				]);
 				owe([t, u]);
 				return `bo saves ${p} and ${q} as one batch +${t} +${u}`;
@@ -493,7 +519,7 @@ async function run(seed: number, steps: number) {
 			1,
 			() => {
 				const p = path();
-				const text = bo.replica.read(p);
+				const text = boRead(p);
 				if (text === null) return null;
 				for (const t of tokensIn(text)) owed.delete(t);
 				bo.replica.write(p, null);
@@ -598,9 +624,7 @@ async function run(seed: number, steps: number) {
 			return;
 		}
 		const sent = new Map(request.commit.files.map((f) => [fold(f.path), f.text]));
-		// A note's text holds its tokens, so an equal one is that save's; a delete or a blob pointer recurs (a rename moves a pointer back), so an equal one is the group's only if no writer touched the path since.
-		const unique = (p: string, text: string | null) => p.endsWith('.md') && text !== null;
-		for (const [said, { paths: group, texts, at }] of groups) for (const p of paths) if (group.has(p) && sent.get(p) === texts.get(p) && (unique(p, texts.get(p) ?? null) || lastTouched(p) < at) && (firstSent.get(request.commit.id) ?? 0) > at) violations.push(`${p} of "${said}"'s group landed without its message before it did (at ${world.net.now()}, commit ${request.commit.id.slice(0, 7)} of ${paths.join(', ')})`);
+		for (const [said, { paths: group, texts, at }] of groups) for (const p of paths) if (group.has(p) && sent.get(p) === texts.get(p) && !madeSince(p, texts.get(p) ?? null, at) && (firstSent.get(request.commit.id) ?? 0) > at) violations.push(`${p} of "${said}"'s group landed without its message before it did (at ${world.net.now()}, commit ${request.commit.id.slice(0, 7)} of ${paths.join(', ')})`);
 	});
 
 	function present() {
@@ -672,7 +696,11 @@ async function run(seed: number, steps: number) {
 			if (p.endsWith('.md')) put(p, note([...tokensIn(text ?? '')].concat([token()])));
 			else if (text !== null) folder.disk.write(p, bytes());
 		}
-		for (const { path: p } of folder.engine.unreadable()) put(p, note([token()]));
+		for (const { path: p, reason } of folder.engine.held()) {
+			// A file whose name another's folds to: the person renames it.
+			if (reason === TWIN) folder.disk.rename(p, p.replace(/(\.[a-z]+)$/, ` ${token()}$1`));
+			else put(p, note([token()]));
+		}
 		await runFor(world, 3_000);
 	}
 	// Two periodic scans pass, and a restart's startup scan.
@@ -686,11 +714,14 @@ async function run(seed: number, steps: number) {
 
 	// Convergence.
 	const server = world.server.snapshot();
-	const held = new Set(folder.replica.held().map((h) => h.path));
+	// Held by the replica (the door refused it) or by the engine (the repository cannot take the file): its text is the person's, in the folder.
+	const held = new Set([...folder.replica.held(), ...folder.engine.held()].map((h) => h.path));
+	const heldText = (p: string) => (folder.engine.held().some((h) => h.path === p) ? folder.disk.text(p) : folder.replica.read(p));
 	for (const [p, text] of folder.disk.texts()) {
 		if (ignored(p)) continue;
 		const mine = folder.replica.read(p);
-		if (mine === null) violations.push(`${p} is in the folder but not the replica`);
+		if (mine === null && !held.has(p)) violations.push(`${p} is in the folder but not the replica`);
+		else if (mine === null) continue;
 		else if (p.endsWith('.md') ? text !== mine : parsePointer(mine)?.oid !== oidOf(encoder.encode(text)).oid && parsePointer(mine)?.oid !== oidOf(folder.disk.bytes(p) ?? new Uint8Array()).oid)
 			violations.push(`${p}: the folder holds ${JSON.stringify(text).slice(0, 60)}, the replica ${JSON.stringify(mine).slice(0, 60)}`);
 		if (!held.has(p) && mine !== (server.get(p) ?? null)) violations.push(`${p}: the replica and the server differ`);
@@ -698,7 +729,7 @@ async function run(seed: number, steps: number) {
 	for (const [p] of server) if (folder.disk.bytes(p) === null && !held.has(p)) violations.push(`${p} is on the server but not in the folder`);
 	for (const t of owed) {
 		const inServer = [...server.values()].some((text) => tokensIn(text).has(t));
-		const inHeld = [...held].some((p) => tokensIn(folder.replica.read(p)).has(t));
+		const inHeld = [...held].some((p) => tokensIn(heldText(p)).has(t));
 		if (!inServer && !inHeld) violations.push(`at quiescence, ${t} is not on the server`);
 	}
 	for (const [p, text] of [...server, ...folder.disk.texts().filter(([p]) => p.endsWith('.md'))]) {
@@ -725,7 +756,8 @@ test(`the folder engine holds its invariants over ${seeds.length} seeds of ${STE
 	const failed: { seed: number; first: string }[] = [];
 	let shown = '';
 	for (const seed of seeds) {
-		const { violations, log } = await run(seed, STEPS);
+		// A run that throws (the engine never idle, say) is that seed's failure, and the sweep goes on.
+		const { violations, log } = await run(seed, STEPS).catch((cause: unknown) => ({ violations: [`the run threw: ${cause instanceof Error ? cause.message : String(cause)}`], log: [] as string[] }));
 		if (violations.length === 0) continue;
 		failed.push({ seed, first: violations[0] ?? '' });
 		if (shown === '') shown = `seed ${seed} (F_SEED=${seed} F_STEPS=${STEPS}):\n${violations.slice(0, 10).join('\n')}\n\nsteps:\n${log.slice(-Number(process.env.F_LOG ?? 40)).join('\n')}`;

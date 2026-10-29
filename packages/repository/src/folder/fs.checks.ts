@@ -26,6 +26,13 @@ async function collect(fs: FolderFs, skip: (path: string) => boolean = () => fal
 }
 
 export const FOLDER_FS_CHECKS: Record<string, (fs: FolderFs, outside: Outside) => Promise<void>> = {
+	'list names the entries directly in a directory, as spelled, and none for a path that is not one': async (fs, outside) => {
+		await outside.write('notes/a.md', 'a');
+		await outside.write('notes/deep/b.md', 'b');
+		check(JSON.stringify(await fs.list('notes')) === JSON.stringify(['a.md', 'deep']), 'a file and a directory');
+		check((await fs.list('')).includes('notes'), 'the root');
+		check((await fs.list('missing')).length === 0 && (await fs.list('notes/a.md')).length === 0, 'nothing for a path that is not a directory');
+	},
 	'replace on an empty path writes the bytes and displaces nothing': async (fs, outside) => {
 		const done = await fs.replace('notes/a.md', blob('one'), { scratch: 'd-1' });
 		check(done.error === null && done.data.written && done.data.displaced === null && done.data.entry?.size === 3, 'written, nothing displaced');

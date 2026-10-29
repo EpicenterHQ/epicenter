@@ -380,15 +380,21 @@ match its record, unless it was modified within 2 s of being recorded
 never read or written. Neither are editor droppings that persist under
 names a person could not mean (`DROPPINGS`): `name~`, `4913`, `#name#`,
 `~$name`, JetBrains' `___jb_tmp___` and `___jb_old___`, `.part`,
-`.crdownload`. Symlinks and other files that are not regular are listed as
-unreadable, never followed. So is a `.md` file that is not UTF-8, until it
-is saved readable. A valid text the door refuses goes in and is held with
+`.crdownload`. Symlinks and other files that are not regular are held
+(never followed), and so is a `.md` file that is not UTF-8, until it is
+saved readable: the engine's `held()` names each with why, and nothing is
+sent. A valid text the door refuses goes in and is held by the replica with
 the door's reason.
 
-**Spellings.** A file whose path folds (NFC and case) to one the replica
-has is that file on a case-insensitive file system. On a case-sensitive
-one it is a twin: a save to the replica's path, removed by the same
-capture once its text is in.
+**Spellings.** The repository folds paths (NFC and case); a case-sensitive
+disk does not. A file whose path folds to another file's in the folder is a
+save the repository cannot take: it is held, "another file has this name
+in different letters", until the person renames one, and the engine never
+writes such a pair itself; it waits until the other file is gone. On a
+case-insensitive file system the two spellings are one file, named by the
+spelling the engine knows. The replica keeps one row per folded path,
+spelled as `main` spells it, so the folder takes `main`'s spelling as the
+engine projects.
 
 ### Identity and place
 
@@ -436,8 +442,9 @@ in `Epicenter-Device`.
 | 2 | `{"pending": "<id>" \| null}` | Offline, or no verdict yet; the next `commit` or `sync` sends it, once |
 | 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy |
 
-`sync` also prints `joined`, `caught-up`, `held`, `unreadable` and
-`stopped`.
+Before its verdict, `commit` names any file in the folder the repository
+cannot take (`{"held": [...], "commit": null}`); the commit goes without
+it. `sync` also prints `joined`, `caught-up`, `held` and `stopped`.
 
 ### The desktop, later
 

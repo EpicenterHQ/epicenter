@@ -42,9 +42,12 @@
  * as a save.
  *
  * Paths whose any segment starts with `.` are neither read nor written, nor
- * are the editor droppings `DROPPINGS` names. Symlinks and other files that
- * are not regular are listed as unreadable, never followed; so is a `.md`
- * file that is not UTF-8, until it is saved readable.
+ * are the editor droppings `DROPPINGS` names. A file the repository cannot
+ * take is held, with why, and never sent: a symlink or other file that is
+ * not regular (never followed), a `.md` file that is not UTF-8, and a file
+ * whose path equals another file's after NFC and case folding (the
+ * repository folds paths, a case-sensitive disk does not), until the person
+ * renames one. The engine never writes such a pair itself.
  */
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import type { Logger } from 'wellcrafted/logger';
@@ -94,7 +97,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/disk" (
 ) STRICT;
 CREATE INDEX IF NOT EXISTS "epicenter/disk/fold" ON "epicenter/disk" (fold);
 CREATE TABLE IF NOT EXISTS "epicenter/displaced" (name TEXT PRIMARY KEY, path TEXT NOT NULL, hash TEXT, text TEXT, writing TEXT, removing INTEGER NOT NULL DEFAULT 0) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/unreadable" (path TEXT PRIMARY KEY, reason TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/held" (path TEXT PRIMARY KEY, fold TEXT NOT NULL, reason TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/folder" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
 
@@ -164,15 +167,18 @@ export type FolderEngineOptions = {
 	quiet?: number;
 	/** How often a full scan runs while live (null: only at startup and after a lost event). */
 	scanEvery?: number | null;
-	/** Called when a file cannot be read as what it should be, or can be again (reason null). */
-	onUnreadable?: (path: string, reason: string | null) => void;
+	/** Called when a file is held (the repository cannot take it, with why), or is not any more (reason null). */
+	onHeld?: (path: string, reason: string | null) => void;
 	log?: Logger;
 };
 
 /** The default quiet window, in ms (the platform facts and the editor matrix set it). */
 export const QUIET = 150;
 
-export function createFolderEngine({ fs, replica, driver, store, fetch, after, now, quiet = QUIET, scanEvery = null, onUnreadable, log }: FolderEngineOptions) {
+/** Why a file whose path folds to another file's is held. */
+export const TWIN = 'another file has this name in different letters';
+
+export function createFolderEngine({ fs, replica, driver, store, fetch, after, now, quiet = QUIET, scanEvery = null, onHeld, log }: FolderEngineOptions) {
 	driver.exec(SCHEMA);
 	/** Stopped: a job not started does nothing, and a job in progress writes nothing more. */
 	let stopped = false;
@@ -206,26 +212,89 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	}
 	const mineAt = (path: string) => first<{ text: string | null }>(driver, 'SELECT text FROM "epicenter/files" WHERE path = ?', [path])?.text ?? null;
 
-	function unreadable(path: string, reason: string | null) {
-		const was = first<{ reason: string }>(driver, 'SELECT reason FROM "epicenter/unreadable" WHERE path = ?', [path])?.reason ?? null;
+	function hold(path: string, reason: string | null) {
+		const was = first<{ reason: string }>(driver, 'SELECT reason FROM "epicenter/held" WHERE path = ?', [path])?.reason ?? null;
 		if (was === reason) return;
-		if (reason === null) driver.run('DELETE FROM "epicenter/unreadable" WHERE path = ?', [path]);
-		else driver.run('INSERT OR REPLACE INTO "epicenter/unreadable" (path, reason) VALUES (?, ?)', [path, reason]);
-		onUnreadable?.(path, reason);
+		if (reason === null) driver.run('DELETE FROM "epicenter/held" WHERE path = ?', [path]);
+		else driver.run('INSERT OR REPLACE INTO "epicenter/held" (path, fold, reason) VALUES (?, ?, ?)', [path, fold(path), reason]);
+		onHeld?.(path, reason);
+	}
+
+	/** Other spellings of `path` the engine knows of: recorded, in the replica, or held. */
+	function spellings(path: string) {
+		const folded = fold(path.normalize('NFC'));
+		const known = ['"epicenter/disk"', '"epicenter/files"', '"epicenter/held"'].flatMap((table) => driver.all<{ path: string }>(`SELECT path FROM ${table} WHERE fold = ?`, [folded]).map((row) => row.path));
+		return [...new Set(known)].filter((other) => other !== path);
 	}
 
 	/**
-	 * The path the replica keeps for a path on disk: its own spelling of a
-	 * path equal after NFC and case folding, else the path in NFC.
+	 * The folder's directory listings as one reconcile reads them, each read
+	 * once, and kept as the engine itself makes and removes files: where
+	 * another file's path folds to a path is a question for the folder.
 	 */
-	function spellingOf(path: string) {
-		const nfc = path.normalize('NFC');
-		const folded = fold(nfc);
-		return (
-			first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1', [folded])?.path ??
-			first<{ path: string }>(driver, 'SELECT path FROM "epicenter/disk" WHERE fold = ? LIMIT 1', [folded])?.path ??
-			nfc
-		);
+	function listings() {
+		const read = new Map<string, Promise<Set<string>>>();
+		const names = (dir: string) => {
+			let found = read.get(dir);
+			if (found === undefined) {
+				found = fs.list(dir).then((list) => new Set(list));
+				read.set(dir, found);
+			}
+			return found;
+		};
+		const parent = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
+		const base = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+		return {
+			/** Paths in the folder other than `path` that fold to it, one directory level at a time. */
+			async beside(path: string) {
+				let at = [''];
+				for (const segment of path.split('/')) {
+					const folded = fold(segment.normalize('NFC'));
+					const next: string[] = [];
+					for (const dir of at) for (const name of await names(dir)) if (fold(name.normalize('NFC')) === folded) next.push(dir === '' ? name : `${dir}/${name}`);
+					at = next;
+				}
+				return at.filter((other) => other !== path);
+			},
+			/** The engine made `path` (and any directory above it) or removed it. */
+			async made(path: string) {
+				for (let child = path, dir = parent(path); ; child = dir, dir = parent(dir)) {
+					if (read.has(dir)) (await names(dir)).add(base(child));
+					if (dir === '') return;
+				}
+			},
+			async gone(path: string) {
+				if (read.has(parent(path))) (await names(parent(path))).delete(base(path));
+			},
+		};
+	}
+	type Listings = ReturnType<typeof listings>;
+
+	/**
+	 * What the folder holds at `path` beside its other spellings: the spelling
+	 * the engine knows, when the file system resolves both to one file (a
+	 * case- or normalization-insensitive one); and whether another file's path
+	 * folds to this one's (`twin`).
+	 */
+	async function spellingAt(path: string, listed: Listings): Promise<{ path: string; twin: boolean }> {
+		const others = [...new Set([...spellings(path), ...(await listed.beside(path))])];
+		if (others.length === 0) return { path, twin: false };
+		const here = await fs.stat(path);
+		let twin = false;
+		for (const other of others) {
+			const there = await fs.stat(other);
+			if (there === null || there.kind === 'directory') continue;
+			// One file under two spellings: the one the engine already knows names it.
+			if (here !== null && here.ino === there.ino && here.ino !== 0) return { path: spellings(path).includes(other) ? other : path, twin: false };
+			twin = true;
+		}
+		return { path, twin };
+	}
+
+	/** Look again at the other spellings of `path` the engine knows: one held beside it, or one it could not write beside it, may be free now. */
+	function hintSpellings(path: string) {
+		const others = spellings(path);
+		if (others.length > 0) hint(others);
 	}
 
 	// --------------------------------------------------------------------------
@@ -348,61 +417,38 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	async function reconcile(paths: Iterable<string>, call: Call): Promise<Reconciled> {
 		const found: { save: Save; was: string | null }[] = [];
 		const looked: string[] = [];
-		/** Paths on disk whose replica spelling is another path: a twin, removed once its save is in. */
-		const twins: { path: string; hash: string | null }[] = [];
-		const twinSaves: { save: Save; path: string; hash: string | null }[] = [];
-		/** RULE: one spelling per path in a call: the first path met claims its folded identity, and another spelling of it here is its twin. */
-		const claimed = new Map<string, string>();
-		// The replica's spelling of each path goes first, so a twin never claims a path the replica already spells.
-		const ordered = [...new Set(paths)].sort((a, b) => Number(spellingOf(b) === b) - Number(spellingOf(a) === a));
-		for (const given of ordered) {
-			if (ignored(given)) continue;
-			let path = given;
-			const spelled = claimed.get(fold(given)) ?? spellingOf(given);
-			if (!claimed.has(fold(given))) claimed.set(fold(given), spelled);
-			let twin = false;
-			if (spelled !== given) {
-				const [mine, other] = await Promise.all([fs.stat(given), fs.stat(spelled)]);
-				// One file under two spellings (a case- or normalization-insensitive file system): the replica's spelling names it.
-				if (mine !== null && other !== null && mine.ino === other.ino && mine.ino !== 0) path = spelled;
-				else if (mine !== null) twin = true;
-				else path = spelled;
-			}
+		const given = [...new Set(paths)].filter((path) => !ignored(path));
+		const listed = listings();
+		for (const named of given) {
+			const { path, twin } = await spellingAt(named, listed);
 			// RULE: a file modified within the last quiet window may be half written (an in-place save between its truncate and its bytes): it is read once it has been still for one. A commit reads the disk as it is: its timing is its caller's.
 			if (call === 'each') {
-				const still = await fs.stat(twin ? given : path);
+				const still = await fs.stat(path);
 				if (still?.kind === 'file' && now() - still.mtime < quiet) {
-					hint([given]);
+					hint([named]);
 					continue;
 				}
 			}
-			const seen = await look(twin ? given : path);
-			if (twin) {
-				// A second file whose path folds to the replica's: a save to that path; the twin goes once it is in.
-				if (seen.kind === 'unreadable') {
-					unreadable(given, seen.reason);
-					continue;
-				}
-				if (seen.kind === 'absent') continue;
-				const save = await saveOf({ ...seen, path: spelled } as Look, null);
-				if (save === null) continue;
-				twinSaves.push({ save: { ...save, record: recorded(spelled) ?? null, over: null }, path: given, hash: hashLooked(seen) });
-				continue;
-			}
+			const seen = await look(path);
 			looked.push(path);
 			const record = recorded(path);
 			const disk = hashLooked(seen);
 			if (seen.kind === 'unreadable') {
-				unreadable(path, seen.reason);
+				hold(path, seen.reason);
 				continue;
 			}
-			unreadable(path, null);
+			// Gone: another spelling held beside it, or one the engine could not write beside it, is looked at again.
+			if (seen.kind === 'absent') hintSpellings(path);
+			// RULE: a file whose path another file's path folds to is a save the repository cannot take: held, until the person renames one.
+			const kept = twin && seen.kind !== 'absent' && disk !== (record?.hash ?? null);
+			hold(path, kept ? TWIN : null);
 			if (disk === (record?.hash ?? null)) {
 				// The same as the record. A stat that moved (a touch), or one recorded within the racy window, is recorded again, so the next scan skips the file.
 				if (seen.kind !== 'absent' && record !== null && (record.mtime !== seen.entry.mtime || record.ino !== seen.entry.ino || seen.entry.mtime + RACY >= record.at))
 					setRecord(path, { ...record, mtime: seen.entry.mtime, ino: seen.entry.ino, size: seen.entry.size });
 				continue;
 			}
+			if (kept) continue;
 			const mine = mineAt(path);
 			if (disk === (mine === null ? null : hashOfMine(path, mine))) {
 				// The file is what the replica shows (a crash between a write and its record lands here): recorded, nothing saved.
@@ -414,23 +460,12 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			const save = await saveOf(seen, record);
 			if (save !== null) found.push({ save, was: record?.hash ?? null });
 		}
-		// RULE: one save per replica path in a call: a twin whose path has a save of its own here (or another twin) waits for the next reconcile, which reads it after this one is in.
-		for (const twin of twinSaves) {
-			if (found.some((f) => fold(f.save.path) === fold(twin.save.path))) {
-				after(quiet, () => hint([twin.path]));
-				continue;
-			}
-			found.push({ save: twin.save, was: null });
-			twins.push({ path: twin.path, hash: twin.hash });
-			looked.push(twin.save.path);
-		}
 		const calls = call === 'each' ? groupSaves(found) : [found.map((f) => f.save)];
 		// Each call is its own group, and all of them commit to the database at once: one write to disk per reconcile, not per save.
 		driver.transaction(() => {
 			for (const saves of calls) hand(saves, call === 'each' ? undefined : call.message);
 		});
-		for (const twin of twins) await removeTwin(twin.path, twin.hash, spellingOf(twin.path));
-		for (const path of looked) await project(path);
+		for (const path of looked) await project(path, listed);
 		return { saved: found.map((f) => f.save.path) };
 	}
 
@@ -442,7 +477,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	const fetching = new Map<string, number>();
 
 	/** Write what the replica shows at `path` to the file, if the file is still what the engine last wrote there. */
-	async function project(path: string) {
+	async function project(path: string, listed: Listings = listings()) {
 		if (ignored(path)) return;
 		const record = recorded(path);
 		const mine = mineAt(path);
@@ -450,6 +485,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		// A file that differs from the record holds a save not read yet: a later reconcile reads it first.
 		const there = await fs.stat(path);
 		if ((there === null) !== (record === null)) return hint([path]);
+		// RULE: the engine never makes a file whose path folds to another file's in the folder: it waits until that one is gone (renamed by the person, or the engine's own, removed).
+		if (there === null && mine !== null && (await spellingAt(path, listed)).twin) return;
 		if (there !== null && record !== null && (there.ino !== record.ino || there.size !== record.size || there.mtime !== record.mtime)) {
 			const seen = await look(path);
 			if (hashLooked(seen) !== record.hash) return hint([path]);
@@ -471,7 +508,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			}
 		}
 		// Mine may have moved while bytes were fetched: project what it is now.
-		if (mineAt(path) !== mine) return project(path);
+		if (mineAt(path) !== mine) return project(path, listed);
 		live();
 		const name = scratchName();
 		driver.run('INSERT INTO "epicenter/displaced" (name, path, hash, text, writing, removing) VALUES (?, ?, ?, ?, ?, ?)', [name, path, record?.hash ?? null, record?.text ?? null, mine, mine === null ? 1 : 0]);
@@ -488,6 +525,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				written();
 			});
 			displaced(name, removed.data);
+			await listed.gone(path);
+			hintSpellings(path);
 			return;
 		}
 		const replaced = await fs.replace(path, bytes, { scratch: name });
@@ -497,6 +536,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			return;
 		}
 		const { entry } = replaced.data;
+		if (replaced.data.written) await listed.made(path);
 		if (replaced.data.written && entry !== null && mine !== null)
 			driver.transaction(() => {
 				setRecord(path, { hash: hashOfMine(path, mine), size: entry.size, mtime: entry.mtime, ino: entry.ino, text: mine });
@@ -544,7 +584,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				text = decoder.decode(new Uint8Array(await bytes.arrayBuffer()));
 			} catch {
 				// Bytes that are no text cannot be a note's save: they stay in scratch, named, for the person.
-				unreadable(path, `a save that is not UTF-8 text was set aside at ${OWN}/tmp/${name}`);
+				hold(path, `a save that is not UTF-8 text was set aside at ${OWN}/tmp/${name}`);
 				driver.run('UPDATE "epicenter/displaced" SET hash = ? WHERE name = ?', [held, name]);
 				return;
 			}
@@ -577,27 +617,10 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			// Written into meanwhile: read again once it is still.
 			if ((await fs.readScratch(name))?.mtime !== captured.mtime) return again();
 			// Bytes that are no text stay where the person was told they are.
-			if (first(driver, 'SELECT 1 FROM "epicenter/unreadable" WHERE path = ? AND reason LIKE ?', [row.path, `%${name}`]) !== undefined) return;
+			if (first(driver, 'SELECT 1 FROM "epicenter/held" WHERE path = ? AND reason LIKE ?', [row.path, `%${name}`]) !== undefined) return;
 			await fs.drop(name);
 		}
 		driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [name]);
-	}
-
-	/** Remove a twin once its text is in the replica, by the same capture: a save that raced it goes in too. */
-	async function removeTwin(path: string, hash: string | null, spelled: string) {
-		live();
-		const name = scratchName();
-		driver.run('INSERT INTO "epicenter/displaced" (name, path, hash, text) VALUES (?, ?, ?, ?)', [name, spelled, hash, null]);
-		const removed = await fs.remove(path, { scratch: name });
-		if (removed.error !== null) {
-			log?.warn(removed.error);
-			driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [name]);
-			return;
-		}
-		// What raced the twin's removal is a save to the replica's spelling, over the text the twin gave.
-		const over = mineAt(spelled);
-		driver.run('UPDATE "epicenter/displaced" SET text = ? WHERE name = ?', [over, name]);
-		displaced(name, removed.data);
 	}
 
 	/** After a crash: every capture journaled goes back where its path is empty, or is read as a save; temporaries go. */
@@ -671,6 +694,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		yield* compare();
 		for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/disk" WHERE path NOT IN (SELECT path FROM temp."folder/visited")')) yield path;
 		driver.run('DELETE FROM temp."folder/visited"');
+		// Held files are looked at again: one renamed or removed is held no longer.
+		for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/held"')) yield path;
 		yield* owedProjection();
 	}
 
@@ -812,8 +837,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				await new Promise<void>((resolve) => after(quiet, resolve));
 			}
 		},
-		/** Files that cannot be read as what they should be, with why. */
-		unreadable: () => driver.all<{ path: string; reason: string }>('SELECT path, reason FROM "epicenter/unreadable" ORDER BY path'),
+		/** Files in the folder the repository cannot take, with why. */
+		held: () => driver.all<{ path: string; reason: string }>('SELECT path, reason FROM "epicenter/held" ORDER BY path'),
 		/** Why the engine stopped on its own (its watch failed), or null. */
 		failure: () => failure,
 		/** Stop at once, mid-work, as a killed process does: nothing more is written (the property test's crash). */

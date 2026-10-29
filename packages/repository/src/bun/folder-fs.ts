@@ -118,6 +118,14 @@ export function createBunFolderFs(root: string): FolderFs {
 			}
 		},
 		stat: statOf,
+		async list(dir) {
+			try {
+				return (await readdir(dir === '' ? root : at(dir))).sort();
+			} catch (cause) {
+				if (code(cause) === 'ENOENT' || code(cause) === 'ENOTDIR') return [];
+				throw cause;
+			}
+		},
 		async read(path) {
 			const entry = await statOf(path);
 			return entry?.kind === 'file' ? Bun.file(at(path)) : null;
