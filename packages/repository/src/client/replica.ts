@@ -491,8 +491,8 @@ function createReplica({
 			return;
 		}
 		// RULE: a message lasts while the level it names does: an unsent commit that went (sent, or settled by a catch-up) takes its message with it, and so does a save once it is neither saved nor held.
-		if (next.committed === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'committed'`, [path]);
-		if (next.saved === undefined && next.held === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'saved'`, [path]);
+		if (messages && next.committed === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'committed'`, [path]);
+		if (messages && next.saved === undefined && next.held === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'saved'`, [path]);
 		const row =
 			before === undefined ||
 			before.base !== next.base ||
@@ -627,12 +627,17 @@ function createReplica({
 
 	/** The message of the call that saved `path`, while its commit is unsent. */
 	type MessageLevel = 'saved' | 'committed';
+	/** Whether any message may be stored: most replicas never hold one, so a store skips their cleanup. */
+	let messages = first(driver, 'SELECT 1 FROM "epicenter/messages" LIMIT 1') !== undefined;
 	/** The message a level of `path` carries: its save's (`saved`), or its unsent commit's (`committed`). */
 	const messageOf = (path: string, level: MessageLevel = 'committed') =>
 		first<{ message: string }>(driver, 'SELECT message FROM "epicenter/messages" WHERE path = ? AND level = ?', [path, level])?.message ?? null;
 	const sayAt = (path: string, level: MessageLevel, message: string | null) => {
 		if (message === null) driver.run('DELETE FROM "epicenter/messages" WHERE path = ? AND level = ?', [path, level]);
-		else driver.run('INSERT OR REPLACE INTO "epicenter/messages" (path, level, message) VALUES (?, ?, ?)', [path, level, message]);
+		else {
+			messages = true;
+			driver.run('INSERT OR REPLACE INTO "epicenter/messages" (path, level, message) VALUES (?, ?, ?)', [path, level, message]);
+		}
 	};
 
 
@@ -922,7 +927,10 @@ function createReplica({
 	 */
 	function integrate(named: string, text: string | null, landed: boolean, deleted = false) {
 		// RULE: the server names a path in `main`'s spelling; a file this device spells another way (its own create, crossing one there) is that file, so the two meet, never stand side by side.
-		const path = first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE path = ? UNION ALL SELECT path FROM "epicenter/files" WHERE fold = ? LIMIT 1', [named, fold(named)])?.path ?? named;
+		const path =
+			first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE path = ?', [named])?.path ??
+			first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1', [fold(named)])?.path ??
+			named;
 		const f = record(path);
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.

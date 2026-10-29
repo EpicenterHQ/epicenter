@@ -173,11 +173,15 @@ export function createBunFolderFs(root: string): FolderFs {
 			await rm(scratchAt(name), { force: true });
 		},
 		async scratches() {
+			let names: string[];
 			try {
-				return (await readdir(join(root, ...SCRATCH.split('/')))).filter((name) => !name.startsWith('w-'));
+				names = await readdir(join(root, ...SCRATCH.split('/')));
 			} catch {
 				return [];
 			}
+			// A temporary a killed process left was never linked anywhere: it goes.
+			for (const name of names) if (name.startsWith('w-') && !name.startsWith(`w-${process.pid}-`)) await rm(scratchAt(name), { force: true });
+			return names.filter((name) => !name.startsWith('w-'));
 		},
 		watch(listener, failed) {
 			let stopped = false;

@@ -220,6 +220,8 @@ export async function openFolderEngine({ dir: given, join: joining, agent, token
 		driver = openBunSqlite(join(home, 'replica.sqlite'));
 		// RULE: one engine per replica: the database is held for as long as this one runs; a crash releases it.
 		driver.exec('PRAGMA locking_mode = EXCLUSIVE');
+		// WAL with NORMAL is durable across a crash of this process, and loses at most the last transactions on power loss, never consistency.
+		driver.exec('PRAGMA synchronous = NORMAL');
 		driver.exec('BEGIN EXCLUSIVE');
 		driver.exec('COMMIT');
 	} catch {

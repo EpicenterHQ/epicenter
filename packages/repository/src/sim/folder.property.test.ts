@@ -37,7 +37,10 @@
  * - The engine never drops a capture it has not read (the memory port checks it)
  *
  * F_SEED=n replays one sequence, F_RUNS=n runs n seeds from F_FROM
- * (default 1), F_STEPS=n sets the steps per seed.
+ * (default 1), F_STEPS=n sets the steps per seed, F_TWINS=0 turns case
+ * twins off. To read a failing seed: F_TRACE=1 logs each push and commit,
+ * F_WATCH=<path> a file's replica rows after each step, F_TOKEN=<token>
+ * where a token is, and F_LOG=n how many steps are shown.
  */
 import { expect, test } from 'bun:test';
 import { parsePointer } from '../core/markdown.js';
@@ -616,8 +619,10 @@ async function run(seed: number, steps: number) {
 		}
 		for (const { path: p } of folder.engine.unreadable()) put(p, note([token()]));
 		await runFor(world, 3_000);
-		await until(world, folder.engine.scan());
 	}
+	// Two periodic scans pass, and a restart's startup scan.
+	await runFor(world, 61_000);
+	await folder.crash({ watch: true });
 	await runFor(world, 10_000);
 	await until(world, folder.engine.idle());
 	world.settle();

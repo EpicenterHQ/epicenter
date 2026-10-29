@@ -425,7 +425,10 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			looked.push(twin.save.path);
 		}
 		const calls = call === 'each' ? groupSaves(found) : [found.map((f) => f.save)];
-		for (const saves of calls) hand(saves, call === 'each' ? undefined : call.message);
+		// Each call is its own group, and all of them commit to the database at once: one write to disk per reconcile, not per save.
+		driver.transaction(() => {
+			for (const saves of calls) hand(saves, call === 'each' ? undefined : call.message);
+		});
 		for (const twin of twins) await removeTwin(twin.path, twin.hash, spellingOf(twin.path));
 		for (const path of looked) await project(path);
 		return { saved: found.map((f) => f.save.path) };
@@ -445,9 +448,9 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		const mine = mineAt(path);
 		if ((mine ?? null) === (record?.text ?? null)) return;
 		// A file that differs from the record holds a save not read yet: a later reconcile reads it first.
-		const now_ = await fs.stat(path);
-		if ((now_ === null) !== (record === null)) return hint([path]);
-		if (now_ !== null && record !== null && (now_.ino !== record.ino || now_.size !== record.size || now_.mtime !== record.mtime)) {
+		const there = await fs.stat(path);
+		if ((there === null) !== (record === null)) return hint([path]);
+		if (there !== null && record !== null && (there.ino !== record.ino || there.size !== record.size || there.mtime !== record.mtime)) {
 			const seen = await look(path);
 			if (hashLooked(seen) !== record.hash) return hint([path]);
 		}
@@ -640,13 +643,25 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	async function* scanned(): AsyncGenerator<string> {
 		driver.exec('CREATE TEMP TABLE IF NOT EXISTS "folder/visited" (path TEXT PRIMARY KEY)');
 		driver.run('DELETE FROM temp."folder/visited"');
+		/** Entries walked and not yet looked at: a batch is recorded as visited in one write, then compared. */
+		let walked: Entry[] = [];
+		const compare = function* () {
+			driver.transaction(() => {
+				for (const entry of walked) driver.run('INSERT OR IGNORE INTO temp."folder/visited" (path) VALUES (?)', [entry.path]);
+			});
+			for (const entry of walked) {
+				const record = recorded(entry.path);
+				const same = record !== null && entry.kind === 'file' && record.size === entry.size && record.mtime === entry.mtime && record.ino === entry.ino && entry.mtime + RACY < record.at;
+				if (!same) yield entry.path;
+			}
+			walked = [];
+		};
 		for await (const entry of fs.walk('', ignored)) {
 			if (entry.kind === 'directory' || ignored(entry.path)) continue;
-			driver.run('INSERT OR IGNORE INTO temp."folder/visited" (path) VALUES (?)', [entry.path]);
-			const record = recorded(entry.path);
-			const same = record !== null && entry.kind === 'file' && record.size === entry.size && record.mtime === entry.mtime && record.ino === entry.ino && entry.mtime + RACY < record.at;
-			if (!same) yield entry.path;
+			walked.push(entry);
+			if (walked.length >= BATCH) yield* compare();
 		}
+		yield* compare();
 		for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/disk" WHERE path NOT IN (SELECT path FROM temp."folder/visited")')) yield path;
 		driver.run('DELETE FROM temp."folder/visited"');
 		yield* owedProjection();

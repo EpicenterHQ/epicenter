@@ -37,6 +37,7 @@ const options = {
 	...(values.join !== undefined && values.server !== undefined ? { join: { repository: values.join, server: values.server } } : {}),
 	...(values.token === undefined ? {} : { token: values.token }),
 	...(values.agent === undefined ? {} : { agent: values.agent }),
+	// A periodic scan finds what a silently dropped event hid: a warm scan of 100,000 files took 1.8 s, so every 5 minutes is about 0.6% of one core (the phase 9 report).
 	scanEvery: 5 * 60_000,
 };
 let code: number;

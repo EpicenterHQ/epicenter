@@ -133,7 +133,8 @@ export async function commit(options: FolderOptions & { message: string; wait?: 
 			return 2;
 		}
 		let id: string | null = null;
-		const heldHere = () => replica.held().filter((h) => group.has(h.path) || replica.state(h.path).status === 'held');
+		/** What holds the group: its own held files, or those it was saved with. */
+		const heldHere = () => replica.held();
 		const settled = () => {
 			const sent = replica.sent();
 			if (sent?.message === options.message) id = sent.id;
