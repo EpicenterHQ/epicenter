@@ -20,11 +20,13 @@ const worker = () => new Worker('/replica-worker.js', { type: 'module' });
 let repository: ReturnType<typeof openRepository<(typeof todosApp)['definitions']>> | null = null;
 let editor: Editor | undefined;
 let holding = false;
+/** Whether changes stored meanwhile are held from the page too, as a page that has not heard them yet. */
+let holdingDeltas = false;
 /** How many times the editor replaced its draft from outside (a rebase, or a change followed). */
 let replacements = 0;
 const held: (() => void)[] = [];
 
-/** The tab's host, its answers to writes held while `hold` is on. */
+/** The tab's host, its answers to writes (and with `deltas`, the changes it hears) held while `hold` is on, released in the order they came. */
 function holdable(inner: Host): Host {
 	const sessions = new WeakMap<Session, Session>();
 	const wrap = (session: Session): Session => {
@@ -35,14 +37,21 @@ function holdable(inner: Host): Host {
 				change(changes, token) {
 					const answered = session.change(changes, token);
 					if (!holding) return answered;
+					answered.catch(() => {});
 					return new Promise((resolve, reject) => held.push(() => answered.then(resolve, reject)));
+				},
+				watch(listener) {
+					return session.watch((delta) => {
+						if (holding && holdingDeltas) held.push(() => listener(delta));
+						else listener(delta);
+					});
 				},
 			};
 			sessions.set(session, wrapped);
 		}
 		return wrapped;
 	};
-	return { subscribe: (onState) => inner.subscribe((state: HostState) => onState(state.status === 'open' ? { status: 'open', session: wrap(state.session) } : state)), leaving: (listener) => inner.leaving(listener), close: () => inner.close() };
+	return { subscribe: (onState) => inner.subscribe((state: HostState) => onState(state.status === 'open' ? { status: 'open', session: wrap(state.session) } : state)), close: () => inner.close() };
 }
 
 function show(tab: ReplicaTab) {
@@ -117,16 +126,22 @@ const calls = {
 	replacements: () => replacements,
 	editorState: () => editor?.state().status ?? null,
 	untilEditorSaved: () => until(() => editor?.state().status === 'saved', 'the editor to save'),
-	hold() {
+	/** Hold the worker's answers to writes, and with `deltas`, the changes the page hears. */
+	hold({ deltas = false }: { deltas?: boolean } = {}) {
 		holding = true;
+		holdingDeltas = deltas;
 	},
 	release() {
 		holding = false;
+		holdingDeltas = false;
 		for (const go of held.splice(0)) go();
 	},
 	mounts: () => (globalThis as { mounts?: number }).mounts ?? 0,
 	freeze: () => document.dispatchEvent(new Event('freeze')),
 	resume: () => document.dispatchEvent(new Event('resume')),
+	/** The page is hidden for the back-forward cache, and shown again. */
+	pagehide: () => dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })),
+	pageshow: () => dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })),
 };
 
 declare global {

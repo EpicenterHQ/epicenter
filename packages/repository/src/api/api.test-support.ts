@@ -43,6 +43,8 @@ function holding(inner: Host) {
 					// Applied now, in order, as the worker applies it; only its answer waits.
 					const answered = session.change(changes, token);
 					if (!holdingAnswers) return answered;
+					// A held answer that rejects (its session ended) is the caller's once released, not an unhandled rejection meanwhile.
+					answered.catch(() => {});
 					return new Promise((resolve, reject) => held.push(() => answered.then(resolve, reject)));
 				},
 			};
@@ -52,7 +54,6 @@ function holding(inner: Host) {
 	};
 	const host: Host = {
 		subscribe: (onState) => inner.subscribe((state: HostState) => onState(state.status === 'open' ? { status: 'open', session: wrap(state.session) } : state)),
-		leaving: (listener) => inner.leaving(listener),
 		close: () => inner.close(),
 	};
 	return {

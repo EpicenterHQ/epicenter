@@ -67,13 +67,6 @@ export type HostState = Exclude<RepositoryStatus, { status: 'open' }> | { status
 /** Where a replica runs for a page: it moves through states, opening a session each time it can. */
 export type Host = {
 	subscribe(onState: (state: HostState) => void): () => void;
-	/**
-	 * Be asked, synchronously, just before the host ends the open session on
-	 * its own (the page hiding or freezing), for the writes the page would
-	 * lose with it: the host stores them, in this session or the next. Returns
-	 * the function that stops it.
-	 */
-	leaving(listener: () => Change[]): () => void;
 	close(): void;
 };
 
@@ -419,9 +412,6 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		emit();
 	});
 
-	// Typing an editor holds above its write in flight is written before the session goes, or a reload would drop it.
-	const stopLeaving = host.leaving(() => editors.leavingWrites());
-
 	/** Send changes: shown at once over the notes kept in memory, cleared when answered, dropped when they fail. */
 	async function send(changes: Change[]): Promise<Result<Changed, WriteError>> {
 		const current = status.status === 'open' ? session : null;
@@ -576,7 +566,6 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			session = null;
 			stopWatching?.();
 			stopHost();
-			stopLeaving();
 			host.close();
 			emit();
 			listeners.clear();

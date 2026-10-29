@@ -87,7 +87,7 @@
 
 			{#if editor !== undefined}
 				<NoteEditor {editor} focusRequest={notes.focusRequest} class="flex-1" />
-				<EditorStatus {editor} state={shown.state} shows="body" />
+				<EditorStatus {editor} state={shown.state} />
 			{:else if unopened !== undefined}
 				{@const { reason, retry } = unopened}
 				<p class="flex flex-wrap items-center gap-2 px-4 py-3 text-sm text-destructive" role="alert">

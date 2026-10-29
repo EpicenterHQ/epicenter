@@ -3,8 +3,7 @@
 	default, or the body (`shows="body"`). Both are views of one editor, so a
 	note's body and source can be open at once. The editor saves as the
 	person types; this view shows where that stands.
-	Typing the worker could not carry onto a change made in the same place
-	pauses saving with both kept: the person keeps theirs or takes the other.
+	A clash with a change made elsewhere is a conflict block in the text.
 	A failed save keeps the typing, with Try again. Given a `check`, the
 	status says as the person types whether the frontmatter parses and the
 	note fits its schema; given the note's `state`, it says when the text is
@@ -64,7 +63,7 @@
 
 <div class={['repository-source-editor flex min-h-0 flex-col', className]}>
 	<div bind:this={element} class="min-h-0 flex-1 overflow-y-auto"></div>
-	<EditorStatus {editor} {check} state={noteState} {shows} />
+	<EditorStatus {editor} {check} state={noteState} />
 </div>
 
 <style>

@@ -279,44 +279,6 @@ export async function createBrowserReplica({
 	return Ok(Object.assign(openTab(manifest.replica, manifest, options), { manifest }));
 }
 
-// ============================================================================
-// Writes a leaving page hands over
-// ============================================================================
-
-/**
- * Writes a page handed over as it went (`leaving`), by replica, kept in
- * this origin's localStorage until a session stores them. A page that is
- * unloading can count only on synchronous storage: WebKit ends a page's
- * worker as it navigates, before the worker reads what the page sent it.
- * Each is a write over the text it was typed on, so one stored already
- * merges into itself when it is replayed.
- */
-type Handed = { id: string; changes: Change[] };
-const handedKey = (replica: string) => `epicenter:handed:${replica}`;
-function handedOf(replica: string): Handed[] {
-	try {
-		const kept: unknown = JSON.parse(localStorage.getItem(handedKey(replica)) ?? '[]');
-		return Array.isArray(kept) ? (kept as Handed[]) : [];
-	} catch {
-		return [];
-	}
-}
-function keepHanded(replica: string, handed: Handed[], log: Logger) {
-	try {
-		if (handed.length === 0) localStorage.removeItem(handedKey(replica));
-		else localStorage.setItem(handedKey(replica), JSON.stringify(handed));
-	} catch (cause) {
-		log.warn(BrowserReplicaError.Unavailable({ reason: `typing could not be kept as the page left: ${extractErrorMessage(cause)}` }).error);
-	}
-}
-/** `handed` is stored: it need not be replayed. */
-const storedHanded = (replica: string, id: string, log: Logger) =>
-	keepHanded(
-		replica,
-		handedOf(replica).filter((kept) => kept.id !== id),
-		log,
-	);
-
 /**
  * The lock requests of tabs this page closed, by replica, until each lets
  * go. A tab this page opens on a replica it is still letting go of waits
@@ -350,7 +312,7 @@ function openTab(
 	const unavailable = (error: BrowserReplicaError) => set({ status: 'unavailable', error, retry: () => take('available') });
 
 	/** The worker this tab runs while it owns the replica, and how to end it. */
-	type Session = { ended: Promise<void>; end(): void; send(changes: Change[]): Promise<Result<Changed, ChangeError>> };
+	type Session = { ended: Promise<void>; end(): void };
 	let session: Session | null = null;
 	let closed = false;
 	/** Whether the page was hidden while owning, so showing it again opens the replica again. */
@@ -404,13 +366,7 @@ function openTab(
 					if (current()) set({ status: 'waiting', reason: message.reason });
 					return;
 				case 'ready':
-					if (!current()) return;
-					// Writes a page handed over as it left go first, before anything this page reads.
-					for (const handed of handedOf(id))
-						void me.send(handed.changes).then((sent) => {
-							if (sent.error === null) storedHanded(id, handed.id, log);
-						}, () => {});
-					set({ status: 'open', replica: createOpenReplica({ manifest: message.manifest, call, isEnding: () => ending, changes, remove }) });
+					if (current()) set({ status: 'open', replica: createOpenReplica({ manifest: message.manifest, call, isEnding: () => ending, changes, remove }) });
 					return;
 				case 'missing':
 					if (current()) unavailable(BrowserReplicaError.NotFound({ replica: id }).error);
@@ -448,8 +404,6 @@ function openTab(
 
 		const me: Session = {
 			ended: ended.promise,
-			/** Apply changes in the worker, outside any page's view of them. */
-			send: (changes) => call('change', changes) as Promise<Result<Changed, ChangeError>>,
 			/** Refuse new calls, let the worker finish the ones already sent, then let it go. */
 			end() {
 				if (ending) return;
@@ -485,8 +439,6 @@ function openTab(
 						await tryAsync({
 							try: async () => {
 								await removeReplicaFiles(id);
-								// Replayed when the removal opened it, so nothing handed over is lost by dropping the rest.
-								keepHanded(id, [], log);
 								return undefined;
 							},
 							catch: (cause) => BrowserReplicaError.RemovalUnfinished({ cause }),
@@ -516,21 +468,10 @@ function openTab(
 			});
 	}
 
-	/** Asked, just before this tab ends its session on its own, for the writes the page would lose. */
-	const leavers = new Set<() => Change[]>();
-	/** The page is going away or freezing: keep and send what the page would lose, let the worker finish what was sent, and let the storage go. */
+	/** The page is going away or freezing: let the worker finish what was sent and let the storage go. */
 	const hide = () => {
 		if (session === null) return;
 		const hidden = session;
-		const changes = [...leavers].flatMap((leaver) => leaver());
-		if (changes.length > 0) {
-			// Kept first, synchronously: the worker may be gone before it reads the send.
-			const handed: Handed = { id: crypto.randomUUID(), changes };
-			keepHanded(id, [...handedOf(id), handed], log);
-			void hidden.send(changes).then((sent) => {
-				if (sent.error === null) storedHanded(id, handed.id, log);
-			}, () => {});
-		}
 		session = null;
 		reopen = true;
 		hidden.end();
@@ -559,19 +500,6 @@ function openTab(
 				watchers.delete(onChange);
 			};
 		},
-		/**
-		 * Be asked, synchronously, just before this tab ends its session on
-		 * its own (the page hiding or freezing), for the writes the page
-		 * would lose: they are sent to the worker and kept in this origin's
-		 * localStorage until a session of this replica stores them, in this
-		 * tab or the next. Returns the function that stops it.
-		 */
-		leaving(listener: () => Change[]) {
-			leavers.add(listener);
-			return () => {
-				leavers.delete(listener);
-			};
-		},
 		/** Close the replica in this tab and give the lock up. */
 		close() {
 			if (closed) return;
@@ -584,7 +512,6 @@ function openTab(
 			session = null;
 			set({ status: 'closed' });
 			watchers.clear();
-			leavers.clear();
 			const released = held;
 			lettingGo.set(id, released);
 			void released.finally(() => {

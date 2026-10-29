@@ -176,9 +176,9 @@ source can be open at once. Given `check`, its status says as the person
 types whether the frontmatter parses (with the line where YAML found the
 break) and whether the note fits its schema, with each issue; given the
 note's `state`, it says when the text is saved here and held, not sent, and
-why. A save that pauses because typing touched a change made elsewhere
-offers Keep mine and Use theirs; a failed save keeps the typing, with Try
-again. The caller opens and closes the editor.
+why. A clash with a change made elsewhere is a conflict block in the text,
+never a state that waits; a failed save keeps the typing, with Try again.
+The caller opens and closes the editor.
 
 ```svelte
 <SourceEditor {editor} check={(text) => app.check(text, { as: 'notes' })} state={note.state} />

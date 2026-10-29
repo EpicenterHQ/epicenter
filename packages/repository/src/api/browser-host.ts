@@ -42,7 +42,6 @@ export function browserHost(tab: ReplicaTab): Host {
 				onState(next);
 			});
 		},
-		leaving: (listener) => tab.leaving(listener),
 		close: () => tab.close(),
 	};
 }

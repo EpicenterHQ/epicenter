@@ -3,9 +3,9 @@
  *
  * One editor per note, over its exact text, shared by every view of it (a
  * body view shows the same draft's body): it owns the draft and the last
- * text the worker confirmed, sends one write at a time over that text with
- * the keystrokes since coalesced, and carries what was typed while a write
- * was in flight onto the worker's resulting text by position.
+ * text the worker confirmed, writes every change at once over the text it
+ * was typed on, and shows what the worker holds once its writes are
+ * answered.
  *
  * Key behaviors:
  * - An editor waits for a write left unanswered no longer than the replica's timeout, and loses nothing
@@ -13,7 +13,7 @@
  * - K1 against a remote same-line edit, then K2, K3 and a field patch while K1 is in flight: one conflict block, every keystroke, the fields kept
  * - A remote same-line edit landing between two of the person's writes: still one conflict block, holding every keystroke
  * - Typing on another line than a remote edit merges clean; a clean editor follows remote changes, and one heard during a write is taken after its answer
- * - Typing that touches what the worker changed pauses autosave with both kept, until resolved
+ * - Typing inside what the worker changed, while a write is in flight, is one conflict block, saved: nothing waits for the person
  * - A note deleted elsewhere while the person types comes back with their typing
  * - A refused write, a worker lost mid-write, a close that cannot save and a repository closed (an account change) all keep the draft; closing the repository returns every draft it could not save
  * - An editor opened right after a create, without awaiting it, opens over the created note
@@ -190,7 +190,7 @@ test('a clean editor follows a remote change in place, and one heard while a wri
 	expect(world.editor.state()).toEqual({ status: 'saved' });
 });
 
-test('typing that touches what the worker changed pauses autosave with both kept, until resolved', async () => {
+test('typing inside what the worker changed, while a write is in flight, is saved as one conflict block: nothing waits for the person', async () => {
 	const world = await opened('alpha\nbeta\n');
 	remote(world, 'alpha\nBETA\n');
 	world.gate.hold();
@@ -201,13 +201,12 @@ test('typing that touches what the worker changed pauses autosave with both kept
 	world.gate.release();
 	await settled();
 	await settled();
-	expect(world.editor.state()).toEqual({ status: 'paused', theirs: note('alphaX\nBETA\n') });
-	expect(world.editor.draft()).toBe(note('alphaX\nbeXta\n'));
-	expect(world.alice.replica.read(PATH)).toBe(note('alphaX\nBETA\n'));
-	world.editor.resolve(note('alphaX\nBEXTA\n'));
 	await settled();
+	const text = world.alice.replica.read(PATH) ?? '';
+	expect(findConflicts(text)).toMatchObject([{ current: 'BETA\n', base: 'beta\n', incoming: 'beXta\n' }]);
+	expect(text.startsWith(note('alphaX\n'))).toBe(true);
 	expect(world.editor.state()).toEqual({ status: 'saved' });
-	expect(world.alice.replica.read(PATH)).toBe(note('alphaX\nBEXTA\n'));
+	expect(world.editor.draft()).toBe(text);
 });
 
 test('a note deleted elsewhere while the person types comes back with their typing', async () => {
@@ -305,7 +304,7 @@ test('an editor closed with typing unsaved leaves once a later session saves it'
 	expect(next.draft()).toBe(note('bob\n'));
 });
 
-test('a repository closed with typing unsaved (an account change) reports it, and the draft stays readable', async () => {
+test('a repository closed (an account change) with answers outstanding reports nothing unsaved: the worker has every keystroke', async () => {
 	const world = await opened('one\n');
 	world.gate.hold();
 	world.type('one two\n');
@@ -313,20 +312,21 @@ test('a repository closed with typing unsaved (an account change) reports it, an
 	world.type('one two three\n');
 	const closing = world.editor.close();
 	world.repo.close();
-	expect(expectErr(await closing)).toMatchObject({ name: 'Unsaved', draft: note('one two three\n') });
+	expectOk(await closing);
 	expect(world.editor.draft()).toBe(note('one two three\n'));
 	expect(world.editor.state()).toEqual({ status: 'closed' });
+	expect(world.alice.replica.read(PATH)).toBe(note('one two three\n'));
 });
 
-test('a repository closed under an editor a view still holds returns that draft, unsaved', async () => {
+test('a repository closed under an editor a view still holds returns no draft: what was typed is in the worker', async () => {
 	const world = await opened('one\n');
 	world.gate.hold();
 	world.type('one two\n');
 	await settled();
 	world.type('one two three\n');
-	expect(world.repo.close()).toEqual([{ path: PATH, draft: note('one two three\n') }]);
-	expect(world.editor.state()).toEqual({ status: 'closed' });
 	expect(world.repo.close()).toEqual([]);
+	expect(world.editor.state()).toEqual({ status: 'closed' });
+	expect(world.alice.replica.read(PATH)).toBe(note('one two three\n'));
 });
 
 test('views of one note share its editor, a body view and a source view alike: the last to close saves it', async () => {
@@ -414,7 +414,7 @@ test('what shows between a stored change and its answer is the stored note, not 
 	expectOk(await batch);
 });
 
-test('closing the repository reports only typing no write carried, not a write the worker already has', async () => {
+test('closing the repository reports no typing that reached the worker, however many answers are outstanding', async () => {
 	const { alice, gate, repo } = twoDevices(app);
 	alice.replica.write(PATH, note('one'));
 	alice.replica.write('notes/two.md', note('two'));
@@ -425,12 +425,13 @@ test('closing the repository reports only typing no write carried, not a write t
 	sent.update(note('typed'));
 	typing.update(note('two!'));
 	await settled();
-	// More typing after the write went: that part is not carried.
+	// More typing after the first write went: it is written too, at once.
 	typing.update(note('two!?'));
-	expect(repo.close()).toEqual([{ path: 'notes/two.md', draft: note('two!?') }]);
+	expect(repo.close()).toEqual([]);
 	gate.release();
 	await settled();
 	expect(alice.replica.read(PATH)).toBe(note('typed'));
+	expect(alice.replica.read('notes/two.md')).toBe(note('two!?'));
 });
 
 test('a note made again under another spelling of a deleted one opens as the note the replica keeps', async () => {
@@ -478,7 +479,7 @@ test('an editor that cannot open while the repository is not open says so, as a 
 	expect(error.message).toBe(`${PATH} cannot be edited while the repository is opening`);
 });
 
-test('a list shows a note held, failed or paused as held with why, never as sending', async () => {
+test('a list shows a note held or failed as held with why, never as sending', async () => {
 	const { alice, repo } = twoDevices(app);
 	alice.replica.write(PATH, note('one'));
 	await settled();

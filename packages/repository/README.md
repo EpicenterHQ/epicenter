@@ -98,14 +98,11 @@ once and nothing is projected. Each new session starts with an ordered
 snapshot; a note that did not change keeps its object, so a list keyed by
 identity does not redraw it.
 
-An editor sends one write at a time, so typing made while one is in flight
-lives only in the page. When the page hides or freezes, the host asks for
-those drafts (`Host.leaving`) before it ends the session. The browser host
-keeps them in this origin's localStorage, synchronously, since WebKit ends
-a page's worker as it navigates. It also sends them, and the next session
-of that replica replays them before anything else, once. Each is a write
-over the text it was typed on, so one already stored merges into itself.
-A draft paused on a clash is not handed over: it waits for the person.
+Typing has one home, the worker's database. An editor writes every change
+the moment it is made, so a page holds only what it shows: typing is safe
+once it reaches the worker. Only a keystroke in the instant before the page
+goes (a crash, or a reload WebKit ends before its worker reads the last
+message) may be lost, and never one before a keystroke that was kept.
 
 `repo.subscribe(listener)` is the one way to hear that anything changed: it
 names the collections whose notes changed, and whether the status did.
@@ -168,21 +165,24 @@ if (opened.error === null) {
 }
 ```
 
-- One write is in flight at a time; keystrokes meanwhile go together in the
-  next. Each write is the exact text over its base, so the worker merges
-  whatever reached it meanwhile, once: a field set elsewhere merges by key,
-  and one clash is one conflict block, however many writes follow it.
-- A clean editor follows changes from elsewhere in place. Where typing and
-  the worker's change touch the same characters, autosave pauses with both
-  kept (`paused`, with `theirs`) until `resolve(text)`.
-- A failed write keeps the draft (`failed`, with `retry()`); a write lost
-  with its session goes again in the next one. A list shows a note whose
-  editor failed or paused as held, with why, never as sending.
+- Every change is written at once, as the exact text over the text it was
+  typed on, and the worker applies the writes in order, merging each with
+  whatever reached it meanwhile: a field set elsewhere merges by key, and one
+  clash is one conflict block, however many keystrokes follow it. Nothing
+  waits for the person to choose; a clash is text, resolved by editing it.
+- While writes are in flight the views keep the typing; once the last is
+  answered they show what the worker holds, through changes the cursor maps
+  through. A clean editor follows changes from elsewhere in place.
+- What the page holds that the worker does not is typing made while no
+  session is open, or after a failed write (`failed`, with `retry()`): it is
+  shown, and written once a session opens or `retry` asks. A write lost with
+  its session goes again over the text the worker holds, when that is one
+  the editor sent. A list shows a note whose editor failed as held, with
+  why, never as sending.
 - A delete made here (a collection's, one in a batch, or a write of no text)
   ends the note's editor and drops its draft, so nothing brings the note back.
-- `repo.close()` returns only typing no write carried: a write already handed
-  to the worker is stored, since a session that ends finishes the calls it
-  was sent.
+- `repo.close()` returns only typing no write carried (typing made with no
+  session, or after a failure): everything else is in the worker already.
 - A body view shows `bodyOf(editor.draft())` and types through
   `withBody(draft, body)`, so a note's body view and source view are two
   views of one draft.

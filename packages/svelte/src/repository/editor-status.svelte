@@ -1,7 +1,7 @@
 <!--
-	Where a note's editor stands, for any view of it: saved, saving, paused
-	because typing touched a change made elsewhere (Keep mine, Use theirs),
-	failed (Try again), or closed. Given `check`, it also says whether the
+	Where a note's editor stands, for any view of it: saved, saving, failed
+	(Try again), or closed. A clash with a change made elsewhere is a
+	conflict block in the text, not a state: nothing waits for a choice. Given `check`, it also says whether the
 	text parses and fits its schema; given the note's `state`, that the text
 	is saved here and held, not sent, and why.
 
@@ -10,18 +10,16 @@
 	```
 -->
 <script lang="ts">
-	import { bodyOf, type Editor, type EditorState, type FileStatus, type TextStatus } from '@epicenter/repository';
+	import type { Editor, EditorState, FileStatus, TextStatus } from '@epicenter/repository';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { untrack } from 'svelte';
-	import type { Shows } from './codemirror.js';
 
 	let {
 		editor,
 		check,
 		// Not named `state`, which would make `$state` read as a store.
 		state: noteState,
-		shows = 'source',
 		class: className = '',
 	}: {
 		editor: Editor;
@@ -29,8 +27,6 @@
 		check?: (text: string) => TextStatus;
 		/** The note's state as the repository lists it: a held note says why it is not sent. */
 		state?: FileStatus;
-		/** What the view shows, so the other side of a pause shows the same part. */
-		shows?: Shows;
 		class?: string;
 	} = $props();
 
@@ -68,15 +64,7 @@
 	{#if noteState?.status === 'held'}
 		<p class="text-muted-foreground" data-testid="editor-held">Saved on this device, not sent: {noteState.reason ?? 'held'}.</p>
 	{/if}
-	{#if saving.status === 'paused'}
-		{@const theirs = saving.theirs}
-		<p class="text-muted-foreground">Someone changed this in the same place you were typing. Saving waits until you choose.</p>
-		<pre class="max-h-32 overflow-auto rounded bg-muted p-2" data-testid="editor-theirs">{shows === 'body' ? bodyOf(theirs) : theirs}</pre>
-		<p class="flex gap-2">
-			<Button size="sm" onclick={() => editor.resolve(editor.draft())}>Keep mine</Button>
-			<Button size="sm" variant="outline" onclick={() => editor.resolve(theirs)}>Use theirs</Button>
-		</p>
-	{:else if saving.status === 'failed'}
+	{#if saving.status === 'failed'}
 		<p class="flex flex-wrap items-center gap-2 text-destructive">
 			Not saved: {saving.error.message}
 			<Button size="sm" variant="outline" onclick={() => editor.retry()}>Try again</Button>
