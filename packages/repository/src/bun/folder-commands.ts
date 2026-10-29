@@ -76,7 +76,7 @@ export async function sync(options: FolderOptions & { once?: boolean; stop?: Pro
 		print({ 'caught-up': replica.position() });
 		await engine.start({ watch: options.once !== true });
 		const report = () => {
-			const held = [...engine.held(), ...replica.held()];
+			const held = replica.held();
 			if (held.length > 0) print({ held });
 		};
 		if (options.once === true) {
@@ -128,9 +128,6 @@ export async function commit(options: FolderOptions & { message: string; wait?: 
 	try {
 		// Before connecting: no remote change can project into a file the commit is reading, and the record holds what the call read when answers come.
 		const { call } = await engine.commit(options.message);
-		// Files in the folder the repository cannot take are not in the commit: they are named, and it goes without them.
-		const kept = engine.held();
-		if (kept.length > 0) print({ held: kept });
 		const calls = call !== null ? [call] : replica.calls().flatMap((earlier) => (earlier.message === null ? [] : [earlier.call]));
 		if (calls.length === 0) {
 			print({ unchanged: true });

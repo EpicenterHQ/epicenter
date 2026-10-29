@@ -347,7 +347,8 @@ saves it finds are grouped:
   else's upload. A vanished path and an appeared one with equal bytes are
   one rename, one group.
 - a message (`commit -m`): every save is one group with the message. It
-  lands in one commit or is held whole (ADR-0697).
+  lands in one commit or is held whole (ADR-0697), including when a file of
+  it is one the repository cannot take.
 
 Events are hints. A file whose hash equals the record is nothing, so the
 engine's own writes never come back as saves. A file modified within the
@@ -380,15 +381,18 @@ match its record, unless it was modified within 2 s of being recorded
 never read or written. Neither are editor droppings that persist under
 names a person could not mean (`DROPPINGS`): `name~`, `4913`, `#name#`,
 `~$name`, JetBrains' `___jb_tmp___` and `___jb_old___`, `.part`,
-`.crdownload`. Symlinks and other files that are not regular are held
-(never followed), and so is a `.md` file that is not UTF-8, until it is
-saved readable: the engine's `held()` names each with why, and nothing is
-sent. A valid text the door refuses goes in and is held by the replica with
-the door's reason.
+`.crdownload`. Nor are symlinks and other files that are not regular: they
+are never followed, sent or written over. A save the repository cannot take
+is handed to the replica as refused, with why, in the call that found it,
+and holds that call whole like any held file: a `.md` file that is not
+UTF-8, bytes the device store could not keep, and a twin (below). A valid
+text the door refuses goes in and is held with the door's reason. Either
+way `replica.held()` names it, with one meaning: a save waiting for its
+writer, which holds its call.
 
 **Spellings.** The repository folds paths (NFC and case); a case-sensitive
 disk does not. A file whose path folds to another file's in the folder is a
-save the repository cannot take: it is held, "another file has this name
+save the repository cannot take: it is refused, "another file has this name
 in different letters", until the person renames one, and the engine never
 writes such a pair itself; it waits until the other file is gone. On a
 case-insensitive file system the two spellings are one file, named by the
@@ -444,9 +448,8 @@ in `Epicenter-Device`.
 | 2 | `{"pending": "<id>" \| null}` | Offline, or no outcome yet; `<id>` is the commit in flight carrying it; the next `commit` or `sync` sends it, once |
 | 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy |
 
-Before its verdict, `commit` names any file in the folder the repository
-cannot take (`{"held": [...]}`); the commit goes without
-it. `sync` also prints `joined`, `caught-up`, `held` and `stopped`.
+`sync` also prints `joined`, `caught-up`, `held` (everything the replica
+holds) and `stopped`.
 
 ### The desktop, later
 

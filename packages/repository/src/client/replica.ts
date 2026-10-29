@@ -25,11 +25,14 @@
  *
  * There are no stored notices. A person reads two things: the text, whose
  * conflict blocks say what contested, and each file's state (synced,
- * sending, held with a reason). What is held is always the person's own
- * text: a text the door refuses, a text the server refused, work whose
- * outcome is unknown. A delete or field removal that loses to an edit is not
- * held: it is an intent, not typed text, and the edited file (or field) just
- * stays, visibly.
+ * sending, held with a reason). What is held is always a save of the
+ * person's own that cannot go, and it holds its call: a text the door
+ * refuses, a text the server refused, work whose outcome is unknown, and a
+ * save a front end found that the repository cannot take at all (a folder's
+ * note that is not UTF-8, a name that folds to another file's, bytes the
+ * device could not store), named by its path as found. A delete or field
+ * removal that loses to an edit is not held: it is an intent, not typed
+ * text, and the edited file (or field) just stays, visibly.
  *
  * The database, every table named with a `/` so an app's views cannot
  * collide with one:
@@ -48,6 +51,9 @@
  *   "epicenter/inflight"  the commit sent and not yet answered, how many
  *                         times it was sent, and each file's call; its files
  *                         are the `sent` level
+ *   "epicenter/refused"   saves a front end found that the repository cannot
+ *                         take: per path as found (and folded), why, and
+ *                         the call
  *   "epicenter/calls"     one row per call (a `writeAll`): its message
  *                         (`epicenter commit -m`), the call it joined when a
  *                         later save met its work, and what became of it:
@@ -203,6 +209,9 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 ) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT, ${COLUMNS.unsent}) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL, ${COLUMNS.inflight}) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/refused" (path TEXT PRIMARY KEY, fold TEXT NOT NULL, reason TEXT NOT NULL, call INTEGER NOT NULL) STRICT;
+CREATE INDEX IF NOT EXISTS "epicenter/refused/call" ON "epicenter/refused" (call);
+CREATE INDEX IF NOT EXISTS "epicenter/refused/fold" ON "epicenter/refused" (fold);
 CREATE TABLE IF NOT EXISTS "epicenter/calls" (id INTEGER PRIMARY KEY, message TEXT, joined INTEGER, landed TEXT, kept TEXT NOT NULL DEFAULT '[]', conflicts TEXT NOT NULL DEFAULT '[]') STRICT;
 DROP TABLE IF EXISTS "epicenter/groups";
 DROP TABLE IF EXISTS "epicenter/messages";
@@ -230,11 +239,15 @@ const OWED_WHERE = `f.text IS NOT f.base AND f.held IS NULL AND f.path NOT LIKE 
 	AND NOT EXISTS (SELECT 1 FROM "epicenter/objects" o WHERE o.oid = json_extract(f.fields, '$.oid'))`;
 const OWED_SQL = `FROM "epicenter/files" f WHERE ${OWED_WHERE}`;
 /**
- * Files of call `?1` that keep it from going, held ones first: held, or
- * owed their bytes. A file's text is its saved call's while saved or held,
- * else its unsent commit's.
+ * What keeps call `?1` from going, held first: a save refused where it was
+ * found, a held file, or one owed its bytes. A file's text is its saved
+ * call's while saved or held, else its unsent commit's.
  */
+/** Every held save, with its call: held files, and saves refused where they were found. */
+const HELD = `(SELECT path, held AS reason, call FROM "epicenter/files" WHERE held IS NOT NULL UNION ALL SELECT path, reason, call FROM "epicenter/refused")`;
 const BLOCKER_SQL = `SELECT path, held FROM (
+	SELECT r.path, r.reason AS held, -1 AS n FROM "epicenter/refused" r WHERE r.call = ?1
+	UNION ALL
 	SELECT f.path, f.held, f.rowid AS n FROM "epicenter/files" f WHERE f.call = ?1 AND (f.held IS NOT NULL OR (${OWED_WHERE}))
 	UNION ALL
 	SELECT f.path, f.held, f.rowid AS n FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path WHERE u.call = ?1 AND f.call IS NULL AND (${OWED_WHERE})
@@ -671,7 +684,7 @@ function createReplica({
 		const call = first<{ id: number }>(driver, 'SELECT last_insert_rowid() AS id')?.id ?? 0;
 		if (call % 256 === 0)
 			driver.run(
-				`DELETE FROM "epicenter/calls" WHERE id <= ? AND id NOT IN (SELECT call FROM "epicenter/files" WHERE call IS NOT NULL) AND id NOT IN (SELECT call FROM "epicenter/unsent") AND id NOT IN (SELECT value FROM "epicenter/inflight", json_each("epicenter/inflight".calls))`,
+				`DELETE FROM "epicenter/calls" WHERE id <= ? AND id NOT IN (SELECT call FROM "epicenter/files" WHERE call IS NOT NULL) AND id NOT IN (SELECT call FROM "epicenter/unsent") AND id NOT IN (SELECT call FROM "epicenter/refused") AND id NOT IN (SELECT value FROM "epicenter/inflight", json_each("epicenter/inflight".calls))`,
 				[call - CALLS_KEPT],
 			);
 		return call;
@@ -702,9 +715,10 @@ function createReplica({
 		const union = (a: string, b: string) => JSON.stringify([...new Set([...(JSON.parse(a) as string[]), ...(JSON.parse(b) as string[])])]);
 		const [kept, conflicts] = [said(source), said(target)];
 		driver.run('UPDATE "epicenter/calls" SET kept = ?, conflicts = ? WHERE id = ?', [union(kept.kept, conflicts.kept), union(kept.conflicts, conflicts.conflicts), target]);
-		for (const path of pathsOf('SELECT path FROM "epicenter/files" WHERE call = ? UNION SELECT path FROM "epicenter/unsent" WHERE call = ?', [source, source])) changed.add(path);
+		for (const path of pathsOf('SELECT path FROM "epicenter/files" WHERE call = ? UNION SELECT path FROM "epicenter/unsent" WHERE call = ? UNION SELECT path FROM "epicenter/refused" WHERE call = ?', [source, source, source])) changed.add(path);
 		driver.run('UPDATE "epicenter/files" SET call = ? WHERE call = ?', [target, source]);
 		driver.run('UPDATE "epicenter/unsent" SET call = ? WHERE call = ?', [target, source]);
+		driver.run('UPDATE "epicenter/refused" SET call = ? WHERE call = ?', [target, source]);
 		driver.run('UPDATE "epicenter/calls" SET message = ? WHERE id = ?', [message, target]);
 		driver.run('UPDATE "epicenter/calls" SET joined = ? WHERE id = ? OR joined = ?', [target, source, source]);
 	}
@@ -857,14 +871,30 @@ function createReplica({
 	/**
 	 * Save texts as one call, which says `message` if given: each merged here
 	 * with `mine` if `mine` moved since the text the caller started from.
+	 * `refused` names saves the caller found at a path (as found) that the
+	 * repository cannot take, with why, which hold this call; null: the path
+	 * holds one it can take again (or none).
 	 */
-	function writeAll(changes: Record<string, string | null>, { over, message }: { over?: Record<string, string | null>; message?: string } = {}): Changed {
+	function writeAll(
+		changes: Record<string, string | null>,
+		{ over, message, refused = {} }: { over?: Record<string, string | null>; message?: string; refused?: Record<string, string | null> } = {},
+	): Changed {
 		return atomically(() => {
 			const call = newCall(message ?? null);
 			// RULE: a save joins the call of the saved or held text it replaces at its path: a new text over a held file of a group, or over a rename's half not yet committed, still goes with the rest. An unsent commit below it is met when this save is cut (`commit`).
 			for (const given of Object.keys(changes)) {
 				const f = record(spelled(given));
 				if (f.call !== undefined) join(f.call, call);
+			}
+			// RULE: a save refused where it was found is held in its call like a held file: a later word on its path (a save there, or that it is gone or can be taken) joins that call and ends the refusal.
+			for (const path of new Set([...Object.keys(changes), ...Object.keys(refused)])) {
+				const was = first<{ call: number }>(driver, 'SELECT call FROM "epicenter/refused" WHERE path = ?', [path]);
+				if (was !== undefined) join(was.call, call);
+				const reason = refused[path] ?? null;
+				if (was === undefined && reason === null) continue;
+				changed.add(path);
+				if (reason === null) driver.run('DELETE FROM "epicenter/refused" WHERE path = ?', [path]);
+				else driver.run('INSERT OR REPLACE INTO "epicenter/refused" (path, fold, reason, call) VALUES (?, ?, ?, ?)', [path, fold(path.normalize('NFC')), reason, call]);
 			}
 			for (const [given, text] of Object.entries(changes)) {
 				const path = spelled(given);
@@ -1498,6 +1528,8 @@ function createReplica({
 
 	/** One file's state: synced, sending, or held with why. */
 	function stateOf(path: string): FileStatus {
+		const refused = first<{ reason: string }>(driver, 'SELECT reason FROM "epicenter/refused" WHERE path = ?', [path]);
+		if (refused !== undefined) return { status: 'held', reason: refused.reason };
 		const f = record(path);
 		const reason = heldReason(f);
 		if (reason !== null) return { status: 'held', reason };
@@ -1512,7 +1544,7 @@ function createReplica({
 	/** Whether `call` has work here: saved or held text, an unsent commit, or the commit in flight. */
 	function working(call: number) {
 		return (
-			first(driver, 'SELECT 1 FROM "epicenter/files" WHERE call = ? UNION ALL SELECT 1 FROM "epicenter/unsent" WHERE call = ? LIMIT 1', [call, call]) !== undefined ||
+			first(driver, 'SELECT 1 FROM "epicenter/files" WHERE call = ?1 UNION ALL SELECT 1 FROM "epicenter/unsent" WHERE call = ?1 UNION ALL SELECT 1 FROM "epicenter/refused" WHERE call = ?1 LIMIT 1', [call]) !== undefined ||
 			[...sentWork.values()].some((work) => callOf(work.call) === call)
 		);
 	}
@@ -1527,7 +1559,7 @@ function createReplica({
 		if (blocker(call)?.held === true)
 			return {
 				kind: 'held',
-				held: driver.all<{ path: string; reason: string }>('SELECT path, held AS reason FROM "epicenter/files" WHERE call = ? AND held IS NOT NULL ORDER BY rowid', [call]),
+				held: driver.all<{ path: string; reason: string }>(`SELECT path, reason FROM ${HELD} WHERE call = ? ORDER BY path`, [call]),
 			};
 		const sending = [...sentWork.values()].some((work) => callOf(work.call) === call);
 		return { kind: 'pending', commit: sending ? (inflight?.id ?? null) : null };
@@ -1548,9 +1580,8 @@ function createReplica({
 		paths: () => pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL').sort(),
 		/** One file's state: synced, sending, or held with why. */
 		state: stateOf,
-		/** Files whose text is held back, with why. */
-		held: () =>
-			driver.all<{ path: string; reason: string }>('SELECT path, held AS reason FROM "epicenter/files" WHERE held IS NOT NULL ORDER BY rowid'),
+		/** Saves held back, with why: held files, and saves refused where they were found (by their path as found), by path. */
+		held: () => driver.all<{ path: string; reason: string }>(`SELECT path, reason FROM ${HELD} ORDER BY path`),
 		/** Paths whose text has not reached the server: unsent, in flight, or held. */
 		unsent: () =>
 			[...new Set([...pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT base'), ...pathsOf('SELECT path FROM "epicenter/unsent"'), ...sentWork.keys()])].sort(),
@@ -1624,7 +1655,7 @@ function createReplica({
 		/** Calls with work here, oldest first, with their messages. */
 		calls() {
 			const ids = new Set([
-				...driver.all<{ call: number }>('SELECT call FROM "epicenter/files" WHERE call IS NOT NULL UNION SELECT call FROM "epicenter/unsent"').map((row) => row.call),
+				...driver.all<{ call: number }>('SELECT call FROM "epicenter/files" WHERE call IS NOT NULL UNION SELECT call FROM "epicenter/unsent" UNION SELECT call FROM "epicenter/refused"').map((row) => row.call),
 				...[...sentWork.values()].map((work) => callOf(work.call)),
 			]);
 			return [...ids].sort((a, b) => a - b).map((call) => ({ call, message: messageOf(call) }));

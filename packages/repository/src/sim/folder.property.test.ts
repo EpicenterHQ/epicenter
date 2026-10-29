@@ -627,6 +627,9 @@ async function run(seed: number, steps: number) {
 		for (const [said, { paths: group, texts, at }] of groups) for (const p of paths) if (group.has(p) && sent.get(p) === texts.get(p) && !madeSince(p, texts.get(p) ?? null, at) && (firstSent.get(request.commit.id) ?? 0) > at) violations.push(`${p} of "${said}"'s group landed without its message before it did (at ${world.net.now()}, commit ${request.commit.id.slice(0, 7)} of ${paths.join(', ')})`);
 	});
 
+	/** Saves the replica holds refused where the engine found them, by path as found. */
+	const refusedWhereFound = () => new Set(folder.replica.query<{ path: string }>('SELECT path FROM "epicenter/refused"').map((row) => row.path));
+
 	function present() {
 		const texts: string[] = [...folder.disk.texts().map(([, text]) => text), ...folder.disk.scratchTexts(), ...writing.values(), ...stale.values()];
 		for (const device of [folder.replica, bo.replica])
@@ -690,16 +693,17 @@ async function run(seed: number, steps: number) {
 		await until(world, folder.upload());
 		for (const owedBytes of bo.replica.owed()) bo.replica.present(owedBytes.oid, owedBytes.size);
 		// Repairs: what a person holds back they fix and save again (a note), or save again (a blob kept).
-		for (const { path: p } of folder.replica.held()) {
-			const text = folder.disk.text(p);
-			retype(text);
-			if (p.endsWith('.md')) put(p, note([...tokensIn(text ?? '')].concat([token()])));
-			else if (text !== null) folder.disk.write(p, bytes());
-		}
-		for (const { path: p, reason } of folder.engine.held()) {
-			// A file whose name another's folds to: the person renames it.
+		const found = refusedWhereFound();
+		for (const { path: p, reason } of folder.replica.held()) {
+			// A file whose name another's folds to: the person renames it. A file the repository could not take as found: the person writes it again.
 			if (reason === TWIN) folder.disk.rename(p, p.replace(/(\.[a-z]+)$/, ` ${token()}$1`));
-			else put(p, note([token()]));
+			else if (found.has(p)) put(p, note([token()]));
+			else {
+				const text = folder.disk.text(p);
+				retype(text);
+				if (p.endsWith('.md')) put(p, note([...tokensIn(text ?? '')].concat([token()])));
+				else if (text !== null) folder.disk.write(p, bytes());
+			}
 		}
 		await runFor(world, 3_000);
 	}
@@ -714,9 +718,10 @@ async function run(seed: number, steps: number) {
 
 	// Convergence.
 	const server = world.server.snapshot();
-	// Held by the replica (the door refused it) or by the engine (the repository cannot take the file): its text is the person's, in the folder.
-	const held = new Set([...folder.replica.held(), ...folder.engine.held()].map((h) => h.path));
-	const heldText = (p: string) => (folder.engine.held().some((h) => h.path === p) ? folder.disk.text(p) : folder.replica.read(p));
+	// Held: a text the door refused, whose text is the replica's, or a save refused where it was found (the repository cannot take the file), whose text is the folder's.
+	const held = new Set(folder.replica.held().map((h) => h.path));
+	const found = refusedWhereFound();
+	const heldText = (p: string) => (found.has(p) ? folder.disk.text(p) : folder.replica.read(p));
 	for (const [p, text] of folder.disk.texts()) {
 		if (ignored(p)) continue;
 		const mine = folder.replica.read(p);

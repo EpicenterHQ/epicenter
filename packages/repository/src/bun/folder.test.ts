@@ -8,6 +8,7 @@
  * Key behaviors:
  * - `sync --join` makes the folder's identity, and a save in one folder reaches another through the server
  * - `commit -m` lands every difference as one commit with its message; again with nothing new it is `unchanged`; a note the door refuses holds the whole group, exit 2, and fixing it and committing again lands it once
+ * - `commit` reports its own call only, and a file the repository cannot take (a note that is not UTF-8) holds it whole, wherever the refusal is found; with nothing new it reports the real outcome of a commit an earlier run left unsent
  * - A second engine over a folder whose replica is held (another process) is refused; a copy of a folder is refused until `--join` makes it new
  * - A folder that is not empty joining a repository that is not empty: an equal file is only recorded; a different one meets the note as a create (one conflict block)
  */
@@ -118,6 +119,22 @@ test('commit reports its own call only: a file held from an earlier call neither
 	expect(await commit({ ...base, dir, message: 'New', wait: 3_000 }, print)).toBe(2);
 	expect(lines.at(-1)).toEqual({ held: [{ path: 'new.md', reason: expect.any(String) }] });
 	expect(server.read('good.md')).toBe(note('good\n'));
+}, 30_000);
+
+test('commit with a file the repository cannot take is held whole, exit 2: nothing of it lands until the file is fixed', async () => {
+	const { server, served, folder, print, base, lines } = setup();
+	const dir = folder('agent');
+	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
+	writeFileSync(join(dir, 'a.md'), note('a\n'));
+	writeFileSync(join(dir, 'bad.md'), new Uint8Array([0xff, 0xfe, 0x41]));
+	lines.length = 0;
+	expect(await commit({ ...base, dir, message: 'Two notes', wait: 3_000 }, print)).toBe(2);
+	expect(lines).toEqual([{ held: [{ path: 'bad.md', reason: 'not UTF-8 text' }] }]);
+	expect(server.read('a.md')).toBeNull();
+	writeFileSync(join(dir, 'bad.md'), note('fixed\n'));
+	expect(await commit({ ...base, dir, message: 'Two notes, fixed' }, print)).toBe(0);
+	expect(server.read('a.md')).toBe(note('a\n'));
+	expect(server.read('bad.md')).toBe(note('fixed\n'));
 }, 30_000);
 
 test('commit with nothing new reports the real outcome of a commit an earlier run left unsent', async () => {
