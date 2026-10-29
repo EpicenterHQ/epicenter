@@ -917,11 +917,33 @@ function createReplica({
 	// ==========================================================================
 
 	/**
+	 * RULE: paths equal after NFC and case folding are one row, spelled as
+	 * `main` spells it. Where `main` has `path` and this device keeps a row of
+	 * another spelling for it (its own create, crossing one there), that row
+	 * and its work move to `path`, so the work is rebased onto `main`'s text
+	 * and never sent over it unseen. A row in the commit awaiting its answer
+	 * stays until the answer, which names both spellings.
+	 */
+	function respell(path: string) {
+		if (stored(path) !== undefined) return;
+		const other = first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? AND path != ? ORDER BY rowid LIMIT 1', [fold(path), path])?.path;
+		if (other === undefined) return;
+		const f = record(other);
+		if (f.sent !== undefined) return;
+		const said = { saved: messageOf(other, 'saved'), committed: messageOf(other, 'committed') };
+		driver.run('UPDATE "epicenter/groups" SET other = ? WHERE other = ?', [path, other]);
+		set(other, { base: null, mine: null });
+		set(path, f);
+		for (const level of ['saved', 'committed'] as const) if (said[level] !== null) sayAt(path, level, said[level]);
+	}
+
+	/**
 	 * A path's text on `main` is now `text`. `landed` when that holds this
 	 * device's sent commit, whose text the local work above it was made on.
 	 * `deleted` when the path was deleted at some point since this device's base.
 	 */
 	function integrate(path: string, text: string | null, landed: boolean, deleted = false) {
+		if (text !== null) respell(path);
 		const f = record(path);
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
