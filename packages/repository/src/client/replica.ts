@@ -408,8 +408,18 @@ function createReplica({
 	};
 	/** The paths a query names, in its order. */
 	const pathsOf = (sql: string, params: SqlValue[] = []) => driver.all<{ path: string }>(sql, params).map((row) => row.path);
+	/**
+	 * The paths where `where` holds, in order of their first store. Read
+	 * unordered and put in order here: asked to order by rowid, SQLite scans
+	 * every file in rowid order rather than use a partial index and sort.
+	 */
+	const pathsWhere = (where: string) =>
+		driver
+			.all<{ path: string; n: number }>(`SELECT path, rowid AS n FROM "epicenter/files" WHERE ${where}`)
+			.sort((a, b) => a.n - b.n)
+			.map((row) => row.path);
 	/** Files in order of their first store, as the logic reads them, where `where` holds. */
-	const filesWhere = (where: string): [string, FileView][] => pathsOf(`SELECT path FROM "epicenter/files" WHERE ${where} ORDER BY rowid`).map((path) => [path, record(path)]);
+	const filesWhere = (where: string): [string, FileView][] => pathsWhere(where).map((path) => [path, record(path)]);
 	/** Files with an unsent commit, in order of their first store. */
 	const committedFiles = (): [string, FileView][] =>
 		pathsOf('SELECT u.path FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path ORDER BY f.rowid').map((path) => [path, record(path)]);
@@ -1043,7 +1053,8 @@ function createReplica({
 		}
 		// In a full listing, every local file not named is absent.
 		if (reply.full)
-			for (const [path] of filesWhere('(base IS NOT NULL OR unknown = 1) AND path NOT IN (SELECT path FROM "epicenter/staged")')) integrate(path, null, false);
+			// Paths only: each record, its texts with it, is read inside `integrate`, one file at a time.
+			for (const path of pathsWhere('(base IS NOT NULL OR unknown = 1) AND path NOT IN (SELECT path FROM "epicenter/staged")')) integrate(path, null, false);
 		for (const [path, f] of filesWhere('unknown = 1')) {
 			const { unknown: _, ...rest } = f;
 			set(path, rest);
