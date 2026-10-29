@@ -16,15 +16,33 @@
  * - peak RSS: the process's maximum resident set
  *
  * Run: bun scripts/bench-open.ts [notes=100000]
+ *
+ * Three more cases, each in a fresh process, report time and peak heap
+ * (the heap at every read, and with what its strings hold outside it at
+ * most every 25 ms, since that measure itself takes milliseconds):
+ *
+ * - session: a page session over the opened replica with the notes in a
+ *   `memory: false` collection: its snapshot, then 200 writes each heard
+ *   as a delta (paths only, no rows)
+ * - catch-up: a fresh replica's full catch-up from a server holding the
+ *   notes (the server is built first, then the heap measured from there)
+ * - reset: the opened replica's full catch-up from a server that holds none
+ *   of them (a server reset), so every local note is absent from the listing
  */
-import { mkdirSync, existsSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { heapStats } from 'bun:jsc';
+import { heapSize, heapStats } from 'bun:jsc';
 import { openBunSqlite } from '../src/bun/sqlite.js';
-import { openReplica } from '../src/client/replica.js';
+import { servePage } from '../src/client/page.js';
+import { openReplica, type Replica, type Reply, type Request } from '../src/client/replica.js';
+import { commitId } from '../src/core/commit.js';
+import type { Server } from '../src/server/server.js';
+import { createTestServer, writer } from '../src/sim/harness.js';
 import { gitBlobHash } from '../src/core/hash.js';
 import { fold } from '../src/core/door.js';
+import { compileTemplate } from '../src/core/templates.js';
+import { unwrap } from 'wellcrafted/result';
 
 const binding = { repository: 'bench', server: null, account: null };
 const options = (filename: string) => ({
@@ -99,7 +117,6 @@ function measure(filename: string) {
 	// The replica must stay reachable through the collection above.
 	const paths = opened.data.paths().length;
 	opened.data.close();
-	const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 	console.log(
 		JSON.stringify({
 			notes: paths,
@@ -111,8 +128,121 @@ function measure(filename: string) {
 	);
 }
 
+const mb = (bytes: number) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+/** Run `work`, sampling the heap every millisecond and at each `sample()` it calls; report its time and peak above where it started. */
+async function peakOf(label: string, work: (sample: () => void) => unknown) {
+	Bun.gc(true);
+	const before = used();
+	let peak = before;
+	let last = 0;
+	const take = () => {
+		const size = used();
+		if (size > peak) peak = size;
+	};
+	// The full measure (strings held outside the heap too) costs milliseconds as the heap grows: the heap alone at each read, the full measure at most every 25 ms.
+	const sample = () => {
+		const size = heapSize();
+		if (size > peak) peak = size;
+		const now = performance.now();
+		if (now - last < 25) return;
+		take();
+		last = performance.now();
+	};
+	const sampler = setInterval(take, 25);
+	const started = performance.now();
+	const result = await work(sample);
+	const ms = performance.now() - started;
+	take();
+	clearInterval(sampler);
+	console.log(JSON.stringify({ case: label, ms: Math.round(ms), peakHeap: mb(peak - before), peakRss: mb(process.resourceUsage().maxRSS * 1024), ...(result as object) }));
+}
+
+/** A driver that samples the heap after each read. */
+function sampling(filename: string | undefined, sample: () => void) {
+	const driver = openBunSqlite(filename);
+	return {
+		...driver,
+		all: ((sql: string, params?: never[]) => {
+			const rows = driver.all(sql, params);
+			sample();
+			return rows;
+		}) as typeof driver.all,
+	};
+}
+
+const NOTES = { name: 'notes', view: options('').app.lenses[0]?.view ?? '', template: unwrap(compileTemplate('notes/{stem}.md')), memory: false };
+
+async function session(filename: string) {
+	await peakOf('session', (sample) => {
+		const replica = unwrap(openReplica({ ...options(filename), driver: sampling(filename, sample) }));
+		const page = servePage(replica, [NOTES]);
+		const snapshot = page.snapshot();
+		let deltas = 0;
+		let rows = 0;
+		page.watch((delta) => {
+			deltas++;
+			rows += Object.keys(delta.rows).length;
+			sample();
+		});
+		const count = replica.query<{ n: number }>('SELECT count(*) AS n FROM notes')[0]?.n ?? 1;
+		for (let i = 0; i < 200; i++) page.change([{ kind: 'patch', path: `notes/n${String((i * 397) % count).padStart(6, '0')}.md`, fields: { done: i % 3 === 0 } }]);
+		replica.close();
+		return { snapshotRows: snapshot.rows.length, deltas, deltaRows: rows };
+	});
+}
+
+/** Answer what `replica` sends from `server`, until it sends nothing. */
+function serve(replica: Replica, server: Server, user: string, sample: () => void) {
+	const sent: Request[] = [];
+	replica.attach((request) => sent.push(request));
+	unwrap(replica.hello({ repository: 'bench', server: 'bench', account: null, user, main: server.main() }));
+	for (let request = sent.shift(); request !== undefined; request = sent.shift()) {
+		const reply: Reply =
+			request.type === 'push'
+				? { type: 'answer', rid: request.rid, answer: server.push(request.commit, writer(user)) }
+				: request.type === 'catch-up'
+					? { type: 'caught-up', rid: request.rid, catchUp: server.catchUp(request) }
+					: { type: 'fetched', rid: request.rid, texts: server.fetch(request.hashes) };
+		sample();
+		replica.reply(reply);
+	}
+}
+
+const unlimited = { burst: 1e9, rate: 1e9, readBurst: 1e9, readRate: 1e9 };
+
+async function catchUp(count: number) {
+	const server = createTestServer({ limits: unlimited });
+	for (let start = 0; start < count; start += 1000) {
+		const files = Array.from({ length: Math.min(1000, count - start) }, (_, k) => ({ path: `notes/n${String(start + k).padStart(6, '0')}.md`, text: note(start + k) }));
+		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'seed', device: 'seed' }, time: new Date(0).toISOString(), files };
+		server.push({ id: commitId(body), ...body }, writer('seed'));
+	}
+	await peakOf('catch-up', (sample) => {
+		const replica = unwrap(openReplica({ ...options(''), driver: sampling(undefined, sample) }));
+		serve(replica, server, 'reader', sample);
+		const notes = replica.paths().length;
+		replica.close();
+		return { notes };
+	});
+}
+
+async function reset(filename: string) {
+	const server = createTestServer({ limits: unlimited });
+	await peakOf('reset', (sample) => {
+		const replica = unwrap(openReplica({ ...options(filename), driver: sampling(filename, sample) }));
+		serve(replica, server, 'reader', sample);
+		const left = replica.paths().length;
+		replica.close();
+		return { notesLeft: left };
+	});
+}
+
 const [mode, arg] = process.argv.slice(2);
 if (mode === '--open' && arg !== undefined) measure(arg);
+else if (mode === '--session' && arg !== undefined) await session(arg);
+else if (mode === '--catch-up' && arg !== undefined) await catchUp(Number(arg));
+else if (mode === '--reset' && arg !== undefined) await reset(arg);
 else {
 	const count = Number(mode ?? 100_000);
 	const directory = join(tmpdir(), 'epicenter-bench-open');
@@ -124,8 +254,19 @@ else {
 		build(filename, count);
 		console.log(`built ${count} notes in ${Math.round(performance.now() - started)} ms: ${filename}`);
 	}
-	for (let run = 0; run < 3; run++) {
-		const child = Bun.spawnSync(['bun', import.meta.path, '--open', filename], { stdout: 'pipe', stderr: 'inherit' });
-		process.stdout.write(child.stdout.toString());
+	const run = (...args: string[]) => process.stdout.write(Bun.spawnSync(['bun', import.meta.path, ...args], { stdout: 'pipe', stderr: 'inherit' }).stdout.toString());
+	for (let i = 0; i < 3; i++) run('--open', filename);
+	const scratch = `${filename}.scratch`;
+	const copy = () => {
+		for (const suffix of ['', '-wal', '-shm']) rmSync(scratch + suffix, { force: true });
+		copyFileSync(filename, scratch);
+	};
+	for (const kind of process.env.BENCH_CASES?.split(',') ?? ['session', 'catch-up', 'reset']) {
+		if (kind === 'catch-up') run('--catch-up', String(count));
+		else {
+			// Each case writes, so it runs on a copy of the built replica.
+			copy();
+			run(`--${kind}`, scratch);
+		}
 	}
 }
