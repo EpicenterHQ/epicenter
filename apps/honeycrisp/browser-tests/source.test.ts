@@ -31,7 +31,7 @@ async function until(check: () => Promise<boolean>, what: string, timeout = 20_0
 	}
 }
 
-const statusOf = (page: Page) => page.getByTestId('editor-status');
+const statusOf = (page: Page) => page.getByRole('region', { name: 'File' }).getByTestId('editor-status');
 const statusSays = (page: Page, text: string) => async () => ((await statusOf(page).textContent()) ?? '').includes(text);
 const serverHas = (path: string, text: string) => async () => (await world.read(path))?.includes(text) ?? false;
 

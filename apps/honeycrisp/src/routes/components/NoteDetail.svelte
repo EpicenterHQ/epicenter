@@ -7,6 +7,7 @@
 -->
 <script lang="ts">
 	import type { Editor } from '@epicenter/repository';
+	import EditorStatus from '@epicenter/svelte/repository/editor-status';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
@@ -86,6 +87,7 @@
 
 			{#if editor !== undefined}
 				<NoteEditor {editor} focusRequest={notes.focusRequest} class="flex-1" />
+				<EditorStatus {editor} state={shown.state} shows="body" />
 			{:else if unopened !== undefined}
 				{@const { reason, retry } = unopened}
 				<p class="flex flex-wrap items-center gap-2 px-4 py-3 text-sm text-destructive" role="alert">

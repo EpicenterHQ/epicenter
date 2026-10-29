@@ -170,3 +170,19 @@ test('deleting a folder moves its notes out in the same transaction', async () =
 	await until(() => tab.revision() > before, 'the change heard');
 	expect(tab.revision()).toBe(before + 1);
 });
+
+test('a body save that fails says so in the note view, with Try again, and keeps the typing', async () => {
+	const on = await device({ 'notes/a.md': noteText({ title: 'Disk', body: 'one\n' }) });
+	const page = await openPage(on);
+	await openNote(page, 'notes/a.md');
+	await until(() => page.target.querySelector(`${NOTE} .cm-editor`) !== null, 'the editor');
+	const editor = EditorView.findFromDOM(page.get<HTMLElement>(`${NOTE} .cm-editor`));
+	if (editor === null) throw new Error('No editor');
+	on.refuseWrites(true);
+	editor.dispatch({ changes: { from: 3, insert: '!' }, userEvent: 'input.type' });
+	await until(() => page.text(`${NOTE} [data-testid="editor-status"]`).includes('Not saved'), 'the failed save');
+	on.refuseWrites(false);
+	button(page.get(NOTE), 'Try again').click();
+	await until(() => on.text('notes/a.md') === noteText({ title: 'Disk', body: 'one!\n' }), 'the typing saved');
+	await until(() => page.text(`${NOTE} [data-testid="editor-status"]`).includes('Saved'), 'the saved status');
+});
