@@ -5,7 +5,6 @@ export {
 	defineApp,
 	type NoteDefinition,
 	type NoteName,
-	slug,
 	type TextStatus,
 	timestamp,
 } from './core/lens.js';
@@ -55,6 +54,7 @@ export type {
 	SettledOverlap,
 	Welcome,
 } from './protocol.js';
+export { slug } from './core/door.js';
 export type { ContentOverlap } from './core/merge.js';
 export type { SqlDriver, SqlValue } from './sql.js';
 export type { Params, ParamsArg } from './core/templates.js';

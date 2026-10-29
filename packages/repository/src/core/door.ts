@@ -183,7 +183,7 @@ const MARKERS = ['<<<<<<< ', '||||||| ', '=======', '>>>>>>> '];
 const isMarker = (line: string) => MARKERS.some((m) => line.startsWith(m)) || line === '=======';
 
 /** A content line that would read as a delimiter (or as an escaped one) gets one more backslash. */
-export const escapeLine = (line: string) => (isMarker(line.replace(/^\\+/, '')) ? `\\${line}` : line);
+const escapeLine = (line: string) => (isMarker(line.replace(/^\\+/, '')) ? `\\${line}` : line);
 export const escapeLines = (text: string) => text.split('\n').map(escapeLine).join('\n');
 
 /** One labelled block holding `incoming` whole, with its delimiter-like lines escaped. */

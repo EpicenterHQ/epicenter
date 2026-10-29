@@ -231,19 +231,8 @@ export function schemaIssues(schema: TSchema, fields: Record<string, unknown>): 
 }
 
 // ============================================================================
-// Stem helpers: apps pass every segment; these make common stems.
+// Stem helpers: apps pass every segment; `slug` (core/door) and this make common stems.
 // ============================================================================
-
-/** A lowercase, dash-separated stem from a title: `slug('Fix login!')` is `fix-login`. */
-export function slug(title: string): string {
-	const stem = title
-		.normalize('NFKD')
-		.replace(/[̀-ͯ]/g, '')
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '');
-	return stem === '' ? 'untitled' : stem;
-}
 
 /** A sortable UTC stem for a moment: `2026-10-28T12-00-00Z`. */
 export function timestamp(at: Date = new Date()): string {

@@ -15,7 +15,7 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { defineApp, slug, timestamp } from './lens.js';
+import { defineApp, timestamp } from './lens.js';
 
 const Task = Type.Object({ title: Type.String(), done: Type.Boolean() });
 
@@ -151,9 +151,6 @@ test('app.check reports parsing, then the named schema', () => {
 	app.check('', { as: 'photos' });
 });
 
-test('slug and timestamp make stems', () => {
-	expect(slug('Fix the Login, Now!')).toBe('fix-the-login-now');
-	expect(slug('Café')).toBe('cafe');
-	expect(slug('!!!')).toBe('untitled');
+test('timestamp makes a sortable stem', () => {
 	expect(timestamp(new Date('2026-10-28T12:00:00.123Z'))).toBe('2026-10-28T12-00-00Z');
 });

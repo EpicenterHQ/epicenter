@@ -15,5 +15,4 @@ export {
 	type Tree,
 	type TreeEntry,
 } from './git-store.js';
-export { type Decision, describe, type Policy, settle } from '../policy.js';
 export { PushError, type PushOutcome } from './push.js';
