@@ -9,8 +9,10 @@
  * `committed` (the text in its unsent commit), and `mine` (what it shows and
  * types into). A save commits the files saved since they last went out, at
  * once, except held text: a text the door refuses, or one the server
- * refused, which stays held with its reason until its person saves that
- * file again. One commit is sent at a time, on top of the position, sized
+ * refused, which stays held with its reason until its writer saves that
+ * file again. What one call saves is one group, sent in one commit or not
+ * at all: it waits while any file of it is held or owed its bytes, and a
+ * later save of a file in a group joins it. One commit is sent at a time, on top of the position, sized
  * to the server's bounds; while one is in flight, or offline, the unsent
  * commit is amended. A request the server rejects (rate, size, who is
  * asking, its form) holds no text: the work stays committed and goes again
@@ -43,7 +45,8 @@
  *   "epicenter/unsent"    the unsent commit: per path, its text (null deletes)
  *   "epicenter/inflight"  the commit sent and not yet answered, and how many
  *                         times it was sent; its files are the `sent` level
- *   "epicenter/groups"    paths saved together (a rename's two halves)
+ *   "epicenter/groups"    paths saved in one call (a rename's two halves, a
+ *                         note and the blob it names), while any is unsent
  *   "epicenter/passed"    recent positions, so a late notification is old
  *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
  *   "epicenter/fetched"   texts read by hash for that catch-up
@@ -51,9 +54,10 @@
  *
  * A pointer this device made whose bytes the server does not hold is owed:
  * it stays saved here, out of every commit, `sending` with "its bytes are
- * uploading", until the upload track (client/uploads) calls `present`. A
- * refused upload holds it with why, and its person's next save of the path
- * tries again. Owed is derived from these tables, never stored.
+ * uploading", and so does its group, until the upload track
+ * (client/uploads) calls `present`. A refused upload holds it with why, and
+ * its group with it; its writer's next save of the path tries again. Owed
+ * is derived from these tables, never stored.
  *
  * Every change runs in one transaction, and a request goes out only once
  * the state naming it is stored. No file's text is kept in memory: each is
@@ -219,7 +223,7 @@ type FileRecord = {
 	held?: { reason: string };
 	/** RULE: this work's commit got `outcome-unknown`: the next catch-up puts it beside what is there, never merged blindly. */
 	unknown?: true;
-	/** RULE: paths saved with this one (a rename's two halves): they commit together, and one held holds them all. */
+	/** RULE: paths saved in one call with this one (a rename's two halves, a note and its blob): they commit together, and one held or owed holds them all. */
 	together?: string[];
 };
 
@@ -599,22 +603,34 @@ function createReplica({
 
 	/** Paths whose text this device made names bytes `oid`. */
 	const pointing = (oid: string) => pathsOf(`SELECT path FROM "epicenter/files" WHERE text IS NOT base AND path NOT LIKE '%.md' AND json_extract(fields, '$.oid') = ?`, [oid]);
-	/** RULE: a pointer whose bytes the server does not hold yet waits here, saved, alone: it never joins a group, so nothing waits with it. */
+	/** A pointer whose bytes the server does not hold yet waits here, saved, and its group waits with it. */
 	function owes(path: string, f: FileRecord) {
 		if (f.held !== undefined || isNote(path) || f.mine === null || f.mine === f.base) return false;
 		const pointer = parsePointer(f.mine);
 		return pointer !== null && first(driver, 'SELECT 1 FROM "epicenter/objects" WHERE oid = ?', [pointer.oid]) === undefined;
 	}
 
-	/** Held, owed its bytes, or saved together with a path that is held. */
-	function blocked(path: string, seen = new Set<string>()): boolean {
-		if (seen.has(path)) return false;
-		seen.add(path);
-		const f = record(path);
-		return heldReason(f) !== null || owes(path, f) || (f.together ?? []).some((other) => blocked(other, seen));
+	/**
+	 * What keeps `path` from going: a file of its group (itself, or one saved
+	 * with it) that is held, or else one owed its bytes; null when nothing does.
+	 */
+	function blocker(path: string): { path: string; held: boolean } | null {
+		let owed: string | null = null;
+		const seen = new Set<string>();
+		for (const visit = [path]; visit.length > 0; ) {
+			const at = visit.pop() as string;
+			if (seen.has(at)) continue;
+			seen.add(at);
+			const f = record(at);
+			if (heldReason(f) !== null) return { path: at, held: true };
+			if (owed === null && owes(at, f)) owed = at;
+			visit.push(...(f.together ?? []));
+		}
+		return owed === null ? null : { path: owed, held: false };
 	}
+	const blocked = (path: string) => blocker(path) !== null;
 
-	/** RULE: committed files that can go now: a commit waits while a path saved with it is held (a rename's halves go together), or while the server asked this member to slow down. */
+	/** RULE: committed files that can go now: a commit waits while a file of its group is held or owed (a rename's halves, a note and its blob, go together), or while the server asked this member to slow down. */
 	const ready = () => (now() < backoffUntil ? [] : committedFiles().filter(([path]) => !blocked(path)));
 
 	/** The files saved together with `path` that can go now: a rename's halves, and any path saved with either. */
@@ -691,17 +707,17 @@ function createReplica({
 				const path = spelled(given);
 				const { held: _, ...f } = record(path);
 				const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
+				// RULE: a save joins the paths saved in this call, and any group the path is already in: a new text over a rename's unsent half must still go with the other half.
+				const together = [...new Set([...(f.together ?? []), ...paths.filter((other) => other !== path)])];
+				const grouped = together.length === 0 ? {} : { together };
 				if (!isNote(path)) {
-					// A blob never merges, and never waits for another path: a write over a blob that moved since `over` is held with why.
+					// A blob never merges: a write over a blob that moved since `over` is held with why, and its group with it.
 					const swapped = from === f.mine ? { text } : settlePointer(from, f.mine, text);
-					const { together: _, ...alone } = f;
-					set(path, 'refused' in swapped ? { ...alone, mine: text, held: { reason: swapped.refused } } : { ...alone, mine: swapped.text, saved: true });
+					set(path, 'refused' in swapped ? { ...f, ...grouped, mine: text, held: { reason: swapped.refused } } : { ...f, ...grouped, mine: swapped.text, saved: true });
 					continue;
 				}
 				const next = from === f.mine ? text : settle(from, f.mine, text, { parties: parties() }).text;
-				// RULE: a save joins any group the path is already in: a new text over a rename's unsent half must still go with the other half. A blob never joins one: a note never waits on its bytes.
-				const together = [...new Set([...(f.together ?? []), ...paths.filter((other) => other !== path && isNote(other))])];
-				set(path, { ...f, mine: next, saved: true, ...(together.length === 0 ? {} : { together }) });
+				set(path, { ...f, ...grouped, mine: next, saved: true });
 			}
 			commit();
 			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
@@ -846,7 +862,7 @@ function createReplica({
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
-		if (!isNote(path)) return integratePointer(path, f, text, below);
+		if (!isNote(path)) return integratePointer(path, f, text, below, own);
 		const gone = deleted && !own;
 		// Committed work is rebased onto the new text; a delete or removal that loses to an edit leaves the edit.
 		let committed: string | null | undefined;
@@ -874,7 +890,7 @@ function createReplica({
 	 * held with why; a delete over one that moved is dropped, and the file
 	 * stays.
 	 */
-	function integratePointer(path: string, f: FileView, text: string | null, below: string | null) {
+	function integratePointer(path: string, f: FileView, text: string | null, below: string | null, own: boolean) {
 		let held = f.held;
 		let committed: string | null | undefined;
 		/** What `mine` now sits on: the committed work if it still lands, else `main`. */
@@ -902,6 +918,8 @@ function createReplica({
 			if (held !== undefined) next.held = held;
 			else if (f.saved !== undefined) next.saved = true;
 		}
+		// A group lasts until its own commit lands, as a note's does.
+		if (f.together !== undefined && (!own || next.committed !== undefined || next.mine !== next.base)) next.together = f.together;
 		set(path, next);
 	}
 
@@ -1255,10 +1273,10 @@ function createReplica({
 		const f = record(path);
 		const reason = heldReason(f);
 		if (reason !== null) return { status: 'held', reason };
-		// A path saved with a held one waits for it: say so, not "sending".
-		const partner = f.saved === undefined && f.committed === undefined ? undefined : (f.together ?? []).find((other) => blocked(other));
-		if (partner !== undefined) return { status: 'held', reason: `saved with ${partner}, which is held` };
 		if (owes(path, f)) return { status: 'sending', reason: UPLOADING };
+		// A path saved with a held or owed one waits for it: say which, and why.
+		const waits = f.saved === undefined && f.committed === undefined ? null : blocker(path);
+		if (waits !== null) return waits.held ? { status: 'held', reason: `saved with ${waits.path}, which is held` } : { status: 'sending', reason: `saved with ${waits.path}, whose bytes are uploading` };
 		if (f.sent === undefined && f.committed === undefined && f.saved === undefined) return { status: 'synced' };
 		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
 	}

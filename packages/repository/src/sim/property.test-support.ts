@@ -9,7 +9,8 @@
  * editor buffer saved late, a note too large to store, renames (delete plus
  * write), deletes, deleting a path and creating it again (sometimes with the
  * very text it had before), an agent's batches (several notes in one
- * save, merged by the same rule as everyone's), lost replies, offline periods, restarts, flushes, idle periods longer than
+ * save, sometimes with a new blob, merged by the same rule as everyone's),
+ * lost replies, offline periods, restarts, flushes, idle periods longer than
  * the retention window, catch-ups in pages of two paths, a device whose storage
  * is lost for good, a hostile member writing directly to the server, and
  * blobs: attaching bytes at a named path (alone, or with a note naming it),
@@ -34,7 +35,7 @@
  * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
- * - An agent's batch lands in one commit or is held whole: no commit on main brings some of a batch's tokens without the rest
+ * - An agent's batch lands in one commit or is held whole: no commit on main brings some of a batch's tokens without the rest, nor without the blob saved with them (unless its writer since replaced it, or the bytes were already there: in the writer's base when it saved, or on main since)
  * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
  *
  * Each suite reads its own environment, by prefix (B for the memory
@@ -161,7 +162,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const onMain = new Set<string>();
 	const honestIds: string[] = [];
 	/** Each agent batch's tokens not yet on main, and the step that saved it: a batch lands in one commit or is held whole. */
-	const batches: { step: string; tokens: Set<string> }[] = [];
+	const batches: { step: string; tokens: Set<string>; blob?: (typeof attaches)[number]; at: number }[] = [];
 	/** Every token main has held. */
 	const everOnMain = new Set<string>();
 	let next = 1;
@@ -183,6 +184,10 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			if (landed.length === 0) continue;
 			const missing = [...batch.tokens].filter((t) => !arrived.has(t));
 			if (missing.length > 0) violations.push(`server: agent's batch (${batch.step}) landed ${landed.join(' ')} without ${missing.join(' ')}`);
+			const blob = batch.blob;
+			const there = blob !== undefined && chain.slice(batch.at).some((id) => states.get(id)?.get(blob.path) === blob.text);
+			if (blob !== undefined && !blob.settled && !there && !committed.files.some((file) => file.path === blob.path && file.after === blob.text))
+				violations.push(`server: agent's batch (${batch.step}) landed without its blob at ${blob.path}`);
 			batch.tokens.clear();
 		}
 		for (const file of committed.files) {
@@ -606,29 +611,46 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			const text = agent.replica.read(path);
 			changes[path] = text === null ? `---\ntitle: ${t}\n---\n` : `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`;
 		}
+		// Sometimes with new bytes, named by the first note.
+		const blobPath = random.pick(BLOB_PATHS);
+		const pointer = writePointer(random.pick(BYTES));
+		const withBlob = random.chance(0.35) && agent.replica.read(blobPath) !== pointer;
+		// Bytes already in the agent's base there: the write sends nothing, so the batch owes no blob.
+		const sends = agent.replica.files().get(blobPath)?.base !== pointer;
+		const first = paths[0] as string;
+		if (withBlob) {
+			changes[blobPath] = pointer;
+			changes[first] = `${changes[first]}audio ${blobPath}\n`;
+		}
 		save(agent, changes, typed);
-		const step = `agent saves ${paths.map((path, i) => `${typed[i]} in ${path}`).join(', ')} at once`;
-		batches.push({ step, tokens: new Set(typed) });
+		const blob = withBlob ? { device: agent.name, path: blobPath, text: pointer, settled: !sends } : undefined;
+		if (blob !== undefined) attaches.push(blob);
+		const at = chain.length - 1;
+		const step = `agent saves ${paths.map((path, i) => `${typed[i]} in ${path}`).join(', ')}${blob === undefined ? '' : ` and ${parsePointer(pointer)?.oid.slice(0, 1)} at ${blobPath}`} at once`;
+		batches.push({ step, tokens: new Set(typed), at, ...(blob === undefined ? {} : { blob }) });
 		return step;
 	};
-	const agentSteps: [number, () => string | null][] = [
+	/** The upload track's steps that act on one device (hearing bytes are present, a failed or refused upload), for the agent too. */
+	const trackSteps = blobSteps.slice(3);
+	const agentSteps: [number, () => string | null | Promise<string | null>][] = [
 		[6, agentBatch],
+		...trackSteps.map(([weight, act]): [number, () => string | null | Promise<string | null>] => [weight, () => act(agent)]),
 		[1, () => (agent.setOnline(!agent.isOnline()), `agent goes ${agent.isOnline() ? 'online' : 'offline'}`)],
 		[1, () => (agent.loseNextReply(), 'agent will lose its next reply')],
 		[1, () => (agent.restart(), 'agent restarts')],
 	];
-	const agentStep = () => {
+	const agentStep = async () => {
 		let pick = random.int(1, agentSteps.reduce((sum, [weight]) => sum + weight, 0));
 		for (const [weight, act] of agentSteps) {
 			pick -= weight;
-			if (pick <= 0) return act();
+			if (pick <= 0) return await act();
 		}
 		return null;
 	};
 
 	for (let n = 0; n < STEPS; n++) {
 		let said: string | null = null;
-		if (random.chance(0.12)) said = agentStep();
+		if (random.chance(0.12)) said = await agentStep();
 		else {
 			let pick = random.int(1, total);
 			const d = random.pick(people);
