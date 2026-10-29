@@ -21,6 +21,9 @@ export type Collection = { name: string; view: string; template: Template; memor
 /** One note as the page reads it: its exact text, its fields as JSON (null when its frontmatter does not parse), and its state. */
 export type Row = { path: string; text: string; fields: string | null; state: FileStatus };
 
+/** A file as the plain file API lists it: its path, and where it stands with the server. */
+export type FileEntry = { path: string; state: FileStatus };
+
 /** Every note of the collections kept in memory, as of `revision`. */
 export type Snapshot = { revision: number; rows: Row[] };
 
@@ -84,10 +87,13 @@ export function servePage(
 		return found === undefined ? null : rowOf(found.path, found.text, found.fields);
 	}
 
+	/** The paths with work, whose state is read; every other path is synced. */
+	const withWork = () => new Set([...replica.unsent(), ...replica.held().map((held) => held.path)]);
+
 	return {
 		/** Every note of the collections kept in memory, as of one revision. */
 		snapshot(): Snapshot {
-			const unsent = new Set([...replica.unsent(), ...replica.held().map((held) => held.path)]);
+			const unsent = withWork();
 			const rows: Row[] = [];
 			for (const collection of kept)
 				for (const found of replica.query<{ path: string; text: string; fields: string | null }>(
@@ -97,6 +103,11 @@ export function servePage(
 					if (row !== null) rows.push(row);
 				}
 			return { revision: replica.revision(), rows };
+		},
+		/** Every file this device shows, in any collection or none, ordered by path, with its state. */
+		files(): FileEntry[] {
+			const unsent = withWork();
+			return replica.paths().map((path) => ({ path, state: unsent.has(path) ? replica.state(path) : { status: 'synced' } }));
 		},
 		/** One note, for a collection not kept in memory. */
 		read,

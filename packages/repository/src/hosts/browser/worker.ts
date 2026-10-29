@@ -38,6 +38,8 @@ function replicaMethods(replica: Replica, page: PageServer, blobs: OpfsBlobStore
 		/** One note as the page reads it, or null. */
 		row: (path: string) => page.read(path),
 		paths: () => replica.paths(),
+		/** Every file this device shows, with its state. */
+		files: () => page.files(),
 		state: (path: string) => replica.state(path),
 		held: () => replica.held(),
 		query: (sql: string, params?: SqlValue[]) => replica.query(sql, params),

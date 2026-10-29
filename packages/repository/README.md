@@ -149,6 +149,30 @@ text is merged, as the worker merges it), until the change it made is heard
 (each send carries a token the worker's change event repeats), and dropped if
 it fails.
 
+### Every file, by its path
+
+Collections are typed views of files, not permissions
+([ADR-0694](../../docs/adr/0694-installing-an-app-is-trusting-it.md)): every
+handle also has the plain file API, `repo.files`, over every file of the
+repository, in a collection or none.
+
+```ts
+const listed = await repo.files.list(); // [{ path, state }], ordered by path
+const readme = await repo.files.read('README.md'); // { path, text, state } or null, by any spelling of the path
+await repo.files.create('plans/trip.md', 'Go north\n');
+await repo.files.write('plans/trip.md', next, { over: before });
+await repo.files.delete('plans/trip.md');
+const opened = await repo.files.openEditor('README.md'); // the one editor of its exact text
+await repo.commit((batch) => {
+	batch.files.write('plans/journey.md', text);
+	batch.files.delete('plans/trip.md');
+}); // a rename: one transaction
+```
+
+A write to a path a collection keeps in memory shows there at once, as that
+collection's own write would. A subscriber hears `files: true` when any
+file changed, and `revision()` moves, so a listing re-runs.
+
 ### Edit a note's text
 
 `openEditor(params)` returns the one editor of a note, shared by every view

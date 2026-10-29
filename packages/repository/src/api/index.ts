@@ -13,8 +13,12 @@ export { type Editor, type EditorChange, EditorError, type EditorState, type Uns
 export { bodyChanges, type TextChange } from '../core/diff.js';
 export { bodyOf, withBody } from '../core/markdown.js';
 export {
+	type BatchFiles,
 	type Committed,
 	type FieldPatch,
+	type FileEntry,
+	type Files,
+	type FileText,
 	type InvalidNote,
 	type MemoryCollection,
 	type Note,

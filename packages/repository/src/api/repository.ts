@@ -23,7 +23,7 @@
 import type { Static, TSchema } from 'typebox';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Delta, Row, SaveError, Snapshot } from '../client/page.js';
+import type { Delta, FileEntry, Row, SaveError, Snapshot } from '../client/page.js';
 import { SaveError as SaveErrors } from '../client/page.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
 import { type App, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
@@ -41,6 +41,8 @@ import { createEditors, type Editor, type EditorError, mergedOver, type Unsaved 
 export type Session = {
 	snapshot(): Promise<Snapshot>;
 	row(path: string): Promise<Row | null>;
+	/** Every file the replica shows, with its state. */
+	files(): Promise<FileEntry[]>;
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<TRow[]>;
 	/** Apply `changes` in one transaction; the change it makes is heard with `token`. */
 	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
@@ -150,8 +152,41 @@ type BatchCollection<TDef> = TDef extends { path: infer TPath extends string; sc
 		}
 	: never;
 
-/** What changed, for a subscriber: the collections whose notes changed, and whether the status did. */
-export type RepositoryChange = { collections: string[]; status: boolean };
+/** What changed, for a subscriber: the collections whose notes changed, whether any file did (in a collection or none), and whether the status did. */
+export type RepositoryChange = { collections: string[]; files: boolean; status: boolean };
+
+export type { FileEntry };
+
+/** A file's exact text as the plain file API reads it, with its state. */
+export type FileText = { path: string; text: string; state: FileStatus };
+
+/**
+ * The plain file API: every file of the repository by its path, in a
+ * collection or none, as Git has it. Every app has it; collections are typed
+ * views over the same files, not permissions (ADR-0694). A write to a path
+ * a collection kept in memory claims shows there at once, as that
+ * collection's own write would.
+ */
+export type Files = {
+	/** Every file this device shows, ordered by path, with its state. */
+	list(): Promise<Result<FileEntry[], RepositoryError>>;
+	/** One file's exact text, found by any spelling of its path, or null for none. */
+	read(path: string): Promise<Result<FileText | null, RepositoryError>>;
+	/** A new file, merged with one already there. */
+	create(path: string, text: string): Promise<Result<Written, WriteError>>;
+	/** Exact text (null deletes), merged where the file moved since `over`. */
+	write(path: string, text: string | null, options?: { over?: string | null }): Promise<Result<Written, WriteError>>;
+	delete(path: string): Promise<Result<Written, WriteError>>;
+	/** The one editor of the file's exact text, shared by every view of it. */
+	openEditor(path: string): Promise<Result<Editor, WriteError | EditorError>>;
+};
+
+/** The plain file API's writes, inside `commit`. */
+export type BatchFiles = {
+	create(path: string, text: string): void;
+	write(path: string, text: string | null, options?: { over?: string | null }): void;
+	delete(path: string): void;
+};
 
 export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: CollectionOf<TDefs[K]> } & {
 	status(): RepositoryStatus;
@@ -159,10 +194,12 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 	revision(): number;
 	/** Be told after anything changes; returns the function that stops it. */
 	subscribe(listener: (change: RepositoryChange) => void): () => void;
-	/** One read-only SQL statement over the app's views. */
+	/** The plain file API. */
+	files: Files;
+	/** One read-only SQL statement over the app's views, or `"epicenter/files"`. */
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>>;
 	/** Several writes as one transaction and one save. */
-	commit(build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> }) => void): Promise<Result<Committed, WriteError>>;
+	commit(build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> } & { files: BatchFiles }) => void): Promise<Result<Committed, WriteError>>;
 	/** Stop: every editor stops and the host lets the replica go. Returns the drafts that could not be saved, for the caller to keep or drop (an account change). */
 	close(): Unsaved[];
 };
@@ -248,12 +285,14 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	}
 	const listeners = new Set<(change: RepositoryChange) => void>();
 	const touched = new Set<string>();
+	let filesChanged = false;
 	let statusChanged = false;
 
 	function emit() {
-		if (touched.size === 0 && !statusChanged) return;
-		const change = { collections: [...touched].sort(), status: statusChanged };
+		if (touched.size === 0 && !filesChanged && !statusChanged) return;
+		const change = { collections: [...touched].sort(), files: filesChanged, status: statusChanged };
 		touched.clear();
+		filesChanged = false;
 		statusChanged = false;
 		for (const listener of listeners) listener(change);
 	}
@@ -343,6 +382,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 
 	/** Every collection a changed path belongs to is told, kept in memory or not. */
 	function heard(paths: string[]) {
+		if (paths.length > 0) filesChanged = true;
 		for (const path of paths) {
 			const classified = classify(path);
 			if (classified !== null) touched.add(classified.lens.name);
@@ -391,6 +431,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		for (const delta of early) if (delta.revision > snapshot.revision) applyDelta(delta);
 		// Every collection may have changed while no session was open.
 		for (const lens of lenses) touched.add(lens.name);
+		filesChanged = true;
 		setStatus({ status: 'open' });
 		emit();
 		editors.reopened();
@@ -522,7 +563,50 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		};
 	}
 
+	/** The changes the plain file API makes, at `path` as this device spells it. */
+	const fileChanges = {
+		create: (path: string, text: string): Change => ({ kind: 'create', path: spelled(path), text }),
+		write: (path: string, text: string | null, { over }: { over?: string | null } = {}): Change =>
+			over === undefined ? { kind: 'write', path: spelled(path), text } : { kind: 'write', path: spelled(path), text, over },
+		delete: (path: string): Change => ({ kind: 'delete', path: spelled(path) }),
+	};
+	const files: Files = {
+		async list() {
+			const current = status.status === 'open' ? session : null;
+			if (current === null) return RepositoryError.Unavailable({ status: status.status });
+			try {
+				return Ok(await current.files());
+			} catch {
+				return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
+			}
+		},
+		async read(path) {
+			const current = status.status === 'open' ? session : null;
+			if (current === null) return RepositoryError.Unavailable({ status: status.status });
+			try {
+				const row = await current.row(path);
+				return Ok(row === null ? null : { path: row.path, text: row.text, state: row.state });
+			} catch {
+				return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
+			}
+		},
+		create: (path, text) => {
+			const change = fileChanges.create(path, text);
+			return one(change.path, change);
+		},
+		write: (path, text, options) => {
+			const change = fileChanges.write(path, text, options);
+			return one(change.path, change);
+		},
+		delete: (path) => {
+			const change = fileChanges.delete(path);
+			return one(change.path, change);
+		},
+		openEditor: (path) => editors.open(spelled(path)),
+	};
+
 	const repository: Record<string, unknown> = {
+		files,
 		status: () => status,
 		revision: () => revision,
 		subscribe(listener: (change: RepositoryChange) => void) {
@@ -555,6 +639,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 					};
 				handles[lens.name] = { create: add(changes.create), patch: add(changes.patch), delete: add(changes.delete), write: add(changes.write) };
 			}
+			handles.files = {
+				create: (path: string, text: string) => batch.push(fileChanges.create(path, text)),
+				write: (path: string, text: string | null, options?: { over?: string | null }) => batch.push(fileChanges.write(path, text, options)),
+				delete: (path: string) => batch.push(fileChanges.delete(path)),
+			} satisfies Record<keyof BatchFiles, unknown>;
 			build(handles);
 			if (invalid !== null) return Promise.resolve({ data: null, error: invalid });
 			return send(batch).then((result): Result<Committed, WriteError> => (result.error === null ? Ok({ revision: result.data.revision }) : result));

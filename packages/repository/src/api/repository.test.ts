@@ -14,6 +14,7 @@
  * - A note not kept in memory is read, and edited, through another spelling of its path
  * - What shows before an answer is what the worker will make: a field set a moment ago still shows under body typing and a write made over an older text
  * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
+ * - The plain file API lists, reads, writes and edits every file, in a collection or none; a write to a path a collection keeps shows there at once
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -215,4 +216,43 @@ test('a note not kept in memory is read, and edited, through another spelling of
 	const editor = expectOk(await repo.entries.openEditor({ stem: 'DAY' }));
 	expect(editor.path).toBe('journal/day.md');
 	expect(expectOk(await repo.entries.openEditor({ stem: 'day' }))).toBe(editor);
+});
+
+test('the plain file API lists, reads, writes and edits every file, in a collection or none', async () => {
+	const { repo, heard } = setup((replica) => {
+		replica.write('todos/milk.md', todo('Milk'));
+		replica.write('README.md', '# Home\n');
+	});
+	expectErr(await repo.files.list());
+	await settled();
+	expect(expectOk(await repo.files.list()).map(({ path }) => path)).toEqual(['README.md', 'todos/milk.md']);
+	expect(expectOk(await repo.files.read('readme.md'))).toMatchObject({ path: 'README.md', text: '# Home\n' });
+	expect(expectOk(await repo.files.read('missing.md'))).toBeNull();
+
+	// A file in no collection: subscribers hear that a file changed, and no collection did.
+	heard.length = 0;
+	expectOk(await repo.files.create('plans/trip.md', 'Go north\n'));
+	await settled();
+	expect(heard.some((change) => change.files && change.collections.length === 0)).toBe(true);
+	expect(expectOk(await repo.files.read('plans/trip.md'))?.text).toBe('Go north\n');
+
+	// A path a collection keeps in memory shows there at once, before its answer.
+	const written = repo.files.write('todos/milk.md', todo('Oat milk'), { over: todo('Milk') });
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({ fields: { title: 'Oat milk' }, state: { status: 'sending' } });
+	expectOk(await written);
+
+	// A rename is a delete and a write, in one transaction.
+	expectOk(await repo.commit((batch) => {
+		batch.files.write('plans/journey.md', 'Go north\n');
+		batch.files.delete('plans/trip.md');
+	}));
+	expect(expectOk(await repo.files.list()).map(({ path }) => path)).toEqual(['README.md', 'plans/journey.md', 'todos/milk.md']);
+
+	const editor = expectOk(await repo.files.openEditor('README.md'));
+	editor.update('# Home\nWelcome\n');
+	await editor.close();
+	await settled();
+	expect(expectOk(await repo.files.read('README.md'))?.text).toBe('# Home\nWelcome\n');
+	expectOk(await repo.files.delete('README.md'));
+	expect(expectOk(await repo.files.read('README.md'))).toBeNull();
 });

@@ -33,7 +33,7 @@ import type { BlobStoreError, Sealed } from '../../client/blobs.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
 import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock } from './layout.js';
-import type { Collection, Delta, Row, Snapshot } from '../../client/page.js';
+import type { Collection, Delta, FileEntry, Row, Snapshot } from '../../client/page.js';
 import { type Init, SaveError, type TabMessage, type WorkerMessage } from './messages.js';
 import type { ReplicaMethods } from './worker.js';
 
@@ -200,6 +200,8 @@ function createOpenReplica({
 		row: (path: string): Promise<Row | null> => call('row', path),
 		/** Every path this device shows. */
 		paths: () => call('paths'),
+		/** Every file this device shows, with its state. */
+		files: (): Promise<FileEntry[]> => call('files'),
 		/** One file's state: synced, sending, or held with why. */
 		state: (path: string): Promise<FileStatus> => call('state', path),
 		/** Files whose text is held back, with why. */

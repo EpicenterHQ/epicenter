@@ -3,7 +3,7 @@
  * `reactive(repo)` is the repository with the same methods, its reads
  * tracked: a collection's `all()` and `get()` re-run when that collection's
  * notes change, `status()` when the status does, and `revision()` after any
- * change, so a `$derived` or `$effect` that reads it re-runs a SQL query or
+ * change (to any file, in a collection or none), so a `$derived` or `$effect` that reads it re-runs a SQL query or
  * a `read()`. Reads outside an effect or a template are plain snapshots.
  *
  *     const repo = reactive(openBrowserRepository({ app, replica }));
@@ -30,7 +30,8 @@ export function reactive<TRepository extends Repository<Definitions>>(repo: TRep
 			}),
 		);
 	const status = tracker((change) => change.status);
-	const anything = tracker((change) => change.status || change.collections.length > 0);
+	// Every change: a status, a collection's notes, or any file at all, in a collection or none.
+	const anything = tracker(() => true);
 	const wrapped: Record<string, unknown> = {
 		...repo,
 		status() {
