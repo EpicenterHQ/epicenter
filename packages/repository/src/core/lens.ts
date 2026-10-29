@@ -1,9 +1,10 @@
 /**
  * An app's lens over a repository, the pure half of `defineApp`. It maps
  * identifier names to path templates, each with a schema (a Markdown note)
- * or a blob declaration, refuses an app whose templates could claim one
- * file, derives per name the SQL view a device creates on open, and checks
- * a text against a name's schema (`app.check`) without a repository.
+ * or `blob: true` (any other file, whose bytes go through Git LFS), refuses
+ * an app whose templates could claim one file, derives per name the SQL
+ * view a device creates on open, and checks a text against a name's schema
+ * (`app.check`) without a repository.
  */
 import type { TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
@@ -23,15 +24,23 @@ import {
  * collection too large to hold; by default a page keeps every note whole.
  */
 export type NoteDefinition = { path: string; schema: TSchema; memory?: false };
-export type BlobDefinition = {
-	path: string;
-	blob: { types: readonly string[]; maxSize?: number };
-};
+/**
+ * A collection of blobs: files named by the app (`recordings/{stem}.webm`),
+ * kept in the repository as Git LFS pointers. Its template must not end in
+ * `.md`: a Markdown file is always a note.
+ */
+export type BlobDefinition = { path: string; blob: true };
 export type Definitions = Record<string, NoteDefinition | BlobDefinition>;
 
 /** The names of an app's note templates, as opposed to its blob templates. */
 export type NoteName<TDefs extends Definitions> = {
 	[K in keyof TDefs]: TDefs[K] extends { schema: TSchema } ? K : never;
+}[keyof TDefs] &
+	string;
+
+/** The names of an app's blob templates. */
+export type BlobName<TDefs extends Definitions> = {
+	[K in keyof TDefs]: TDefs[K] extends { blob: true } ? K : never;
 }[keyof TDefs] &
 	string;
 
@@ -54,7 +63,7 @@ const RESERVED = new Set([
 ]);
 
 /** Columns every view has, so no parameter or field may take their names. */
-const VIEW_COLUMNS = new Set(['path', 'body', 'oid', 'size', 'type']);
+const VIEW_COLUMNS = new Set(['path', 'body', 'oid', 'size']);
 
 export type Lens =
 	| {
@@ -71,7 +80,6 @@ export type Lens =
 			kind: 'blob';
 			name: string;
 			template: Template;
-			blob: BlobDefinition['blob'];
 			view: string;
 	  };
 
@@ -119,7 +127,6 @@ export function defineApp<const TDefs extends Definitions>(definitions: TDefs) {
 				kind: 'blob',
 				name,
 				template,
-				blob: definition.blob,
 				view: viewSql(name, template, BLOB_COLUMNS),
 			});
 		}
@@ -144,18 +151,6 @@ export function defineApp<const TDefs extends Definitions>(definitions: TDefs) {
 				if (params !== null) return { lens, params };
 			}
 			return null;
-		},
-		/** The `.gitattributes` lines that route blob templates through LFS. */
-		gitattributes() {
-			return lenses
-				.filter((lens) => lens.kind === 'blob')
-				.map(
-					(lens) =>
-						`${lens.template.segments
-							.map((s) => ('literal' in s ? s.literal : `*${s.suffix}`))
-							.join('/')} filter=lfs diff=lfs merge=lfs -text`,
-				)
-				.join('\n');
 		},
 		/**
 		 * Whether `text` parses and, `as` a note name, whether its fields

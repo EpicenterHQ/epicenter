@@ -15,8 +15,11 @@
  * the id must hash the commit; request bytes, files, path length and pushes
  * per member are bounded; every file written, and every merge result, is
  * `admissible` (the predicate the device runs too); and the tree rules hold:
- * paths equal after NFC and case folding are one path, a blob's path is
- * immutable and its bytes present, and a merge may not grow a note past
+ * paths equal after NFC and case folding are one path, a pointer's bytes
+ * are present at its size (`uploads`, written only once the bytes are
+ * durable), a blob write lands only over the blob its writer saw (the
+ * commit's parent: `settlePointer`, compare-and-swap, never a merge), and
+ * a merge may not grow a note past
  * 1 MB or past `BLOCK_CAP` conflict blocks (the two named exceptions to
  * "a person is never refused because of someone else").
  *
@@ -34,14 +37,14 @@ import { defineErrors } from 'wellcrafted/error';
 import type { Logger } from 'wellcrafted/logger';
 import { type Author, type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
-import { admissible, fold, isNote, MAX_FILE_BYTES } from '../core/door.js';
+import { admissible, fold, isNote, MAX_BLOB_BYTES, MAX_FILE_BYTES } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import { parsePointer } from '../core/markdown.js';
-import { BLOCK_CAP, settle } from '../core/settle.js';
+import { BLOCK_CAP, POINTER_REFUSALS, settle, settlePointer } from '../core/settle.js';
 import { first, type SqlDriver } from '../sql.js';
 import { createFlusher, type FlushStep } from './flush.js';
 import { type GitObjects, MAIN } from './git-store.js';
-import { openHistory, type Stored } from './history.js';
+import { holdsBlob, openHistory, type Stored } from './history.js';
 import { createReceiver, DIVERGED } from './receive.js';
 
 // ============================================================================
@@ -115,7 +118,8 @@ export type PushAnswer =
 	| { kind: 'outcome-unknown'; main: string };
 
 /** Why the door refused a file's text. `inadmissible`'s reason is the door's own (core/door). */
-export type TextCode = 'path-too-long' | 'inadmissible' | 'blob-missing' | 'blob-immutable' | 'merge-too-large' | 'too-many-blocks';
+/** `blob-changed`: a blob write did not land over the blob its writer saw (core/settle's `settlePointer`, whose reason it carries). */
+export type TextCode = 'path-too-long' | 'inadmissible' | 'blob-missing' | 'blob-changed' | 'merge-too-large' | 'too-many-blocks';
 
 /** Why a request was not taken. */
 export type RequestCode =
@@ -138,8 +142,8 @@ export type RequestCode =
 /** What each code says to a person; code branches on the code, never on this. */
 export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, string> = {
 	'path-too-long': 'the path is too long',
-	'blob-missing': "the blob's bytes are missing",
-	'blob-immutable': "a blob's path is immutable",
+	'blob-missing': "the file's bytes are not on the server",
+	'blob-changed': POINTER_REFUSALS.changed,
 	'merge-too-large': 'the merge would grow the note past 1 MB',
 	'too-many-blocks': 'this note has unresolved conflicts; resolve some first',
 	'no-session': 'no session',
@@ -219,6 +223,10 @@ export type Limits = {
 	pushedCommits: number;
 	/** How far ahead of the server's clock a commit's `time` may be, in ms. */
 	skew: number;
+	/** Bytes of one blob. */
+	blob: number;
+	/** Bytes of every blob the repository holds, together. */
+	quota: number;
 };
 
 export const LIMITS: Limits = {
@@ -234,6 +242,8 @@ export const LIMITS: Limits = {
 	seen: 24 * 60 * 60_000,
 	pushedCommits: 1000,
 	skew: 5 * 60_000,
+	blob: MAX_BLOB_BYTES,
+	quota: 10 * 1000 ** 3,
 };
 
 /** Texts by hash that cost one read: content-addressed and cheap, so a first sync of 50,000 texts fits a burst. */
@@ -384,17 +394,14 @@ export function createServer({
 			if (paths.has(fold(file.path))) return reject('path-twice');
 			paths.add(fold(file.path));
 		}
-		const tree = main().tree;
 		for (const file of commit.files) {
 			if (bytes(file.path) > limits.path) return refusal('path-too-long', file.path, head);
 			// D4 and the door's content rules: the same predicate the device runs.
 			const reason = admissible(file.path, file.text);
 			if (reason !== null) return refusal('inadmissible', file.path, head, reason);
+			// A pointer names bytes the server holds, at its size.
 			const pointer = file.text === null ? null : parsePointer(file.text);
-			if (pointer === null) continue;
-			if (first(store, 'SELECT 1 FROM uploads WHERE oid = ?', [pointer.oid]) === undefined) return refusal('blob-missing', file.path, head);
-			const there = history.textIn(tree, history.spelling(file.path) ?? file.path);
-			if (there !== null && there !== file.text) return refusal('blob-immutable', file.path, head);
+			if (pointer !== null && !holdsBlob(store, pointer)) return refusal('blob-missing', file.path, head);
 		}
 		return null;
 	}
@@ -451,12 +458,20 @@ export function createServer({
 		let blocks = false;
 		for (const file of commit.files) {
 			const ours = history.textIn(head.tree, file.path);
+			const base = history.textIn(parentTree, file.path);
+			if (!isNote(file.path)) {
+				// A blob lands only over the blob its writer saw: compare-and-swap, never a merge.
+				const swapped = settlePointer(base, ours, file.text);
+				if ('refused' in swapped) return refusal('blob-changed', file.path, head.id, swapped.refused);
+				out.push({ path: file.path, text: swapped.text });
+				continue;
+			}
 			const who = history.lastAuthor(file.path) ?? SERVER;
-			const settled = settle(history.textIn(parentTree, file.path), ours, file.text, {
+			const settled = settle(base, ours, file.text, {
 				deletedSince: history.deletedSince(from, file.path),
 				parties: { current: { author: `${who.user}/${who.device}`, time: head.time }, incoming: { author: `${author.user}/${author.device}`, time: commit.time } },
 			});
-			if (settled.text !== null && isNote(file.path)) {
+			if (settled.text !== null) {
 				// RULE, the first named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
 				if (bytes(settled.text) > MAX_FILE_BYTES) return refusal('merge-too-large', file.path, head.id);
 				// RULE, the second named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: a person holds it with the reason until blocks are resolved, an agent redoes it.
@@ -606,7 +621,7 @@ export function createServer({
 		/** The server's clock, as the ISO instant a commit made here carries. */
 		time,
 		/** The bounds on one push a device sizes its commits to. */
-		sizing: () => ({ request: limits.request, files: limits.files }),
+		sizing: () => ({ request: limits.request, files: limits.files, blob: limits.blob }),
 		/**
 		 * Whether `session` may read this repository: any member may. The
 		 * reads below (`read`, `catchUp`, `fetch`, `subscribe`) do not check;
@@ -686,8 +701,25 @@ export function createServer({
 			listeners.add(listener);
 			return () => listeners.delete(listener);
 		},
-		/** LFS bytes arrive (the upload track): pointers to them may now be written. */
-		upload: (oid: string) => store.run('INSERT OR IGNORE INTO uploads (oid) VALUES (?)', [oid]),
+		/**
+		 * LFS bytes are durable on this server's byte store (the upload
+		 * track): pointers naming them at this size may now be written.
+		 * Called only after the bytes are stored, never before.
+		 */
+		upload: (oid: string, size: number) => store.run('INSERT OR IGNORE INTO uploads (oid, size) VALUES (?, ?)', [oid, size]),
+		/** The size of the bytes this server holds as `oid`, or null when it holds none. */
+		uploaded: (oid: string) => first<{ size: number }>(store, 'SELECT size FROM uploads WHERE oid = ?', [oid])?.size ?? null,
+		/**
+		 * Why bytes `oid` of `size` may not be uploaded, or null when they
+		 * may: past the blob limit, or past the repository's quota with
+		 * every blob it holds. Bytes already here cost nothing.
+		 */
+		uploadRefusal(oid: string, size: number): 'too-large' | 'over-quota' | null {
+			if (size > limits.blob) return 'too-large';
+			if (first(store, 'SELECT 1 FROM uploads WHERE oid = ?', [oid]) !== undefined) return null;
+			const used = first<{ used: number | null }>(store, 'SELECT SUM(size) AS used FROM uploads')?.used ?? 0;
+			return used + size > limits.quota ? 'over-quota' : null;
+		},
 		/**
 		 * Flush live history into Git now (`epicenter pull`, `git fetch`), or
 		 * finish the flush a crash interrupted: one Git commit at each merge

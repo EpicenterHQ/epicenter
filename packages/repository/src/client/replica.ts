@@ -64,11 +64,11 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
-import { admissible, fold } from '../core/door.js';
+import { admissible, fold, isNote } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
 import { BODY_SQL, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
-import { appendBlock, settle } from '../core/settle.js';
+import { appendBlock, settle, settlePointer } from '../core/settle.js';
 import type { CatchUp, Event, PushAnswer, RequestCode, TextCode } from '../server/server.js';
 import { first, type SqlDriver, type SqlValue } from '../sql.js';
 
@@ -95,8 +95,8 @@ export type Reply =
  */
 export type Binding = { repository: string; server: string | null; account: string | null };
 
-/** The server's bounds on one push: its bytes as JSON, and its files. */
-export type Sizing = { request: number; files: number };
+/** The server's bounds: one push's bytes as JSON and its files, and one blob's bytes. */
+export type Sizing = { request: number; files: number; blob: number };
 
 /** What the first exchange of a connection says: where the transport reached (the server's id), the session's user (the account it is signed in as, whom its commits name), `main` there, and the server's bounds on a push. */
 export type Hello = { repository: string; server: string; user: string; main: string; limits?: Sizing };
@@ -665,9 +665,16 @@ function createReplica({
 				const path = spelled(given);
 				const { held: _, ...f } = record(path);
 				const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
+				if (!isNote(path)) {
+					// A blob never merges, and never waits for another path: a write over a blob that moved since `over` is held with why.
+					const swapped = from === f.mine ? { text } : settlePointer(from, f.mine, text);
+					const { together: _, ...alone } = f;
+					set(path, 'refused' in swapped ? { ...alone, mine: text, held: { reason: swapped.refused } } : { ...alone, mine: swapped.text, saved: true });
+					continue;
+				}
 				const next = from === f.mine ? text : settle(from, f.mine, text, { parties: parties() }).text;
-				// RULE: a save joins any group the path is already in: a new text over a rename's unsent half must still go with the other half.
-				const together = [...new Set([...(f.together ?? []), ...paths.filter((other) => other !== path)])];
+				// RULE: a save joins any group the path is already in: a new text over a rename's unsent half must still go with the other half. A blob never joins one: a note never waits on its bytes.
+				const together = [...new Set([...(f.together ?? []), ...paths.filter((other) => other !== path && isNote(other))])];
 				set(path, { ...f, mine: next, saved: true, ...(together.length === 0 ? {} : { together }) });
 			}
 			commit();
@@ -806,11 +813,14 @@ function createReplica({
 					? text
 					: text === null
 						? work
-						: appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } });
+						: isNote(path)
+							? appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } })
+							: work;
 			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }) });
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
+		if (!isNote(path)) return integratePointer(path, f, text, below);
 		const gone = deleted && !own;
 		// Committed work is rebased onto the new text; a delete or removal that loses to an edit leaves the edit.
 		let committed: string | null | undefined;
@@ -827,6 +837,45 @@ function createReplica({
 		}
 		// A group lasts until its own commit lands: while anything of it is unsent here.
 		if (f.together !== undefined && (!own || next.committed !== undefined || next.mine !== next.base)) next.together = f.together;
+		set(path, next);
+	}
+
+	/**
+	 * A blob path's text on `main` is now `text`, and this device's work on it
+	 * was made over `below`. A blob never merges: work lands only where it is
+	 * still over what it was made on, as the server's compare-and-swap
+	 * answers it (core/settle). A create or replace over a blob that moved is
+	 * held with why; a delete over one that moved is dropped, and the file
+	 * stays.
+	 */
+	function integratePointer(path: string, f: FileView, text: string | null, below: string | null) {
+		let held = f.held;
+		let committed: string | null | undefined;
+		/** What `mine` now sits on: the committed work if it still lands, else `main`. */
+		let under = text;
+		if (f.committed !== undefined) {
+			const swapped = settlePointer(below, text, f.committed.text);
+			if ('refused' in swapped) held = { reason: swapped.refused };
+			else {
+				under = swapped.text;
+				if (swapped.text !== text) committed = swapped.text;
+			}
+		}
+		let mine: string | null;
+		// `mine` is the committed work itself: it shares that work's outcome.
+		if (f.committed !== undefined && f.mine === f.committed.text) mine = held === undefined ? under : f.mine;
+		else {
+			// Saved over what it was made on (the committed work, or `below`): settled by the same rule.
+			const typed = settlePointer(f.committed !== undefined ? f.committed.text : below, under, f.mine);
+			if ('refused' in typed) held = { reason: typed.refused };
+			mine = 'refused' in typed ? f.mine : typed.text;
+		}
+		const next: FileRecord = { base: text, mine };
+		if (mine !== text) {
+			if (committed !== undefined) next.committed = { text: committed };
+			if (held !== undefined) next.held = held;
+			else if (f.saved !== undefined) next.saved = true;
+		}
 		set(path, next);
 	}
 

@@ -233,7 +233,7 @@ export function createWorld({
 		server,
 		device,
 		/** LFS bytes reach the server (the upload track). */
-		upload: (oid: string) => server.upload(oid),
+		upload: (oid: string, size: number) => server.upload(oid, size),
 		git,
 		session,
 		/** Flush live history into Git commits now (`epicenter pull`, `git fetch`); resolves when the flush does. */

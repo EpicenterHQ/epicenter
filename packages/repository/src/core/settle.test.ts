@@ -14,7 +14,7 @@
 import { describe, expect, test } from 'bun:test';
 import { findConflicts } from './conflict.js';
 import { parseMarkdown } from './markdown.js';
-import { settle } from './settle.js';
+import { POINTER_REFUSALS, settle, settlePointer } from './settle.js';
 
 const parties = { current: { author: 'main', time: 't1' }, incoming: { author: 'alice/laptop', time: 't2' } };
 const note = (title: string, body = 'body\n') => `---\ntitle: ${title}\n---\n${body}`;
@@ -70,5 +70,32 @@ describe('settle', () => {
 		const once = settle(null, note('One'), note('Two'), { parties }).text ?? '';
 		const again = settle(null, once, note('Two'), { parties: { current: parties.current, incoming: { author: 'bob/phone', time: 't3' } } }).text ?? '';
 		expect(again).toBe(once);
+	});
+});
+
+describe('settlePointer: a blob write lands only over the blob its writer saw', () => {
+	const [a, b, c] = ['pointer a', 'pointer b', 'pointer c'];
+	test('create, replace and delete land where nothing moved', () => {
+		expect(settlePointer(null, null, a)).toEqual({ text: a });
+		expect(settlePointer(a, a, b)).toEqual({ text: b });
+		expect(settlePointer(a, a, null)).toEqual({ text: null });
+	});
+	test('a create over a file added elsewhere is refused, unless it is the same bytes', () => {
+		expect(settlePointer(null, b, a)).toEqual({ refused: POINTER_REFUSALS.added });
+		expect(settlePointer(null, a, a)).toEqual({ text: a });
+	});
+	test('a replace over a file that changed or went is refused', () => {
+		expect(settlePointer(a, b, c)).toEqual({ refused: POINTER_REFUSALS.changed });
+		expect(settlePointer(a, null, c)).toEqual({ refused: POINTER_REFUSALS.changed });
+	});
+	test('a delete that does not land leaves the file, with no refusal', () => {
+		expect(settlePointer(a, b, null)).toEqual({ text: b });
+	});
+	test('a delete then a create at one path are two writes that each pass', () => {
+		expect(settlePointer(a, a, null)).toEqual({ text: null });
+		expect(settlePointer(null, null, b)).toEqual({ text: b });
+	});
+	test('a path the writer did not change keeps what is there', () => {
+		expect(settlePointer(a, b, a)).toEqual({ text: b });
 	});
 });

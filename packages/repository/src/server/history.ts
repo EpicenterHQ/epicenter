@@ -12,6 +12,7 @@
 import type { Author, CommitFile } from '../core/commit.js';
 import { fold } from '../core/door.js';
 import { gitBlobHash, type TreeEntry } from '../core/hash.js';
+import type { LfsPointer } from '../core/markdown.js';
 import { createTreeStore, type TreeNodes } from '../core/tree.js';
 import { first, type SqlDriver } from '../sql.js';
 
@@ -38,7 +39,7 @@ CREATE TABLE IF NOT EXISTS authors (path TEXT PRIMARY KEY, user TEXT NOT NULL, d
 CREATE TABLE IF NOT EXISTS outcomes (id TEXT PRIMARY KEY, at INTEGER NOT NULL, place INTEGER NOT NULL, answer TEXT NOT NULL, paths TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, at INTEGER NOT NULL, paths TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS buckets (user TEXT PRIMARY KEY, tokens REAL NOT NULL, at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS uploads (oid TEXT PRIMARY KEY);
+CREATE TABLE IF NOT EXISTS uploads (oid TEXT PRIMARY KEY, size INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS flushes (n INTEGER PRIMARY KEY, oid TEXT NOT NULL, tree TEXT NOT NULL, through INTEGER NOT NULL, message TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS journal (n INTEGER PRIMARY KEY, state TEXT NOT NULL, plan TEXT NOT NULL);
 `;
@@ -69,7 +70,12 @@ const fromRow = (row: Row): Stored => ({
 	blocks: row.blocks === 1,
 });
 
+/** Whether the server holds a pointer's bytes, at its size: a pointer is admitted only then. */
+export const holdsBlob = (store: SqlDriver, { oid, size }: LfsPointer) => first(store, 'SELECT 1 FROM uploads WHERE oid = ? AND size = ?', [oid, size]) !== undefined;
+
 export function openHistory(store: SqlDriver) {
+	// Presence before sizes were recorded (phase 8) admits nothing at a size, so it starts again.
+	if (store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'oid') && !store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'size')) store.exec('DROP TABLE uploads');
 	store.exec(SCHEMA);
 
 	// Tree nodes: cached once read or written, stored once.

@@ -373,7 +373,7 @@ describe("the device's socket", () => {
 			repository: 'test',
 			server: 'test-server',
 			user: 'rita',
-			limits: { request: LIMITS.request, files: LIMITS.files },
+			limits: { request: LIMITS.request, files: LIMITS.files, blob: LIMITS.blob },
 		});
 		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
 		alice.socket.send({ type: 'push', rid: 7, commit });

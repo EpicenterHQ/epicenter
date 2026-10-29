@@ -59,6 +59,7 @@ import { Check } from 'typebox/value';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
+import type { Sizing } from '../client/replica.js';
 import { gitBlobHash } from '../core/hash.js';
 import { type CatchUp, type Event, type Expect, LIMITS, type PushAnswer, type RequestCode, rejection, type Server, type Session } from '../server/server.js';
 
@@ -104,7 +105,7 @@ export type SocketMessage =
 	 * name), so a replica bound elsewhere refuses it; and the bounds on one
 	 * push.
 	 */
-	| { type: 'head'; main: string; repository: string; server: string; user: string; limits: { request: number; files: number } }
+	| { type: 'head'; main: string; repository: string; server: string; user: string; limits: Sizing }
 	| ({ type: 'commit' } & Event)
 	| { type: 'answer'; rid: number; status: number; answer: PushAnswer }
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }

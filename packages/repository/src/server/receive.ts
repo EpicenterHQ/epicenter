@@ -4,7 +4,8 @@
  * fast-forward of the last flush, with no live edits that Git does not
  * hold yet. Every pushed commit must have exactly one parent, and every
  * path each one changes passes the door (`admissible`, regular files only,
- * strict UTF-8, Epicenter's `.gitattributes` untouched, blob bytes present,
+ * strict UTF-8, Epicenter's `.gitattributes` untouched, a pointer's bytes
+ * present at its size,
  * one spelling per folded path), so no commit in `main`'s history breaks a
  * rule even if a later one repairs it.
  *
@@ -23,7 +24,7 @@ import { parsePointer } from '../core/markdown.js';
 import { first, type SqlDriver } from '../sql.js';
 import type { Flusher } from './flush.js';
 import { type GitObjects, MAIN, type Tree } from './git-store.js';
-import type { History } from './history.js';
+import { type History, holdsBlob } from './history.js';
 import type { Limits, PushAnswer, Session } from './server.js';
 
 /**
@@ -95,10 +96,9 @@ export function createReceiver({
 			}
 			const reason = path === '.gitattributes' ? (text === ATTRIBUTES ? null : 'Epicenter owns this file') : admissible(path, text);
 			if (reason !== null) return refused('file', reason, at);
+			// A push is a fast-forward, so it saw the bytes it replaces: any blob may be written, moved or deleted, once its bytes are here.
 			const pointer = parsePointer(text);
-			if (pointer === null) continue;
-			if (first(store, 'SELECT 1 FROM uploads WHERE oid = ?', [pointer.oid]) === undefined) return refused('file', "the blob's bytes are missing", at);
-			if (before !== undefined) return refused('file', "a blob's path is immutable", at);
+			if (pointer !== null && !holdsBlob(store, pointer)) return refused('file', "the file's bytes are not on the server", at);
 		}
 		return null;
 	}

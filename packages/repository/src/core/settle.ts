@@ -13,8 +13,7 @@
  * one already in the note is not written again, and one clash is one block
  * however many writes follow it: an edit of what a block already offers as
  * a side continues that side (`merge`'s rule, applied to a field's block
- * here). Two pointers never meet
- * here: a blob's path is named by its content and immutable.
+ * here). A blob never merges: `settlePointer` is its rule, compare-and-swap.
  *
  * No fallback for a merge that does not parse (D4, which deleted that rule):
  * the door admits only notes that parse, so base, current and incoming all
@@ -52,6 +51,29 @@ export const BLOCK_CAP = 20;
 /** One conflict block holding `incoming` whole, after `current`. */
 export function appendBlock(current: string, incoming: string, parties: Parties) {
 	return withBlock(current, block({ current: '', incoming }, labelled(parties, null, current, incoming)));
+}
+
+/** Why a blob write did not land, by what its writer saw at the path. */
+export const POINTER_REFUSALS = {
+	/** The writer saw no file there. */
+	added: 'a file with this name was just added elsewhere',
+	/** The writer saw a file there, and it changed or went since. */
+	changed: 'this file changed on another device',
+} as const;
+
+/**
+ * Settle a blob path (every file that is not a note) by compare-and-swap:
+ * `incoming` lands only where `current` is still `base`, the blob its
+ * writer saw (null: none, for a create). Create, replace and delete are the
+ * one rule. A create or replace that does not land is refused with why, and
+ * its writer holds it; a delete that does not land leaves the file, as a
+ * delete that lost to an edit of a note does. Writing what is already
+ * there lands as nothing, so two writes of the same bytes are one file.
+ */
+export function settlePointer(base: string | null, current: string | null, incoming: string | null): { text: string | null } | { refused: string } {
+	if (incoming === current || incoming === base || current === base) return { text: incoming === base ? current : incoming };
+	if (incoming === null) return { text: current };
+	return { refused: base === null ? POINTER_REFUSALS.added : POINTER_REFUSALS.changed };
 }
 
 /**

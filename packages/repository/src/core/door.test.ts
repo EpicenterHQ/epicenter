@@ -8,21 +8,28 @@
  *
  * Key behaviors:
  * - notes parse, are LF-only, have no BOM, are at most 1 MB and are never pointers
+ * - every other file is a canonical LFS pointer of at most 2 GiB, at any path
+ * - `ATTRIBUTES` sends every file but a note (and itself) through LFS
  * - paths are portable, and Epicenter's control files are refused
  * - frontmatter over the key, value or nesting bound is refused quickly, before parsing
  * - ordinary frontmatter (long keys, long values, deep but sane nesting) is admitted
  * - `slug` always yields a segment the door admits
  */
 import { describe, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { writePointer } from './markdown.js';
 import { block } from './conflict.js';
 import {
+	ATTRIBUTES,
 	admissible,
 	FRONTMATTER_KEYS,
 	FRONTMATTER_NESTING,
 	FRONTMATTER_VALUES,
 	fold,
 	lint,
+	MAX_BLOB_BYTES,
 	MAX_FILE_BYTES,
 	pathRefusal,
 	slug,
@@ -46,10 +53,31 @@ describe('admissible', () => {
 		expect(admissible('a.md', 'nul\0')).not.toBeNull();
 	});
 
-	test('a blob is a pointer at the path its content names', () => {
+	test('every file that is not a note is a pointer, at any path the app names', () => {
 		const oid = 'a'.repeat(64);
-		expect(admissible(`attachments/${oid}.png`, writePointer({ oid, size: 3 }))).toBeNull();
-		expect(admissible(`attachments/${'b'.repeat(64)}.png`, writePointer({ oid, size: 3 }))).not.toBeNull();
+		for (const path of ['recordings/2026-10-28T12-00-00Z.webm', 'photos/a.PNG', 'notes/data.json', 'README']) {
+			expect(admissible(path, writePointer({ oid, size: 3 }))).toBeNull();
+			expect(admissible(path, 'plain text\n')).toBe('a file other than a note goes through Git LFS');
+		}
+		expect(admissible('a.webm', writePointer({ oid, size: MAX_BLOB_BYTES }))).toBeNull();
+		expect(admissible('a.webm', writePointer({ oid, size: MAX_BLOB_BYTES + 1 }))).toBe('a file may be at most 2 GiB');
+		expect(admissible('a.webm', null)).toBeNull();
+	});
+
+	test('ATTRIBUTES sends every file but a note through LFS, as Git reads it', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'attributes-'));
+		try {
+			await Bun.write(join(dir, '.gitattributes'), ATTRIBUTES);
+			const git = (...args: string[]) => Bun.spawnSync(['git', ...args], { cwd: dir }).stdout.toString();
+			git('init', '-q');
+			const filter = (path: string) => git('check-attr', 'filter', 'text', '--', path).trim().split('\n');
+			for (const path of ['recordings/a.webm', 'photos/b.png', 'README', 'data.json'])
+				expect(filter(path)).toEqual([`${path}: filter: lfs`, `${path}: text: unset`]);
+			for (const path of ['notes/a.md', 'NOTES/B.MD', 'c.Md', '.gitattributes'])
+				expect(filter(path)).toEqual([`${path}: filter: unspecified`, `${path}: text: set`]);
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
 	});
 
 	test('paths are portable and control files belong to Epicenter', () => {

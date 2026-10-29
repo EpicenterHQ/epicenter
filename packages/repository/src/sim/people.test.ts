@@ -20,7 +20,7 @@
  * - P9: a forged author is refused, a note over 1 MB is refused, forged conflict labels are text
  * - P10: a refusal of a person's own text leaves it held with the reason
  * - P11: an editor's save over a stale buffer merges with what changed under it
- * - P12: blobs are named by content, so two attachments never meet at one path; a pointer elsewhere, or without its bytes, is held
+ * - P12: a blob write lands only over the blob its writer saw (compare-and-swap): a concurrent create and a stale replace are held with why, a stale delete leaves the file
  * - The door: portable paths, LF-only notes, control files; paths equal after folding are one path; a merge growing a note past 1 MB is held
  * - A flush writes one Git commit per merge that wrote a block; pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
  */
@@ -226,26 +226,46 @@ test('P11: an editor saving over a stale buffer merges with what changed under i
 	expect(world.server.read(path)).toBe(note('line one\nbob added this\nalice types\n', 'title: N\nstatus: done'));
 });
 
-test('P12: blobs are named by content, so two attachments never meet at one path; a pointer elsewhere, or without its bytes, is held', () => {
+test('P12: a blob write lands only over the blob its writer saw: a concurrent create and a stale replace are held with why, a stale delete leaves the file', () => {
 	const { world, alice, bob, settle } = setup();
-	const a = { oid: 'a'.repeat(64), size: 1000 };
-	const b = { oid: 'b'.repeat(64), size: 2000 };
-	world.upload(a.oid);
-	world.upload(b.oid);
+	const blob = (x: string, size: number) => ({ oid: x.repeat(64), size });
+	const [a, b, c, d] = [blob('a', 1000), blob('b', 1001), blob('c', 1002), blob('d', 1003)] as const;
+	for (const p of [a, b, c, d]) world.upload(p.oid, p.size);
+	const path = 'recordings/2026-10-28T12-00-00Z.webm';
+	// Concurrent creates: bob's lands, alice's is held with why; the same bytes from both would be one file.
 	alice.setOnline(false);
-	alice.replica.write(`attachments/${a.oid}.png`, writePointer(a), { over: null });
-	bob.replica.write(`attachments/${b.oid}.png`, writePointer(b), { over: null });
+	alice.replica.write(path, writePointer(a), { over: null });
+	bob.replica.write(path, writePointer(b), { over: null });
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(world.server.read(`attachments/${a.oid}.png`)).toBe(writePointer(a));
-	expect(world.server.read(`attachments/${b.oid}.png`)).toBe(writePointer(b));
-	alice.replica.write('attachments/photo.png', writePointer(a), { over: null });
-	expect(alice.replica.state('attachments/photo.png')).toEqual({ status: 'held', reason: "a blob's path must be named by its content" });
-	const c = { oid: 'c'.repeat(64), size: 10 };
-	alice.replica.write(`attachments/${c.oid}.png`, writePointer(c), { over: null });
+	expect(world.server.read(path)).toBe(writePointer(b));
+	expect(alice.replica.read(path)).toBe(writePointer(a));
+	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
+	// Alice keeps hers under another name; her held write goes when she discards it.
+	alice.replica.writeAll({ 'recordings/mine.webm': writePointer(a), [path]: writePointer(b) });
 	settle();
-	expect(alice.replica.state(`attachments/${c.oid}.png`)).toEqual({ status: 'held', reason: "the blob's bytes are missing" });
+	expect(world.server.read('recordings/mine.webm')).toBe(writePointer(a));
+	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
+	// A stale replace: bob replaces while alice, offline, replaces what she saw.
+	alice.setOnline(false);
+	alice.replica.write(path, writePointer(c));
+	bob.replica.write(path, writePointer(d));
+	settle();
+	alice.setOnline(true);
+	settle();
+	expect(world.server.read(path)).toBe(writePointer(d));
+	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'this file changed on another device' });
+	// A stale delete: the file stays, with no notice.
+	bob.setOnline(false);
+	bob.replica.write('recordings/mine.webm', null);
+	alice.replica.write('recordings/mine.webm', writePointer(c));
+	settle();
+	bob.setOnline(true);
+	settle();
+	expect(world.server.read('recordings/mine.webm')).toBe(writePointer(c));
+	expect(bob.replica.read('recordings/mine.webm')).toBe(writePointer(c));
+	expect(bob.replica.state('recordings/mine.webm')).toEqual({ status: 'synced' });
 });
 
 test('a field both sides set keeps main\'s value in the frontmatter and writes the other as a conflict block (D2)', () => {
@@ -335,7 +355,7 @@ test('the door refuses what would break a clone, the same on the device and the 
 		['notes/a.md', '---\r\ntitle: X\r\n---\r\nbody\r\n', 'a note must use LF line endings'],
 		['notes/a.md', '\uFEFF---\ntitle: X\n---\n', 'a note may not start with a byte order mark'],
 		['notes/a.md', writePointer({ oid: 'a'.repeat(64), size: 1 }), 'a note may not be an LFS pointer'],
-		['export.json', 'x'.repeat(2_000_000), 'a file may be at most 1 MB'],
+		['export.json', '{}\n', 'a file other than a note goes through Git LFS'],
 		['notes/con.md', '---\n---\n', 'a name may not be a reserved device name'],
 		['notes/what?.md', '---\n---\n', 'a name may not hold < > : " \\ | ? * or control characters'],
 		['notes/dot.', 'x', 'a name may not end in a space or a period'],

@@ -12,12 +12,15 @@
  * - catch-up is a tree diff in pages; the change feed names each commit, its parents and changed paths with hashes
  * - a fresh instance over the same Store answers as the first did
  * - the Git receive path checks every pushed commit and refuses merges, broken notes, other modes, Epicenter's files and other refs
+ * - blobs: a pointer is admitted only once its bytes are here at its size; a blob write lands only over the blob its writer saw (compare-and-swap); the blob limit and the quota refuse uploads; a `git push` may replace, move or delete a binary whose bytes are here
  */
 import { describe, expect, test } from 'bun:test';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
 import { gitBlobHash } from '../core/hash.js';
+import { writePointer } from '../core/markdown.js';
+import { POINTER_REFUSALS } from '../core/settle.js';
 import { type GitObjects, MAIN } from './git-store.js';
 import { createMemoryGitStore } from './memory-git.js';
 import { createLogger, memorySink } from 'wellcrafted/logger';
@@ -302,6 +305,74 @@ describe('storage', () => {
 	});
 });
 
+describe('blobs', () => {
+	const a = { oid: 'a'.repeat(64), size: 3 };
+	const b = { oid: 'b'.repeat(64), size: 5 };
+	const c = { oid: 'c'.repeat(64), size: 7 };
+	const path = 'recordings/r1.webm';
+
+	test('a pointer is admitted only once its bytes are on the server, at its size', () => {
+		const { server } = setup();
+		expect(server.push(make(server, [{ path, text: writePointer(a) }]), alice)).toMatchObject({ kind: 'refused', code: 'blob-missing', path });
+		server.upload(a.oid, a.size + 1);
+		expect(server.push(make(server, [{ path, text: writePointer(a) }]), alice)).toMatchObject({ kind: 'refused', code: 'blob-missing' });
+		const { server: other } = setup();
+		other.upload(a.oid, a.size);
+		expect(other.uploaded(a.oid)).toBe(a.size);
+		expect(other.push(make(other, [{ path, text: writePointer(a) }]), alice)).toMatchObject({ kind: 'applied' });
+		expect(other.read(path)).toBe(writePointer(a));
+	});
+
+	function landed() {
+		const world = setup();
+		for (const p of [a, b, c]) world.server.upload(p.oid, p.size);
+		return world;
+	}
+
+	test('two creates at one path: the first lands, the second is refused with why; the same bytes twice are one file', () => {
+		const { server } = landed();
+		const parent = server.main();
+		expect(server.push(make(server, [{ path, text: writePointer(a) }], { parent }), alice).kind).toBe('applied');
+		expect(server.push(make(server, [{ path, text: writePointer(b) }], { parent }), alice)).toMatchObject({ kind: 'refused', code: 'blob-changed', reason: POINTER_REFUSALS.added, path });
+		expect(server.push(make(server, [{ path, text: writePointer(a) }], { parent, time: new Date(EPOCH + 1).toISOString() }), alice).kind).toBe('merged');
+		expect(server.read(path)).toBe(writePointer(a));
+	});
+
+	test('a stale replace is refused; a stale delete leaves the file; a fresh one of each lands', () => {
+		const { server } = landed();
+		server.push(make(server, [{ path, text: writePointer(a) }]), alice);
+		const saw = server.main();
+		server.push(make(server, [{ path, text: writePointer(b) }]), alice);
+		expect(server.push(make(server, [{ path, text: writePointer(c) }], { parent: saw }), alice)).toMatchObject({ kind: 'refused', code: 'blob-changed', reason: POINTER_REFUSALS.changed });
+		expect(server.push(make(server, [{ path, text: null }], { parent: saw }), alice).kind).toBe('merged');
+		expect(server.read(path)).toBe(writePointer(b));
+		expect(server.push(make(server, [{ path, text: writePointer(c) }]), alice).kind).toBe('applied');
+		expect(server.push(make(server, [{ path, text: null }]), alice).kind).toBe('applied');
+		expect(server.read(path)).toBeNull();
+	});
+
+	test('a delete then a create at one path are two writes that each pass', () => {
+		const { server } = landed();
+		server.push(make(server, [{ path, text: writePointer(a) }]), alice);
+		const saw = server.main();
+		server.push(make(server, [{ path, text: null }], { parent: saw }), alice);
+		expect(server.push(make(server, [{ path, text: writePointer(b) }]), alice).kind).toBe('applied');
+		expect(server.read(path)).toBe(writePointer(b));
+	});
+
+	test('the hello announces the blob limit; an upload past it, or past the quota, is refused', () => {
+		const { server } = setup({ blob: 10, quota: 12 });
+		expect(server.sizing()).toMatchObject({ blob: 10 });
+		expect(server.uploadRefusal(a.oid, 11)).toBe('too-large');
+		expect(server.uploadRefusal(a.oid, 7)).toBeNull();
+		server.upload(a.oid, 7);
+		expect(server.uploadRefusal(a.oid, 7)).toBeNull();
+		expect(server.uploadRefusal(b.oid, 5)).toBeNull();
+		expect(server.uploadRefusal(b.oid, 6)).toBe('over-quota');
+		expect(setup().server.sizing()).toMatchObject({ blob: 2 * 1024 ** 3 });
+	});
+});
+
 describe('the Git receive path', () => {
 	async function flushed() {
 		const world = setup();
@@ -441,5 +512,22 @@ describe('the Git receive path', () => {
 		expect(await receive(side, { ref: 'refs/heads/other' })).toMatchObject({ reason: 'only a fast-forward of refs/heads/main is accepted' });
 		expect(await receive(side, { session: { user: 'alice', role: 'reader' } })).toMatchObject({ kind: 'refused', code: 'reader' });
 		expect(await receive(side)).toMatchObject({ kind: 'accepted', main: side });
+	});
+
+	test('a push may add, replace, move and delete a binary whose bytes are here; one whose bytes are missing is refused', async () => {
+		const { head, commitOn, receive, server } = await flushed();
+		const a = { oid: 'a'.repeat(64), size: 3 };
+		const b = { oid: 'b'.repeat(64), size: 5 };
+		server.upload(a.oid, a.size);
+		const added = await commitOn(head, { 'audio/r.wav': writePointer(a) });
+		const replaced = await commitOn(added, { 'audio/r.wav': writePointer(b) });
+		expect(await receive(replaced)).toMatchObject({ kind: 'refused', code: 'file', reason: "the file's bytes are not on the server", commit: replaced, path: 'audio/r.wav' });
+		server.upload(b.oid, b.size);
+		const moved = await commitOn(replaced, { 'audio/r.wav': null, 'audio/moved.wav': writePointer(b) });
+		const deleted = await commitOn(moved, { 'audio/moved.wav': null });
+		expect(await receive(deleted)).toMatchObject({ kind: 'accepted', main: deleted });
+		expect(server.read('audio/r.wav')).toBeNull();
+		expect(server.read('audio/moved.wav')).toBeNull();
+		expect(await receive(await commitOn(deleted, { 'audio/plain.txt': 'not a pointer\n' }), { old: deleted })).toMatchObject({ reason: 'a file other than a note goes through Git LFS' });
 	});
 });

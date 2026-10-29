@@ -7,18 +7,20 @@
  * order mark, is at most 1 MB and is never an LFS pointer, and its
  * frontmatter is cheap to parse (at most `FRONTMATTER_KEYS` keys and
  * `FRONTMATTER_VALUES` scalars, nested at most `FRONTMATTER_NESTING` deep); every text is
- * valid UTF-8 with no NUL; every non-LFS file is at most 1 MB; a blob is a
- * canonical LFS pointer at a path named by its content
- * (`attachments/<sha256>.<ext>`); paths are portable (NFC, no `.git`
- * component, names legal on Windows and macOS, segments at most 255 bytes);
- * Epicenter owns `.gitattributes`, `.lfsconfig` and `.gitmodules`.
+ * valid UTF-8 with no NUL; every other file is a blob, kept as a canonical
+ * Git LFS pointer of at most `MAX_BLOB_BYTES` (the one file-type rule:
+ * Markdown merges, everything else is bytes by LFS); paths are portable
+ * (NFC, no `.git` component, names legal on Windows and macOS, segments at
+ * most 255 bytes); Epicenter owns `.gitattributes`, `.lfsconfig` and
+ * `.gitmodules`.
  *
  * Warned only (`lint`): malformed or unresolved conflict blocks, CR in a
  * file that is not a note, a long total path.
  *
  * The server adds what needs the tree: paths equal after NFC and case
- * folding are one path, a blob's path is immutable and its bytes present,
- * and a merge may not grow a note past 1 MB or past `BLOCK_CAP` conflict
+ * folding are one path, a pointer's bytes are present at its size, a blob
+ * write lands only over the blob its writer saw (core/settle,
+ * `settlePointer`), and a merge may not grow a note past 1 MB or past `BLOCK_CAP` conflict
  * blocks (core/settle, which also never writes an identical block twice).
  */
 import { CST, Lexer } from 'yaml';
@@ -27,13 +29,19 @@ import { parsePointer, parses, splitMarkdown } from './markdown.js';
 
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
-/** The most bytes any file outside Git LFS may hold. */
+/** The most bytes a note may hold. */
 export const MAX_FILE_BYTES = 1024 * 1024;
+/** The most bytes a blob may hold (2 GiB), on every device and by default on the server. */
+export const MAX_BLOB_BYTES = 2 * 1024 ** 3;
 
 /** Repository control files only Epicenter writes. */
 export const CONTROL = new Set(['.gitattributes', '.lfsconfig', '.gitmodules']);
-/** What Epicenter writes into `.gitattributes`. */
-export const ATTRIBUTES = '*.md text eol=lf\n';
+/**
+ * What Epicenter writes into `.gitattributes`, the same in every
+ * repository: every file through Git LFS, then notes (`.md` in any case)
+ * and this file itself back to plain text with LF endings.
+ */
+export const ATTRIBUTES = '* filter=lfs diff=lfs merge=lfs -text\n*.[mM][dD] !filter !diff !merge text eol=lf\n.gitattributes !filter !diff !merge text eol=lf\n';
 
 /** A note is a path ending `.md` in any case. */
 export const isNote = (path: string) => path.toLowerCase().endsWith('.md');
@@ -43,7 +51,6 @@ export const fold = (path: string) => path.normalize('NFC').toLowerCase();
 const ILLEGAL = /[<>:"\\|?*\u0000-\u001f]/;
 const DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
-const BLOB = /^attachments\/([0-9a-f]{64})\.[a-z0-9]+$/;
 
 /** Why a path is not portable, or null. */
 export function pathRefusal(path: string): string | null {
@@ -81,8 +88,8 @@ export function admissible(path: string, text: string | null): string | null {
 		if (!parses(text)) return 'does not parse';
 		return null;
 	}
-	if (pointer !== null) return BLOB.exec(path)?.[1] === pointer.oid ? null : "a blob's path must be named by its content";
-	if (bytes(text) > MAX_FILE_BYTES) return 'a file may be at most 1 MB';
+	if (pointer === null) return 'a file other than a note goes through Git LFS';
+	if (pointer.size > MAX_BLOB_BYTES) return 'a file may be at most 2 GiB';
 	return null;
 }
 

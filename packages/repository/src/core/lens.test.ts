@@ -23,7 +23,7 @@ function sampleApp() {
 	return defineApp({
 		tasks: { path: 'projects/{project}/tasks/{stem}.md', schema: Task },
 		settings: { path: 'settings.md', schema: Type.Object({ theme: Type.String() }) },
-		photos: { path: 'projects/{project}/photos/{file}', blob: { types: ['image/png'] } },
+		photos: { path: 'projects/{project}/photos/{file}', blob: true },
 	});
 }
 
@@ -51,7 +51,7 @@ describe('refusals at definition time', () => {
 			/must end in .md/,
 		);
 		expect(() =>
-			defineApp({ photos: { path: 'photos/{stem}.md', blob: { types: ['image/png'] } } }),
+			defineApp({ photos: { path: 'photos/{stem}.md', blob: true } }),
 		).toThrow(/must not end in .md/);
 	});
 
@@ -93,11 +93,6 @@ describe('classify', () => {
 		expect(sampleApp().classify('projects/acme/photos/notes.md')).toBeNull();
 	});
 
-	test('gitattributes routes blob templates through LFS', () => {
-		expect(sampleApp().gitattributes()).toBe(
-			'projects/*/photos/* filter=lfs diff=lfs merge=lfs -text',
-		);
-	});
 });
 
 describe('views', () => {
