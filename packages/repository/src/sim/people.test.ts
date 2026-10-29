@@ -230,7 +230,11 @@ test('P12: a blob write lands only over the blob its writer saw: a concurrent cr
 	const { world, alice, bob, settle } = setup();
 	const blob = (x: string, size: number) => ({ oid: x.repeat(64), size });
 	const [a, b, c, d] = [blob('a', 1000), blob('b', 1001), blob('c', 1002), blob('d', 1003)] as const;
-	for (const p of [a, b, c, d]) world.upload(p.oid, p.size);
+	// Every byte is on the server, and both devices' upload tracks have heard so.
+	for (const p of [a, b, c, d]) {
+		world.upload(p.oid, p.size);
+		for (const device of [alice, bob]) device.replica.present(p.oid, p.size);
+	}
 	const path = 'recordings/2026-10-28T12-00-00Z.webm';
 	// Concurrent creates: bob's lands, alice's is held with why; the same bytes from both would be one file.
 	alice.setOnline(false);

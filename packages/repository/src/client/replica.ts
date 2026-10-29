@@ -47,6 +47,14 @@
  *   "epicenter/passed"    recent positions, so a late notification is old
  *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
  *   "epicenter/fetched"   texts read by hash for that catch-up
+ *   "epicenter/objects"   blob bytes the server answered for, by oid:
+ *                         `present` there (at its size), or `refused` with
+ *                         why
+ *
+ * A pointer this device made whose bytes are neither present nor refused
+ * is owed: it stays saved here, out of every commit, `sending` with "its
+ * bytes are uploading", until the upload track (client/uploads) calls
+ * `present`. Owed is derived from these tables, never stored.
  *
  * Every change runs in one transaction, and a request goes out only once
  * the state naming it is stored. No file's text is kept in memory: each is
@@ -173,7 +181,20 @@ CREATE INDEX IF NOT EXISTS "epicenter/files/held" ON "epicenter/files" (path) WH
 CREATE INDEX IF NOT EXISTS "epicenter/files/unknown" ON "epicenter/files" (path) WHERE unknown = 1;
 CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) WHERE text IS NOT base;
 CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
+CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEGER NOT NULL, state TEXT NOT NULL CHECK (state IN ('present', 'refused')), reason TEXT) STRICT;
 `;
+
+/**
+ * Files whose text is a pointer this device made (not yet `main`'s), not
+ * held, whose bytes the server has not answered for: owed. Only files with
+ * work are read (`"epicenter/files/unsent"`, a partial index), and a note,
+ * whose fields may name an `oid`, is never one.
+ */
+const OWED_SQL = `FROM "epicenter/files" f WHERE f.text IS NOT f.base AND f.held IS NULL AND f.path NOT LIKE '%.md' AND json_extract(f.fields, '$.oid') IS NOT NULL
+	AND NOT EXISTS (SELECT 1 FROM "epicenter/objects" o WHERE o.oid = json_extract(f.fields, '$.oid'))`;
+
+/** What a file waiting on its bytes says. */
+export const UPLOADING = 'its bytes are uploading';
 
 /** A database made before the `fold` column (phase 5) gets it, filled from each path, before the schema indexes it. */
 function addFold(driver: SqlDriver) {
@@ -580,12 +601,25 @@ function createReplica({
 	// Saving, committing and sending
 	// ==========================================================================
 
-	/** Held, or saved together with a path that is held. */
+	/** The bytes a blob's text names, when this device made it: what it waits on, or was refused for. */
+	function bytesOf(path: string, f: FileRecord) {
+		if (isNote(path) || f.mine === null || f.mine === f.base) return null;
+		const pointer = parsePointer(f.mine);
+		if (pointer === null) return null;
+		const answered = first<{ state: 'present' | 'refused'; reason: string | null }>(driver, 'SELECT state, reason FROM "epicenter/objects" WHERE oid = ?', [pointer.oid]);
+		return { ...pointer, state: answered?.state ?? ('owed' as const), reason: answered?.reason ?? null };
+	}
+	/** Paths whose text this device made names bytes `oid`. */
+	const pointing = (oid: string) => pathsOf(`SELECT path FROM "epicenter/files" WHERE text IS NOT base AND path NOT LIKE '%.md' AND json_extract(fields, '$.oid') = ?`, [oid]);
+	/** RULE: a pointer whose bytes the server does not hold yet waits here, saved, alone: it never joins a group, so nothing waits with it. */
+	const owes = (path: string, f: FileRecord) => f.held === undefined && bytesOf(path, f)?.state === 'owed';
+
+	/** Held, owed its bytes, or saved together with a path that is held. */
 	function blocked(path: string, seen = new Set<string>()): boolean {
 		if (seen.has(path)) return false;
 		seen.add(path);
 		const f = record(path);
-		return heldReason(f) !== null || (f.together ?? []).some((other) => blocked(other, seen));
+		return heldReason(f) !== null || owes(path, f) || (f.together ?? []).some((other) => blocked(other, seen));
 	}
 
 	/** RULE: committed files that can go now: a commit waits while a path saved with it is held (a rename's halves go together), or while the server asked this member to slow down. */
@@ -632,7 +666,8 @@ function createReplica({
 	 */
 	function commit() {
 		for (const [path, f] of filesWhere('saved = 1')) {
-			const refusal = f.mine === tip(f) ? null : admissible(path, f.mine);
+			const bytes = bytesOf(path, f);
+			const refusal = f.mine === tip(f) ? null : (admissible(path, f.mine) ?? (bytes?.state === 'refused' ? bytes.reason : null));
 			if (refusal !== null) {
 				const { saved: _, ...rest } = f;
 				set(path, { ...rest, held: { reason: refusal } });
@@ -1267,6 +1302,7 @@ function createReplica({
 		// A path saved with a held one waits for it: say so, not "sending".
 		const partner = f.saved === undefined && f.committed === undefined ? undefined : (f.together ?? []).find((other) => blocked(other));
 		if (partner !== undefined) return { status: 'held', reason: `saved with ${partner}, which is held` };
+		if (owes(path, f)) return { status: 'sending', reason: UPLOADING };
 		if (f.sent === undefined && f.committed === undefined && f.saved === undefined) return { status: 'synced' };
 		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
 	}
@@ -1346,6 +1382,7 @@ function createReplica({
 			gathering !== null ||
 			inflight !== null ||
 			first(driver, 'SELECT 1 FROM "epicenter/unsent"') !== undefined ||
+			first(driver, `SELECT 1 ${OWED_SQL} LIMIT 1`) !== undefined ||
 			pathsOf('SELECT path FROM "epicenter/files" WHERE saved = 1').some((path) => !blocked(path)),
 		/** Why this device's last commit was refused or rejected (an agent's verdict), until one lands; or null. */
 		lastRefusal: () => lastRefusal,
@@ -1353,6 +1390,41 @@ function createReplica({
 		rejection: () => stalled,
 		position: () => position,
 		stats: () => ({ ...stats }),
+
+		// ------------------------------------------------------------------------
+		// The upload track's side
+		// ------------------------------------------------------------------------
+
+		/** Bytes this device owes the server, each once, oldest first: what the upload track sends. */
+		owed: (limit = 64) =>
+			driver.all<{ oid: string; size: number }>(
+				`SELECT oid, size FROM (SELECT json_extract(f.fields, '$.oid') AS oid, json_extract(f.fields, '$.size') AS size, MIN(f.rowid) AS n ${OWED_SQL} GROUP BY 1) ORDER BY n LIMIT ?`,
+				[limit],
+			).map(({ oid, size }) => ({ oid, size })),
+		/** The server holds bytes `oid` at `size`: every pointer owed them goes in the next commit. */
+		present(oid: string, size: number) {
+			atomically(() => {
+				for (const path of pointing(oid)) changed.add(path);
+				driver.run(`INSERT OR REPLACE INTO "epicenter/objects" (oid, size, state, reason) VALUES (?, ?, 'present', NULL)`, [oid, size]);
+				commit();
+			});
+		},
+		/**
+		 * The server will not take bytes `oid` (too large, over the quota, or
+		 * on neither this device nor the server): every pointer owed them is
+		 * held with `reason`, which its person clears by saving the path
+		 * (deleting it, or keeping other bytes there).
+		 */
+		refused(oid: string, reason: string) {
+			atomically(() => {
+				const owing = pointing(oid).filter((path) => owes(path, record(path)));
+				driver.run(`INSERT OR REPLACE INTO "epicenter/objects" (oid, size, state, reason) VALUES (?, 0, 'refused', ?)`, [oid, reason]);
+				for (const path of owing) {
+					const { saved: _, ...rest } = record(path);
+					set(path, { ...rest, held: { reason } });
+				}
+			});
+		},
 
 		// ------------------------------------------------------------------------
 		// The transport's side
