@@ -33,7 +33,7 @@ function sessionOf(replica: OpenReplica): Session {
 }
 
 /** A replica tab as a repository's host: one session per time the tab opens the replica. */
-function tabHost(tab: ReplicaTab): Host {
+export function browserHost(tab: ReplicaTab): Host {
 	const sessions = new WeakMap<OpenReplica, Session>();
 	return {
 		subscribe(onState) {
@@ -65,7 +65,7 @@ function tabHost(tab: ReplicaTab): Host {
 /** Open `app`'s repository over the replica `replica` of this origin, in this tab. */
 export function openBrowserRepository<TDefs extends Definitions>({ app, replica, ...options }: { app: App<TDefs>; replica: string } & Options): Repository<TDefs> {
 	const tab = openBrowserReplica({ replica, collections: collectionsOf(app), ...options });
-	return openRepository({ app, host: tabHost(tab) });
+	return openRepository({ app, host: browserHost(tab) });
 }
 
 /** Make a new replica of `repository` in this origin, and open `app`'s repository over it in this tab. */
@@ -75,5 +75,5 @@ export async function createBrowserRepository<TDefs extends Definitions>({
 }: { app: App<TDefs>; repository: string; name: string; account: string | null; url: string | null } & Options): Promise<Result<{ replica: string; repository: Repository<TDefs> }, BrowserReplicaError>> {
 	const created = await createBrowserReplica({ ...options, collections: collectionsOf(app) });
 	if (created.error !== null) return created;
-	return Ok({ replica: created.data.replica, repository: openRepository({ app, host: tabHost(created.data) }) });
+	return Ok({ replica: created.data.replica, repository: openRepository({ app, host: browserHost(created.data) }) });
 }
