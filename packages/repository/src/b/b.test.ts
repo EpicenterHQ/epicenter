@@ -237,6 +237,7 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 	);
 	expect(alice.replica.read(PATH)).toBe(note('one\nbob\n'));
 	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
+	console.log(alice.replica.stats(), alice.replica.held(), world.server.read("notes/b.md"));
 	expect(alice.replica.held()).toEqual([]);
 });
 
@@ -366,4 +367,43 @@ test("a person's merge past the block cap is held with the reason on their devic
 	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'the note has too many conflict blocks' });
 	expect(findConflicts(world.server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 	expect(world.server.read(PATH)).toContain('uno\n');
+});
+
+test('a refusal arriving after its path was saved again holds nothing: the newer save goes (seed 1475)', () => {
+	const { world, alice, bob, settle } = setup();
+	const blocks = Array.from({ length: BLOCK_CAP }, (_, i) => `<<<<<<< main\n||||||| base\n=======\nold ${i}\n>>>>>>> m/m\n`).join('');
+	alice.replica.write(PATH, note(`one\n.\n.\n${blocks}`));
+	settle();
+	// Bob's edit lands at +20 and its notification reaches alice at +40; alice's edit, sent at +21, meets it on the server and is refused past the cap.
+	bob.replica.edit(PATH, (text) => (text ?? '').replace('one\n', 'uno\n'));
+	world.net.runFor(21);
+	alice.replica.edit(PATH, (text) => (text ?? '').replace('one\n', 'ONE\n'));
+	world.net.runFor(24);
+	// Before the refusal arrives, alice renames the note: the delete and the new path are her newest save.
+	alice.replica.writeAll({ [PATH]: null, 'notes/b.md': alice.replica.read(PATH) });
+	while (alice.replica.stats().refused === 0) world.net.runFor(1);
+	// The refused text was replaced: nothing is held, and the rename goes as it is.
+	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'sending' });
+	settle();
+	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.busy()).toBe(false);
+	expect(alice.replica.position()).toBe(world.server.main());
+	expect(world.server.read('notes/b.md')).toContain('ONE\n');
+	// Her delete lost to bob's edit, which she had not seen: his note stays.
+	expect(world.server.read(PATH)).toContain('uno\n');
+});
+
+test('a commit waiting on a held partner does not stop the device taking in changes from elsewhere (seed 1475)', () => {
+	const { world, alice, bob, settle } = setup();
+	// While a commit is in flight, two paths saved together are committed, then one of them is broken: the other's commit waits for it.
+	alice.replica.write('notes/x.md', note('x\n'));
+	alice.replica.writeAll({ [PATH]: note('one\n'), 'notes/b.md': note('two\n') });
+	alice.replica.write(PATH, broken('one\n'));
+	settle();
+	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'held', reason: `saved with ${PATH}, which is held` });
+	bob.replica.write('notes/c.md', note('bob\n'));
+	settle();
+	expect(alice.replica.read('notes/c.md')).toBe(note('bob\n'));
+	expect(alice.replica.position()).toBe(world.server.main());
 });

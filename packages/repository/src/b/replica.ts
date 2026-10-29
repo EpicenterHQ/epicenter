@@ -171,6 +171,9 @@ export function createReplica({
 		return heldReason(f) !== null || (f.together ?? []).some((other) => blocked(other, seen));
 	}
 
+	/** RULE: committed files that can go now: a commit waits while a path saved with it is held (a rename's halves go together), or while the server asked this member to slow down. */
+	const ready = () => (now() < backoffUntil ? [] : [...files].filter(([path, f]) => f.committed !== undefined && !blocked(path)));
+
 	/**
 	 * Take the files saved since they last went out into the newest unsent
 	 * commit (amended while one is in flight or offline). One the door refuses
@@ -258,10 +261,9 @@ export function createReplica({
 			return save();
 		}
 		if (reading !== null || gathering !== null) return;
-		// RULE: a commit waits while a path saved with it is held (a rename's halves go together).
-		const ready = now() < backoffUntil ? [] : [...files].filter(([path, f]) => f.committed !== undefined && !blocked(path));
+		const going = ready();
 		// RULE: a ready commit goes before reading notifications: its answer brings everything since its parent, and on a busy note there is always another notification.
-		if (ready.length === 0) {
+		if (going.length === 0) {
 			if (waiting.has(parent)) place();
 			return;
 		}
@@ -270,10 +272,10 @@ export function createReplica({
 			mode: nextMode,
 			author: { user, device },
 			time: new Date(Date.UTC(2026, 9, 28) + now()).toISOString(),
-			files: ready.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
+			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
-		for (const [path, f] of ready) {
+		for (const [path, f] of going) {
 			const { committed, ...rest } = f;
 			set(path, { ...rest, sent: committed as Level });
 		}
@@ -357,6 +359,8 @@ export function createReplica({
 				const { committed: _, ...clean } = rest;
 				set(file.path, { ...clean, saved: true });
 			} else if (answer.reason === 'rate' || !atFault) set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+			// RULE: saved again since it was sent (a rename's delete, more typing): the refusal judged a text the person replaced, so the newer save goes, and is judged itself.
+			else if (rest.committed !== undefined) set(file.path, rest);
 			else {
 				const { committed: _, ...clean } = rest;
 				set(file.path, { ...clean, held: { reason: answer.reason } });
@@ -475,8 +479,8 @@ export function createReplica({
 			const have = known();
 			const lacking = missing(event.files.map((f) => f.hash), have);
 			if (lacking.length > 0) {
-				// A ready commit goes first (see `pump`).
-				if (pending !== null || send === null || [...files.values()].some((f) => f.committed !== undefined)) break;
+				// A ready commit goes first (see `pump`); one waiting on a held partner is not ready, and must not stop this.
+				if (pending !== null || send === null || ready().length > 0) break;
 				reading = { event };
 				stats.fetches++;
 				request({ type: 'fetch', rid: state.next++, hashes: lacking });
@@ -540,7 +544,7 @@ export function createReplica({
 			const reason = heldReason(f);
 			if (reason !== null) return { status: 'held', reason };
 			// A path saved with a held one waits for it: say so, not "sending".
-			const partner = f.saved === undefined ? undefined : (f.together ?? []).find((other) => blocked(other));
+			const partner = f.saved === undefined && f.committed === undefined ? undefined : (f.together ?? []).find((other) => blocked(other));
 			if (partner !== undefined) return { status: 'held', reason: `saved with ${partner}, which is held` };
 			return f.sent !== undefined || f.committed !== undefined || f.saved !== undefined ? { status: 'sending' } : { status: 'synced' };
 		},
