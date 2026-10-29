@@ -11,6 +11,7 @@
  * - A database bound to another repository, server or account is refused at open, and a hello naming another is refused; a replica with no server refuses every hello
  * - A commit in flight whose answer was lost survives closing and reopening the database file: the reopened replica keeps its device id and sends the same commit, which lands once
  * - No text is kept in memory: reads and saves read the database, and a catch-up's pages are staged there, started again after a restart
+ * - A database made before the fold column (phase 5) opens, the column filled from each path
  * - One clash is one block: unsent text replayed over a block that offers its base continues that block
  * - The app's views read what the person sees, held text included, and a watcher hears each changed path after its change is stored
  */
@@ -24,6 +25,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createTestServer, STAMP, writer } from '../sim/harness.js';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { findConflicts } from '../core/conflict.js';
+import { BODY_SQL } from '../core/markdown.js';
 import { defineApp } from '../core/lens.js';
 import type { LiveCommit } from '../core/commit.js';
 import { commitId } from '../core/commit.js';
@@ -368,4 +370,19 @@ test('one clash is one block: unsent text replayed over an arrived block that of
 	alice.sync();
 	bob.catchUp();
 	expect(bob.replica.read(PATH)).toBe(text);
+});
+
+test('a database made before the fold column opens, the column filled from each path', () => {
+	const driver = openBunSqlite();
+	// The files table as phase 5 made it: no fold column.
+	driver.exec(
+		`CREATE TABLE "epicenter/files" (path TEXT PRIMARY KEY, text TEXT, fields TEXT, body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL, base TEXT, hash TEXT, saved INTEGER NOT NULL DEFAULT 0, held TEXT, unknown INTEGER NOT NULL DEFAULT 0) STRICT`,
+	);
+	driver.run('INSERT INTO "epicenter/files" (path, text, base) VALUES (?, ?, ?)', ['notes/Plan.md', note('one\n'), note('one\n')]);
+	const replica = unwrap(open(driver));
+	expect(replica.read('notes/Plan.md')).toBe(note('one\n'));
+	// Another spelling finds it, through the column just filled.
+	expectOk(replica.change([{ kind: 'patch', path: 'notes/plan.md', fields: { title: 'B' } }]));
+	expect(replica.read('notes/Plan.md')).toBe(note('one\n', 'B'));
+	expect(replica.query('SELECT body FROM "epicenter/files"')).toEqual([{ body: 'one\n' }]);
 });

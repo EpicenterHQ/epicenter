@@ -175,6 +175,16 @@ CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) 
 CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
 `;
 
+/** A database made before the `fold` column (phase 5) gets it, filled from each path, before the schema indexes it. */
+function addFold(driver: SqlDriver) {
+	const columns = driver.all<{ name: string }>('PRAGMA table_info("epicenter/files")').map((column) => column.name);
+	if (columns.length === 0 || columns.includes('fold')) return;
+	driver.transaction(() => {
+		driver.run(`ALTER TABLE "epicenter/files" ADD COLUMN fold TEXT NOT NULL DEFAULT ''`);
+		for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/files"')) driver.run('UPDATE "epicenter/files" SET fold = ? WHERE path = ?', [fold(path), path]);
+	});
+}
+
 /** A level of a file: its text, null for no file. */
 type Level = { text: string | null };
 
@@ -252,6 +262,7 @@ const sameGroup = (a: string[] | undefined, b: string[] | undefined) => (a ?? []
  */
 export function openReplica(options: Parameters<typeof createReplica>[0]): Result<Replica, ReplicaError> {
 	const { driver } = options;
+	addFold(driver);
 	driver.exec(SCHEMA);
 	const stored = new Map(driver.all<{ key: string; value: string }>(`SELECT key, value FROM "epicenter/replica" WHERE key IN ('repository', 'server', 'account', 'device')`).map(({ key, value }) => [key, value]));
 	const binding = { ...options.binding };
