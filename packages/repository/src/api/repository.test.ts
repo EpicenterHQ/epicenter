@@ -16,6 +16,7 @@
  * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
  * - The plain file API lists, reads, writes and edits every file, in a collection or none, and lists those not yet synced; a write to a path a collection keeps shows there at once
  * - Apps combined may claim one file: it shows in each collection, read with each schema
+ * - A blob collection creates, replaces, opens and deletes bytes at named paths, refusing a create where a file is and a replace where none is; the plain file API reaches the same bytes
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -23,6 +24,7 @@ import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Replica } from '../client/replica.js';
+import { writePointer } from '../core/markdown.js';
 import { combineApps, defineApp } from '../core/lens.js';
 import { createLocalHost } from './local.js';
 import { type InvalidNote, type Note, openRepository, type RepositoryChange, type ValidNote } from './repository.js';
@@ -274,4 +276,31 @@ test('a note two combined apps claim shows in each of their collections, each re
 	await settled();
 	expect(repo.todos.all().map((note) => [note.path, note.valid])).toEqual([['todos/milk.md', false]]);
 	expect(repo.tasks.all().map((note) => [note.path, note.valid])).toEqual([['todos/milk.md', true]]);
+});
+
+test('a blob collection creates, replaces, opens and deletes bytes at named paths; the file API reaches the same files', async () => {
+	const recordings = defineApp({
+		notes: { path: 'recordings/{stem}.md', schema: Type.Object({ title: Type.String() }) },
+		audio: { path: 'recordings/{stem}.webm', blob: true },
+	});
+	const driver = openBunSqlite();
+	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app: recordings, after: () => {}, now: () => 0 }));
+	const repo = openRepository({ app: recordings, host: createLocalHost({ replica, app: recordings }).host });
+	expect((await repo.audio.create({ stem: 'r1' }, new Blob(['early']))).error).toMatchObject({ name: 'Unavailable' });
+	await settled();
+	const created = expectOk(await repo.audio.create({ stem: 'r1' }, new Blob(['first take'])));
+	expect(created).toMatchObject({ size: 10, text: writePointer({ oid: created.oid, size: 10 }) });
+	expect(expectErr(await repo.audio.create({ stem: 'r1' }, new Blob(['again']))).name).toBe('Exists');
+	expect(expectErr(await repo.audio.replace({ stem: 'r2' }, new Blob(['none']))).name).toBe('NotFound');
+	const replaced = expectOk(await repo.audio.replace({ stem: 'r1' }, new Blob(['second take'])));
+	const file = expectOk(await repo.audio.open({ stem: 'r1' }));
+	expect([file.name, file.type, await file.text()]).toEqual(['r1.webm', 'audio/webm', 'second take']);
+	expect(expectOk(await repo.files.open('recordings/r1.webm')).size).toBe(replaced.size);
+	// The plain file API adds bytes under any path, and a note's create stays text.
+	expectOk(await repo.files.create('attachments/photo.png', new Blob(['png'])));
+	expect(expectOk(await repo.files.open('attachments/photo.png')).type).toBe('image/png');
+	expect(expectErr(await repo.files.open('recordings/none.webm')).name).toBe('Missing');
+	expectOk(await repo.audio.delete({ stem: 'r1' }));
+	expect(expectErr(await repo.audio.open({ stem: 'r1' })).name).toBe('Missing');
+	expect(replica.read('recordings/r1.webm')).toBeNull();
 });

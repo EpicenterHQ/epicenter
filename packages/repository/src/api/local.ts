@@ -7,9 +7,17 @@
  * `end()` stops the session as a worker's loss would (calls in flight and
  * later ones reject, and the repository shows `opening`); `resume()` opens a
  * new one, over the same replica or another opened on the same database.
+ *
+ * Blobs go to the device store given (`createFileBlobStore` in Bun; memory
+ * by default), and with an `lfs` client the upload track runs here, as in a
+ * browser's worker: from the start, and after every change.
  */
 import { type Collection, type PageServer, servePage } from '../client/page.js';
+import { type BlobStore, createMemoryBlobStore } from '../client/blobs.js';
+import { type Bytes, serveBytes } from '../client/bytes.js';
 import type { Replica } from '../client/replica.js';
+import { startUploads, type Uploads } from '../client/uploads.js';
+import type { LfsClient } from '../wire/client.js';
 import type { App, Definitions, Lens } from '../core/lens.js';
 import { type Host, type HostState, openRepository, type Repository, type Session } from './repository.js';
 
@@ -20,7 +28,7 @@ export function collectionsOf(app: { lenses: Lens[] }): Collection[] {
 
 const ended = () => Promise.reject(new Error('The session ended'));
 
-function sessionOver(page: PageServer, alive: () => boolean): Session {
+function sessionOver(page: PageServer, bytes: Bytes, alive: () => boolean): Session {
 	const answer = <T>(run: () => T): Promise<T> => (alive() ? Promise.resolve().then(() => (alive() ? run() : ended())) : ended());
 	return {
 		snapshot: () => answer(() => page.snapshot()),
@@ -41,11 +49,25 @@ function sessionOver(page: PageServer, alive: () => boolean): Session {
 				}),
 			);
 		},
+		put: (path, blob, options) => (alive() ? bytes.put(path, blob, options).then((result) => (alive() ? result : ended())) : ended()),
+		open: (path) => (alive() ? bytes.open(path).then((result) => (alive() ? result : ended())) : ended()),
 	};
 }
 
 /** Serve `replica` in this process; `end` and `resume` stand in for a worker's loss and a new one. */
-export function createLocalHost({ replica, app }: { replica: Replica; app: { lenses: Lens[] } }) {
+export function createLocalHost({
+	replica,
+	app,
+	store = createMemoryBlobStore(),
+	lfs = null,
+}: {
+	replica: Replica;
+	app: { lenses: Lens[] };
+	/** Where this device keeps blob bytes. */
+	store?: BlobStore<Blob>;
+	/** The server's LFS endpoint, for the upload track and downloads; null keeps bytes here only. */
+	lfs?: LfsClient | null;
+}) {
 	const watchers = new Set<(state: HostState) => void>();
 	let state: HostState = { status: 'opening' };
 	let generation = 0;
@@ -54,12 +76,17 @@ export function createLocalHost({ replica, app }: { replica: Replica; app: { len
 		state = next;
 		for (const watcher of watchers) watcher(next);
 	};
+	let uploads: Uploads | null = null;
 	function start(over: Replica) {
 		const mine = ++generation;
 		const page = servePage(over, collectionsOf(app));
 		const alive = () => generation === mine;
 		// The page's own watch on the replica stops with the session.
 		const stops: (() => void)[] = [];
+		uploads?.stop();
+		const track = lfs === null ? null : startUploads({ replica: over, store, lfs });
+		uploads = track;
+		if (track !== null) stops.push(over.watch(() => track.kick()), () => track.stop());
 		const session = sessionOver(
 			{
 				...page,
@@ -69,6 +96,7 @@ export function createLocalHost({ replica, app }: { replica: Replica; app: { len
 					return stop;
 				},
 			},
+			serveBytes({ replica: over, store, lfs }),
 			alive,
 		);
 		stopPage = () => {
@@ -106,10 +134,22 @@ export function createLocalHost({ replica, app }: { replica: Replica; app: { len
 		resume(over: Replica = replica) {
 			start(over);
 		},
+		/** Resolve once the upload track has nothing to send now. */
+		uploaded: () => uploads?.idle() ?? Promise.resolve(),
 	};
 }
 
 /** Open `app`'s repository over a replica in this process. */
-export function openLocalRepository<TDefs extends Definitions>({ app, replica }: { app: App<TDefs>; replica: Replica }): Repository<TDefs> {
-	return openRepository({ app, host: createLocalHost({ replica, app: app }).host });
+export function openLocalRepository<TDefs extends Definitions>({
+	app,
+	replica,
+	store,
+	lfs,
+}: {
+	app: App<TDefs>;
+	replica: Replica;
+	store?: BlobStore<Blob>;
+	lfs?: LfsClient | null;
+}): Repository<TDefs> {
+	return openRepository({ app, host: createLocalHost({ replica, app, ...(store === undefined ? {} : { store }), ...(lfs === undefined ? {} : { lfs }) }).host });
 }

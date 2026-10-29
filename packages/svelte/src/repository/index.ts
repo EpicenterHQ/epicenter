@@ -15,6 +15,8 @@
  *
  * `tracked(editor)` is an editor's draft and state as reactive getters; a
  * CodeMirror view binds to the editor itself (`./codemirror.ts`).
+ * `attachment(repo, () => path)` is a blob's bytes for display, with its
+ * object URL (`./attachment.svelte.ts`).
  */
 import type { Definitions, Editor, Repository, RepositoryChange } from '@epicenter/repository';
 import { createSubscriber } from 'svelte/reactivity';
@@ -79,3 +81,4 @@ export function tracked(editor: Editor) {
 }
 
 export { editorBinding, createEditorView } from './codemirror.js';
+export { attachment, type AttachmentSource, type AttachmentState } from './attachment.svelte.js';

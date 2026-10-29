@@ -214,7 +214,7 @@ for (const [engine, browser] of [
 					// A removal cut short: marked, its database gone, its manifest and objects still there.
 					const { replica: cut } = await page.evaluate((repository) => replicas.create(repository), uniqueRepository('cut'));
 					if (cut === null) throw new Error('the replica was not created');
-					await page.evaluate(() => replicas.seal(1_000, 1));
+					await page.evaluate(() => replicas.put('files/a.bin', 1_000, 1));
 					await page.evaluate(() => replicas.close());
 					await page.evaluate((replica) => replicas.untilReleased(replica), cut);
 					await page.evaluate((replica) => replicas.interruptRemoval(replica), cut);
@@ -242,21 +242,22 @@ for (const [engine, browser] of [
 					const page = await loadReplicaPage(context, site.url, { page: context.pages()[0] });
 					const { replica } = await page.evaluate((repository) => replicas.create(repository), uniqueRepository('blob'));
 					if (replica === null) throw new Error('the replica was not created');
-					const { result, expected } = await page.evaluate(() => replicas.seal(300_000, 2));
+					const path = 'recordings/r1.webm';
+					const { result, expected } = await page.evaluate((path) => replicas.put(path, 300_000, 2), path);
 					expect(result as unknown).toEqual({ data: expected, error: null });
 					const oid = expected?.oid ?? '';
 
 					await page.reload();
 					await page.waitForFunction(() => globalThis.replicas !== undefined);
 					expect(await page.evaluate((replica) => replicas.open(replica), replica)).toEqual({ status: 'open' });
-					expect(await page.evaluate((oid) => replicas.blob(oid), oid)).toEqual(expected);
+					expect(await page.evaluate((path) => replicas.openBytes(path), path)).toEqual({ summary: expected, type: 'audio/webm' });
 					expect((await page.evaluate((replica) => replicas.layout(replica), replica))?.objects).toEqual([oid]);
 
 					// The page keeps the File; the worker that read it ends.
-					expect(await page.evaluate((oid) => replicas.keep(oid), oid)).toBe(true);
+					expect(await page.evaluate((path) => replicas.keep(path), path)).toBe(true);
 					await page.evaluate(() => replicas.close());
 					await page.evaluate((replica) => replicas.untilReleased(replica), replica);
-					expect(await page.evaluate((oid) => replicas.readKept(oid), oid)).toEqual({ direct: expected, viaUrl: expected });
+					expect(await page.evaluate((path) => replicas.readKept(path), path)).toEqual({ direct: expected, viaUrl: expected });
 				} finally {
 					await cleanup();
 				}
@@ -323,7 +324,7 @@ for (const [engine, browser] of [
 						const large = `---\ntitle: A\n---\n${'x'.repeat(2_000_000)}\n`;
 						expect(await page.evaluate((large) => replicas.write('notes/a.md', large), large)).toMatchObject({ error: { name: 'QuotaExceeded' } });
 						expect(await page.evaluate(() => replicas.read('notes/a.md'))).toBe(note('small\n'));
-						expect(await page.evaluate(() => replicas.seal(2_000_000, 3))).toMatchObject({ result: { error: { name: 'QuotaExceeded' } } });
+						expect(await page.evaluate(() => replicas.put('files/large.bin', 2_000_000, 3))).toMatchObject({ result: { error: { name: 'QuotaExceeded' } } });
 
 						// With room again, saves store, and nothing of the refused ones was kept.
 						await cdp.send('Storage.overrideQuotaForOrigin', { origin });

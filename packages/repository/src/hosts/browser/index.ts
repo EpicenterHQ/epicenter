@@ -29,7 +29,8 @@
 import { defineErrors, extractErrorMessage, type InferErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { BlobStoreError, Sealed } from '../../client/blobs.js';
+import type { BlobStoreError } from '../../client/blobs.js';
+import type { BlobError, OpenError, Put } from '../../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
 import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock, type Syncing } from './layout.js';
@@ -224,15 +225,17 @@ function createOpenReplica({
 			askPersistence();
 			return save(() => call('change', changes, token));
 		},
-		/** Seal a blob's bytes into this replica, named by their SHA-256. */
-		seal(blob: Blob): Promise<Result<Sealed, BlobStoreError | SaveError>> {
+		/**
+		 * Seal `blob` into this replica, then store a pointer to it at `path`
+		 * (a create, or with `replace` a replace). The `Blob` crosses to the
+		 * worker as a reference: its bytes are read there, never copied here.
+		 */
+		put(path: string, blob: Blob, options: { replace: boolean }): Promise<Result<Put, BlobError | BlobStoreError | SaveError>> {
 			askPersistence();
-			return save(() => call('seal', blob));
+			return save(() => call('put', path, blob, options));
 		},
-		/** A blob's bytes as a File, which the page reads or shows with its own object URL; null when not here. */
-		blob: (oid: string) => call('blob', oid),
-		hasBlob: (oid: string) => call('hasBlob', oid),
-		evictBlob: (oid: string) => call('evictBlob', oid),
+		/** A blob's bytes as a File, which the page reads or shows with its own object URL: from here, or fetched and verified first. */
+		open: (path: string): Promise<Result<File, OpenError>> => call('open', path),
 		/** Be told each change once it is stored, in revision order: its paths, and the rows now of those kept in memory; returns the function that stops it. */
 		watch(listener: (delta: Delta) => void) {
 			changes.add(listener);

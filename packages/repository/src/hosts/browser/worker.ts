@@ -8,15 +8,17 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
-import type { BlobStoreError, Sealed } from '../../client/blobs.js';
+import type { BlobStoreError } from '../../client/blobs.js';
+import { type BlobError, type Bytes, type OpenError, type Put, serveBytes } from '../../client/bytes.js';
 import { type PageServer, servePage } from '../../client/page.js';
 import { type Change, openReplica, type Replica } from '../../client/replica.js';
 import { connectSocket } from '../../client/socket.js';
+import { startUploads } from '../../client/uploads.js';
 import type { SqlDriver, SqlValue } from '../../sql.js';
-import { createWireClient } from '../../wire/client.js';
+import { createLfsClient, createWireClient } from '../../wire/client.js';
 import { OBJECTS, readManifest, replicaDirectory, writeManifest } from './layout.js';
 import { type Call, type Init, SaveError, type TabMessage, type WorkerMessage } from './messages.js';
-import { createOpfsBlobStore, type OpfsBlobStore } from './objects.js';
+import { createOpfsBlobStore } from './objects.js';
 import { clearReported, openReplicaDatabase, storageWasFull } from './sqlite.js';
 
 const log = createLogger('repository/browser-worker');
@@ -30,7 +32,7 @@ function plain<T, E extends object>(result: Result<T, E>): Result<T, E> {
 }
 
 /** What the tab may call, by name. */
-function replicaMethods(replica: Replica, page: PageServer, blobs: OpfsBlobStore) {
+function replicaMethods(replica: Replica, page: PageServer, bytes: Bytes) {
 	return {
 		read: (path: string) => replica.read(path),
 		/** Every note of the collections the page keeps in memory, as of one revision. */
@@ -58,12 +60,17 @@ function replicaMethods(replica: Replica, page: PageServer, blobs: OpfsBlobStore
 			clearReported();
 			return page.change(changes, token);
 		},
-		/** Seal a blob's bytes into this replica's objects. */
-		seal: async (blob: Blob): Promise<Result<Sealed, BlobStoreError>> => plain(await blobs.seal(blob.stream() as ReadableStream<Uint8Array>)),
-		/** A blob's bytes, as a File the page reads or shows, which outlives this worker. */
-		blob: (oid: string) => blobs.read(oid),
-		hasBlob: (oid: string) => blobs.has(oid),
-		evictBlob: (oid: string) => blobs.evict(oid),
+		/**
+		 * Seal `blob` (the page's reference, not a copy) into this replica's
+		 * objects, then store a pointer to it at `path`: a create, or with
+		 * `replace` a replace, of the file this device shows there.
+		 */
+		put: async (path: string, blob: Blob, options: { replace: boolean }): Promise<Result<Put, BlobError | BlobStoreError>> => {
+			clearReported();
+			return plain(await bytes.put(path, blob, options));
+		},
+		/** A blob's bytes as a File, from this replica's objects or fetched and verified first; it outlives this worker. */
+		open: (path: string): Promise<Result<File, OpenError>> => bytes.open(path),
 	};
 }
 export type ReplicaMethods = ReturnType<typeof replicaMethods>;
@@ -128,10 +135,17 @@ export function serveReplicaWorker() {
 		}
 		const connection = manifest.url === null ? null : connectSocket(replica, createWireClient({ url: manifest.url, headers, tickets: true }), { log });
 		const blobs = createOpfsBlobStore(objects);
+		const lfs = manifest.url === null ? null : createLfsClient({ url: manifest.url, headers });
+		// The upload track: from here, after every change (a pointer saved, a catch-up after the socket attached), and again after a failure's wait.
+		const uploads = lfs === null ? null : startUploads({ replica, store: blobs, lfs, log });
 		const page = servePage(replica, collections, { failed: (cause) => (storageWasFull() ? SaveError.QuotaExceeded() : SaveError.Failed({ reason: extractErrorMessage(cause) })) });
-		page.watch((delta) => post({ type: 'changed', delta }));
-		methods = replicaMethods(replica, page, blobs);
+		page.watch((delta) => {
+			uploads?.kick();
+			post({ type: 'changed', delta });
+		});
+		methods = replicaMethods(replica, page, serveBytes({ replica, store: blobs, lfs }));
 		close = async () => {
+			uploads?.stop();
 			await blobs.close();
 			connection?.close();
 			replica.close();

@@ -25,8 +25,10 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, FileEntry, Row, SaveError, Snapshot } from '../client/page.js';
 import { SaveError as SaveErrors } from '../client/page.js';
+import type { BlobStoreError, Sealed } from '../client/blobs.js';
+import type { BlobError, OpenError, Put } from '../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
-import { type App, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
+import { type App, type BlobName, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
 import { bodyOf, parseMarkdown, splitMarkdown, writeMarkdown } from '../core/markdown.js';
 import { fold } from '../core/door.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
@@ -50,6 +52,10 @@ export type Session = {
 	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
 	/** Hear each stored change in revision order; returns the function that stops it. */
 	watch(listener: (delta: Delta) => void): () => void;
+	/** Seal `blob`, then store a pointer to it at `path`: a create, or with `replace` a replace, of the file this device shows there. */
+	put(path: string, blob: Blob, options: { replace: boolean }): Promise<Result<Put, BlobError | BlobStoreError | SaveError>>;
+	/** A blob's bytes as a File: from this device, or fetched and verified first. */
+	open(path: string): Promise<Result<File, OpenError>>;
 };
 
 /** Where the repository stands in this page. `open`: its notes are here and it saves. */
@@ -126,6 +132,33 @@ export type Writes<TPath extends string, TNoteSchema extends TSchema> = {
 	openEditor(params: Params<TPath>): Promise<Result<Editor, WriteError | EditorError>>;
 };
 
+/** A stored blob write: the pointer's text and the revision it made, and the bytes' oid and size. */
+export type BlobWritten = Written & Sealed;
+
+/** Why a blob write was not stored. */
+export type BlobWriteError = RepositoryError | BlobError | BlobStoreError | SaveError | TemplateError;
+
+/** Why a blob could not be opened. */
+export type OpenBlobError = OpenError | RepositoryError | TemplateError;
+
+/**
+ * A collection of blobs, named by the app (`recordings/{stem}.webm`). A
+ * write is compare-and-swap (core/settle, `settlePointer`): it lands only
+ * over the blob this device saw at the path, or none for a create; one
+ * that does not land is held with why, and a delete that does not land
+ * leaves the file. The bytes are sealed on this device before the pointer
+ * is stored, and uploaded beside the commit flow.
+ */
+export type BlobCollection<TPath extends string> = {
+	/** New bytes at a path this device shows no file at; refused at once where it shows one. */
+	create(params: Params<TPath>, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	/** Other bytes at a path this device shows a file at; refused at once where it shows none. */
+	replace(params: Params<TPath>, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	delete(params: Params<TPath>): Promise<Result<Written, WriteError>>;
+	/** The bytes as a File typed by the path's extension: from this device, or fetched and verified first. */
+	open(params: Params<TPath>): Promise<Result<File, OpenBlobError>>;
+};
+
 /** A collection kept in memory: every note, synchronously. */
 export type MemoryCollection<TPath extends string, TNoteSchema extends TSchema> = Writes<TPath, TNoteSchema> & {
 	/** Every note, ordered by path. The same array until one of them changes. */
@@ -137,6 +170,8 @@ export type MemoryCollection<TPath extends string, TNoteSchema extends TSchema> 
 export type StoredCollection<TPath extends string, TNoteSchema extends TSchema> = Writes<TPath, TNoteSchema> & {
 	read(params: Params<TPath>): Promise<Result<Note<TPath, TNoteSchema> | null, RepositoryError | TemplateError>>;
 };
+
+type BlobCollectionOf<TDef> = TDef extends { path: infer TPath extends string; blob: true } ? BlobCollection<TPath> : never;
 
 type CollectionOf<TDef> = TDef extends { path: infer TPath extends string; schema: infer TNoteSchema extends TSchema }
 	? TDef extends { memory: false }
@@ -176,8 +211,17 @@ export type Files = {
 	waiting(): Promise<Result<FileEntry[], RepositoryError>>;
 	/** One file's exact text, found by any spelling of its path, or null for none. */
 	read(path: string): Promise<Result<FileText | null, RepositoryError>>;
-	/** A new file, merged with one already there. */
+	/**
+	 * A new file. A note (`.md`) is text, merged with one already there; any
+	 * other file is bytes, a blob collection's create: refused at once where
+	 * this device shows a file.
+	 */
 	create(path: string, text: string): Promise<Result<Written, WriteError>>;
+	create(path: string, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	/** Other bytes at a path this device shows a file that is not a note at. */
+	replace(path: string, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	/** A file's bytes as a File typed by its extension: from this device, or fetched and verified first. */
+	open(path: string): Promise<Result<File, OpenBlobError>>;
 	/** Exact text (null deletes), merged where the file moved since `over`. */
 	write(path: string, text: string | null, options?: { over?: string | null }): Promise<Result<Written, WriteError>>;
 	delete(path: string): Promise<Result<Written, WriteError>>;
@@ -192,7 +236,7 @@ export type BatchFiles = {
 	delete(path: string): void;
 };
 
-export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: CollectionOf<TDefs[K]> } & {
+export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: CollectionOf<TDefs[K]> } & { [K in BlobName<TDefs>]: BlobCollectionOf<TDefs[K]> } & {
 	status(): RepositoryStatus;
 	/** The revision of the last change heard: every SQL result older than it may be stale. */
 	revision(): number;
@@ -213,6 +257,7 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 // ============================================================================
 
 type NoteLens = Extract<Lens, { kind: 'note' }>;
+type BlobLens = Extract<Lens, { kind: 'blob' }>;
 const headerOf = (text: string) => text.slice(0, splitMarkdown(text).bodyStart);
 const byPath = (a: Note, b: Note) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 /** Where `path` is in a list ordered by path, or -1. */
@@ -564,6 +609,44 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		};
 	}
 
+	/** Seal `blob` and store a pointer to it at `path`, through the open session. */
+	async function putBlob(path: string, blob: Blob, replace: boolean): Promise<Result<BlobWritten, BlobWriteError>> {
+		const current = status.status === 'open' ? session : null;
+		if (current === null) return RepositoryError.Unavailable({ status: status.status });
+		const at = spelled(path);
+		let put: Result<Put, BlobError | BlobStoreError | SaveError>;
+		try {
+			put = await current.put(at, blob, { replace });
+		} catch {
+			return SaveErrors.Closed();
+		}
+		if (put.error !== null) return put;
+		return Ok({ text: put.data.texts[at] ?? null, revision: put.data.revision, oid: put.data.oid, size: put.data.size });
+	}
+	async function openBlob(path: string): Promise<Result<File, OpenBlobError>> {
+		const opened = await asked((current) => current.open(spelled(path)));
+		return opened.error !== null ? opened : opened.data;
+	}
+
+	function blobCollection(lens: BlobLens): BlobCollection<string> {
+		const pathOf = (params: Record<string, unknown>): Result<string, TemplateError> => {
+			const built = buildPath(lens.template, params);
+			return built.error === null ? Ok(spelled(built.data)) : built;
+		};
+		const at =
+			<TArgs extends unknown[], TResult>(run: (path: string, ...args: TArgs) => Promise<Result<TResult, BlobWriteError | OpenBlobError | WriteError>>) =>
+			async (params: Record<string, unknown>, ...args: TArgs) => {
+				const path = pathOf(params);
+				return path.error !== null ? path : run(path.data, ...args);
+			};
+		return {
+			create: at((path, blob: Blob) => putBlob(path, blob, false)),
+			replace: at((path, blob: Blob) => putBlob(path, blob, true)),
+			delete: at((path) => one(path, { kind: 'delete', path })),
+			open: at(openBlob),
+		} as BlobCollection<string>;
+	}
+
 	/** The changes the plain file API makes, at `path` as this device spells it. */
 	const fileChanges = {
 		create: (path: string, text: string): Change => ({ kind: 'create', path: spelled(path), text }),
@@ -588,10 +671,13 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			const row = await current.row(path);
 			return row === null ? null : { path: row.path, text: row.text, state: row.state };
 		}),
-		create: (path, text) => {
-			const change = fileChanges.create(path, text);
+		create: ((path: string, content: string | Blob) => {
+			if (content instanceof Blob) return putBlob(path, content, false);
+			const change = fileChanges.create(path, content);
 			return one(change.path, change);
-		},
+		}) as Files['create'],
+		replace: (path, blob) => putBlob(path, blob, true),
+		open: openBlob,
 		write: (path, text, options) => {
 			const change = fileChanges.write(path, text, options);
 			return one(change.path, change);
@@ -652,5 +738,6 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		},
 	};
 	for (const lens of lenses) repository[lens.name] = collection(lens);
+	for (const lens of app.lenses) if (lens.kind === 'blob') repository[lens.name] = blobCollection(lens);
 	return repository as Repository<TDefs>;
 }
