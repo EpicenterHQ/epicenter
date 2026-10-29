@@ -380,3 +380,36 @@ test('a note deleted here ends its editor: the draft goes with it, it is not lis
 	expect(again.state().status).toBe('closed');
 	expect(repo.notes.all()).toEqual([]);
 });
+
+test('what shows between a stored change and its answer is the stored note, not the change applied twice', async () => {
+	const { alice, bob, gate, repo } = twoDevices(app);
+	alice.replica.write(PATH, note('one\n'));
+	alice.sync();
+	bob.catchUp();
+	await settled();
+	const editor = expectOk(await repo.notes.openEditor({ stem: 'plan' }));
+	bob.replica.write(PATH, note('oneR\n'));
+	bob.sync();
+	alice.catchUp();
+	gate.hold();
+	editor.update(note('oneA\n'));
+	await settled();
+	// The worker stored the write, a conflict block with it; its answer is held.
+	const stored = alice.replica.read(PATH) ?? '';
+	expect(findConflicts(stored)).toHaveLength(1);
+	expect(repo.notes.get({ stem: 'plan' })?.text).toBe(stored);
+	gate.release();
+	await settled();
+	expect(findConflicts(repo.notes.get({ stem: 'plan' })?.text ?? '')).toHaveLength(1);
+
+	// A batch that creates over a note and patches it shows what the worker stored.
+	gate.hold();
+	const batch = repo.commit((each) => {
+		each.notes.create({ stem: 'other' }, { fields: { title: 'Other' }, body: 'n\n' });
+		each.notes.patch({ stem: 'other' }, { pinned: true });
+	});
+	await settled();
+	expect(repo.notes.get({ stem: 'other' })?.text).toBe(alice.replica.read('notes/other.md') ?? '');
+	gate.release();
+	expectOk(await batch);
+});

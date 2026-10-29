@@ -39,9 +39,9 @@ function holding(inner: Host) {
 		if (wrapped === undefined) {
 			wrapped = {
 				...session,
-				change(changes) {
+				change(changes, token) {
 					// Applied now, in order, as the worker applies it; only its answer waits.
-					const answered = session.change(changes);
+					const answered = session.change(changes, token);
 					if (!holdingAnswers) return answered;
 					return new Promise((resolve, reject) => held.push(() => answered.then(resolve, reject)));
 				},

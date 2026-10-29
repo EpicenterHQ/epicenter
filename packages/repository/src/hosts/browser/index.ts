@@ -216,9 +216,9 @@ function createOpenReplica({
 		 * they are stored, with each path's resulting text and the revision,
 		 * or with why nothing was.
 		 */
-		change(changes: Change[]): Promise<Result<Changed, ChangeError | SaveError>> {
+		change(changes: Change[], token?: number): Promise<Result<Changed, ChangeError | SaveError>> {
 			askPersistence();
-			return save(() => call('change', changes));
+			return save(() => call('change', changes, token));
 		},
 		/** Seal a blob's bytes into this replica, named by their SHA-256. */
 		seal(blob: Blob): Promise<Result<Sealed, BlobStoreError | SaveError>> {

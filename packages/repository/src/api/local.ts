@@ -26,10 +26,10 @@ function sessionOver(page: PageServer, alive: () => boolean): Session {
 		snapshot: () => answer(() => page.snapshot()),
 		row: (path) => answer(() => page.read(path)),
 		query: (sql, params) => answer(() => page.query(sql, params)),
-		change(changes) {
+		change(changes, token) {
 			if (!alive()) return ended();
 			// Applied when called, in order, as a worker applies messages in order; answered after the changes it made are heard.
-			const result = page.change(changes);
+			const result = page.change(changes, token);
 			return Promise.resolve().then(() => (alive() ? result : ended()));
 		},
 		watch(listener) {

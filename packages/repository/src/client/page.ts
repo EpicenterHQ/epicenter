@@ -28,7 +28,13 @@ export type Snapshot = { revision: number; rows: Row[] };
  * What one stored change did: the paths whose text or state changed, and
  * for those in a collection kept in memory, the row now (null: no note).
  */
-export type Delta = { revision: number; paths: string[]; rows: Record<string, Row | null> };
+export type Delta = {
+	revision: number;
+	paths: string[];
+	rows: Record<string, Row | null>;
+	/** The page's token for the change that made this, when the page made it: the rows already hold it, so the page stops showing it as pending. */
+	token?: number;
+};
 
 /** What a page's save can come back as instead of stored. */
 export const SaveError = defineErrors({
@@ -54,6 +60,8 @@ export function servePage(
 	{ failed = (cause) => SaveError.Failed({ reason: extractErrorMessage(cause) }) }: { failed?: (cause: unknown) => ReturnType<(typeof SaveError)[keyof typeof SaveError]> } = {},
 ) {
 	const kept = collections.filter((collection) => collection.memory);
+	/** The token of the change being applied now: the replica tells its watchers inside the transaction's save. */
+	let making: number | undefined;
 	const isKept = (path: string) => kept.some((collection) => matchTemplate(collection.template, path) !== null);
 
 	/** One path's row, or null when the replica shows no file there. `unsent` names the paths with work, whose state is read; any other is synced. */
@@ -94,11 +102,14 @@ export function servePage(
 		read,
 		query: replica.query,
 		/** Apply changes over what the replica shows now: stored, or not at all, and said so before anything is acknowledged. */
-		change(changes: Change[]): Result<Changed, ChangeError | SaveError> {
+		change(changes: Change[], token?: number): Result<Changed, ChangeError | SaveError> {
+			making = token;
 			try {
 				return replica.change(changes);
 			} catch (cause) {
 				return failed(cause);
+			} finally {
+				making = undefined;
 			}
 		},
 		/** Be told each change once it is stored, in revision order; returns the function that stops it. */
@@ -106,7 +117,7 @@ export function servePage(
 			return replica.watch((paths, revision) => {
 				const rows: Record<string, Row | null> = {};
 				for (const path of paths) if (isKept(path)) rows[path] = rowAt(path);
-				listener({ revision, paths, rows });
+				listener(making === undefined ? { revision, paths, rows } : { revision, paths, rows, token: making });
 			});
 		},
 	};

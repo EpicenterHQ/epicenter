@@ -50,9 +50,9 @@ function replicaMethods(replica: Replica, page: PageServer, blobs: OpfsBlobStore
 		 * not at all: a save storage refuses (full, or failing) changes
 		 * nothing, and says so before anything is acknowledged.
 		 */
-		change(changes: Change[]) {
+		change(changes: Change[], token?: number) {
 			clearReported();
-			return page.change(changes);
+			return page.change(changes, token);
 		},
 		/** Seal a blob's bytes into this replica's objects. */
 		seal: async (blob: Blob): Promise<Result<Sealed, BlobStoreError>> => plain(await blobs.seal(blob.stream() as ReadableStream<Uint8Array>)),

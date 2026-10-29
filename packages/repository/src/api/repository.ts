@@ -42,7 +42,8 @@ export type Session = {
 	snapshot(): Promise<Snapshot>;
 	row(path: string): Promise<Row | null>;
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<TRow[]>;
-	change(changes: Change[]): Promise<Result<Changed, ChangeError | SaveError>>;
+	/** Apply `changes` in one transaction; the change it makes is heard with `token`. */
+	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
 	/** Hear each stored change in revision order; returns the function that stops it. */
 	watch(listener: (delta: Delta) => void): () => void;
 };
@@ -227,9 +228,24 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		stored.delete(path);
 		if (spellings.get(fold(path)) === path) spellings.delete(fold(path));
 	}
-	/** Writes sent and not yet answered, by path, in the order sent: shown over the stored note. `done` settles once its answer is in. */
-	const pending = new Map<string, { id: number; change: Change; done: Promise<void> }[]>();
+	/**
+	 * Writes sent and not yet stored, by path, in the order sent: shown over
+	 * the stored note until the change they made is heard (its `token`), so
+	 * the rows that hold them are never shown with them applied again.
+	 * `done` settles once their answer is in.
+	 */
+	const pending = new Map<string, { id: number; token: number; change: Change; done: Promise<void> }[]>();
 	let nextId = 1;
+	let nextToken = 1;
+	/** Stop showing the writes sent with `token`: what is stored holds them now. */
+	function storedWith(token: number) {
+		for (const [path, writes] of pending) {
+			const left = writes.filter((write) => write.token !== token);
+			if (left.length === writes.length) continue;
+			if (left.length === 0) pending.delete(path);
+			else pending.set(path, left);
+		}
+	}
 	const listeners = new Set<(change: RepositoryChange) => void>();
 	const touched = new Set<string>();
 	let statusChanged = false;
@@ -331,6 +347,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	function applyDelta(delta: Delta) {
 		if (delta.revision <= revision) return;
 		revision = delta.revision;
+		if (delta.token !== undefined) storedWith(delta.token);
 		for (const [path, row] of Object.entries(delta.rows)) {
 			store(path, row);
 			refresh(path);
@@ -400,13 +417,14 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		const done = new Promise<void>((resolve) => {
 			finish = resolve;
 		});
-		const sent = changes.map((change) => ({ id: nextId++, change, done }));
+		const token = nextToken++;
+		const sent = changes.map((change) => ({ id: nextId++, token, change, done }));
 		for (const write of sent) pending.set(write.change.path, [...(pending.get(write.change.path) ?? []), write]);
 		for (const write of sent) refresh(write.change.path);
 		emit();
 		let result: Result<Changed, WriteError>;
 		try {
-			result = await current.change(changes);
+			result = await current.change(changes, token);
 		} catch {
 			result = SaveErrors.Closed();
 		}

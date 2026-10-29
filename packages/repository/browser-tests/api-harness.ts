@@ -32,8 +32,8 @@ function holdable(inner: Host): Host {
 		if (wrapped === undefined) {
 			wrapped = {
 				...session,
-				change(changes) {
-					const answered = session.change(changes);
+				change(changes, token) {
+					const answered = session.change(changes, token);
 					if (!holding) return answered;
 					return new Promise((resolve, reject) => held.push(() => answered.then(resolve, reject)));
 				},
