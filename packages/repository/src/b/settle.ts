@@ -8,8 +8,8 @@
  * field both sides set keeps `current`'s value in the frontmatter and writes
  * `incoming`'s as a labelled block in the body. A path that was deleted since
  * `base`, or that two writers created, holds another note (D3): `current`
- * stays and `incoming` is appended whole as one block. A pointer is one
- * value.
+ * stays and `incoming` is appended whole as one block. A block identical to
+ * one already in the note is not written again. A pointer is one value.
  *
  * No fallback for a merge that does not parse (D4, which deleted that rule):
  * the door admits only notes that parse, so base, current and incoming all
@@ -22,7 +22,7 @@
 import { stringify } from 'yaml';
 import { parsePointer } from '../markdown.js';
 import { merge, withMarkers } from '../merge.js';
-import { block } from './door.js';
+import { block, withBlock } from './door.js';
 
 export type Disposition =
 	/** Everything incoming said is in the text, cleanly. */
@@ -46,11 +46,10 @@ export type Settled = {
 export type Labels = { current: string; incoming: string };
 
 const stringifyField = (key: string, value: unknown) => stringify({ [key]: value });
-const eol = (text: string) => (text === '' || text.endsWith('\n') ? text : `${text}\n`);
 
 /** One conflict block holding `incoming` whole, after `current`. */
 export function appendBlock(current: string, incoming: string, labels: Labels) {
-	return `${eol(current)}${block({ current: '', incoming }, labels)}`;
+	return withBlock(current, block({ current: '', incoming }, labels));
 }
 
 /**
@@ -87,7 +86,7 @@ export function settle(
 			base: overlap.base === undefined ? '' : stringifyField(overlap.key, overlap.base),
 			incoming: stringifyField(overlap.key, overlap.incoming),
 		};
-		text = `${eol(text)}${block(values, labels)}`;
+		text = withBlock(text, block(values, labels));
 		conflict = true;
 	}
 	return { text, disposition: conflict ? 'conflict' : 'landed' };

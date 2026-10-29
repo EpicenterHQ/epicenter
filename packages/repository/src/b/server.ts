@@ -24,7 +24,7 @@
 import { createHash } from 'node:crypto';
 import { gitBlobHash } from '../hash.js';
 import { parsePointer } from '../markdown.js';
-import { ATTRIBUTES, LIMIT, admissible, fold, isNote } from './door.js';
+import { ATTRIBUTES, BLOCK_CAP, LIMIT, admissible, findConflicts, fold, isNote } from './door.js';
 import { settle } from './settle.js';
 
 // ============================================================================
@@ -422,6 +422,9 @@ export function createServer({
 			// RULE, the one named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
 			if (settled.text !== null && isNote(file.path) && new TextEncoder().encode(settled.text).length > LIMIT)
 				return refuse('the merge would grow the note past 1 MB', file.path);
+			// RULE: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood); its writer holds it, or an agent redoes it.
+			if (settled.text !== null && isNote(file.path) && findConflicts(settled.text).length > Math.max(BLOCK_CAP, ours === null ? 0 : findConflicts(ours).length))
+				return refuse('the note has too many conflict blocks', file.path);
 			out.push({ path: file.path, text: settled.text });
 			if (settled.disposition === 'conflict' || settled.disposition === 'different-note') blocks = true;
 		}
