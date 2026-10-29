@@ -949,17 +949,20 @@ function createReplica({
 	 * another spelling for it (its own create, crossing one there), that row
 	 * and its work move to `path`, so the work is rebased onto `main`'s text
 	 * and never sent over it unseen. A row in the commit awaiting its answer
-	 * stays until the answer, which names both spellings.
+	 * moves when that answer is taken (`landing`), its sent text with it, so
+	 * what was saved over the sent text is rebased as this device's own.
 	 */
-	function respell(path: string) {
+	function respell(path: string, landing = false) {
 		if (stored(path) !== undefined) return;
 		const other = first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? AND path != ? ORDER BY rowid LIMIT 1', [fold(path), path])?.path;
 		if (other === undefined) return;
 		const f = record(other);
-		if (f.sent !== undefined) return;
+		if (f.sent !== undefined && !landing) return;
 		const said = { saved: messageOf(other, 'saved'), committed: messageOf(other, 'committed') };
 		driver.run('UPDATE "epicenter/groups" SET other = ? WHERE other = ?', [path, other]);
+		sentTexts.delete(other);
 		set(other, { base: null, mine: null });
+		if (f.sent !== undefined) sentTexts.set(path, f.sent.text);
 		set(path, f);
 		for (const level of ['saved', 'committed'] as const) if (said[level] !== null) sayAt(path, level, said[level]);
 	}
@@ -1064,6 +1067,8 @@ function createReplica({
 		cap = null;
 		for (const id of answer.commits) pass(id);
 		prune();
+		// A file sent under another spelling of a path main has is that path's, sent text and all, before any is taken.
+		for (const file of answer.files) if (file.text !== null) respell(file.path, true);
 		// Each path of the commit takes its own sent text as landed, so the commit in flight is cleared after.
 		for (const file of answer.files) integrate(file.path, file.text, true, file.deleted === true);
 		setInflight(null);

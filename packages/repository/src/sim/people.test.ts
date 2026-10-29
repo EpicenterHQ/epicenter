@@ -417,6 +417,26 @@ test('paths equal after NFC and case folding are one path: a create waiting to g
 	expect(alice.replica.read('notes/Todo.md')).toBe(text);
 });
 
+test('paths equal after NFC and case folding are one path: work saved while a create of another spelling is in flight merges with main\'s', () => {
+	const { world, alice, bob, settle } = setup();
+	bob.setOnline(false);
+	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), { over: null });
+	settle();
+	bob.replica.write('notes/todo.md', note('bob\n', 'title: Todo'), { over: null });
+	bob.setOnline(true);
+	for (let n = 0; n < 2_000 && bob.replica.sent() === null; n++) world.net.runFor(1);
+	expect(bob.replica.sent()?.files.map((f) => f.path)).toEqual(['notes/todo.md']);
+	// Bob types more before the create's answer comes.
+	bob.replica.edit('notes/todo.md', (text) => `${text ?? ''}more\n`);
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
+	const text = world.server.read('notes/Todo.md') ?? '';
+	for (const line of ['alice', 'bob', 'more']) expect(text).toContain(line);
+	expect(text.split('\n').filter((line) => line === 'bob')).toHaveLength(1);
+	expect([...bob.replica.files().keys()]).toEqual(['notes/Todo.md']);
+	expect(bob.replica.read('notes/Todo.md')).toBe(text);
+});
+
 test('a merge that would grow a note past 1 MB is the one named exception: held with that reason', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/big.md';
