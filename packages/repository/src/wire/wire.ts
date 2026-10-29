@@ -298,7 +298,7 @@ export function createWire({
 		return 'error' in taken ? failure(400, taken.error) : answer(taken.answer);
 	}
 
-	/** PUT and DELETE: one file, conditional on its hash, as one fast-forward commit on main. */
+	/** PUT and DELETE: one file, conditional on its hash, as one fast-forward commit on main, taken like any other. */
 	async function writeFile(request: Request, session: Session, path: string, expired: Promise<typeof EXPIRED>) {
 		const ifMatch = request.headers.get('if-match');
 		const create = request.method === 'PUT' && request.headers.get('if-none-match')?.trim() === '*';
@@ -321,7 +321,9 @@ export function createWire({
 			time: new Date(clock()).toISOString(),
 			files: [{ path, text }],
 		};
-		const pushed = server.push({ id: commitId(commit), ...commit }, session);
+		const taken = takeCommit({ id: commitId(commit), ...commit }, session);
+		if ('error' in taken) return failure(400, taken.error);
+		const pushed = taken.answer;
 		return answer(pushed, pushed.kind === 'applied' && text !== null ? { etag: `"${gitBlobHash(text)}"` } : {});
 	}
 
