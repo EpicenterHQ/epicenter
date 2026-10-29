@@ -1023,9 +1023,12 @@ function createReplica({
 		for (const file of page.files) driver.run('INSERT INTO "epicenter/staged" (path, hash, deleted) VALUES (?, ?, ?)', [file.path, file.hash, file.deleted === true ? 1 : 0]);
 	}
 	/** Forget a staged catch-up and the texts read for it. */
+	/** Every staged row up to this one needs no text read: the next read of a catch-up's texts looks after it. */
+	let lackingAfter = 0;
 	function unstage() {
 		driver.run('DELETE FROM "epicenter/staged"');
 		driver.run('DELETE FROM "epicenter/fetched"');
+		lackingAfter = 0;
 	}
 	/**
 	 * The hashes a staged catch-up still lacks, the first `limit` of them.
@@ -1038,7 +1041,10 @@ function createReplica({
 			...[...sentTexts.keys()].filter((path) => first(driver, 'SELECT 1 FROM "epicenter/staged" WHERE path = ?', [path]) !== undefined),
 		]);
 		for (const [hash, text] of known(working)) driver.run('INSERT OR IGNORE INTO "epicenter/fetched" (hash, text) VALUES (?, ?)', [hash, text]);
-		return driver.all<{ hash: string }>(`SELECT s.hash AS hash ${LACKING_SQL} GROUP BY s.hash ORDER BY MIN(s.n) LIMIT ?`, [limit]).map((row) => row.hash);
+		// From the first row still lacking, not from the first row: each batch reads past the rows before it once, so a catch-up's reads stay linear. A row that lacked a text stays at or after it until read, so a lost read is asked again.
+		const rows = driver.all<{ n: number; hash: string }>(`SELECT s.n AS n, s.hash AS hash ${LACKING_SQL} AND s.n > ? ORDER BY s.n LIMIT ?`, [lackingAfter, limit]);
+		lackingAfter = (rows[0]?.n ?? lackingAfter + 1) - 1;
+		return [...new Set(rows.map((row) => row.hash))];
 	}
 	/** A staged path's text by hash: its base when that is it, else a text read. */
 	function stagedText(path: string, hash: string | null) {
