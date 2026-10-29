@@ -322,7 +322,10 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			notes.delete(path);
 			lists.delete(lens.name);
 		} else {
-			const state = writes.length > 0 || editors.unsaved(path) || row === undefined ? SENDING : row.state;
+			// Held wins: typing an editor is not saving now, or text the replica holds back, is never shown as on its way.
+			const stuck = editors.stuck(path);
+			const state: FileStatus =
+				stuck !== null ? { status: 'held', reason: stuck } : row?.state.status === 'held' ? row.state : writes.length > 0 || editors.unsaved(path) || row === undefined ? SENDING : row.state;
 			if (before !== undefined && before.text === text && sameState(before.state, state)) return;
 			// Typing in the body leaves the frontmatter as it was: its fields are read again only when it changes.
 			const note =

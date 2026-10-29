@@ -451,6 +451,13 @@ export function createEditors(deps: Deps) {
 		},
 		/** Whether an editor of `path` holds typing not yet stored. */
 		unsaved: (path: string) => editors.get(path)?.dirty() ?? false,
+		/** Why an editor of `path` holds typing it is not saving now (a failed save, or a pause on a clash), or null. */
+		stuck(path: string): string | null {
+			const state = editors.get(path)?.state();
+			if (state?.status === 'failed') return state.error.message;
+			if (state?.status === 'paused') return 'waiting for you to choose between your typing and a change made elsewhere';
+			return null;
+		},
 		/** A stored change, in revision order. */
 		heard(delta: Delta) {
 			for (const [path, editor] of editors) {

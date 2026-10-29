@@ -477,3 +477,27 @@ test('an editor that cannot open while the repository is not open says so, as a 
 	expect(error).toMatchObject({ name: 'Unavailable', status: 'opening' });
 	expect(error.message).toBe(`${PATH} cannot be edited while the repository is opening`);
 });
+
+test('a list shows a note held, failed or paused as held with why, never as sending', async () => {
+	const { alice, repo } = twoDevices(app);
+	alice.replica.write(PATH, note('one'));
+	await settled();
+	const editor = expectOk(await repo.notes.openEditor({ stem: 'plan' }));
+	alice.fail(true);
+	editor.update(note('oneX'));
+	await settled();
+	await settled();
+	expect(editor.state().status).toBe('failed');
+	expect(repo.notes.get({ stem: 'plan' })?.state).toEqual({ status: 'held', reason: 'The save was not stored: disk I/O error' });
+	alice.fail(false);
+	editor.retry();
+	await settled();
+	await settled();
+	// Text whose frontmatter does not parse is held by the replica; typing more keeps it held, not sending.
+	editor.update('---\ntitle: [Broken\n---\none');
+	await settled();
+	await settled();
+	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('held');
+	editor.update('---\ntitle: [Broken\n---\none more');
+	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('held');
+});
