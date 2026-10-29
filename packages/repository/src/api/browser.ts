@@ -50,32 +50,40 @@ export { BrowserReplicaError, type Manifest } from '../hosts/browser/index.js';
 /** This browser's repositories, from their manifests: which repository each is, its name here, the account and the server (null: kept only here). */
 export const listBrowserRepositories = (): Promise<Manifest[]> => listReplicas();
 
+/** How long a removal waits for the replica to open in this tab before it gives up, having changed nothing. */
+const REMOVE_WAIT = 10_000;
+
 /**
  * Delete the replica `replica` from this browser: its database and its
  * objects. Refused while any of its files has not reached a server (for a
  * repository kept only here, that is every file), unless `discardUnsent`;
- * refused while another tab has it open.
+ * refused while another tab has it open (this tab takes it only if no tab
+ * holds it), or when it does not open here within `REMOVE_WAIT`. The tab it
+ * opens is closed however the removal ends.
  */
 export async function removeBrowserRepository({ replica, discardUnsent = false, ...options }: { replica: string; discardUnsent?: boolean } & Options): Promise<Result<undefined, BrowserReplicaError>> {
 	const tab = openBrowserReplica({ replica, ...options });
-	const settled = await new Promise<Exclude<ReplicaTabState, { status: 'opening' | 'waiting' }>>((resolve) => {
-		const stop = tab.subscribe((state) => {
-			if (state.status === 'opening' || state.status === 'waiting') return;
-			queueMicrotask(() => stop());
-			resolve(state);
+	let stop = () => {};
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		const settled = await new Promise<Exclude<ReplicaTabState, { status: 'opening' | 'waiting' }> | null>((resolve) => {
+			timer = setTimeout(() => resolve(null), REMOVE_WAIT);
+			stop = tab.subscribe((state) => {
+				if (state.status !== 'opening' && state.status !== 'waiting') resolve(state);
+			});
 		});
-	});
-	switch (settled.status) {
-		case 'open': {
-			const removed = await settled.replica.remove({ discardUnsent });
-			if (removed.error !== null) tab.close();
-			return removed;
+		if (settled === null) return BrowserReplicaError.Unavailable({ reason: 'it did not open in time' });
+		switch (settled.status) {
+			case 'open':
+				return await settled.replica.remove({ discardUnsent });
+			case 'unavailable':
+				return { data: null, error: settled.error };
+			default:
+				return BrowserReplicaError.Unavailable({ reason: 'it is open in another tab' });
 		}
-		case 'unavailable':
-			tab.close();
-			return { data: null, error: settled.error };
-		default:
-			tab.close();
-			return BrowserReplicaError.Unavailable({ reason: 'it is open in another tab' });
+	} finally {
+		clearTimeout(timer);
+		stop();
+		tab.close();
 	}
 }
