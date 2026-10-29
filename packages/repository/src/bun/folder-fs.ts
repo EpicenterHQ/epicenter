@@ -14,10 +14,18 @@
  * `watch` is Bun's `fs.watch(root, { recursive: true })`: a name is a hint;
  * a null name or an error means the scope is unknown (`null`), and the
  * watch is opened again; one that cannot be opened again fails for good.
+ * On macOS Bun watches through FSEvents and does not surface its drop
+ * flags (MustScanSubDirs, UserDropped, KernelDropped); a dropped batch
+ * arrives as one `change` naming the root's own basename (observed,
+ * `scripts/folder-watch-facts.ts`, and Bun 1.4.3's `fs_events.rs`), so that
+ * name is read as scope unknown too. Linux's inotify overflow arrives as a
+ * null name. Drops with no signal at all were observed once on macOS, so
+ * the engine's periodic scan is what finds those. The root must be a real
+ * path (`/tmp` is `/private/tmp`), or FSEvents' names match no prefix.
  */
 import { watch as watchFs } from 'node:fs';
 import { constants, copyFile, link, lstat, mkdir, open, opendir, readdir, rename, rm, unlink } from 'node:fs/promises';
-import { dirname, join, relative, sep } from 'node:path';
+import { basename, dirname, join, relative, sep } from 'node:path';
 import { Ok } from 'wellcrafted/result';
 import { type Entry, type FolderFs, FolderFsError, SCRATCH } from '../folder/fs.js';
 
@@ -179,6 +187,8 @@ export function createBunFolderFs(root: string): FolderFs {
 					watcher = watchFs(root, { recursive: true }, (_event, filename) => {
 						if (filename === null || filename === undefined) return listener(null);
 						const name = typeof filename === 'string' ? filename : new TextDecoder().decode(filename);
+						// FSEvents dropped events: Bun reports the watched root by its own name.
+						if (name === basename(root)) return listener(null);
 						listener([toPosix(name.startsWith('/') ? relative(root, name) : name)]);
 					});
 					watcher.on('error', () => {
