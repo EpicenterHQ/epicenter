@@ -14,8 +14,13 @@
  *   Where typing and the worker's change touch the same characters,
  *   autosave pauses with both kept (`paused`: the draft is yours, `theirs`
  *   is the worker's), until `resolve`.
- * - A clean editor follows changes from elsewhere; a dirty one keeps its
- *   draft and lets its next write merge them, in revision order.
+ * - A clean editor follows changes from elsewhere in place, in revision
+ *   order. A dirty one keeps its draft and lets its next write merge them:
+ *   typing the worker has not seen is carried by position only onto a text
+ *   the worker made of it, since positions alone would blend the letters
+ *   two people typed at one point. The worker merges it once, and where its
+ *   base had a conflict block the write continues that block (one clash is
+ *   one block, `core/merge`).
  * - A failed write keeps the draft and its base (`failed`, with `retry`);
  *   nothing the repository rolls back reaches the draft. A write lost with
  *   its session goes again when the next session opens.
@@ -203,18 +208,9 @@ export function createEditors(deps: Deps) {
 				tell(null);
 				return settleClosing();
 			}
-			const merged = content(text);
 			seen = Math.max(seen, result.data.revision);
-			if (merged !== sent) {
-				const carried = rebase(sent, draft, merged);
-				base = merged;
-				if (carried === null) setState({ status: 'paused', theirs: merged });
-				else {
-					draft = carried.text;
-					tell(carried.changes);
-				}
-			} else base = merged;
-			for (const { revision, text: heardText } of later) heard(revision, heardText);
+			carry(sent, content(text));
+			for (const { revision, text: heardText } of later) take(revision, heardText);
 			deps.refresh(path);
 			if (state.status === 'paused') {
 				tell(null);
@@ -226,21 +222,57 @@ export function createEditors(deps: Deps) {
 			settleClosing();
 		}
 
-		/** A change from elsewhere: a clean editor follows it; a dirty one lets its next write merge it. */
+		/**
+		 * The worker confirmed `next`, made of `over` (what was sent, or the
+		 * base): the typing over `over` is carried onto it by position, and
+		 * `next` becomes the base. So every write goes over a text the worker
+		 * holds, and the worker never merges this typing against a conflict
+		 * block. Where the typing touches what changed, autosave pauses with
+		 * both kept.
+		 */
+		function carry(over: string, next: string) {
+			if (next === over) {
+				base = next;
+				return;
+			}
+			const carried = rebase(over, draft, next);
+			base = next;
+			if (carried === null) {
+				setState({ status: 'paused', theirs: next });
+				return;
+			}
+			if (state.status === 'paused') setState({ status: 'paused', theirs: next });
+			if (carried.text === draft) return;
+			draft = carried.text;
+			tell(carried.changes);
+		}
+
+		/**
+		 * Take a change from elsewhere, in revision order. A clean editor is
+		 * carried onto it in place. Typing the worker has not seen is never
+		 * carried onto a change the worker did not make of it, since positions
+		 * alone would blend letters two people typed at one point: that typing
+		 * goes to the worker over the base it was typed on, the worker merges
+		 * the two once (one clash, one block), and the answer brings both.
+		 */
+		function take(revision: number, text: string | null) {
+			if (revision <= seen) return;
+			seen = revision;
+			// A delete is no text to carry onto: the draft and its base stay, and a write over that base brings the note back.
+			if (text === null || draft !== base) return;
+			carry(base, content(text));
+		}
+
+		/** A change from elsewhere, taken after the answer to a write in flight. */
 		function heard(revision: number, text: string | null) {
 			if (ended || revision <= seen) return;
 			if (flight !== null) {
 				heardInFlight.push({ revision, text });
 				return;
 			}
-			seen = revision;
-			if (text === null || draft !== base || state.status === 'paused' || state.status === 'failed' || state.status === 'closed') return;
-			const next = content(text);
-			if (next === draft) return;
-			const replaced = diffText(draft, next);
-			base = draft = next;
-			deps.refresh(path);
-			tell(replaced);
+			const before = draft;
+			take(revision, text);
+			if (draft !== before) deps.refresh(path);
 		}
 
 		const entry: Entry = {
@@ -298,21 +330,12 @@ export function createEditors(deps: Deps) {
 			reopened(text) {
 				if (ended) return;
 				if (state.status === 'failed' && lostWithSession(state.error)) setState({ status: 'saving' });
-				if (draft === base && state.status === 'saved') {
-					seen = deps.revision();
-					if (text !== null) {
-						const next = content(text);
-						if (next !== draft) {
-							const replaced = diffText(draft, next);
-							base = draft = next;
-							deps.refresh(path);
-							tell(replaced);
-						}
-					}
-					return settleClosing();
-				}
+				// The last write's outcome may be unknown, so a dirty editor saves over its base and the worker merges it once.
 				seen = deps.revision();
-				schedule();
+				if (draft !== base || state.status !== 'saved') return schedule();
+				if (text !== null) carry(base, content(text));
+				deps.refresh(path);
+				settleClosing();
 			},
 			lost() {
 				if (!ended) settleClosing();

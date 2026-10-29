@@ -8,6 +8,7 @@
  *
  * Key behaviors:
  * - K1 against a remote same-line edit, then K2, K3 and a field patch while K1 is in flight: one conflict block, every keystroke, the fields kept
+ * - A remote same-line edit landing between two of the person's writes: still one conflict block, holding every keystroke
  * - Typing on another line than a remote edit merges clean; a clean editor follows remote changes, and one heard during a write is taken after its answer
  * - Typing that touches what the worker changed pauses autosave with both kept, until resolved
  * - A refused write, a worker lost mid-write, a close that cannot save and a repository closed (an account change) all keep the draft
@@ -83,6 +84,30 @@ const remote = (world: Awaited<ReturnType<typeof opened>>, body: string) => {
 	world.bob.sync();
 	world.alice.catchUp();
 };
+
+test("a remote same-line edit landing between two of the person's writes is one conflict block, holding all the typing", async () => {
+	const world = await opened('one\n');
+	world.type('oneA\n');
+	await settled();
+	await settled();
+	// K2 is stored in the worker, its answer held, when Bob's edit of the same line arrives.
+	world.gate.hold();
+	world.type('oneAB\n');
+	await settled();
+	remote(world, 'oneR\n');
+	await settled();
+	// Alice keeps typing at the end of her line, in what she sees.
+	world.type(world.shown().replace('oneAB\n', 'oneABC\n'));
+	world.gate.release();
+	await settled();
+	await settled();
+	await settled();
+	const text = world.alice.replica.read(PATH) ?? '';
+	expect(findConflicts(text)).toMatchObject([{ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' }]);
+	expect(world.editor.draft()).toBe(bodyOf(text));
+	expect(world.shown()).toBe(bodyOf(text));
+	expect(world.editor.state()).toEqual({ status: 'saved' });
+});
 
 test('typing on another line than a remote edit merges clean, with every keystroke', async () => {
 	const world = await opened('alpha\nbeta\n');
