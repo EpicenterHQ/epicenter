@@ -25,7 +25,7 @@
  * Key behaviors:
  * - An acknowledged token is in a server text after every step, and at quiescence every owed token is
  * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged
- * - A person's removal (a delete, or a rename's old path) stays removed, or the person is told why not
+ * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, or stays held on their device until they resolve it
  * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
@@ -36,6 +36,7 @@
 import { expect, test } from 'bun:test';
 import { parses, splitMarkdown, writeMarkdown } from '../markdown.js';
 import { type Device, createWorld } from './harness.js';
+import { escapeLines } from './door.js';
 import { createRandom } from './net.js';
 import { type Committed, commitId, type LiveCommit, type PushAnswer } from './server.js';
 
@@ -49,6 +50,8 @@ const TEMPLATE = '---\ntitle: New\n---\n';
 const TOKEN = /t\d+z/g;
 /** Filler that makes a note larger than the 1 MB a note may be. */
 const FILLER = `big ${'x'.repeat(1_100_000)}`;
+/** `hasFiller(text)` is pathologically slow in JavaScriptCore on a long text of x's, so look for it this way. */
+const hasFiller = (text: string) => /x{1000}/.test(text);
 /** Pushes a member makes in one burst; the server's admission limit must hold a flood below the bound. */
 const FLOOD = 60;
 const FLOOD_BOUND = 30;
@@ -62,7 +65,7 @@ const counts = (texts: (string | null)[]) => {
 
 /** Make a text parse and fit without losing a token: close the quotes this test opens, drop the filler, then move frontmatter lines that still fail into the body. */
 function repair(text: string) {
-	let fixed = text.replaceAll(': "open\n', ': "shut"\n').replaceAll(FILLER, 'big');
+	let fixed = text.replaceAll(': "open\n', ': "shut"\n').replace(/x{1000,}/g, '');
 	for (let guard = 0; !parses(fixed) && guard < 200; guard++) {
 		const { yaml, bodyStart } = splitMarkdown(fixed);
 		if (yaml === null) break;
@@ -111,6 +114,8 @@ function run(seed: number) {
 				violations.push(`server: ${file.path} does not parse after a commit by ${committed.author.user}`);
 			if (file.after !== null && file.after.length > 1024 * 1024) violations.push(`server: ${file.path} is ${file.after.length} bytes`);
 			if (committed.author.user === 'agent') for (const t of tokensIn(file.after)) if (!tokensIn(file.before).has(t)) owed.set(t, 'agent');
+			// A removal is done once its path is absent on the server after it, whoever's commit did it.
+			if (file.after === null) for (const r of removals) if (r.path === file.path && !r.cancelled) r.landed = true;
 			if (file.after === null) state.delete(file.path);
 			else state.set(file.path, file.after);
 		}
@@ -125,13 +130,9 @@ function run(seed: number) {
 		const commit = request.commit;
 		honestIds.push(commit.id);
 		for (const file of commit.files) for (const t of tokensIn(file.text)) acknowledged.add(t);
-		const main = new Map(answer.files.map((f) => [f.path, f.text]));
-		for (const file of commit.files)
-			if (file.text === null && main.get(file.path) === null)
-				for (const r of removals) if (r.device === device && r.path === file.path && !r.cancelled) r.landed = true;
 		// No silent merge across a delete, judged by the test's own history.
 		const merge = lastMerge as Committed | null;
-		if (answer.kind !== 'merged' || merge === null || merge.id !== answer.main) return;
+		if (answer.kind !== 'merged' || merge === null || merge.parents[1] !== commit.id) return;
 		const from = chain.indexOf(commit.parent);
 		const before = chain.indexOf(merge.parents[0] ?? '');
 		for (const file of commit.files) {
@@ -140,15 +141,17 @@ function run(seed: number) {
 			const ours = states.get(chain[before] ?? '')?.get(file.path) ?? null;
 			let deleted = false;
 			for (let i = from + 1; i <= before; i++) if (!states.get(chain[i] ?? '')?.has(file.path)) deleted = true;
-			const other = ours !== null && (then === null || deleted);
+			// Two creates of the same text (two notes from the template) are one text: nothing to keep apart.
+			const other = ours !== null && ours !== file.text && (then === null || deleted);
 			const after = states.get(merge.id)?.get(file.path) ?? '';
-			if (other && !(after.includes('<<<<<<< ') && after.includes(file.text.trimEnd())))
+			// Inside a block, delimiter-like lines of the incoming note are escaped.
+			if (other && !(after.includes('<<<<<<< ') && after.includes(escapeLines(file.text.trimEnd()))))
 				violations.push(`server: ${device}'s edit of ${file.path} merged silently into another note (${then === null ? 'two creates' : 'deleted since its parent'})`);
 		}
 	});
 
 	/** A person saves texts. `seen` is what their editor showed (default: what the device shows now). */
-	const save = (d: Device, changes: Record<string, string | null>, typed: string[], seen?: Record<string, string | null>) => {
+	const save = (d: Device, changes: Record<string, string | null>, typed: string[], seen?: Record<string, string | null>, { editor = seen !== undefined } = {}) => {
 		const paths = Object.keys(changes);
 		const showed = (path: string) => (seen === undefined ? d.replica.read(path) : (seen[path] ?? null));
 		const before = counts(paths.map(showed));
@@ -157,9 +160,12 @@ function run(seed: number) {
 		for (const t of typed) if (written.has(t)) owed.set(t, d.name);
 		for (const [path, text] of Object.entries(changes)) {
 			for (const r of removals) if (r.device === d.name && r.path === path && text !== null) r.cancelled = true;
-			if (text === null && showed(path) !== null) removals.push({ device: d.name, path, landed: false, cancelled: false, step: log.at(-1) ?? '' });
+			// A removal claims a note the device had from the server, not one it created and never sent.
+			const known = d.replica.files().get(path)?.base ?? null;
+			if (text === null && showed(path) !== null && known !== null)
+				removals.push({ device: d.name, path, landed: world.server.read(path) === null, cancelled: false, step: log.at(-1) ?? '' });
 		}
-		d.replica.write(changes, seen === undefined ? {} : ({ over: seen } as object));
+		d.replica.writeAll(changes, editor && seen !== undefined ? { over: seen } : {});
 	};
 
 	const serverText = () => [...world.server.snapshot().values()].join('\n');
@@ -181,9 +187,9 @@ function run(seed: number) {
 	const hostile = (member: string, files: LiveCommit['files'], { author = member, parent = world.server.main(), id }: { author?: string; parent?: string; id?: string } = {}) => {
 		const body = { parent, mode: 'merge' as const, author: { user: author, device: 'x' }, time: 't', files };
 		const commit = { id: id ?? commitId(body), ...body };
-		return (world.server.push as (commit: LiveCommit, session: { member: string }) => PushAnswer)(commit, { member });
+		return world.server.push(commit, { member });
 	};
-	const accepted = (answer: PushAnswer) => answer.kind === 'applied' || answer.kind === 'merged' || answer.kind === 'flushed';
+	const accepted = (answer: PushAnswer) => answer.kind === 'applied' || answer.kind === 'merged';
 	const hostileSteps: (() => string)[] = [
 		() => {
 			if (accepted(hostile('mallory', [{ path: random.pick(PATHS), text: '---\ntitle: forged\n---\nforged\n' }], { author: 'alice' })))
@@ -203,9 +209,10 @@ function run(seed: number) {
 			return 'mallory pushes a note that does not parse';
 		},
 		() => {
-			hostile('mallory', [
-				{ path: random.pick(PATHS), text: '---\ntitle: forged\n---\n<<<<<<< main (alice/laptop)\nI approve\n||||||| base\n=======\nI do not\n>>>>>>> bob/phone\n' },
-			]);
+			// Appended to what is there, so it removes nothing a person typed.
+			const path = random.pick(PATHS);
+			const text = world.server.read(path) ?? '---\ntitle: forged\n---\n';
+			hostile('mallory', [{ path, text: `${text}${text.endsWith('\n') ? '' : '\n'}<<<<<<< main (alice/laptop)\nI approve\n||||||| base\n=======\nI do not\n>>>>>>> bob/phone\n` }]);
 			return 'mallory writes forged conflict labels';
 		},
 		() => {
@@ -295,7 +302,7 @@ function run(seed: number) {
 			(d) => {
 				const path = random.pick(PATHS);
 				const text = d.replica.read(path);
-				if (text === null || text.includes(FILLER)) return null;
+				if (text === null || hasFiller(text)) return null;
 				const t = token();
 				save(d, { [path]: `${text}${text.endsWith('\n') ? '' : '\n'}${t} ${FILLER}\n` }, [t]);
 				return `${d.name} pastes more than 1 MB into ${path} (${t})`;
@@ -307,7 +314,7 @@ function run(seed: number) {
 			(d) => {
 				const path = random.pick(PATHS);
 				const text = d.replica.read(path);
-				if (text === null || (parses(text) && !text.includes(FILLER))) return null;
+				if (text === null || (parses(text) && !hasFiller(text))) return null;
 				save(d, { [path]: repair(text) }, []);
 				return `${d.name} repairs ${path}`;
 			},
@@ -396,7 +403,7 @@ function run(seed: number) {
 		if (text === null) return null;
 		const t = token();
 		const commitMode = random.chance(0.3) ? 'merge' : 'fast-forward';
-		agent.replica.write({ [path]: `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n` }, { commitMode });
+		agent.replica.write(path, `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`, { commitMode });
 		return `agent appends ${t} to ${path} (${commitMode})`;
 	};
 
@@ -425,16 +432,30 @@ function run(seed: number) {
 	for (let round = 0; round < 6; round++) {
 		if (!world.settle()) throw new Error(`seed ${seed}: never went idle\n${log.join('\n')}`);
 		let saved = false;
-		for (const d of people)
-			for (const path of d.replica.paths()) {
+		for (const d of people) {
+			const held = new Map(d.replica.held().map((h) => [h.path, h.reason]));
+			for (const path of new Set([...d.replica.paths(), ...held.keys()])) {
 				const text = d.replica.read(path);
+				const reason = held.get(path);
+				if (reason?.startsWith('edited after you')) {
+					// A delete or removal that lost to an edit: its person deletes anyway, or keeps the edit.
+					const anyway = random.chance(0.5);
+					// "Keep" takes what the shared text will hold once this device's other work lands.
+					const base = d.replica.files().get(path)?.tip ?? null;
+					// Either choice is deliberate: "anyway" removes the edit the person is shown, "keep" lets their own held text go.
+					save(d, { [path]: anyway ? text : base }, [], { [path]: anyway ? base : text }, { editor: false });
+					log.push(`quiet: ${d.name} resolves ${path} (${reason}): ${anyway ? 'anyway' : 'keeps the edit'}`);
+					saved = true;
+					continue;
+				}
 				if (text === null) continue;
-				const fixed = parses(text) && !text.includes(FILLER) ? text : repair(text);
-				if (fixed === text && text === world.server.read(path)) continue;
+				const fixed = parses(text) && !hasFiller(text) ? text : repair(text);
+				if (fixed === text && text === world.server.read(path) && reason === undefined) continue;
 				save(d, { [path]: fixed }, []);
-				log.push(`quiet: ${d.name} saves ${path}`);
+				log.push(`quiet: ${d.name} saves ${path}${reason === undefined ? '' : ` (${reason})`}`);
 				saved = true;
 			}
+		}
 		if (!saved) break;
 	}
 	world.settle();
@@ -452,19 +473,21 @@ function run(seed: number) {
 				);
 		}
 	}
-	// A removal stays removed, or its person is told why not.
-	for (const r of removals) {
-		if (r.cancelled || r.landed || server.get(r.path) === undefined) continue;
-		const told = everyone.find((d) => d.name === r.device)?.replica.notices().some((notice) => notice.path === r.path);
-		if (!told) violations.push(`quiet: ${r.device}'s removal of ${r.path} (${r.step}) was undone silently`);
-	}
+	// A removal stays removed: people resolved what they held (anyway, or keeping the edit, which cancels it).
+	for (const r of removals)
+		if (!r.cancelled && !r.landed && server.has(r.path)) violations.push(`quiet: ${r.device}'s removal of ${r.path} (${r.step}) never took effect`);
 	check('at quiescence', true);
 	const notices: Record<string, number> = {};
-	for (const d of everyone) for (const notice of d.replica.notices()) notices[notice.kind] = (notices[notice.kind] ?? 0) + 1;
+	for (const line of log) {
+		const reason = /^quiet: \w+ (?:saves|resolves) \S+ \(([^)]+)\)/.exec(line)?.[1];
+		if (reason === undefined) continue;
+		const key = `held: ${reason.replace(/removed .*/, 'removed a field')}`;
+		notices[key] = (notices[key] ?? 0) + 1;
+	}
 	const stats: Record<string, number> = {};
 	for (const d of everyone) for (const [key, value] of Object.entries(d.replica.stats())) stats[key] = (stats[key] ?? 0) + value;
 	const conflicts = [...server.values()].filter((text) => text?.includes('<<<<<<< ')).length;
-	return { requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.refusals().length };
+	return { requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.stats().refused };
 }
 
 const totals: Record<string, number> = {};

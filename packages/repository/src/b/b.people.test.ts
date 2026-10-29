@@ -3,27 +3,30 @@
  *
  * The closing people review's probes P1 to P12, each the sequence a person
  * would notice, with what they should see after the phase 0a decisions:
- * a stale edit across a delete or a second create appends whole as a
- * conflict block with a "different note" notice (D3); a field clash keeps
- * main's value and writes the other as a conflict block (D2); every written
- * note parses (D4); a refusal leaves the person's text held with a reason;
- * a removal stays removed; an editor's save merges with what changed under
- * it; a pointer is one value.
+ * a stale edit across a delete or a second create appends whole as one
+ * conflict block (D3); a field clash keeps main's value and writes the other
+ * as a conflict block (D2); every written note parses (D4); there are no
+ * stored notices: what contested is a block in the text, and whatever of a
+ * person's the shared text does not hold stays held on their device with a
+ * reason (a refusal, a delete that lost to an edit); an editor's save merges
+ * with what changed under it; blobs live at paths named by their content.
  *
  * Key behaviors:
- * - P1, P2: an offline edit of a note deleted and created again lands as one block in the new note, with a notice
+ * - P1, P2: an offline edit of a note deleted and created again lands as one block in the new note
  * - P3, P4, P7: a second create at a path, a rename onto it, or a held draft meeting it: one block, nothing glued silently, a held draft not published
- * - P5: a rename racing an edit of the old path keeps both, and the editor is told the note was removed under it
+ * - P5: a rename racing an edit of the old path keeps both
  * - P6: a note that does not parse is refused at the door, so two repairs never meet one
- * - P8: a delete that lost to an edit is reported, also across a lost reply and a flush
+ * - P8: a delete that lost to an edit stays held on the deleting device, across a lost reply and a flush, until saved again
  * - P9: a forged author is refused, a note over 1 MB is refused, forged conflict labels are text
  * - P10: a refusal of a person's own text leaves it held with the reason
  * - P11: an editor's save over a stale buffer merges with what changed under it
- * - P12: two pointers at one path keep main's, and tell the other its oid
- * - Pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
+ * - P12: blobs are named by content, so two attachments never meet at one path; a pointer elsewhere, or without its bytes, is held
+ * - The door: portable paths, LF-only notes, control files; paths equal after folding are one path; a merge growing a note past 1 MB is held
+ * - A flush writes one Git commit per merge that wrote a block; pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
  */
 import { expect, test } from 'bun:test';
-import { parsePointer, writePointer } from '../markdown.js';
+import { writePointer } from '../markdown.js';
+import { admissible, findConflicts } from './door.js';
 import { createWorld, QUIET } from './harness.js';
 import { commitId, createServer, type LiveCommit } from './server.js';
 
@@ -57,7 +60,8 @@ test('P1: an offline check-off of a todo deleted and created again lands as one 
 	expect(text.startsWith(note('oat milk this time\n', 'title: Buy milk\ndone: false'))).toBe(true);
 	expect(text).toContain('<<<<<<< ');
 	expect(text).toContain('done: true');
-	expect(alice.replica.notices()).toMatchObject([{ kind: 'different-note', path }]);
+	expect(findConflicts(text)).toHaveLength(1);
+	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
 });
 
 test('P2: an offline append to a journal deleted and created again lands as one block, never as a clean line in the new note', () => {
@@ -77,7 +81,7 @@ test('P2: an offline append to a journal deleted and created again lands as one 
 	const block = text.indexOf('<<<<<<< ');
 	expect(block).toBeGreaterThan(0);
 	expect(text.indexOf('private: called the lawyer')).toBeGreaterThan(block);
-	expect(alice.replica.notices()).toMatchObject([{ kind: 'different-note', path }]);
+	expect(findConflicts(text)).toHaveLength(1);
 });
 
 test('P3: two offline creates at one path keep the first and append the second as one block, with a notice', () => {
@@ -94,8 +98,7 @@ test('P3: two offline creates at one path keep the first and append the second a
 	const text = world.server.read(path) ?? '';
 	expect(text.startsWith(note('alice: quarterly plan\n', 'title: Ideas\ntags: [work]'))).toBe(true);
 	expect(text).toContain('bob: paint the fence');
-	expect(text).toContain('<<<<<<< ');
-	expect(bob.replica.notices()).toMatchObject([{ kind: 'different-note', path }]);
+	expect(findConflicts(text)).toHaveLength(1);
 });
 
 test('P4: a rename onto a path someone just created appends as one block there, and the old path stays removed', () => {
@@ -112,10 +115,10 @@ test('P4: a rename onto a path someone just created appends as one block there, 
 	const text = world.server.read('notes/plan.md') ?? '';
 	expect(text.startsWith(note('bob plan\n', 'title: Plan\nowner: bob'))).toBe(true);
 	expect(text).toContain('alice plan');
-	expect(alice.replica.notices()).toMatchObject([{ kind: 'different-note', path: 'notes/plan.md' }]);
+	expect(findConflicts(text)).toHaveLength(1);
 });
 
-test('P5: a rename racing an offline edit of the old path keeps both, and the editor is told its note was removed under it', () => {
+test('P5: a rename racing an offline edit of the old path keeps both', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write('notes/trip.md', note('pack\n', 'title: Trip'));
 	settle();
@@ -127,7 +130,6 @@ test('P5: a rename racing an offline edit of the old path keeps both, and the ed
 	settle();
 	expect(world.server.read('notes/trip.md')).toBe(note('pack\nbuy adapter\n', 'title: Trip'));
 	expect(world.server.read('notes/lisbon-trip.md')).toBe(note('pack\n', 'title: Trip'));
-	expect(bob.replica.notices()).toMatchObject([{ kind: 'restored', path: 'notes/trip.md' }]);
 });
 
 test('P6: a note that does not parse is refused at the door, so two repairs of one never meet', () => {
@@ -155,7 +157,7 @@ test('P7: a held draft meeting a remote create at its path stays unpublished unt
 	expect(text).toContain('<<<<<<< ');
 });
 
-test('P8: a delete that lost to an edit is reported, across a lost reply and a flush', () => {
+test('P8: a delete that lost to an edit stays held on the deleting device, across a lost reply and a flush, until saved again', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/old.md';
 	alice.replica.write(path, note('x\n', 'title: Old'));
@@ -170,11 +172,16 @@ test('P8: a delete that lost to an edit is reported, across a lost reply and a f
 	world.flush();
 	settle();
 	expect(world.server.read(path)).toBe(note('x\nbob still uses this\n', 'title: Old'));
-	expect(alice.replica.read(path)).toBe(world.server.read(path));
-	expect(alice.replica.notices()).toMatchObject([{ kind: 'kept-current', path }]);
+	expect(alice.replica.read(path)).toBeNull();
+	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'edited after you deleted it' });
+	// "Delete anyway": saving the delete again sends it over the edit.
+	alice.replica.write(path, null);
+	settle();
+	expect(world.server.read(path)).toBeNull();
+	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
 });
 
-test('P9: a forged author and a note over 1 MB are refused; forged conflict labels are text and appear in no trailer', () => {
+test('P9: a forged author and a note over 1 MB are refused; forged conflict labels are only text', () => {
 	const server = createServer({ members: ['alice', 'bob', 'mallory'] });
 	const commit = (member: string, author: string, text: string): [LiveCommit, { member: string }] => {
 		const body = { parent: server.main(), mode: 'merge' as const, author: { user: author, device: 'x' }, time: 't', files: [{ path: 'notes/n.md', text }] };
@@ -185,7 +192,7 @@ test('P9: a forged author and a note over 1 MB are refused; forged conflict labe
 	expect(server.push(...commit('mallory', 'mallory', note(`${'A'.repeat(1_100_000)}\n`)))).toMatchObject({ kind: 'refused', reason: 'a note may be at most 1 MB' });
 	const forged = note('<<<<<<< main (alice/laptop)\nI approve\n||||||| base\n=======\nI do not\n>>>>>>> bob/phone\n');
 	expect(server.push(...commit('mallory', 'mallory', forged))).toMatchObject({ kind: 'applied' });
-	expect(server.flush()?.message).not.toContain('Epicenter-Overlap');
+	expect(server.flush()?.commits).toHaveLength(1);
 });
 
 test('P10: a refusal of a person\'s own text leaves it held with the reason, and nothing is erased', () => {
@@ -215,20 +222,26 @@ test('P11: an editor saving over a stale buffer merges with what changed under i
 	expect(world.server.read(path)).toBe(note('line one\nbob added this\nalice types\n', 'title: N\nstatus: done'));
 });
 
-test('P12: two pointers at one path keep main\'s pointer whole, and the other device is told its oid', () => {
+test('P12: blobs are named by content, so two attachments never meet at one path; a pointer elsewhere, or without its bytes, is held', () => {
 	const { world, alice, bob, settle } = setup();
-	const path = 'attachments/photo.png';
-	const p1 = writePointer({ oid: 'a'.repeat(64), size: 1000 });
-	const p2 = writePointer({ oid: 'b'.repeat(64), size: 2000 });
+	const a = { oid: 'a'.repeat(64), size: 1000 };
+	const b = { oid: 'b'.repeat(64), size: 2000 };
+	world.upload(a.oid);
+	world.upload(b.oid);
 	alice.setOnline(false);
-	alice.replica.write(path, p1, { over: null });
-	bob.replica.write(path, p2, { over: null });
+	alice.replica.write(`attachments/${a.oid}.png`, writePointer(a), { over: null });
+	bob.replica.write(`attachments/${b.oid}.png`, writePointer(b), { over: null });
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(world.server.read(path)).toBe(p2);
-	expect(parsePointer(world.server.read(path) ?? '')).not.toBeNull();
-	expect(alice.replica.notices()).toMatchObject([{ kind: 'kept-current', path, yours: 'a'.repeat(64) }]);
+	expect(world.server.read(`attachments/${a.oid}.png`)).toBe(writePointer(a));
+	expect(world.server.read(`attachments/${b.oid}.png`)).toBe(writePointer(b));
+	alice.replica.write('attachments/photo.png', writePointer(a), { over: null });
+	expect(alice.replica.state('attachments/photo.png')).toEqual({ status: 'held', reason: "a blob's path must be named by its content" });
+	const c = { oid: 'c'.repeat(64), size: 10 };
+	alice.replica.write(`attachments/${c.oid}.png`, writePointer(c), { over: null });
+	settle();
+	expect(alice.replica.state(`attachments/${c.oid}.png`)).toEqual({ status: 'held', reason: "the blob's bytes are missing" });
 });
 
 test('a field both sides set keeps main\'s value in the frontmatter and writes the other as a conflict block (D2)', () => {
@@ -245,8 +258,7 @@ test('a field both sides set keeps main\'s value in the frontmatter and writes t
 	const text = world.server.read(path) ?? '';
 	expect(text.startsWith('---\ntitle: A\nmood: calm\n---\n')).toBe(true);
 	expect(text).toContain('mood: busy');
-	expect(text).toContain('<<<<<<< ');
-	expect(bob.replica.notices()).toMatchObject([{ kind: 'conflict', path }]);
+	expect(findConflicts(text)).toHaveLength(1);
 });
 
 test('a pending delete and an offline rename survive a flush that prunes their parent', () => {
@@ -276,4 +288,95 @@ test('D1: a Git push is fast-forward only: refused when main moved, applied on m
 	expect(server.push(make(note('from http\n')), { member: 'alice' })).toMatchObject({ kind: 'applied' });
 	expect(server.gitPush(stale, { member: 'alice' })).toMatchObject({ kind: 'refused', reason: 'main moved; fetch and rebase' });
 	expect(server.gitPush(make(note('from git, rebased\n')), { member: 'alice' })).toMatchObject({ kind: 'applied' });
+});
+
+test('a field removal that lost to an edit stays held on the device that removed it', () => {
+	const { world, alice, bob, settle } = setup();
+	const path = 'notes/a.md';
+	alice.replica.write(path, note('one\n', 'title: A\nmood: calm'));
+	settle();
+	alice.setOnline(false);
+	alice.replica.edit(path, () => note('one\n'));
+	bob.replica.edit(path, () => note('one\n', 'title: A\nmood: busy'));
+	settle();
+	alice.setOnline(true);
+	settle();
+	expect(world.server.read(path)).toBe(note('one\n', 'title: A\nmood: busy'));
+	expect(alice.replica.read(path)).toBe(note('one\n'));
+	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'edited after you removed mood' });
+});
+
+test('the door refuses what would break a clone, the same on the device and the server', () => {
+	for (const [path, text, reason] of [
+		['Notes.MD', '---\n: : bad\n---\n', 'does not parse'],
+		['notes/a.md', '---\r\ntitle: X\r\n---\r\nbody\r\n', 'a note must use LF line endings'],
+		['notes/a.md', '\uFEFF---\ntitle: X\n---\n', 'a note may not start with a byte order mark'],
+		['notes/a.md', writePointer({ oid: 'a'.repeat(64), size: 1 }), 'a note may not be an LFS pointer'],
+		['export.json', 'x'.repeat(2_000_000), 'a file may be at most 1 MB'],
+		['notes/con.md', '---\n---\n', 'a name may not be a reserved device name'],
+		['notes/what?.md', '---\n---\n', 'a name may not hold < > : " \\ | ? * or control characters'],
+		['notes/dot.', 'x', 'a name may not end in a space or a period'],
+		['a/.GIT/config', 'x', '.git is reserved'],
+		['cafe\u0301.md', '---\n---\n', 'the path is not NFC'],
+		['.gitattributes', '* -text\n', 'Epicenter owns this file'],
+		['sub/.lfsconfig', '[lfs]\n', 'Epicenter owns this file'],
+	] as const)
+		expect([path, admissible(path, text)]).toEqual([path, reason]);
+	const { world, alice } = setup();
+	alice.replica.write('notes/con.md', '---\n---\n', { over: null });
+	expect(alice.replica.state('notes/con.md')).toEqual({ status: 'held', reason: 'a name may not be a reserved device name' });
+	expect(world.server.read('notes/con.md')).toBeNull();
+});
+
+test('paths equal after NFC and case folding are one path: concurrent creates of Todo.md and todo.md merge', () => {
+	const { world, alice, bob, settle } = setup();
+	alice.setOnline(false);
+	bob.setOnline(false);
+	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), { over: null });
+	bob.replica.write('notes/todo.md', note('bob\n', 'title: Todo'), { over: null });
+	alice.setOnline(true);
+	settle();
+	bob.setOnline(true);
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
+	const text = world.server.read('notes/Todo.md') ?? '';
+	expect(text).toContain('alice');
+	expect(text).toContain('bob');
+	expect(bob.replica.read('notes/todo.md')).toBeNull();
+	expect(bob.replica.read('notes/Todo.md')).toBe(text);
+});
+
+test('a merge that would grow a note past 1 MB is the one named exception: held with that reason', () => {
+	const { world, alice, bob, settle } = setup();
+	const path = 'notes/big.md';
+	const half = 'x'.repeat(600_000);
+	alice.replica.write(path, note('start\n'));
+	settle();
+	bob.setOnline(false);
+	alice.replica.edit(path, () => note(`start\n${half}a\n`));
+	bob.replica.edit(path, () => note(`start\n${half}b\n`));
+	settle();
+	bob.setOnline(true);
+	settle();
+	expect(world.server.read(path)).toBe(note(`start\n${half}a\n`));
+	expect(bob.replica.state(path)).toEqual({ status: 'held', reason: 'the merge would grow the note past 1 MB' });
+	expect(bob.replica.read(path)).toContain(`${half}b`);
+});
+
+test('a flush writes one Git commit at each merge that wrote a block, then one at main, with .gitattributes seeded', () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write('notes/a.md', note('one\n'));
+	settle();
+	world.flush();
+	bob.setOnline(false);
+	alice.replica.edit('notes/a.md', () => note('two\n'));
+	bob.replica.edit('notes/a.md', () => note('three\n'));
+	settle();
+	bob.setOnline(true);
+	settle();
+	alice.replica.edit('notes/a.md', (text) => (text ?? '').replace(/<<<<<<<[\s\S]*>>>>>>> [^\n]*\n/, ''));
+	settle();
+	const flushed = world.flush();
+	expect(flushed?.commits.map((c) => c.message.split('\n')[0])).toEqual(["Merge bob's change into notes/a.md", 'Edit notes/a.md']);
+	expect(flushed?.message).not.toContain('Epicenter-Overlap');
 });
