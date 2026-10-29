@@ -16,7 +16,7 @@ import { mkdir } from 'node:fs/promises';
 import type { Server as BunServer } from 'bun';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { type Alarm, openServer, type Server } from '../server/server.js';
+import { type Alarm, type Limits, openServer, type Server } from '../server/server.js';
 import type { LfsStore } from '../server/lfs-store.js';
 import { createMemoryLfsStore } from '../server/memory-lfs-store.js';
 import { type Authenticate, createWire, SESSION_EXPIRED, type Verified, type WireLimits, WIRE_LIMITS } from '../wire/wire.js';
@@ -165,7 +165,7 @@ export const timeoutAlarm = (due: () => void): Alarm => {
  * live history is SQLite in `dir/epicenter/live.sqlite`. Flushes run on the
  * server's schedule with the process's timers.
  */
-export async function openDiskRepository(dir: string, { log = createLogger('repository/serve') }: { log?: Logger } = {}) {
+export async function openDiskRepository(dir: string, { log = createLogger('repository/serve'), limits }: { log?: Logger; limits?: Partial<Limits> } = {}) {
 	const git = await openBunGitStore(dir);
 	await mkdir(join(dir, 'epicenter'), { recursive: true });
 	return openServer({
@@ -173,6 +173,7 @@ export async function openDiskRepository(dir: string, { log = createLogger('repo
 		git,
 		alarm: timeoutAlarm,
 		log,
+		...(limits === undefined ? {} : { limits }),
 	});
 }
 
