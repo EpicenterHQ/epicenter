@@ -11,7 +11,7 @@
  * reason, which the header counts.
  */
 import { ancestors } from '@epicenter/folder/file-browser';
-import type { FileStatus, WriteError } from '@epicenter/repository/api';
+import type { FileStatus, WriteError } from '@epicenter/repository';
 import { toast } from '@epicenter/ui/sonner';
 import { SvelteSet } from 'svelte/reactivity';
 import { Err, Ok, type Result } from 'wellcrafted/result';

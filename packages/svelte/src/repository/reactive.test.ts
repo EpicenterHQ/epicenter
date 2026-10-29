@@ -11,7 +11,7 @@
  */
 import '../svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { bodyOf, defineApp, openLocalRepository, withBody } from '@epicenter/repository/api';
+import { bodyOf, defineApp, openLocalRepository, withBody } from '@epicenter/repository';
 import { openBunSqlite } from '@epicenter/repository/bun';
 import { openReplica } from '@epicenter/repository/client';
 import { Type } from 'typebox';

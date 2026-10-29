@@ -5,7 +5,7 @@
 	the view.
 -->
 <script lang="ts">
-	import type { Editor } from '@epicenter/repository/api';
+	import type { Editor } from '@epicenter/repository';
 	import { onMount, untrack } from 'svelte';
 	import { createNoteEditor, type NoteEditor } from './note-editor.js';
 

@@ -4,28 +4,19 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./server": "./src/server/index.ts",
-		"./wire": "./src/wire/index.ts",
-		"./client": "./src/client/index.ts",
-		"./api": "./src/api/index.ts",
-		"./api/browser": "./src/api/browser.ts",
-		"./legacy-server": "./src/legacy-server/index.ts",
-		"./merge": "./src/core/merge.ts",
-		"./conflict": "./src/core/conflict.ts",
+		".": "./src/api/index.ts",
+		"./browser": "./src/api/browser.ts",
 		"./bun": "./src/bun/index.ts",
-		"./browser": "./src/browser/index.ts",
-		"./hosts/browser": "./src/hosts/browser/index.ts",
-		"./legacy-ws": "./src/legacy-ws/index.ts",
-		"./legacy-ws/server": "./src/legacy-ws/server.ts",
-		"./svelte": "./src/svelte/index.ts"
+		"./client": "./src/client/index.ts",
+		"./conflict": "./src/core/conflict.ts",
+		"./server": "./src/server/index.ts",
+		"./wire": "./src/wire/index.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test --path-ignore-patterns='browser-tests/**'",
 		"test:browser": "bun test browser-tests/",
-		"serve": "bun scripts/serve.ts",
-		"serve:legacy": "bun scripts/serve-legacy.ts"
+		"serve": "bun scripts/serve.ts"
 	},
 	"dependencies": {
 		"@noble/hashes": "^2.4.0",
@@ -33,12 +24,6 @@
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
 		"yaml": "catalog:"
-	},
-	"peerDependencies": {
-		"svelte": "catalog:"
-	},
-	"peerDependenciesMeta": {
-		"svelte": { "optional": true }
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

@@ -1,5 +1,5 @@
 /**
- * Svelte 5 reactivity over the repository API (`@epicenter/repository/api`).
+ * Svelte 5 reactivity over the repository API (`@epicenter/repository`).
  * `reactive(repo)` is the repository with the same methods, its reads
  * tracked: a collection's `all()` and `get()` re-run when that collection's
  * notes change, `status()` when the status does, and `revision()` after any
@@ -16,7 +16,7 @@
  * `tracked(editor)` is an editor's draft and state as reactive getters; a
  * CodeMirror view binds to the editor itself (`./codemirror.ts`).
  */
-import type { Definitions, Editor, Repository, RepositoryChange } from '@epicenter/repository/api';
+import type { Definitions, Editor, Repository, RepositoryChange } from '@epicenter/repository';
 import { createSubscriber } from 'svelte/reactivity';
 
 const isCollection = (value: unknown): value is Record<string, (...args: never[]) => unknown> => typeof value === 'object' && value !== null && 'create' in value;

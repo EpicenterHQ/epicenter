@@ -18,7 +18,7 @@ import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { undo } from '@codemirror/commands';
 import { EditorSelection } from '@codemirror/state';
-import { bodyOf } from '@epicenter/repository/api';
+import { bodyOf } from '@epicenter/repository';
 import { expectOk } from 'wellcrafted/testing';
 import { noteText, openDevice, until } from '../repository.test-support.js';
 import { conflictsIn, resolveConflict } from './conflicts.js';

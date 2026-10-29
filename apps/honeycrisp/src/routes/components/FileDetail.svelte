@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
 	import { basename } from '@epicenter/folder/file-browser';
-	import type { Editor } from '@epicenter/repository/api';
+	import type { Editor } from '@epicenter/repository';
 	import SourceEditor from '@epicenter/svelte/repository/source-editor';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';

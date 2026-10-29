@@ -6,7 +6,7 @@
 	shows.
 -->
 <script lang="ts">
-	import type { Editor } from '@epicenter/repository/api';
+	import type { Editor } from '@epicenter/repository';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';

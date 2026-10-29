@@ -23,14 +23,14 @@
 	```
 -->
 <script lang="ts" generics="TDefs extends Definitions">
-	import type { App, Definitions, Repository, Unsaved } from '@epicenter/repository/api';
+	import type { App, Definitions, Repository, Unsaved } from '@epicenter/repository';
 	import {
 		createBrowserRepository,
 		listBrowserRepositories,
 		type Manifest,
 		openBrowserRepository,
 		removeBrowserRepository,
-	} from '@epicenter/repository/api/browser';
+	} from '@epicenter/repository/browser';
 	import { Button } from '@epicenter/ui/button';
 	import { Input } from '@epicenter/ui/input';
 	import { Loading } from '@epicenter/ui/loading';

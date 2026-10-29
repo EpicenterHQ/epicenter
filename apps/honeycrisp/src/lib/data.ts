@@ -8,7 +8,7 @@
  * exact text and its issues, and a write changes only the keys and the body
  * it names, so a key Honeycrisp does not name survives every save.
  */
-import { defineApp, type Note, type ValidNote } from '@epicenter/repository/api';
+import { defineApp, type Note, type ValidNote } from '@epicenter/repository';
 import { type Static, Type } from 'typebox';
 
 const nullable = <T extends ReturnType<typeof Type.String>>(type: T) => Type.Union([type, Type.Null()]);

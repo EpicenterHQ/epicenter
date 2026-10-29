@@ -3,7 +3,7 @@
  * cannot be saved. Pure functions of what the repository lists, apart from
  * the toast; the views read and write through `getRepository()`.
  */
-import type { InvalidNote, Note, ValidNote, WriteError } from '@epicenter/repository/api';
+import type { InvalidNote, Note, ValidNote, WriteError } from '@epicenter/repository';
 import type { Result } from 'wellcrafted/result';
 import { toast } from '@epicenter/ui/sonner';
 import type { todosTables } from './definition.js';

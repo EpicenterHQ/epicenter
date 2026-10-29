@@ -1,7 +1,6 @@
 /**
  * The test site, served from 127.0.0.1: SQLite's wasm, and built for the
- * browser, the legacy repository's harness (at `/`), worker and storage
- * holder, the replica host's harness (at `/replica`), worker, storage
+ * browser, the replica host's harness (at `/replica`), worker, storage
  * holder and blob store checks, and the repository API's page (at `/api`),
  * a Svelte app compiled here as the Svelte Vite plugin would.
  */
@@ -30,9 +29,6 @@ const svelte: BunPlugin = {
 export async function startSite() {
 	const build = await Bun.build({
 		entrypoints: [
-			join(import.meta.dir, 'harness.ts'),
-			join(import.meta.dir, 'holder.worker.ts'),
-			join(root, 'src/browser/repository.worker.ts'),
 			join(import.meta.dir, 'replica-harness.ts'),
 			join(import.meta.dir, 'replica-holder.worker.ts'),
 			join(import.meta.dir, 'objects.worker.ts'),
@@ -50,8 +46,6 @@ export async function startSite() {
 		const file = output.path.split('/').at(-1) ?? '';
 		const route =
 			{
-				'repository.worker.js': '/worker.js',
-				'holder.worker.js': '/holder.js',
 				'replica.worker.js': '/replica-worker.js',
 				'replica-holder.worker.js': '/replica-holder.js',
 				'objects.worker.js': '/objects.js',
@@ -69,7 +63,6 @@ export async function startSite() {
 			if (pathname === '/replica')
 				return new Response('<!doctype html><title>Replica</title><script type="module" src="/replica-harness.js"></script>', { headers: { 'content-type': 'text/html' } });
 			if (pathname === '/api') return new Response('<!doctype html><title>Todos</title><script type="module" src="/api-harness.js"></script>', { headers: { 'content-type': 'text/html' } });
-			if (pathname === '/') return new Response('<!doctype html><title>Repository</title><script type="module" src="/harness.js"></script>', { headers: { 'content-type': 'text/html' } });
 			return new Response('Not found', { status: 404 });
 		},
 	});

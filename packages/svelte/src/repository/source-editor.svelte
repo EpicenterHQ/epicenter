@@ -19,7 +19,7 @@
 	```
 -->
 <script lang="ts">
-	import { bodyOf, type Editor, type EditorState, type FileStatus, type TextStatus } from '@epicenter/repository/api';
+	import { bodyOf, type Editor, type EditorState, type FileStatus, type TextStatus } from '@epicenter/repository';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { onMount, untrack } from 'svelte';

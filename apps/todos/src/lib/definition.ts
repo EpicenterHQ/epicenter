@@ -1,4 +1,4 @@
-import { defineApp } from '@epicenter/repository/api';
+import { defineApp } from '@epicenter/repository';
 import { Type } from 'typebox';
 
 /**

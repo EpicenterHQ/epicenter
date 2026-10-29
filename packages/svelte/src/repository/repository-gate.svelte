@@ -15,7 +15,7 @@
 	```
 -->
 <script lang="ts">
-	import type { RepositoryStatus } from '@epicenter/repository/api';
+	import type { RepositoryStatus } from '@epicenter/repository';
 	import { Button } from '@epicenter/ui/button';
 	import * as Empty from '@epicenter/ui/empty';
 	import { Loading } from '@epicenter/ui/loading';

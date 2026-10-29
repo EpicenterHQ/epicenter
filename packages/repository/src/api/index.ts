@@ -2,7 +2,7 @@
  * The repository API an app uses: its collections declared once
  * (`defineApp`), one repository handle over them, the editor of a note and
  * what a body view of it needs. The browser host is
- * `@epicenter/repository/api/browser`; `openLocalRepository` opens one
+ * `@epicenter/repository/browser`; `openLocalRepository` opens one
  * over a replica in this process (Bun, a script).
  */
 export { type App, type Definitions, defineApp, type NoteDefinition, type NoteName, type TextStatus, timestamp } from '../core/lens.js';

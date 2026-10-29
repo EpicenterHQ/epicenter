@@ -11,7 +11,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
-import { bodyOf, type Editor } from '@epicenter/repository/api';
+import { bodyOf, type Editor } from '@epicenter/repository';
 import { editorBinding } from '@epicenter/svelte/repository';
 import { conflictCards } from './conflicts.js';
 import { livePreview } from './live-preview.js';

@@ -27,7 +27,7 @@ const files = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;
 
 /**
  * Where a repository's files stand with its server, from how many are
- * sending and how many are held (see `Sync` in `@epicenter/repository`).
+ * sending and how many are held (a note's `state` in `@epicenter/repository`).
  * A held file wins: it is never sent until the person repairs it, so the
  * header must not say Synced.
  */

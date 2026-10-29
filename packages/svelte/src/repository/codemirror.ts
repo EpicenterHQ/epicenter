@@ -15,7 +15,7 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState, type Extension, Transaction } from '@codemirror/state';
 import { EditorView, keymap, ViewPlugin } from '@codemirror/view';
-import { bodyChanges, bodyOf, type Editor, type TextChange, withBody } from '@epicenter/repository/api';
+import { bodyChanges, bodyOf, type Editor, type TextChange, withBody } from '@epicenter/repository';
 
 /** What a view shows of the note: its exact text, or its body under the frontmatter. */
 export type Shows = 'source' | 'body';

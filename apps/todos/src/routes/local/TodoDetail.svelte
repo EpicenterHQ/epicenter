@@ -9,7 +9,7 @@
 	todo opens straight into its source, to repair, and stays there.
 -->
 <script lang="ts">
-	import type { Editor } from '@epicenter/repository/api';
+	import type { Editor } from '@epicenter/repository';
 	import SourceEditor from '@epicenter/svelte/repository/source-editor';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';

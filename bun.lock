@@ -615,12 +615,6 @@
         "svelte": "catalog:",
         "typescript": "catalog:",
       },
-      "peerDependencies": {
-        "svelte": "catalog:",
-      },
-      "optionalPeers": [
-        "svelte",
-      ],
     },
     "packages/server": {
       "name": "@epicenter/server",

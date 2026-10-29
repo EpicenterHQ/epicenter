@@ -1,4 +1,4 @@
-import type { Repository } from '@epicenter/repository/api';
+import type { Repository } from '@epicenter/repository';
 import { createContext } from 'svelte';
 import type { todosApp } from './definition.js';
 
