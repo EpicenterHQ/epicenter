@@ -949,15 +949,15 @@ function createReplica({
 	 * another spelling for it (its own create, crossing one there), that row
 	 * and its work move to `path`, so the work is rebased onto `main`'s text
 	 * and never sent over it unseen. A row in the commit awaiting its answer
-	 * moves when that answer is taken (`landing`), its sent text with it, so
-	 * what was saved over the sent text is rebased as this device's own.
+	 * moves with its sent text, so what was saved over the sent text is
+	 * rebased as this device's own: only an answer that lands that commit
+	 * reaches such a row, since nothing else is applied while one is in flight.
 	 */
-	function respell(path: string, landing = false) {
+	function respell(path: string) {
 		if (stored(path) !== undefined) return;
 		const other = first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? AND path != ? ORDER BY rowid LIMIT 1', [fold(path), path])?.path;
 		if (other === undefined) return;
 		const f = record(other);
-		if (f.sent !== undefined && !landing) return;
 		const said = { saved: messageOf(other, 'saved'), committed: messageOf(other, 'committed') };
 		driver.run('UPDATE "epicenter/groups" SET other = ? WHERE other = ?', [path, other]);
 		sentTexts.delete(other);
@@ -1060,6 +1060,19 @@ function createReplica({
 		set(path, next);
 	}
 
+	/**
+	 * This device's commit is in `main`, which holds `files` at the paths it
+	 * touched (`applied`, `merged`, and `flushed` long after). A file sent
+	 * under another spelling of a path `main` has is that path's, sent text
+	 * and all, before any is taken; then each path takes its own sent text as
+	 * landed, so the commit in flight is cleared after.
+	 */
+	function landed(files: { path: string; text: string | null; deleted?: boolean }[]) {
+		for (const file of files) if (file.text !== null) respell(file.path);
+		for (const file of files) integrate(file.path, file.text, true, file.deleted === true);
+		setInflight(null);
+	}
+
 	function onLanded(answer: Extract<PushAnswer, { kind: 'applied' | 'merged' }>) {
 		if (answer.kind === 'applied') stats.applied++;
 		else stats.merged++;
@@ -1067,11 +1080,7 @@ function createReplica({
 		cap = null;
 		for (const id of answer.commits) pass(id);
 		prune();
-		// A file sent under another spelling of a path main has is that path's, sent text and all, before any is taken.
-		for (const file of answer.files) if (file.text !== null) respell(file.path, true);
-		// Each path of the commit takes its own sent text as landed, so the commit in flight is cleared after.
-		for (const file of answer.files) integrate(file.path, file.text, true, file.deleted === true);
-		setInflight(null);
+		landed(answer.files);
 		setPosition(answer.main);
 		pass(answer.main);
 	}
@@ -1170,8 +1179,7 @@ function createReplica({
 	 */
 	function onFlushed(answer: Extract<PushAnswer, { kind: 'flushed' }>) {
 		stats.flushed++;
-		for (const file of answer.files) integrate(file.path, file.text, true);
-		setInflight(null);
+		landed(answer.files);
 		setPosition(null);
 		needCatchUp = true;
 	}
