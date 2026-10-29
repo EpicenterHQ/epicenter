@@ -154,7 +154,7 @@ export function createBunFolderFs(root: string): FolderFs {
 		async readScratch(name) {
 			try {
 				const stats = await lstat(scratchAt(name));
-				return stats.isFile() ? Bun.file(scratchAt(name)) : null;
+				return stats.isFile() ? { bytes: Bun.file(scratchAt(name)), mtime: stats.mtimeMs } : null;
 			} catch {
 				return null;
 			}

@@ -10,6 +10,7 @@
  * - A save in the folder reaches the server; a change from elsewhere reaches the file; the engine's own write never comes back as a save
  * - A rename is one group: one commit holds both halves
  * - A save that lands while the engine writes the file is captured and merged, never destroyed
+ * - A captured file still being written is read once it is still, so a half-written save never goes in
  * - A file made while the engine has the path captured was made over nothing, so nothing the engine took aside is deleted by it
  * - A crash between the capture and the link puts the file back, and nothing reads it as a delete
  * - `commit` sends every difference as one commit carrying the message; nothing differing changes nothing
@@ -111,6 +112,39 @@ test('a save that lands while the engine writes the file is captured and merged,
 	expect(folder.disk.text('notes/a.md')).toBe(text);
 	expect(folder.disk.violations).toEqual([]);
 	expect(folder.disk.scratchNames()).toEqual([]);
+});
+
+test('a file captured mid-save (truncated, its bytes not yet written) is read once it is still: the save goes in once', async () => {
+	const { world, folder, other } = await setup();
+	folder.disk.write('notes/a.md', encoder.encode(note('one\n')));
+	await runFor(world, 2_000);
+	// An editor saving in place truncates the file just before the engine takes it aside, and writes its bytes through its descriptor after.
+	const ino = folder.disk.inodeOf('notes/a.md') as number;
+	const replace = folder.disk.port.replace;
+	let raced = false;
+	folder.disk.port.replace = (path, bytes, options) => {
+		if (!raced && path === 'notes/a.md') {
+			raced = true;
+			folder.disk.writeInode(ino, new Uint8Array());
+			world.net.after(40, () => folder.disk.writeInode(ino, encoder.encode(note('one\nlocal\n'))));
+		}
+		return replace(path, bytes, options);
+	};
+	const sent: (string | null)[] = [];
+	world.onRequest((from, request) => {
+		if (from === 'ada' && request.type === 'push') for (const file of request.commit.files) sent.push(file.text);
+	});
+	other.replica.write('notes/a.md', note('one\nremote\n'));
+	await runFor(world, 3_000);
+	expect(raced).toBe(true);
+	// The empty file is never a save: no text sent drops the line the person kept.
+	expect(sent.filter((text) => !text?.includes('one'))).toEqual([]);
+	const text = world.server.read('notes/a.md') ?? '';
+	expect(text.match(/local/g)).toHaveLength(1);
+	expect(text).toContain('remote');
+	expect(findConflicts(text)).toEqual([]);
+	expect(folder.disk.text('notes/a.md')).toBe(text);
+	expect(folder.disk.violations).toEqual([]);
 });
 
 test('a file made in the instant the engine has the path captured was made over nothing: what the engine took aside is kept', async () => {

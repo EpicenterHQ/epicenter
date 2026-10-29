@@ -487,7 +487,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				setRecord(path, null);
 				written();
 			});
-			await displaced(name, removed.data, path, record);
+			displaced(name, removed.data);
 			return;
 		}
 		const replaced = await fs.replace(path, bytes, { scratch: name });
@@ -510,7 +510,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			});
 			hint([path]);
 		}
-		await displaced(name, replaced.data.displaced, path, record);
+		displaced(name, replaced.data.displaced);
 	}
 
 	function retryFetch(path: string) {
@@ -520,24 +520,22 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	}
 
 	/**
-	 * What a capture took from `path`, which the engine expected to be
-	 * `record`: its own bytes may go after one more quiet window (a writer
-	 * still holding the file open writes into them); anything else is a save
-	 * that raced, made over what the record held, and goes in as one.
+	 * What a capture took from a path, which the engine expected to be what
+	 * its journal row says: its own bytes go once they have been still for a
+	 * quiet window (a writer still holding the file open writes into them);
+	 * anything else is a save that raced, made over what the record held, and
+	 * goes in as one.
 	 */
-	async function displaced(name: string, scratch: string | null, path: string, record: Recorded | null) {
+	function displaced(name: string, scratch: string | null) {
 		if (scratch === null) {
 			driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [name]);
 			return;
 		}
-		await ingestScratch(name, path, record?.hash ?? null, record?.text ?? null);
 		after(quiet, () => enqueue(() => recheck(name)));
 	}
 
-	/** Read a captured file; a save if it is not what was expected there. Returns what it held, as the new expectation. */
-	async function ingestScratch(name: string, path: string, hash: string | null, over: string | null) {
-		const bytes = await fs.readScratch(name);
-		if (bytes === null) return;
+	/** Take a captured file's bytes in: a save if they are not what was expected there, which they become. */
+	async function ingestScratch(name: string, path: string, hash: string | null, over: string | null, bytes: Blob) {
 		const { hash: held, size } = await hashOf(bytes);
 		if (held === hash) return;
 		let text: string;
@@ -566,17 +564,22 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		hint([path]);
 	}
 
-	/** One quiet window after a capture: anything written into it meanwhile is a save too; then it goes. */
+	/** Read a captured file once it is still: what it holds is a save if it is not what was expected; then it goes. */
 	async function recheck(name: string) {
 		const row = first<{ path: string; hash: string | null; text: string | null }>(driver, 'SELECT path, hash, text FROM "epicenter/displaced" WHERE name = ?', [name]);
 		if (row === undefined) return;
-		await ingestScratch(name, row.path, row.hash, row.text);
-		const still = first<{ hash: string | null }>(driver, 'SELECT hash FROM "epicenter/displaced" WHERE name = ?', [name]);
-		const bytes = await fs.readScratch(name);
-		if (bytes !== null && still !== undefined && (await hashOf(bytes)).hash !== still.hash) return void after(quiet, () => enqueue(() => recheck(name)));
-		// Bytes that are no text stay where the person was told they are.
-		if (first(driver, 'SELECT 1 FROM "epicenter/unreadable" WHERE path = ? AND reason LIKE ?', [row.path, `%${name}`]) !== undefined) return;
-		await fs.drop(name);
+		const captured = await fs.readScratch(name);
+		const again = () => void after(quiet, () => enqueue(() => recheck(name)));
+		if (captured !== null) {
+			// RULE: the quiet rule holds for a captured file too: one modified within the last quiet window may be half written (an in-place save between its truncate and its bytes), and is read once it has been still for one.
+			if (now() - captured.mtime < quiet) return again();
+			await ingestScratch(name, row.path, row.hash, row.text, captured.bytes);
+			// Written into meanwhile: read again once it is still.
+			if ((await fs.readScratch(name))?.mtime !== captured.mtime) return again();
+			// Bytes that are no text stay where the person was told they are.
+			if (first(driver, 'SELECT 1 FROM "epicenter/unreadable" WHERE path = ? AND reason LIKE ?', [row.path, `%${name}`]) !== undefined) return;
+			await fs.drop(name);
+		}
 		driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [name]);
 	}
 
@@ -594,7 +597,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		// What raced the twin's removal is a save to the replica's spelling, over the text the twin gave.
 		const over = mineAt(spelled);
 		driver.run('UPDATE "epicenter/displaced" SET text = ? WHERE name = ?', [over, name]);
-		await displaced(name, removed.data, spelled, hash === null ? null : { hash, size: 0, mtime: 0, ino: 0, at: 0, text: over ?? '' });
+		displaced(name, removed.data);
 	}
 
 	/** After a crash: every capture journaled goes back where its path is empty, or is read as a save; temporaries go. */

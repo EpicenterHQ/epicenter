@@ -340,8 +340,8 @@ async function engine(candidate: Candidate, dir: string, flags: Uint8Array, seco
 					record = next;
 				} else report.linkEexist++;
 				if (displaced !== null) {
-					const first = (await (await port.readScratch(displaced))?.text()) ?? '';
-					inspect(first, expected, async () => (await (await port.readScratch(displaced))?.text()) ?? null, () => port.drop(displaced));
+					const first = (await (await port.readScratch(displaced))?.bytes.text()) ?? '';
+					inspect(first, expected, async () => (await (await port.readScratch(displaced))?.bytes.text()) ?? null, () => port.drop(displaced));
 				}
 			} else if (swap !== null) {
 				const file = await stage(next);

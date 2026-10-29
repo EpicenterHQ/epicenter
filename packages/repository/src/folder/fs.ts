@@ -35,6 +35,9 @@ export const SCRATCH = `${OWN}/tmp`;
 /** One thing a walk or a stat finds. Symlinks are reported as such, never followed. */
 export type Entry = { path: string; kind: 'file' | 'directory' | 'symlink' | 'other'; size: number; mtime: number; ino: number };
 
+/** A captured file: its bytes, read when asked, and its mtime, so a file still being written through a descriptor is seen to be. */
+export type Captured = { bytes: Blob; mtime: number };
+
 /** What `replace` did: whether its bytes are at the path now (and the file it made, as a stat would find it), and the scratch name of what was there before (null: nothing was). */
 export type Replaced = { written: boolean; entry: Entry | null; displaced: string | null };
 
@@ -59,8 +62,8 @@ export type FolderFs = {
 	replace(path: string, bytes: Blob, { scratch }: { scratch: string }): Promise<Result<Replaced, FolderFsError>>;
 	/** Take what is at `path` to `scratch`: null when nothing was there. */
 	remove(path: string, { scratch }: { scratch: string }): Promise<Result<string | null, FolderFsError>>;
-	/** A captured file's bytes, or null when it is gone. */
-	readScratch(scratch: string): Promise<Blob | null>;
+	/** A captured file's bytes and mtime, or null when it is gone. */
+	readScratch(scratch: string): Promise<Captured | null>;
 	/** Put a captured file back at `path` if the path is empty (a crash's recovery); whether it went back. */
 	restore(scratch: string, path: string): Promise<boolean>;
 	/** Let a captured file go, once the engine has read it. */
@@ -226,7 +229,7 @@ export function createMemoryFolderFs({
 			const file = scratch.get(name);
 			if (file === undefined) return null;
 			file.read = true;
-			return new Blob([file.bytes.slice() as BlobPart]);
+			return { bytes: new Blob([file.bytes.slice() as BlobPart]), mtime: file.mtime };
 		},
 		async restore(name, path) {
 			await tick();

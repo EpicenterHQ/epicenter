@@ -36,7 +36,7 @@ export const FOLDER_FS_CHECKS: Record<string, (fs: FolderFs, outside: Outside) =
 		const done = await fs.replace('a.md', blob('mine'), { scratch: 'd-1' });
 		check(done.error === null && done.data.written && done.data.displaced === 'd-1', 'captured to d-1');
 		check((await outside.text('a.md')) === 'mine', 'the new bytes are there');
-		check((await textOf(await fs.readScratch('d-1'))) === 'theirs', 'the captured bytes are readable');
+		check((await textOf((await fs.readScratch('d-1'))?.bytes ?? null)) === 'theirs', 'the captured bytes are readable');
 		check((await fs.scratches()).includes('d-1'), 'listed until dropped');
 		await fs.drop('d-1');
 		check((await fs.readScratch('d-1')) === null && !(await fs.scratches()).includes('d-1'), 'gone once dropped');
@@ -46,7 +46,7 @@ export const FOLDER_FS_CHECKS: Record<string, (fs: FolderFs, outside: Outside) =
 		const done = await fs.remove('a.png', { scratch: 'd-2' });
 		check(done.error === null && done.data === 'd-2', 'captured');
 		check((await fs.stat('a.png')) === null, 'absent');
-		check((await textOf(await fs.readScratch('d-2'))) === 'bytes', 'readable in scratch');
+		check((await textOf((await fs.readScratch('d-2'))?.bytes ?? null)) === 'bytes', 'readable in scratch');
 		const nothing = await fs.remove('a.png', { scratch: 'd-3' });
 		check(nothing.error === null && nothing.data === null, 'nothing to capture');
 	},

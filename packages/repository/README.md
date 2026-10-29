@@ -357,10 +357,14 @@ in-place save is never read half written.
 **The write.** The folder port's `replace` and `remove` capture by rename:
 whatever is at the path is renamed into `.epicenter/tmp/` at that
 instant, and the new bytes are linked into the empty path. The link fails
-when an editor created the file meanwhile, and the editor's file stays.
-What was captured is compared with the record: the engine's own bytes are
-dropped after one more quiet window (a writer still holding the file open
-writes into them); anything else is a save that raced, and goes in as one.
+when an editor created the file meanwhile, and the editor's file stays. That
+writer found the path empty, so its file is read as a create, merged with
+what the replica shows, never as a save over the captured bytes it never
+saw. What was captured is read once it has been still for a quiet window (a
+writer still holding the file open writes into it, and an in-place save
+caught between its truncate and its bytes is not read half written), then
+compared with the record: the engine's own bytes are dropped; anything else
+is a save that raced, and goes in as one.
 
 **The record.** `"epicenter/disk"` sits in the replica's database. Per
 path it keeps the bytes' SHA-256, their size, mtime and inode, when they
