@@ -11,7 +11,7 @@ import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { openBunGitStore } from '../bun/git.js';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { createRepositoryServer, type RepositoryServer } from '../server/server.js';
+import { createRepositoryServer, type RepositoryServer } from '../legacy-server/server.js';
 import type { ClientFrame, ServerFrame } from './messages.js';
 
 const WsServerError = defineErrors({

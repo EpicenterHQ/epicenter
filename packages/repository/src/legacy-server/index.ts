@@ -14,5 +14,5 @@ export {
 	sequenceOf,
 	type Tree,
 	type TreeEntry,
-} from './git-store.js';
+} from '../server/git-store.js';
 export { PushError, type PushOutcome } from './push.js';

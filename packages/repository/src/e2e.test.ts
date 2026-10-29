@@ -33,7 +33,7 @@ import { createMemoryBlobStore, type Transport } from './engine/ports.js';
 import { gitBlobHash } from './core/hash.js';
 import type { Batch } from './protocol.js';
 import { MAIN, sequenceOf } from './server/git-store.js';
-import { createRepositoryServer, type ServerOptions } from './server/server.js';
+import { createRepositoryServer, type ServerOptions } from './legacy-server/server.js';
 
 const app = defineApp({
 	notes: {

@@ -11,7 +11,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { settle } from './policy.js';
-import type { Overlap } from './protocol.js';
+import type { Overlap } from '../protocol.js';
 
 const cases: [Overlap, string][] = [
 	[{ unit: 'body', base: 'cat', current: 'cart', incoming: 'coat', start: 0, end: 4 }, 'marked'],

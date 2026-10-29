@@ -38,7 +38,7 @@ import type { Notice } from './define.js';
 import { openEngine } from './engine/engine.js';
 import { offlineTransport } from './engine/ports.js';
 import { createRepository, openRepository } from './repository.js';
-import { createRepositoryServer } from './server/server.js';
+import { createRepositoryServer } from './legacy-server/server.js';
 
 const app = defineApp({
 	todos: {

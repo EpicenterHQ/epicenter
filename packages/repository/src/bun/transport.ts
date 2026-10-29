@@ -5,7 +5,7 @@
  */
 import { Ok } from 'wellcrafted/result';
 import { type Transport, TransportError } from '../engine/ports.js';
-import type { RepositoryServer } from '../server/server.js';
+import type { RepositoryServer } from '../legacy-server/server.js';
 
 export function createInProcessTransport(
 	server: RepositoryServer,

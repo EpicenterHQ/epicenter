@@ -5,7 +5,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./server": "./src/server/index.ts",
+		"./legacy-server": "./src/legacy-server/index.ts",
 		"./merge": "./src/core/merge.ts",
 		"./conflict": "./src/core/conflict.ts",
 		"./bun": "./src/bun/index.ts",

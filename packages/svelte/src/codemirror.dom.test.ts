@@ -19,7 +19,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineApp, offlineTransport, openRepository, type Transport } from '@epicenter/repository';
 import { createInProcessTransport, openBunGitStore, openBunSqlite } from '@epicenter/repository/bun';
-import { createRepositoryServer } from '@epicenter/repository/server';
+import { createRepositoryServer } from '@epicenter/repository/legacy-server';
 import { Type } from 'typebox';
 import { createSourceEditor } from './codemirror.js';
 

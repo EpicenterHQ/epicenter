@@ -34,7 +34,7 @@ import { gitBlobHash } from './core/hash.js';
 import { BODY_SQL } from './core/markdown.js';
 import type { Batch } from './protocol.js';
 import { openRepository } from './repository.js';
-import { createRepositoryServer } from './server/server.js';
+import { createRepositoryServer } from './legacy-server/server.js';
 import type { SqlDriver } from './sql.js';
 
 const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.Optional(Type.String()) }) } });

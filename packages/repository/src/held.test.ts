@@ -34,7 +34,7 @@ import type { Transport } from './engine/ports.js';
 import { gitBlobHash } from './core/hash.js';
 import type { Batch } from './protocol.js';
 import { openRepository } from './repository.js';
-import { createRepositoryServer } from './server/server.js';
+import { createRepositoryServer } from './legacy-server/server.js';
 import { parses } from './core/markdown.js';
 
 const app = defineApp({

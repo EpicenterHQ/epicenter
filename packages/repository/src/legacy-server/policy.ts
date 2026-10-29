@@ -18,7 +18,7 @@
  * The policy is a convention between callers, not a permission: a caller
  * that sends `'mark'` can leave conflict blocks in anyone's notes.
  */
-import type { Overlap, SettledOverlap } from './protocol.js';
+import type { Overlap, SettledOverlap } from '../protocol.js';
 
 export type Policy = 'mark' | 'refuse';
 

@@ -30,7 +30,7 @@ import { openBunSqlite } from '../bun/sqlite.js';
 import { versionOf } from '../core/conflict.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Batch, Broadcast, Change } from '../protocol.js';
-import { type GitStore, MAIN, sequenceOf } from './git-store.js';
+import { type GitStore, MAIN, sequenceOf } from '../server/git-store.js';
 import { pathEventsOf } from './history.js';
 import { createRepositoryServer, type ServerOptions, siblingPath } from './server.js';
 

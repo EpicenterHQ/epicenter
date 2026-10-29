@@ -8,7 +8,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { storageRefusal } from '../parse-rule.js';
 import type { Change, ChangeOutcome, Overlap } from '../protocol.js';
-import { sequenceOf, type Tree } from './git-store.js';
+import { sequenceOf, type Tree } from '../server/git-store.js';
 import type { CommitError, ServerCore } from './server.js';
 
 export const PushError = defineErrors({

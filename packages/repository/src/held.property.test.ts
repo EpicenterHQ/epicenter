@@ -33,7 +33,7 @@ import { parses } from './core/markdown.js';
 import { merge } from './core/merge.js';
 import type { Batch, Change } from './protocol.js';
 import { openRepository } from './repository.js';
-import { createRepositoryServer } from './server/server.js';
+import { createRepositoryServer } from './legacy-server/server.js';
 import type { SqlDriver } from './sql.js';
 
 const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.Optional(Type.String()) }) } });

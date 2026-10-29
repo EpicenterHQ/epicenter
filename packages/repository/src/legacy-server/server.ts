@@ -12,7 +12,7 @@ import { gitBlobHash } from '../core/hash.js';
 import { breaksParsing } from '../parse-rule.js';
 import { type Party, versionOf } from '../core/conflict.js';
 import { merge, withBlocks } from '../core/merge.js';
-import { settle } from '../policy.js';
+import { settle } from './policy.js';
 import type {
 	Base,
 	Batch,
@@ -26,7 +26,7 @@ import type {
 	Welcome,
 } from '../protocol.js';
 import { first, type SqlDriver } from '../sql.js';
-import { type GitStore, MAIN, type Signature, sequenceOf, type Tree } from './git-store.js';
+import { type GitStore, MAIN, type Signature, sequenceOf, type Tree } from '../server/git-store.js';
 import { createPathHistory, type PathEvent, pathEventsOf, pathEventTrailer, type SequencedEvent, trace } from './history.js';
 import { receivePush } from './push.js';
 

@@ -30,7 +30,7 @@ import type { Transport } from './engine/ports.js';
 import { gitBlobHash } from './core/hash.js';
 import type { Batch } from './protocol.js';
 import { openRepository } from './repository.js';
-import { createRepositoryServer } from './server/server.js';
+import { createRepositoryServer } from './legacy-server/server.js';
 
 const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.Optional(Type.String()) }) } });
 type Defs = typeof app.definitions;
