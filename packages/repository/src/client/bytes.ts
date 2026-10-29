@@ -86,6 +86,7 @@ export function serveBytes({
 			// Checked again after the seal: a file may have come or gone at the path meanwhile.
 			if ((replica.read(path) !== null) !== replace) return replace ? BlobError.NotFound({ path }) : BlobError.Exists({ path });
 			const changed = replica.change([{ kind: 'write', path, text: writePointer(sealed.data) }]);
+			// A write of exact text names no note to patch, so it never fails as a change.
 			if (changed.error !== null) throw new Error(changed.error.message);
 			return Ok({ ...sealed.data, ...changed.data });
 		},

@@ -11,7 +11,7 @@
  * - An owed pointer is never sent; the note saved with it lands at once, and the pointer goes in the next commit once its bytes are present
  * - A pointer deleted before its upload sends nothing, and its bytes are no longer owed
  * - Two devices with the same bytes at one path: one upload, one file
- * - A refused upload holds every pointer naming those bytes, with the reason; a save of the path clears it, and a new pointer to refused bytes is held at once
+ * - A refused upload holds every pointer naming those bytes, with the reason; a save of the path clears it, and saving the same bytes again owes them again
  * - Owed pointers survive a reopen, and count as busy and unsent
  * - A blob write over a blob that moved while its bytes were uploading is held with why, and never uploaded
  */
@@ -93,7 +93,7 @@ test('two devices with the same bytes at one path: one upload, one file', () => 
 	for (const device of [alice, bob]) expect(device.replica.state(AUDIO)).toEqual({ status: 'synced' });
 });
 
-test('a refused upload holds every pointer naming those bytes; a save of the path clears it; new pointers to them are held at once', () => {
+test('a refused upload holds every pointer naming those bytes; a save of the path clears it; the same bytes saved again are owed again', () => {
 	const { world, alice, settle, sent } = setup();
 	alice.replica.writeAll({ [AUDIO]: writePointer(a), 'recordings/copy.webm': writePointer(a) });
 	alice.replica.refused(a.oid, 'the file is larger than this repository allows');
@@ -104,7 +104,8 @@ test('a refused upload holds every pointer naming those bytes; a save of the pat
 	alice.replica.write(AUDIO, null);
 	expect(alice.replica.read(AUDIO)).toBeNull();
 	alice.replica.write('recordings/again.webm', writePointer(a));
-	expect(alice.replica.state('recordings/again.webm')).toEqual(held);
+	expect(alice.replica.state('recordings/again.webm')).toEqual(UPLOADING);
+	expect(alice.replica.owed()).toEqual([a]);
 	settle();
 	expect(sent(AUDIO) || sent('recordings/copy.webm') || sent('recordings/again.webm')).toBe(false);
 	expect(world.server.snapshot().size).toBe(0);

@@ -141,7 +141,6 @@ describe('lint', () => {
 		const written = block({ current: 'a\n', incoming: 'b\n' }, { current: side, incoming: side });
 		expect(lint('a.md', written)).toEqual(['1 unresolved conflict block']);
 		expect(lint('a.md', '<<<<<<< open only\n')).toEqual(['a malformed conflict block']);
-		expect(lint('a.txt', 'a\r\n')).toEqual(['CR line endings']);
 	});
 });
 

@@ -139,7 +139,7 @@
 			<h2 class="truncate text-sm font-medium">{name}</h2>
 			<p class="truncate font-mono text-xs text-muted-foreground" data-testid="file-path" title="Path to link from a note">{path}</p>
 			{#if entry?.state.status === 'held'}<p class="text-xs text-muted-foreground">Held: {entry.state.reason}</p>
-			{:else if entry?.state.status === 'sending'}<p class="text-xs text-muted-foreground">Not sent</p>{/if}
+			{:else if entry?.state.status === 'sending'}<p class="text-xs text-muted-foreground">Not sent{entry.state.reason === undefined ? '' : `: ${entry.state.reason}`}</p>{/if}
 		</div>
 		{#if text !== null && text !== undefined}
 			<Button size="sm" variant="outline" onclick={() => (renaming = path)}>Rename</Button>

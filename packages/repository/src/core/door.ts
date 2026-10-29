@@ -14,8 +14,8 @@
  * most 255 bytes); Epicenter owns `.gitattributes`, `.lfsconfig` and
  * `.gitmodules`.
  *
- * Warned only (`lint`): malformed or unresolved conflict blocks, CR in a
- * file that is not a note, a long total path.
+ * Warned only (`lint`): malformed or unresolved conflict blocks, a long
+ * total path.
  *
  * The server adds what needs the tree: paths equal after NFC and case
  * folding are one path, a pointer's bytes are present at its size, a blob
@@ -201,7 +201,6 @@ export function lint(path: string, text: string | null): string[] {
 	const blocks = findConflicts(text).length;
 	if (blocks > 0) warnings.push(`${blocks} unresolved conflict block${blocks === 1 ? '' : 's'}`);
 	if (opens > blocks) warnings.push('a malformed conflict block');
-	if (!isNote(path) && text.includes('\r')) warnings.push('CR line endings');
 	if (bytes(path) > 260) warnings.push('a long path');
 	return warnings;
 }
