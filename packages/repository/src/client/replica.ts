@@ -30,8 +30,9 @@
  * collide with one:
  *
  *   "epicenter/replica"   key and value: the binding (repository, server,
- *                         account), the position, the next request id, the
- *                         mode of the next commit, the last refusal
+ *                         account), the device's id, the position, the next
+ *                         request id, the mode of the next commit, the last
+ *                         refusal
  *   "epicenter/files"     per path: `text` (mine, what the person sees),
  *                         its `fields` and `body` for the app's views, `base`
  *                         and its `hash`, `saved`, `held` (the reason), and
@@ -75,11 +76,14 @@ export type Reply =
 	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
 	| { type: 'fetched'; rid: number; texts: Record<string, string> };
 
-/** Which repository a replica holds, on which server, for which account (null: a guest's). */
-export type Binding = { repository: string; server: string; account: string | null };
+/**
+ * Which repository a replica holds, on which server (null: none yet, a
+ * local repository), for which account (null: a guest's).
+ */
+export type Binding = { repository: string; server: string | null; account: string | null };
 
 /** What the first exchange of a connection says: where the transport reached, as whom, and `main` there. */
-export type Hello = Binding & { main: string };
+export type Hello = { repository: string; server: string; account: string | null; main: string };
 
 export const ReplicaError = defineErrors({
 	BoundElsewhere: ({ field, bound, given }: { field: keyof Binding; bound: string | null; given: string | null }) => ({
@@ -157,24 +161,34 @@ const sameGroup = (a: string[] | undefined, b: string[] | undefined) => (a ?? []
 /**
  * Open the replica kept in `driver` for `binding`. A database that holds
  * another repository, server or account is refused; a new one records the
- * binding.
+ * binding, and `device` as its device's id. A database keeps the device id
+ * it was first given, so a host may pass a fresh one at every open.
  */
 export function openReplica(options: Parameters<typeof createReplica>[0]): Result<Replica, ReplicaError> {
 	const { driver, binding } = options;
 	driver.exec(SCHEMA);
-	const stored = driver.all<{ key: string; value: string }>(`SELECT key, value FROM "epicenter/replica" WHERE key IN ('repository', 'server', 'account')`);
-	if (stored.length === 0)
+	const stored = driver.all<{ key: string; value: string }>(`SELECT key, value FROM "epicenter/replica" WHERE key IN ('repository', 'server', 'account', 'device')`);
+	if (stored.length === 0) {
 		driver.transaction(() => {
 			for (const field of ['repository', 'server', 'account'] as const)
 				driver.run('INSERT INTO "epicenter/replica" (key, value) VALUES (?, ?)', [field, JSON.stringify(binding[field])]);
+			driver.run('INSERT INTO "epicenter/replica" (key, value) VALUES (?, ?)', ['device', options.device]);
 		});
-	else
-		for (const { key, value } of stored) {
-			const field = key as keyof Binding;
-			const bound = JSON.parse(value) as string | null;
-			if (bound !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound, given: binding[field] });
+		return Ok(createReplica(options));
+	}
+	let device = options.device;
+	for (const { key, value } of stored) {
+		if (key === 'device') {
+			device = value;
+			continue;
 		}
-	return Ok(createReplica(options));
+		const field = key as keyof Binding;
+		const bound = JSON.parse(value) as string | null;
+		if (bound !== binding[field]) return ReplicaError.BoundElsewhere({ field, bound, given: binding[field] });
+	}
+	// A database without a device id records this one.
+	if (!stored.some(({ key }) => key === 'device')) driver.run('INSERT INTO "epicenter/replica" (key, value) VALUES (?, ?)', ['device', device]);
+	return Ok(createReplica({ ...options, device }));
 }
 
 function createReplica({
@@ -194,7 +208,7 @@ function createReplica({
 	/** How this device's commits meet a `main` that moved: a person's always merge. */
 	mode?: 'merge' | 'fast-forward';
 	/** The app whose views (one per name) read the files this device shows. */
-	app?: { lenses: Lens[] };
+	app?: { lenses: Pick<Lens, 'name' | 'view'>[] };
 	/** Run `run` after `ms` (the host's timer). */
 	after: (ms: number, run: () => void) => void;
 	/** The host's clock, in milliseconds. */
@@ -944,7 +958,8 @@ function createReplica({
 
 		/**
 		 * A connection's first exchange: refused when it reached another
-		 * repository, server or account than this replica holds; otherwise a
+		 * repository, server or account than this replica holds (a replica
+		 * with no server refuses every one); otherwise a
 		 * `main` other than this device's position means it may have missed
 		 * something, so it catches up.
 		 */

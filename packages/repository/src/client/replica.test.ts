@@ -8,8 +8,8 @@
  * server, by hand, so each test decides what is delivered and what is lost.
  *
  * Key behaviors:
- * - A database bound to another repository, server or account is refused at open, and a hello naming another is refused
- * - A commit in flight whose answer was lost survives closing and reopening the database file: the reopened replica sends the same commit, which lands once
+ * - A database bound to another repository, server or account is refused at open, and a hello naming another is refused; a replica with no server refuses every hello
+ * - A commit in flight whose answer was lost survives closing and reopening the database file: the reopened replica keeps its device id and sends the same commit, which lands once
  * - The app's views read what the person sees, held text included, and a watcher hears each changed path after its change is stored
  */
 import { expect, test } from 'bun:test';
@@ -64,10 +64,14 @@ test('a database bound to another repository, server or account is refused, and 
 	expect(expectErr(open(driver, { binding: { ...BINDING, account: null } })).name).toBe('BoundElsewhere');
 	expect(expectOk(open(driver)).binding()).toEqual(BINDING);
 
-	const hello = { ...BINDING, main: 'm' };
+	const hello = { ...BINDING, server: 'https://example.test/r1/', main: 'm' };
 	expect(expectErr(replica.hello({ ...hello, server: 'https://elsewhere.test/r1/' })).field).toBe('server');
 	expect(expectErr(replica.hello({ ...hello, account: 'bob' })).field).toBe('account');
 	expectOk(replica.hello(hello));
+
+	// A replica with no server yet refuses every socket until it is attached.
+	const local = expectOk(open(openBunSqlite(), { binding: { ...BINDING, server: null } }));
+	expect(expectErr(local.hello(hello)).field).toBe('server');
 });
 
 test('a commit in flight whose answer was lost survives reopening the database file, and lands once', () => {
@@ -88,7 +92,9 @@ test('a commit in flight whose answer was lost survives reopening the database f
 		driver.close();
 
 		driver = openBunSqlite(file);
-		const reopened = unwrap(open(driver));
+		// The database keeps the device id it was first given.
+		const reopened = unwrap(open(driver, { device: 'another' }));
+		expect(reopened.device).toBe('laptop');
 		expect(reopened.read(PATH)).toBe(note('one\n'));
 		expect(reopened.state(PATH)).toEqual({ status: 'sending' });
 		const again = connect(reopened, server);
