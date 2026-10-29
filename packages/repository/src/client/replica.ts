@@ -37,18 +37,26 @@
  *                         next request id
  *   "epicenter/files"     per path: `text` (mine, what the person sees),
  *                         its `fields` and `body` for the app's views, `base`
- *                         and its `hash`, `saved`, `held` (the reason), and
- *                         `unknown`
+ *                         and its `hash`, `saved`, `held` (the reason),
+ *                         `unknown`, and `fold` (the path after NFC and case
+ *                         folding, so one spelling finds the other)
  *   "epicenter/unsent"    the unsent commit: per path, its text (null deletes)
  *   "epicenter/inflight"  the commit sent and not yet answered, and how many
  *                         times it was sent; its files are the `sent` level
  *   "epicenter/groups"    paths saved together (a rename's two halves)
  *   "epicenter/passed"    recent positions, so a late notification is old
+ *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
+ *   "epicenter/fetched"   texts read by hash for that catch-up
  *
  * Every change runs in one transaction, and a request goes out only once
- * the state naming it is stored. What stays in memory is what a restart
- * does not need: a process starts by catching up, so notifications not yet
- * placed, a catch-up being gathered and the request awaiting its reply are
+ * the state naming it is stored. No file's text is kept in memory: each is
+ * read from the database when a change needs it, and every question about
+ * many files (what is saved, held, unsent) is an indexed query, so a
+ * replica's memory follows the work in flight, not the repository. What
+ * stays in memory is the commit in flight and what a restart does not
+ * need: a process starts by catching up, so notifications not yet placed,
+ * a catch-up being gathered (its pages and texts staged in the database,
+ * cleared when it starts again) and the request awaiting its reply are
  * asked for again.
  *
  * Rules the design does not state are marked `RULE:`.
@@ -117,6 +125,7 @@ const SCHEMA = `
 CREATE TABLE IF NOT EXISTS "epicenter/replica" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	path TEXT PRIMARY KEY,
+	fold TEXT NOT NULL,
 	text TEXT,
 	fields TEXT,
 	body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL,
@@ -130,6 +139,14 @@ CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT)
 CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/groups" (path TEXT NOT NULL, other TEXT NOT NULL, PRIMARY KEY (path, other)) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/passed" (id TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/fetched" (hash TEXT PRIMARY KEY, text TEXT NOT NULL) STRICT;
+CREATE INDEX IF NOT EXISTS "epicenter/files/fold" ON "epicenter/files" (fold);
+CREATE INDEX IF NOT EXISTS "epicenter/files/saved" ON "epicenter/files" (path) WHERE saved = 1;
+CREATE INDEX IF NOT EXISTS "epicenter/files/held" ON "epicenter/files" (path) WHERE held IS NOT NULL;
+CREATE INDEX IF NOT EXISTS "epicenter/files/unknown" ON "epicenter/files" (path) WHERE unknown = 1;
+CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) WHERE text IS NOT base;
+CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
 `;
 
 /** A level of a file: its text, null for no file. */
@@ -153,12 +170,37 @@ type FileRecord = {
 /** A file as the logic reads it: the stored record and, while its commit is in flight, the text it sent. */
 type FileView = FileRecord & { sent?: Level };
 
-type FileRow = { path: string; text: string | null; base: string | null; hash: string | null; saved: number; held: string | null; unknown: number };
+/** A file as stored, with its base's hash. */
+type Stored = FileRecord & { hash: string | null };
+
+/** One file's row, its unsent text and its group, in one read. */
+const FILE_SQL = `SELECT f.text, f.base, f.hash, f.saved, f.held, f.unknown, u.path IS NOT NULL AS committed, u.text AS committed_text,
+	(SELECT json_group_array(other) FROM (SELECT g.other FROM "epicenter/groups" g WHERE g.path = f.path ORDER BY g.rowid)) AS together
+	FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?`;
+type FileRow = {
+	text: string | null;
+	base: string | null;
+	hash: string | null;
+	saved: number;
+	held: string | null;
+	unknown: number;
+	committed: number;
+	committed_text: string | null;
+	together: string;
+};
+
+/** Texts a catch-up's pages name that this device lacks: not its base at that path, nor read already. RULE: only the paths a catch-up names, so its cost follows what it names, not the repository; a text held at another path is read. */
+const LACKING_SQL = `FROM "epicenter/staged" s LEFT JOIN "epicenter/files" f ON f.path = s.path
+	WHERE s.hash IS NOT NULL AND f.hash IS NOT s.hash AND NOT EXISTS (SELECT 1 FROM "epicenter/fetched" x WHERE x.hash = s.hash)`;
 
 /** Recent positions kept, so a late notification is recognized as old. */
 const PASSED = 4096;
 /** Texts read in one request: a large catch-up reads in several, each with its own timeout. */
 const READ_BATCH = 256;
+/** Staged files a catch-up applies at a time, so its memory is one page, not the listing. */
+const APPLY_PAGE = 512;
+/** Texts whose hash is remembered, so a level is hashed once, not at every notification. */
+const HASHED = 4_096;
 
 /** What a view reads of a text: a note's frontmatter, or a pointer's oid and size, as JSON. */
 function fieldsOf(text: string | null): string | null {
@@ -196,6 +238,9 @@ export function openReplica(options: Parameters<typeof createReplica>[0]): Resul
 		}
 	const device = stored.get('device') ?? options.device;
 	driver.transaction(() => {
+		// A catch-up staged by an earlier process starts again.
+		driver.run('DELETE FROM "epicenter/staged"');
+		driver.run('DELETE FROM "epicenter/fetched"');
 		for (const field of ['repository', 'server', 'account'] as const) driver.run('INSERT OR REPLACE INTO "epicenter/replica" (key, value) VALUES (?, ?)', [field, JSON.stringify(binding[field])]);
 		// A database without a device id records this one.
 		driver.run('INSERT OR REPLACE INTO "epicenter/replica" (key, value) VALUES (?, ?)', ['device', device]);
@@ -238,7 +283,7 @@ function createReplica({
 	}
 
 	// --------------------------------------------------------------------------
-	// What the database holds, read once and written through
+	// What the database holds: files read where a change needs them
 	// --------------------------------------------------------------------------
 
 	const meta = {
@@ -248,8 +293,6 @@ function createReplica({
 			else driver.run('INSERT OR REPLACE INTO "epicenter/replica" (key, value) VALUES (?, ?)', [key, value]);
 		},
 	};
-	const files = new Map<string, FileRecord>();
-	const hashes = new Map<string, string | null>();
 	let position: string | null = null;
 	let next = 1;
 	/** The last refusal or rejection, for an agent awaiting its verdict; cleared when a commit lands. */
@@ -268,25 +311,8 @@ function createReplica({
 	let sentTexts = new Map<string, string | null>();
 	let passedN = 0;
 
+	/** Read what a restart keeps beside the files: the commit in flight, the position, the counters. */
 	function load() {
-		files.clear();
-		hashes.clear();
-		for (const row of driver.all<FileRow>('SELECT path, text, base, hash, saved, held, unknown FROM "epicenter/files"')) {
-			const f: FileRecord = { base: row.base, mine: row.text };
-			if (row.saved === 1) f.saved = true;
-			if (row.held !== null) f.held = { reason: row.held };
-			if (row.unknown === 1) f.unknown = true;
-			files.set(row.path, f);
-			hashes.set(row.path, row.hash);
-		}
-		for (const row of driver.all<{ path: string; text: string | null }>('SELECT path, text FROM "epicenter/unsent"')) {
-			const f = files.get(row.path);
-			if (f !== undefined) f.committed = { text: row.text };
-		}
-		for (const row of driver.all<{ path: string; other: string }>('SELECT path, other FROM "epicenter/groups" ORDER BY rowid')) {
-			const f = files.get(row.path);
-			if (f !== undefined) f.together = [...(f.together ?? []), row.other];
-		}
 		const flight = first<{ commit_json: string; attempts: number }>(driver, 'SELECT commit_json, attempts FROM "epicenter/inflight"');
 		inflight = flight === undefined ? null : (JSON.parse(flight.commit_json) as LiveCommit);
 		attempts = flight?.attempts ?? 0;
@@ -316,7 +342,7 @@ function createReplica({
 		if (commit !== null) driver.run('INSERT INTO "epicenter/inflight" (id, commit_json, attempts) VALUES (?, ?, ?)', [commit.id, JSON.stringify(commit), attempts]);
 		// A file whose only level was the text it sent goes with it.
 		for (const path of before) {
-			const f = files.get(path);
+			const f = stored(path);
 			if (f !== undefined) set(path, f);
 		}
 	};
@@ -332,18 +358,36 @@ function createReplica({
 	};
 	const passed = (id: string) => first(driver, 'SELECT 1 FROM "epicenter/passed" WHERE id = ?', [id]) !== undefined;
 
+	/** One file as stored, or undefined when the database has no row for it. */
+	function stored(path: string): Stored | undefined {
+		const row = first<FileRow>(driver, FILE_SQL, [path]);
+		if (row === undefined) return undefined;
+		const f: Stored = { base: row.base, mine: row.text, hash: row.hash };
+		if (row.saved === 1) f.saved = true;
+		if (row.held !== null) f.held = { reason: row.held };
+		if (row.unknown === 1) f.unknown = true;
+		if (row.committed === 1) f.committed = { text: row.committed_text };
+		const together = JSON.parse(row.together) as string[];
+		if (together.length > 0) f.together = together;
+		return f;
+	}
 	const sentOf = (path: string): Level | undefined => (sentTexts.has(path) ? { text: sentTexts.get(path) ?? null } : undefined);
 	const record = (path: string): FileView => {
-		const f = files.get(path) ?? { base: null, mine: null };
+		const { hash: _, ...f } = stored(path) ?? { base: null, mine: null, hash: null };
 		const sent = sentOf(path);
 		return sent === undefined ? f : { ...f, sent };
 	};
-	/** Every file, as the logic reads it. */
-	const all = (): [string, FileView][] => [...files.keys()].map((path) => [path, record(path)]);
+	/** The paths a query names, in its order. */
+	const pathsOf = (sql: string, params: SqlValue[] = []) => driver.all<{ path: string }>(sql, params).map((row) => row.path);
+	/** Files in order of their first store, as the logic reads them, where `where` holds. */
+	const filesWhere = (where: string): [string, FileView][] => pathsOf(`SELECT path FROM "epicenter/files" WHERE ${where} ORDER BY rowid`).map((path) => [path, record(path)]);
+	/** Files with an unsent commit, in order of their first store. */
+	const committedFiles = (): [string, FileView][] =>
+		pathsOf('SELECT u.path FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path ORDER BY f.rowid').map((path) => [path, record(path)]);
 
 	/** Store a file's record (its `sent` level lives in the commit in flight). */
 	function set(path: string, { sent: _, ...next }: FileView) {
-		const before = files.get(path);
+		const before = stored(path);
 		const empty =
 			next.base === null &&
 			next.mine === null &&
@@ -354,15 +398,12 @@ function createReplica({
 			!sentTexts.has(path);
 		if (empty) {
 			if (before === undefined) return;
-			files.delete(path);
-			hashes.delete(path);
 			changed.add(path);
 			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
 			driver.run('DELETE FROM "epicenter/unsent" WHERE path = ?', [path]);
 			driver.run('DELETE FROM "epicenter/groups" WHERE path = ?', [path]);
 			return;
 		}
-		files.set(path, next);
 		const row =
 			before === undefined ||
 			before.base !== next.base ||
@@ -372,18 +413,17 @@ function createReplica({
 			before.unknown !== next.unknown;
 		if (row) {
 			changed.add(path);
-			const hash = before !== undefined && before.base === next.base ? (hashes.get(path) ?? null) : next.base === null ? null : gitBlobHash(next.base);
-			hashes.set(path, hash);
+			const hash = before !== undefined && before.base === next.base ? before.hash : next.base === null ? null : gitBlobHash(next.base);
 			const fields = before !== undefined && before.mine === next.mine ? undefined : fieldsOf(next.mine);
-			const values: SqlValue[] = [path, next.mine, next.base, hash, next.saved ? 1 : 0, next.held?.reason ?? null, next.unknown ? 1 : 0];
+			const values: SqlValue[] = [path, fold(path), next.mine, next.base, hash, next.saved ? 1 : 0, next.held?.reason ?? null, next.unknown ? 1 : 0];
 			if (fields === undefined)
 				driver.run(
-					'INSERT INTO "epicenter/files" (path, text, base, hash, saved, held, unknown) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown',
+					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown',
 					values,
 				);
 			else
 				driver.run(
-					'INSERT INTO "epicenter/files" (path, text, base, hash, saved, held, unknown, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, fields = excluded.fields',
+					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, fields = excluded.fields',
 					[...values, fields],
 				);
 		}
@@ -422,6 +462,16 @@ function createReplica({
 			outgoing.length = 0;
 			changed.clear();
 			load();
+			// A catch-up whose staged pages or texts were rolled back starts again; its reply, when it comes, is late.
+			if (gathering !== null || (reading !== null && 'catchUp' in reading)) {
+				gathering = null;
+				reading = null;
+				pending = null;
+				needCatchUp = true;
+				after(0, () => {
+					if (alive) atomically(pump);
+				});
+			}
 			throw cause;
 		} finally {
 			depth--;
@@ -447,10 +497,10 @@ function createReplica({
 	/** Notifications not yet placed, by the commit they follow. */
 	const waiting = new Map<string, Event>();
 	let pending: { rid: number; kind: Request['type'] } | null = null;
-	/** A catch-up being gathered page by page, then its texts read. */
-	let gathering: CatchUp | null = null;
-	/** A catch-up or notification whose texts are being read. */
-	let reading: { catchUp: CatchUp; texts: Map<string, string>; wanted: string[] } | { event: Event } | null = null;
+	/** A catch-up being gathered page by page, its files staged in `"epicenter/staged"`: the commit its pages describe. */
+	let gathering: Pick<CatchUp, 'main' | 'full'> | null = null;
+	/** A catch-up whose texts are being read into `"epicenter/fetched"` (the hashes last asked for), or a notification whose texts are. */
+	let reading: { catchUp: Pick<CatchUp, 'main' | 'full' | 'commits'>; asked: string[] } | { event: Event } | null = null;
 	// A process starts by catching up.
 	let needCatchUp = true;
 	let gapArmed = false;
@@ -479,7 +529,7 @@ function createReplica({
 	}
 
 	/** RULE: committed files that can go now: a commit waits while a path saved with it is held (a rename's halves go together), or while the server asked this member to slow down. */
-	const ready = () => (now() < backoffUntil ? [] : all().filter(([path, f]) => f.committed !== undefined && !blocked(path)));
+	const ready = () => (now() < backoffUntil ? [] : committedFiles().filter(([path]) => !blocked(path)));
 
 	/** The files saved together with `path` that can go now: a rename's halves, and any path saved with either. */
 	function unit(path: string, among: Map<string, FileView>, into = new Set<string>()) {
@@ -521,16 +571,15 @@ function createReplica({
 	 * held instead, so held text goes only with its own next save.
 	 */
 	function commit() {
-		for (const [path, f] of all()) {
-			if (f.saved === undefined) continue;
+		for (const [path, f] of filesWhere('saved = 1')) {
 			const refusal = f.mine === tip(f) ? null : admissible(path, f.mine);
 			if (refusal !== null) {
 				const { saved: _, ...rest } = f;
 				set(path, { ...rest, held: { reason: refusal } });
 			}
 		}
-		for (const [path, f] of all()) {
-			if (f.saved === undefined || blocked(path)) continue;
+		for (const [path, f] of filesWhere('saved = 1')) {
+			if (blocked(path)) continue;
 			const { saved: _, ...rest } = f;
 			const under = (f.sent ?? { text: f.base }).text;
 			if (f.mine === under) {
@@ -548,7 +597,7 @@ function createReplica({
 			// Paths equal after NFC and case folding are one path: a save goes to the spelling this device has.
 			const spelled = (path: string) => {
 				const nfc = path.normalize('NFC');
-				return [...files.keys()].find((known) => fold(known) === fold(nfc)) ?? nfc;
+				return first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1', [fold(nfc)])?.path ?? nfc;
 			};
 			const paths = Object.keys(changes).map(spelled);
 			for (const [given, text] of Object.entries(changes)) {
@@ -577,6 +626,7 @@ function createReplica({
 			if (message.type === 'fetch' && reading !== null && 'catchUp' in reading) return readBatch();
 			reading = null;
 			gathering = null;
+			unstage();
 			// A lost push is sent again as it is; a lost catch-up or read is asked again.
 			if (message.type !== 'push') needCatchUp = true;
 			pump();
@@ -587,6 +637,7 @@ function createReplica({
 		stats.catchUps++;
 		needCatchUp = false;
 		gathering = null;
+		unstage();
 		request({ type: 'catch-up', rid: takeRid(), from: position, paths: [] });
 	}
 
@@ -793,7 +844,7 @@ function createReplica({
 			set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text }, ...(once ? {} : { unknown: true as const }) });
 		}
 		setInflight(null);
-		if (!once) for (const [path, f] of all()) if (f.committed !== undefined) set(path, { ...f, unknown: true });
+		if (!once) for (const [path, f] of committedFiles()) set(path, { ...f, unknown: true });
 		setPosition(null);
 		needCatchUp = true;
 	}
@@ -840,7 +891,7 @@ function createReplica({
 		let hash = hashed.get(text);
 		if (hash === undefined) {
 			// Bounded: what is held changes, and an old text only costs one more hash.
-			if (hashed.size >= 4 * files.size + 64) hashed.clear();
+			if (hashed.size >= HASHED) hashed.clear();
 			hash = gitBlobHash(text);
 			hashed.set(text, hash);
 		}
@@ -857,7 +908,7 @@ function createReplica({
 		const texts = new Map<string, string>();
 		for (const path of paths) {
 			const f = record(path);
-			const hash = hashes.get(path) ?? null;
+			const hash = stored(path)?.hash ?? null;
 			if (f.base !== null && hash !== null) texts.set(hash, f.base);
 			for (const level of [f.mine, f.sent?.text ?? null, f.committed?.text ?? null]) if (level !== null && level !== f.base) texts.set(hashOf(level), level);
 		}
@@ -866,21 +917,58 @@ function createReplica({
 	const named = (listed: { files: { path: string }[] }) => listed.files.map((f) => f.path);
 	const missing = (wanted: (string | null)[], have: Map<string, string>) => [...new Set(wanted.filter((h): h is string => h !== null && !have.has(h)))];
 
-	function applyCatchUp(reply: CatchUp, texts: Map<string, string>) {
+	/** Stage one page of a catch-up. */
+	function stage(page: CatchUp) {
+		for (const file of page.files) driver.run('INSERT INTO "epicenter/staged" (path, hash, deleted) VALUES (?, ?, ?)', [file.path, file.hash, file.deleted === true ? 1 : 0]);
+	}
+	/** Forget a staged catch-up and the texts read for it. */
+	function unstage() {
+		driver.run('DELETE FROM "epicenter/staged"');
+		driver.run('DELETE FROM "epicenter/fetched"');
+	}
+	/**
+	 * The hashes a staged catch-up still lacks, the first `limit` of them.
+	 * Texts this device holds at a staged path other than its base (what it
+	 * shows, sent or committed: only paths with work, so few) count as read.
+	 */
+	function lacking(limit: number) {
+		const working = new Set([
+			...pathsOf('SELECT path FROM "epicenter/staged" WHERE path IN (SELECT path FROM "epicenter/unsent") OR path IN (SELECT path FROM "epicenter/files" WHERE text IS NOT base)'),
+			...[...sentTexts.keys()].filter((path) => first(driver, 'SELECT 1 FROM "epicenter/staged" WHERE path = ?', [path]) !== undefined),
+		]);
+		for (const [hash, text] of known(working)) driver.run('INSERT OR IGNORE INTO "epicenter/fetched" (hash, text) VALUES (?, ?)', [hash, text]);
+		return driver.all<{ hash: string }>(`SELECT s.hash AS hash ${LACKING_SQL} GROUP BY s.hash ORDER BY MIN(s.n) LIMIT ?`, [limit]).map((row) => row.hash);
+	}
+	/** A staged path's text by hash: its base when that is it, else a text read. */
+	function stagedText(path: string, hash: string | null) {
+		if (hash === null) return null;
+		const base = first<{ base: string | null }>(driver, 'SELECT base FROM "epicenter/files" WHERE path = ? AND hash = ?', [path, hash])?.base;
+		return base ?? first<{ text: string }>(driver, 'SELECT text FROM "epicenter/fetched" WHERE hash = ?', [hash])?.text ?? null;
+	}
+
+	/** Apply the staged catch-up, a page of files at a time. */
+	function applyCatchUp(reply: Pick<CatchUp, 'main' | 'full' | 'commits'>) {
 		// RULE (kept by reasoning, no seed reaches it): a text that cannot be found is never taken as a delete, or a later save would write over a text this device never saw.
-		if (reply.files.some((f) => f.hash !== null && !texts.has(f.hash))) {
+		if (first(driver, `SELECT 1 ${LACKING_SQL} LIMIT 1`) !== undefined) {
+			unstage();
 			needCatchUp = true;
 			return;
 		}
-		const named = new Set(reply.files.map((f) => f.path));
-		for (const file of reply.files) integrate(file.path, file.hash === null ? null : (texts.get(file.hash) ?? null), false, file.deleted === true);
+		for (let after = 0; ; ) {
+			const page = driver.all<{ n: number; path: string; hash: string | null; deleted: number }>('SELECT n, path, hash, deleted FROM "epicenter/staged" WHERE n > ? ORDER BY n LIMIT ?', [after, APPLY_PAGE]);
+			for (const file of page) integrate(file.path, stagedText(file.path, file.hash), false, file.deleted === 1);
+			const last = page.at(-1);
+			if (last === undefined) break;
+			after = last.n;
+		}
 		// In a full listing, every local file not named is absent.
-		if (reply.full) for (const [path, f] of all()) if (!named.has(path) && (f.base !== null || f.unknown)) integrate(path, null, false);
-		for (const [path, f] of all())
-			if (f.unknown) {
-				const { unknown: _, ...rest } = f;
-				set(path, rest);
-			}
+		if (reply.full)
+			for (const [path] of filesWhere('(base IS NOT NULL OR unknown = 1) AND path NOT IN (SELECT path FROM "epicenter/staged")')) integrate(path, null, false);
+		for (const [path, f] of filesWhere('unknown = 1')) {
+			const { unknown: _, ...rest } = f;
+			set(path, rest);
+		}
+		unstage();
 		for (const id of reply.commits) pass(id);
 		setPosition(reply.main);
 		pass(reply.main);
@@ -905,7 +993,8 @@ function createReplica({
 	function readBatch() {
 		if (reading === null || !('catchUp' in reading)) return;
 		stats.fetches++;
-		request({ type: 'fetch', rid: takeRid(), hashes: reading.wanted.slice(0, READ_BATCH) });
+		reading.asked = lacking(READ_BATCH);
+		request({ type: 'fetch', rid: takeRid(), hashes: reading.asked });
 	}
 
 	/** Apply waiting notifications that follow the position, reading their texts first. */
@@ -918,16 +1007,16 @@ function createReplica({
 		const catchingUp = () => pending?.kind === 'catch-up' || gathering !== null || (reading !== null && 'catchUp' in reading);
 		for (let event = following(); event !== undefined && inflight === null && !catchingUp(); event = following()) {
 			const have = known(named(event));
-			const lacking = missing(
+			const absent = missing(
 				event.files.map((f) => f.hash),
 				have,
 			);
-			if (lacking.length > 0) {
+			if (absent.length > 0) {
 				// A ready commit goes first (see `pump`); one waiting on a held partner is not ready, and must not stop this.
 				if (pending !== null || send === null || ready().length > 0) break;
 				reading = { event };
 				stats.fetches++;
-				request({ type: 'fetch', rid: takeRid(), hashes: lacking });
+				request({ type: 'fetch', rid: takeRid(), hashes: absent });
 				return;
 			}
 			applyEvent(event, have);
@@ -961,22 +1050,18 @@ function createReplica({
 					catchUp();
 					break;
 				}
-				const whole: CatchUp = gathering === null ? page : { ...page, files: [...gathering.files, ...page.files] };
+				stage(page);
 				if (page.next !== null) {
 					// RULE: a catch-up comes in pages up to the server's limit; the device gathers them, then applies them at once.
-					gathering = whole;
+					gathering = { main: page.main, full: page.full };
 					request({ type: 'catch-up', rid: takeRid(), from: position, paths: [], to: page.main, after: page.next });
 					break;
 				}
 				gathering = null;
-				const have = known(named(whole));
-				const lacking = missing(
-					whole.files.map((f) => f.hash),
-					have,
-				);
-				if (lacking.length === 0) applyCatchUp(whole, have);
+				const caught = { main: page.main, full: page.full, commits: page.commits };
+				if (lacking(1).length === 0) applyCatchUp(caught);
 				else {
-					reading = { catchUp: whole, texts: have, wanted: lacking };
+					reading = { catchUp: caught, asked: [] };
 					readBatch();
 				}
 				break;
@@ -984,15 +1069,14 @@ function createReplica({
 			case 'fetched': {
 				const was = reading;
 				if (was !== null && 'catchUp' in was) {
-					const asked = was.wanted.splice(0, READ_BATCH);
-					for (const [hash, text] of Object.entries(message.texts)) was.texts.set(hash, text);
+					for (const [hash, text] of Object.entries(message.texts)) driver.run('INSERT OR IGNORE INTO "epicenter/fetched" (hash, text) VALUES (?, ?)', [hash, text]);
 					// A text the server no longer keeps, or the last batch: apply (which catches up again for a text missing).
-					if (was.wanted.length > 0 && asked.every((hash) => was.texts.has(hash))) {
+					if (was.asked.every((hash) => hash in message.texts) && lacking(1).length > 0) {
 						readBatch();
 						break;
 					}
 					reading = null;
-					applyCatchUp(was.catchUp, was.texts);
+					applyCatchUp(was.catchUp);
 					place();
 					break;
 				}
@@ -1013,7 +1097,7 @@ function createReplica({
 	}
 
 	// Work saved before a restart and not yet committed is committed now.
-	if ([...files.values()].some((f) => f.saved !== undefined)) atomically(commit);
+	if (first(driver, 'SELECT 1 FROM "epicenter/files" WHERE saved = 1') !== undefined) atomically(commit);
 
 	/** One file's state: synced, sending, or held with why. */
 	function stateOf(path: string): FileStatus {
@@ -1037,21 +1121,17 @@ function createReplica({
 		// ------------------------------------------------------------------------
 
 		/** What this device shows for a path, or null for no file. */
-		read: (path: string) => files.get(path)?.mine ?? null,
+		read: (path: string) => first<{ text: string | null }>(driver, 'SELECT text FROM "epicenter/files" WHERE path = ?', [path])?.text ?? null,
 		/** Every path this device shows. */
-		paths: () =>
-			[...files]
-				.filter(([, f]) => f.mine !== null)
-				.map(([path]) => path)
-				.sort(),
+		paths: () => pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL').sort(),
 		/** One file's state: synced, sending, or held with why. */
 		state: stateOf,
 		/** Files whose text is held back, with why. */
 		held: () =>
-			[...files].flatMap(([path, f]) => {
-				const reason = heldReason(f);
-				return reason === null ? [] : [{ path, reason }];
-			}),
+			driver.all<{ path: string; reason: string }>('SELECT path, held AS reason FROM "epicenter/files" WHERE held IS NOT NULL ORDER BY rowid'),
+		/** Paths whose text has not reached the server: unsent, in flight, or held. */
+		unsent: () =>
+			[...new Set([...pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT base'), ...pathsOf('SELECT path FROM "epicenter/unsent"'), ...sentTexts.keys()])].sort(),
 		/**
 		 * One read-only SQL statement over what this device shows: the
 		 * app's views (one per name), or `"epicenter/files"` itself, whose
@@ -1068,8 +1148,8 @@ function createReplica({
 				listeners.delete(listener);
 			};
 		},
-		/** Every file's base and mine, and whether it has nothing unsent, for checks. */
-		files: () => new Map(all().map(([path, f]) => [path, { base: f.base, mine: f.mine, tip: tip(f), settled: f.sent === undefined && f.committed === undefined }])),
+		/** Every file's base and mine, and whether it has nothing unsent, for checks: it reads every text, so only tests call it. */
+		files: () => new Map(filesWhere('1').map(([path, f]) => [path, { base: f.base, mine: f.mine, tip: tip(f), settled: f.sent === undefined && f.committed === undefined }])),
 
 		// ------------------------------------------------------------------------
 		// Writing
@@ -1087,7 +1167,7 @@ function createReplica({
 		writeAll,
 		/** Change a path from what it shows now. */
 		edit(path: string, change: (text: string | null) => string | null) {
-			const text = files.get(path)?.mine ?? null;
+			const text = record(path).mine;
 			writeAll({ [path]: change(text) }, { over: { [path]: text } });
 		},
 
@@ -1101,7 +1181,8 @@ function createReplica({
 			needCatchUp ||
 			gathering !== null ||
 			inflight !== null ||
-			all().some(([path, f]) => f.committed !== undefined || (f.saved !== undefined && !blocked(path))),
+			first(driver, 'SELECT 1 FROM "epicenter/unsent"') !== undefined ||
+			pathsOf('SELECT path FROM "epicenter/files" WHERE saved = 1').some((path) => !blocked(path)),
 		/** Why this device's last commit was refused or rejected (an agent's verdict), until one lands; or null. */
 		lastRefusal: () => lastRefusal,
 		/** Why nothing is being sent: a rejection only the person or the account can fix, until the next connection; or null. */
@@ -1151,6 +1232,7 @@ function createReplica({
 					pending = null;
 					reading = null;
 					gathering = null;
+					unstage();
 				}
 				pump();
 			});

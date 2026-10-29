@@ -10,6 +10,7 @@
  * Key behaviors:
  * - A database bound to another repository, server or account is refused at open, and a hello naming another is refused; a replica with no server refuses every hello
  * - A commit in flight whose answer was lost survives closing and reopening the database file: the reopened replica keeps its device id and sends the same commit, which lands once
+ * - No text is kept in memory: reads and saves read the database, and a catch-up's pages are staged there, started again after a restart
  * - The app's views read what the person sees, held text included, and a watcher hears each changed path after its change is stored
  */
 import { expect, test } from 'bun:test';
@@ -270,6 +271,42 @@ test("a catch-up's texts are read in batches, and a read that times out is asked
 	expect(replica.paths()).toHaveLength(600);
 	expect(replica.position()).toBe(server.main());
 	expect(replica.stats().catchUps).toBe(1);
+});
+
+test('a replica keeps no text in memory: each read and save reads the database, and a restart mid catch-up starts it again', () => {
+	const server = createTestServer({ limits: { page: 2, request: 64 * 1024 * 1024 } });
+	const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files: ['a', 'b', 'c'].map((stem) => ({ path: `notes/${stem}.md`, text: note(`${stem}\n`) })) };
+	server.push({ id: commitId(body), ...body }, writer('bob'));
+	const directory = mkdtempSync(join(tmpdir(), 'replica-'));
+	try {
+		const file = join(directory, 'replica.sqlite');
+		let driver = openBunSqlite(file);
+		let replica = unwrap(open(driver));
+		const sent: Request[] = [];
+		replica.attach((request) => sent.push(request));
+		// One page staged, then the process stops before the next.
+		const page = sent.shift();
+		if (page !== undefined) replica.reply(answer(server, page));
+		expect(driver.all('SELECT path FROM "epicenter/staged"')).toEqual([{ path: 'notes/a.md' }, { path: 'notes/b.md' }]);
+		replica.close();
+		driver.close();
+
+		driver = openBunSqlite(file);
+		replica = unwrap(open(driver));
+		expect(driver.all('SELECT path FROM "epicenter/staged"')).toEqual([]);
+		connect(replica, server).deliver();
+		expect(replica.paths()).toEqual(['notes/a.md', 'notes/b.md', 'notes/c.md']);
+
+		// The database is what the replica reads: a text changed beneath it is what it shows, and what a save merges with.
+		driver.run('UPDATE "epicenter/files" SET text = ? WHERE path = ?', [note('a\nbelow\n'), 'notes/a.md']);
+		expect(replica.read('notes/a.md')).toBe(note('a\nbelow\n'));
+		replica.write('notes/a.md', note('above\na\n'), { over: note('a\n') });
+		expect(replica.read('notes/a.md')).toBe(note('above\na\nbelow\n'));
+		replica.close();
+		driver.close();
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });
 
 test("the app's views read what the person sees, held text included, and a watcher hears each change once it is stored", () => {

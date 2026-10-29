@@ -38,11 +38,7 @@ function replicaMethods(replica: Replica, blobs: OpfsBlobStore) {
 		query: (sql: string, params?: SqlValue[]) => replica.query(sql, params),
 		busy: () => replica.busy(),
 		/** Paths whose text has not reached the server: unsent, in flight, or held. */
-		unsent: () =>
-			[...replica.files()]
-				.filter(([, f]) => !f.settled || f.mine !== f.tip)
-				.map(([path]) => path)
-				.sort(),
+		unsent: () => replica.unsent(),
 		/**
 		 * Save texts, each merged with what this device shows if that moved
 		 * since `over`. Stored, or not at all: a save storage refuses (full,
