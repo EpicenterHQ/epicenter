@@ -1,34 +1,44 @@
 /**
  * Test support: the property test's world over the real wire. One server
  * behind the Bun dev server on localhost; each device's replica speaks to it
- * through the wire client, every request a real HTTP request and the feed a
- * real WebSocket.
+ * through the wire client over real HTTP and a real WebSocket.
+ *
+ * Two transports. `socket` (a device's own): pushes and catch-ups go up the
+ * device's socket, and their answers and every change event come down it,
+ * in order; a message lost either way closes the socket, as a dropped
+ * connection loses everything in flight; texts by hash are HTTP reads.
+ * `http` (a one-shot client's): every request is HTTP, each delayed and
+ * lost on its own, and the socket carries only events.
  *
  * Time stays virtual, so a seed replays: the seeded network decides when a
- * request leaves, whether it or its reply is lost, and when the reply or a
- * notification arrives, and the world steps one event at a time. After each
- * event it waits for the real I/O that event started (the request's HTTP
- * exchange, a socket opening, a flush) and, when a commit landed, pings every
- * open socket, so each notification the server sent has arrived (a pong comes
- * after everything sent before it). Notifications that arrived are then taken
- * in device order, so their timing draws are deterministic too.
+ * message leaves, whether it is lost, and when it arrives, and the world
+ * steps one event at a time. After each event it waits for the real I/O
+ * that event started (an HTTP exchange, a socket opening, a flush) and,
+ * when anything went up a socket or a commit landed, pings every open
+ * socket, so everything the server sent has arrived (a pong comes after
+ * everything sent before it). What arrived is then taken in device order,
+ * so the timing draws are deterministic too.
  *
- * A lost notification closes the socket, as in the memory harness; the
- * device reopens it, and the feed's `head` tells the replica whether it must
- * catch up: resume from the last head, over the wire.
+ * When a socket opens, its `head` tells the replica whether it must catch
+ * up: a device resumes from its last head.
  */
 import { openBunSqlite } from '../bun/sqlite.js';
 import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import { type Committed, createServer, type Session } from '../server/server.js';
-import { createWireClient, type FeedConnection } from '../wire/client.js';
-import { authenticateBearer, type FeedMessage } from '../wire/wire.js';
+import { createWireClient, type SocketConnection } from '../wire/client.js';
+import { authenticateBearer, type SocketMessage } from '../wire/wire.js';
 import { type Device, EPOCH } from './harness.js';
 import { createNet } from './net.js';
 import type { PropertyWorld, WorldOptions } from './property.test-support.js';
 import { createMemoryStore, createReplica, type Reply, type Request } from './replica.js';
 
-export function createWireWorld({ seed = 1, latency = { min: 5, max: 40 }, loss = { up: 0, down: 0 }, streamLoss = 0, stall, timeout = 2_000, trace }: WorldOptions = {}): PropertyWorld {
+export type Transport = 'socket' | 'http';
+
+export function createWireWorld(
+	{ seed = 1, latency = { min: 5, max: 40 }, loss = { up: 0, down: 0 }, streamLoss = 0, stall, timeout = 2_000, trace }: WorldOptions = {},
+	{ transport = 'socket' }: { transport?: Transport } = {},
+): PropertyWorld {
 	const net = createNet(seed);
 	const { random } = net;
 	const links = { loss: { ...loss }, streamLoss, stall };
@@ -58,14 +68,19 @@ export function createWireWorld({ seed = 1, latency = { min: 5, max: 40 }, loss 
 		io.add(tracked);
 		void tracked.then(() => io.delete(tracked));
 	};
-	/** A commit landed since the last ping: notifications may be on their way. */
-	let landed = false;
+	/** Something went up a socket, or a commit landed: messages may be on their way down. */
+	let stirred = false;
 	server.subscribe(() => {
-		landed = true;
+		stirred = true;
 	});
 	const delay = () => random.int(latency.min, latency.max) + (links.stall !== undefined && random.chance(links.stall.chance) ? random.int(0, links.stall.ms) : 0);
+	/** When a message on an ordered connection arrives: its own delay, but never before the one sent before it. */
+	const inOrder = (last: { at: number }) => {
+		last.at = Math.max(net.now() + delay(), last.at);
+		return last.at - net.now();
+	};
 
-	type Feed = { socket: FeedConnection; open: boolean; inbox: (FeedMessage | 'closed')[] };
+	type Socket = { connection: SocketConnection; open: boolean; inbox: (SocketMessage | 'closed')[]; up: { at: number }; down: { at: number }; loseNextDown: boolean };
 	const devices: { ping(): Promise<void>; drain(): void }[] = [];
 
 	async function quiesce() {
@@ -76,8 +91,8 @@ export function createWireWorld({ seed = 1, latency = { min: 5, max: 40 }, loss 
 			}
 			await server.idle();
 			if (io.size > 0) continue;
-			if (landed) {
-				landed = false;
+			if (stirred) {
+				stirred = false;
 				await Promise.all(devices.map((d) => d.ping()));
 				continue;
 			}
@@ -95,53 +110,79 @@ export function createWireWorld({ seed = 1, latency = { min: 5, max: 40 }, loss 
 		const make = () => createReplica({ device: name, mode, store, after: net.after, now: net.now, timeout });
 		let replica = make();
 		let online = true;
-		let link: { open: boolean; loseNextDown: boolean; up: (request: Request) => void } | null = null;
-		let feed: Feed | null = null;
+		/** HTTP requests: each delayed and lost on its own. */
+		let link: { open: boolean; loseNextDown: boolean } | null = null;
+		let socket: Socket | null = null;
+		/** The replica can send: the HTTP link is up, and with the socket transport, the socket is open. */
+		let attached = false;
 		let reopening = false;
+		/** Requests sent up the socket, by request id, for the request hooks. */
+		const sent = new Map<number, Request>();
 
-		function openRequests() {
-			const current = {
-				open: true,
-				loseNextDown: false,
-				up(request: Request) {
-					if (!current.open || random.chance(links.loss.up)) return;
-					net.after(delay(), () => {
-						if (!current.open) return;
-						counts[request.type]++;
-						track(
-							client.send(request).then(({ data: reply, error }) => {
-								if (error !== null) throw error;
-								for (const hook of requestHooks) hook(name, request, reply);
-								trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
-								const lost = current.loseNextDown || random.chance(links.loss.down);
-								current.loseNextDown = false;
-								if (!current.open || lost) return;
-								net.after(delay(), () => {
-									if (!current.open) return;
-									trace?.(`${net.now()} ${name} receives reply ${reply.rid}`);
-									replica.reply(reply);
-								});
-							}),
-						);
-					});
-				},
-			};
-			link = current;
-			replica.attach(current.up);
+		function overHttp(request: Request) {
+			const current = link;
+			if (current === null || !current.open || random.chance(links.loss.up)) return;
+			net.after(delay(), () => {
+				if (!current.open) return;
+				counts[request.type]++;
+				track(
+					client.send(request).then(({ data: reply, error }) => {
+						if (error !== null) throw error;
+						for (const hook of requestHooks) hook(name, request, reply);
+						trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
+						const lost = current.loseNextDown || random.chance(links.loss.down);
+						current.loseNextDown = false;
+						if (!current.open || lost) return;
+						net.after(delay(), () => {
+							if (!current.open) return;
+							trace?.(`${net.now()} ${name} receives reply ${reply.rid}`);
+							replica.reply(reply);
+						});
+					}),
+				);
+			});
 		}
 
-		function openStream() {
-			if (!online || feed?.open) return;
+		function overSocket(request: Request) {
+			if (request.type === 'fetch') return overHttp(request);
+			const current = socket;
+			if (current === null || !current.open) return;
+			if (random.chance(links.loss.up)) return lose(current);
+			net.after(inOrder(current.up), () => {
+				if (!current.open) return;
+				counts[request.type]++;
+				sent.set(request.rid, request);
+				current.connection.send(request);
+				stirred = true;
+			});
+		}
+
+		const send = (request: Request) => (transport === 'socket' ? overSocket(request) : overHttp(request));
+		const attach = () => {
+			attached = true;
+			replica.attach(send);
+		};
+
+		function openLink() {
+			link = { open: true, loseNextDown: false };
+			if (transport === 'http') attach();
+		}
+
+		function openSocket() {
+			if (!online || socket?.open) return;
 			let opened = () => {};
 			track(
 				new Promise<void>((resolve) => {
 					opened = resolve;
 				}),
 			);
-			const current: Feed = {
+			const current: Socket = {
 				open: true,
 				inbox: [],
-				socket: client.feed({
+				up: { at: 0 },
+				down: { at: 0 },
+				loseNextDown: false,
+				connection: client.socket({
 					message(message) {
 						current.inbox.push(message);
 						opened();
@@ -152,16 +193,20 @@ export function createWireWorld({ seed = 1, latency = { min: 5, max: 40 }, loss 
 					},
 				}),
 			};
-			feed = current;
+			socket = current;
 		}
 
-		/** The stream is gone: closed here at once, and the device hears of it a delay later, then reopens. */
-		function lose(current: Feed) {
+		/** The socket is gone: closed here at once; the device hears of it a delay later, goes offline on it, and reopens. */
+		function lose(current: Socket) {
 			current.open = false;
-			current.socket.close();
+			current.connection.close();
 			net.after(random.int(latency.min, latency.max), () => {
-				if (feed !== current) return;
-				feed = null;
+				if (socket !== current) return;
+				socket = null;
+				if (transport === 'socket') {
+					attached = false;
+					replica.attach(null);
+				}
 				if (online) reopen();
 			});
 		}
@@ -172,44 +217,71 @@ export function createWireWorld({ seed = 1, latency = { min: 5, max: 40 }, loss 
 			net.after(random.int(10, 60), () => {
 				reopening = false;
 				if (!online) return;
-				if (link === null) openRequests();
-				openStream();
+				if (link === null) openLink();
+				openSocket();
 			});
 		}
 
-		devices.push({
-			ping: () => (feed?.open ? feed.socket.ping() : Promise.resolve()),
-			drain() {
-				const current = feed;
-				if (current === null) return;
-				for (const message of current.inbox.splice(0)) {
-					if (!current.open) break;
-					if (message === 'closed') {
-						lose(current);
-						break;
-					}
-					if (message.type === 'head') {
-						// Resume from the last head: catch up only when main is not where this device stands.
-						if (message.main !== replica.position()) replica.streamOpened();
-						continue;
-					}
-					if (random.chance(links.streamLoss)) {
-						lose(current);
-						break;
-					}
+		function take(current: Socket, message: SocketMessage) {
+			switch (message.type) {
+				case 'head':
+					if (transport === 'socket') attach();
+					// Resume from the last head: catch up only when main is not where this device stands.
+					if (message.main !== replica.position()) replica.streamOpened();
+					return true;
+				case 'error':
+					throw new Error(`${name}: the socket refused a request: ${message.error}`);
+				case 'commit': {
+					if (random.chance(links.streamLoss)) return false;
 					const { type: _, ...event } = message;
-					net.after(delay(), () => {
+					net.after(inOrder(current.down), () => {
 						if (!current.open) return;
 						counts.notifications++;
 						trace?.(`${net.now()} ${name} notified ${JSON.stringify(event)}`);
 						replica.notify(event);
 					});
+					return true;
+				}
+				case 'answer':
+				case 'caught-up': {
+					const reply: Reply = message.type === 'answer' ? { type: 'answer', rid: message.rid, answer: message.answer } : message;
+					const request = sent.get(message.rid);
+					sent.delete(message.rid);
+					if (request !== undefined) for (const hook of requestHooks) hook(name, request, reply);
+					trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
+					const lost = current.loseNextDown || random.chance(links.loss.down);
+					current.loseNextDown = false;
+					if (lost) return false;
+					net.after(inOrder(current.down), () => {
+						if (!current.open) return;
+						trace?.(`${net.now()} ${name} receives reply ${reply.rid}`);
+						replica.reply(reply);
+					});
+					return true;
+				}
+				default:
+					return message satisfies never;
+			}
+		}
+
+		devices.push({
+			ping: () => (socket?.open ? socket.connection.ping() : Promise.resolve()),
+			drain() {
+				const current = socket;
+				if (current === null) return;
+				for (const message of current.inbox.splice(0)) {
+					if (!current.open) break;
+					// A message lost on the socket, or the socket closing, loses everything after it.
+					if (message === 'closed' || !take(current, message)) {
+						lose(current);
+						break;
+					}
 				}
 			},
 		});
 
-		openRequests();
-		openStream();
+		openLink();
+		openSocket();
 
 		return {
 			name,
@@ -223,26 +295,28 @@ export function createWireWorld({ seed = 1, latency = { min: 5, max: 40 }, loss 
 				if (next) return reopen();
 				if (link !== null) link.open = false;
 				link = null;
-				if (feed !== null) {
-					feed.open = false;
-					feed.socket.close();
+				if (socket !== null) {
+					socket.open = false;
+					socket.connection.close();
 				}
-				feed = null;
+				socket = null;
+				attached = false;
 				replica.attach(null);
 			},
 			loseNextReply: () => {
-				if (link !== null) link.loseNextDown = true;
+				if (transport === 'socket' && socket !== null) socket.loseNextDown = true;
+				else if (link !== null) link.loseNextDown = true;
 			},
 			restart() {
 				replica.close();
 				replica = make();
-				if (link !== null) replica.attach(link.up);
+				if (attached) replica.attach(send);
 			},
 			lose() {
 				replica.close();
 				store = createMemoryStore();
 				replica = make();
-				if (link !== null) replica.attach(link.up);
+				if (attached) replica.attach(send);
 			},
 			storeBytes: () => store.bytes(),
 		};

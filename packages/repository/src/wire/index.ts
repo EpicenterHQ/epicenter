@@ -1,14 +1,19 @@
-export { connectReplica, createWireClient, type FeedConnection, type WireClient, WireClientError } from './client.js';
+export { connectReplica, createWireClient, type SocketConnection, type WireClient, WireClientError } from './client.js';
 export {
 	type Authenticate,
 	authenticateBearer,
 	createWire,
 	DEVICE_HEADER,
-	type FeedHub,
-	type FeedMessage,
+	type CatchUpQuery,
 	PING,
 	PONG,
+	SESSION_EXPIRED,
+	type SocketEnd,
+	type SocketHub,
+	type SocketMessage,
+	type SocketRequest,
 	statusOf,
+	type Verified,
 	type Wire,
 	WIRE_LIMITS,
 	type WireLimits,

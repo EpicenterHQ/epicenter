@@ -1,16 +1,19 @@
 /**
- * The device's side of the wire: a replica's requests as HTTP (a push is one
- * `POST /commits`, a catch-up page one `GET /catch-up`, a read by hash one
- * `GET /blobs/<hash>` per text, so each is cached for good), and the change
- * feed as a WebSocket. `connectReplica` binds a replica to both, in real
- * time; the property test drives the same client on virtual time instead.
+ * The device's side of the wire. `socket` opens the device's WebSocket,
+ * which carries its pushes and catch-ups up and their answers and every
+ * change event down, in order. `send` carries one replica request as HTTP
+ * (a push is one `POST /commits`, a catch-up page one `GET /catch-up`, a
+ * read by hash one `GET /blobs/<hash>` per text, so each is cached for
+ * good): reads by hash always go this way, and a one-shot client can send
+ * everything this way. `connectReplica` binds a replica in real time; the
+ * property test drives the same client on virtual time instead.
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import type { Logger } from 'wellcrafted/logger';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { Replica, Reply, Request as ReplicaRequest } from '../b/replica.js';
 import type { CatchUp, PushAnswer } from '../server/server.js';
-import { type FeedMessage, PING, PONG } from './wire.js';
+import { PING, PONG, type SocketMessage, type SocketRequest } from './wire.js';
 
 export const WireClientError = defineErrors({
 	Unreachable: ({ cause }: { cause: unknown }) => ({ message: 'The repository server could not be reached', cause }),
@@ -101,21 +104,29 @@ export function createWireClient({
 					return request satisfies never;
 			}
 		},
-		/** Open the change feed; `closed` is called once, when the socket closes for any reason. */
-		feed({ message, closed }: { message: (message: FeedMessage) => void; closed: () => void }) {
-			const feedUrl = at('feed');
-			feedUrl.protocol = feedUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-			const socket = openSocket(feedUrl.href);
+		/**
+		 * Open the device's socket. `message` gets every message down in the
+		 * server's order; `closed` is called once, when the socket closes for
+		 * any reason (4401: the session expired).
+		 */
+		socket({ message, closed }: { message: (message: SocketMessage) => void; closed: (code: number) => void }) {
+			const socketUrl = at('socket');
+			socketUrl.protocol = socketUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+			const socket = openSocket(socketUrl.href);
 			const pongs: (() => void)[] = [];
 			socket.onmessage = (event) => {
 				if (event.data === PONG) return pongs.shift()?.();
-				message(JSON.parse(String(event.data)) as FeedMessage);
+				message(JSON.parse(String(event.data)) as SocketMessage);
 			};
-			socket.onclose = () => {
+			socket.onclose = (event) => {
 				for (const resolve of pongs.splice(0)) resolve();
-				closed();
+				closed(event.code);
 			};
 			return {
+				/** Send a push or a catch-up; its reply comes down as a message naming its `rid`. Dropped unless the socket is open. */
+				send(request: SocketRequest) {
+					if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(request));
+				},
 				/** Resolves once everything the server sent before this ping has arrived, or the socket closed. */
 				ping(): Promise<void> {
 					if (socket.readyState !== WebSocket.OPEN) return Promise.resolve();
@@ -128,46 +139,62 @@ export function createWireClient({
 	};
 }
 export type WireClient = ReturnType<typeof createWireClient>;
-export type FeedConnection = ReturnType<WireClient['feed']>;
+export type SocketConnection = ReturnType<WireClient['socket']>;
 
 /**
- * Bind a replica to a repository server over the wire, in real time: its
- * requests go out as HTTP, and the feed's events come in, the socket
- * reopening after `retry` ms whenever it drops. On each open the feed
- * names `main`; the replica catches up only if that is not where it stands.
+ * Bind a replica to a repository server over the wire, in real time. Its
+ * pushes and catch-ups go on the socket, whose answers and events come back
+ * in one ordered sequence; texts by hash are HTTP reads. While the socket is
+ * down the replica is offline, and the socket reopens after `retry` ms. On
+ * each open the server names `main`; the replica catches up only if that is
+ * not where it stands.
  */
 export function connectReplica(replica: Replica, client: WireClient, { retry = 1_000, log }: { retry?: number; log?: Logger } = {}) {
 	let stopped = false;
-	let feed: FeedConnection | null = null;
-	replica.attach((request) => {
-		void client.send(request).then(({ data: reply, error }) => {
-			if (stopped) return;
-			// No reply: the replica's own timeout sends the request again.
-			if (error !== null) return log?.warn(error);
-			replica.reply(reply);
-		});
-	});
+	let socket: SocketConnection | null = null;
 	function open() {
-		feed = client.feed({
+		const current = client.socket({
 			message(message) {
-				if (message.type === 'head') {
-					if (message.main !== replica.position()) replica.streamOpened();
-					return;
+				switch (message.type) {
+					case 'head':
+						replica.attach((request) => {
+							if (request.type !== 'fetch') return current.send(request);
+							void client.send(request).then(({ data: reply, error }) => {
+								if (stopped) return;
+								// No reply: the replica's own timeout sends the request again.
+								if (error !== null) return log?.warn(error);
+								replica.reply(reply);
+							});
+						});
+						if (message.main !== replica.position()) replica.streamOpened();
+						return;
+					case 'commit': {
+						const { type: _, ...event } = message;
+						return replica.notify(event);
+					}
+					case 'answer':
+						return replica.reply({ type: 'answer', rid: message.rid, answer: message.answer });
+					case 'caught-up':
+						return replica.reply(message);
+					case 'error':
+						return log?.warn(WireClientError.Unexpected({ status: message.status, body: message.error }));
+					default:
+						return message satisfies never;
 				}
-				const { type: _, ...event } = message;
-				replica.notify(event);
 			},
 			closed() {
+				replica.attach(null);
 				if (!stopped) setTimeout(open, retry);
 			},
 		});
+		socket = current;
 	}
 	open();
 	return {
-		/** Stop: close the feed and take the replica offline. */
+		/** Stop: close the socket and take the replica offline. */
 		close() {
 			stopped = true;
-			feed?.close();
+			socket?.close();
 			replica.attach(null);
 		},
 	};

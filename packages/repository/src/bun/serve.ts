@@ -1,9 +1,10 @@
 /**
  * The Bun host of design B's wire: one repository's server over HTTP and the
- * change feed, on a port of this machine. The feed is Bun's pub/sub: every
- * socket subscribes to one topic when it opens, so the host keeps nothing
- * per socket either. For development and tests; the hosted server is a
- * Durable Object (phase 10).
+ * devices' sockets, on a port of this machine. Events go out by Bun's
+ * pub/sub: every socket subscribes to one topic when it opens, and keeps
+ * only its verified session (and the timer that closes it when the session
+ * expires). For development and tests; the hosted server is a Durable
+ * Object (phase 10).
  */
 import { join } from 'node:path';
 import { mkdir } from 'node:fs/promises';
@@ -11,11 +12,13 @@ import type { Server as BunServer } from 'bun';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { openServer, type Server } from '../server/server.js';
-import { type Authenticate, createWire, PING, PONG, type WireLimits } from '../wire/wire.js';
+import { type Authenticate, createWire, SESSION_EXPIRED, type Verified, type WireLimits } from '../wire/wire.js';
 import { openBunGitStore } from './git.js';
 import { openBunSqlite } from './sqlite.js';
 
-const FEED = 'feed';
+const EVENTS = 'events';
+
+type SocketData = { verified: Verified; expiry?: ReturnType<typeof setTimeout> };
 
 const ServeError = defineErrors({
 	RequestFailed: ({ cause }: { cause: unknown }) => ({ message: 'A request failed on the repository server', cause }),
@@ -37,19 +40,19 @@ export function serveRepository({
 	limits?: Partial<WireLimits>;
 	log?: Logger;
 }) {
-	let bun: BunServer<undefined> | undefined;
+	let bun: BunServer<SocketData> | undefined;
 	const wire = createWire({
 		server,
 		authenticate,
 		...(limits === undefined ? {} : { limits }),
-		feed: {
-			upgrade: (request) => (bun?.upgrade(request, { data: undefined }) ? undefined : new Response('Expected a WebSocket upgrade', { status: 426 })),
+		sockets: {
+			upgrade: (request, verified) => (bun?.upgrade(request, { data: { verified } }) ? undefined : new Response('Expected a WebSocket upgrade', { status: 426 })),
 			publish: (message) => {
-				bun?.publish(FEED, message);
+				bun?.publish(EVENTS, message);
 			},
 		},
 	});
-	bun = Bun.serve<undefined>({
+	bun = Bun.serve<SocketData>({
 		hostname,
 		port,
 		fetch: (request) => wire.handle(request),
@@ -59,12 +62,22 @@ export function serveRepository({
 		},
 		websocket: {
 			open(socket) {
+				const { expires } = socket.data.verified;
+				if (expires !== undefined) socket.data.expiry = setTimeout(() => socket.close(SESSION_EXPIRED, 'The session expired'), Math.max(0, expires - Date.now()));
 				// Subscribed and told `main` in one step, so no commit falls between the two.
-				socket.subscribe(FEED);
+				socket.subscribe(EVENTS);
 				socket.send(wire.hello());
 			},
 			message(socket, message) {
-				if (message === PING) socket.send(PONG);
+				wire.receive(typeof message === 'string' ? message : new TextDecoder().decode(message), socket.data.verified, {
+					send: (reply) => {
+						socket.send(reply);
+					},
+					close: (code, reason) => socket.close(code, reason),
+				});
+			},
+			close(socket) {
+				clearTimeout(socket.data.expiry);
 			},
 		},
 	});

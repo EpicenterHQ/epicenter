@@ -11,7 +11,8 @@
  * - a commit's answer is JSON with a status for each outcome: 200 applied, merged, flushed; 409 outcome-unknown; 428 no parent; 412 main moved, with main's texts; 429 rate; 403 a reader or another author; 413 too large; 422 the door; 400 not a commit
  * - PUT and DELETE are one-file conveniences over the same commit: 428 without a precondition, 412 with a stale one, an ETag that is the Git blob hash
  * - a text by hash is immutable and private; a body is capped before it is parsed, and a slow one times out
- * - the feed names `main` when it opens and each commit after; a replica whose socket dropped resumes by catching up
+ * - a device's socket names `main` when it opens, answers each request by its id before the commit's event, takes commits and catch-ups through the same functions as HTTP, and closes when the session expires
+ * - a replica whose socket dropped resumes from its last head by catching up
  */
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createMemoryStore, createReplica, type Replica } from '../b/replica.js';
@@ -22,7 +23,7 @@ import { gitBlobHash } from '../core/hash.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import { createServer, type Limits, type Server, type Session } from '../server/server.js';
 import { connectReplica, createWireClient } from './client.js';
-import { authenticateBearer, type FeedMessage, type WireLimits } from './wire.js';
+import { type Authenticate, authenticateBearer, type SocketMessage, type WireLimits } from './wire.js';
 
 const EPOCH = Date.UTC(2026, 9, 28, 12);
 const note = (body: string) => `---\ntitle: A\n---\n${body}`;
@@ -38,10 +39,14 @@ afterEach(async () => {
 	for (const stop of stops.splice(0)) await stop();
 });
 
-function setup({ limits, wire }: { limits?: Partial<Limits>; wire?: Partial<WireLimits> } = {}) {
+function setup({
+	limits,
+	wire,
+	authenticate = authenticateBearer((token) => SESSIONS[token] ?? null),
+}: { limits?: Partial<Limits>; wire?: Partial<WireLimits>; authenticate?: Authenticate } = {}) {
 	const clock = { now: EPOCH };
 	const server = createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock: () => clock.now, ...(limits === undefined ? {} : { limits }) });
-	const served = serveRepository({ server, authenticate: authenticateBearer((token) => SESSIONS[token] ?? null), ...(wire === undefined ? {} : { limits: wire }) });
+	const served = serveRepository({ server, authenticate, ...(wire === undefined ? {} : { limits: wire }) });
 	stops.push(served.stop);
 	const url = (path: string) => new URL(path, served.url).href;
 	const as = (user: string, headers: Record<string, string> = {}) => ({ authorization: `Bearer ${user}`, ...headers });
@@ -78,7 +83,7 @@ test('every endpoint refuses a request with no session (401) and one from a non-
 		['files/n/a.md', { method: 'DELETE', headers: { 'if-match': `"${hash}"` } }],
 		['catch-up?from=', {}],
 		[`blobs/${hash}`, {}],
-		['feed', { headers: { upgrade: 'websocket', connection: 'upgrade', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==' } }],
+		['socket', { headers: { upgrade: 'websocket', connection: 'upgrade', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==' } }],
 	];
 	for (const [path, init] of requests) {
 		const headers = (init.headers ?? {}) as Record<string, string>;
@@ -300,29 +305,96 @@ describe('reads', () => {
 		expect(await next.json()).toEqual(server.catchUp({ from: base, to: page.main, after: page.next }));
 	});
 
-	test('a request without a WebSocket upgrade to the feed is 426', async () => {
+	test('a request without a WebSocket upgrade to the socket is 426', async () => {
 		const { url, as } = setup();
-		expect((await fetch(url('feed'), { headers: as('alice') })).status).toBe(426);
+		expect((await fetch(url('socket'), { headers: as('alice') })).status).toBe(426);
 	});
 });
 
 // ============================================================================
-// The change feed
+// The device's socket
 // ============================================================================
 
-describe('the change feed', () => {
-	test('a socket is told main when it opens, then each commit with its parents and changed paths, never texts', async () => {
-		const { server, served, post } = setup();
-		const client = createWireClient({ url: served.url, openSocket: socketWithHeaders({ authorization: 'Bearer rita' }) });
-		const messages: FeedMessage[] = [];
-		const feed = client.feed({ message: (message) => messages.push(message), closed: () => {} });
-		await until(() => messages.length === 1);
+/** Open a socket as `user`, keeping every message it gets. */
+function open(base: string, user: string) {
+	const client = createWireClient({ url: base, openSocket: socketWithHeaders({ authorization: `Bearer ${user}` }) });
+	const messages: SocketMessage[] = [];
+	const closed: number[] = [];
+	const socket = client.socket({ message: (message) => messages.push(message), closed: (code) => closed.push(code) });
+	stops.push(async () => socket.close());
+	return { socket, messages, closed };
+}
+
+describe("the device's socket", () => {
+	test('a socket is told main when it opens; a push on it is answered before its own event, and every socket gets the event in order', async () => {
+		const { server, served } = setup();
+		const alice = open(served.url, 'alice');
+		const rita = open(served.url, 'rita');
+		await until(() => alice.messages.length === 1 && rita.messages.length === 1);
 		const base = server.main();
-		expect(messages[0]).toEqual({ type: 'head', main: base });
+		expect(rita.messages[0]).toEqual({ type: 'head', main: base });
+		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
+		alice.socket.send({ type: 'push', rid: 7, commit });
+		await alice.socket.ping();
+		await rita.socket.ping();
+		const event = { type: 'commit' as const, commit: commit.id, parents: [base], files: [{ path: 'n/a.md', hash: gitBlobHash(note('one\n')) }] };
+		expect(alice.messages.slice(1)).toEqual([{ type: 'answer', rid: 7, status: 200, answer: expect.objectContaining({ kind: 'applied', main: commit.id }) }, event]);
+		// Events name paths and hashes, never texts.
+		expect(rita.messages.slice(1)).toEqual([event]);
+	});
+
+	test('the socket and HTTP take a commit and a catch-up through the same functions, with the same statuses', async () => {
+		const { server, served, post } = setup();
+		const alice = open(served.url, 'alice');
+		const rita = open(served.url, 'rita');
+		await until(() => alice.messages.length === 1 && rita.messages.length === 1);
+		const base = server.main();
 		await post(make(server, [{ path: 'n/a.md', text: note('one\n') }]));
-		await feed.ping();
-		expect(messages[1]).toEqual({ type: 'commit', commit: server.main(), parents: [base], files: [{ path: 'n/a.md', hash: gitBlobHash(note('one\n')) }] });
-		feed.close();
+		alice.socket.send({ type: 'push', rid: 1, commit: make(server, [{ path: 'n/a.md', text: note('two\n') }], { parent: base, mode: 'fast-forward' }) });
+		rita.socket.send({ type: 'push', rid: 2, commit: make(server, [{ path: 'n/b.md', text: note('b\n') }], { user: 'rita' }) });
+		alice.socket.send({ type: 'push', rid: 3, commit: make(server, [{ path: 'n/c.md', text: '---\ntitle: [\n---\n' }]) });
+		alice.socket.send({ type: 'catch-up', rid: 4, from: base });
+		await alice.socket.ping();
+		await rita.socket.ping();
+		const replies = alice.messages.filter((m) => m.type === 'answer' || m.type === 'caught-up');
+		expect(replies).toEqual([
+			{ type: 'answer', rid: 1, status: 412, answer: { kind: 'refused', reason: 'main moved', main: server.main(), files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }] } },
+			{ type: 'answer', rid: 3, status: 422, answer: expect.objectContaining({ kind: 'refused', path: 'n/c.md' }) },
+			{ type: 'caught-up', rid: 4, catchUp: server.catchUp({ from: base }) },
+		]);
+		expect(rita.messages.at(-1)).toEqual({ type: 'answer', rid: 2, status: 403, answer: expect.objectContaining({ reason: 'a reader may not write' }) });
+	});
+
+	test('a message that is not a request is an error; one past the body limit is refused unread, naming its request id', async () => {
+		const { server, served } = setup({ wire: { body: 1_000 } });
+		const alice = open(served.url, 'alice');
+		await until(() => alice.messages.length === 1);
+		alice.socket.send({ type: 'push', rid: 9, commit: make(server, [{ path: 'n/a.md', text: note('x'.repeat(2_000)) }]) });
+		alice.socket.send({ type: 'nonsense', rid: 10 } as never);
+		await alice.socket.ping();
+		expect(alice.messages.slice(1)).toEqual([
+			{ type: 'answer', rid: 9, status: 413, answer: { kind: 'refused', reason: 'request too large', main: server.main() } },
+			{ type: 'error', rid: null, status: 400, error: 'Not a socket request' },
+		]);
+		expect(server.read('n/a.md')).toBeNull();
+	});
+
+	test('the server closes a socket when its session expires (4401); an expired session is refused at the door (401)', async () => {
+		const { served, url } = setup({
+			authenticate: authenticateBearer((token) => {
+				if (token === 'brief') return { user: 'alice', role: 'writer', expires: Date.now() + 150 };
+				if (token === 'gone') return { user: 'alice', role: 'writer', expires: Date.now() - 1 };
+				return null;
+			}),
+		});
+		const brief = open(served.url, 'brief');
+		await until(() => brief.messages.length === 1);
+		await until(() => brief.closed.length === 1);
+		expect(brief.closed).toEqual([4401]);
+		expect((await fetch(url('catch-up?from='), { headers: { authorization: 'Bearer gone' } })).status).toBe(401);
+		const gone = open(served.url, 'gone');
+		await until(() => gone.closed.length === 1);
+		expect(gone.messages).toEqual([]);
 	});
 
 	test('a replica whose socket dropped resumes from its last head by catching up, and syncs through the wire', async () => {

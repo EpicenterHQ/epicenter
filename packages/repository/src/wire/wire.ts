@@ -1,35 +1,47 @@
 /**
- * Design B's wire: HTTP for every write and read, and a notification-only
- * WebSocket for the change feed. It is host-agnostic: `createWire` turns a
- * `Request` into a `Response`; the host supplies who is asking (an
- * `Authenticate`) and where feed messages go (a `FeedHub`: Bun's pub/sub in
- * the dev server, a Durable Object's hibernating WebSockets later).
+ * Design B's wire. A device keeps one WebSocket: it sends its commits and
+ * catch-ups there and gets their answers and every change event on it, in
+ * one ordered sequence. HTTP serves one-shot clients (agents, the CLI,
+ * scripts) and content by hash. Both transports call the same composed
+ * functions, `takeCommit` and `takeCatchUp`; only the endpoints differ.
+ *
+ * It is host-agnostic: `createWire` turns a `Request` into a `Response`
+ * and a socket message into replies; the host supplies who is asking (an
+ * `Authenticate`) and the sockets (a `SocketHub`: Bun's pub/sub in the dev
+ * server, a Durable Object's hibernating WebSockets later).
  *
  * One repository, at the root:
  *
+ *   GET    /socket           the device's WebSocket (below)
  *   POST   /commits          a live commit, as JSON; answered with its PushAnswer
  *   GET    /files/<path>     main's text, its hash as the ETag
  *   PUT    /files/<path>     If-Match: "<hash>", or If-None-Match: * to create: one fast-forward commit on main
  *   DELETE /files/<path>     If-Match: "<hash>": the same, deleting
  *   GET    /catch-up         ?from=<commit>&to=&after=&path=...: one catch-up page
  *   GET    /blobs/<hash>     a text by its Git blob hash: immutable, so cached for good, but never by a shared cache
- *   GET    /feed             a WebSocket: `head` when it opens, then one `commit` per commit on main
  *
  * Every request, reads included, is authenticated first (401 without a
- * session) and must come from a member (403 otherwise, `server.mayRead`).
- * A write's answer is JSON whatever its status: 200 applied, merged or
- * flushed; 409 outcome-unknown; and for a refusal, 428 with no parent (or no
- * precondition), 412 when a fast-forward found main moved (or a file is not
- * at the hash named), with main's texts for the paths it touched, 429 rate,
- * 403 a reader or another author, 413 too large, and 422 anything the door
- * refuses. A request body is capped before it is parsed, and a request not
- * read within `timeout` gets 408.
+ * session, or with one that has expired) and must come from a member (403
+ * otherwise, `server.mayRead`). A write's answer is JSON whatever its
+ * status: 200 applied, merged or flushed; 409 outcome-unknown; and for a
+ * refusal, 428 with no parent (or no precondition), 412 when a fast-forward
+ * found main moved (or a file is not at the hash named), with main's texts
+ * for the paths it touched, 429 rate, 403 a reader or another author, 413
+ * too large, and 422 anything the door refuses. A request body is capped
+ * before it is parsed, and a request not read within `timeout` gets 408.
  *
- * The feed holds no per-socket state: every socket gets every message, and a
- * socket that opens is first told `main`, so a device that reconnects
- * resumes from its last head by catching up over HTTP when the two differ.
- * A socket's `ping` is answered `pong` after everything sent before it (a
- * Durable Object can answer it while hibernating, with an auto-response).
+ * The socket is authenticated when it connects, and the host closes it
+ * (4401) when the session expires. Up, a device sends `push` and `catch-up`
+ * requests with its own request id; down, it gets `head` (main, first, so a
+ * device that reconnects resumes from its last head by catching up when the
+ * two differ), `commit` events (id, parents, changed paths with hashes,
+ * never texts), and `answer`, `caught-up` or `error` replies naming the
+ * request id. A commit's answer goes to its device before the commit's
+ * event goes to anyone, and everything is in the server's order. The only
+ * state a socket holds is its verified session, which a hibernating host
+ * keeps as the socket's attachment. `ping` is answered `pong` after
+ * everything sent before it (a Durable Object can answer it while
+ * hibernating, with an auto-response).
  */
 import { Type } from 'typebox';
 import { Check } from 'typebox/value';
@@ -37,30 +49,53 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { type Event, LIMITS, type PushAnswer, type Server, type Session } from '../server/server.js';
+import { type CatchUp, type Event, LIMITS, type PushAnswer, type Server, type Session } from '../server/server.js';
 
 // ============================================================================
 // Ports and protocol
 // ============================================================================
 
-/** Who is asking, as the host verifies it; null when the request carries no valid credential. */
-export type Authenticate = (request: Request) => Session | null | Promise<Session | null>;
+/** A session as the host verified it, with when it expires (ms since the epoch), if it does. */
+export type Verified = Session & { expires?: number };
 
-/** Where the feed's sockets are: the host's side of the change feed. */
-export type FeedHub = {
+/** Who is asking, as the host verifies it; null when the request carries no valid credential. */
+export type Authenticate = (request: Request) => Verified | null | Promise<Verified | null>;
+
+/** Where the devices' sockets are: the host's side of the socket. */
+export type SocketHub = {
 	/**
-	 * Accept a WebSocket upgrade from a verified member: Bun's
-	 * `server.upgrade`, or a Durable Object's `WebSocketPair` and
-	 * `acceptWebSocket`. Undefined when the host took the request over.
-	 * Once the socket is open, the host sends it `wire.hello()` first.
+	 * Accept a WebSocket upgrade from a verified member, keeping `verified`
+	 * as the socket's only state: Bun's `server.upgrade` with it as data, or
+	 * a Durable Object's `acceptWebSocket` with it as the attachment.
+	 * Undefined when the host took the request over. Once the socket is
+	 * open, the host sends it `wire.hello()` first, hands every message to
+	 * `wire.receive`, and closes it (4401) when the session expires.
 	 */
-	upgrade(request: Request, session: Session): Response | undefined;
-	/** Send one message to every open feed socket. */
+	upgrade(request: Request, verified: Verified): Response | undefined;
+	/** Send one message to every open socket. */
 	publish(message: string): void;
 };
 
-/** A feed message: `main` when a socket opens, then each commit on main with its changed paths and hashes. Never texts. */
-export type FeedMessage = { type: 'head'; main: string } | ({ type: 'commit' } & Event);
+/** A socket's own end, for one message's replies. */
+export type SocketEnd = { send(message: string): void; close(code: number, reason: string): void };
+
+/** The query of one catch-up page, from either transport. */
+export type CatchUpQuery = Parameters<Server['catchUp']>[0];
+
+/** What a device sends on its socket; `rid` is its own request id, named in the reply. */
+export type SocketRequest = { type: 'push'; rid: number; commit: LiveCommit } | ({ type: 'catch-up'; rid: number } & CatchUpQuery);
+
+/** What a socket carries down: main when it opens, each commit on main (never texts), and the replies to its own requests. */
+export type SocketMessage =
+	| { type: 'head'; main: string }
+	| ({ type: 'commit' } & Event)
+	| { type: 'answer'; rid: number; status: number; answer: PushAnswer }
+	| { type: 'caught-up'; rid: number; catchUp: CatchUp }
+	/** A request that was not one: `rid` when it could be read. */
+	| { type: 'error'; rid: number | null; status: number; error: string };
+
+/** The close code of a socket whose session expired. */
+export const SESSION_EXPIRED = 4401;
 
 /** A socket's keep-alive, answered after everything sent before it. */
 export const PING = 'ping';
@@ -90,6 +125,21 @@ const CommitSchema = Type.Object(
 	},
 	{ additionalProperties: false },
 );
+
+const SocketRequestSchema = Type.Union([
+	Type.Object({ type: Type.Literal('push'), rid: Type.Number(), commit: Type.Unknown() }, { additionalProperties: false }),
+	Type.Object(
+		{
+			type: Type.Literal('catch-up'),
+			rid: Type.Number(),
+			from: Type.Union([Type.String(), Type.Null()]),
+			paths: Type.Optional(Type.Array(Type.String())),
+			to: Type.Optional(Type.String()),
+			after: Type.Optional(Type.String()),
+		},
+		{ additionalProperties: false },
+	),
+]);
 
 const BodyError = defineErrors({
 	TooLarge: () => ({ message: 'The request body is larger than the limit' }),
@@ -137,6 +187,7 @@ function matches(header: string, hash: string | null) {
 
 const EXPIRED = Symbol('expired');
 const decoder = new TextDecoder('utf-8', { fatal: true });
+const encoder = new TextEncoder();
 
 /** Read a body of at most `cap` bytes, as UTF-8, before `expired` settles. */
 async function readBody(request: Request, cap: number, expired: Promise<typeof EXPIRED>): Promise<Result<string, BodyError>> {
@@ -185,19 +236,40 @@ const failure = (status: number, error: string, headers: Record<string, string> 
 export function createWire({
 	server,
 	authenticate,
-	feed,
+	sockets,
 	limits: given = {},
 	clock = () => Date.now(),
 }: {
 	server: Server;
 	authenticate: Authenticate;
-	feed: FeedHub;
+	sockets: SocketHub;
 	limits?: Partial<WireLimits>;
-	/** The time a PUT or DELETE commit carries. */
+	/** The time a PUT or DELETE commit carries, and against which a session expires. */
 	clock?: () => number;
 }) {
 	const limits = { ...WIRE_LIMITS, ...given };
-	const unsubscribe = server.subscribe((event) => feed.publish(JSON.stringify({ type: 'commit', ...event } satisfies FeedMessage)));
+	/** Events of a commit taken from a socket wait here until its answer is sent, so the device hears its answer first. */
+	let holding: string[] | null = null;
+	const unsubscribe = server.subscribe((event) => {
+		const message = JSON.stringify({ type: 'commit', ...event } satisfies SocketMessage);
+		if (holding === null) sockets.publish(message);
+		else holding.push(message);
+	});
+	const lapsed = (verified: Verified) => verified.expires !== undefined && verified.expires <= clock();
+
+	/**
+	 * Take one commit, from either transport: its answer and that answer's
+	 * status, or why the value is not a live commit.
+	 */
+	function takeCommit(value: unknown, session: Session): { status: number; answer: PushAnswer } | { status: 400; error: string } {
+		if (!Check(CommitSchema, value)) return { status: 400, error: 'Not a live commit' };
+		// The schema allows a missing parent only so the door can refuse it in its order (428); nothing else differs from LiveCommit.
+		const answer = server.push(value as LiveCommit, session);
+		return { status: statusOf(answer), answer };
+	}
+
+	/** One catch-up page, from either transport. */
+	const takeCatchUp = (query: CatchUpQuery) => server.catchUp(query);
 
 	const answer = (pushed: PushAnswer, headers: Record<string, string> = {}) =>
 		json(statusOf(pushed), pushed, statusOf(pushed) === 429 ? { 'retry-after': '1', ...headers } : headers);
@@ -221,9 +293,9 @@ export function createWire({
 		const { data: body, error } = await readBody(request, limits.body, expired);
 		if (error !== null) return unread(error);
 		const parsed = trySync({ try: (): unknown => JSON.parse(body), catch: () => BodyError.NotText() });
-		if (parsed.error !== null || !Check(CommitSchema, parsed.data)) return failure(400, 'The body is not a live commit');
-		// The schema allows a missing parent only so the door can refuse it in its order (428); nothing else differs from LiveCommit.
-		return answer(server.push(parsed.data as LiveCommit, session));
+		if (parsed.error !== null) return failure(400, 'The body is not JSON');
+		const taken = takeCommit(parsed.data, session);
+		return 'error' in taken ? failure(400, taken.error) : answer(taken.answer);
 	}
 
 	/** PUT and DELETE: one file, conditional on its hash, as one fast-forward commit on main. */
@@ -266,7 +338,7 @@ export function createWire({
 		const params = url.searchParams;
 		const to = params.get('to');
 		const after = params.get('after');
-		const page = server.catchUp({
+		const page = takeCatchUp({
 			from: params.get('from') || null,
 			paths: params.getAll('path'),
 			...(to === null ? {} : { to }),
@@ -291,10 +363,10 @@ export function createWire({
 		const { method } = request;
 		if (pathname === '/commits') return method === 'POST' ? postCommit(request, session, expired) : notAllowed('POST');
 		if (pathname === '/catch-up') return method === 'GET' ? catchUp(url) : notAllowed('GET');
-		if (pathname === '/feed') {
+		if (pathname === '/socket') {
 			if (method !== 'GET') return notAllowed('GET');
-			if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return failure(426, 'The feed is a WebSocket', { upgrade: 'websocket' });
-			return feed.upgrade(request, session);
+			if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return failure(426, 'The socket is a WebSocket', { upgrade: 'websocket' });
+			return sockets.upgrade(request, session);
 		}
 		if (pathname.startsWith('/blobs/')) return method === 'GET' ? readBlob(request, pathname.slice('/blobs/'.length)) : notAllowed('GET');
 		if (pathname.startsWith('/files/')) {
@@ -323,16 +395,59 @@ export function createWire({
 			try {
 				const session = await Promise.race([authenticate(request), expired]);
 				if (session === EXPIRED) return failure(408, 'The request was not authenticated in time');
-				if (session === null) return failure(401, 'Sign in to use this repository', { 'www-authenticate': 'Bearer' });
+				if (session === null || lapsed(session)) return failure(401, 'Sign in to use this repository', { 'www-authenticate': 'Bearer' });
 				if (!server.mayRead(session)) return failure(403, 'Not a member of this repository');
 				return await route(request, session, expired);
 			} finally {
 				clearTimeout(timer);
 			}
 		},
-		/** The first message a feed socket gets once open: `main` now, so a reconnecting device knows whether it missed anything. */
-		hello: () => JSON.stringify({ type: 'head', main: server.main() } satisfies FeedMessage),
-		/** Stop publishing the server's commits to the feed. */
+		/** The first message a socket gets once open: `main` now, so a reconnecting device knows whether it missed anything. */
+		hello: () => JSON.stringify({ type: 'head', main: server.main() } satisfies SocketMessage),
+		/**
+		 * Take one message from a socket whose session is `verified`, replying
+		 * on `end`. A message past the body limit is refused unread: a push
+		 * is told `request too large` if its request id leads the message, as
+		 * the wire client writes it.
+		 */
+		receive(message: string, verified: Verified, end: SocketEnd) {
+			if (message === PING) return end.send(PONG);
+			if (lapsed(verified)) return end.close(SESSION_EXPIRED, 'The session expired');
+			const reply = (sent: SocketMessage) => end.send(JSON.stringify(sent));
+			if (encoder.encode(message).length > limits.body) {
+				const rid = /^\{"type":"push","rid":(\d+),/.exec(message)?.[1];
+				const answer: PushAnswer = { kind: 'refused', reason: 'request too large', main: server.main() };
+				if (rid !== undefined) return reply({ type: 'answer', rid: Number(rid), status: statusOf(answer), answer });
+				return reply({ type: 'error', rid: null, status: 413, error: 'The message is larger than the limit' });
+			}
+			const parsed = trySync({ try: (): unknown => JSON.parse(message), catch: () => BodyError.NotText() });
+			if (parsed.error !== null || !Check(SocketRequestSchema, parsed.data)) return reply({ type: 'error', rid: null, status: 400, error: 'Not a socket request' });
+			const request = parsed.data;
+			switch (request.type) {
+				case 'push': {
+					holding = [];
+					let taken: ReturnType<typeof takeCommit>;
+					let held: string[];
+					try {
+						taken = takeCommit(request.commit, verified);
+					} finally {
+						held = holding;
+						holding = null;
+					}
+					if ('error' in taken) reply({ type: 'error', rid: request.rid, status: taken.status, error: taken.error });
+					else reply({ type: 'answer', rid: request.rid, status: taken.status, answer: taken.answer });
+					for (const event of held) sockets.publish(event);
+					return;
+				}
+				case 'catch-up': {
+					const { type: _, rid, ...query } = request;
+					return reply({ type: 'caught-up', rid, catchUp: takeCatchUp(query) });
+				}
+				default:
+					return request satisfies never;
+			}
+		},
+		/** Stop publishing the server's commits to the sockets. */
 		close: unsubscribe,
 	};
 }
