@@ -3,7 +3,7 @@
  *
  * The intent of today's engine's held, reconcile, verdict and delete/reuse
  * tests, asserted after phase 0a: live commits with parents,
- * the server merging merge-mode commits, the commit id as idempotency, a
+ * the server merging every writer's commits, the commit id as idempotency, a
  * commit on every save, no stored notices (conflict blocks in the text, and
  * held work with a reason on the device), and a retention window. Each world
  * has a fixed latency and no loss unless a test loses a reply. The people
@@ -17,7 +17,7 @@
  * - A commit meeting a moved `main` is merged by the server in one push; the device never sends an edit made elsewhere back as its own
  * - Changed (D3): an edit made before a delete, landing after the note was brought back or replaced, is one block in the note there
  * - A rename racing an edit of the old path keeps both, and the renamer's delete stays held
- * - An agent's fast-forward commit is refused when `main` moved and changes nothing; the server refuses commits with no parent, a bad id, or a path named twice
+ * - An agent's batch meeting a moved `main` merges as anyone's save does, its files in one commit; the server refuses commits with no parent, a bad id, or a path named twice
  * - Every save commits while online; saves while a commit is in flight, or offline, amend one unsent commit; a sent commit is never rewritten
  * - A commit sent once whose parent left the window merges again after a full catch-up
  */
@@ -246,30 +246,32 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 // Agents, the server's refusals, cadence, the window
 // ============================================================================
 
-test("an agent's fast-forward commit is refused when main moved and changes nothing; on main it applies", () => {
+test("an agent's batch meeting a moved main merges as anyone's save does, its files in one commit", () => {
 	const world = createWorld({ latency: { min: 20, max: 20 } });
+	const sent: LiveCommit[] = [];
+	world.onRequest((device, request) => {
+		if (device === 'agent' && request.type === 'push') sent.push(request.commit);
+	});
 	const alice = world.device('alice');
-	const agent = world.device('agent', { mode: 'fast-forward' });
+	const agent = world.device('agent');
 	world.net.runFor(500);
 	alice.replica.write(PATH, note('one\n'));
 	world.net.runFor(500);
 	alice.replica.edit(PATH, () => note('one\nalice\n'));
 	world.net.runFor(5);
-	agent.replica.edit(PATH, () => note('one\nagent\n'));
+	agent.replica.writeAll({ [PATH]: note('agent\none\n'), 'notes/b.md': note('two\n') });
 	world.net.runFor(2_000);
-	expect(world.server.read(PATH)).toBe(note('one\nalice\n'));
-	expect(agent.replica.lastRefusal()).toEqual({ code: 'main-moved', reason: 'main moved' });
-	expect(agent.replica.read(PATH)).toBe(note('one\nalice\n'));
-	agent.replica.edit(PATH, () => note('one\nalice\nagent\n'));
-	world.net.runFor(2_000);
-	expect(world.server.read(PATH)).toBe(note('one\nalice\nagent\n'));
+	expect(world.server.read(PATH)).toBe(note('agent\none\nalice\n'));
+	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
+	expect(agent.replica.lastRefusal()).toBeNull();
+	expect([...new Set(sent.map((commit) => commit.files.map((f) => f.path).join(' ')))]).toEqual([`${PATH} notes/b.md`]);
 });
 
 test('the server refuses a commit with no parent, a bad id, or a path named twice, and a resend gets the recorded outcome', () => {
 	const server = createTestServer();
 	const session = writer('x');
-	const make = (files: LiveCommit['files'], mode: LiveCommit['mode'] = 'merge'): LiveCommit => {
-		const body = { parent: server.main(), mode, author: { user: 'x', device: 'x' }, time: STAMP, files };
+	const make = (files: LiveCommit['files']): LiveCommit => {
+		const body = { parent: server.main(), author: { user: 'x', device: 'x' }, time: STAMP, files };
 		return { id: commitId(body), ...body };
 	};
 	const first = make([{ path: PATH, text: note('one\n') }]);
@@ -282,7 +284,7 @@ test('the server refuses a commit with no parent, a bad id, or a path named twic
 		kind: 'rejected',
 		code: 'path-twice',
 	});
-	expect(server.push(make([{ path: PATH, text: broken('one\n') }], 'fast-forward'), session)).toMatchObject({ kind: 'refused', code: 'inadmissible', reason: 'does not parse', path: PATH });
+	expect(server.push(make([{ path: PATH, text: broken('one\n') }]), session)).toMatchObject({ kind: 'refused', code: 'inadmissible', reason: 'does not parse', path: PATH });
 	expect(server.snapshot()).toEqual(new Map([[PATH, note('one\n')]]));
 });
 
@@ -331,7 +333,7 @@ test('a stale-parent flood writes each different text once, an identical one not
 	let clock = 0;
 	// Each commit is new (its own time, so its own id): a resend of one would just get its recorded outcome.
 	const make = (parent: string, files: LiveCommit['files'], user = 'x'): LiveCommit => {
-		const body = { parent, mode: 'merge' as const, author: { user, device: user }, time: new Date(EPOCH + clock++).toISOString(), files };
+		const body = { parent, author: { user, device: user }, time: new Date(EPOCH + clock++).toISOString(), files };
 		return { id: commitId(body), ...body };
 	};
 	const root = server.main();

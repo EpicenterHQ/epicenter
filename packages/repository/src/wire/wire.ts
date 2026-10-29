@@ -16,7 +16,7 @@
  *   POST   /tickets          a one-use ticket for the socket, for a client that cannot set its headers
  *   POST   /commits          a live commit, as JSON; answered with its PushAnswer
  *   GET    /files/<path>     main's text, its hash as the ETag
- *   PUT    /files/<path>     If-Match: "<hash>", or If-None-Match: * to create: one fast-forward commit on main
+ *   PUT    /files/<path>     If-Match: "<hash>", or If-None-Match: * to create: one conditional commit on main
  *   DELETE /files/<path>     If-Match: "<hash>": the same, deleting
  *   GET    /catch-up         ?from=<commit>&to=&after=&path=...: one catch-up page
  *   GET    /blobs/<hash>     a text by its Git blob hash: immutable, so cached for good, but never by a shared cache
@@ -32,8 +32,8 @@
  * status: 200 applied, merged or flushed; 409 outcome-unknown; 422 a text
  * the door refuses (`refused`, naming its path); and for a request
  * rejection (`rejected`, by its code), 428 with no parent (or no
- * precondition), 412 when a fast-forward found main moved (or a file is not
- * at the hash named), with main's texts for the paths it touched, 429 rate,
+ * precondition), 412 when a file is not at the hash named, with main's text
+ * for it, 429 rate,
  * 403 a reader or another author, 413 too large, and 422 a malformed one. A request body is capped
  * before it is parsed, and a request body has `timeout` plus its declared
  * length divided by `minRate` to finish or gets 408.
@@ -151,7 +151,6 @@ const CommitSchema = Type.Object(
 	{
 		id: Type.String(),
 		parent: Type.Optional(Type.String()),
-		mode: Type.Union([Type.Literal('fast-forward'), Type.Literal('merge')]),
 		author: Type.Object({ user: Type.String(), device: Type.String() }, { additionalProperties: false }),
 		time: Type.String(),
 		files: Type.Array(Type.Object({ path: Type.String(), text: Type.Union([Type.String(), Type.Null()]) }, { additionalProperties: false })),
@@ -189,7 +188,6 @@ const REJECTED: Record<RequestCode, number> = {
 	'not-author': 403,
 	'no-parent': 428,
 	'no-precondition': 428,
-	'main-moved': 412,
 	'file-moved': 412,
 	rate: 429,
 	'too-large': 413,
@@ -374,7 +372,14 @@ export function createWire({
 		return 'error' in taken ? failure(400, taken.error) : answer(taken.answer);
 	}
 
-	/** PUT and DELETE: one file, conditional on its hash, as one fast-forward commit on main, taken like any other. */
+	/**
+	 * PUT and DELETE: one file, conditional on its hash, as one commit on
+	 * `main`, taken like any other. The condition is HTTP's conditional
+	 * write: checked inside the push, against the file in `main`'s spelling
+	 * of the path, it is the one text write refused because of someone
+	 * else's write. A one-shot client that wants merging posts a commit
+	 * instead (`POST /commits`), on the commit a read named.
+	 */
 	async function writeFile(request: Request, session: Session, path: string, expired: Promise<typeof EXPIRED>) {
 		const ifMatch = request.headers.get('if-match');
 		const create = request.method === 'PUT' && request.headers.get('if-none-match')?.trim() === '*';
@@ -390,7 +395,6 @@ export function createWire({
 		const is: Expect['is'] = ifMatch === null ? 'absent' : ifMatch.trim() === '*' ? 'present' : (tags ?? []).filter((tag) => /^"[0-9a-f]{40}"$/.test(tag)).map((tag) => tag.slice(1, -1));
 		const commit = {
 			parent: server.main(),
-			mode: 'fast-forward' as const,
 			author: { user: session.user, device: request.headers.get(DEVICE_HEADER) ?? 'http' },
 			time: server.time(),
 			files: [{ path, text }],

@@ -224,7 +224,7 @@ async function catchUp(count: number) {
 	const server = createTestServer({ limits: unlimited });
 	for (let start = 0; start < count; start += 1000) {
 		const files = Array.from({ length: Math.min(1000, count - start) }, (_, k) => ({ path: `notes/n${String(start + k).padStart(6, '0')}.md`, text: note(start + k) }));
-		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'seed', device: 'seed' }, time: new Date(0).toISOString(), files };
+		const body = { parent: server.main(), author: { user: 'seed', device: 'seed' }, time: new Date(0).toISOString(), files };
 		server.push({ id: commitId(body), ...body }, writer('seed'));
 	}
 	await peakOf('catch-up', (sample) => {

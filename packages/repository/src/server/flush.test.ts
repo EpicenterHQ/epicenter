@@ -52,7 +52,7 @@ async function bunGit() {
 
 /** A live commit by `session` on `parent` (main by default). */
 function push(server: Server, session: Session, files: CommitFile[], parent = server.main()) {
-	const body = { parent, mode: 'merge' as const, author: { user: session.user, device: 'laptop' }, time: new Date(EPOCH).toISOString(), files };
+	const body = { parent, author: { user: session.user, device: 'laptop' }, time: new Date(EPOCH).toISOString(), files };
 	return server.push({ id: commitId(body), ...body }, session);
 }
 

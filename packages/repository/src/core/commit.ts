@@ -18,8 +18,6 @@ export type CommitFile = {
 export type CommitBody = {
 	/** The state the commit is based on: a commit id, or two joined by a space for a merge. */
 	parent: string;
-	/** `fast-forward` is refused if `main` moved; `merge` is merged where histories meet. */
-	mode: 'fast-forward' | 'merge';
 	author: Author;
 	time: string;
 	files: CommitFile[];
@@ -29,8 +27,8 @@ export type CommitBody = {
 export type LiveCommit = CommitBody & { id: string };
 
 /** The canonical form a commit id hashes: a JSON array in a fixed order. */
-export function canonicalCommit({ parent, mode, author, time, files }: CommitBody) {
-	return JSON.stringify([parent, mode, author.user, author.device, time, files.map((f) => [f.path, f.text])]);
+export function canonicalCommit({ parent, author, time, files }: CommitBody) {
+	return JSON.stringify([parent, author.user, author.device, time, files.map((f) => [f.path, f.text])]);
 }
 
 /** A commit's id: the Git blob id of its canonical form. */

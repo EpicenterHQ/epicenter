@@ -8,7 +8,7 @@
  *
  * Key behaviors:
  * - every endpoint, reads included, refuses a request with no session (401) and one from a non-member (403)
- * - a commit's answer is JSON with a status for each outcome: 200 applied, merged, flushed; 409 outcome-unknown; 428 no parent; 412 main moved, with main's texts; 429 rate; 403 a reader or another author; 413 too large; 422 the door; 400 not a commit
+ * - a commit's answer is JSON with a status for each outcome: 200 applied, merged (a stale parent merges), flushed; 409 outcome-unknown; 428 no parent; 429 rate; 403 a reader or another author; 413 too large; 422 the door; 400 not a commit
  * - PUT and DELETE are one-file conveniences over the same commit: 428 without a precondition, 412 with a stale one, an ETag that is the Git blob hash
  * - a text by hash is immutable and private; a body is capped before it is parsed, and a slow one times out
  * - a device's socket names `main` when it opens, answers each request by its id before the commit's event, takes commits and catch-ups through the same functions as HTTP, and closes when the session expires
@@ -63,8 +63,8 @@ function setup({
 	return { clock, server, lfs, served, url, as, post };
 }
 
-function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), mode = 'merge' as LiveCommit['mode'], time = new Date(EPOCH).toISOString() } = {}): LiveCommit {
-	const body = { parent, mode, author: { user, device: 'laptop' }, time, files };
+function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), time = new Date(EPOCH).toISOString() } = {}): LiveCommit {
+	const body = { parent, author: { user, device: 'laptop' }, time, files };
 	return { id: commitId(body), ...body };
 }
 
@@ -269,19 +269,14 @@ describe('POST /commits', () => {
 		expect(await response.json()).toMatchObject({ kind: 'rejected', code: 'no-parent', reason: 'no parent' });
 	});
 
-	test("a stale fast-forward commit is 412, with main's texts for its paths", async () => {
+	test('a commit on a stale parent is 200 merged', async () => {
 		const { server, post } = setup();
 		const base = server.main();
 		await post(make(server, [{ path: 'n/a.md', text: note('one\n') }]));
-		const response = await post(make(server, [{ path: 'n/a.md', text: note('two\n') }], { parent: base, mode: 'fast-forward' }));
-		expect(response.status).toBe(412);
-		expect(await response.json()).toEqual({
-			kind: 'rejected',
-			code: 'main-moved',
-			reason: 'main moved',
-			main: server.main(),
-			files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }],
-		});
+		const response = await post(make(server, [{ path: 'n/b.md', text: note('two\n') }], { parent: base }));
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ kind: 'merged', main: server.main() });
+		expect([server.read('n/a.md'), server.read('n/b.md')]).toEqual([note('one\n'), note('two\n')]);
 	});
 
 	test('past the rate is 429 with Retry-After', async () => {
@@ -311,7 +306,6 @@ describe('POST /commits', () => {
 		const { server, post, url, as } = setup();
 		expect((await post('{not json')).status).toBe(400);
 		expect((await post({ ...make(server, []), extra: true })).status).toBe(400);
-		expect((await post({ ...make(server, []), mode: 'force' })).status).toBe(400);
 		const wrong = await fetch(url('commits'), { headers: as('alice') });
 		expect([wrong.status, wrong.headers.get('allow')]).toEqual([405, 'POST']);
 		expect((await fetch(url('nowhere'), { headers: as('alice') })).status).toBe(404);
@@ -520,7 +514,7 @@ describe("the device's socket", () => {
 		await until(() => alice.messages.length === 1 && rita.messages.length === 1);
 		const base = server.main();
 		await post(make(server, [{ path: 'n/a.md', text: note('one\n') }]));
-		alice.socket.send({ type: 'push', rid: 1, commit: make(server, [{ path: 'n/a.md', text: note('two\n') }], { parent: base, mode: 'fast-forward' }) });
+		alice.socket.send({ type: 'push', rid: 1, commit: make(server, [{ path: 'n/z.md', text: note('two\n') }], { parent: base }) });
 		rita.socket.send({ type: 'push', rid: 2, commit: make(server, [{ path: 'n/b.md', text: note('b\n') }], { user: 'rita' }) });
 		alice.socket.send({ type: 'push', rid: 3, commit: make(server, [{ path: 'n/c.md', text: '---\ntitle: [\n---\n' }]) });
 		alice.socket.send({ type: 'catch-up', rid: 4, from: base });
@@ -528,7 +522,7 @@ describe("the device's socket", () => {
 		await rita.socket.ping();
 		const replies = alice.messages.filter((m) => m.type === 'answer' || m.type === 'caught-up');
 		expect(replies).toEqual([
-			{ type: 'answer', rid: 1, status: 412, answer: { kind: 'rejected', code: 'main-moved', reason: 'main moved', main: server.main(), files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }] } },
+			{ type: 'answer', rid: 1, status: 200, answer: expect.objectContaining({ kind: 'merged' }) },
 			{ type: 'answer', rid: 3, status: 422, answer: expect.objectContaining({ kind: 'refused', path: 'n/c.md' }) },
 			{ type: 'caught-up', rid: 4, catchUp: server.catchUp({ from: base }) },
 		]);

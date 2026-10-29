@@ -96,11 +96,11 @@ export function createWorld({
 	/** The session the host would verify for `user`: a writer if a member. */
 	const session = (user: string): Session => ({ user, role: members.has(user) ? 'writer' : null });
 
-	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward' } = {}) {
+	function device(name: string) {
 		members.add(name);
 		// The device's database: a restart opens a new replica over it; a lost device gets a new one.
 		let driver = openBunSqlite();
-		const make = () => unwrap(openReplica({ driver, binding: BINDING(name), device: name, mode, after: net.after, now: () => EPOCH + net.now(), timeout }));
+		const make = () => unwrap(openReplica({ driver, binding: BINDING(name), device: name, after: net.after, now: () => EPOCH + net.now(), timeout }));
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;

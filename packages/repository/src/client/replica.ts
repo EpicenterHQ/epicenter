@@ -312,7 +312,6 @@ function createReplica({
 	driver,
 	binding,
 	device,
-	mode = 'merge',
 	app,
 	after,
 	now,
@@ -322,8 +321,6 @@ function createReplica({
 	driver: SqlDriver;
 	binding: Binding;
 	device: string;
-	/** How this device's commits meet a `main` that moved: a person's always merge. */
-	mode?: 'merge' | 'fast-forward';
 	/** The app whose views (one per name) read the files this device shows. */
 	app?: { lenses: Pick<Lens, 'name' | 'view'>[] };
 	/** Run `run` after `ms` (the host's timer). */
@@ -355,7 +352,7 @@ function createReplica({
 	};
 	let position: string | null = null;
 	let next = 1;
-	/** The last refusal or rejection, for an agent awaiting its verdict; cleared when a commit lands. */
+	/** The last refusal or rejection, for a writer awaiting its verdict; cleared when a commit lands. */
 	let lastRefusal: Verdict | null = null;
 	/** The server's bounds on a push, from the connection's first exchange. */
 	let sizing: Sizing | null = null;
@@ -800,7 +797,6 @@ function createReplica({
 		}
 		const body = {
 			parent,
-			mode,
 			author: { user, device },
 			time: new Date(now()).toISOString(),
 			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
@@ -845,7 +841,8 @@ function createReplica({
 						: isNote(path)
 							? appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } })
 							: work;
-			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }) });
+			// Held work keeps its group: it goes again with the rest of what was saved with it, or not at all.
+			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' }, ...(f.together === undefined ? {} : { together: f.together }) }) });
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
@@ -922,37 +919,19 @@ function createReplica({
 		pass(answer.main);
 	}
 
-	/** An agent's change is dropped: it reads again and redoes its task. */
-	function dropSent() {
-		for (const file of inflight?.files ?? []) {
-			const { sent: _, committed: __, ...rest } = record(file.path);
-			set(file.path, { ...rest, mine: rest.base });
-		}
-		setInflight(null);
-		needCatchUp = true;
-	}
-
-	/** The door refused one file's text: that file is held with the reason, the files saved with it wait for it, and the rest goes again. */
+	/**
+	 * The door refused one file's text: that file is held with the reason,
+	 * and the rest goes again; what was saved with it stays committed and
+	 * waits for it, so its group lands whole or not at all.
+	 */
 	function onRefused(answer: Extract<PushAnswer, { kind: 'refused' }>) {
 		stats.refused++;
 		lastRefusal = { code: answer.code, reason: answer.reason };
-		if (mode === 'fast-forward') return dropSent();
 		for (const file of inflight?.files ?? []) {
 			const { sent: level, ...rest } = record(file.path);
-			// RULE: a person's refused text is never dropped: what the door refused is held with the reason; the rest goes again.
-			if (file.path !== answer.path) {
-				// Saved with the path at fault (a rename's other half): it waits with it, uncommitted.
-				if ((rest.together ?? []).includes(answer.path)) {
-					const { committed: _, ...clean } = rest;
-					set(file.path, { ...clean, saved: true });
-				} else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
-			}
-			// RULE: saved again since it was sent (a rename's delete, more typing): the refusal judged a text the person replaced, so the newer save goes, and is judged itself.
-			else if (rest.committed !== undefined) set(file.path, rest);
-			else {
-				const { committed: _, ...clean } = rest;
-				set(file.path, { ...clean, held: { reason: answer.reason } });
-			}
+			// RULE: a writer's refused text is never dropped: what the door refused is held with the reason. Saved again since it was sent (more typing), the refusal judged a text its writer replaced, so the newer save goes, and is judged itself.
+			if (file.path === answer.path && rest.committed === undefined) set(file.path, { ...rest, held: { reason: answer.reason } });
+			else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
 		}
 		setInflight(null);
 	}
@@ -960,26 +939,23 @@ function createReplica({
 	/**
 	 * The request was not taken, and no text is at fault: the work stays
 	 * committed. RULE: rate waits a second; too large splits the next commit
-	 * (one group of files saved together that is too large alone is held,
-	 * each file on its own, so its person saves fewer at once); main moved, for an agent, drops
-	 * its change; anything else only the person or the account can fix,
-	 * so nothing more is sent until the next connection, and the files say why.
+	 * between groups, never within one (one group too large alone is held
+	 * whole: every file of it, still together, so it goes at once or not at
+	 * all); anything else only the writer or the account can fix, so
+	 * nothing more is sent until the next connection, and the files say why.
 	 */
 	function onRejected(answer: Extract<PushAnswer, { kind: 'rejected' }>) {
 		stats.refused++;
 		lastRefusal = { code: answer.code, reason: answer.reason };
-		if (answer.code === 'main-moved' && mode === 'fast-forward') return dropSent();
 		const sent = inflight?.files ?? [];
 		const among = new Map(sent.map((f) => [f.path, record(f.path)] as const));
 		const alone = sent.length > 0 && unit(sent[0]?.path ?? '', among).size === sent.length;
 		const tooLarge = answer.code === 'too-large' || answer.code === 'too-many-files';
 		for (const file of sent) {
 			const { sent: level, ...rest } = record(file.path);
-			if (tooLarge && alone && rest.committed === undefined) {
-				// The group is too large to go together: each file is held on its own, so each can be saved alone.
-				const { committed: _, together: __, ...clean } = rest;
-				set(file.path, { ...clean, held: { reason: `${answer.reason}: save fewer files at once` } });
-			} else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
+			// The group is too large to go together: it is held whole, so none of it lands without the rest.
+			if (tooLarge && alone && rest.committed === undefined) set(file.path, { ...rest, held: { reason: `${answer.reason}: what was saved together goes together; save less at once` } });
+			else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
 		}
 		setInflight(null);
 		switch (answer.code) {
@@ -990,9 +966,6 @@ function createReplica({
 			case 'too-large':
 			case 'too-many-files':
 				if (!alone) cap = Math.max(1, Math.floor(sent.length / 2));
-				return;
-			case 'main-moved':
-				needCatchUp = true;
 				return;
 			default:
 				stalled = { code: answer.code, reason: answer.reason };
@@ -1009,17 +982,6 @@ function createReplica({
 	function onUnknown() {
 		stats.unknown++;
 		const sent = inflight;
-		if (mode === 'fast-forward') {
-			// An agent's change is dropped, as on a refusal: it reads again and redoes its task.
-			for (const file of sent?.files ?? []) {
-				const { sent: _, committed: __, ...rest } = record(file.path);
-				set(file.path, { ...rest, mine: rest.base });
-			}
-			setInflight(null);
-			setPosition(null);
-			needCatchUp = true;
-			return;
-		}
 		const once = attempts <= 1;
 		for (const file of sent?.files ?? []) {
 			const { sent: level, ...rest } = record(file.path);
@@ -1378,7 +1340,7 @@ function createReplica({
 			first(driver, 'SELECT 1 FROM "epicenter/unsent"') !== undefined ||
 			first(driver, `SELECT 1 ${OWED_SQL} LIMIT 1`) !== undefined ||
 			pathsOf('SELECT path FROM "epicenter/files" WHERE saved = 1').some((path) => !blocked(path)),
-		/** Why this device's last commit was refused or rejected (an agent's verdict), until one lands; or null. */
+		/** Why this device's last commit was refused or rejected (a writer's verdict), until one lands; or null. */
 		lastRefusal: () => lastRefusal,
 		/** Why nothing is being sent: a rejection only the person or the account can fix, until the next connection; or null. */
 		rejection: () => stalled,

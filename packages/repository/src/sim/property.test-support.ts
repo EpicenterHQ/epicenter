@@ -8,8 +8,8 @@
  * repairing frontmatter, setting one field from several devices, a stale
  * editor buffer saved late, a note too large to store, renames (delete plus
  * write), deletes, deleting a path and creating it again (sometimes with the
- * very text it had before), agent commits (fast-forward, sometimes merge),
- * lost replies, offline periods, restarts, flushes, idle periods longer than
+ * very text it had before), an agent's batches (several notes in one
+ * save, merged by the same rule as everyone's), lost replies, offline periods, restarts, flushes, idle periods longer than
  * the retention window, catch-ups in pages of two paths, a device whose storage
  * is lost for good, a hostile member writing directly to the server, and
  * blobs: attaching bytes at a named path (alone, or with a note naming it),
@@ -20,8 +20,7 @@
  * network goes quiet.
  *
  * Every step is a word token (`t<n>z`), so the test can say exactly what was
- * typed. A token is *owed* once a person saved it on their device, or once
- * the server applied an agent write holding it. It is *acknowledged* once a
+ * typed. A token is *owed* once a writer saved it on their device. It is *acknowledged* once a
  * commit holding it was answered applied or merged. It stops being owed when
  * a person removes a copy of it from what their editor showed and saved
  * (deleting the word, the file, or overwriting the field; a rename moves it):
@@ -35,6 +34,7 @@
  * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
+ * - An agent's batch lands in one commit or is held whole: no commit on main brings some of a batch's tokens without the rest
  * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
  *
  * Each suite reads its own environment, by prefix (B for the memory
@@ -141,7 +141,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		...(tracing ? { trace: (line: string) => log.push(line) } : {}),
 	});
 	const people = ['alice', 'bob', 'carol'].map((name) => world.device(name));
-	const agent = world.device('agent', { mode: 'fast-forward' });
+	const agent = world.device('agent');
 	const everyone: Device[] = [...people, agent];
 	/** Owed tokens, with who typed them. */
 	const owed = new Map<string, string>();
@@ -160,6 +160,10 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	/** Every blob text main has held, by path. */
 	const onMain = new Set<string>();
 	const honestIds: string[] = [];
+	/** Each agent batch's tokens not yet on main, and the step that saved it: a batch lands in one commit or is held whole. */
+	const batches: { step: string; tokens: Set<string> }[] = [];
+	/** Every token main has held. */
+	const everOnMain = new Set<string>();
 	let next = 1;
 	const token = () => `t${next++}z`;
 
@@ -171,11 +175,20 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	let lastMerge: Committed | null = null;
 	world.onCommit((committed) => {
 		const state = new Map(states.get(committed.parents[0] ?? '') ?? []);
+		// A batch's tokens reach main in one commit, or none of them has yet.
+		const arrived = new Set(committed.files.flatMap((file) => [...tokensIn(file.after)].filter((t) => !everOnMain.has(t))));
+		for (const t of arrived) everOnMain.add(t);
+		for (const batch of batches) {
+			const landed = [...batch.tokens].filter((t) => arrived.has(t));
+			if (landed.length === 0) continue;
+			const missing = [...batch.tokens].filter((t) => !arrived.has(t));
+			if (missing.length > 0) violations.push(`server: agent's batch (${batch.step}) landed ${landed.join(' ')} without ${missing.join(' ')}`);
+			batch.tokens.clear();
+		}
 		for (const file of committed.files) {
 			if (file.path.endsWith('.md') && file.after !== null && !parses(file.after))
 				violations.push(`server: ${file.path} does not parse after a commit by ${committed.author.user}`);
 			if (file.after !== null && file.after.length > 1024 * 1024) violations.push(`server: ${file.path} is ${file.after.length} bytes`);
-			if (committed.author.user === 'agent') for (const t of tokensIn(file.after)) if (!tokensIn(file.before).has(t)) owed.set(t, 'agent');
 			// A removal is done once its path is absent on the server after it, whoever's commit did it.
 			if (file.after === null) for (const r of removals) if (r.path === file.path && !r.cancelled) r.landed = true;
 			const pointer = file.after === null ? null : parsePointer(file.after);
@@ -280,7 +293,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 
 	// A hostile member writing straight to the server, and a stranger.
 	const hostile = (member: string, files: LiveCommit['files'], { author = member, parent = world.server.main(), id }: { author?: string; parent?: string; id?: string } = {}) => {
-		const body = { parent, mode: 'merge' as const, author: { user: author, device: 'x' }, time: STAMP, files };
+		const body = { parent, author: { user: author, device: 'x' }, time: STAMP, files };
 		const commit = { id: id ?? commitId(body), ...body };
 		return world.server.push(commit, world.session(member));
 	};
@@ -581,13 +594,36 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	];
 	const total = steps.reduce((sum, [weight]) => sum + weight, 0);
 
+	/** The agent: a writer whose step is one batch of several notes saved at once, through the same replica and merge rule as everyone. */
+	const agentBatch = () => {
+		const picked = PATHS.filter(() => random.chance(0.5));
+		const paths = picked.length === 0 ? [random.pick(PATHS)] : picked;
+		const changes: Record<string, string | null> = {};
+		const typed: string[] = [];
+		for (const path of paths) {
+			const t = token();
+			typed.push(t);
+			const text = agent.replica.read(path);
+			changes[path] = text === null ? `---\ntitle: ${t}\n---\n` : `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`;
+		}
+		save(agent, changes, typed);
+		const step = `agent saves ${paths.map((path, i) => `${typed[i]} in ${path}`).join(', ')} at once`;
+		batches.push({ step, tokens: new Set(typed) });
+		return step;
+	};
+	const agentSteps: [number, () => string | null][] = [
+		[6, agentBatch],
+		[1, () => (agent.setOnline(!agent.isOnline()), `agent goes ${agent.isOnline() ? 'online' : 'offline'}`)],
+		[1, () => (agent.loseNextReply(), 'agent will lose its next reply')],
+		[1, () => (agent.restart(), 'agent restarts')],
+	];
 	const agentStep = () => {
-		const path = random.pick(PATHS);
-		const text = agent.replica.read(path);
-		if (text === null) return null;
-		const t = token();
-		agent.replica.write(path, `${text}${text.endsWith('\n') ? '' : '\n'}agent ${t}\n`);
-		return `agent appends ${t} to ${path}`;
+		let pick = random.int(1, agentSteps.reduce((sum, [weight]) => sum + weight, 0));
+		for (const [weight, act] of agentSteps) {
+			pick -= weight;
+			if (pick <= 0) return act();
+		}
+		return null;
 	};
 
 	for (let n = 0; n < STEPS; n++) {
@@ -625,7 +661,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			}
 		if (!(await world.settle())) throw new Error(`seed ${seed}: never went idle\n${log.join('\n')}`);
 		let saved = false;
-		for (const d of people) {
+		for (const d of everyone) {
 			const held = new Map(d.replica.held().map((h) => [h.path, h.reason]));
 			for (const path of new Set([...d.replica.paths(), ...held.keys()])) {
 				const text = d.replica.read(path);

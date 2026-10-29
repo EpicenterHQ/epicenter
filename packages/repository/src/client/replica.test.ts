@@ -93,7 +93,7 @@ test("commits fit the server's bounds from the hello: saves split into several, 
 	expect(replica.busy()).toBe(false);
 });
 
-test('a commit rejected as too large is split; a group saved together that is too large alone is held, its text kept', () => {
+test('a commit rejected as too large is split between groups; a group too large alone is held whole, its text kept, until less is saved', () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));
 	const link = connect(replica, server);
@@ -107,15 +107,23 @@ test('a commit rejected as too large is split; a group saved together that is to
 	const big = { 'notes/x.md': note(`${'x'.repeat(1_600)}\n`), 'notes/y.md': note(`${'y'.repeat(1_600)}\n`) };
 	replica.writeAll(big);
 	link.deliver();
+	const reason = 'request too large: what was saved together goes together; save less at once';
 	expect(replica.held().map((h) => [h.path, h.reason])).toEqual([
-		['notes/x.md', 'request too large: save fewer files at once'],
-		['notes/y.md', 'request too large: save fewer files at once'],
+		['notes/x.md', reason],
+		['notes/y.md', reason],
 	]);
 	expect(replica.read('notes/x.md')).toBe(big['notes/x.md']);
-	// Saved alone, each fits.
+	// Saved again alone, x still waits with y: the group is never split.
 	replica.write('notes/x.md', big['notes/x.md']);
 	link.deliver();
+	expect(server.read('notes/x.md')).toBeNull();
+	expect(replica.state('notes/x.md')).toEqual({ status: 'held', reason: 'saved with notes/y.md, which is held' });
+	// Less saved: y dropped, x goes.
+	replica.write('notes/y.md', null);
+	link.deliver();
 	expect(server.read('notes/x.md')).toBe(big['notes/x.md']);
+	expect(server.read('notes/y.md')).toBeNull();
+	expect(replica.held()).toEqual([]);
 });
 
 test('a request rejection holds no text: the work stays committed, the files say why, and the next connection sends it', () => {
@@ -219,7 +227,7 @@ test('a notification costs what it names, not every text the device holds', () =
 	const bob = writer('bob');
 	const text = (i: number, version = 0) => note(`${'word '.repeat(1_000)}${version}\n`, `n${i}`);
 	const commit = (files: LiveCommit['files']) => {
-		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		const body = { parent: server.main(), author: { user: 'bob', device: 'd' }, time: STAMP, files };
 		return { id: commitId(body), ...body };
 	};
 	server.push(commit(Array.from({ length: 2_000 }, (_, i) => ({ path: `notes/${i}.md`, text: text(i) }))), bob);
@@ -247,7 +255,7 @@ test('a notification costs what it names, not every text the device holds', () =
 test("a catch-up's texts are read in batches, and a read that times out is asked again without gathering the pages again", () => {
 	const server = createTestServer({ limits: { page: 100, request: 64 * 1024 * 1024 } });
 	const commit = (files: LiveCommit['files']) => {
-		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		const body = { parent: server.main(), author: { user: 'bob', device: 'd' }, time: STAMP, files };
 		return { id: commitId(body), ...body };
 	};
 	server.push(commit(Array.from({ length: 600 }, (_, i) => ({ path: `notes/${String(i).padStart(3, '0')}.md`, text: note(`${i}\n`) }))), writer('bob'));
@@ -278,7 +286,7 @@ test("a catch-up's texts are read in batches, and a read that times out is asked
 
 test('a replica keeps no text in memory: each read and save reads the database, and a restart mid catch-up starts it again', () => {
 	const server = createTestServer({ limits: { page: 2, request: 64 * 1024 * 1024 } });
-	const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files: ['a', 'b', 'c'].map((stem) => ({ path: `notes/${stem}.md`, text: note(`${stem}\n`) })) };
+	const body = { parent: server.main(), author: { user: 'bob', device: 'd' }, time: STAMP, files: ['a', 'b', 'c'].map((stem) => ({ path: `notes/${stem}.md`, text: note(`${stem}\n`) })) };
 	server.push({ id: commitId(body), ...body }, writer('bob'));
 	const directory = mkdtempSync(join(tmpdir(), 'replica-'));
 	try {

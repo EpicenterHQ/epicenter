@@ -45,7 +45,7 @@ const labelled = (parties: Parties, base: string | null, current: string | null,
 	incoming: { ...parties.incoming, version: versionOf(incoming) },
 });
 
-/** The most conflict blocks a merge may leave in a note; past it the merge is refused, whoever wrote the blocks (an agent redoes it, a person holds it until some are resolved). */
+/** The most conflict blocks a merge may leave in a note; past it the merge is refused, whoever wrote the blocks: its writer holds it until some are resolved. */
 export const BLOCK_CAP = 20;
 
 /** One conflict block holding `incoming` whole, after `current`. */

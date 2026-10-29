@@ -137,7 +137,7 @@ test('P5: a rename racing an offline edit of the old path keeps both', () => {
 
 test('P6: a note that does not parse is refused at the door, so two repairs of one never meet', () => {
 	const { world, alice } = setup();
-	const body = { parent: world.server.main(), mode: 'merge' as const, author: { user: 'alice', device: 'ci' }, time: STAMP, files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }] };
+	const body = { parent: world.server.main(), author: { user: 'alice', device: 'ci' }, time: STAMP, files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }] };
 	expect(world.server.push({ id: commitId(body), ...body }, writer('alice'))).toMatchObject({ kind: 'refused', path: 'notes/x.md' });
 	expect(world.server.read('notes/x.md')).toBeNull();
 	alice.replica.write('notes/x.md', '---\ntitle: "open\n---\nbody\n', { over: null });
@@ -188,7 +188,7 @@ test('P9: a forged author and a note over 1 MB are refused; forged conflict labe
 	const server = createTestServer();
 	const members = new Set(['alice', 'bob', 'mallory']);
 	const commit = (member: string, author: string, text: string): [LiveCommit, Session] => {
-		const body = { parent: server.main(), mode: 'merge' as const, author: { user: author, device: 'x' }, time: STAMP, files: [{ path: 'notes/n.md', text }] };
+		const body = { parent: server.main(), author: { user: author, device: 'x' }, time: STAMP, files: [{ path: 'notes/n.md', text }] };
 		return [{ id: commitId(body), ...body }, { user: member, role: members.has(member) ? 'writer' : null }];
 	};
 	expect(server.push(...commit('mallory', 'alice', note('forged\n')))).toMatchObject({ kind: 'rejected', code: 'not-author', reason: 'the author is not the session' });

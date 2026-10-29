@@ -105,13 +105,13 @@ export function createWireWorld(
 		for (const d of devices) d.drain();
 	}
 
-	function device(name: string, { mode = 'merge' as 'merge' | 'fast-forward' } = {}): Device {
+	function device(name: string): Device {
 		members.add(name);
 		const authorization = { authorization: `Bearer ${name}` };
 		const client = createWireClient({ url: served.url, headers: authorization, openSocket: socketWithHeaders(authorization) });
 		let driver = openBunSqlite();
 		const make = () =>
-			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'test-server', account: name }, device: name, mode, after: net.after, now: () => EPOCH + net.now(), timeout }));
+			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'test-server', account: name }, device: name, after: net.after, now: () => EPOCH + net.now(), timeout }));
 		let replica = make();
 		let online = true;
 		/** HTTP requests: each delayed and lost on its own. */

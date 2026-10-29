@@ -7,11 +7,11 @@
  *
  * Key behaviors:
  * - merging: one clash is one block, however many of a person's commits follow it on a stale parent
- * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds; a stale fast-forward commit is refused with main's texts
+ * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds; a commit on a stale parent is merged, whoever wrote it, never refused because main moved
  * - idempotency: a resend gets its answer brought up to now; after the window, `flushed`; a parent past the window with no record, `outcome-unknown`
  * - catch-up is a tree diff in pages; the change feed names each commit, its parents and changed paths with hashes
  * - a fresh instance over the same Store answers as the first did
- * - the Git receive path checks every pushed commit and refuses merges, broken notes, other modes, Epicenter's files and other refs
+ * - the Git receive path checks every pushed commit and refuses merges, broken notes, other file modes, Epicenter's files and other refs
  * - blobs: a pointer is admitted only once its bytes are here at its size; a blob write lands only over the blob its writer saw (compare-and-swap); the blob limit and the quota refuse uploads; a `git push` may replace, move or delete a binary whose bytes are here
  */
 import { describe, expect, test } from 'bun:test';
@@ -39,7 +39,7 @@ function setup(limits: Partial<Limits> = {}) {
 }
 
 function make(server: Server, files: CommitFile[], { user = 'alice', parent = server.main(), time = new Date(EPOCH).toISOString() } = {}): LiveCommit {
-	const body = { parent, mode: 'merge' as const, author: { user, device: 'laptop' }, time, files };
+	const body = { parent, author: { user, device: 'laptop' }, time, files };
 	return { id: commitId(body), ...body };
 }
 
@@ -92,18 +92,13 @@ describe('admission', () => {
 		});
 	});
 
-	test("a stale fast-forward commit is refused with main's texts for the paths it touched", () => {
+	test('a commit on a stale parent is merged, whoever wrote it, never refused because main moved', () => {
 		const { server } = setup();
 		const base = server.main();
 		expect(server.push(make(server, [{ path: 'n/a.md', text: note('one\n') }]), alice).kind).toBe('applied');
-		const body = { parent: base, mode: 'fast-forward' as const, author: { user: 'alice', device: 'laptop' }, time: new Date(EPOCH).toISOString(), files: [{ path: 'n/a.md', text: note('two\n') }] };
-		expect(server.push({ id: commitId(body), ...body }, alice)).toEqual({
-			kind: 'rejected',
-			code: 'main-moved',
-			reason: 'main moved',
-			main: server.main(),
-			files: [{ path: 'n/a.md', text: note('one\n'), hash: gitBlobHash(note('one\n')) }],
-		});
+		const body = { parent: base, author: { user: 'alice', device: 'agent' }, time: new Date(EPOCH).toISOString(), files: [{ path: 'n/b.md', text: note('two\n') }] };
+		expect(server.push({ id: commitId(body), ...body }, alice)).toMatchObject({ kind: 'merged' });
+		expect([server.read('n/a.md'), server.read('n/b.md')]).toEqual([note('one\n'), note('two\n')]);
 	});
 });
 
@@ -434,7 +429,7 @@ describe('the Git receive path', () => {
 		expect(await world.git.readRef(MAIN)).toBe(head);
 	});
 
-	test('a live commit that lands while a push is checked refuses the push (no merge), and Git does not move', async () => {
+	test('a live commit that lands while a push is checked refuses the push as unflushed (no merge), and Git does not move', async () => {
 		const world = setup();
 		world.server.push(make(world.server, [{ path: 'n/a.md', text: note('a\n') }]), alice);
 		await world.server.flush();
@@ -455,9 +450,10 @@ describe('the Git receive path', () => {
 			},
 		};
 		server = createServer({ store: world.store, git: racing, clock: () => EPOCH });
-		expect(await server.receive({ ref: MAIN, old: head, next }, alice)).toMatchObject({ kind: 'refused', code: 'main-moved' });
+		expect(await server.receive({ ref: MAIN, old: head, next }, alice)).toMatchObject({ kind: 'refused', code: 'unflushed' });
 		expect(await world.git.readRef(MAIN)).toBe(head);
 		expect(server.read('n/b.md')).toBeNull();
+		expect(server.read('n/c.md')).toBe(note('c\n'));
 	});
 
 	test('a push is journaled like a flush: a crash after Git moved is finished by a fresh instance', async () => {

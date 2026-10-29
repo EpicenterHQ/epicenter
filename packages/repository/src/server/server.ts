@@ -7,8 +7,9 @@
  *
  * Every applied write is a live commit whose id hashes its parent and
  * content (core/commit). `main` only moves forward: a commit on `main`
- * fast-forwards it; otherwise a `merge`-mode commit is merged path by path
- * with `settle`, and a `fast-forward`-mode commit is refused.
+ * becomes `main`; any other is merged where its history and `main`'s meet,
+ * path by path, whoever wrote it: a note with `settle`, a blob by
+ * compare-and-swap (`settlePointer`).
  *
  * The door (`admit`): the caller passes a verified session (the user and
  * their role in this repository); the commit's author must be that user and
@@ -29,7 +30,7 @@
  * kept for the window, so a catch-up is a tree diff, in pages.
  *
  * Flushing (flush.ts) turns live history into Git commits; a `git push`
- * comes in through `receive` (receive.ts), fast-forward only.
+ * comes in through `receive` (receive.ts), only on the live `main` Git holds.
  *
  * Rules the design does not state are marked `RULE:`.
  */
@@ -80,7 +81,7 @@ export type FileState = { path: string; text: string | null; hash: string | null
 
 export type PushAnswer =
 	/**
-	 * The commit is in `main`: fast-forwarded (`main` is the commit) or merged
+	 * The commit is in `main`: applied (`main` is the commit) or merged
 	 * (`main` is the merge commit). `files` are `main`'s texts for every path
 	 * changed since the commit's parent and every path it touched, so the
 	 * device can stand on `main` at once. What became of each path is in the
@@ -109,9 +110,9 @@ export type PushAnswer =
 	 * Nothing changed: the request itself was not taken (who sent it, its
 	 * size or rate, its form, or a condition on `main`). No text is at
 	 * fault: the device keeps its work and fixes the request (waits, splits
-	 * it, catches up) or reports it. For `main-moved` and `file-moved`,
-	 * `files` are `main`'s texts for the paths the commit touched, so a
-	 * writer can redo its change without asking again.
+	 * it, catches up) or reports it. For `file-moved`, `files` are `main`'s
+	 * texts for the paths the commit touched, so a writer can redo its
+	 * change without asking again.
 	 */
 	| { kind: 'rejected'; code: RequestCode; reason: string; main: string; files?: FileState[] }
 	/** RULE: the commit's parent is older than the retention window, and the server has no record of it: it cannot say what happened. */
@@ -135,7 +136,6 @@ export type RequestCode =
 	| 'bad-time'
 	| 'clock-ahead'
 	| 'path-twice'
-	| 'main-moved'
 	| 'file-moved'
 	| 'no-precondition';
 
@@ -158,7 +158,6 @@ export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, st
 	'bad-time': 'the time is not an ISO instant',
 	'clock-ahead': "the time is ahead of the server's clock",
 	'path-twice': 'a path is named twice',
-	'main-moved': 'main moved',
 	'file-moved': 'the file moved',
 	'no-precondition': 'no precondition',
 };
@@ -311,7 +310,7 @@ export function createServer({
 	if (meta.get('top') === null) {
 		const at = clock();
 		history.root({
-			id: commitId({ parent: '', mode: 'merge', author: SERVER, time: new Date(at).toISOString(), files: [] }),
+			id: commitId({ parent: '', author: SERVER, time: new Date(at).toISOString(), files: [] }),
 			parents: [],
 			author: SERVER,
 			time: new Date(at).toISOString(),
@@ -444,10 +443,8 @@ export function createServer({
 			const holds = expect.is === 'absent' ? hash === null : expect.is === 'present' ? hash !== null : hash !== null && expect.is.includes(hash);
 			if (!holds) return rejection('file-moved', head.id, [state(path)]);
 		}
-		const forward = commit.parent === head.id;
-		if (commit.mode === 'fast-forward' && !forward) return rejection('main-moved', head.id, commit.files.map((f) => state(f.path, from)));
 		const author = { user: session?.user ?? commit.author.user, device: commit.author.device };
-		if (forward) {
+		if (commit.parent === head.id) {
 			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false }, commit.files);
 			return record(commit, 'applied', commit.id, from, spelled);
 		}
@@ -474,7 +471,7 @@ export function createServer({
 			if (settled.text !== null) {
 				// RULE, the first named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
 				if (bytes(settled.text) > MAX_FILE_BYTES) return refusal('merge-too-large', file.path, head.id);
-				// RULE, the second named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: a person holds it with the reason until blocks are resolved, an agent redoes it.
+				// RULE, the second named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: its writer holds it with the reason until blocks are resolved.
 				if (findConflicts(settled.text).length > Math.max(BLOCK_CAP, ours === null ? 0 : findConflicts(ours).length))
 					return refusal('too-many-blocks', file.path, head.id);
 			}
@@ -486,7 +483,7 @@ export function createServer({
 		}
 		// The device's commit stays a real commit: the merge's second parent.
 		const mergeTime = time();
-		const id = commitId({ parent: `${head.id} ${commit.id}`, mode: 'merge', author: SERVER, time: mergeTime, files: out });
+		const id = commitId({ parent: `${head.id} ${commit.id}`, author: SERVER, time: mergeTime, files: out });
 		history.keepSide(
 			{
 				id: commit.id,
@@ -530,7 +527,7 @@ export function createServer({
 	// ------------------------------------------------------------------------
 
 	const flusher = createFlusher({ history, store, git, faults });
-	const receiver = createReceiver({ history, store, git, clock, limits, flusher, apply: (commit, session, during) => push(commit, session, { rate: false, during }) });
+	const receiver = createReceiver({ history, store, git, clock, limits, flusher, apply: (commit, session, during) => push(commit, session, { rate: false, during, on: commit.parent }) });
 
 	/**
 	 * RULE: after a flush, drop what the window no longer keeps, then every
@@ -595,15 +592,24 @@ export function createServer({
 	}
 	reschedule();
 
-	/** Take a live commit; `during` runs in its transaction once it lands (the receiver's journal row). */
-	function push(commit: LiveCommit, session?: Session, { rate = true, expect, during }: { rate?: boolean; expect?: Expect; during?: () => void } = {}): PushAnswer {
+	type PushOptions = { rate?: boolean; expect?: Expect; during?: () => void };
+	/**
+	 * Take a live commit; `during` runs in its transaction once it lands (the
+	 * receiver's journal row). With `on`, the commit lands only if `main` is
+	 * still `on`, the live head a Git push was checked against, and is null,
+	 * changing nothing, if it moved: a push is never merged (receive.ts).
+	 */
+	function push(commit: LiveCommit, session: Session | undefined, options: PushOptions & { on: string }): PushAnswer | null;
+	function push(commit: LiveCommit, session?: Session, options?: PushOptions): PushAnswer;
+	function push(commit: LiveCommit, session?: Session, { rate = true, expect, during, on }: PushOptions & { on?: string } = {}): PushAnswer | null {
 		pending = [];
 		const answer = store.transaction(() => {
+			if (on !== undefined && main().id !== on) return null;
 			const answer = pushInside(commit, session, rate, expect);
 			if (answer.kind === 'applied' || answer.kind === 'merged') during?.();
 			return answer;
 		});
-		if (answer.kind === 'applied' || answer.kind === 'merged') {
+		if (answer !== null && (answer.kind === 'applied' || answer.kind === 'merged')) {
 			notify();
 			pushed();
 		} else pending = [];
@@ -646,7 +652,7 @@ export function createServer({
 					.map((path) => [path, history.textIn(main().tree, path) as string]),
 			),
 		/**
-		 * Take a live commit: fast-forward `main`, merge it in, or refuse it; a
+		 * Take a live commit: apply it on `main`, merge it in, or refuse it; a
 		 * resend gets its recorded outcome. `expect` is a one-file
 		 * precondition, refused as `the file moved` when it does not hold.
 		 */
@@ -786,7 +792,7 @@ export async function openServer(options: Parameters<typeof createServer>[0]) {
 			const time = new Date(at).toISOString();
 			store.transaction(() => {
 				history.root({
-					id: commitId({ parent: head, mode: 'merge', author: SERVER, time, files: [] }),
+					id: commitId({ parent: head, author: SERVER, time, files: [] }),
 					parents: [],
 					author: SERVER,
 					time,

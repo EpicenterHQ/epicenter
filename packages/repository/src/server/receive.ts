@@ -1,18 +1,20 @@
 /**
  * The Git receive path (D1): a `git push` of `refs/heads/main`, whose
  * objects a transport has already written to Git, is taken only as a
- * fast-forward of the last flush, with no live edits that Git does not
- * hold yet. Every pushed commit must have exactly one parent, and every
+ * fast-forward of Git's `main` at the last flush, with no live edits that
+ * Git does not hold yet (`unflushed`: a limitation of Epicenter's, not
+ * Git's, ADR-0697). Every pushed commit must have exactly one parent, and every
  * path each one changes passes the door (`admissible`, regular files only,
  * strict UTF-8, Epicenter's `.gitattributes` untouched, a pointer's bytes
  * present at its size,
  * one spelling per folded path), so no commit in `main`'s history breaks a
  * rule even if a later one repairs it.
  *
- * Accepted, the pushed change becomes one live commit on top, a
- * fast-forward of the live `main` (D1: if a live commit landed while the
- * push was being checked, the push is refused, never merged), and the
- * transaction that applies it journals the move of Git's `main`, as a
+ * Accepted, the pushed change becomes one live commit whose parent is the
+ * live `main` Git holds. It lands only if the live `main` is still that
+ * commit, checked in the transaction that applies it: a live commit that
+ * landed while the push was being checked refuses the push as `unflushed`,
+ * never merged. That transaction journals the move of Git's `main`, as a
  * flush is journaled (flush.ts); only then does Git's `main` move, by
  * compare-and-swap. A push the live door refuses never moves Git, so a
  * published `main` is never rewound, and a crash after Git moved is
@@ -30,11 +32,15 @@ import type { Limits, PushAnswer, Session } from './server.js';
 /**
  * Why a push was refused: who sent it, the ref, live edits Git does not
  * hold yet (a flush is started), Git's `main` moved outside Epicenter (an
- * operator's to reconcile), `main` moved, the commits' shape (not a
- * fast-forward, too many, a merge, missing), one commit's file (`commit`
- * and `path` name it), or the live commit the change became.
+ * operator's to reconcile), Git's `main` is not the push's old value, the
+ * commits' shape (not a fast-forward, too many, a merge, missing), one
+ * commit's file (`commit` and `path` name it), or the door's refusal of
+ * the live commit the change became.
  */
 export type ReceiveCode = 'not-member' | 'reader' | 'not-main' | 'unflushed' | 'diverged' | 'main-moved' | 'history' | 'file' | 'live';
+
+/** Why a push is refused while live edits are not in Git. */
+const UNFLUSHED = 'live edits are not in Git yet; a flush is scheduled, fetch and retry';
 
 /** Why nothing is taken while a flush is diverged. */
 export const DIVERGED = "Git's main moved outside Epicenter; flushes stop until an operator puts it back";
@@ -60,8 +66,8 @@ export function createReceiver({
 	clock: () => number;
 	limits: Limits;
 	flusher: Flusher;
-	/** Apply a live commit past the rate limit (its checks were made against Git), running `during` in its transaction once it lands. */
-	apply: (commit: LiveCommit, session: Session, during: () => void) => PushAnswer;
+	/** Apply a live commit past the rate limit (its checks were made against Git), only on its parent, running `during` in its transaction once it lands; null when `main` moved past its parent. */
+	apply: (commit: LiveCommit, session: Session, during: () => void) => PushAnswer | null;
 }) {
 	const { meta } = history;
 	const refused = (code: ReceiveCode, reason: string, at: { commit?: string; path?: string } = {}): ReceiveAnswer => ({ kind: 'refused', code, reason, ...at });
@@ -96,7 +102,7 @@ export function createReceiver({
 			}
 			const reason = path === '.gitattributes' ? (text === ATTRIBUTES ? null : 'Epicenter owns this file') : admissible(path, text);
 			if (reason !== null) return refused('file', reason, at);
-			// A push is a fast-forward, so it saw the bytes it replaces: any blob may be written, moved or deleted, once its bytes are here.
+			// A push is a fast-forward of Git's `main`, which holds every live edit (nothing is unflushed), so it saw the bytes it replaces: any blob may be written, moved or deleted, once its bytes are here.
 			const pointer = parsePointer(text);
 			if (pointer !== null && !holdsBlob(store, pointer)) return refused('file', "the file's bytes are not on the server", at);
 		}
@@ -127,7 +133,7 @@ export function createReceiver({
 		if (flusher.diverged() !== null) return refused('diverged', DIVERGED);
 		const start = history.top();
 		if (start > meta.number('flushed') || first(store, 'SELECT 1 FROM journal LIMIT 1') !== undefined)
-			return refused('unflushed', 'live edits are not in Git yet; a flush is scheduled, fetch and retry');
+			return refused('unflushed', UNFLUSHED);
 		const head = meta.get('git_head') || null;
 		if (old !== head || (await git.readRef(MAIN)) !== old) return refused('main-moved', 'main moved; fetch and rebase');
 		const chain = await walk(old, next);
@@ -156,7 +162,6 @@ export function createReceiver({
 		const at = clock();
 		const body = {
 			parent: history.at(start).id,
-			mode: 'fast-forward' as const,
 			author: { user: session.user, device: 'git' },
 			time: new Date(at).toISOString(),
 			files: files.sort((a, b) => (a.path < b.path ? -1 : 1)),
@@ -167,11 +172,11 @@ export function createReceiver({
 			history.trees.update(history.main().tree, [[['.gitattributes'], history.keep(ATTRIBUTES)]]);
 			flusher.journalPushed({ old, next, tree, through: history.top(), staging, user: session.user, at });
 		});
-		if (live.kind !== 'applied') {
+		if (live === null || live.kind !== 'applied') {
 			await git.deleteRef(staging, next);
 			// D1: a live commit landed while the push was checked: refused, never merged.
-			if (live.kind === 'rejected' && live.code === 'main-moved') return refused('main-moved', 'main moved; fetch and rebase');
-			return refused('live', live.kind === 'refused' || live.kind === 'rejected' ? live.reason : 'main moved; fetch and rebase');
+			if (live === null) return refused('unflushed', UNFLUSHED);
+			return refused('live', live.kind === 'refused' || live.kind === 'rejected' ? live.reason : 'the live commit did not land');
 		}
 		const finished = await flusher.finish();
 		if (finished.kind === 'diverged') return refused('diverged', DIVERGED);
