@@ -196,6 +196,12 @@ describe('examples', () => {
 		expect(mirrored).toBe(`${OPEN}oneRS\n${BASE}one\n=======\noneA\n${CLOSE}`);
 	});
 
+	test("continuing a block's side keeps text typed on its delimiter line", () => {
+		const block = '<<<<<<< current bob t1 c1 typed here\noneR\n||||||| base b1\none\n=======\noneA\n>>>>>>> incoming alice t0 i0\n';
+		const continued = withBlocks(merge('oneR\n', block, 'oneRS\n'), labels) ?? '';
+		expect(findConflicts(continued)).toMatchObject([{ current: 'oneRS\n', incoming: 'oneA\n', labels: { current: 'current bob t1 c1 typed here' } }]);
+	});
+
 	test('an overlap touching an existing block keeps both sides', () => {
 		// Probe: current edits a plain line and a line in the block; incoming edits
 		// the plain line and resolves the block. Incoming used to vanish.

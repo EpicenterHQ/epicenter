@@ -25,7 +25,7 @@
  * 242,652 fuzzed triples and 1,000 property seeds never reached it.
  */
 import { stringify } from 'yaml';
-import { block, findConflicts, type Labels, type Party, sideOffering, versionOf, withBlock, withSide } from './conflict.js';
+import { block, findConflicts, type Labels, type Party, sideOffering, unlabelled, versionOf, withBlock, withSide } from './conflict.js';
 import { merge, withBlocks } from './merge.js';
 
 export type Settled = {
@@ -87,7 +87,9 @@ export function settle(
 			incoming: stringifyField(overlap.key, overlap.incoming),
 		};
 		// One clash is one block: a field's block that offers this edit's base value as a side is continued, not joined by another.
-		const continued = values.base === '' ? undefined : findConflicts(text).find((existing) => sideOffering(existing, values.base) !== null);
+		// Only a block the edit's base did not hold: one the writer had seen is not this clash, and their edit of the field is a change of its own.
+		const seen = new Set(findConflicts(base).map((existing) => unlabelled(existing.raw)));
+		const continued = values.base === '' ? undefined : findConflicts(text).find((existing) => !seen.has(unlabelled(existing.raw)) && sideOffering(existing, values.base) !== null);
 		const side = continued === undefined ? null : sideOffering(continued, values.base);
 		text =
 			continued === undefined || side === null

@@ -144,18 +144,19 @@ export function sideOffering(conflict: Conflict, lines: string): 'current' | 'in
 
 /**
  * `conflict` with one side's lines replaced by `text`, now labelled as
- * written by `by`: the block a later edit of that side makes. Its other side
+ * written by `by` (where its label is one Epicenter wrote): the block a later edit of that side makes. Its other side
  * and its base stay as they were.
  */
 export function withSide(conflict: Conflict, side: 'current' | 'incoming', text: string, by: Side) {
-	const current = side === 'current' ? label('current', by) : conflict.labels.current;
-	const incoming = side === 'incoming' ? label('incoming', by) : conflict.labels.incoming;
+	// A label is rewritten only where it reads as one Epicenter wrote; anything else on the delimiter's line is text, and stays.
+	const current = side === 'current' && conflict.sides.current !== null ? label('current', by) : conflict.labels.current;
+	const incoming = side === 'incoming' && conflict.sides.incoming !== null ? label('incoming', by) : conflict.labels.incoming;
 	const baseLine = conflict.labels.base === '' ? BASE : `${BASE} ${conflict.labels.base}`;
 	return `${OPEN}${current}\n${sectionLines(side === 'current' ? text : conflict.current)}${baseLine}\n${sectionLines(conflict.base)}${SPLIT}\n${sectionLines(side === 'incoming' ? text : conflict.incoming)}${CLOSE}${incoming}\n`;
 }
 
 /** A block with its labels removed, so two blocks with the same sections compare equal whoever wrote them. */
-const unlabelled = (text: string) => text.replace(/^(<<<<<<<|>>>>>>>) .*$/gm, '$1').replace(/^\|\|\|\|\|\|\| base .*$/gm, BASE);
+export const unlabelled = (text: string) => text.replace(/^(<<<<<<<|>>>>>>>) .*$/gm, '$1').replace(/^\|\|\|\|\|\|\| base .*$/gm, BASE);
 
 /** `text` with `added` (one block) after it, unless a block with the same sections, whoever's labels, is already there. */
 export function withBlock(text: string, added: string) {

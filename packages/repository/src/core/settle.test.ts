@@ -7,7 +7,7 @@
  * Key behaviors:
  * - a change against an unchanged base lands as is; a repeat lands as nothing
  * - a delete loses to an edit it had not seen; an edit brings a deleted note back
- * - a field both sides set keeps current's value and writes incoming's as a block (D2); a later edit of that field continues the block
+ * - a field both sides set keeps current's value and writes incoming's as a block (D2);  a later edit of that field continues the block, unless the writer had seen it
  * - a path created twice, or deleted since base, keeps current and appends incoming whole (D3)
  * - an identical block is never written twice
  */
@@ -45,6 +45,16 @@ describe('settle', () => {
 		expect(second.blocks).toBe(true);
 		expect(parseMarkdown(second.text ?? '').data?.fields).toEqual({ title: 'Mine' });
 		expect(findConflicts(second.text ?? '')).toMatchObject([{ current: 'title: Mine\n', base: 'title: Base\n', incoming: 'title: Theirs again\n', sides: { incoming: { time: 't3' } } }]);
+	});
+
+	test("a field's block the writer had already seen is not continued: their edit of the field is a clash of its own, and the block stays as they left it", () => {
+		// Minimized from wire seed 17014: the writer's base already held a block offering mood: A, with text typed on its opening line.
+		const held = '<<<<<<< current main - 44bb5a0 typed\nmood: A\n||||||| base ea98c42\n=======\nmood: B\n>>>>>>> incoming alice/laptop t0 8bb3865\n';
+		const fields = (mood: string) => `---\nmood: ${mood}\n---\n${held}`;
+		const settled = settle(fields('A'), fields('Mine'), fields('Theirs'), { parties }).text ?? '';
+		expect(settled).toContain(held);
+		expect(settled).toContain('mood: Theirs');
+		expect(findConflicts(settled)).toHaveLength(2);
 	});
 
 	test('a path created twice or deleted since base holds another note (D3)', () => {
