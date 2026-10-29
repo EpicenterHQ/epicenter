@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { openFolder } from '@epicenter/folder/bun';
 import { $ } from 'bun';
 import { expectOk } from 'wellcrafted/testing';
-import { todosTables } from '../src/lib/definition.js';
+import { todosTables } from '../src/definition.js';
 
 const native = (directory: string, ...args: string[]) =>
 	$`bun scripts/native.ts ${directory} ${args}`.cwd(

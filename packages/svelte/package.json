@@ -24,8 +24,7 @@
 		"./repository": "./src/repository/index.ts",
 		"./repository/source-editor": "./src/repository/source-editor.svelte",
 		"./repository/editor-status": "./src/repository/editor-status.svelte",
-		"./repository/gate": "./src/repository/repository-gate.svelte",
-		"./repository/chooser": "./src/repository/repository-chooser.svelte"
+		"./repository/gate": "./src/repository/repository-gate.svelte"
 	},
 	"dependencies": {
 		"@codemirror/commands": "^6.11.1",

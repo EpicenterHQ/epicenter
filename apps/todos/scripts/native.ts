@@ -1,6 +1,6 @@
 /** Local Todos over an existing directory. No account, remote, or Git required. */
 import { openFolder } from '@epicenter/folder/bun';
-import { todosTables } from '../src/lib/definition.js';
+import { todosTables } from '../src/definition.js';
 
 const [directory, command, ...args] = process.argv.slice(2);
 if (directory === undefined || command === undefined) {

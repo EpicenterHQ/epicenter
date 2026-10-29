@@ -1,59 +1,43 @@
 {
 	"name": "@epicenter/honeycrisp",
-	"description": "Markdown notes in a repository on this device, synced when a server is set",
+	"description": "Honeycrisp: Markdown notes in a repository, as a lens (its definition) and a Svelte root the web shell mounts",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
+	"exports": {
+		".": "./src/data.ts",
+		"./app": "./src/components/HoneycrispApp.svelte"
+	},
 	"scripts": {
-		"dev": "vite dev",
-		"dev:ui": "vite dev",
-		"build": "NODE_ENV=production vite build",
-		"build:host": "EPICENTER_HOST=1 bun run build",
-		"preview": "vite preview",
-		"deploy": "wrangler deploy",
-		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' --path-ignore-patterns='browser-tests/**' ./src && bun run test:dom",
+		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.dom.test.ts' ./src && bun run test:dom",
 		"test:dom": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte dom.test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json",
-		"test:browser": "bun test browser-tests/"
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
 	},
 	"devDependencies": {
-		"@epicenter/ui": "workspace:*",
-		"@epicenter/vite-config": "workspace:*",
-		"@lucide/svelte": "catalog:",
-		"@sveltejs/adapter-static": "catalog:",
-		"@sveltejs/kit": "catalog:",
-		"@sveltejs/vite-plugin-svelte": "catalog:",
-		"@tailwindcss/vite": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"jsdom": "26.1.0",
-		"mode-watcher": "catalog:",
-		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
-		"svelte-sonner": "catalog:",
-		"tailwindcss": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:"
+		"typescript": "catalog:"
 	},
 	"dependencies": {
 		"@codemirror/commands": "^6.11.1",
 		"@codemirror/lang-markdown": "^6.5.2",
 		"@codemirror/language": "^6.13.1",
-		"@codemirror/merge": "^6.12.3",
 		"@codemirror/state": "^6.7.6",
 		"@codemirror/view": "^6.43.15",
-		"@epicenter/constants": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
-		"@tauri-apps/api": "catalog:",
-		"bits-ui": "catalog:",
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
 		"date-fns": "catalog:",
-		"runed": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
+	},
+	"peerDependencies": {
+		"svelte": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

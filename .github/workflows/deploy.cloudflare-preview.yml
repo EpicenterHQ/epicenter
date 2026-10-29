@@ -5,7 +5,6 @@ on:
     types: [opened, synchronize, reopened]
     paths:
       - 'apps/landing/**'
-      - 'apps/honeycrisp/**'
       - 'apps/vocab/**'
       - 'packages/**'
       - '.github/workflows/deploy.cloudflare-preview.yml'
@@ -82,7 +81,7 @@ jobs:
           # wrangler.jsonc to preview from. vocab stays and is expected to show
           # :x: until it is rebuilt against the store, which is the point of a
           # loop that reports per-app failures instead of aborting.
-          apps=(landing honeycrisp vocab)
+          apps=(landing vocab)
           preview_alias="pr-${PR_NUMBER}"
           rows=""
           for app in "${apps[@]}"; do

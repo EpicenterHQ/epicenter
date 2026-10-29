@@ -55,6 +55,8 @@ const result = await build({
 		rollupOptions: {
 			input: join(appDir, entry),
 			preserveEntrySignatures: 'strict',
+			// SvelteKit's runtime modules, which its plugin provides to an app's build; this build has no SvelteKit.
+			external: [/^\$app\//],
 		},
 	},
 });

@@ -1,0 +1,42 @@
+{
+	"name": "@epicenter/web",
+	"description": "The web shell: every first-party app over any repository in this browser, addressed /<owner>/<repo>/<app> on one origin",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "NODE_ENV=production vite build",
+		"preview": "vite preview",
+		"prepare": "svelte-kit sync || echo ''",
+		"test": "bun test --path-ignore-patterns='browser-tests/**' ./src",
+		"test:browser": "bun test browser-tests/",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
+	},
+	"devDependencies": {
+		"@epicenter/vite-config": "workspace:*",
+		"@sveltejs/adapter-static": "catalog:",
+		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@tailwindcss/vite": "catalog:",
+		"@types/bun": "catalog:",
+		"mode-watcher": "catalog:",
+		"playwright": "^1.61.1",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"svelte-sonner": "catalog:",
+		"tailwindcss": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"dependencies": {
+		"@epicenter/honeycrisp": "workspace:*",
+		"@epicenter/repository": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"@epicenter/todos": "workspace:*",
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
+		"wellcrafted": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

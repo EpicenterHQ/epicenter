@@ -19,7 +19,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-const ROOTS = ['apps/honeycrisp/src/lib', 'apps/whispering/src/lib'];
+const ROOTS = ['apps/honeycrisp/src', 'apps/whispering/src/lib'];
 
 function* walk(dir: string): Generator<string> {
 	for (const entry of readdirSync(dir)) {

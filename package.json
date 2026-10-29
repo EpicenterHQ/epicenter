@@ -131,9 +131,8 @@
 	"scripts": {
 		"epicenter": "bun --no-install packages/cli/src/bin.ts",
 		"build": "bun run --filter '*' build",
-		"build:todos:desktop": "bun run --cwd apps/todos build:desktop",
 		"check": "bun run lint:ci && bun run typecheck && bun run test && bun run check:structure",
-		"dev": "bun run dev:honeycrisp",
+		"dev": "bun run dev:web",
 		"dev:api": "bun run --cwd apps/api dev",
 		"dev:capture": "bun run --cwd apps/capture dev",
 		"dev:capture:ui": "bun run --cwd apps/capture dev",
@@ -141,13 +140,9 @@
 		"dev:api-dashboard:ui": "bun run --cwd apps/api/ui dev",
 		"demo:views": "bun apps/epicenter/scripts/demo-views.ts",
 		"dev:epicenter": "EPICENTER_API_URL=http://localhost:8787 bun run --filter @epicenter/api --filter @epicenter/epicenter dev",
-		"dev:honeycrisp": "bun run --cwd apps/honeycrisp dev",
-		"dev:honeycrisp:ui": "bun run --cwd apps/honeycrisp dev:ui",
 		"dev:landing": "bun run --cwd apps/landing dev",
 		"dev:posthog-reverse-proxy": "bun run --cwd apps/posthog-reverse-proxy dev",
-		"dev:todos": "bun run --cwd apps/todos dev",
-		"dev:todos:ui": "bun run --cwd apps/todos dev:ui",
-		"dev:todos:desktop": "bun run --cwd apps/todos dev:desktop",
+		"dev:web": "bun run --cwd apps/web dev",
 		"dev:vocab": "bun run --filter @epicenter/api --filter @epicenter/vocab dev",
 		"dev:vocab:ui": "bun run --cwd apps/vocab dev",
 		"dev:whispering": "bun run --cwd apps/whispering dev",
@@ -175,7 +170,6 @@
 		"nuke": "bun run scripts/clean.ts --nuke",
 		"cf:audit:remote": "bun run --cwd ops cf:audit:remote",
 		"jsrepo:build": "jsrepo build",
-		"build:honeycrisp:ui": "bun run --cwd apps/honeycrisp build",
 		"dev:messages": "bun run --cwd apps/messages dev"
 	},
 	"devDependencies": {
