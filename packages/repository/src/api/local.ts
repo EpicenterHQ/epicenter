@@ -75,6 +75,8 @@ export function createLocalHost({ replica, app }: { replica: Replica; app: { len
 		set({ status: 'open', session });
 	}
 	const host: Host = {
+		// A process has no page to hide or freeze: its session ends only when it is told to.
+		leaving: () => () => {},
 		subscribe(onState) {
 			watchers.add(onState);
 			onState(state);

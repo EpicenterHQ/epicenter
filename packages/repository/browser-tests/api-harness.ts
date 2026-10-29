@@ -42,7 +42,7 @@ function holdable(inner: Host): Host {
 		}
 		return wrapped;
 	};
-	return { subscribe: (onState) => inner.subscribe((state: HostState) => onState(state.status === 'open' ? { status: 'open', session: wrap(state.session) } : state)), close: () => inner.close() };
+	return { subscribe: (onState) => inner.subscribe((state: HostState) => onState(state.status === 'open' ? { status: 'open', session: wrap(state.session) } : state)), leaving: (listener) => inner.leaving(listener), close: () => inner.close() };
 }
 
 function show(tab: ReplicaTab) {

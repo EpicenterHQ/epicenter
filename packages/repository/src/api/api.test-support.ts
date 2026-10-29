@@ -52,6 +52,7 @@ function holding(inner: Host) {
 	};
 	const host: Host = {
 		subscribe: (onState) => inner.subscribe((state: HostState) => onState(state.status === 'open' ? { status: 'open', session: wrap(state.session) } : state)),
+		leaving: (listener) => inner.leaving(listener),
 		close: () => inner.close(),
 	};
 	return {

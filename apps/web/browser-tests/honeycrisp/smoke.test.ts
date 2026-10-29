@@ -35,7 +35,7 @@ for (const [engine, browser] of [
 					await page.getByRole('region', { name: 'Note' }).locator('.cm-content').click();
 					await page.keyboard.type('Milk');
 					await page.keyboard.press('Enter');
-					// The list shows what the tab's worker stored; a reload before that can lose the last keystrokes.
+					// The list shows the editor's typing, stored or not; a reload keeps what the page has not stored yet (`leaving` in the browser host).
 					await page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: `Groceries ${engine}` }).filter({ hasText: 'Milk' }).waitFor();
 					await page.reload();
 					await opened(page, 'honeycrisp');

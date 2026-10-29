@@ -119,6 +119,7 @@ type Entry = Editor & {
 	heard(revision: number, text: string | null): void;
 	reopened(text: string | null): void;
 	lost(): void;
+	leavingWrite(): Change | null;
 	end(options?: { dropped?: boolean }): void;
 };
 
@@ -380,6 +381,21 @@ export function createEditors(deps: Deps) {
 			lost() {
 				if (!ended) settleClosing();
 			},
+			/**
+			 * The session is about to end without the page choosing it (the
+			 * page hiding or freezing), so typing above the write in flight
+			 * would stay only in this page: the write that keeps it, over the
+			 * text in flight, for the host to store. The editor carries on as
+			 * it was; its next write after a reopen goes over its base, and
+			 * the worker merges it once. One paused on a clash keeps waiting
+			 * for the person: its base is already the other change, so a
+			 * write over it would undo that.
+			 */
+			leavingWrite() {
+				const over = flight?.sent ?? base;
+				if (ended || draft === over || state.status === 'paused' || state.status === 'closed') return null;
+				return { kind: 'write', path, text: draft, over };
+			},
 			/** Stop for good. `dropped`: the person let the draft go (a discard, or a delete made here), so nothing is reported unsaved. */
 			end({ dropped = false }: { dropped?: boolean } = {}) {
 				if (ended) return;
@@ -485,6 +501,10 @@ export function createEditors(deps: Deps) {
 		/** The note was deleted here: its editor ends, and its draft goes with it. */
 		deleted(path: string) {
 			editors.get(path)?.discard();
+		},
+		/** The session is about to end on its own: the writes that keep the typing each editor holds above its write in flight. */
+		leavingWrites(): Change[] {
+			return [...editors.values()].flatMap((editor) => editor.leavingWrite() ?? []);
 		},
 		/** The session ended. */
 		lost() {

@@ -98,6 +98,15 @@ once and nothing is projected. Each new session starts with an ordered
 snapshot; a note that did not change keeps its object, so a list keyed by
 identity does not redraw it.
 
+An editor sends one write at a time, so typing made while one is in flight
+lives only in the page. When the page hides or freezes, the host asks for
+those drafts (`Host.leaving`) before it ends the session. The browser host
+keeps them in this origin's localStorage, synchronously, since WebKit ends
+a page's worker as it navigates. It also sends them, and the next session
+of that replica replays them before anything else, once. Each is a write
+over the text it was typed on, so one already stored merges into itself.
+A draft paused on a clash is not handed over: it waits for the person.
+
 `repo.subscribe(listener)` is the one way to hear that anything changed: it
 names the collections whose notes changed, and whether the status did.
 `repo.close()` returns the drafts editors could not save, for the caller to
