@@ -113,8 +113,6 @@ export function createWireWorld(
 		/** HTTP requests: each delayed and lost on its own. */
 		let link: { open: boolean; loseNextDown: boolean } | null = null;
 		let socket: Socket | null = null;
-		/** The replica can send: the HTTP link is up, and with the socket transport, the socket is open. */
-		let attached = false;
 		let reopening = false;
 		/** Requests sent up the socket, by request id, for the request hooks. */
 		const sent = new Map<number, Request>();
@@ -158,10 +156,7 @@ export function createWireWorld(
 		}
 
 		const send = (request: Request) => (transport === 'socket' ? overSocket(request) : overHttp(request));
-		const attach = () => {
-			attached = true;
-			replica.attach(send);
-		};
+		const attach = () => replica.attach(send);
 
 		function openLink() {
 			link = { open: true, loseNextDown: false };
@@ -203,10 +198,7 @@ export function createWireWorld(
 			net.after(random.int(latency.min, latency.max), () => {
 				if (socket !== current) return;
 				socket = null;
-				if (transport === 'socket') {
-					attached = false;
-					replica.attach(null);
-				}
+				if (transport === 'socket') replica.attach(null);
 				if (online) reopen();
 			});
 		}
@@ -289,7 +281,6 @@ export function createWireWorld(
 				socket.connection.close();
 			}
 			socket = null;
-			attached = false;
 		}
 
 		/**
