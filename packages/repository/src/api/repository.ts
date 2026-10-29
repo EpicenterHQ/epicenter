@@ -30,7 +30,7 @@ import { type App, type Definitions, type Lens, type NoteName, schemaIssues } fr
 import { bodyOf, parseMarkdown, splitMarkdown, writeMarkdown } from '../core/markdown.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
-import { createEditors, type Editor, type EditorError, type Unsaved } from './editor.js';
+import { createEditors, type Editor, type EditorError, mergedOver, type Unsaved } from './editor.js';
 
 // ============================================================================
 // The host: where the replica runs, and its sessions
@@ -186,12 +186,13 @@ function indexOf(list: Note[], path: string) {
 const SENDING: FileStatus = { status: 'sending' };
 const sameState = (a: FileStatus, b: FileStatus) => a.status === b.status && a.reason === b.reason;
 
-/** A change as it shows before its answer: over a note's text, what the page shows. */
+/** A change as it shows before its answer, over a note's text, applied as the worker will apply it. */
 function project(text: string | null, change: Change): string | null {
 	switch (change.kind) {
 		case 'create':
+			return text === null ? change.text : mergedOver(null, text, change.text);
 		case 'write':
-			return change.text;
+			return change.over === undefined ? change.text : mergedOver(change.over, text, change.text);
 		case 'delete':
 			return null;
 		case 'patch':
@@ -267,7 +268,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		unavailable: () => RepositoryError.Unavailable({ status: status.status }).error,
 	});
 
-	/** Show `path` as stored, its pending writes and its editor's draft over it; true when what shows changed. */
+	/**
+	 * Show `path` as stored, with each write not yet answered and the
+	 * editor's unsent typing applied over it as the worker will apply them,
+	 * so a field set a moment ago still shows while the body is typed.
+	 */
 	function refresh(path: string) {
 		const classified = classify(path);
 		if (classified === null || !classified.lens.memory) return;

@@ -11,6 +11,7 @@
  * - A write shows at once, is cleared by its answer, and is dropped when it fails
  * - A new session's snapshot keeps the object of every note that did not change
  * - Typing in a body keeps the note's fields as read and replaces it in the ordered list, without sorting it again
+ * - What shows before an answer is what the worker will make: a field set a moment ago still shows under body typing and a write made over an older text
  * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
  */
 import { expect, test } from 'bun:test';
@@ -186,4 +187,22 @@ test("typing in a note's body keeps its fields as read and the list in order, wi
 	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({ valid: true, fields: { done: true } });
 	await settled();
 	expectOk(await editor.close());
+});
+
+test('a field set a moment ago still shows while the body is typed, and under a write made over an older text', async () => {
+	const { repo } = setup((replica) => replica.write('todos/milk.md', todo('Milk', false, 'one\n')));
+	await settled();
+	const editor = expectOk(await repo.todos.openEditor({ stem: 'milk' }));
+	// The title is set; before its answer, the person types in the body.
+	const titled = repo.todos.patch({ stem: 'milk' }, { title: 'Oat milk' });
+	editor.update(todo('Milk', false, 'one two\n'));
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({ fields: { title: 'Oat milk' }, body: 'one two\n' });
+	// A write made over the note as it was keeps the field too, as the worker will merge it.
+	const written = repo.todos.write({ stem: 'milk' }, todo('Milk', true, 'one two\n'), { over: todo('Milk', false, 'one two\n') });
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({ fields: { title: 'Oat milk', done: true }, body: 'one two\n' });
+	expectOk(await titled);
+	expectOk(await written);
+	await settled();
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({ fields: { title: 'Oat milk', done: true }, body: 'one two\n' });
+	expect(editor.draft()).toBe(todo('Oat milk', true, 'one two\n'));
 });

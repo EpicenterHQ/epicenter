@@ -37,6 +37,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, Row } from '../client/page.js';
 import { type Change, type Changed, ChangeError } from '../client/replica.js';
 import { applyChanges, composeChanges, diffText, rebase, type TextChange } from '../core/diff.js';
+import { type Parties, settle } from '../core/settle.js';
 import type { RepositoryError, RepositoryStatus, Session, WriteError } from './repository.js';
 
 export type EditorState =
@@ -106,11 +107,19 @@ type Deps = {
 type Entry = Editor & {
 	views: number;
 	dirty(): boolean;
+	/** The text the unsent typing was made over: the write in flight's, or the base. */
+	typedOver(): string;
 	heard(revision: number, text: string | null): void;
 	reopened(text: string | null): void;
 	lost(): void;
 	end(): void;
 };
+
+/** Who wrote each side of a conflict block shown before its answer: the worker labels the one it writes. */
+const SHOWN: Parties = { current: { author: 'elsewhere', time: '-' }, incoming: { author: 'you', time: '-' } };
+
+/** `text`, made over `over`, as the worker will apply it over `current`: merged where `current` moved since. */
+export const mergedOver = (over: string | null, current: string | null, text: string | null) => settle(over, current, text, { parties: SHOWN }).text;
 
 /** A write lost with its session goes again in the next one. */
 const lostWithSession = (error: WriteError) => error.name === 'Closed' || error.name === 'Unavailable';
@@ -335,6 +344,7 @@ export function createEditors(deps: Deps) {
 				deps.refresh(path);
 			},
 			dirty,
+			typedOver: () => flight?.sent ?? base,
 			heard,
 			/** A new session: a clean editor follows the note as it is there; a dirty one, or one whose write was lost with the last session, saves again. */
 			reopened(text) {
@@ -400,10 +410,10 @@ export function createEditors(deps: Deps) {
 
 	return {
 		open,
-		/** What a list shows for `path`: the draft, while an editor holds typing not yet stored. */
+		/** What a list shows for `path` over `text`: the typing an editor holds unsent, merged over it as the worker will merge it. */
 		draftOver(path: string, text: string | null) {
 			const editor = editors.get(path);
-			return editor?.dirty() ? editor.draft() : text;
+			return editor?.dirty() ? mergedOver(editor.typedOver(), text, editor.draft()) : text;
 		},
 		/** Whether an editor of `path` holds typing not yet stored. */
 		unsaved: (path: string) => editors.get(path)?.dirty() ?? false,
