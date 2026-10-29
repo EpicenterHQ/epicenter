@@ -337,6 +337,25 @@ names: development only. In the web shell, open
 `/<owner>/<name>?server=<url>` (any owner: this server does not check it)
 and enter any name to sync as.
 
+### One-shot writers over HTTP
+
+A script or an agent without a replica writes over HTTP. Every text writer
+merges by the same rule ([ADR-0697](../../docs/adr/0697-all-text-merges-from-everyone.md));
+the one exception is HTTP's conditional file write, which is refused (412,
+`file-moved`) when the file is no longer at the hash it names:
+
+```sh
+curl -i -H 'authorization: Bearer ada' http://127.0.0.1:8787/files/notes/trip.md
+# etag: "<hash>"   epicenter-commit: <commit>
+curl -X PUT -H 'authorization: Bearer ada' -H 'if-match: "<hash>"' --data-binary @trip.md http://127.0.0.1:8787/files/notes/trip.md
+```
+
+To have a write merged instead, post a live commit on the commit the read
+named (`POST /commits`): its parent is the `epicenter-commit` header, its
+id is `commitId` (`core/commit.ts`) of the rest, and its author is the
+session's user. The answer is `applied` or `merged`, with `main`'s text for
+each path it touched.
+
 ## Checks
 
 From `packages/repository`:

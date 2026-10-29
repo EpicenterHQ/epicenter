@@ -15,7 +15,7 @@
  *   GET    /socket           the device's WebSocket (below)
  *   POST   /tickets          a one-use ticket for the socket, for a client that cannot set its headers
  *   POST   /commits          a live commit, as JSON; answered with its PushAnswer
- *   GET    /files/<path>     main's text, its hash as the ETag
+ *   GET    /files/<path>     main's text, its hash as the ETag, and the commit it was read at as Epicenter-Commit
  *   PUT    /files/<path>     If-Match: "<hash>", or If-None-Match: * to create: one conditional commit on main
  *   DELETE /files/<path>     If-Match: "<hash>": the same, deleting
  *   GET    /catch-up         ?from=<commit>&to=&after=&path=...: one catch-up page
@@ -34,7 +34,10 @@
  * rejection (`rejected`, by its code), 428 with no parent (or no
  * precondition), 412 when a file is not at the hash named, with main's text
  * for it, 429 rate,
- * 403 a reader or another author, 413 too large, and 422 a malformed one. A request body is capped
+ * 403 a reader or another author, 413 too large, and 422 a malformed one.
+ * A one-shot client that wants its write merged, not refused because the
+ * file moved, reads the file, then posts a commit whose parent is the
+ * `Epicenter-Commit` the read named. A request body is capped
  * before it is parsed, and a request body has `timeout` plus its declared
  * length divided by `minRate` to finish or gets 408.
  *
@@ -145,6 +148,9 @@ export type Ticket = { ticket: string; expires: number };
 
 /** The header a plain HTTP writer names its device in; `http` without it. */
 export const DEVICE_HEADER = 'epicenter-device';
+
+/** The header a file read names the commit it read in: the parent for a merging `POST /commits`. */
+export const COMMIT_HEADER = 'epicenter-commit';
 
 /** A live commit as it may arrive; a missing parent is the door's to refuse (428). */
 const CommitSchema = Type.Object(
@@ -405,11 +411,12 @@ export function createWire({
 		return answer(pushed, pushed.kind === 'applied' && text !== null ? { etag: `"${gitBlobHash(text)}"` } : {});
 	}
 
+	/** A file's text on `main`, and the commit it was read at, from one synchronous read. */
 	function readFile(request: Request, path: string) {
 		const text = server.read(path);
 		if (text === null) return failure(404, 'No such file on main');
 		const etag = `"${gitBlobHash(text)}"`;
-		const headers = { etag, 'cache-control': 'private, no-cache' };
+		const headers = { etag, [COMMIT_HEADER]: server.main(), 'cache-control': 'private, no-cache' };
 		if (matches(request.headers.get('if-none-match') ?? '', gitBlobHash(text))) return new Response(null, { status: 304, headers });
 		return new Response(text, { headers: { ...headers, 'content-type': 'text/plain; charset=utf-8' } });
 	}

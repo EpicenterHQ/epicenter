@@ -10,6 +10,7 @@
  * - every endpoint, reads included, refuses a request with no session (401) and one from a non-member (403)
  * - a commit's answer is JSON with a status for each outcome: 200 applied, merged (a stale parent merges), flushed; 409 outcome-unknown; 428 no parent; 429 rate; 403 a reader or another author; 413 too large; 422 the door; 400 not a commit
  * - PUT and DELETE are one-file conveniences over the same commit: 428 without a precondition, 412 with a stale one, an ETag that is the Git blob hash
+ * - A GET of a file names the commit it read (Epicenter-Commit), so a one-shot client posts a commit on it and merges with what landed since
  * - a text by hash is immutable and private; a body is capped before it is parsed, and a slow one times out
  * - a device's socket names `main` when it opens, answers each request by its id before the commit's event, takes commits and catch-ups through the same functions as HTTP, and closes when the session expires
  * - a replica whose socket dropped resumes from its last head by catching up
@@ -375,6 +376,22 @@ describe('PUT and DELETE /files/<path>', () => {
 		const removed = await fetch(url('files/notes/a%20b.md'), { method: 'DELETE', headers: as('alice', { 'if-match': `"${gitBlobHash(note('two\n'))}"` }) });
 		expect(removed.status).toBe(200);
 		expect((await fetch(url('files/notes/a%20b.md'), { headers: as('alice') })).status).toBe(404);
+	});
+
+	test('a GET names the commit it read, so a one-shot client posts a commit on it and merges with what landed since', async () => {
+		const { server, url, as, post } = setup();
+		await fetch(url('files/n/a.md'), { method: 'PUT', headers: as('alice', { 'if-none-match': '*' }), body: note('one\ntwo\n') });
+		const read = await fetch(url('files/n/a.md'), { headers: as('bob') });
+		const parent = read.headers.get('epicenter-commit');
+		expect(parent).toBe(server.main());
+		const unchanged = await fetch(url('files/n/a.md'), { headers: as('bob', { 'if-none-match': `"${gitBlobHash(note('one\ntwo\n'))}"` }) });
+		expect([unchanged.status, unchanged.headers.get('epicenter-commit')]).toEqual([304, parent]);
+		// Someone else's edit lands; the one-shot client's commit on what it read merges with it, where a PUT on its ETag would be 412.
+		await fetch(url('files/n/a.md'), { method: 'PUT', headers: as('alice', { 'if-match': `"${gitBlobHash(note('one\ntwo\n'))}"` }), body: note('zero\none\ntwo\n') });
+		const response = await post(make(server, [{ path: 'n/a.md', text: note('one\ntwo\nbob\n') }], { user: 'bob', parent: parent ?? '' }), 'bob');
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ kind: 'merged' });
+		expect(server.read('n/a.md')).toBe(note('zero\none\ntwo\nbob\n'));
 	});
 
 	test("a stale If-Match, or If-None-Match: * on an existing file, is 412 with the file's current text", async () => {

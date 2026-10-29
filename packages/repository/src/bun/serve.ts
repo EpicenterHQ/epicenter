@@ -30,7 +30,7 @@ const EVENTS = 'events';
 const CORS = {
 	'access-control-allow-methods': 'GET, POST, PUT, DELETE',
 	'access-control-allow-headers': 'authorization, accept, content-type, content-length, if-match, if-none-match, epicenter-device',
-	'access-control-expose-headers': 'etag, retry-after, content-length',
+	'access-control-expose-headers': 'etag, epicenter-commit, retry-after, content-length',
 	'access-control-max-age': '600',
 };
 

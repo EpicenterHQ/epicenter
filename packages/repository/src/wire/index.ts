@@ -3,6 +3,7 @@ export {
 	type Authenticate,
 	authenticateBearer,
 	createWire,
+	COMMIT_HEADER,
 	DEVICE_HEADER,
 	type CatchUpQuery,
 	PING,
