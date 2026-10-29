@@ -502,9 +502,12 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				setRecord(path, { hash: hashOfMine(path, mine), size: entry.size, mtime: entry.mtime, ino: entry.ino, text: mine });
 				written();
 			});
-		// Not written: an editor created the file between the capture and the link; it stays, and differs from the record, so it is read as a save.
 		else {
-			written();
+			// RULE: not written: a writer made the file while the capture had the path empty, so it saw nothing there. The record says so, and the file is read as a create, merged with what the replica shows; what was captured is read on its own.
+			driver.transaction(() => {
+				setRecord(path, null);
+				written();
+			});
 			hint([path]);
 		}
 		await displaced(name, replaced.data.displaced, path, record);
@@ -596,18 +599,19 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 
 	/** After a crash: every capture journaled goes back where its path is empty, or is read as a save; temporaries go. */
 	async function recover() {
-		// A write the record never heard of: if the file holds what the engine was writing, it is the engine's own, and recorded.
+		const names = new Set(await fs.scratches());
+		// A write the record never heard of: if the file holds what the engine was writing, it is the engine's own, and recorded; if the capture happened and the file is another's, it was made over nothing (the rule in `project`).
 		for (const row of driver.all<{ name: string; path: string; writing: string | null; removing: number }>('SELECT name, path, writing, removing FROM "epicenter/displaced" WHERE writing IS NOT NULL OR removing = 1')) {
 			const seen = await look(row.path);
 			driver.transaction(() => {
 				if (row.removing === 1 && seen.kind === 'absent') setRecord(row.path, null);
 				else if (row.writing !== null && (seen.kind === 'note' || seen.kind === 'blob') && seen.hash === hashOfMine(row.path, row.writing))
 					setRecord(row.path, { hash: seen.hash, size: seen.entry.size, mtime: seen.entry.mtime, ino: seen.entry.ino, text: row.writing });
+				else if (names.has(row.name) && seen.kind !== 'absent') setRecord(row.path, null);
 				driver.run('UPDATE "epicenter/displaced" SET writing = NULL, removing = 0 WHERE name = ?', [row.name]);
 			});
 		}
 		const rows = driver.all<{ name: string; path: string; hash: string | null; text: string | null }>('SELECT name, path, hash, text FROM "epicenter/displaced"');
-		const names = new Set(await fs.scratches());
 		for (const row of rows) {
 			if (!names.has(row.name)) {
 				driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [row.name]);

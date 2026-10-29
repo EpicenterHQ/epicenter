@@ -10,6 +10,7 @@
  * - A save in the folder reaches the server; a change from elsewhere reaches the file; the engine's own write never comes back as a save
  * - A rename is one group: one commit holds both halves
  * - A save that lands while the engine writes the file is captured and merged, never destroyed
+ * - A file made while the engine has the path captured was made over nothing, so nothing the engine took aside is deleted by it
  * - A crash between the capture and the link puts the file back, and nothing reads it as a delete
  * - `commit` sends every difference as one commit carrying the message; nothing differing changes nothing
  * - A `.md` file that is not UTF-8 is listed as unreadable, never sent, never overwritten; dot paths and editor droppings are never sent
@@ -110,6 +111,27 @@ test('a save that lands while the engine writes the file is captured and merged,
 	expect(folder.disk.text('notes/a.md')).toBe(text);
 	expect(folder.disk.violations).toEqual([]);
 	expect(folder.disk.scratchNames()).toEqual([]);
+});
+
+test('a file made in the instant the engine has the path captured was made over nothing: what the engine took aside is kept', async () => {
+	const { world, folder, other } = await setup();
+	folder.disk.write('notes/a.md', encoder.encode(note('one\nmine\n')));
+	await runFor(world, 2_000);
+	other.replica.write('notes/a.md', note('one\nmine\nremote\n'));
+	// An appender (`echo x >> notes/a.md`) runs while the path is empty between the engine's capture and its link: it creates a file holding only its line.
+	let made = false;
+	for (let n = 0; n < 5_000 && !made; n++) {
+		await step(world);
+		if (folder.disk.text('notes/a.md') === null && folder.disk.scratchNames().length > 0) made = folder.disk.write('notes/a.md', encoder.encode('appended\n'));
+	}
+	expect(made).toBe(true);
+	await runFor(world, 3_000);
+	const text = world.server.read('notes/a.md') ?? '';
+	expect(text).toContain('appended');
+	expect(text).toContain('mine');
+	expect(text).toContain('remote');
+	expect(folder.disk.text('notes/a.md')).toBe(text);
+	expect(folder.disk.violations).toEqual([]);
 });
 
 test('a crash between the capture and the link puts the file back; nothing reads it as a delete', async () => {
