@@ -470,3 +470,17 @@ test('a commit with a message that comes back unsent (a lost answer, then outcom
 	expect(link.pushes.map((commit) => commit.message)).toEqual(['Said once']);
 	expect(server.read('notes/a.md')).toBe(note('a\n'));
 });
+
+test('a save with a message over an unsent commit without one amends it, and the commit carries the message', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.attach(null);
+	replica.write('notes/a.md', note('live\n'));
+	replica.writeAll({ 'notes/a.md': note('live\nsaid\n') }, { message: 'Say it' });
+	replica.attach(link.sent.push.bind(link.sent));
+	link.deliver();
+	expect(link.pushes.map((commit) => [commit.message, commit.files.map((f) => f.text)])).toEqual([['Say it', [note('live\nsaid\n')]]]);
+});

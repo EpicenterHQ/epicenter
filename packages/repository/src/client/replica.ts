@@ -47,8 +47,9 @@
  *                         times it was sent; its files are the `sent` level
  *   "epicenter/groups"    paths saved in one call (a rename's two halves, a
  *                         note and the blob it names), while any is unsent
- *   "epicenter/messages"  per path, the message of the call that saved it
- *                         (`epicenter commit -m`), until its commit is sent
+ *   "epicenter/messages"  per path and level (`saved` or `committed`), the
+ *                         message of the call that saved it (`epicenter
+ *                         commit -m`), until its commit is sent
  *   "epicenter/passed"    recent positions, so a late notification is old
  *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
  *   "epicenter/fetched"   texts read by hash for that catch-up
@@ -177,9 +178,9 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/groups" (path TEXT NOT NULL, other TEXT NOT NULL, PRIMARY KEY (path, other)) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/messages" (path TEXT PRIMARY KEY, message TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/messages" (path TEXT NOT NULL, level TEXT NOT NULL CHECK (level IN ('saved', 'committed')), message TEXT NOT NULL, PRIMARY KEY (path, level)) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/passed" (id TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, fold TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/fetched" (hash TEXT PRIMARY KEY, text TEXT NOT NULL) STRICT;
 CREATE INDEX IF NOT EXISTS "epicenter/files/fold" ON "epicenter/files" (fold);
 CREATE INDEX IF NOT EXISTS "epicenter/files/saved" ON "epicenter/files" (path) WHERE saved = 1;
@@ -187,6 +188,7 @@ CREATE INDEX IF NOT EXISTS "epicenter/files/held" ON "epicenter/files" (path) WH
 CREATE INDEX IF NOT EXISTS "epicenter/files/unknown" ON "epicenter/files" (path) WHERE unknown = 1;
 CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) WHERE text IS NOT base;
 CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
+CREATE INDEX IF NOT EXISTS "epicenter/staged/fold" ON "epicenter/staged" (fold);
 CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEGER NOT NULL) STRICT;
 `;
 
@@ -204,6 +206,9 @@ export const UPLOADING = 'its bytes are uploading';
 
 /** A database made before the `fold` column (phase 5) gets it, filled from each path, before the schema indexes it. */
 function addFold(driver: SqlDriver) {
+	// The staging table holds nothing across a restart: one made before it kept each path's folded identity is made again.
+	const staged = driver.all<{ name: string }>('PRAGMA table_info("epicenter/staged")').map((column) => column.name);
+	if (staged.length > 0 && !staged.includes('fold')) driver.exec('DROP TABLE "epicenter/staged"');
 	const columns = driver.all<{ name: string }>('PRAGMA table_info("epicenter/files")').map((column) => column.name);
 	if (columns.length === 0 || columns.includes('fold')) return;
 	driver.transaction(() => {
@@ -485,8 +490,9 @@ function createReplica({
 			driver.run('DELETE FROM "epicenter/messages" WHERE path = ?', [path]);
 			return;
 		}
-		// A file with nothing to send says nothing: its message went with its commit, or the call changed nothing here.
-		if (idle) driver.run('DELETE FROM "epicenter/messages" WHERE path = ?', [path]);
+		// RULE: a message lasts while the level it names does: an unsent commit that went (sent, or settled by a catch-up) takes its message with it, and so does a save once it is neither saved nor held.
+		if (next.committed === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'committed'`, [path]);
+		if (next.saved === undefined && next.held === undefined) driver.run(`DELETE FROM "epicenter/messages" WHERE path = ? AND level = 'saved'`, [path]);
 		const row =
 			before === undefined ||
 			before.base !== next.base ||
@@ -620,10 +626,15 @@ function createReplica({
 	}
 
 	/** The message of the call that saved `path`, while its commit is unsent. */
-	const messageOf = (path: string) => first<{ message: string }>(driver, 'SELECT message FROM "epicenter/messages" WHERE path = ?', [path])?.message ?? null;
-	const say = (paths: Iterable<string>, message: string) => {
-		for (const path of paths) driver.run('INSERT OR REPLACE INTO "epicenter/messages" (path, message) VALUES (?, ?)', [path, message]);
+	type MessageLevel = 'saved' | 'committed';
+	/** The message a level of `path` carries: its save's (`saved`), or its unsent commit's (`committed`). */
+	const messageOf = (path: string, level: MessageLevel = 'committed') =>
+		first<{ message: string }>(driver, 'SELECT message FROM "epicenter/messages" WHERE path = ? AND level = ?', [path, level])?.message ?? null;
+	const sayAt = (path: string, level: MessageLevel, message: string | null) => {
+		if (message === null) driver.run('DELETE FROM "epicenter/messages" WHERE path = ? AND level = ?', [path, level]);
+		else driver.run('INSERT OR REPLACE INTO "epicenter/messages" (path, level, message) VALUES (?, ?, ?)', [path, level, message]);
 	};
+
 
 	/**
 	 * `path`'s group, each file read once: it, and every file saved with it
@@ -702,7 +713,7 @@ function createReplica({
 		for (const [path] of going) {
 			if (taken.has(path)) continue;
 			const group = [...unit(path, among)];
-			const message = group.map(messageOf).find((m) => m !== null) ?? null;
+			const message = group.map((p) => messageOf(p)).find((m) => m !== null) ?? null;
 			if (taken.size > 0 && (message !== null || said !== null)) continue;
 			const bytes = group.reduce((sum, p) => sum + encoder.encode(JSON.stringify({ path: p, text: among.get(p)?.committed?.text ?? null })).length + 1, 0) + (message === null ? 0 : encoder.encode(JSON.stringify(message)).length);
 			if (taken.size > 0 && (count + group.length > files || size + bytes > request)) continue;
@@ -728,16 +739,28 @@ function createReplica({
 			}
 		}
 		const blocked = blockedAll();
-		for (const [path, f] of filesWhere('saved = 1')) {
+		/** RULE: a commit with a message is never amended: a save of one of its files under another message (or none) waits until it is sent. An unsent commit without a message is amended as ever, and takes the save's. */
+		const waits = (path: string, f: FileView) => f.committed !== undefined && messageOf(path) !== null && messageOf(path) !== messageOf(path, 'saved');
+		const saved = filesWhere('saved = 1');
+		/** RULE: a call with a message goes whole: while one of its files waits, all of them do. */
+		const waitingCalls = new Set(saved.filter(([path, f]) => waits(path, f)).map(([path]) => messageOf(path, 'saved')).filter((m) => m !== null));
+		for (const [path, f] of saved) {
 			if (blocked(path)) continue;
-			// RULE: a commit with a message is never amended: a later save of one of its files waits until it is sent, then goes in a commit of its own.
-			if (f.committed !== undefined && messageOf(path) !== null) continue;
+			if (waits(path, f)) continue;
+			const call = messageOf(path, 'saved');
+			if (call !== null && waitingCalls.has(call)) continue;
 			const { saved: _, ...rest } = f;
 			const under = (f.sent ?? { text: f.base }).text;
+			const said = messageOf(path, 'saved');
+			sayAt(path, 'saved', null);
 			if (f.mine === under) {
 				const { committed: __, ...clean } = rest;
+				sayAt(path, 'committed', null);
 				set(path, clean);
-			} else set(path, { ...rest, committed: { text: f.mine } });
+			} else {
+				if (said !== null) sayAt(path, 'committed', said);
+				set(path, { ...rest, committed: { text: f.mine } });
+			}
 		}
 		stats.commits++;
 		pump();
@@ -754,7 +777,6 @@ function createReplica({
 		return atomically(() => {
 			const paths = Object.keys(changes).map(spelled);
 			// RULE: a message names everything this call saved, and every file already saved with it (a held group joined again takes the new message).
-			if (message !== undefined) say(new Set(paths.flatMap((path) => [...groupOf(path).members])), message);
 			for (const [given, text] of Object.entries(changes)) {
 				const path = spelled(given);
 				const { held: _, ...f } = record(path);
@@ -771,7 +793,7 @@ function createReplica({
 				const next = from === f.mine ? text : settle(from, f.mine, text, { parties: parties() }).text;
 				set(path, { ...f, ...grouped, mine: next, saved: true });
 			}
-			if (message !== undefined) say(paths, message);
+			if (message !== undefined) for (const path of paths) sayAt(path, 'saved', message);
 			commit();
 			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
 			return { texts: Object.fromEntries(Object.keys(changes).map((given) => [given, record(spelled(given)).mine])), revision: revision + (changed.size > 0 ? 1 : 0) };
@@ -864,7 +886,10 @@ function createReplica({
 			if (waiting.has(parent)) place();
 			return;
 		}
-		const message = going.map(([path]) => messageOf(path)).find((m) => m !== null) ?? null;
+		// RULE: a commit says the newest message among its files (a held group its writer fixed under a new message goes under that one).
+		const marks = going.map(() => '?').join(', ');
+		const message =
+			first<{ message: string }>(driver, `SELECT message FROM "epicenter/messages" WHERE level = 'committed' AND path IN (${marks}) ORDER BY rowid DESC LIMIT 1`, going.map(([path]) => path))?.message ?? null;
 		const body = {
 			parent,
 			author: { user, device },
@@ -878,7 +903,7 @@ function createReplica({
 			const { committed: _, ...rest } = f;
 			set(path, rest);
 			// The message is the commit's now: it comes back to its files only if the commit does.
-			driver.run('DELETE FROM "epicenter/messages" WHERE path = ?', [path]);
+			sayAt(path, 'committed', null);
 		}
 		stats.pushes++;
 		request({ type: 'push', rid: takeRid(), commit: sent });
@@ -895,7 +920,9 @@ function createReplica({
 	 * device's sent commit, whose text the local work above it was made on.
 	 * `deleted` when the path was deleted at some point since this device's base.
 	 */
-	function integrate(path: string, text: string | null, landed: boolean, deleted = false) {
+	function integrate(named: string, text: string | null, landed: boolean, deleted = false) {
+		// RULE: the server names a path in `main`'s spelling; a file this device spells another way (its own create, crossing one there) is that file, so the two meet, never stand side by side.
+		const path = first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE path = ? UNION ALL SELECT path FROM "epicenter/files" WHERE fold = ? LIMIT 1', [named, fold(named)])?.path ?? named;
 		const f = record(path);
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
@@ -1016,7 +1043,13 @@ function createReplica({
 
 	/** The commit in flight comes back unsent: its files take its message again, so it goes again as it was said. */
 	function comeBack() {
-		if (inflight?.message !== undefined) say(inflight.files.map((f) => f.path), inflight.message);
+		const message = inflight?.message;
+		if (message === undefined) return;
+		for (const file of inflight?.files ?? []) {
+			const f = record(file.path);
+			if (f.committed !== undefined) sayAt(file.path, 'committed', message);
+			else if (f.held !== undefined) sayAt(file.path, 'saved', message);
+		}
 	}
 
 	/**
@@ -1148,7 +1181,7 @@ function createReplica({
 
 	/** Stage one page of a catch-up. */
 	function stage(page: CatchUp) {
-		for (const file of page.files) driver.run('INSERT INTO "epicenter/staged" (path, hash, deleted) VALUES (?, ?, ?)', [file.path, file.hash, file.deleted === true ? 1 : 0]);
+		for (const file of page.files) driver.run('INSERT INTO "epicenter/staged" (path, fold, hash, deleted) VALUES (?, ?, ?, ?)', [file.path, fold(file.path), file.hash, file.deleted === true ? 1 : 0]);
 	}
 	/** Forget a staged catch-up and the texts read for it. */
 	/** Every staged row up to this one needs no text read: the next read of a catch-up's texts looks after it. */
@@ -1199,7 +1232,7 @@ function createReplica({
 		// In a full listing, every local file not named is absent.
 		if (reply.full)
 			// Paths only: each record, its texts with it, is read inside `integrate`, one file at a time.
-			for (const path of pathsWhere('(base IS NOT NULL OR unknown = 1) AND path NOT IN (SELECT path FROM "epicenter/staged")')) integrate(path, null, false);
+			for (const path of pathsWhere('(base IS NOT NULL OR unknown = 1) AND fold NOT IN (SELECT fold FROM "epicenter/staged")')) integrate(path, null, false);
 		for (const [path, f] of filesWhere('unknown = 1')) {
 			const { unknown: _, ...rest } = f;
 			set(path, rest);
