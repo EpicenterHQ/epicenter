@@ -49,9 +49,13 @@ export const oidOf = (bytes: Uint8Array): Sealed => {
 	return { oid: hasher.digest(), size: bytes.byteLength };
 };
 
-export function createFolderDevice(world: World, name: string, { lfs, faults, quiet = QUIET, scanEvery = null }: { lfs: Lfs; faults?: EventFaults; quiet?: number; scanEvery?: number | null }) {
+export function createFolderDevice(
+	world: World,
+	name: string,
+	{ lfs, faults, quiet = QUIET, scanEvery = null, step }: { lfs: Lfs; faults?: EventFaults; quiet?: number; scanEvery?: number | null; step?: () => number },
+) {
 	const device: Device = world.device(name);
-	const disk = createMemoryFolderFs({ after: world.net.after, now: world.net.now, ...(faults === undefined ? {} : { faults }), ignored });
+	const disk = createMemoryFolderFs({ after: world.net.after, now: world.net.now, ...(faults === undefined ? {} : { faults }), ...(step === undefined ? {} : { step }), ignored });
 	const store = createMemoryBlobStore();
 	let live = false;
 	const make = (): FolderEngine =>

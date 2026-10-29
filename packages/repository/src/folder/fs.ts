@@ -110,12 +110,15 @@ export function createMemoryFolderFs({
 	now,
 	faults = { delay: () => 0, drop: () => false, overflow: () => false },
 	ignored = () => false,
+	step = () => 0,
 }: {
 	after: (ms: number, run: () => void) => void;
 	now: () => number;
 	faults?: EventFaults;
 	/** Paths the engine must never change: a change through the engine's calls is a violation. */
 	ignored?: (path: string) => boolean;
+	/** Virtual ms each call takes before it acts, so writers on the same clock land between the engine's steps. */
+	step?: () => number;
 }) {
 	const files = new Map<string, MemoryFile>();
 	const scratch = new Map<string, MemoryFile & { read: boolean }>();
@@ -130,7 +133,7 @@ export function createMemoryFolderFs({
 	const tick = () => {
 		const at = epoch;
 		return new Promise<void>((resolve) =>
-			after(0, () => {
+			after(step(), () => {
 				if (at === epoch) resolve();
 			}),
 		);
@@ -267,6 +270,11 @@ export function createMemoryFolderFs({
 			emit(path);
 			return true;
 		},
+		/** The text inode `ino` holds now, at its path or captured, or null. */
+		inodeText(ino: number) {
+			for (const file of [...files.values(), ...scratch.values()]) if (file.ino === ino) return decoder.decode(file.bytes);
+			return null;
+		},
 		/** The inode at `path`, as a writer that opened it holds it. */
 		inodeOf: (path: string) => files.get(path)?.ino ?? null,
 		/**
@@ -340,6 +348,10 @@ export function createMemoryFolderFs({
 		paths: () => [...files].filter(([, file]) => file.kind === 'file').map(([path]) => path).sort(),
 		/** Captured files not yet dropped. */
 		scratchNames: () => [...scratch.keys()],
+		/** Every captured file's text, for a check that a save is somewhere. */
+		scratchTexts: () => [...scratch.values()].map((file) => decoder.decode(file.bytes)),
+		/** Every file's text, ignored or not, symlinks aside. */
+		texts: () => [...files].filter(([, file]) => file.kind === 'file').map(([path, file]) => [path, decoder.decode(file.bytes)] as const),
 		/** The process using the port dies: every call in progress stops where it is, and never completes. */
 		crash() {
 			epoch++;

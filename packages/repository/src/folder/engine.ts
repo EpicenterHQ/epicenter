@@ -35,8 +35,11 @@
  * text: a note's text, or a blob's pointer, so what needs projecting is one
  * indexed comparison with the replica's `mine`. A save's record and the
  * replica's change commit in one transaction, so neither is ever ahead of
- * the other. Captures are journaled in `"epicenter/displaced"` before they
- * happen, so a crash between a capture and its link puts the file back.
+ * the other. Each write is journaled in `"epicenter/displaced"` before it
+ * happens (what the record held, and what the engine is writing), so a
+ * crash between a capture and its link puts the file back, and one between
+ * the link and the record is known for the engine's own write, never read
+ * as a save.
  *
  * Paths whose any segment starts with `.` are neither read nor written, nor
  * are the editor droppings `DROPPINGS` names. Symlinks and other files that
@@ -90,7 +93,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/disk" (
 	text TEXT NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS "epicenter/disk/fold" ON "epicenter/disk" (fold);
-CREATE TABLE IF NOT EXISTS "epicenter/displaced" (name TEXT PRIMARY KEY, path TEXT NOT NULL, hash TEXT, text TEXT) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/displaced" (name TEXT PRIMARY KEY, path TEXT NOT NULL, hash TEXT, text TEXT, writing TEXT, removing INTEGER NOT NULL DEFAULT 0) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/unreadable" (path TEXT PRIMARY KEY, reason TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/folder" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 `;
@@ -347,10 +350,16 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		const looked: string[] = [];
 		/** Paths on disk whose replica spelling is another path: a twin, removed once its save is in. */
 		const twins: { path: string; hash: string | null }[] = [];
-		for (const given of new Set(paths)) {
+		const twinSaves: { save: Save; path: string; hash: string | null }[] = [];
+		/** RULE: one spelling per path in a call: the first path met claims its folded identity, and another spelling of it here is its twin. */
+		const claimed = new Map<string, string>();
+		// The replica's spelling of each path goes first, so a twin never claims a path the replica already spells.
+		const ordered = [...new Set(paths)].sort((a, b) => Number(spellingOf(b) === b) - Number(spellingOf(a) === a));
+		for (const given of ordered) {
 			if (ignored(given)) continue;
 			let path = given;
-			const spelled = spellingOf(given);
+			const spelled = claimed.get(fold(given)) ?? spellingOf(given);
+			if (!claimed.has(fold(given))) claimed.set(fold(given), spelled);
 			let twin = false;
 			if (spelled !== given) {
 				const [mine, other] = await Promise.all([fs.stat(given), fs.stat(spelled)]);
@@ -358,6 +367,14 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				if (mine !== null && other !== null && mine.ino === other.ino && mine.ino !== 0) path = spelled;
 				else if (mine !== null) twin = true;
 				else path = spelled;
+			}
+			// RULE: a file modified within the last quiet window may be half written (an in-place save between its truncate and its bytes): it is read once it has been still for one. A commit reads the disk as it is: its timing is its caller's.
+			if (call === 'each') {
+				const still = await fs.stat(twin ? given : path);
+				if (still?.kind === 'file' && now() - still.mtime < quiet) {
+					hint([given]);
+					continue;
+				}
 			}
 			const seen = await look(twin ? given : path);
 			if (twin) {
@@ -369,9 +386,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				if (seen.kind === 'absent') continue;
 				const save = await saveOf({ ...seen, path: spelled } as Look, null);
 				if (save === null) continue;
-				found.push({ save: { ...save, record: recorded(spelled) ?? null, over: null }, was: null });
-				twins.push({ path: given, hash: hashLooked(seen) });
-				looked.push(spelled);
+				twinSaves.push({ save: { ...save, record: recorded(spelled) ?? null, over: null }, path: given, hash: hashLooked(seen) });
 				continue;
 			}
 			looked.push(path);
@@ -398,6 +413,16 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			}
 			const save = await saveOf(seen, record);
 			if (save !== null) found.push({ save, was: record?.hash ?? null });
+		}
+		// RULE: one save per replica path in a call: a twin whose path has a save of its own here (or another twin) waits for the next reconcile, which reads it after this one is in.
+		for (const twin of twinSaves) {
+			if (found.some((f) => fold(f.save.path) === fold(twin.save.path))) {
+				after(quiet, () => hint([twin.path]));
+				continue;
+			}
+			found.push({ save: twin.save, was: null });
+			twins.push({ path: twin.path, hash: twin.hash });
+			looked.push(twin.save.path);
 		}
 		const calls = call === 'each' ? groupSaves(found) : [found.map((f) => f.save)];
 		for (const saves of calls) hand(saves, call === 'each' ? undefined : call.message);
@@ -446,7 +471,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		if (mineAt(path) !== mine) return project(path);
 		live();
 		const name = scratchName();
-		driver.run('INSERT INTO "epicenter/displaced" (name, path, hash, text) VALUES (?, ?, ?, ?)', [name, path, record?.hash ?? null, record?.text ?? null]);
+		driver.run('INSERT INTO "epicenter/displaced" (name, path, hash, text, writing, removing) VALUES (?, ?, ?, ?, ?, ?)', [name, path, record?.hash ?? null, record?.text ?? null, mine, mine === null ? 1 : 0]);
+		const written = () => driver.run('UPDATE "epicenter/displaced" SET writing = NULL, removing = 0 WHERE name = ?', [name]);
 		if (bytes === null) {
 			const removed = await fs.remove(path, { scratch: name });
 			if (removed.error !== null) {
@@ -454,7 +480,10 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [name]);
 				return;
 			}
-			driver.transaction(() => setRecord(path, null));
+			driver.transaction(() => {
+				setRecord(path, null);
+				written();
+			});
 			await displaced(name, removed.data, path, record);
 			return;
 		}
@@ -464,10 +493,17 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [name]);
 			return;
 		}
-		const { written, entry } = replaced.data;
-		if (written && entry !== null && mine !== null) driver.transaction(() => setRecord(path, { hash: hashOfMine(path, mine), size: entry.size, mtime: entry.mtime, ino: entry.ino, text: mine }));
+		const { entry } = replaced.data;
+		if (replaced.data.written && entry !== null && mine !== null)
+			driver.transaction(() => {
+				setRecord(path, { hash: hashOfMine(path, mine), size: entry.size, mtime: entry.mtime, ino: entry.ino, text: mine });
+				written();
+			});
 		// Not written: an editor created the file between the capture and the link; it stays, and differs from the record, so it is read as a save.
-		else hint([path]);
+		else {
+			written();
+			hint([path]);
+		}
 		await displaced(name, replaced.data.displaced, path, record);
 	}
 
@@ -557,6 +593,16 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 
 	/** After a crash: every capture journaled goes back where its path is empty, or is read as a save; temporaries go. */
 	async function recover() {
+		// A write the record never heard of: if the file holds what the engine was writing, it is the engine's own, and recorded.
+		for (const row of driver.all<{ name: string; path: string; writing: string | null; removing: number }>('SELECT name, path, writing, removing FROM "epicenter/displaced" WHERE writing IS NOT NULL OR removing = 1')) {
+			const seen = await look(row.path);
+			driver.transaction(() => {
+				if (row.removing === 1 && seen.kind === 'absent') setRecord(row.path, null);
+				else if (row.writing !== null && (seen.kind === 'note' || seen.kind === 'blob') && seen.hash === hashOfMine(row.path, row.writing))
+					setRecord(row.path, { hash: seen.hash, size: seen.entry.size, mtime: seen.entry.mtime, ino: seen.entry.ino, text: row.writing });
+				driver.run('UPDATE "epicenter/displaced" SET writing = NULL, removing = 0 WHERE name = ?', [row.name]);
+			});
+		}
 		const rows = driver.all<{ name: string; path: string; hash: string | null; text: string | null }>('SELECT name, path, hash, text FROM "epicenter/displaced"');
 		const names = new Set(await fs.scratches());
 		for (const row of rows) {
