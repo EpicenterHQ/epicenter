@@ -48,8 +48,8 @@ changes on top of a parent:
 hashes the parent and the content, never repeats, and makes a resend
 recognizable. `text: null` deletes the file. There is no move and no append:
 a rename is a delete of the old path and a write of the new one, saved
-in one call. Everything one call saves is one group (`"epicenter/groups"`
-on the device), and a group goes in one commit or not at all.
+in one call. Everything one call saves is one group (on the device, each file names
+its call), and a group goes in one commit or not at all.
 `time` is a label people read in conflict blocks, never an order.
 
 **`main` only moves forward, and every writer's commit meets a `main` that

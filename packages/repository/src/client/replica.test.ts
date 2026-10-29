@@ -562,3 +562,17 @@ test("a call's outcome names a delete that did not take and the paths where a me
 	expect(replica.read('notes/a.md')).toBe(note('one\nbob\n'));
 	expect(findConflicts(replica.read('notes/b.md') ?? '')).toHaveLength(1);
 });
+
+test('a call that joined a held call keeps reporting it, however many calls come after', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.attach(null);
+	const first = replica.writeAll({ 'notes/bad.md': '---\ntitle: [\n---\n' }, { message: 'First try' }).call;
+	// Saved again, still broken: the first call joins the second, which is held.
+	replica.writeAll({ 'notes/bad.md': '---\ntitle: ]\n---\n' }, { message: 'Second try' });
+	for (let n = 0; n < 4_400; n++) replica.write('notes/busy.md', note(`${n}\n`));
+	expect(replica.outcome(first)).toEqual({ kind: 'held', held: [{ path: 'notes/bad.md', reason: 'does not parse' }] });
+});

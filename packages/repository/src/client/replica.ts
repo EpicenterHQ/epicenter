@@ -11,8 +11,10 @@
  * once, except held text: a text the door refuses, or one the server
  * refused, which stays held with its reason until its writer saves that
  * file again. What one call saves is one group, sent in one commit or not
- * at all: it waits while any file of it is held or owed its bytes, and a
- * later save of a file in a group joins it. One commit is sent at a time, on top of the position, sized
+ * at all: it waits while any file of it is held or owed its bytes. A later
+ * save of a file whose saved or held text is in a group joins it, and one
+ * cut over an unsent commit without a message takes that commit in; a
+ * commit with a message goes as it was said. One commit is sent at a time, on top of the position, sized
  * to the server's bounds; while one is in flight, or offline, the unsent
  * commit is amended. A request the server rejects (rate, size, who is
  * asking, its form) holds no text: the work stays committed and goes again
@@ -684,7 +686,8 @@ function createReplica({
 		const call = first<{ id: number }>(driver, 'SELECT last_insert_rowid() AS id')?.id ?? 0;
 		if (call % 256 === 0)
 			driver.run(
-				`DELETE FROM "epicenter/calls" WHERE id <= ? AND id NOT IN (SELECT call FROM "epicenter/files" WHERE call IS NOT NULL) AND id NOT IN (SELECT call FROM "epicenter/unsent") AND id NOT IN (SELECT call FROM "epicenter/refused") AND id NOT IN (SELECT value FROM "epicenter/inflight", json_each("epicenter/inflight".calls))`,
+				// A call that joined another is kept while the call it joined has work: its writer may still ask about it.
+				`DELETE FROM "epicenter/calls" WHERE id <= ? AND COALESCE(joined, id) NOT IN (SELECT call FROM "epicenter/files" WHERE call IS NOT NULL UNION SELECT call FROM "epicenter/unsent" UNION SELECT call FROM "epicenter/refused" UNION SELECT value FROM "epicenter/inflight", json_each("epicenter/inflight".calls))`,
 				[call - CALLS_KEPT],
 			);
 		return call;
@@ -706,15 +709,15 @@ function createReplica({
 	 * none). A call it had joined before follows it.
 	 */
 	function join(from: number, into: number) {
-		const [older, newer] = [callOf(from), callOf(into)].sort((a, b) => a - b) as [number, number];
-		if (older === newer) return;
+		const source = callOf(from);
 		const target = callOf(into);
-		const source = target === older ? newer : older;
-		const message = messageOf(newer) ?? messageOf(older);
-		const said = (call: number) => first<{ kept: string; conflicts: string }>(driver, 'SELECT kept, conflicts FROM "epicenter/calls" WHERE id = ?', [call]) ?? { kept: '[]', conflicts: '[]' };
+		if (source === target) return;
+		// Calls are numbered as they are made: the higher is the newer.
+		const message = messageOf(Math.max(source, target)) ?? messageOf(Math.min(source, target));
+		const notes = (call: number) => first<{ kept: string; conflicts: string }>(driver, 'SELECT kept, conflicts FROM "epicenter/calls" WHERE id = ?', [call]) ?? { kept: '[]', conflicts: '[]' };
 		const union = (a: string, b: string) => JSON.stringify([...new Set([...(JSON.parse(a) as string[]), ...(JSON.parse(b) as string[])])]);
-		const [kept, conflicts] = [said(source), said(target)];
-		driver.run('UPDATE "epicenter/calls" SET kept = ?, conflicts = ? WHERE id = ?', [union(kept.kept, conflicts.kept), union(kept.conflicts, conflicts.conflicts), target]);
+		const [was, is] = [notes(source), notes(target)];
+		driver.run('UPDATE "epicenter/calls" SET kept = ?, conflicts = ? WHERE id = ?', [union(was.kept, is.kept), union(was.conflicts, is.conflicts), target]);
 		for (const path of pathsOf('SELECT path FROM "epicenter/files" WHERE call = ? UNION SELECT path FROM "epicenter/unsent" WHERE call = ? UNION SELECT path FROM "epicenter/refused" WHERE call = ?', [source, source, source])) changed.add(path);
 		driver.run('UPDATE "epicenter/files" SET call = ? WHERE call = ?', [target, source]);
 		driver.run('UPDATE "epicenter/unsent" SET call = ? WHERE call = ?', [target, source]);
@@ -726,8 +729,8 @@ function createReplica({
 	/** Note of `call` that its work at `path` was a delete that did not take (`kept`), or met a merge that wrote conflict blocks (`conflicts`). */
 	function note(call: number, column: 'kept' | 'conflicts', path: string) {
 		const id = callOf(call);
-		const now = JSON.parse(first<{ list: string }>(driver, `SELECT ${column} AS list FROM "epicenter/calls" WHERE id = ?`, [id])?.list ?? '[]') as string[];
-		if (!now.includes(path)) driver.run(`UPDATE "epicenter/calls" SET ${column} = ? WHERE id = ?`, [JSON.stringify([...now, path]), id]);
+		const listed = JSON.parse(first<{ list: string }>(driver, `SELECT ${column} AS list FROM "epicenter/calls" WHERE id = ?`, [id])?.list ?? '[]') as string[];
+		if (!listed.includes(path)) driver.run(`UPDATE "epicenter/calls" SET ${column} = ? WHERE id = ?`, [JSON.stringify([...listed, path]), id]);
 	}
 	const blocksIn = (text: string | null) => (text === null ? 0 : findConflicts(text).length);
 
@@ -1554,7 +1557,7 @@ function createReplica({
 		const call = callOf(id);
 		const row = first<{ landed: string | null; kept: string; conflicts: string }>(driver, 'SELECT landed, kept, conflicts FROM "epicenter/calls" WHERE id = ?', [call]);
 		const lists = { conflicts: JSON.parse(row?.conflicts ?? '[]') as string[], kept: JSON.parse(row?.kept ?? '[]') as string[] };
-		if (row?.landed != null) return { kind: 'landed', commit: row.landed, ...lists };
+		if (row !== undefined && row.landed !== null) return { kind: 'landed', commit: row.landed, ...lists };
 		if (!working(call)) return position === null ? { kind: 'pending', commit: null } : { kind: 'landed', commit: position, ...lists };
 		if (blocker(call)?.held === true)
 			return {
