@@ -113,8 +113,8 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 			}
 			return writeTreeLevel(root);
 		},
-		async writeCommit({ tree, parents, message, author, at }) {
-			const date = `${Math.floor(at.getTime() / 1000)} +0000`;
+		async writeCommit({ tree, parents, message, author, committer = author, at }) {
+			const date = `@${Math.floor(at.getTime() / 1000)} +0000`;
 			const child = Bun.spawn(
 				['git', '-C', dir, 'commit-tree', tree, ...parents.flatMap((p) => ['-p', p]), '-F', '-'],
 				{
@@ -126,8 +126,8 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 						GIT_AUTHOR_NAME: author.name,
 						GIT_AUTHOR_EMAIL: author.email,
 						GIT_AUTHOR_DATE: date,
-						GIT_COMMITTER_NAME: author.name,
-						GIT_COMMITTER_EMAIL: author.email,
+						GIT_COMMITTER_NAME: committer.name,
+						GIT_COMMITTER_EMAIL: committer.email,
 						GIT_COMMITTER_DATE: date,
 					},
 				},
@@ -142,6 +142,10 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 		},
 		async updateRef(name, next, expected) {
 			return (await git(['update-ref', name, next, expected ?? ZERO])).code === 0;
+		},
+		async deleteRef(name, expected) {
+			if ((await git(['update-ref', '-d', name, expected])).code === 0) return true;
+			return (await git(['rev-parse', '--verify', '-q', name])).code !== 0;
 		},
 		async mergeBase(a, b) {
 			const result = await git(['merge-base', a, b]);

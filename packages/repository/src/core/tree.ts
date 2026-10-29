@@ -2,15 +2,22 @@
  * Trees: Git tree objects, content-addressed, so every commit's snapshot
  * stays readable and two snapshots compare by walking only what differs.
  *
- * A tree store keeps each tree it built by its Git tree id, in memory. A
+ * A tree store keeps each tree it built by its Git tree id (in memory, or
+ * in the nodes a host gives it). A
  * path's segments are tree entries; a file is a blob id. Setting a path
  * builds new trees along it and shares every untouched subtree, and a
  * subtree left empty is removed, as Git has no empty trees.
  */
 import { gitTreeHash, type TreeEntry as Entry } from './hash.js';
 
-export function createTreeStore() {
-	const nodes = new Map<string, Map<string, Entry>>();
+
+/** Where a tree store keeps its trees, by id: a `Map` in memory, or a host's table. */
+export type TreeNodes = {
+	get(hash: string): Map<string, Entry> | undefined;
+	set(hash: string, entries: Map<string, Entry>): void;
+};
+
+export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, Entry>>()) {
 	const store = (entries: Map<string, Entry>) => {
 		const hash = gitTreeHash([...entries]);
 		nodes.set(hash, entries);

@@ -16,22 +16,31 @@ export type LoggedCommit = CommitInfo & { oid: string };
 
 export type Signature = { name: string; email: string };
 
-export type GitStore = {
+/** Git's objects and refs: what design B's server reads and writes. */
+export type GitObjects = {
 	readRef(name: string): Promise<string | null>;
 	readCommit(oid: string): Promise<CommitInfo | null>;
 	readTree(oid: string): Promise<Tree>;
 	readBlob(oid: string): Promise<Uint8Array | null>;
 	writeBlob(bytes: Uint8Array): Promise<string>;
 	writeTree(tree: Tree): Promise<string>;
+	/** Write a commit; the committer is the author unless named. */
 	writeCommit(commit: {
 		tree: string;
 		parents: string[];
 		message: string;
 		author: Signature;
+		committer?: Signature;
 		at: Date;
 	}): Promise<string>;
 	/** Move `name` to `next` only if it is still `expected` (null: absent). */
 	updateRef(name: string, next: string, expected: string | null): Promise<boolean>;
+	/** Delete `name` only if it is still `expected`; true when it is gone. */
+	deleteRef(name: string, expected: string): Promise<boolean>;
+};
+
+/** What today's (legacy) server also needs: history walks. */
+export type GitStore = GitObjects & {
 	mergeBase(a: string, b: string): Promise<string | null>;
 	/**
 	 * The first-parent commits from `head` back to, not including, the newest

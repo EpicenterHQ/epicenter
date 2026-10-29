@@ -1,7 +1,7 @@
 /**
  * Content hashes, in two families that never mix:
  *
- * - Git object ids are SHA-1 over a Git object (`blob`, `tree`), so a hash a
+ * - Git object ids are SHA-1 over a Git object (`blob`, `tree`, `commit`), so a hash a
  *   device holds names the same bytes in the server, in Git and in a clone.
  *   They are computed synchronously in plain JavaScript because a server
  *   applies a commit inside one synchronous transaction and the browser has
@@ -13,7 +13,7 @@
 const encoder = new TextEncoder();
 
 /** The Git object id of `bytes` as an object of `kind`: SHA-1 over `<kind> <length>\0<bytes>`. */
-function gitObjectHash(kind: 'blob' | 'tree', bytes: Uint8Array): string {
+function gitObjectHash(kind: 'blob' | 'tree' | 'commit', bytes: Uint8Array): string {
 	const header = encoder.encode(`${kind} ${bytes.length}\0`);
 	const all = new Uint8Array(header.length + bytes.length);
 	all.set(header);
@@ -26,19 +26,22 @@ export function gitBlobHash(content: string | Uint8Array): string {
 	return gitObjectHash('blob', typeof content === 'string' ? encoder.encode(content) : content);
 }
 
-/** What a Git tree entry names: a file (its blob id) or a subtree (its tree id). */
-export type TreeEntry = { kind: 'blob' | 'tree'; hash: string };
+/**
+ * What a Git tree entry names: a file (its blob id) or a subtree (its tree
+ * id). `mode` defaults to a regular file (`100644`) or a tree (`40000`).
+ */
+export type TreeEntry = { kind: 'blob' | 'tree'; hash: string; mode?: string };
 
 /**
  * The Git tree id (`git write-tree`) of `entries`: each entry is
  * `<mode> <name>\0<20-byte id>`, sorted by name with a subtree compared as
- * if its name ended in `/`. Files are regular files (`100644`).
+ * if its name ended in `/`.
  */
 export function gitTreeHash(entries: [name: string, entry: TreeEntry][]): string {
 	const key = ([name, entry]: [string, TreeEntry]) => (entry.kind === 'tree' ? `${name}/` : name);
 	const sorted = [...entries].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 	const parts = sorted.map(([name, entry]) => {
-		const head = encoder.encode(`${entry.kind === 'tree' ? '40000' : '100644'} ${name}\0`);
+		const head = encoder.encode(`${entry.mode ?? (entry.kind === 'tree' ? '40000' : '100644')} ${name}\0`);
 		const part = new Uint8Array(head.length + 20);
 		part.set(head);
 		for (let i = 0; i < 20; i++) part[head.length + i] = Number.parseInt(entry.hash.slice(i * 2, i * 2 + 2), 16);
@@ -51,6 +54,26 @@ export function gitTreeHash(entries: [name: string, entry: TreeEntry][]): string
 		at += part.length;
 	}
 	return gitObjectHash('tree', body);
+}
+
+/** Who made a Git commit, and when (seconds since the epoch, UTC). */
+export type GitSignature = { name: string; email: string; at: number };
+
+/**
+ * The Git commit id (`git commit-tree`) of a commit: its tree, its parents,
+ * author and committer lines with times in UTC, a blank line, and the
+ * message as given.
+ */
+export function gitCommitHash({
+	tree,
+	parents,
+	author,
+	committer,
+	message,
+}: { tree: string; parents: string[]; author: GitSignature; committer: GitSignature; message: string }): string {
+	const sign = ({ name, email, at }: GitSignature) => `${name} <${email}> ${at} +0000`;
+	const header = [`tree ${tree}`, ...parents.map((parent) => `parent ${parent}`), `author ${sign(author)}`, `committer ${sign(committer)}`];
+	return gitObjectHash('commit', encoder.encode(`${header.join('\n')}\n\n${message}`));
 }
 
 /** The LFS object id of a blob's bytes: lowercase hex SHA-256. */
