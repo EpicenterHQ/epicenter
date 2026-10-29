@@ -15,6 +15,7 @@
  * - What shows before an answer is what the worker will make: a field set a moment ago still shows under body typing and a write made over an older text
  * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
  * - The plain file API lists, reads, writes and edits every file, in a collection or none, and lists those not yet synced; a write to a path a collection keeps shows there at once
+ * - Apps combined may claim one file: it shows in each collection, read with each schema
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -22,7 +23,7 @@ import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Replica } from '../client/replica.js';
-import { defineApp } from '../core/lens.js';
+import { combineApps, defineApp } from '../core/lens.js';
 import { createLocalHost } from './local.js';
 import { type InvalidNote, type Note, openRepository, type RepositoryChange, type ValidNote } from './repository.js';
 
@@ -258,4 +259,19 @@ test('the plain file API lists, reads, writes and edits every file, in a collect
 	expect(expectOk(await repo.files.read('README.md'))?.text).toBe('# Home\nWelcome\n');
 	expectOk(await repo.files.delete('README.md'));
 	expect(expectOk(await repo.files.read('README.md'))).toBeNull();
+});
+
+test('a note two combined apps claim shows in each of their collections, each read with its own schema', async () => {
+	const tasks = defineApp({ tasks: { path: 'todos/{stem}.md', schema: Type.Object({ title: Type.String() }) } });
+	const both = combineApps([app, tasks]);
+	const driver = openBunSqlite();
+	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app: both, after: () => {}, now: () => 0 }));
+	replica.write('todos/milk.md', '---\ntitle: Milk\n---\n');
+	const repo = openRepository({ app: both, host: createLocalHost({ replica, app: both }).host }) as unknown as {
+		todos: { all(): Note[] };
+		tasks: { all(): Note[] };
+	};
+	await settled();
+	expect(repo.todos.all().map((note) => [note.path, note.valid])).toEqual([['todos/milk.md', false]]);
+	expect(repo.tasks.all().map((note) => [note.path, note.valid])).toEqual([['todos/milk.md', true]]);
 });

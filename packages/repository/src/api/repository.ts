@@ -305,10 +305,9 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		statusChanged = true;
 	};
 
-	/** The lens a path belongs to, with its parameters, if it is a note. */
-	function classify(path: string): { lens: NoteLens; params: Record<string, string> } | null {
-		const found = app.classify(path);
-		return found?.lens.kind === 'note' ? { lens: found.lens, params: found.params } : null;
+	/** The note collections that claim a path, with its parameters: apps combined may share one. */
+	function claims(path: string): { lens: NoteLens; params: Record<string, string> }[] {
+		return app.claims(path).flatMap((claim) => (claim.lens.kind === 'note' ? [{ lens: claim.lens, params: claim.params }] : []));
 	}
 
 	function toNote(lens: NoteLens, path: string, params: Record<string, string>, text: string, fields: string | null | undefined, state: FileStatus): Note {
@@ -328,7 +327,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		session: () => (status.status === 'open' ? session : null),
 		status: () => status,
 		revision: () => revision,
-		stored: (path) => (classify(path)?.lens.memory === true ? (stored.get(path)?.text ?? null) : undefined),
+		stored: (path) => (claims(path).some(({ lens }) => lens.memory) ? (stored.get(path)?.text ?? null) : undefined),
 		row: (path) => (session === null ? Promise.reject(new Error('No session is open')) : session.row(path)),
 		// Paths equal after NFC and case folding are one path: a write to any spelling of it counts.
 		answered: async (path) => {
@@ -349,48 +348,46 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	 * so a field set a moment ago still shows while the body is typed.
 	 */
 	function refresh(path: string) {
-		const classified = classify(path);
-		if (classified === null || !classified.lens.memory) return;
-		const { lens, params } = classified;
-		const notes = notesOf.get(lens.name);
-		if (notes === undefined) return;
+		const kept = claims(path).filter(({ lens }) => lens.memory);
+		if (kept.length === 0) return;
 		const row = stored.get(path);
 		let text = row?.text ?? null;
 		const writes = pending.get(path) ?? [];
 		for (const { change } of writes) text = project(text, change);
 		text = editors.draftOver(path, text);
-		const before = notes.get(path);
-		if (text === null) {
-			if (before === undefined) return;
-			notes.delete(path);
-			lists.delete(lens.name);
-		} else {
-			// Held wins: typing an editor is not saving now, or text the replica holds back, is never shown as on its way.
-			const stuck = editors.stuck(path);
-			const state: FileStatus =
-				stuck !== null ? { status: 'held', reason: stuck } : row?.state.status === 'held' ? row.state : writes.length > 0 || editors.unsaved(path) || row === undefined ? SENDING : row.state;
-			if (before !== undefined && before.text === text && sameState(before.state, state)) return;
-			// Typing in the body leaves the frontmatter as it was: its fields are read again only when it changes.
-			const note =
-				before !== undefined && headerOf(before.text) === headerOf(text)
-					? ({ ...before, text, body: bodyOf(text), state } as Note)
-					: toNote(lens, path, params, text, row?.text === text ? row.fields : undefined, state);
-			notes.set(path, note);
-			const list = lists.get(lens.name);
-			const at = before === undefined || list === undefined ? -1 : indexOf(list, path);
-			if (list !== undefined && at >= 0) lists.set(lens.name, list.with(at, note));
-			else lists.delete(lens.name);
+		// Held wins: typing an editor is not saving now, or text the replica holds back, is never shown as on its way.
+		const stuck = editors.stuck(path);
+		const state: FileStatus =
+			stuck !== null ? { status: 'held', reason: stuck } : row?.state.status === 'held' ? row.state : writes.length > 0 || editors.unsaved(path) || row === undefined ? SENDING : row.state;
+		for (const { lens, params } of kept) {
+			const notes = notesOf.get(lens.name);
+			if (notes === undefined) continue;
+			const before = notes.get(path);
+			if (text === null) {
+				if (before === undefined) continue;
+				notes.delete(path);
+				lists.delete(lens.name);
+			} else {
+				if (before !== undefined && before.text === text && sameState(before.state, state)) continue;
+				// Typing in the body leaves the frontmatter as it was: its fields are read again only when it changes.
+				const note =
+					before !== undefined && headerOf(before.text) === headerOf(text)
+						? ({ ...before, text, body: bodyOf(text), state } as Note)
+						: toNote(lens, path, params, text, row?.text === text ? row.fields : undefined, state);
+				notes.set(path, note);
+				const list = lists.get(lens.name);
+				const at = before === undefined || list === undefined ? -1 : indexOf(list, path);
+				if (list !== undefined && at >= 0) lists.set(lens.name, list.with(at, note));
+				else lists.delete(lens.name);
+			}
+			touched.add(lens.name);
 		}
-		touched.add(lens.name);
 	}
 
 	/** Every collection a changed path belongs to is told, kept in memory or not. */
 	function heard(paths: string[]) {
 		if (paths.length > 0) filesChanged = true;
-		for (const path of paths) {
-			const classified = classify(path);
-			if (classified !== null) touched.add(classified.lens.name);
-		}
+		for (const path of paths) for (const { lens } of claims(path)) touched.add(lens.name);
 	}
 
 	function applyDelta(delta: Delta) {
@@ -546,7 +543,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 						return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
 					}
 					// Found by any spelling of its path, it reads under the spelling this device has.
-					return Ok(row === null ? null : toNote(lens, row.path, classify(row.path)?.params ?? (params as Record<string, string>), row.text, row.fields, row.state));
+					return Ok(row === null ? null : toNote(lens, row.path, claims(row.path).find((claim) => claim.lens === lens)?.params ?? (params as Record<string, string>), row.text, row.fields, row.state));
 				},
 			};
 		const notes = notesOf.get(lens.name) ?? new Map<string, Note>();

@@ -8,6 +8,7 @@
  */
 import type { TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
+import { isNote } from './door.js';
 import { parseMarkdown } from './markdown.js';
 import {
 	compileTemplate,
@@ -89,68 +90,85 @@ export type Lens =
  * app's source, found when it is loaded, not runtime conditions.
  */
 export function defineApp<const TDefs extends Definitions>(definitions: TDefs) {
-	const lenses: Lens[] = [];
-	for (const [name, definition] of Object.entries(definitions)) {
-		if (!IDENTIFIER.test(name) || name.startsWith('sqlite_'))
-			throw new Error(`'${name}' is not an identifier usable as a name`);
-		if (RESERVED.has(name))
-			throw new Error(`'${name}' is reserved by the repository object`);
-		const compiled = compileTemplate(definition.path);
-		if (compiled.error !== null) throw new Error(compiled.error.message);
-		const template = compiled.data;
-		for (const param of template.params)
-			if (VIEW_COLUMNS.has(param))
-				throw new Error(`{${param}} in '${name}' collides with a view column`);
-		if ('schema' in definition) {
-			if (!templateEnds(template, '.md'))
-				throw new Error(`The note template '${definition.path}' must end in .md`);
-			const fields = schemaFields(definition.schema);
-			for (const field of fields) {
-				if (VIEW_COLUMNS.has(field) || template.params.includes(field))
-					throw new Error(`The field '${field}' in '${name}' collides with a column`);
-				if (field.includes('"'))
-					throw new Error(`The field '${field}' in '${name}' cannot be a column`);
-			}
-			lenses.push({
-				kind: 'note',
-				name,
-				template,
-				schema: definition.schema,
-				fields,
-				view: viewSql(name, template, noteColumns(fields)),
-				memory: definition.memory !== false,
-			});
-		} else {
-			if (templateEnds(template, '.md'))
-				throw new Error(`The blob template '${definition.path}' must not end in .md`);
-			lenses.push({
-				kind: 'blob',
-				name,
-				template,
-				view: viewSql(name, template, BLOB_COLUMNS),
-			});
-		}
-	}
+	const lenses = Object.entries(definitions).map(([name, definition]) => lensOf(name, definition));
 	for (const [index, a] of lenses.entries())
 		for (const b of lenses.slice(index + 1))
 			if (templatesOverlap(a.template, b.template))
 				throw new Error(`The templates '${a.name}' and '${b.name}' can match the same file`);
+	return appOver(definitions, lenses);
+}
 
+/**
+ * Several apps as one, as a shell opens a repository with every installed
+ * app's collections. Each app was checked when it was defined. Two apps may
+ * claim the same files: a collection is a view, not a permission
+ * (ADR-0694), so a file shows in each collection that claims it. Two apps
+ * may not use one name, which would be one property of the handle; that
+ * throws.
+ */
+export function combineApps(apps: readonly App[]): App {
+	const definitions: Definitions = {};
+	for (const app of apps)
+		for (const [name, definition] of Object.entries(app.definitions)) {
+			if (name in definitions) throw new Error(`Two apps name a collection '${name}'`);
+			definitions[name] = definition;
+		}
+	return appOver(definitions, apps.flatMap((app) => app.lenses));
+}
+
+function lensOf(name: string, definition: NoteDefinition | BlobDefinition): Lens {
+	if (!IDENTIFIER.test(name) || name.startsWith('sqlite_'))
+		throw new Error(`'${name}' is not an identifier usable as a name`);
+	if (RESERVED.has(name))
+		throw new Error(`'${name}' is reserved by the repository object`);
+	const compiled = compileTemplate(definition.path);
+	if (compiled.error !== null) throw new Error(compiled.error.message);
+	const template = compiled.data;
+	for (const param of template.params)
+		if (VIEW_COLUMNS.has(param))
+			throw new Error(`{${param}} in '${name}' collides with a view column`);
+	if ('schema' in definition) {
+		if (!templateEnds(template, '.md'))
+			throw new Error(`The note template '${definition.path}' must end in .md`);
+		const fields = schemaFields(definition.schema);
+		for (const field of fields) {
+			if (VIEW_COLUMNS.has(field) || template.params.includes(field))
+				throw new Error(`The field '${field}' in '${name}' collides with a column`);
+			if (field.includes('"'))
+				throw new Error(`The field '${field}' in '${name}' cannot be a column`);
+		}
+		return {
+			kind: 'note',
+			name,
+			template,
+			schema: definition.schema,
+			fields,
+			view: viewSql(name, template, noteColumns(fields)),
+			memory: definition.memory !== false,
+		};
+	}
+	if (templateEnds(template, '.md'))
+		throw new Error(`The blob template '${definition.path}' must not end in .md`);
+	return { kind: 'blob', name, template, view: viewSql(name, template, BLOB_COLUMNS) };
+}
+
+function appOver<const TDefs extends Definitions>(definitions: TDefs, lenses: Lens[]) {
 	return {
 		definitions,
 		lenses,
 		/**
-		 * The lens a path belongs to, if any. A Markdown file belongs only to a
-		 * note template, so a broad blob template never claims a note.
+		 * Every collection that claims a path, with its parameters: one in a
+		 * single app, possibly several in apps combined. A Markdown file is
+		 * claimed only by note templates, so a broad blob template never
+		 * claims a note.
 		 */
-		classify(path: string) {
-			const isNote = path.endsWith('.md');
-			for (const lens of lenses) {
-				if ((lens.kind === 'note') !== isNote) continue;
+		claims(path: string) {
+			const note = isNote(path);
+			return lenses.flatMap((lens) => {
+				if ((lens.kind === 'note') !== note) return [];
 				const params = matchTemplate(lens.template, path);
-				if (params !== null) return { lens, params };
-			}
-			return null;
+				return params === null ? [] : [{ lens, params }];
+			});
 		},
 		/**
 		 * Whether `text` parses and, `as` a note name, whether its fields
@@ -167,9 +185,7 @@ export function defineApp<const TDefs extends Definitions>(definitions: TDefs) {
 		},
 	};
 }
-export type App<TDefs extends Definitions = Definitions> = ReturnType<
-	typeof defineApp<TDefs>
->;
+export type App<TDefs extends Definitions = Definitions> = ReturnType<typeof appOver<TDefs>>;
 
 function schemaFields(schema: TSchema): string[] {
 	const properties = (schema as { properties?: Record<string, unknown> }).properties;

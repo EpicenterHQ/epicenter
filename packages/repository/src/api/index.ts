@@ -5,7 +5,7 @@
  * `@epicenter/repository/browser`; `openLocalRepository` opens one
  * over a replica in this process (Bun, a script).
  */
-export { type App, type Definitions, defineApp, type NoteDefinition, type NoteName, type TextStatus, timestamp } from '../core/lens.js';
+export { type App, type BlobDefinition, type BlobName, combineApps, type Definitions, defineApp, type NoteDefinition, type NoteName, type TextStatus, timestamp } from '../core/lens.js';
 export { SaveError } from '../client/page.js';
 export { ChangeError, type FileStatus } from '../client/replica.js';
 export { openLocalRepository } from './local.js';

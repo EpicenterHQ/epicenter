@@ -2,20 +2,21 @@
  * defineApp Tests
  *
  * An app definition is the lens a device opens. These tests check that bad
- * apps are refused when defined, that paths classify to at most one handle,
+ * apps are refused when defined, that paths belong to at most one handle of
+ * an app (apps combined may share files),
  * and that each generated view, run in real SQLite, selects exactly the files
  * its template names with typed parameter and field columns.
  *
  * Key behaviors:
  * - Bad names, reserved names, bad templates, kind mismatches and overlaps throw
- * - A Markdown path classifies only to note templates
+ * - A Markdown path is claimed only by note templates; combined apps may claim one file
  * - Views extract parameters and fields and skip hidden, nested and deleted files
  * - `app.check` reports parsing and, for a note name, schema issues, without a repository
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { Type } from 'typebox';
-import { defineApp, timestamp } from './lens.js';
+import { combineApps, defineApp, timestamp } from './lens.js';
 
 const Task = Type.Object({ title: Type.String(), done: Type.Boolean() });
 
@@ -74,25 +75,27 @@ describe('refusals at definition time', () => {
 	});
 });
 
-describe('classify', () => {
-	test('each path belongs to at most one handle, and READMEs to none', () => {
+describe('claims', () => {
+	test('in one app each path belongs to at most one handle, and READMEs to none', () => {
 		const app = sampleApp();
-		expect(app.classify('projects/acme/tasks/fix.md')).toMatchObject({
-			lens: { name: 'tasks' },
-			params: { project: 'acme', stem: 'fix' },
-		});
-		expect(app.classify('projects/acme/photos/a.png')).toMatchObject({
-			lens: { name: 'photos' },
-			params: { file: 'a.png' },
-		});
-		expect(app.classify('settings.md')?.lens.name).toBe('settings');
-		expect(app.classify('README.md')).toBeNull();
+		expect(app.claims('projects/acme/tasks/fix.md')).toMatchObject([{ lens: { name: 'tasks' }, params: { project: 'acme', stem: 'fix' } }]);
+		expect(app.claims('projects/acme/photos/a.png')).toMatchObject([{ lens: { name: 'photos' }, params: { file: 'a.png' } }]);
+		expect(app.claims('settings.md').map(({ lens }) => lens.name)).toEqual(['settings']);
+		expect(app.claims('README.md')).toEqual([]);
 	});
 
-	test('a broad blob template never claims a Markdown file', () => {
-		expect(sampleApp().classify('projects/acme/photos/notes.md')).toBeNull();
+	test('a broad blob template never claims a Markdown file, in any case', () => {
+		expect(sampleApp().claims('projects/acme/photos/notes.md')).toEqual([]);
+		expect(sampleApp().claims('projects/acme/photos/NOTES.MD')).toEqual([]);
 	});
 
+	test('apps combined may claim the same files, each in its own collection, but not share a name', () => {
+		const whispering = defineApp({ recordings: { path: 'recordings/{stem}.webm', blob: true } });
+		const player = defineApp({ audio: { path: 'recordings/{file}', blob: true } });
+		const both = combineApps([whispering, player]);
+		expect(both.claims('recordings/r1.webm').map(({ lens }) => lens.name)).toEqual(['recordings', 'audio']);
+		expect(() => combineApps([whispering, defineApp({ recordings: { path: 'other/{stem}.wav', blob: true } })])).toThrow(/name a collection 'recordings'/);
+	});
 });
 
 describe('views', () => {
