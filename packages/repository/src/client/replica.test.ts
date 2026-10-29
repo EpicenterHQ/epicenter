@@ -412,3 +412,61 @@ test('a file with nothing left to send leaves its group: a later hold on it neve
 	link.deliver();
 	expect(server.read('notes/b.md')).toBe(note('b\nmore\n'));
 });
+
+test('a call saved with a message is a commit alone that carries it, never amended: a later save of its file goes in a commit after it', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.attach(null);
+	replica.write('notes/live.md', note('live\n'));
+	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\n') }, { message: 'Summarize October' });
+	// Saved again offline: the commit with the message keeps what it said.
+	replica.write('notes/a.md', note('a again\n'));
+	replica.attach(link.sent.push.bind(link.sent));
+	link.deliver();
+	expect(link.pushes.map((commit) => [commit.message ?? null, commit.files.map((f) => f.path).sort()])).toEqual([
+		[null, ['notes/live.md']],
+		['Summarize October', ['notes/a.md', 'notes/b.md']],
+		[null, ['notes/a.md']],
+	]);
+	expect(link.pushes[1]?.files.find((f) => f.path === 'notes/a.md')?.text).toBe(note('a\n'));
+	expect(server.read('notes/a.md')).toBe(note('a again\n'));
+	expect(replica.busy()).toBe(false);
+	expect(replica.query('SELECT * FROM "epicenter/messages"')).toEqual([]);
+});
+
+test('a group held with a message keeps it, and its writer saving the held file again sends the whole group once, with the newest message', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/bad.md': '---\ntitle: [\n---\n' }, { message: 'First try' });
+	link.deliver();
+	expect(replica.held().map((h) => h.path)).toEqual(['notes/bad.md']);
+	expect(replica.state('notes/a.md')).toEqual({ status: 'held', reason: 'saved with notes/bad.md, which is held' });
+	expect(server.read('notes/a.md')).toBeNull();
+	replica.writeAll({ 'notes/bad.md': note('fixed\n') }, { message: 'Second try' });
+	link.deliver();
+	expect(link.pushes.map((commit) => [commit.message, commit.files.map((f) => f.path).sort()])).toEqual([['Second try', ['notes/a.md', 'notes/bad.md']]]);
+	expect(replica.held()).toEqual([]);
+	expect(replica.busy()).toBe(false);
+});
+
+test('a commit with a message that comes back unsent (a lost answer, then outcome unknown) goes again with its message', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.writeAll({ 'notes/a.md': note('a\n') }, { message: 'Said once' });
+	const [push] = link.sent.splice(0);
+	expect(push?.type).toBe('push');
+	// The server never saw it, and says it cannot tell (its parent left the window).
+	if (push?.type === 'push') replica.reply({ type: 'answer', rid: push.rid, answer: { kind: 'outcome-unknown', main: server.main() } });
+	link.deliver();
+	expect(link.pushes.map((commit) => commit.message)).toEqual(['Said once']);
+	expect(server.read('notes/a.md')).toBe(note('a\n'));
+});

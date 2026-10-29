@@ -21,14 +21,16 @@ export type CommitBody = {
 	author: Author;
 	time: string;
 	files: CommitFile[];
+	/** What its writer said it does (`epicenter commit -m`): a commit with one is never amended, and the flush gives it its own Git commit with this as its message. Live saves have none. */
+	message?: string;
 };
 
 /** A live commit on the wire. `id` is `commitId` of the rest. */
 export type LiveCommit = CommitBody & { id: string };
 
-/** The canonical form a commit id hashes: a JSON array in a fixed order. */
-export function canonicalCommit({ parent, author, time, files }: CommitBody) {
-	return JSON.stringify([parent, author.user, author.device, time, files.map((f) => [f.path, f.text])]);
+/** The canonical form a commit id hashes: a JSON array in a fixed order, the message last when there is one (so a commit without one keeps its id). */
+export function canonicalCommit({ parent, author, time, files, message }: CommitBody) {
+	return JSON.stringify([parent, author.user, author.device, time, files.map((f) => [f.path, f.text]), ...(message === undefined ? [] : [message])]);
 }
 
 /** A commit's id: the Git blob id of its canonical form. */

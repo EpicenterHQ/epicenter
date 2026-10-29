@@ -160,6 +160,7 @@ const CommitSchema = Type.Object(
 		author: Type.Object({ user: Type.String(), device: Type.String() }, { additionalProperties: false }),
 		time: Type.String(),
 		files: Type.Array(Type.Object({ path: Type.String(), text: Type.Union([Type.String(), Type.Null()]) }, { additionalProperties: false })),
+		message: Type.Optional(Type.String({ minLength: 1 })),
 	},
 	{ additionalProperties: false },
 );

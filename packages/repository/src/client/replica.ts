@@ -47,6 +47,8 @@
  *                         times it was sent; its files are the `sent` level
  *   "epicenter/groups"    paths saved in one call (a rename's two halves, a
  *                         note and the blob it names), while any is unsent
+ *   "epicenter/messages"  per path, the message of the call that saved it
+ *                         (`epicenter commit -m`), until its commit is sent
  *   "epicenter/passed"    recent positions, so a late notification is old
  *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
  *   "epicenter/fetched"   texts read by hash for that catch-up
@@ -175,6 +177,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/groups" (path TEXT NOT NULL, other TEXT NOT NULL, PRIMARY KEY (path, other)) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/messages" (path TEXT PRIMARY KEY, message TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/passed" (id TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/fetched" (hash TEXT PRIMARY KEY, text TEXT NOT NULL) STRICT;
@@ -479,8 +482,11 @@ function createReplica({
 			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
 			driver.run('DELETE FROM "epicenter/unsent" WHERE path = ?', [path]);
 			driver.run('DELETE FROM "epicenter/groups" WHERE path = ?', [path]);
+			driver.run('DELETE FROM "epicenter/messages" WHERE path = ?', [path]);
 			return;
 		}
+		// A file with nothing to send says nothing: its message went with its commit, or the call changed nothing here.
+		if (idle) driver.run('DELETE FROM "epicenter/messages" WHERE path = ?', [path]);
 		const row =
 			before === undefined ||
 			before.base !== next.base ||
@@ -613,6 +619,12 @@ function createReplica({
 		return pointer !== null && first(driver, 'SELECT 1 FROM "epicenter/objects" WHERE oid = ?', [pointer.oid]) === undefined;
 	}
 
+	/** The message of the call that saved `path`, while its commit is unsent. */
+	const messageOf = (path: string) => first<{ message: string }>(driver, 'SELECT message FROM "epicenter/messages" WHERE path = ?', [path])?.message ?? null;
+	const say = (paths: Iterable<string>, message: string) => {
+		for (const path of paths) driver.run('INSERT OR REPLACE INTO "epicenter/messages" (path, message) VALUES (?, ?)', [path, message]);
+	};
+
 	/**
 	 * `path`'s group, each file read once: it, and every file saved with it
 	 * that still counts it as one of theirs (an edge only one side holds is
@@ -685,14 +697,19 @@ function createReplica({
 		const taken = new Set<string>();
 		let count = 0;
 		let size = 0;
+		/** RULE: a group saved with a message is a commit alone, so the message describes exactly what it saved. */
+		let said: string | null = null;
 		for (const [path] of going) {
 			if (taken.has(path)) continue;
 			const group = [...unit(path, among)];
-			const bytes = group.reduce((sum, p) => sum + encoder.encode(JSON.stringify({ path: p, text: among.get(p)?.committed?.text ?? null })).length + 1, 0);
+			const message = group.map(messageOf).find((m) => m !== null) ?? null;
+			if (taken.size > 0 && (message !== null || said !== null)) continue;
+			const bytes = group.reduce((sum, p) => sum + encoder.encode(JSON.stringify({ path: p, text: among.get(p)?.committed?.text ?? null })).length + 1, 0) + (message === null ? 0 : encoder.encode(JSON.stringify(message)).length);
 			if (taken.size > 0 && (count + group.length > files || size + bytes > request)) continue;
 			for (const p of group) taken.add(p);
 			count += group.length;
 			size += bytes;
+			said = message;
 		}
 		return going.filter(([path]) => taken.has(path));
 	}
@@ -713,6 +730,8 @@ function createReplica({
 		const blocked = blockedAll();
 		for (const [path, f] of filesWhere('saved = 1')) {
 			if (blocked(path)) continue;
+			// RULE: a commit with a message is never amended: a later save of one of its files waits until it is sent, then goes in a commit of its own.
+			if (f.committed !== undefined && messageOf(path) !== null) continue;
 			const { saved: _, ...rest } = f;
 			const under = (f.sent ?? { text: f.base }).text;
 			if (f.mine === under) {
@@ -731,9 +750,11 @@ function createReplica({
 	}
 
 	/** Save texts: each merged here with `mine` if `mine` moved since the text the caller started from. */
-	function writeAll(changes: Record<string, string | null>, { over }: { over?: Record<string, string | null> } = {}): Changed {
+	function writeAll(changes: Record<string, string | null>, { over, message }: { over?: Record<string, string | null>; message?: string } = {}): Changed {
 		return atomically(() => {
 			const paths = Object.keys(changes).map(spelled);
+			// RULE: a message names everything this call saved, and every file already saved with it (a held group joined again takes the new message).
+			if (message !== undefined) say(new Set(paths.flatMap((path) => [...groupOf(path).members])), message);
 			for (const [given, text] of Object.entries(changes)) {
 				const path = spelled(given);
 				const { held: _, ...f } = record(path);
@@ -750,6 +771,7 @@ function createReplica({
 				const next = from === f.mine ? text : settle(from, f.mine, text, { parties: parties() }).text;
 				set(path, { ...f, ...grouped, mine: next, saved: true });
 			}
+			if (message !== undefined) say(paths, message);
 			commit();
 			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
 			return { texts: Object.fromEntries(Object.keys(changes).map((given) => [given, record(spelled(given)).mine])), revision: revision + (changed.size > 0 ? 1 : 0) };
@@ -842,20 +864,26 @@ function createReplica({
 			if (waiting.has(parent)) place();
 			return;
 		}
+		const message = going.map(([path]) => messageOf(path)).find((m) => m !== null) ?? null;
 		const body = {
 			parent,
 			author: { user, device },
 			time: new Date(now()).toISOString(),
 			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
+			...(message === null ? {} : { message }),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
 		setInflight(sent);
 		for (const [path, f] of going) {
 			const { committed: _, ...rest } = f;
 			set(path, rest);
+			// The message is the commit's now: it comes back to its files only if the commit does.
+			driver.run('DELETE FROM "epicenter/messages" WHERE path = ?', [path]);
 		}
 		stats.pushes++;
 		request({ type: 'push', rid: takeRid(), commit: sent });
+		// A save that waited for this commit to go (it is never amended) is free to commit now.
+		if (message !== null && first(driver, 'SELECT 1 FROM "epicenter/files" WHERE saved = 1') !== undefined) commit();
 	}
 
 	// ==========================================================================
@@ -982,7 +1010,13 @@ function createReplica({
 			if (file.path === answer.path && rest.committed === undefined) set(file.path, { ...rest, held: { reason: answer.reason } });
 			else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
 		}
+		comeBack();
 		setInflight(null);
+	}
+
+	/** The commit in flight comes back unsent: its files take its message again, so it goes again as it was said. */
+	function comeBack() {
+		if (inflight?.message !== undefined) say(inflight.files.map((f) => f.path), inflight.message);
 	}
 
 	/**
@@ -1006,6 +1040,7 @@ function createReplica({
 			if (tooLarge && alone && rest.committed === undefined) set(file.path, { ...rest, held: { reason: `${answer.reason}: what was saved together goes together; save less at once` } });
 			else set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text } });
 		}
+		comeBack();
 		setInflight(null);
 		switch (answer.code) {
 			case 'rate':
@@ -1036,6 +1071,7 @@ function createReplica({
 			const { sent: level, ...rest } = record(file.path);
 			set(file.path, { ...rest, committed: rest.committed ?? level ?? { text: file.text }, ...(once ? {} : { unknown: true as const }) });
 		}
+		comeBack();
 		setInflight(null);
 		if (!once) for (const [path, f] of committedFiles()) set(path, { ...f, unknown: true });
 		setPosition(null);

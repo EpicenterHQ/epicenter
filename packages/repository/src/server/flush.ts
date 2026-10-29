@@ -92,9 +92,17 @@ export function createFlusher({
 		const top = history.top();
 		if (top <= flushed) return null;
 		const from = Math.max(flushed + 1, history.offset());
-		const cuts: number[] = [];
-		for (let i = from; i <= top; i++) if (history.at(i).blocks) cuts.push(i);
-		if (cuts.at(-1) !== top) cuts.push(top);
+		// A merge that wrote a conflict block ends a Git commit; a commit with a message is a Git commit alone, so what came before it ends one too.
+		const cut = new Set<number>([top]);
+		for (let i = from; i <= top; i++) {
+			const commit = history.at(i);
+			if (commit.blocks) cut.add(i);
+			if (commit.message !== undefined) {
+				if (i > from) cut.add(i - 1);
+				cut.add(i);
+			}
+		}
+		const cuts = [...cut].sort((a, b) => a - b);
 		const attributes = history.keep(ATTRIBUTES);
 		let previousTree = meta.get('git_tree') ?? trees.empty;
 		let previousOid = meta.get('git_head');
@@ -105,6 +113,7 @@ export function createFlusher({
 			start = end + 1;
 			const cut = history.at(end);
 			const tree = trees.update(cut.tree, [[['.gitattributes'], attributes]]);
+			// RULE: a cut that changes nothing is no Git commit, a message's included: Git records changes, and an unchanged tree has none to describe (the live commit keeps the message while it is kept).
 			if (tree === previousTree) continue;
 			const changed = trees.diff(previousTree, tree);
 			const paths = changed.filter((path) => path !== '.gitattributes').sort();
@@ -117,12 +126,16 @@ export function createFlusher({
 					: `Edit ${paths[0] ?? 'main'} and ${paths.length - 1} others`;
 			const trailers = [
 				`Epicenter-Live: ${short(range[0]?.id ?? '')}..${short(cut.id)} (${range.length} commits)`,
+				// Who said it: the writer's label (an agent's name, or a device's id), which conflict blocks name too.
+				...(cut.message === undefined ? [] : [`Epicenter-Device: ${cut.author.device}`]),
 				...[...counts.keys()].sort().map((user) => {
 					const { name, email } = signatureOf(user);
 					return `Co-authored-by: ${name} <${email}>`;
 				}),
 			];
-			const message = `${subject}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n`;
+			// RULE: a commit with a message keeps its writer's words as the Git message, the paths and trailers after them.
+			const said = cut.message?.trim();
+			const message = said === undefined || said === '' ? `${subject}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n` : `${said}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n`;
 			const author = signatureOf([...counts].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'epicenter');
 			const parents = previousOid === null || previousOid === '' ? [] : [previousOid];
 			const seconds = Math.floor(cut.at / 1000);
