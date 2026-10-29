@@ -157,7 +157,7 @@ test('P7: a held draft meeting a remote create at its path stays unpublished unt
 	expect(text).toContain('<<<<<<< ');
 });
 
-test('P8: a delete that lost to an edit stays held on the deleting device, across a lost reply and a flush, until saved again', () => {
+test('P8 (changed): a delete that lost to an edit leaves the edited note on the deleting device, across a lost reply and a flush; deleting again sends it', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/old.md';
 	alice.replica.write(path, note('x\n', 'title: Old'));
@@ -172,9 +172,9 @@ test('P8: a delete that lost to an edit stays held on the deleting device, acros
 	world.flush();
 	settle();
 	expect(world.server.read(path)).toBe(note('x\nbob still uses this\n', 'title: Old'));
-	expect(alice.replica.read(path)).toBeNull();
-	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'edited after you deleted it' });
-	// "Delete anyway": saving the delete again sends it over the edit.
+	expect(alice.replica.read(path)).toBe(note('x\nbob still uses this\n', 'title: Old'));
+	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
+	// Deleting again, now over the edit, sends it.
 	alice.replica.write(path, null);
 	settle();
 	expect(world.server.read(path)).toBeNull();
@@ -290,7 +290,7 @@ test('D1: a Git push is fast-forward only: refused when main moved, applied on m
 	expect(server.gitPush(make(note('from git, rebased\n')), { member: 'alice' })).toMatchObject({ kind: 'applied' });
 });
 
-test('a field removal that lost to an edit stays held on the device that removed it', () => {
+test('changed: a field removal that lost to an edit leaves the edited field, and nothing is held', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/a.md';
 	alice.replica.write(path, note('one\n', 'title: A\nmood: calm'));
@@ -302,8 +302,8 @@ test('a field removal that lost to an edit stays held on the device that removed
 	alice.setOnline(true);
 	settle();
 	expect(world.server.read(path)).toBe(note('one\n', 'title: A\nmood: busy'));
-	expect(alice.replica.read(path)).toBe(note('one\n'));
-	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'edited after you removed mood' });
+	expect(alice.replica.read(path)).toBe(note('one\n', 'title: A\nmood: busy'));
+	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
 });
 
 test('the door refuses what would break a clone, the same on the device and the server', () => {

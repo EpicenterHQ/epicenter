@@ -25,7 +25,7 @@
  * Key behaviors:
  * - An acknowledged token is in a server text after every step, and at quiescence every owed token is
  * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged
- * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, or stays held on their device until they resolve it
+ * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, unless it lost to an edit by someone else that it had not seen: then the edited file stays, and nothing typed is lost
  * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
@@ -97,8 +97,7 @@ function run(seed: number) {
 	const removed = new Set<string>();
 	/** Typed on a device lost before its commit was acknowledged: legitimately gone. */
 	const forgotten = new Set<string>();
-	const lastPush = new Map<string, boolean>();
-	const removals: { device: string; path: string; landed: boolean; cancelled: boolean; step: string }[] = [];
+	const removals: { device: string; path: string; base: string | null; at: number; landed: boolean; cancelled: boolean; step: string }[] = [];
 	const violations: string[] = [];
 	const honestIds: string[] = [];
 	let next = 1;
@@ -107,6 +106,8 @@ function run(seed: number) {
 	// The test's own copy of history: each commit's files, to judge merges independently of the server.
 	const states = new Map<string, Map<string, string>>([[world.server.main(), new Map()]]);
 	const chain: string[] = [world.server.main()];
+	/** Who wrote each commit on the chain, and the paths it changed. */
+	const writers: { user: string; paths: Set<string> }[] = [{ user: '', paths: new Set() }];
 	let lastMerge: Committed | null = null;
 	world.onCommit((committed) => {
 		const state = new Map(states.get(committed.parents[0] ?? '') ?? []);
@@ -122,6 +123,7 @@ function run(seed: number) {
 		}
 		states.set(committed.id, state);
 		chain.push(committed.id);
+		writers.push({ user: committed.author.user, paths: new Set(committed.files.map((f) => f.path)) });
 		lastMerge = committed.parents.length > 1 ? committed : null;
 	});
 	world.onRequest((device, request, reply) => {
@@ -131,8 +133,6 @@ function run(seed: number) {
 		const commit = request.commit;
 		honestIds.push(commit.id);
 		for (const file of commit.files) for (const t of tokensIn(file.text)) acknowledged.add(t);
-		// What this device's last landed push did to each path: a removal saved while that delete is still in flight is that delete.
-		for (const file of commit.files) lastPush.set(`${device} ${file.path}`, file.text === null && states.get(answer.main)?.has(file.path) === false);
 		// No silent merge across a delete, judged by the test's own history.
 		const merge = lastMerge as Committed | null;
 		if (answer.kind !== 'merged' || merge === null || merge.parents[1] !== commit.id) return;
@@ -166,14 +166,7 @@ function run(seed: number) {
 			// A removal claims a note the device had from the server, not one it created and never sent,
 			const known = d.replica.files().get(path)?.base ?? null;
 			if (text === null && showed(path) !== null && known !== null)
-				removals.push({
-					device: d.name,
-					path,
-					// A delete in flight, a create over it, and a delete again send nothing new: the delete in flight is this removal.
-					landed: world.server.read(path) === null || (d.replica.state(path).status === 'sending' && lastPush.get(`${d.name} ${path}`) === true),
-					cancelled: false,
-					step: log.at(-1) ?? '',
-				});
+				removals.push({ device: d.name, path, base: known, at: chain.length, landed: world.server.read(path) === null, cancelled: false, step: log.at(-1) ?? '' });
 		}
 		d.replica.writeAll(changes, editor && seen !== undefined ? { over: seen } : {});
 	};
@@ -447,19 +440,10 @@ function run(seed: number) {
 			for (const path of new Set([...d.replica.paths(), ...held.keys()])) {
 				const text = d.replica.read(path);
 				const reason = held.get(path);
-				if (reason?.startsWith('edited after you')) {
-					// A delete or removal that lost to an edit: its person deletes anyway, or keeps the edit.
-					const anyway = random.chance(0.5);
-					// "Keep" takes what the shared text will hold once this device's other work lands.
-					const base = d.replica.files().get(path)?.tip ?? null;
-					// Either choice is deliberate: "anyway" removes the edit the person is shown, "keep" lets their own held text go.
-					save(d, { [path]: anyway ? text : base }, [], { [path]: anyway ? base : text }, { editor: false });
-					log.push(`quiet: ${d.name} resolves ${path} (${reason}): ${anyway ? 'anyway' : 'keeps the edit'}`);
-					saved = true;
-					continue;
-				}
 				if (text === null) continue;
-				const fixed = parses(text) && !hasFiller(text) ? text : repair(text);
+				// Too many blocks: the person resolves them by keeping every side's lines, which removes nothing typed.
+				const unblocked = reason === 'the note has too many conflict blocks' ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
+				const fixed = parses(unblocked) && !hasFiller(unblocked) ? unblocked : repair(unblocked);
 				if (fixed === text && text === world.server.read(path) && reason === undefined) continue;
 				save(d, { [path]: fixed }, []);
 				log.push(`quiet: ${d.name} saves ${path}${reason === undefined ? '' : ` (${reason})`}`);
@@ -483,15 +467,21 @@ function run(seed: number) {
 				);
 		}
 	}
-	// A removal stays removed: people resolved what they held (anyway, or keeping the edit, which cancels it).
+	// A removal stays removed, unless it lost to an edit by someone else made after the text it removed (which it had not seen).
+	const lostToEdit = (r: (typeof removals)[number]) => {
+		let from = r.at - 1;
+		while (from > 0 && (states.get(chain[from] ?? '')?.get(r.path) ?? null) !== r.base) from--;
+		return writers.slice(from + 1).some((w) => w.user !== r.device && w.paths.has(r.path));
+	};
 	for (const r of removals)
-		if (!r.cancelled && !r.landed && server.has(r.path)) violations.push(`quiet: ${r.device}'s removal of ${r.path} (${r.step}) never took effect`);
+		if (!r.cancelled && !r.landed && server.has(r.path) && !lostToEdit(r))
+			violations.push(`quiet: ${r.device}'s removal of ${r.path} (${r.step}) never took effect, and no edit it had not seen beat it`);
 	check('at quiescence', true);
 	const notices: Record<string, number> = {};
 	for (const line of log) {
-		const reason = /^quiet: \w+ (?:saves|resolves) \S+ \(([^)]+)\)/.exec(line)?.[1];
+		const reason = /^quiet: \w+ saves \S+ \(([^)]+)\)/.exec(line)?.[1];
 		if (reason === undefined) continue;
-		const key = `held: ${reason.replace(/removed .*/, 'removed a field')}`;
+		const key = `held: ${reason}`;
 		notices[key] = (notices[key] ?? 0) + 1;
 	}
 	const stats: Record<string, number> = {};

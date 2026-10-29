@@ -23,6 +23,7 @@
  */
 import { expect, test } from 'bun:test';
 import { parses } from '../markdown.js';
+import { BLOCK_CAP, findConflicts } from './door.js';
 import { createWorld, QUIET } from './harness.js';
 import type { Request } from './replica.js';
 import { commitId, createServer, type LiveCommit } from './server.js';
@@ -111,7 +112,8 @@ test('changed: held text that a merge made parse is published only by its person
 	bob.replica.edit(PATH, () => '---\n---\none\n');
 	settle();
 	expect(alice.replica.read(PATH)).toBe('---\ntitle: B\n---\none\n');
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'merged while held: save it to send' });
+	// Still held, under the reason it was held for: it goes only with a save of this path.
+	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'does not parse' });
 	// Saving another note does not publish it.
 	alice.replica.write('notes/other.md', note('other\n'));
 	settle();
@@ -216,7 +218,7 @@ test('changed: a later unseen edit of a note deleted and brought back by an edit
 	expect(text).toContain('carol v1');
 });
 
-test('a rename racing an edit of the old path keeps both, and the renamer\'s delete stays held until saved again', () => {
+test('changed: a rename racing an edit of the old path keeps both; the renamer\'s delete lost to the edit and is not held', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write(PATH, note('one\n'));
 	settle();
@@ -232,7 +234,9 @@ test('a rename racing an edit of the old path keeps both, and the renamer\'s del
 			['notes/b.md', note('one\n')],
 		]),
 	);
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'edited after you deleted it' });
+	expect(alice.replica.read(PATH)).toBe(note('one\nbob\n'));
+	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
+	expect(alice.replica.held()).toEqual([]);
 });
 
 // ============================================================================
@@ -322,4 +326,43 @@ test('a commit sent once whose parent left the retention window merges again aft
 	expect(alice.replica.read(PATH)).toBe(world.server.read(PATH));
 	expect(alice.replica.position()).toBe(world.server.main());
 	expect(alice.replica.stats().unknown).toBe(1);
+});
+
+test('a stale-parent flood writes each different text once, an identical one not again, and is refused past the block cap', () => {
+	const server = createServer({ members: ['x', 'm'] });
+	let clock = 0;
+	// Each commit is new (its own time, so its own id): a resend of one would just get its recorded outcome.
+	const make = (parent: string, files: LiveCommit['files'], user = 'x'): LiveCommit => {
+		const body = { parent, mode: 'merge' as const, author: { user, device: user }, time: `t${clock++}`, files };
+		return { id: commitId(body), ...body };
+	};
+	const root = server.main();
+	expect(server.push(make(root, [{ path: PATH, text: note('one\n') }]), { member: 'x' })).toMatchObject({ kind: 'applied' });
+	// Every flood commit stands on the parent before the note existed: each is another note at the path (D3).
+	const same = note('flood\n', 'flood');
+	for (let i = 0; i < 3; i++) expect(server.push(make(root, [{ path: PATH, text: same }], 'm'), { member: 'm' })).toMatchObject({ kind: 'merged' });
+	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(1);
+	for (let i = 1; i < BLOCK_CAP; i++) expect(server.push(make(root, [{ path: PATH, text: note(`flood ${i}\n`, 'flood') }], 'm'), { member: 'm' })).toMatchObject({ kind: 'merged' });
+	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
+	expect(server.push(make(root, [{ path: PATH, text: note('one more\n', 'flood') }], 'm'), { member: 'm' })).toMatchObject({
+		kind: 'refused',
+		reason: 'the note has too many conflict blocks',
+	});
+	expect(findConflicts(server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
+});
+
+test("a person's merge past the block cap is held with the reason on their device", () => {
+	const { world, alice, bob, settle } = setup();
+	const blocks = Array.from({ length: BLOCK_CAP }, (_, i) => `<<<<<<< main\n||||||| base\n=======\nold ${i}\n>>>>>>> m/m\n`).join('');
+	alice.replica.write(PATH, note(`one\n.\n.\n${blocks}`));
+	settle();
+	alice.setOnline(false);
+	alice.replica.edit(PATH, (text) => (text ?? '').replace('one\n', 'ONE\n'));
+	bob.replica.edit(PATH, (text) => (text ?? '').replace('one\n', 'uno\n'));
+	settle();
+	alice.setOnline(true);
+	settle();
+	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'the note has too many conflict blocks' });
+	expect(findConflicts(world.server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
+	expect(world.server.read(PATH)).toContain('uno\n');
 });
