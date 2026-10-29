@@ -240,6 +240,29 @@ test('a close that cannot save reports the draft and keeps it, saved once a sess
 	expectOk(await again.close());
 });
 
+test('an editor closed with typing unsaved leaves once a later session saves it', async () => {
+	const world = await opened('one\n');
+	world.local.end();
+	world.type('one two\n');
+	expect(expectErr(await world.editor.close()).name).toBe('Unsaved');
+	world.local.resume();
+	await settled();
+	await settled();
+	expect(world.alice.replica.read(PATH)).toBe(note('one two\n'));
+	world.alice.sync();
+	world.bob.catchUp();
+	await settled();
+	expect(world.repo.notes.get({ stem: 'plan' })?.state).toEqual({ status: 'synced' });
+	// Gone: the list shows a change from elsewhere, the old handle does not follow it, and the next view gets a new editor.
+	remote(world, 'bob\n');
+	await settled();
+	expect(world.repo.notes.get({ stem: 'plan' })?.body).toBe('bob\n');
+	expect(world.editor.draft()).toBe(note('one two\n'));
+	const next = expectOk(await world.repo.notes.openEditor({ stem: 'plan' }));
+	expect(next).not.toBe(world.editor);
+	expect(next.draft()).toBe(note('bob\n'));
+});
+
 test('a repository closed with typing unsaved (an account change) reports it, and the draft stays readable', async () => {
 	const world = await opened('one\n');
 	world.gate.hold();

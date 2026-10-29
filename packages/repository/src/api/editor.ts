@@ -136,16 +136,22 @@ export function createEditors(deps: Deps) {
 		};
 		const dirty = () => draft !== base || flight !== null;
 
-		/** Answer the views waiting to close, once the draft is saved or cannot be now. */
+		/**
+		 * With no view left: once nothing is unsaved, the editor leaves its
+		 * repository (a close that reported unsaved typing included, once that
+		 * typing is saved later); until then, the views waiting to close are
+		 * answered once the draft cannot be saved now.
+		 */
 		function settleClosing() {
-			if (closers.length === 0 || entry.views > 0) return;
+			if (entry.views > 0) return;
 			if (!dirty()) {
-				editors.delete(path);
+				if (editors.get(path) === entry) editors.delete(path);
 				setState({ status: 'saved' });
 				deps.refresh(path);
 				for (const close of closers.splice(0)) close(Ok(undefined));
 				return;
 			}
+			if (closers.length === 0) return;
 			const reason =
 				state.status === 'failed'
 					? state.error.message
