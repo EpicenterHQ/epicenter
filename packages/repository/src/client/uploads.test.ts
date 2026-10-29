@@ -23,7 +23,7 @@ import { createMemoryLfsStore } from '../server/memory-lfs-store.js';
 import { createServer, type Limits, type Session } from '../server/server.js';
 import { createLfsClient, createWireClient, type LfsClient, LfsClientError } from '../wire/client.js';
 import { authenticateBearer } from '../wire/wire.js';
-import { createMemoryBlobStore } from './blobs.js';
+import { createMemoryBlobStore, type Sealed } from './blobs.js';
 import { bytesOf, oidOf } from './blobs.checks.js';
 import { serveBytes } from './bytes.js';
 import { openReplica } from './replica.js';
@@ -94,7 +94,7 @@ const blobOf = (seed: number, size = 300_000) => new Blob([bytesOf(size, seed) a
 test('a put seals and stores the pointer; the track uploads the bytes, and only then does the pointer land', async () => {
 	const { server, device } = setup();
 	const alice = device('alice');
-	const put = unwrap(await alice.bytes().put(PATH, blobOf(1), { replace: false }));
+	const put = unwrap(await alice.bytes().put([{ path: PATH, blob: blobOf(1), replace: false }])).sealed[PATH] as Sealed;
 	expect(put.oid).toBe(await oidOf(bytesOf(300_000, 1)));
 	expect(alice.replica.read(PATH)).toBe(writePointer(put));
 	await until(() => server.read(PATH) !== null);
@@ -108,10 +108,10 @@ test('bytes the server already holds are not sent again', async () => {
 	const counting = (client: LfsClient): LfsClient => ({ ...client, put: (action, body) => (puts++, client.put(action, body)) });
 	const alice = device('alice', { lfs: counting });
 	const bob = device('bob', { lfs: counting });
-	unwrap(await alice.bytes().put(PATH, blobOf(2), { replace: false }));
+	unwrap(await alice.bytes().put([{ path: PATH, blob: blobOf(2), replace: false }]));
 	await until(() => server.read(PATH) !== null);
 	await until(() => bob.replica.read(PATH) !== null);
-	unwrap(await bob.bytes().put('recordings/copy.webm', blobOf(2), { replace: false }));
+	unwrap(await bob.bytes().put([{ path: 'recordings/copy.webm', blob: blobOf(2), replace: false }]));
 	await until(() => server.read('recordings/copy.webm') !== null);
 	expect(puts).toBe(1);
 });
@@ -123,8 +123,8 @@ test('bytes on neither this device nor the server, or past the limit or the quot
 	alice.replica.write('recordings/nowhere.webm', writePointer(nowhere));
 	await until(() => alice.replica.state('recordings/nowhere.webm').status === 'held');
 	expect(alice.replica.state('recordings/nowhere.webm')).toEqual({ status: 'held', reason: UPLOAD_REFUSALS.missing });
-	unwrap(await alice.bytes().put('recordings/a.webm', blobOf(3), { replace: false }));
-	unwrap(await alice.bytes().put('recordings/b.webm', blobOf(4), { replace: false }));
+	unwrap(await alice.bytes().put([{ path: 'recordings/a.webm', blob: blobOf(3), replace: false }]));
+	unwrap(await alice.bytes().put([{ path: 'recordings/b.webm', blob: blobOf(4), replace: false }]));
 	await until(() => alice.replica.state('recordings/b.webm').status !== 'sending' || alice.replica.state('recordings/a.webm').status !== 'sending');
 	await until(() => alice.replica.owed().length === 0);
 	const states = ['recordings/a.webm', 'recordings/b.webm'].map((path) => alice.replica.state(path));
@@ -137,12 +137,12 @@ test('a failed PUT goes again after a wait, and a new track starts again from th
 	let failures = 2;
 	const flaky = (client: LfsClient): LfsClient => ({ ...client, put: async (action, body) => (failures-- > 0 ? LfsClientError.Network({ cause: new Error('offline') }) : client.put(action, body)) });
 	const alice = device('alice', { lfs: flaky });
-	unwrap(await alice.bytes().put(PATH, blobOf(5), { replace: false }));
+	unwrap(await alice.bytes().put([{ path: PATH, blob: blobOf(5), replace: false }]));
 	await until(() => server.read(PATH) !== null);
 	expect(failures).toBeLessThan(0);
 	// A worker closed with bytes owed: the next one sends them.
 	alice.uploads.stop();
-	unwrap(await alice.bytes().put('recordings/r2.webm', blobOf(6), { replace: false }));
+	unwrap(await alice.bytes().put([{ path: 'recordings/r2.webm', blob: blobOf(6), replace: false }]));
 	expect(alice.replica.owed()).toHaveLength(1);
 	alice.restart();
 	await until(() => alice.replica.owed().length === 0);
@@ -153,11 +153,11 @@ test('a create where a file is, a replace where none is, and bytes past the limi
 	const { device } = setup({ blob: 1_000 });
 	const alice = device('alice');
 	await until(() => alice.replica.blobLimit() === 1_000);
-	expect((await alice.bytes().put(PATH, blobOf(7, 2_000), { replace: false })).error).toMatchObject({ name: 'TooLarge', limit: 1_000 });
-	expect((await alice.bytes().put(PATH, blobOf(7, 500), { replace: true })).error).toMatchObject({ name: 'NotFound' });
-	unwrap(await alice.bytes().put(PATH, blobOf(7, 500), { replace: false }));
-	expect((await alice.bytes().put(PATH, blobOf(8, 500), { replace: false })).error).toMatchObject({ name: 'Exists' });
-	expect((await alice.bytes().put('recordings/r1.md', blobOf(8, 500), { replace: false })).error).toMatchObject({ name: 'NotBlob' });
+	expect((await alice.bytes().put([{ path: PATH, blob: blobOf(7, 2_000), replace: false }])).error).toMatchObject({ name: 'TooLarge', limit: 1_000 });
+	expect((await alice.bytes().put([{ path: PATH, blob: blobOf(7, 500), replace: true }])).error).toMatchObject({ name: 'NotFound' });
+	unwrap(await alice.bytes().put([{ path: PATH, blob: blobOf(7, 500), replace: false }]));
+	expect((await alice.bytes().put([{ path: PATH, blob: blobOf(8, 500), replace: false }])).error).toMatchObject({ name: 'Exists' });
+	expect((await alice.bytes().put([{ path: 'recordings/r1.md', blob: blobOf(8, 500), replace: false }])).error).toMatchObject({ name: 'NotBlob' });
 	expect(await alice.store.has(await oidOf(bytesOf(2_000, 7)))).toBe(false);
 });
 
@@ -165,7 +165,7 @@ test('another device opens the bytes: fetched once, verified, then read from its
 	const { server, device, served } = setup();
 	const alice = device('alice');
 	const bob = device('bob');
-	const put = unwrap(await alice.bytes().put(PATH, blobOf(9), { replace: false }));
+	const put = unwrap(await alice.bytes().put([{ path: PATH, blob: blobOf(9), replace: false }])).sealed[PATH] as Sealed;
 	await until(() => bob.replica.read(PATH) !== null);
 	const [first, second] = await Promise.all([bob.bytes().open(PATH), bob.bytes().open(PATH)]);
 	const file = unwrap(first);

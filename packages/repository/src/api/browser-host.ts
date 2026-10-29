@@ -15,7 +15,7 @@ function sessionOf(replica: OpenReplica): Session {
 		query: (sql, params) => replica.query(sql, params),
 		change: (changes, token) => replica.change(changes, token),
 		watch: (listener) => replica.watch(listener),
-		put: (path, blob, options) => replica.put(path, blob, options),
+		put: (blobs, changes, token) => replica.put(blobs, changes, token),
 		open: (path) => replica.open(path),
 	};
 }

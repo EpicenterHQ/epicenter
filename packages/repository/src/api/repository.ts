@@ -15,7 +15,8 @@
  * nothing here: `read()` fetches one note, and `query()` runs SQL.
  *
  * Writes are changes the worker applies over the text it holds, one
- * transaction each (`commit` for several at once). On a collection kept in
+ * transaction each (`commit` for several at once, blobs included: one
+ * group, which lands in one commit or not at all). On a collection kept in
  * memory they show at once: the change is projected over the stored note
  * until its answer, and dropped if it fails. `subscribe` is the one way to
  * hear that anything changed.
@@ -26,7 +27,7 @@ import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, FileEntry, Row, SaveError, Snapshot } from '../client/page.js';
 import { SaveError as SaveErrors } from '../client/page.js';
 import type { BlobStoreError, Sealed } from '../client/blobs.js';
-import type { BlobError, OpenError, Put } from '../client/bytes.js';
+import type { BlobError, BlobPut, OpenError, Put, PutError } from '../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
 import { type App, type BlobName, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
 import { bodyOf, parseMarkdown, splitMarkdown, writeMarkdown } from '../core/markdown.js';
@@ -52,8 +53,8 @@ export type Session = {
 	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
 	/** Hear each stored change in revision order; returns the function that stops it. */
 	watch(listener: (delta: Delta) => void): () => void;
-	/** Seal `blob`, then store a pointer to it at `path`: a create, or with `replace` a replace, of the file this device shows there. */
-	put(path: string, blob: Blob, options: { replace: boolean }): Promise<Result<Put, BlobError | BlobStoreError | SaveError>>;
+	/** Seal each blob, then store a pointer to it at its path together with `changes`, in one transaction and one group; the change it makes is heard with `token`. */
+	put(blobs: BlobPut[], changes: Change[], token: number): Promise<Result<Put, PutError>>;
 	/** A blob's bytes as a File: from this device, or fetched and verified first. */
 	open(path: string): Promise<Result<File, OpenError>>;
 };
@@ -135,8 +136,8 @@ export type Writes<TPath extends string, TNoteSchema extends TSchema> = {
 /** A stored blob write: the pointer's text and the revision it made, and the bytes' oid and size. */
 export type BlobWritten = Written & Sealed;
 
-/** Why a blob write was not stored. */
-export type BlobWriteError = RepositoryError | BlobError | BlobStoreError | SaveError | TemplateError;
+/** Why a blob write, or a batch holding one, was not stored. */
+export type BlobWriteError = WriteError | BlobError | BlobStoreError;
 
 /** Why a blob could not be opened. */
 export type OpenBlobError = OpenError | RepositoryError | TemplateError;
@@ -189,6 +190,15 @@ type BatchCollection<TDef> = TDef extends { path: infer TPath extends string; sc
 		}
 	: never;
 
+/** A blob collection's writes inside `commit`: its bytes are sealed before the batch is stored, and the batch waits for them to upload. */
+type BatchBlobCollection<TDef> = TDef extends { path: infer TPath extends string; blob: true }
+	? {
+			create(params: Params<TPath>, blob: Blob): void;
+			replace(params: Params<TPath>, blob: Blob): void;
+			delete(params: Params<TPath>): void;
+		}
+	: never;
+
 /** What changed, for a subscriber: the collections whose notes changed, whether any file did (in a collection or none), and whether the status did. */
 export type RepositoryChange = { collections: string[]; files: boolean; status: boolean };
 
@@ -231,7 +241,9 @@ export type Files = {
 
 /** The plain file API's writes, inside `commit`. */
 export type BatchFiles = {
-	create(path: string, text: string): void;
+	/** A note is text; any other file is bytes, a blob collection's create. */
+	create(path: string, content: string | Blob): void;
+	replace(path: string, blob: Blob): void;
 	write(path: string, text: string | null, options?: { over?: string | null }): void;
 	delete(path: string): void;
 };
@@ -246,8 +258,14 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 	files: Files;
 	/** One read-only SQL statement over the app's views, or `"epicenter/files"`. */
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>>;
-	/** Several writes as one transaction and one save. */
-	commit(build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> } & { files: BatchFiles }) => void): Promise<Result<Committed, WriteError>>;
+	/**
+	 * Several writes, blobs included, as one transaction and one group: its
+	 * bytes are sealed first, and it lands in one commit, once every byte is
+	 * on the server, or is held whole.
+	 */
+	commit(
+		build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> } & { [K in BlobName<TDefs>]: BatchBlobCollection<TDefs[K]> } & { files: BatchFiles }) => void,
+	): Promise<Result<Committed, BlobWriteError>>;
 	/** Stop: every editor stops and the host lets the replica go. Returns the drafts that could not be saved, for the caller to keep or drop (an account change). */
 	close(): Unsaved[];
 };
@@ -499,8 +517,12 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		emit();
 	});
 
-	/** Send changes: shown at once over the notes kept in memory, cleared when answered, dropped when they fail. */
-	async function send(changes: Change[]): Promise<Result<Changed, WriteError>> {
+	/**
+	 * Store `changes` through `ask` (the session's change, or its put with
+	 * blobs): shown at once over the notes kept in memory, cleared when
+	 * answered, dropped when they fail.
+	 */
+	async function saveVia<T, E>(changes: Change[], ask: (current: Session, token: number) => Promise<Result<T, E>>): Promise<Result<T, E | RepositoryError | SaveError>> {
 		const current = status.status === 'open' ? session : null;
 		if (current === null) return RepositoryError.Unavailable({ status: status.status });
 		// A note deleted here takes its editor with it: one owner of the path, so no draft keeps it listed or brings it back.
@@ -514,9 +536,9 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		for (const write of sent) pending.set(write.change.path, [...(pending.get(write.change.path) ?? []), write]);
 		for (const write of sent) refresh(write.change.path);
 		emit();
-		let result: Result<Changed, WriteError>;
+		let result: Result<T, E | SaveError>;
 		try {
-			result = await current.change(changes, token);
+			result = await ask(current, token);
 		} catch {
 			result = SaveErrors.Closed();
 		}
@@ -530,6 +552,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		finish();
 		return result;
 	}
+
+	/** Send changes, in one transaction and one save. */
+	const send = (changes: Change[]): Promise<Result<Changed, WriteError>> => saveVia(changes, (current, token) => current.change(changes, token));
+	/** Seal each blob, then send its pointer with `changes`: one transaction and one group. */
+	const put = (blobs: BlobPut[], changes: Change[] = []): Promise<Result<Put, BlobWriteError>> => saveVia(changes, (current, token) => current.put(blobs, changes, token));
 
 	const one = async (path: string, change: Change): Promise<Result<Written, WriteError>> => {
 		const result = await send([change]);
@@ -611,17 +638,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 
 	/** Seal `blob` and store a pointer to it at `path`, through the open session. */
 	async function putBlob(path: string, blob: Blob, replace: boolean): Promise<Result<BlobWritten, BlobWriteError>> {
-		const current = status.status === 'open' ? session : null;
-		if (current === null) return RepositoryError.Unavailable({ status: status.status });
 		const at = spelled(path);
-		let put: Result<Put, BlobError | BlobStoreError | SaveError>;
-		try {
-			put = await current.put(at, blob, { replace });
-		} catch {
-			return SaveErrors.Closed();
-		}
-		if (put.error !== null) return put;
-		return Ok({ text: put.data.texts[at] ?? null, revision: put.data.revision, oid: put.data.oid, size: put.data.size });
+		const result = await put([{ path: at, blob, replace }]);
+		if (result.error !== null) return result;
+		const sealed = result.data.sealed[at] as Sealed;
+		return Ok({ text: result.data.texts[at] ?? null, revision: result.data.revision, oid: sealed.oid, size: sealed.size });
 	}
 	async function openBlob(path: string): Promise<Result<File, OpenBlobError>> {
 		const opened = await asked((current) => current.open(spelled(path)));
@@ -700,8 +721,9 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			};
 		},
 		query: <TRow>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>> => asked((current) => current.query<TRow>(sql, params)),
-		commit(build: (batch: Record<string, unknown>) => void) {
+		commit(build: (batch: Record<string, unknown>) => void): Promise<Result<Committed, BlobWriteError>> {
 			const batch: Change[] = [];
+			const blobs: BlobPut[] = [];
 			const handles: Record<string, unknown> = {};
 			let invalid: TemplateError | null = null;
 			for (const lens of lenses) {
@@ -715,14 +737,31 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 					};
 				handles[lens.name] = { create: add(changes.create), patch: add(changes.patch), delete: add(changes.delete), write: add(changes.write) };
 			}
+			for (const lens of app.lenses) {
+				if (lens.kind !== 'blob') continue;
+				const add =
+					<TArgs extends unknown[]>(make: (path: string, ...args: TArgs) => void) =>
+					(params: Record<string, unknown>, ...args: TArgs) => {
+						const path = buildPath(lens.template, params);
+						if (path.error !== null) invalid ??= path.error;
+						else make(spelled(path.data), ...args);
+					};
+				handles[lens.name] = {
+					create: add((path, blob: Blob) => blobs.push({ path, blob, replace: false })),
+					replace: add((path, blob: Blob) => blobs.push({ path, blob, replace: true })),
+					delete: add((path) => batch.push({ kind: 'delete', path })),
+				};
+			}
 			handles.files = {
-				create: (path: string, text: string) => batch.push(fileChanges.create(path, text)),
+				create: (path: string, content: string | Blob) => (content instanceof Blob ? blobs.push({ path: spelled(path), blob: content, replace: false }) : batch.push(fileChanges.create(path, content))),
+				replace: (path: string, blob: Blob) => blobs.push({ path: spelled(path), blob, replace: true }),
 				write: (path: string, text: string | null, options?: { over?: string | null }) => batch.push(fileChanges.write(path, text, options)),
 				delete: (path: string) => batch.push(fileChanges.delete(path)),
 			} satisfies Record<keyof BatchFiles, unknown>;
 			build(handles);
 			if (invalid !== null) return Promise.resolve({ data: null, error: invalid });
-			return send(batch).then((result): Result<Committed, WriteError> => (result.error === null ? Ok({ revision: result.data.revision }) : result));
+			const saved = blobs.length === 0 ? send(batch) : put(blobs, batch);
+			return saved.then((result): Result<Committed, BlobWriteError> => (result.error === null ? Ok({ revision: result.data.revision }) : result));
 		},
 		close(): Unsaved[] {
 			if (status.status === 'closed') return [];

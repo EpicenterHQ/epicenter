@@ -49,7 +49,7 @@ function sessionOver(page: PageServer, bytes: Bytes, alive: () => boolean): Sess
 				}),
 			);
 		},
-		put: (path, blob, options) => (alive() ? bytes.put(path, blob, options).then((result) => (alive() ? result : ended())) : ended()),
+		put: (blobs, changes, token) => (alive() ? bytes.put(blobs, changes, token).then((result) => (alive() ? result : ended())) : ended()),
 		open: (path) => (alive() ? bytes.open(path).then((result) => (alive() ? result : ended())) : ended()),
 	};
 }
@@ -96,7 +96,7 @@ export function createLocalHost({
 					return stop;
 				},
 			},
-			serveBytes({ replica: over, store, lfs }),
+			serveBytes({ replica: { read: over.read, blobLimit: over.blobLimit, change: page.change }, store, lfs }),
 			alive,
 		);
 		stopPage = () => {

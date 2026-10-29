@@ -142,7 +142,7 @@ await repo.todos.delete({ stem: 'milk' });
 await repo.commit((batch) => {
 	batch.todos.patch({ stem: 'milk' }, { done: false });
 	batch.todos.delete({ stem: 'bread' });
-}); // one transaction, one save
+}); // one transaction, one group: it lands in one commit or is held whole
 ```
 
 On a collection held in memory, a write shows at once: it is projected over
@@ -221,10 +221,26 @@ file (`Exists` at once if this device shows one), a replace expects one
 why ("a file with this name was just added elsewhere", "this file changed
 on another device"): its person keeps theirs under another name or
 discards it. A delete that does not land leaves the file, as a lost delete
-of a note does. A blob never joins a save group, so a note saved with it
-never waits on its bytes; a blob rename is a delete plus a create of the
-same oid. A `git push` is a fast-forward, so it may add, replace, move and
-delete binaries.
+of a note does.
+
+**A call's group lands whole** ([ADR-0697](../../docs/adr/0697-all-text-merges-from-everyone.md)).
+What one call saves goes in one commit or not at all, blobs included: a
+note saved in one `repo.commit` with a new blob waits for its upload, and is
+held with it if the blob is refused. A person attaching an image and then
+naming it in a note makes two calls, so the note goes at once. A blob
+rename (a delete plus a write of the same pointer, in one batch) is atomic
+and waits on nothing, since the bytes are already there.
+
+```ts
+await repo.commit((batch) => {
+	batch.recordings.patch({ stem }, { title: 'Heard' });
+	batch.audio.create({ stem }, blob); // sealed before the batch is stored
+	batch.files.create('photos/beach.png', picked);
+}); // one group: in one commit once every byte is on the server
+```
+
+A `git push` is taken only while Git holds every live edit, so it saw the
+current bytes of every blob it adds, replaces, moves or deletes.
 
 **A pointer never names bytes its level cannot reach:**
 

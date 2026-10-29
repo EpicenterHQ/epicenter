@@ -1,7 +1,8 @@
 /**
  * A replica's blobs as a page reaches them, wherever the replica runs (a
  * browser's worker, or the same process in Bun): `put` seals bytes into
- * this device's store and only then stores the pointer, and `open` answers
+ * this device's store and only then stores the pointer (with any other
+ * changes of the same call, in one transaction: one group), and `open` answers
  * a blob's bytes from this device, or downloads, verifies and seals them
  * first. One path for every size: the bytes are a `Blob` the store reads as
  * a stream, never a buffer.
@@ -10,7 +11,9 @@
  * `settlePointer`): a create expects no file at the path, a replace
  * expects one, and the replica's next commit names the blob it saw, so the
  * server takes it only if that is still there. A put is refused at once,
- * before anything is sealed, for bytes past the server's blob limit.
+ * before anything is sealed, for bytes past the server's blob limit. What a
+ * put stores is one group: its pointers and its other changes go in one
+ * commit, once every byte is on the server, or not at all.
  *
  * Nothing evicts yet: owed bytes must stay until the server holds them, so
  * an eviction policy (a later phase) must skip every oid the replica owes.
@@ -22,7 +25,8 @@ import { parsePointer, writePointer } from '../core/markdown.js';
 import { mediaType } from '../core/media.js';
 import type { LfsClient } from '../wire/client.js';
 import { type BlobStore, type BlobStoreError, type Sealed } from './blobs.js';
-import type { Changed, Replica } from './replica.js';
+import type { SaveError } from './page.js';
+import type { Change, Changed, ChangeError, Replica } from './replica.js';
 
 export const BlobError = defineErrors({
 	/** A create found a file at the path on this device: nothing was stored. */
@@ -44,15 +48,22 @@ export const OpenError = defineErrors({
 });
 export type OpenError = InferErrors<typeof OpenError>;
 
-/** A stored blob write: the pointer's bytes, and the change it made. */
-export type Put = Sealed & Changed;
+/** One blob to store at a path: a create, or with `replace` a replace, of the file this device shows there. */
+export type BlobPut = { path: string; blob: Blob; replace: boolean };
+
+/** A stored put: the change it made, and each path's sealed bytes. */
+export type Put = Changed & { sealed: Record<string, Sealed> };
+
+/** Why a put stored nothing. */
+export type PutError = BlobError | BlobStoreError | ChangeError | SaveError;
 
 export function serveBytes({
 	replica,
 	store,
 	lfs,
 }: {
-	replica: Pick<Replica, 'read' | 'change' | 'blobLimit'>;
+	/** The replica, and the change that stores a call (the page's, so its token is heard with it). */
+	replica: Pick<Replica, 'read' | 'blobLimit'> & { change(changes: Change[], token?: number): Result<Changed, ChangeError | SaveError> };
 	store: BlobStore<Blob>;
 	/** The server's LFS endpoint, or null for a repository kept only on this device. */
 	lfs: LfsClient | null;
@@ -74,21 +85,35 @@ export function serveBytes({
 	}
 
 	return {
-		/** Seal `blob`, then store a pointer to it at `path`: a create where this device shows no file, a replace where it shows one. */
-		async put(path: string, blob: Blob, { replace }: { replace: boolean }): Promise<Result<Put, BlobError | BlobStoreError>> {
-			if (isNote(path)) return BlobError.NotBlob({ path });
+		/**
+		 * Seal each blob, then store a pointer to it at its path together with
+		 * `changes`, in one change made with `token`: one group. Nothing is
+		 * stored unless every blob was sealed and every change applies.
+		 */
+		async put(blobs: BlobPut[], changes: Change[] = [], token?: number): Promise<Result<Put, PutError>> {
+			const misplaced = (path: string, replace: boolean) => ((replica.read(path) !== null) === replace ? null : replace ? BlobError.NotFound({ path }) : BlobError.Exists({ path }));
 			const limit = replica.blobLimit();
-			if (blob.size > limit) return BlobError.TooLarge({ size: blob.size, limit });
-			const there = replica.read(path) !== null;
-			if (there !== replace) return replace ? BlobError.NotFound({ path }) : BlobError.Exists({ path });
-			const sealed = await store.seal(blob.stream() as ReadableStream<Uint8Array>);
-			if (sealed.error !== null) return sealed;
-			// Checked again after the seal: a file may have come or gone at the path meanwhile.
-			if ((replica.read(path) !== null) !== replace) return replace ? BlobError.NotFound({ path }) : BlobError.Exists({ path });
-			const changed = replica.change([{ kind: 'write', path, text: writePointer(sealed.data) }]);
-			// A write of exact text names no note to patch, so it never fails as a change.
-			if (changed.error !== null) throw new Error(changed.error.message);
-			return Ok({ ...sealed.data, ...changed.data });
+			for (const { path, blob, replace } of blobs) {
+				if (isNote(path)) return BlobError.NotBlob({ path });
+				if (blob.size > limit) return BlobError.TooLarge({ size: blob.size, limit });
+				const refusal = misplaced(path, replace);
+				if (refusal !== null) return refusal;
+			}
+			const sealed: Record<string, Sealed> = {};
+			for (const { path, blob } of blobs) {
+				const kept = await store.seal(blob.stream() as ReadableStream<Uint8Array>);
+				if (kept.error !== null) return kept;
+				sealed[path] = kept.data;
+			}
+			// Checked again after the seals: a file may have come or gone at a path meanwhile.
+			for (const { path, replace } of blobs) {
+				const refusal = misplaced(path, replace);
+				if (refusal !== null) return refusal;
+			}
+			const pointers = blobs.map(({ path }): Change => ({ kind: 'write', path, text: writePointer(sealed[path] as Sealed) }));
+			const changed = replica.change([...changes, ...pointers], token);
+			if (changed.error !== null) return changed;
+			return Ok({ ...changed.data, sealed });
 		},
 		/** A blob's bytes as a `File` typed by its path's extension: from this device, or fetched and verified first. */
 		async open(path: string): Promise<Result<File, OpenError>> {

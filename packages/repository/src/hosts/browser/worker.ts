@@ -8,8 +8,7 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
-import type { BlobStoreError } from '../../client/blobs.js';
-import { type BlobError, type Bytes, type OpenError, type Put, serveBytes } from '../../client/bytes.js';
+import { type BlobPut, type Bytes, type OpenError, type Put, type PutError, serveBytes } from '../../client/bytes.js';
 import { type PageServer, servePage } from '../../client/page.js';
 import { type Change, openReplica, type Replica } from '../../client/replica.js';
 import { connectSocket } from '../../client/socket.js';
@@ -61,13 +60,13 @@ function replicaMethods(replica: Replica, page: PageServer, bytes: Bytes) {
 			return page.change(changes, token);
 		},
 		/**
-		 * Seal `blob` (the page's reference, not a copy) into this replica's
-		 * objects, then store a pointer to it at `path`: a create, or with
-		 * `replace` a replace, of the file this device shows there.
+		 * Seal each blob (the page's reference, not a copy) into this
+		 * replica's objects, then store a pointer to it at its path together
+		 * with `changes`, in one transaction and one group.
 		 */
-		put: async (path: string, blob: Blob, options: { replace: boolean }): Promise<Result<Put, BlobError | BlobStoreError>> => {
+		put: async (blobs: BlobPut[], changes: Change[], token?: number): Promise<Result<Put, PutError>> => {
 			clearReported();
-			return plain(await bytes.put(path, blob, options));
+			return plain(await bytes.put(blobs, changes, token));
 		},
 		/** A blob's bytes as a File, from this replica's objects or fetched and verified first; it outlives this worker. */
 		open: (path: string): Promise<Result<File, OpenError>> => bytes.open(path),
@@ -143,7 +142,7 @@ export function serveReplicaWorker() {
 			uploads?.kick();
 			post({ type: 'changed', delta });
 		});
-		methods = replicaMethods(replica, page, serveBytes({ replica, store: blobs, lfs }));
+		methods = replicaMethods(replica, page, serveBytes({ replica: { read: replica.read, blobLimit: replica.blobLimit, change: page.change }, store: blobs, lfs }));
 		close = async () => {
 			uploads?.stop();
 			await blobs.close();

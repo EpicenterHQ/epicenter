@@ -17,6 +17,7 @@
  * - The plain file API lists, reads, writes and edits every file, in a collection or none, and lists those not yet synced; a write to a path a collection keeps shows there at once
  * - Apps combined may claim one file: it shows in each collection, read with each schema
  * - A blob collection creates, replaces, opens and deletes bytes at named paths, refusing a create where a file is and a replace where none is; the plain file API reaches the same bytes
+ * - A batch of two notes and a new blob, with a delayed upload, lands as one commit; a refused upload holds the whole batch; a batch with a change that cannot apply stores no file
  */
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
@@ -24,8 +25,9 @@ import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Replica } from '../client/replica.js';
-import { writePointer } from '../core/markdown.js';
+import { parsePointer, writePointer } from '../core/markdown.js';
 import { combineApps, defineApp } from '../core/lens.js';
+import { twoDevices } from './api.test-support.js';
 import { createLocalHost } from './local.js';
 import { type InvalidNote, type Note, openRepository, type RepositoryChange, type ValidNote } from './repository.js';
 
@@ -303,4 +305,60 @@ test('a blob collection creates, replaces, opens and deletes bytes at named path
 	expectOk(await repo.audio.delete({ stem: 'r1' }));
 	expect(expectErr(await repo.audio.open({ stem: 'r1' })).name).toBe('Missing');
 	expect(replica.read('recordings/r1.webm')).toBeNull();
+});
+
+test('a batch of two notes and a new blob, with a delayed upload, lands as one commit; a refused upload holds the whole batch', async () => {
+	const recordings = defineApp({
+		notes: { path: 'recordings/{stem}.md', schema: Type.Object({ title: Type.String() }) },
+		audio: { path: 'recordings/{stem}.webm', blob: true },
+	});
+	const { server, alice, bob, repo } = twoDevices(recordings);
+	bob.replica.writeAll({ 'recordings/r1.md': '---\ntitle: One\n---\n', 'recordings/r2.md': '---\ntitle: Two\n---\n' });
+	bob.sync();
+	alice.catchUp();
+	await settled();
+	const events: string[][] = [];
+	server.subscribe((event) => events.push(event.files.map((f) => f.path).sort()));
+	expectOk(
+		await repo.commit((batch) => {
+			batch.notes.patch({ stem: 'r1' }, { title: 'One, heard' });
+			batch.notes.patch({ stem: 'r2' }, { title: 'Two, heard' });
+			batch.audio.create({ stem: 'r1' }, new Blob(['take one']));
+		}),
+	);
+	const pointer = alice.replica.read('recordings/r1.webm');
+	const sealed = pointer === null ? null : parsePointer(pointer);
+	if (sealed === null) throw new Error('no pointer stored');
+	// Typing elsewhere while the bytes upload; nothing of the batch goes.
+	bob.replica.edit('recordings/r2.md', (text) => `${text}bob\n`);
+	bob.sync();
+	alice.sync();
+	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One\n---\n');
+	expect(events).toEqual([['recordings/r2.md']]);
+	server.upload(sealed.oid, sealed.size);
+	alice.replica.present(sealed.oid, sealed.size);
+	alice.sync();
+	expect(events.slice(1)).toEqual([['recordings/r1.md', 'recordings/r1.webm', 'recordings/r2.md']]);
+	expect(server.read('recordings/r2.md')).toBe('---\ntitle: Two, heard\n---\nbob\n');
+	expect(server.read('recordings/r1.webm')).toBe(pointer);
+
+	// A refused upload holds the whole batch, and a batch whose change cannot apply stores no file: its bytes stay sealed on this device, named by nothing.
+	expectOk(
+		await repo.commit((batch) => {
+			batch.notes.patch({ stem: 'r1' }, { title: 'One, again' });
+			batch.files.create('recordings/r3.webm', new Blob(['take three']));
+		}),
+	);
+	const three = parsePointer(alice.replica.read('recordings/r3.webm') ?? '');
+	if (three === null) throw new Error('no pointer stored');
+	alice.replica.refused(three.oid, 'over the quota');
+	alice.sync();
+	expect(alice.replica.state('recordings/r1.md')).toEqual({ status: 'held', reason: 'saved with recordings/r3.webm, which is held' });
+	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One, heard\n---\n');
+	const failed = await repo.commit((batch) => {
+		batch.notes.patch({ stem: 'none' }, { title: 'x' });
+		batch.audio.create({ stem: 'r4' }, new Blob(['take four']));
+	});
+	expect(expectErr(failed).name).toBe('NotFound');
+	expect(alice.replica.read('recordings/r4.webm')).toBeNull();
 });

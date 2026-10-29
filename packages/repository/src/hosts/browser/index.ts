@@ -29,8 +29,7 @@
 import { defineErrors, extractErrorMessage, type InferErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
-import type { BlobStoreError } from '../../client/blobs.js';
-import type { BlobError, OpenError, Put } from '../../client/bytes.js';
+import type { BlobPut, OpenError, Put, PutError } from '../../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
 import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock, type Syncing } from './layout.js';
@@ -226,13 +225,14 @@ function createOpenReplica({
 			return save(() => call('change', changes, token));
 		},
 		/**
-		 * Seal `blob` into this replica, then store a pointer to it at `path`
-		 * (a create, or with `replace` a replace). The `Blob` crosses to the
-		 * worker as a reference: its bytes are read there, never copied here.
+		 * Seal each blob into this replica, then store a pointer to it at its
+		 * path together with `changes`, in one transaction and one group. A
+		 * `Blob` crosses to the worker as a reference: its bytes are read
+		 * there, never copied here.
 		 */
-		put(path: string, blob: Blob, options: { replace: boolean }): Promise<Result<Put, BlobError | BlobStoreError | SaveError>> {
+		put(blobs: BlobPut[], changes: Change[], token?: number): Promise<Result<Put, PutError>> {
 			askPersistence();
-			return save(() => call('put', path, blob, options));
+			return save(() => call('put', blobs, changes, token));
 		},
 		/** A blob's bytes as a File, which the page reads or shows with its own object URL: from here, or fetched and verified first. */
 		open: (path: string): Promise<Result<File, OpenError>> => call('open', path),
