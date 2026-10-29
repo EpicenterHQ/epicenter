@@ -22,7 +22,7 @@
  * - A commit sent once whose parent left the window merges again after a full catch-up
  */
 import { expect, test } from 'bun:test';
-import { parses } from '../markdown.js';
+import { parses } from '../core/markdown.js';
 import { BLOCK_CAP, findConflicts } from './door.js';
 import { createWorld, QUIET } from './harness.js';
 import type { Request } from './replica.js';

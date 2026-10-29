@@ -20,7 +20,7 @@
  * 242,652 fuzzed triples and 1,000 property seeds never reached it.
  */
 import { stringify } from 'yaml';
-import { parsePointer } from '../markdown.js';
+import { parsePointer } from '../core/markdown.js';
 import { merge, withMarkers } from '../merge.js';
 import { block, withBlock } from './door.js';
 

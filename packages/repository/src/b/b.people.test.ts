@@ -25,7 +25,7 @@
  * - A flush writes one Git commit per merge that wrote a block; pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
  */
 import { expect, test } from 'bun:test';
-import { writePointer } from '../markdown.js';
+import { writePointer } from '../core/markdown.js';
 import { admissible, findConflicts } from './door.js';
 import { createWorld, QUIET } from './harness.js';
 import { commitId, type LiveCommit } from '../core/commit.js';

@@ -46,7 +46,7 @@ import {
 	type WriteOp,
 } from './engine/engine.js';
 import { gitBlobHash } from './core/hash.js';
-import { parseMarkdown, parsePointer, parses, splitMarkdown, writeMarkdown } from './markdown.js';
+import { parseMarkdown, parsePointer, parses, splitMarkdown, writeMarkdown } from './core/markdown.js';
 import type { SqlValue } from './sql.js';
 import { buildPath, matchTemplate } from './templates.js';
 

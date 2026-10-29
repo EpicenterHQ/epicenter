@@ -34,7 +34,7 @@
  * A failure names its seed and the steps.
  */
 import { expect, test } from 'bun:test';
-import { parses, splitMarkdown, writeMarkdown } from '../markdown.js';
+import { parses, splitMarkdown, writeMarkdown } from '../core/markdown.js';
 import { type Device, createWorld } from './harness.js';
 import { escapeLines } from './door.js';
 import { createRandom } from './net.js';

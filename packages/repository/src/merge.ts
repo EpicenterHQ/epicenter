@@ -15,7 +15,7 @@
  * `current`. Every clash is reported in `overlaps`, and `settle` decides what
  * they mean: `withMarkers` writes the body ones as conflict blocks.
  */
-import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
+import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './core/markdown.js';
 import type { ContentOverlap } from './protocol.js';
 
 export type { ContentOverlap, Overlap } from './protocol.js';

@@ -31,7 +31,7 @@ import { createInProcessTransport } from './bun/transport.js';
 import { defineApp } from './define.js';
 import { offlineTransport, type Transport } from './engine/ports.js';
 import { gitBlobHash } from './core/hash.js';
-import { BODY_SQL } from './markdown.js';
+import { BODY_SQL } from './core/markdown.js';
 import type { Batch } from './protocol.js';
 import { openRepository } from './repository.js';
 import { createRepositoryServer } from './server/server.js';

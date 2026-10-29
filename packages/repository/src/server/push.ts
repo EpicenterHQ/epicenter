@@ -6,12 +6,10 @@
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { storageRefusal } from '../markdown.js';
+import { storageRefusal } from '../parse-rule.js';
 import type { Change, ChangeOutcome, Overlap } from '../protocol.js';
 import { sequenceOf, type Tree } from './git-store.js';
 import type { CommitError, ServerCore } from './server.js';
-
-export { MAX_NOTE_BYTES } from '../markdown.js';
 
 export const PushError = defineErrors({
 	/** The pushed commit is not in the Git store. */

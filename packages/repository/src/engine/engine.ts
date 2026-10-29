@@ -24,16 +24,8 @@ import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { App, Definitions, HoldReason, LaterVerdict, Lens, Notice, SendOptions, Sync, Verdict } from '../define.js';
 import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, lfsOid } from '../core/hash.js';
-import {
-	BODY_SQL,
-	parseMarkdown,
-	parsePointer,
-	passesParseGate,
-	splitMarkdown,
-	storageRefusal,
-	writeMarkdown,
-	writePointer,
-} from '../markdown.js';
+import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../core/markdown.js';
+import { passesParseGate, storageRefusal } from '../parse-rule.js';
 import { merge } from '../merge.js';
 import { describe } from '../policy.js';
 import type { Policy } from '../policy.js';

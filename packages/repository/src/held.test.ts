@@ -35,7 +35,7 @@ import { gitBlobHash } from './core/hash.js';
 import type { Batch } from './protocol.js';
 import { openRepository } from './repository.js';
 import { createRepositoryServer } from './server/server.js';
-import { parses } from './markdown.js';
+import { parses } from './core/markdown.js';
 
 const app = defineApp({
 	notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.Optional(Type.String()), mood: Type.Optional(Type.String()) }) },

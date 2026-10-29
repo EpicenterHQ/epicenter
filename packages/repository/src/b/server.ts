@@ -25,7 +25,7 @@ import { createHash } from 'node:crypto';
 import { type Author, type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { createTreeStore } from '../core/tree.js';
-import { parsePointer } from '../markdown.js';
+import { parsePointer } from '../core/markdown.js';
 import { ATTRIBUTES, BLOCK_CAP, LIMIT, admissible, findConflicts, fold, isNote } from './door.js';
 import { settle } from './settle.js';
 

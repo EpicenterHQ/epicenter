@@ -19,7 +19,7 @@
  * and a merge may not grow a note past 1 MB or past `BLOCK_CAP` conflict
  * blocks. An identical block is never written twice (`withBlock`).
  */
-import { parsePointer, parses } from '../markdown.js';
+import { parsePointer, parses } from '../core/markdown.js';
 
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;

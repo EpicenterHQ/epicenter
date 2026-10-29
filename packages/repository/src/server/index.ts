@@ -16,4 +16,4 @@ export {
 	type TreeEntry,
 } from './git-store.js';
 export { type Decision, describe, type Policy, settle } from '../policy.js';
-export { MAX_NOTE_BYTES, PushError, type PushOutcome } from './push.js';
+export { PushError, type PushOutcome } from './push.js';
