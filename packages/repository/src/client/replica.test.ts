@@ -93,6 +93,35 @@ test("commits fit the server's bounds from the hello: saves split into several, 
 	expect(replica.busy()).toBe(false);
 });
 
+test('saves made in a batch keep their own groups and are cut once, as the same commit saves made one by one make', () => {
+	const each = (batched: boolean) => {
+		const server = createTestServer();
+		const replica = unwrap(open(openBunSqlite()));
+		expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+		const link = connect(replica, server);
+		link.deliver();
+		replica.attach(null);
+		const before = replica.stats().commits;
+		const save = () => {
+			replica.writeAll({ 'notes/a.md': note('a\n') });
+			replica.writeAll({ 'notes/b.md': note('b\n'), 'notes/c.md': note('c\n') });
+			replica.writeAll({ 'notes/d.md': note('d\n') });
+		};
+		if (batched) replica.batch(save);
+		else save();
+		const cuts = replica.stats().commits - before;
+		replica.attach(link.sent.push.bind(link.sent));
+		link.deliver();
+		return { cuts, pushed: link.pushes.map((commit) => commit.files.map((f) => f.path).sort()), server: server.snapshot() };
+	};
+	const one = each(false);
+	const batched = each(true);
+	expect(one.cuts).toBe(3);
+	expect(batched.cuts).toBe(1);
+	expect(batched.pushed).toEqual(one.pushed);
+	expect(batched.server).toEqual(one.server);
+});
+
 test('a commit rejected as too large is split between groups; a group too large alone is held whole, its text kept, until less is saved', () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));

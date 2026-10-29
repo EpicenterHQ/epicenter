@@ -773,6 +773,32 @@ function createReplica({
 		return first<{ path: string }>(driver, 'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1', [fold(nfc)])?.path ?? nfc;
 	}
 
+	/** Saves in a `batch` running now, and whether one of them left a cut to make when it ends. */
+	let batching = 0;
+	let cutDue = false;
+	/**
+	 * RULE: saves made together are cut into the unsent commit once, when the
+	 * last ends: each call keeps its own group, and the cut is the same as one
+	 * after each (an unsent commit without a message is amended as ever), but
+	 * its cost is paid once, not per save over every file still waiting.
+	 */
+	function batch<T>(run: () => T): T {
+		return atomically(() => {
+			batching++;
+			let value: T;
+			try {
+				value = run();
+			} finally {
+				batching--;
+			}
+			if (batching === 0 && cutDue) {
+				cutDue = false;
+				commit();
+			}
+			return value;
+		});
+	}
+
 	/** Save texts: each merged here with `mine` if `mine` moved since the text the caller started from. */
 	function writeAll(changes: Record<string, string | null>, { over, message }: { over?: Record<string, string | null>; message?: string } = {}): Changed {
 		return atomically(() => {
@@ -795,7 +821,8 @@ function createReplica({
 				set(path, { ...f, ...grouped, mine: next, saved: true });
 			}
 			if (message !== undefined) for (const path of paths) sayAt(path, 'saved', message);
-			commit();
+			if (batching > 0) cutDue = true;
+			else commit();
 			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
 			return { texts: Object.fromEntries(Object.keys(changes).map((given) => [given, record(spelled(given)).mine])), revision: revision + (changed.size > 0 ? 1 : 0) };
 		});
@@ -1456,6 +1483,8 @@ function createReplica({
 		},
 		/** Save several paths in one commit (a rename is a delete of the old path and a write of the new one). */
 		writeAll,
+		/** Make several saves as one transaction, each call its own group, cut into the unsent commit once at the end (a folder's scan hands hundreds). */
+		batch,
 		/** Apply changes (create, patch, delete, exact source, a body edit) over what this device shows now, in one transaction and one save; each path's resulting text and the revision come back. */
 		change,
 		/** The revision of the last change stored. */

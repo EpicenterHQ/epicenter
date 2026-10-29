@@ -233,11 +233,17 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	 * another file's path folds to a path is a question for the folder.
 	 */
 	function listings() {
-		const read = new Map<string, Promise<Set<string>>>();
+		/** Per directory read, its names by their folded form. */
+		const read = new Map<string, Promise<Map<string, Set<string>>>>();
+		const folded = (name: string) => fold(name.normalize('NFC'));
 		const names = (dir: string) => {
 			let found = read.get(dir);
 			if (found === undefined) {
-				found = fs.list(dir).then((list) => new Set(list));
+				found = fs.list(dir).then((list) => {
+					const byFold = new Map<string, Set<string>>();
+					for (const name of list) byFold.set(folded(name), (byFold.get(folded(name)) ?? new Set()).add(name));
+					return byFold;
+				});
 				read.set(dir, found);
 			}
 			return found;
@@ -249,9 +255,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			async beside(path: string) {
 				let at = [''];
 				for (const segment of path.split('/')) {
-					const folded = fold(segment.normalize('NFC'));
 					const next: string[] = [];
-					for (const dir of at) for (const name of await names(dir)) if (fold(name.normalize('NFC')) === folded) next.push(dir === '' ? name : `${dir}/${name}`);
+					for (const dir of at) for (const name of (await names(dir)).get(folded(segment)) ?? []) next.push(dir === '' ? name : `${dir}/${name}`);
 					at = next;
 				}
 				return at.filter((other) => other !== path);
@@ -259,12 +264,15 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			/** The engine made `path` (and any directory above it) or removed it. */
 			async made(path: string) {
 				for (let child = path, dir = parent(path); ; child = dir, dir = parent(dir)) {
-					if (read.has(dir)) (await names(dir)).add(base(child));
+					if (read.has(dir)) {
+						const byFold = await names(dir);
+						byFold.set(folded(base(child)), (byFold.get(folded(base(child))) ?? new Set()).add(base(child)));
+					}
 					if (dir === '') return;
 				}
 			},
 			async gone(path: string) {
-				if (read.has(parent(path))) (await names(parent(path))).delete(base(path));
+				if (read.has(parent(path))) (await names(parent(path))).get(folded(base(path)))?.delete(base(path));
 			},
 		};
 	}
@@ -461,8 +469,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			if (save !== null) found.push({ save, was: record?.hash ?? null });
 		}
 		const calls = call === 'each' ? groupSaves(found) : [found.map((f) => f.save)];
-		// Each call is its own group, and all of them commit to the database at once: one write to disk per reconcile, not per save.
-		driver.transaction(() => {
+		// Each call is its own group, and all of them commit to the database at once, cut into the unsent commit once: one write to disk per reconcile, not per save.
+		replica.batch(() => {
 			for (const saves of calls) hand(saves, call === 'each' ? undefined : call.message);
 		});
 		for (const path of looked) await project(path, listed);
