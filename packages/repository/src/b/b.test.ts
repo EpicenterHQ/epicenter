@@ -407,3 +407,22 @@ test('a commit waiting on a held partner does not stop the device taking in chan
 	expect(alice.replica.read('notes/c.md')).toBe(note('bob\n'));
 	expect(alice.replica.position()).toBe(world.server.main());
 });
+
+test("a save waiting on a held partner is not undone by an older commit of the same path (seed 2315)", () => {
+	const { world, alice, settle } = setup();
+	alice.replica.write(PATH, note('one\n'));
+	settle();
+	// The delete goes; while it is in flight the note is created again (an unsent commit), then renamed to a path whose text is held.
+	alice.replica.write(PATH, null);
+	alice.replica.write(PATH, note('two\n'));
+	alice.replica.writeAll({ [PATH]: null, 'notes/b.md': broken('two\n') });
+	settle();
+	expect(alice.replica.held()).toEqual([{ path: 'notes/b.md', reason: 'does not parse' }]);
+	// The person repairs the held half: the rename goes, and the older re-creation never does.
+	alice.replica.write('notes/b.md', note('two\n'));
+	settle();
+	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
+	expect(world.server.read(PATH)).toBeNull();
+	expect(alice.replica.read(PATH)).toBeNull();
+	expect(alice.replica.busy()).toBe(false);
+});

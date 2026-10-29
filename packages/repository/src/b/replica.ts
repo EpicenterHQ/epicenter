@@ -317,7 +317,8 @@ export function createReplica({
 		const mineBelow = f.committed !== undefined ? f.committed.text : below;
 		const mine = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, parties: parties() }).text;
 		const next: FileRecord = { base: text, mine };
-		if (committed !== undefined && committed !== text) next.committed = { text: committed };
+		// `mine` is the newest save: once it is `main`'s text, an older commit below it has nothing left to say.
+		if (committed !== undefined && committed !== text && mine !== text) next.committed = { text: committed };
 		if (mine !== text) {
 			if (f.held !== undefined) next.held = f.held;
 			if (f.saved !== undefined) next.saved = true;
