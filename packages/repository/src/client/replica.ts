@@ -156,6 +156,8 @@ type FileRow = { path: string; text: string | null; base: string | null; hash: s
 
 /** Recent positions kept, so a late notification is recognized as old. */
 const PASSED = 4096;
+/** Texts read in one request: a large catch-up reads in several, each with its own timeout. */
+const READ_BATCH = 256;
 
 /** What a view reads of a text: a note's frontmatter, or a pointer's oid and size, as JSON. */
 function fieldsOf(text: string | null): string | null {
@@ -446,7 +448,7 @@ function createReplica({
 	/** A catch-up being gathered page by page, then its texts read. */
 	let gathering: CatchUp | null = null;
 	/** A catch-up or notification whose texts are being read. */
-	let reading: { catchUp: CatchUp } | { event: Event } | null = null;
+	let reading: { catchUp: CatchUp; texts: Map<string, string>; wanted: string[] } | { event: Event } | null = null;
 	// A process starts by catching up.
 	let needCatchUp = true;
 	let gapArmed = false;
@@ -570,6 +572,8 @@ function createReplica({
 			if (pending?.rid !== rid) return;
 			stats.timeouts++;
 			pending = null;
+			// RULE: a lost read of a catch-up's texts is asked again, keeping the pages and texts gathered.
+			if (message.type === 'fetch' && reading !== null && 'catchUp' in reading) return readBatch();
 			reading = null;
 			gathering = null;
 			// A lost push is sent again as it is; a lost catch-up or read is asked again.
@@ -897,6 +901,13 @@ function createReplica({
 		for (const [parent, event] of [...waiting]) if (passed(event.commit)) waiting.delete(parent);
 	}
 
+	/** Read the next batch of a catch-up's texts. */
+	function readBatch() {
+		if (reading === null || !('catchUp' in reading)) return;
+		stats.fetches++;
+		request({ type: 'fetch', rid: takeRid(), hashes: reading.wanted.slice(0, READ_BATCH) });
+	}
+
 	/** Apply waiting notifications that follow the position, reading their texts first. */
 	function place() {
 		const following = () => (position === null ? undefined : waiting.get(position));
@@ -965,18 +976,29 @@ function createReplica({
 				);
 				if (lacking.length === 0) applyCatchUp(whole, have);
 				else {
-					reading = { catchUp: whole };
-					stats.fetches++;
-					request({ type: 'fetch', rid: takeRid(), hashes: lacking });
+					reading = { catchUp: whole, texts: have, wanted: lacking };
+					readBatch();
 				}
 				break;
 			}
 			case 'fetched': {
 				const was = reading;
+				if (was !== null && 'catchUp' in was) {
+					const asked = was.wanted.splice(0, READ_BATCH);
+					for (const [hash, text] of Object.entries(message.texts)) was.texts.set(hash, text);
+					// A text the server no longer keeps, or the last batch: apply (which catches up again for a text missing).
+					if (was.wanted.length > 0 && asked.every((hash) => was.texts.has(hash))) {
+						readBatch();
+						break;
+					}
+					reading = null;
+					applyCatchUp(was.catchUp, was.texts);
+					place();
+					break;
+				}
 				reading = null;
-				const texts = new Map([...(was === null ? [] : known(named('catchUp' in was ? was.catchUp : was.event))), ...Object.entries(message.texts)]);
-				if (was !== null && 'catchUp' in was) applyCatchUp(was.catchUp, texts);
-				else if (was !== null && was.event.files.some((f) => f.hash !== null && !texts.has(f.hash))) {
+				const texts = new Map([...(was === null ? [] : known(named(was.event))), ...Object.entries(message.texts)]);
+				if (was !== null && was.event.files.some((f) => f.hash !== null && !texts.has(f.hash))) {
 					// The server no longer keeps a text the notification names (its commit left the window): catch up instead.
 					waiting.delete(was.event.parents[0] ?? '');
 					needCatchUp = true;

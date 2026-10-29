@@ -22,7 +22,9 @@
  *
  * Every request, reads included, is authenticated first (401 without a
  * session, or with one that has expired) and must come from a member (403
- * otherwise, `server.mayRead`). A write's answer is JSON whatever its
+ * otherwise, `server.mayRead`). Reads (catch-up pages, files, texts by
+ * hash, at a small part of a read each) come out of the member's read
+ * bucket (`server.admitRead`): past it, 429 with `retry-after`. A write's answer is JSON whatever its
  * status: 200 applied, merged or flushed; 409 outcome-unknown; 422 a text
  * the door refuses (`refused`, naming its path); and for a request
  * rejection (`rejected`, by its code), 428 with no parent (or no
@@ -380,25 +382,28 @@ export function createWire({
 	}
 
 	const notAllowed = (allow: string) => failure(405, 'Method not allowed', { allow });
+	const SLOW_DOWN = 'Too many reads; slow down';
+	/** A read out of the member's read bucket: undefined when admitted, otherwise the 429. */
+	const throttled = (session: Session, kind: 'read' | 'text' = 'read') => (server.admitRead(session, kind) ? undefined : failure(429, SLOW_DOWN, { 'retry-after': '1' }));
 
 	async function route(request: Request, session: Session, expired: Promise<typeof EXPIRED>): Promise<Response | undefined> {
 		const url = new URL(request.url);
 		const { pathname } = url;
 		const { method } = request;
 		if (pathname === '/commits') return method === 'POST' ? postCommit(request, session, expired) : notAllowed('POST');
-		if (pathname === '/catch-up') return method === 'GET' ? catchUp(url) : notAllowed('GET');
+		if (pathname === '/catch-up') return method === 'GET' ? (throttled(session) ?? catchUp(url)) : notAllowed('GET');
 		if (pathname === '/socket') {
 			if (method !== 'GET') return notAllowed('GET');
 			if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket') return failure(426, 'The socket is a WebSocket', { upgrade: 'websocket' });
 			return sockets.upgrade(request, session);
 		}
-		if (pathname.startsWith('/blobs/')) return method === 'GET' ? readBlob(request, pathname.slice('/blobs/'.length)) : notAllowed('GET');
+		if (pathname.startsWith('/blobs/')) return method === 'GET' ? (throttled(session, 'text') ?? readBlob(request, pathname.slice('/blobs/'.length))) : notAllowed('GET');
 		if (pathname.startsWith('/files/')) {
 			const path = trySync({ try: () => decodeURIComponent(pathname.slice('/files/'.length)), catch: () => BodyError.NotText() });
 			if (path.error !== null || path.data === '') return failure(400, 'Not a file path');
 			switch (method) {
 				case 'GET':
-					return readFile(request, path.data);
+					return throttled(session) ?? readFile(request, path.data);
 				case 'PUT':
 				case 'DELETE':
 					return writeFile(request, session, path.data, expired);
@@ -479,6 +484,7 @@ export function createWire({
 				}
 				case 'catch-up': {
 					const { type: _, rid, ...query } = request;
+					if (!server.admitRead(verified)) return reply({ type: 'error', rid, status: 429, error: SLOW_DOWN });
 					return reply({ type: 'caught-up', rid, catchUp: takeCatchUp(query) });
 				}
 				default:

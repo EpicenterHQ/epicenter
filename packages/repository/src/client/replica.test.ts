@@ -227,6 +227,38 @@ test('a notification costs what it names, not every text the device holds', () =
 	expect(spent / 20).toBeLessThan(15);
 });
 
+test("a catch-up's texts are read in batches, and a read that times out is asked again without gathering the pages again", () => {
+	const server = createTestServer({ limits: { page: 100, request: 64 * 1024 * 1024 } });
+	const commit = (files: LiveCommit['files']) => {
+		const body = { parent: server.main(), mode: 'merge' as const, author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		return { id: commitId(body), ...body };
+	};
+	server.push(commit(Array.from({ length: 600 }, (_, i) => ({ path: `notes/${String(i).padStart(3, '0')}.md`, text: note(`${i}\n`) }))), writer('bob'));
+	const timers: (() => void)[] = [];
+	const replica = unwrap(open(openBunSqlite(), { after: (_, run) => timers.push(run) }));
+	const sent: Request[] = [];
+	replica.attach((request) => sent.push(request));
+	const answerNext = () => {
+		const request = sent.shift();
+		if (request !== undefined) replica.reply(answer(server, request));
+		return request;
+	};
+	// Six pages, then the first batch of texts.
+	for (let page = 0; page < 6; page++) expect(answerNext()?.type).toBe('catch-up');
+	const first = answerNext();
+	expect(first?.type === 'fetch' && first.hashes.length).toBe(256);
+	// The second batch's reply is lost: its timeout asks for that batch again, not for the pages.
+	const lost = sent.shift();
+	expect(lost?.type === 'fetch' && lost.hashes.length).toBe(256);
+	for (const run of timers.splice(0)) run();
+	const again = sent[0];
+	expect(again?.type === 'fetch' && lost?.type === 'fetch' && again.hashes).toEqual(lost?.type === 'fetch' ? lost.hashes : []);
+	for (let request = answerNext(); request !== undefined; request = answerNext()) expect(request.type).toBe('fetch');
+	expect(replica.paths()).toHaveLength(600);
+	expect(replica.position()).toBe(server.main());
+	expect(replica.stats().catchUps).toBe(1);
+});
+
 test("the app's views read what the person sees, held text included, and a watcher hears each change once it is stored", () => {
 	const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.String() }) } });
 	const driver = openBunSqlite();

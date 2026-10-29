@@ -200,6 +200,9 @@ export type Limits = {
 	/** Pushes per member: a bucket of `burst`, refilled at `rate` a second. */
 	burst: number;
 	rate: number;
+	/** Reads per member (a catch-up page, a file): a bucket of `readBurst`, refilled at `readRate` a second; a text by hash costs `1 / TEXTS_PER_READ`. */
+	readBurst: number;
+	readRate: number;
 	/** How long positions, commits and answers are kept, in ms. */
 	window: number;
 	/** How long a landed commit's id is recognized after its answer left the window, in ms. */
@@ -217,11 +220,16 @@ export const LIMITS: Limits = {
 	page: 1000,
 	burst: 30,
 	rate: 10,
+	readBurst: 300,
+	readRate: 20,
 	window: 10 * 60_000,
 	seen: 24 * 60 * 60_000,
 	pushedCommits: 1000,
 	skew: 5 * 60_000,
 };
+
+/** Texts by hash that cost one read: content-addressed and cheap, so a first sync of 50,000 texts fits a burst. */
+export const TEXTS_PER_READ = 256;
 
 /** When live history is flushed: after `quiet` ms with no push, and at most `busy` ms after the last flush while pushes go on. */
 export type Schedule = { quiet: number; busy: number };
@@ -335,6 +343,16 @@ export function createServer({
 		for (const event of events) for (const listener of listeners) listener(event);
 	};
 
+	/** Take `cost` from a member's bucket (`key` names it), refilled at `rate` a second up to `burst`; false when it holds too little. */
+	function take(key: string, cost: number, burst: number, rate: number) {
+		const now = clock();
+		const bucket = first<{ tokens: number; at: number }>(store, 'SELECT tokens, at FROM buckets WHERE user = ?', [key]) ?? { tokens: burst, at: now };
+		const tokens = Math.min(burst, bucket.tokens + ((now - bucket.at) / 1000) * rate);
+		const enough = tokens >= cost;
+		store.run('INSERT OR REPLACE INTO buckets (user, tokens, at) VALUES (?, ?, ?)', [key, enough ? tokens - cost : tokens, now]);
+		return enough;
+	}
+
 	/** The door: who may push this, and is it something the repository may hold? */
 	function admit(commit: LiveCommit, session: Session | undefined, rate: boolean): PushAnswer | null {
 		const head = main().id;
@@ -343,13 +361,7 @@ export function createServer({
 		if (session.role === null) return reject('not-member');
 		if (session.role === 'reader') return reject('reader');
 		const now = clock();
-		const bucket = first<{ tokens: number; at: number }>(store, 'SELECT tokens, at FROM buckets WHERE user = ?', [session.user]) ?? { tokens: limits.burst, at: now };
-		const tokens = Math.min(limits.burst, bucket.tokens + ((now - bucket.at) / 1000) * limits.rate);
-		if (rate && tokens < 1) {
-			store.run('INSERT OR REPLACE INTO buckets (user, tokens, at) VALUES (?, ?, ?)', [session.user, tokens, now]);
-			return reject('rate');
-		}
-		store.run('INSERT OR REPLACE INTO buckets (user, tokens, at) VALUES (?, ?, ?)', [session.user, rate ? tokens - 1 : tokens, now]);
+		if (rate && !take(session.user, 1, limits.burst, limits.rate)) return reject('rate');
 		if (commit.parent === undefined) return reject('no-parent');
 		// The id is checked before any recorded outcome is read, so a replayed id with other files is refused.
 		if (commitId(commit) !== commit.id) return reject('bad-id');
@@ -469,6 +481,27 @@ export function createServer({
 		return record(commit, 'merged', id, from, spelled);
 	}
 
+	/**
+	 * RULE: the sorted paths of one catch-up (from a place, or everything,
+	 * to a commit, plus the paths named), computed once and kept for its
+	 * later pages: trees are immutable, so a listing never goes stale.
+	 */
+	const listings = new Map<string, string[]>();
+	function listingOf(index: number | undefined, target: Stored, paths: string[]) {
+		const key = `${index ?? ''}\0${target.id}\0${paths.join('\0')}`;
+		const kept = listings.get(key);
+		if (kept !== undefined) return kept;
+		const all = new Set(index === undefined ? trees.diff(trees.empty, target.tree) : trees.diff(history.at(index).tree, target.tree));
+		for (const path of paths) all.add(path);
+		const listing = [...all].sort();
+		listings.set(key, listing);
+		for (const old of listings.keys()) {
+			if (listings.size <= 8) break;
+			listings.delete(old);
+		}
+		return listing;
+	}
+
 	// ------------------------------------------------------------------------
 	// Flush scheduling
 	// ------------------------------------------------------------------------
@@ -547,6 +580,13 @@ export function createServer({
 		 * the host asks this first, as the wire does for every read.
 		 */
 		mayRead: (session: Session | undefined) => session !== undefined && session.role !== null,
+		/**
+		 * Take one read from a member's read bucket (`text`: a text by hash,
+		 * a small part of one); false when they should slow down. The host
+		 * asks this before each catch-up page, file and text, as the wire does.
+		 */
+		admitRead: (session: Session, kind: 'read' | 'text' = 'read') =>
+			store.transaction(() => take(`read\0${session.user}`, kind === 'text' ? 1 / TEXTS_PER_READ : 1, limits.readBurst, limits.readRate)),
 		/** `main`'s text at a path, in any spelling of it. */
 		read: (path: string) => history.textIn(main().tree, history.spelling(path) ?? path),
 		/** Every path and text on `main`, sorted. */
@@ -579,11 +619,16 @@ export function createServer({
 			const target = toPlace === undefined ? main() : history.at(toPlace);
 			const index = from === null ? undefined : history.placeOf(from);
 			const full = index === undefined;
-			const all = new Set(full ? trees.diff(trees.empty, target.tree) : trees.diff(history.at(index).tree, target.tree));
-			for (const path of paths) all.add(path);
-			const sorted = [...all].sort().filter((path) => after === undefined || path > after);
-			const page = sorted.slice(0, limits.page);
-			const last = page.length === sorted.length;
+			const listing = listingOf(index, target, paths);
+			// The first path after `after`, by binary search.
+			let low = 0;
+			for (let high = listing.length; after !== undefined && low < high; ) {
+				const mid = (low + high) >> 1;
+				if ((listing[mid] as string) <= after) low = mid + 1;
+				else high = mid;
+			}
+			const page = listing.slice(low, low + limits.page);
+			const last = low + page.length === listing.length;
 			return {
 				main: target.id,
 				full,

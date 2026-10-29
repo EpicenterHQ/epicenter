@@ -295,6 +295,22 @@ describe('PUT and DELETE /files/<path>', () => {
 // ============================================================================
 
 describe('reads', () => {
+	test("reads come out of the member's read bucket: past it, 429 over HTTP and an error naming the request on the socket", async () => {
+		const { url, as, served } = setup({ limits: { readBurst: 2, readRate: 0.001 } });
+		const statuses = [];
+		for (let i = 0; i < 3; i++) statuses.push((await fetch(url('catch-up?from='), { headers: as('alice') })).status);
+		expect(statuses).toEqual([200, 200, 429]);
+		const slowed = await fetch(url('files/n/a.md'), { headers: as('alice') });
+		expect([slowed.status, slowed.headers.get('retry-after')]).toEqual([429, '1']);
+		// Another member's reads are their own.
+		expect((await fetch(url('catch-up?from='), { headers: as('bob') })).status).toBe(200);
+		const alice = open(served.url, 'alice');
+		await until(() => alice.messages.length === 1);
+		alice.socket.send({ type: 'catch-up', rid: 4, from: null });
+		await alice.socket.ping();
+		expect(alice.messages.at(-1)).toEqual({ type: 'error', rid: 4, status: 429, error: 'Too many reads; slow down' });
+	});
+
 	test('a text by hash is immutable and private, revalidates as 304, and an unknown hash is 404 and not cached', async () => {
 		const { server, url, as, post } = setup();
 		await post(make(server, [{ path: 'n/a.md', text: note('one\n') }]));

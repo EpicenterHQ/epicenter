@@ -157,6 +157,32 @@ describe('catch-up and the change feed', () => {
 		expect(server.catchUp({ from: null, to: one.main, after: one.next ?? '' })).toEqual({ main: server.main(), full: true, restart: true, files: [], commits: [], next: null });
 	});
 
+	test("one catch-up's pages share one tree diff, so paging through many paths costs about one diff", () => {
+		const { server } = setup({ request: 64 * 1024 * 1024, files: 50_000, page: 100 });
+		server.push(make(server, Array.from({ length: 20_000 }, (_, i) => ({ path: `n/${Math.floor(i / 100)}/${i}.md`, text: note(`${i}\n`) }))), alice);
+		const start = performance.now();
+		let page = server.catchUp({ from: null });
+		let pages = 1;
+		while (page.next !== null) {
+			page = server.catchUp({ from: null, to: page.main, after: page.next });
+			pages++;
+		}
+		expect(pages).toBe(200);
+		// A diff of every page took about 3 ms a page here (600 ms in all); one diff and 200 slices take a few.
+		expect(performance.now() - start).toBeLessThan(150);
+	});
+
+	test('reads are admitted per member: a bucket of `readBurst`, refilled at `readRate` a second', () => {
+		const { server, clock } = setup({ readBurst: 2, readRate: 1 });
+		expect([server.admitRead(alice), server.admitRead(alice), server.admitRead(alice)]).toEqual([true, true, false]);
+		expect(server.admitRead({ user: 'bob', role: 'reader' })).toBe(true);
+		clock.now += 1_000;
+		expect(server.admitRead(alice)).toBe(true);
+		// A text by hash costs a small part of a read, so a large first sync's texts fit the burst.
+		clock.now += 2_000;
+		for (let i = 0; i < 400; i++) expect(server.admitRead(alice, 'text')).toBe(true);
+	});
+
 	test('each commit on main is one event: its id, parents and changed paths with hashes, after it is stored', () => {
 		const { server } = setup();
 		const events: Event[] = [];
