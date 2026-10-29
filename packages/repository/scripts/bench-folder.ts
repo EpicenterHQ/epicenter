@@ -101,7 +101,7 @@ try {
 				warmScanAfterRestartMs: warmAfterRestart.ms,
 				peakRssMB: Math.round(Math.max(peak, coldPeak) / 1024 ** 2),
 				databaseMB: Math.round((database / 1024 ** 2) * 10) / 10,
-				commit: { files: CHANGED, toGroupMs: group.ms, saved: group.value.length, answerMs: sent.ms, landed, held: held.slice(0, 2), heldCount: held.length },
+				commit: { files: CHANGED, toGroupMs: group.ms, saved: group.value.saved.length, answerMs: sent.ms, landed, held: held.slice(0, 2), heldCount: held.length },
 			},
 			null,
 			'\t',

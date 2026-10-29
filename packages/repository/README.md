@@ -428,22 +428,24 @@ bun run epicenter -- commit /work/home -m "Summarize October's notes"
 `sync` catches up, scans, then watches until a signal, letting what is in
 flight finish (5 s). With `--once` it sends everything and exits. `commit
 -m` runs before connecting: every difference from the record goes to the
-replica as one group carrying the message. Then it connects and waits for
-the verdict. A commit with a message is never amended by a later save.
+replica as one call carrying the message. Then it connects and waits for
+what the replica says became of that call: landed, held or pending. With
+nothing new, it reports the commits earlier runs left unsent instead. A
+commit with a message is never amended by a later save.
 `--agent <name>` only labels the author: it is the commit's device, so
 conflict blocks read `alice/claude`, and the flushed Git commit names it
 in `Epicenter-Device`.
 
 | Exit | Line (`--json`: one JSON value per line) | Meaning |
 | --- | --- | --- |
-| 0 | `{"landed": "<id>", "conflicts": [...]}` | One commit; `conflicts` names files where its merge wrote a conflict block |
-| 0 | `{"unchanged": true}` | Nothing differed from the record, and nothing was unsent |
-| 2 | `{"held": [{"path", "reason"}], "commit": "<id>" \| null}` | Nothing landed; the group and its message are held; the files are as left |
-| 2 | `{"pending": "<id>" \| null}` | Offline, or no verdict yet; the next `commit` or `sync` sends it, once |
+| 0 | `{"landed": "<id>", "conflicts": [...], "kept": [...]}` | The call's commit (or `main`, when nothing of it needed sending); `conflicts` names files where a merge of its work wrote a conflict block, `kept` files whose delete did not take (an edit beat it) |
+| 0 | `{"unchanged": true}` | Nothing differed from the record, and no earlier commit is unsent |
+| 2 | `{"held": [{"path", "reason"}]}` | Nothing landed; the call and its message are held by these files of it; the files are as left |
+| 2 | `{"pending": "<id>" \| null}` | Offline, or no outcome yet; `<id>` is the commit in flight carrying it; the next `commit` or `sync` sends it, once |
 | 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy |
 
 Before its verdict, `commit` names any file in the folder the repository
-cannot take (`{"held": [...], "commit": null}`); the commit goes without
+cannot take (`{"held": [...]}`); the commit goes without
 it. `sync` also prints `joined`, `caught-up`, `held` and `stopped`.
 
 ### The desktop, later

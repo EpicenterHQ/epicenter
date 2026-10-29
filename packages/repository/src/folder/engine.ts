@@ -340,8 +340,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	/** One save found: the change for the replica and the record it leaves. */
 	type Save = { path: string; text: string | null; over: string | null; record: Omit<Recorded, 'at'> | null; refuse?: string };
 
-	/** What `reconcile` found and did: the paths whose saves went to the replica. */
-	type Reconciled = { saved: string[] };
+	/** What `reconcile` found and did: the paths whose saves went to the replica, and the calls they went in. */
+	type Reconciled = { saved: string[]; calls: number[] };
 
 	/** Seal a blob's bytes into the device store; its pointer, or null when the file changed or vanished meanwhile (the next look takes it). */
 	async function seal(seen: Extract<Look, { kind: 'blob' }>): Promise<Sealed | null> {
@@ -385,17 +385,18 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		if (stopped) throw new Error('the folder engine has stopped');
 	}
 
-	/** Hand the replica one call's saves, with their records, in one transaction. */
-	function hand(saves: Save[], message?: string) {
+	/** Hand the replica one call's saves, with their records, in one transaction: the call, or null when there was nothing to hand. */
+	function hand(saves: Save[], message?: string): number | null {
 		live();
-		if (saves.length === 0) return;
-		driver.transaction(() => {
+		if (saves.length === 0) return null;
+		return driver.transaction(() => {
 			for (const save of saves) setRecord(save.path, save.record);
-			replica.writeAll(Object.fromEntries(saves.map((save) => [save.path, save.text])), {
+			const { call } = replica.writeAll(Object.fromEntries(saves.map((save) => [save.path, save.text])), {
 				over: Object.fromEntries(saves.map((save) => [save.path, save.over])),
 				...(message === undefined ? {} : { message }),
 			});
 			for (const save of saves) if (save.refuse !== undefined && save.record !== null) replica.refused(save.record.hash, save.refuse);
+			return call;
 		});
 	}
 
@@ -469,13 +470,17 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			const save = await saveOf(seen, record);
 			if (save !== null) found.push({ save, was: record?.hash ?? null });
 		}
-		const calls = call === 'each' ? groupSaves(found) : [found.map((f) => f.save)];
+		const grouped = call === 'each' ? groupSaves(found) : [found.map((f) => f.save)];
+		const calls: number[] = [];
 		// Each call is its own group, and all of them commit to the database at once, cut into the unsent commit once: one write to disk per reconcile, not per save.
 		replica.batch(() => {
-			for (const saves of calls) hand(saves, call === 'each' ? undefined : call.message);
+			for (const saves of grouped) {
+				const made = hand(saves, call === 'each' ? undefined : call.message);
+				if (made !== null) calls.push(made);
+			}
 		});
 		for (const path of looked) await project(path, listed);
-		return { saved: found.map((f) => f.save.path) };
+		return { saved: found.map((f) => f.save.path), calls };
 	}
 
 	// --------------------------------------------------------------------------
@@ -826,17 +831,19 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		hint,
 		/**
 		 * Every difference from the record as one call carrying `message`:
-		 * the paths that went to the replica (none: nothing differed).
+		 * that call (null: nothing differed), whose outcome the replica
+		 * reports, and the paths it saved.
 		 */
-		async commit(message: string) {
-			let saved: string[] = [];
+		async commit(message: string): Promise<{ call: number | null; saved: string[] }> {
+			let made: { call: number | null; saved: string[] } = { call: null, saved: [] };
 			await enqueue(async () => {
 				await recover();
 				const paths: string[] = [];
 				for await (const path of scanned()) paths.push(path);
-				saved = (await reconcile(paths, { message })).saved;
+				const reconciled = await reconcile(paths, { message });
+				made = { call: reconciled.calls[0] ?? null, saved: reconciled.saved };
 			});
-			return saved;
+			return made;
 		},
 		/** Resolves once nothing hinted, queued or captured is left to do. */
 		async idle() {

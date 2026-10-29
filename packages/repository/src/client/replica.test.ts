@@ -514,3 +514,51 @@ test('a save with a message over an unsent commit without one amends it, and the
 	link.deliver();
 	expect(link.pushes.map((commit) => [commit.message, commit.files.map((f) => f.text)])).toEqual([['Say it', [note('live\nsaid\n')]]]);
 });
+
+test('a call reports its own outcome: pending until sent, landed in its commit, or held by its own file; an earlier held call never touches it', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.attach(null);
+	const held = replica.writeAll({ 'notes/bad.md': '---\ntitle: [\n---\n' }, { message: 'Broken' }).call;
+	const good = replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\n') }, { message: 'Two notes' }).call;
+	expect(replica.outcome(held)).toEqual({ kind: 'held', held: [{ path: 'notes/bad.md', reason: 'does not parse' }] });
+	expect(replica.outcome(good)).toEqual({ kind: 'pending', commit: null });
+	replica.attach(link.sent.push.bind(link.sent));
+	const sending = replica.outcome(good);
+	expect(sending).toEqual({ kind: 'pending', commit: replica.sent()?.id ?? 'none' });
+	link.deliver();
+	expect(replica.outcome(good)).toEqual({ kind: 'landed', commit: link.pushes.at(-1)?.id ?? 'none', conflicts: [], kept: [] });
+	expect(link.pushes.at(-1)?.message).toBe('Two notes');
+	// Fixing the held file joins its call: the earlier id now reports the call it joined.
+	const fixed = replica.writeAll({ 'notes/bad.md': note('fixed\n') }, { message: 'Fixed' }).call;
+	link.deliver();
+	expect(replica.outcome(held)).toEqual(replica.outcome(fixed));
+	expect(replica.outcome(fixed)).toMatchObject({ kind: 'landed', commit: link.pushes.at(-1)?.id });
+	expect(link.pushes.at(-1)?.message).toBe('Fixed');
+});
+
+test("a call's outcome names a delete that did not take and the paths where a merge wrote conflict blocks", () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	const link = connect(replica, server);
+	link.deliver();
+	replica.write('notes/a.md', note('one\n'));
+	replica.write('notes/b.md', note('one\n'));
+	link.deliver();
+	replica.attach(null);
+	// Offline: a delete of a.md and an edit of b.md's line, while someone else edits both.
+	const call = replica.writeAll({ 'notes/a.md': null, 'notes/b.md': note('mine\n') }).call;
+	const other = server.main();
+	const theirs = { parent: other, author: { user: 'bob', device: 'b' }, time: STAMP, files: [{ path: 'notes/a.md', text: note('one\nbob\n') }, { path: 'notes/b.md', text: note('theirs\n') }] };
+	expect(server.push({ id: commitId(theirs), ...theirs }, writer('bob')).kind).toBe('applied');
+	replica.attach(link.sent.push.bind(link.sent));
+	for (let round = 0; round < 4; round++) link.deliver();
+	const outcome = replica.outcome(call);
+	expect(outcome).toMatchObject({ kind: 'landed', kept: ['notes/a.md'], conflicts: ['notes/b.md'] });
+	expect(replica.read('notes/a.md')).toBe(note('one\nbob\n'));
+	expect(findConflicts(replica.read('notes/b.md') ?? '')).toHaveLength(1);
+});

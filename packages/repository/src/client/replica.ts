@@ -49,8 +49,11 @@
  *                         times it was sent, and each file's call; its files
  *                         are the `sent` level
  *   "epicenter/calls"     one row per call (a `writeAll`): its message
- *                         (`epicenter commit -m`), and the call it joined
- *                         when a later save met its work
+ *                         (`epicenter commit -m`), the call it joined when a
+ *                         later save met its work, and what became of it:
+ *                         the commit that landed it, the paths where its
+ *                         delete did not take (`kept`), and those where a
+ *                         merge of its work wrote conflict blocks
  *   "epicenter/passed"    recent positions, so a late notification is old
  *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
  *   "epicenter/fetched"   texts read by hash for that catch-up
@@ -79,6 +82,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
+import { findConflicts } from '../core/conflict.js';
 import { admissible, fold, isNote, MAX_BLOB_BYTES } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
@@ -131,8 +135,8 @@ export type Change =
 	/** Exact source: `text`, made from `over`; where the file moved since `over`, the two are merged. Without `over`, the caller asserts it started from what this device shows now. */
 	| { kind: 'write'; path: string; text: string | null; over?: string | null };
 
-/** What a change answers: each path's text after it, keyed as the caller spelled the path, and the revision that change made (or the one already there, if it changed nothing). */
-export type Changed = { texts: Record<string, string | null>; revision: number };
+/** What a change answers: each path's text after it, keyed as the caller spelled the path, the revision that change made (or the one already there, if it changed nothing), and its call, whose outcome the replica reports. */
+export type Changed = { texts: Record<string, string | null>; revision: number; call: number };
 
 export const ChangeError = defineErrors({
 	/** A patch named a path this device shows no file at. */
@@ -154,6 +158,19 @@ export type ReplicaError = InferErrors<typeof ReplicaError>;
 
 /** One file's state, as a person sees it: `reason` says why it is held, or why it is not sending (the server rejected the request). */
 export type FileStatus = { status: 'synced' | 'sending' | 'held'; reason?: string };
+
+/**
+ * What became of one call (a `writeAll`): `landed` in `commit` (its own
+ * commit, or `main` as it found it when nothing of it needed sending), with
+ * the paths where a merge of its work wrote conflict blocks and those where
+ * its delete did not take (`kept`: an edit beat it, so the file stays);
+ * `held`, with its files that hold it and why; or `pending`, in the commit
+ * in flight once sent. A call a later save joined is that call's.
+ */
+export type CallOutcome =
+	| { kind: 'landed'; commit: string; conflicts: string[]; kept: string[] }
+	| { kind: 'held'; held: { path: string; reason: string }[] }
+	| { kind: 'pending'; commit: string | null };
 
 /** The last refusal or rejection of this device's commit, until one lands. */
 export type Verdict = { code: TextCode | RequestCode; reason: string };
@@ -186,7 +203,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 ) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT, ${COLUMNS.unsent}) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL, ${COLUMNS.inflight}) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/calls" (id INTEGER PRIMARY KEY, message TEXT, joined INTEGER) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/calls" (id INTEGER PRIMARY KEY, message TEXT, joined INTEGER, landed TEXT, kept TEXT NOT NULL DEFAULT '[]', conflicts TEXT NOT NULL DEFAULT '[]') STRICT;
 DROP TABLE IF EXISTS "epicenter/groups";
 DROP TABLE IF EXISTS "epicenter/messages";
 CREATE TABLE IF NOT EXISTS "epicenter/passed" (id TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE) STRICT;
@@ -681,12 +698,24 @@ function createReplica({
 		const target = callOf(into);
 		const source = target === older ? newer : older;
 		const message = messageOf(newer) ?? messageOf(older);
+		const said = (call: number) => first<{ kept: string; conflicts: string }>(driver, 'SELECT kept, conflicts FROM "epicenter/calls" WHERE id = ?', [call]) ?? { kept: '[]', conflicts: '[]' };
+		const union = (a: string, b: string) => JSON.stringify([...new Set([...(JSON.parse(a) as string[]), ...(JSON.parse(b) as string[])])]);
+		const [kept, conflicts] = [said(source), said(target)];
+		driver.run('UPDATE "epicenter/calls" SET kept = ?, conflicts = ? WHERE id = ?', [union(kept.kept, conflicts.kept), union(kept.conflicts, conflicts.conflicts), target]);
 		for (const path of pathsOf('SELECT path FROM "epicenter/files" WHERE call = ? UNION SELECT path FROM "epicenter/unsent" WHERE call = ?', [source, source])) changed.add(path);
 		driver.run('UPDATE "epicenter/files" SET call = ? WHERE call = ?', [target, source]);
 		driver.run('UPDATE "epicenter/unsent" SET call = ? WHERE call = ?', [target, source]);
 		driver.run('UPDATE "epicenter/calls" SET message = ? WHERE id = ?', [message, target]);
 		driver.run('UPDATE "epicenter/calls" SET joined = ? WHERE id = ? OR joined = ?', [target, source, source]);
 	}
+
+	/** Note of `call` that its work at `path` was a delete that did not take (`kept`), or met a merge that wrote conflict blocks (`conflicts`). */
+	function note(call: number, column: 'kept' | 'conflicts', path: string) {
+		const id = callOf(call);
+		const now = JSON.parse(first<{ list: string }>(driver, `SELECT ${column} AS list FROM "epicenter/calls" WHERE id = ?`, [id])?.list ?? '[]') as string[];
+		if (!now.includes(path)) driver.run(`UPDATE "epicenter/calls" SET ${column} = ? WHERE id = ?`, [JSON.stringify([...now, path]), id]);
+	}
+	const blocksIn = (text: string | null) => (text === null ? 0 : findConflicts(text).length);
 
 	/** What keeps `call` from going: a file of it held, else one owed its bytes; null when nothing does. */
 	function blocker(call: number): { path: string; held: boolean } | null {
@@ -853,7 +882,7 @@ function createReplica({
 			if (batching > 0) cutDue = true;
 			else commit();
 			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
-			return { texts: Object.fromEntries(Object.keys(changes).map((given) => [given, record(spelled(given)).mine])), revision: revision + (changed.size > 0 ? 1 : 0) };
+			return { texts: Object.fromEntries(Object.keys(changes).map((given) => [given, record(spelled(given)).mine])), revision: revision + (changed.size > 0 ? 1 : 0), call };
 		});
 	}
 
@@ -1013,6 +1042,8 @@ function createReplica({
 				set(path, { base: text, mine: null, committed: { text: null, call: oneCall(f) } });
 				return;
 			}
+			// RULE: a delete that did not take is named to its call (`kept`): the file stays.
+			if (work === null && text !== null) note(oneCall(f), 'kept', path);
 			const mine =
 				work === text || work === null
 					? text
@@ -1026,14 +1057,26 @@ function createReplica({
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
+		// RULE: this device's delete, landed, did not take where `main` still has the file and never deleted it since: an edit, or other bytes, beat it, and the file stays.
+		if (own && f.sent?.text === null && text !== null && !deleted) note(f.sent.call, 'kept', path);
 		if (!isNote(path)) return integratePointer(path, f, text, below);
 		const gone = deleted && !own;
 		// Committed work is rebased onto the new text; a delete or removal that loses to an edit leaves the edit.
 		let committed: string | null | undefined;
-		if (f.committed !== undefined) committed = settle(below, text, f.committed.text, { deletedSince: gone, parties: parties() }).text;
+		if (f.committed !== undefined) {
+			const rebased = settle(below, text, f.committed.text, { deletedSince: gone, parties: parties() });
+			committed = rebased.text;
+			if (rebased.blocks) note(f.committed.call, 'conflicts', path);
+			if (f.committed.text === null && committed !== null) note(f.committed.call, 'kept', path);
+		}
 		// Held or waiting text in `mine` is rebased too, and stays held: it goes only with its own save.
 		const mineBelow = f.committed !== undefined ? f.committed.text : below;
-		const mine = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, parties: parties() }).text;
+		const rebased = settle(mineBelow, committed !== undefined ? committed : text, f.mine, { deletedSince: gone && f.committed === undefined, parties: parties() });
+		const mine = rebased.text;
+		if (f.call !== undefined && rebased.blocks) note(f.call, 'conflicts', path);
+		if (f.call !== undefined && f.mine === null && mine !== null) note(f.call, 'kept', path);
+		// This device's commit, landed: a merge on the server wrote blocks into it.
+		if (own && f.sent !== undefined && blocksIn(text) > blocksIn(f.sent.text)) note(f.sent.call, 'conflicts', path);
 		const next: FileRecord = { base: text, mine };
 		// `mine` is the newest save: once it is `main`'s text, an older commit below it has nothing left to say.
 		if (f.committed !== undefined && committed !== undefined && committed !== text && mine !== text) next.committed = { text: committed, call: f.committed.call };
@@ -1065,6 +1108,7 @@ function createReplica({
 			else {
 				under = swapped.text;
 				if (swapped.text !== text) committed = swapped.text;
+				if (f.committed.text === null && swapped.text !== null) note(f.committed.call, 'kept', path);
 			}
 		}
 		let mine: string | null;
@@ -1075,6 +1119,7 @@ function createReplica({
 			const typed = settlePointer(f.committed !== undefined ? f.committed.text : below, under, f.mine);
 			if ('refused' in typed) held = { reason: typed.refused };
 			mine = 'refused' in typed ? f.mine : typed.text;
+			if (f.call !== undefined && f.mine === null && mine !== null) note(f.call, 'kept', path);
 		}
 		const next: FileRecord = { base: text, mine };
 		if (mine !== text) {
@@ -1096,6 +1141,7 @@ function createReplica({
 	 * landed, so the commit in flight is cleared after.
 	 */
 	function landed(files: { path: string; text: string | null; deleted?: boolean }[]) {
+		if (inflight !== null) for (const call of new Set([...sentWork.values()].map((work) => callOf(work.call)))) driver.run('UPDATE "epicenter/calls" SET landed = ? WHERE id = ?', [inflight.id, call]);
 		for (const file of files) if (file.text !== null) respell(file.path);
 		for (const file of files) integrate(file.path, file.text, true, file.deleted === true);
 		setInflight(null);
@@ -1463,6 +1509,30 @@ function createReplica({
 		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
 	}
 
+	/** Whether `call` has work here: saved or held text, an unsent commit, or the commit in flight. */
+	function working(call: number) {
+		return (
+			first(driver, 'SELECT 1 FROM "epicenter/files" WHERE call = ? UNION ALL SELECT 1 FROM "epicenter/unsent" WHERE call = ? LIMIT 1', [call, call]) !== undefined ||
+			[...sentWork.values()].some((work) => callOf(work.call) === call)
+		);
+	}
+
+	/** What became of call `id`. A call long done and forgotten landed, as `main` now holds it. */
+	function outcomeOf(id: number): CallOutcome {
+		const call = callOf(id);
+		const row = first<{ landed: string | null; kept: string; conflicts: string }>(driver, 'SELECT landed, kept, conflicts FROM "epicenter/calls" WHERE id = ?', [call]);
+		const lists = { conflicts: JSON.parse(row?.conflicts ?? '[]') as string[], kept: JSON.parse(row?.kept ?? '[]') as string[] };
+		if (row?.landed != null) return { kind: 'landed', commit: row.landed, ...lists };
+		if (!working(call)) return position === null ? { kind: 'pending', commit: null } : { kind: 'landed', commit: position, ...lists };
+		if (blocker(call)?.held === true)
+			return {
+				kind: 'held',
+				held: driver.all<{ path: string; reason: string }>('SELECT path, held AS reason FROM "epicenter/files" WHERE call = ? AND held IS NOT NULL ORDER BY rowid', [call]),
+			};
+		const sending = [...sentWork.values()].some((work) => callOf(work.call) === call);
+		return { kind: 'pending', commit: sending ? (inflight?.id ?? null) : null };
+	}
+
 	return {
 		device,
 		/** The repository, server and account this replica holds. */
@@ -1547,8 +1617,18 @@ function createReplica({
 		/** Why nothing is being sent: a rejection only the person or the account can fix, until the next connection; or null. */
 		rejection: () => stalled,
 		position: () => position,
-		/** The commit sent and not yet answered (its id, message and files), or null: what a writer awaiting its own commit's verdict watches for. */
+		/** The commit sent and not yet answered (its id, message and files), or null. */
 		sent: (): LiveCommit | null => inflight,
+		/** What became of a call: landed (in which commit), held (by which of its files, and why), or pending. */
+		outcome: outcomeOf,
+		/** Calls with work here, oldest first, with their messages. */
+		calls() {
+			const ids = new Set([
+				...driver.all<{ call: number }>('SELECT call FROM "epicenter/files" WHERE call IS NOT NULL UNION SELECT call FROM "epicenter/unsent"').map((row) => row.call),
+				...[...sentWork.values()].map((work) => callOf(work.call)),
+			]);
+			return [...ids].sort((a, b) => a - b).map((call) => ({ call, message: messageOf(call) }));
+		},
 		stats: () => ({ ...stats }),
 
 		// ------------------------------------------------------------------------

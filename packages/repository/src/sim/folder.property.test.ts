@@ -568,7 +568,7 @@ async function run(seed: number, steps: number) {
 				const inFlight = new Map<string, string | null>();
 				for (const { commit } of folder.replica.query<{ commit: string }>('SELECT commit_json AS "commit" FROM "epicenter/inflight"', []))
 					for (const file of (JSON.parse(commit) as { files: { path: string; text: string | null }[] }).files) inFlight.set(file.path, file.text);
-				const saved = await until(world, folder.engine.commit(message));
+				const { saved } = await until(world, folder.engine.commit(message));
 				if (process.env.F_TRACE) log.push(`   (commit at ${world.net.now()}: ${saved.join(', ')}; held ${JSON.stringify(folder.replica.held())}; unsent ${folder.replica.unsent().join(', ')})`);
 				// Only files with work of this commit's own: a save that changed nothing beyond what is in flight here, or else the file as the server has it, says nothing.
 				const files = folder.replica.files();

@@ -19,6 +19,7 @@ import { findConflicts } from '../core/conflict.js';
 import { createTestServer } from '../sim/harness.js';
 import { authenticateBearer } from '../wire/wire.js';
 import { commit, type Line, sync } from './folder-commands.js';
+import { openFolderEngine } from './folder.js';
 import { serveRepository } from './serve.js';
 
 const roots: string[] = [];
@@ -95,6 +96,48 @@ test('commit lands every difference as one commit with its message; then unchang
 	expect(await commit({ ...base, dir, message: 'Fixed' }, print)).toBe(0);
 	expect(server.read('a.md')).toBe(note('a\nmore\n'));
 	expect(server.read('bad.md')).toBe(note('fixed\n'));
+}, 30_000);
+
+test('commit reports its own call only: a file held from an earlier call neither stops it nor is named in its verdict', async () => {
+	const { server, served, folder, print, base, lines } = setup();
+	const dir = folder('agent');
+	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
+	writeFileSync(join(dir, 'old.md'), '---\ntitle: [\n---\n');
+	expect(await commit({ ...base, dir, message: 'Old', wait: 3_000 }, print)).toBe(2);
+	expect(lines.at(-1)).toEqual({ held: [{ path: 'old.md', reason: expect.any(String) }] });
+	// A new call lands although old.md is still held.
+	writeFileSync(join(dir, 'good.md'), note('good\n'));
+	lines.length = 0;
+	expect(await commit({ ...base, dir, message: 'Good' }, print)).toBe(0);
+	expect(lines.at(-1)).toMatchObject({ landed: expect.stringMatching(/^[0-9a-f]{40}$/), conflicts: [] });
+	expect(server.read('good.md')).toBe(note('good\n'));
+	// A new call held on its own file names that file, not old.md.
+	writeFileSync(join(dir, 'new.md'), '---\ntitle: ]\n---\n');
+	writeFileSync(join(dir, 'good.md'), note('good\nbetter\n'));
+	lines.length = 0;
+	expect(await commit({ ...base, dir, message: 'New', wait: 3_000 }, print)).toBe(2);
+	expect(lines.at(-1)).toEqual({ held: [{ path: 'new.md', reason: expect.any(String) }] });
+	expect(server.read('good.md')).toBe(note('good\n'));
+}, 30_000);
+
+test('commit with nothing new reports the real outcome of a commit an earlier run left unsent', async () => {
+	const { server, served, folder, print, base, lines } = setup();
+	const dir = folder('agent');
+	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
+	// An earlier run saved its call and stopped before it connected.
+	writeFileSync(join(dir, 'a.md'), note('a\n'));
+	const opened = await openFolderEngine({ ...base, dir });
+	if (opened.error !== null) throw new Error(opened.error.message);
+	await opened.data.engine.commit('Earlier');
+	await opened.data.engine.stop();
+	opened.data.close();
+	const landedHere: string[] = [];
+	server.subscribe((event) => landedHere.push(event.commit));
+	lines.length = 0;
+	expect(await commit({ ...base, dir, message: 'Nothing new' }, print)).toBe(0);
+	expect(server.read('a.md')).toBe(note('a\n'));
+	// The earlier call's own commit, which landed on this run (main had not moved, so it became main).
+	expect(lines.at(-1)).toEqual({ landed: landedHere[0] ?? 'none', conflicts: [], kept: [] });
 }, 30_000);
 
 test('a second engine over a held replica is refused, and a copy is refused until --join makes it new', async () => {

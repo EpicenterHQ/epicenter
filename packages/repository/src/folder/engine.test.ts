@@ -198,10 +198,10 @@ test('commit sends every difference as one commit carrying the message; nothing 
 	folder.disk.write('notes/a.md', encoder.encode(note('a\n')));
 	folder.disk.write('notes/b.md', encoder.encode(note('b\n', 'B')));
 	const commits = landed(world);
-	expect((await until(world, folder.engine.commit('Two notes'))).sort()).toEqual(['notes/a.md', 'notes/b.md']);
+	expect((await until(world, folder.engine.commit('Two notes'))).saved.sort()).toEqual(['notes/a.md', 'notes/b.md']);
 	await runFor(world, 2_000);
 	expect(commits).toEqual([{ message: 'Two notes', paths: ['notes/a.md', 'notes/b.md'] }]);
-	expect(await until(world, folder.engine.commit('Again'))).toEqual([]);
+	expect(await until(world, folder.engine.commit('Again'))).toEqual({ call: null, saved: [] });
 });
 
 test('a .md file that is not UTF-8 is held: never sent, never overwritten; dot paths and droppings are never sent', async () => {
@@ -318,7 +318,7 @@ async function deciding({ invalid }: { invalid: boolean }) {
 	agent.disk.write('notes/plan.md', encoder.encode(note('one\nTWO by the agent\nthree\n')));
 	agent.disk.write('notes/summary.md', encoder.encode(invalid ? '---\ntitle: [\n---\nsummary\n' : note('summary\n')));
 	agent.disk.write('media/chart.png', encoder.encode('chart bytes'));
-	const saved = await until(world, agent.engine.commit('Summarize October'));
+	const { saved } = await until(world, agent.engine.commit('Summarize October'));
 	expect(saved.sort()).toEqual(['media/chart.png', 'notes/plan.md', 'notes/summary.md']);
 	// The person autosaves the same lines every 2 s while the agent's commit is out.
 	let typed = 0;
