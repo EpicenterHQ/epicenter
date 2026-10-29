@@ -4,7 +4,9 @@
  * is held on the device before it is ever sent.
  *
  * Enforced: every note (`.md`, in any case) parses, is LF-only with no byte
- * order mark, is at most 1 MB and is never an LFS pointer; every text is
+ * order mark, is at most 1 MB and is never an LFS pointer, and its
+ * frontmatter is cheap to parse (at most `FRONTMATTER_KEYS` keys, nested at
+ * most `FRONTMATTER_NESTING` deep); every text is
  * valid UTF-8 with no NUL; every non-LFS file is at most 1 MB; a blob is a
  * canonical LFS pointer at a path named by its content
  * (`attachments/<sha256>.<ext>`); paths are portable (NFC, no `.git`
@@ -19,11 +21,13 @@
  * and a merge may not grow a note past 1 MB or past `BLOCK_CAP` conflict
  * blocks. An identical block is never written twice (`withBlock`).
  */
-import { parsePointer, parses } from '../core/markdown.js';
+import { CST, Lexer } from 'yaml';
+import { parsePointer, parses, splitMarkdown } from './markdown.js';
 
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
-export const LIMIT = 1024 * 1024;
+/** The most bytes any file outside Git LFS may hold. */
+export const MAX_FILE_BYTES = 1024 * 1024;
 
 /** Repository control files only Epicenter writes. */
 export const CONTROL = new Set(['.gitattributes', '.lfsconfig', '.gitmodules']);
@@ -70,12 +74,104 @@ export function admissible(path: string, text: string | null): string | null {
 		if (pointer !== null) return 'a note may not be an LFS pointer';
 		if (text.startsWith('\uFEFF')) return 'a note may not start with a byte order mark';
 		if (text.includes('\r')) return 'a note must use LF line endings';
-		if (bytes(text) > LIMIT) return 'a note may be at most 1 MB';
+		if (bytes(text) > MAX_FILE_BYTES) return 'a note may be at most 1 MB';
+		const cost = frontmatterRefusal(text);
+		if (cost !== null) return cost;
 		if (!parses(text)) return 'does not parse';
 		return null;
 	}
 	if (pointer !== null) return BLOB.exec(path)?.[1] === pointer.oid ? null : "a blob's path must be named by its content";
-	if (bytes(text) > LIMIT) return 'a file may be at most 1 MB';
+	if (bytes(text) > MAX_FILE_BYTES) return 'a file may be at most 1 MB';
+	return null;
+}
+
+// ============================================================================
+// Frontmatter parse cost: bounded before the YAML is parsed
+// ============================================================================
+
+/**
+ * The most keys a note's frontmatter may hold, across all its mappings.
+ * Checking keys for uniqueness is quadratic in a mapping's size: deployed
+ * spike 3 measured 12.9 s of Durable Object CPU for 40,000 keys in an
+ * 858 KB note; locally 1,000 keys parse in about 15 ms and 10,000 in 260 ms.
+ */
+export const FRONTMATTER_KEYS = 1000;
+
+/**
+ * The deepest a note's frontmatter may nest, counted as the columns of
+ * block structure (indentation, or `- ` and `? ` indicators) plus the open
+ * flow brackets: an upper bound on its depth, since each nested block
+ * collection sits further right. Deployed spike 3 overflowed the parser's
+ * stack at 1,000 nested brackets.
+ */
+export const FRONTMATTER_NESTING = 64;
+
+/** Zero-width marks `yaml`'s lexer puts in its token stream (document, flow error end, scalar). */
+const DOC_MODE = '\u0002';
+const FLOW_ERROR_END = '\u0018';
+const SCALAR = '\u001f';
+
+/**
+ * Why a note's frontmatter would cost too much to parse, or null. One pass
+ * over `yaml`'s lexer, which is linear and builds no document, stopping at
+ * the first bound passed; it overcounts in flow mappings, never under.
+ */
+function frontmatterRefusal(text: string): string | null {
+	const { yaml } = splitMarkdown(text);
+	if (yaml === null) return null;
+	let keys = 0;
+	let column = 0;
+	let atLineStart = true;
+	/** The column block structure has reached on this line: its indent, or a `- ` or `? ` further right. */
+	let blockColumn = 0;
+	let isValue = false;
+	const flow: ('{' | '[')[] = [];
+	for (const token of new Lexer().lex(yaml)) {
+		if (token === DOC_MODE || token === FLOW_ERROR_END) continue;
+		if (token === SCALAR) {
+			isValue = true;
+			continue;
+		}
+		const start = column;
+		const newline = token.lastIndexOf('\n');
+		column = newline < 0 ? column + token.length : token.length - newline - 1;
+		const type = isValue ? 'value' : CST.tokenType(token);
+		isValue = false;
+		if (type === 'newline') {
+			atLineStart = true;
+			continue;
+		}
+		if (type === 'space' || type === 'comment') continue;
+		if (atLineStart && flow.length === 0) blockColumn = start;
+		atLineStart = false;
+		const inFlowMap = flow.at(-1) === '{';
+		switch (type) {
+			case 'seq-item-ind':
+				if (flow.length === 0) blockColumn = start;
+				break;
+			case 'explicit-key-ind':
+				if (flow.length === 0) blockColumn = start;
+				if (!inFlowMap) keys++;
+				break;
+			case 'map-value-ind':
+				if (!inFlowMap) keys++;
+				break;
+			case 'flow-map-start':
+			case 'flow-seq-start':
+				if (inFlowMap) keys++;
+				flow.push(token === '{' ? '{' : '[');
+				break;
+			case 'flow-map-end':
+			case 'flow-seq-end':
+				flow.pop();
+				break;
+			default:
+				// A scalar: inside a flow mapping, count each as a possible key.
+				if (inFlowMap) keys++;
+		}
+		if (keys > FRONTMATTER_KEYS) return `the frontmatter may hold at most ${FRONTMATTER_KEYS} keys`;
+		if (blockColumn + flow.length > FRONTMATTER_NESTING) return `the frontmatter may nest at most ${FRONTMATTER_NESTING} deep`;
+	}
 	return null;
 }
 

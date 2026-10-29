@@ -26,7 +26,7 @@ import { type Author, type CommitFile, commitId, type LiveCommit } from '../core
 import { gitBlobHash } from '../core/hash.js';
 import { createTreeStore } from '../core/tree.js';
 import { parsePointer } from '../core/markdown.js';
-import { ATTRIBUTES, BLOCK_CAP, LIMIT, admissible, findConflicts, fold, isNote } from './door.js';
+import { ATTRIBUTES, BLOCK_CAP, MAX_FILE_BYTES, admissible, findConflicts, fold, isNote } from '../core/door.js';
 import { settle } from './settle.js';
 
 // ============================================================================
@@ -313,7 +313,7 @@ export function createServer({
 				labels: { current: `main (${who.user}/${who.device})`, incoming: `${commit.author.user}/${commit.author.device}` },
 			});
 			// RULE, the one named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
-			if (settled.text !== null && isNote(file.path) && new TextEncoder().encode(settled.text).length > LIMIT)
+			if (settled.text !== null && isNote(file.path) && new TextEncoder().encode(settled.text).length > MAX_FILE_BYTES)
 				return refuse('the merge would grow the note past 1 MB', file.path);
 			// RULE: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood); its writer holds it, or an agent redoes it.
 			if (settled.text !== null && isNote(file.path) && findConflicts(settled.text).length > Math.max(BLOCK_CAP, ours === null ? 0 : findConflicts(ours).length))

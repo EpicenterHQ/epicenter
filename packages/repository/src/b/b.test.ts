@@ -23,7 +23,7 @@
  */
 import { expect, test } from 'bun:test';
 import { parses } from '../core/markdown.js';
-import { BLOCK_CAP, findConflicts } from './door.js';
+import { BLOCK_CAP, findConflicts } from '../core/door.js';
 import { createWorld, QUIET } from './harness.js';
 import type { Request } from './replica.js';
 import { commitId, type LiveCommit } from '../core/commit.js';

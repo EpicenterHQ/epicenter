@@ -29,7 +29,7 @@
  */
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
-import { admissible, fold } from './door.js';
+import { admissible, fold } from '../core/door.js';
 import type { CatchUp, Event, PushAnswer } from './server.js';
 import { appendBlock, settle } from './settle.js';
 

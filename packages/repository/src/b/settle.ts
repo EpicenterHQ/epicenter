@@ -22,7 +22,7 @@
 import { stringify } from 'yaml';
 import { parsePointer } from '../core/markdown.js';
 import { merge, withMarkers } from '../merge.js';
-import { block, withBlock } from './door.js';
+import { block, withBlock } from '../core/door.js';
 
 export type Disposition =
 	/** Everything incoming said is in the text, cleanly. */

@@ -36,7 +36,7 @@
 import { expect, test } from 'bun:test';
 import { parses, splitMarkdown, writeMarkdown } from '../core/markdown.js';
 import { type Device, createWorld } from './harness.js';
-import { escapeLines } from './door.js';
+import { escapeLines } from '../core/door.js';
 import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import type { Committed, PushAnswer } from './server.js';
