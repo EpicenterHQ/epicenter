@@ -26,7 +26,7 @@ import { SendError, WriteError } from '../define.js';
 import { gitBlobHash, lfsOid } from '../core/hash.js';
 import { BODY_SQL, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../core/markdown.js';
 import { passesParseGate, storageRefusal } from '../parse-rule.js';
-import { merge } from '../merge.js';
+import { merge } from '../core/merge.js';
 import { describe } from '../policy.js';
 import type { Policy } from '../policy.js';
 import type { Batch, BatchOutcome, Broadcast, Change, ChangeOutcome, FileState, Move } from '../protocol.js';

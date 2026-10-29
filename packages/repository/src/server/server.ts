@@ -10,7 +10,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { gitBlobHash } from '../core/hash.js';
 import { breaksParsing } from '../parse-rule.js';
-import { merge, withMarkers } from '../merge.js';
+import { merge, withMarkers } from '../core/merge.js';
 import { settle } from '../policy.js';
 import type {
 	Base,

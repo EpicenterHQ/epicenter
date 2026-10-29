@@ -4,24 +4,16 @@
  * Everything here is plain JSON so any transport can carry it.
  */
 
+import type { ContentOverlap } from './core/merge.js';
+
 /**
- * Something both sides changed, and how the merge left it. Every kind of
- * clash is one of these, so one policy (`settle`) decides them all.
+ * Something both sides changed, and how the merge left it: what the merge
+ * reports (`ContentOverlap`), or a broken parse or a path clash, which the
+ * server finds. Every kind of clash is one of these, so one policy
+ * (`settle` in policy.ts) decides them all.
  */
 export type Overlap =
-	/**
-	 * Lines or words both sides changed. `start` and `end` are offsets in the
-	 * merged text, which holds `current` there.
-	 */
-	| { unit: 'body'; base: string; current: string; incoming: string; start: number; end: number }
-	/** The same, where a side's span holds an existing conflict block. */
-	| { unit: 'block'; base: string; current: string; incoming: string; start: number; end: number }
-	/** A frontmatter key both sides changed. A missing value means the key was absent. */
-	| { unit: 'field'; key: string; base?: unknown; current?: unknown; incoming?: unknown }
-	/** One side deleted the file and the other edited it. */
-	| { unit: 'file'; clash: 'deleted'; side: 'current' | 'incoming' }
-	/** Both sides created the file. */
-	| { unit: 'file'; clash: 'created' }
+	| ContentOverlap
 	/**
 	 * The change would turn a note whose frontmatter parses into one whose
 	 * frontmatter does not, which no write may do (`breaksParsing`).
@@ -35,9 +27,6 @@ export type Overlap =
 	 * the change in instead, or null when nothing was put anywhere.
 	 */
 	| { unit: 'path'; clash: 'reused' | 'taken' | 'gone'; relocatedTo: string | null };
-
-/** What the merge itself reports: every overlap but a path clash or a broken parse, which the server finds. */
-export type ContentOverlap = Exclude<Overlap, { unit: 'path' } | { clash: 'unparseable' }>;
 
 /** How an overlap was settled when the change landed, so the record says what happened. */
 export type SettledOverlap = Overlap & {

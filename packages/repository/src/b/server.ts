@@ -26,8 +26,8 @@ import { type Author, type CommitFile, commitId, type LiveCommit } from '../core
 import { gitBlobHash } from '../core/hash.js';
 import { createTreeStore } from '../core/tree.js';
 import { parsePointer } from '../core/markdown.js';
-import { ATTRIBUTES, BLOCK_CAP, MAX_FILE_BYTES, admissible, findConflicts, fold, isNote } from '../core/door.js';
-import { settle } from './settle.js';
+import { ATTRIBUTES, MAX_FILE_BYTES, admissible, findConflicts, fold, isNote } from '../core/door.js';
+import { BLOCK_CAP, settle } from '../core/settle.js';
 
 // ============================================================================
 // Protocol

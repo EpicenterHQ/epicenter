@@ -6,7 +6,7 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./server": "./src/server/index.ts",
-		"./merge": "./src/merge.ts",
+		"./merge": "./src/core/merge.ts",
 		"./bun": "./src/bun/index.ts",
 		"./browser": "./src/browser/index.ts",
 		"./ws": "./src/ws/index.ts",

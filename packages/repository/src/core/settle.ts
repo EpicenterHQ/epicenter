@@ -20,9 +20,9 @@
  * 242,652 fuzzed triples and 1,000 property seeds never reached it.
  */
 import { stringify } from 'yaml';
-import { parsePointer } from '../core/markdown.js';
-import { merge, withMarkers } from '../merge.js';
-import { block, withBlock } from '../core/door.js';
+import { block } from './door.js';
+import { parsePointer } from './markdown.js';
+import { merge, withMarkers } from './merge.js';
 
 export type Disposition =
 	/** Everything incoming said is in the text, cleanly. */
@@ -46,6 +46,17 @@ export type Settled = {
 export type Labels = { current: string; incoming: string };
 
 const stringifyField = (key: string, value: unknown) => stringify({ [key]: value });
+
+const unlabelled = (text: string) => text.replace(/^(<<<<<<<|>>>>>>>) .*$/gm, '$1');
+
+/** `text` with `added` (one block) after it, unless a block with the same sections, whoever's labels, is already there. */
+export function withBlock(text: string, added: string) {
+	if (unlabelled(text).includes(unlabelled(added))) return text;
+	return `${text === '' || text.endsWith('\n') ? text : `${text}\n`}${added}`;
+}
+
+/** The most conflict blocks a merge may leave in a note; past it the merge is refused (an agent redoes it, a person holds it). */
+export const BLOCK_CAP = 20;
 
 /** One conflict block holding `incoming` whole, after `current`. */
 export function appendBlock(current: string, incoming: string, labels: Labels) {

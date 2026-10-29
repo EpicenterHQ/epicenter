@@ -15,10 +15,23 @@
  * `current`. Every clash is reported in `overlaps`, and `settle` decides what
  * they mean: `withMarkers` writes the body ones as conflict blocks.
  */
-import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './core/markdown.js';
-import type { ContentOverlap } from './protocol.js';
+import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
 
-export type { ContentOverlap, Overlap } from './protocol.js';
+/** Something both sides changed, as the merge found it. */
+export type ContentOverlap =
+	/**
+	 * Lines or words both sides changed. `start` and `end` are offsets in the
+	 * merged text, which holds `current` there.
+	 */
+	| { unit: 'body'; base: string; current: string; incoming: string; start: number; end: number }
+	/** The same, where a side's span holds an existing conflict block. */
+	| { unit: 'block'; base: string; current: string; incoming: string; start: number; end: number }
+	/** A frontmatter key both sides changed. A missing value means the key was absent. */
+	| { unit: 'field'; key: string; base?: unknown; current?: unknown; incoming?: unknown }
+	/** One side deleted the file and the other edited it. */
+	| { unit: 'file'; clash: 'deleted'; side: 'current' | 'incoming' }
+	/** Both sides created the file. */
+	| { unit: 'file'; clash: 'created' };
 
 export type MergeResult = {
 	/** The merged text; null when the file ends up deleted. */

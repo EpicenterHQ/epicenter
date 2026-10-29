@@ -30,7 +30,7 @@ import { createInProcessTransport } from './bun/transport.js';
 import { defineApp } from './define.js';
 import type { Transport } from './engine/ports.js';
 import { parses } from './core/markdown.js';
-import { merge } from './merge.js';
+import { merge } from './core/merge.js';
 import type { Batch, Change } from './protocol.js';
 import { openRepository } from './repository.js';
 import { createRepositoryServer } from './server/server.js';

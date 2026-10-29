@@ -48,11 +48,11 @@ export type {
 	Broadcast,
 	Change,
 	ChangeOutcome,
-	ContentOverlap,
 	FileState,
 	Overlap,
 	SettledOverlap,
 	Welcome,
 } from './protocol.js';
+export type { ContentOverlap } from './core/merge.js';
 export type { SqlDriver, SqlValue } from './sql.js';
 export type { Params, ParamsArg } from './templates.js';

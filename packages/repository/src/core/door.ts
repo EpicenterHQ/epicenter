@@ -19,7 +19,7 @@
  * The server adds what needs the tree: paths equal after NFC and case
  * folding are one path, a blob's path is immutable and its bytes present,
  * and a merge may not grow a note past 1 MB or past `BLOCK_CAP` conflict
- * blocks. An identical block is never written twice (`withBlock`).
+ * blocks (core/settle, which also never writes an identical block twice).
  */
 import { CST, Lexer } from 'yaml';
 import { parsePointer, parses, splitMarkdown } from './markdown.js';
@@ -191,17 +191,6 @@ export function block({ current, base = '', incoming }: { current: string; base?
 	const section = (text: string) => (text === '' ? '' : `${escapeLines(text.endsWith('\n') ? text.slice(0, -1) : text)}\n`);
 	return `<<<<<<< ${labels.current}\n${section(current)}||||||| base\n${section(base)}=======\n${section(incoming)}>>>>>>> ${labels.incoming}\n`;
 }
-
-const unlabelled = (text: string) => text.replace(/^(<<<<<<<|>>>>>>>) .*$/gm, '$1');
-
-/** `text` with `added` (one block) after it, unless a block with the same sections, whoever's labels, is already there. */
-export function withBlock(text: string, added: string) {
-	if (unlabelled(text).includes(unlabelled(added))) return text;
-	return `${text === '' || text.endsWith('\n') ? text : `${text}\n`}${added}`;
-}
-
-/** The most conflict blocks a merge may leave in a note; past it the merge is refused (an agent redoes it, a person holds it). */
-export const BLOCK_CAP = 20;
 
 /** The well-formed conflict blocks in a text: delimiters in order, labelled, none nested. */
 export function findConflicts(text: string) {

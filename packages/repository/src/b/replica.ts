@@ -31,7 +31,7 @@ import { commitId, type LiveCommit } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { admissible, fold } from '../core/door.js';
 import type { CatchUp, Event, PushAnswer } from './server.js';
-import { appendBlock, settle } from './settle.js';
+import { appendBlock, settle } from '../core/settle.js';
 
 export type Request =
 	| { type: 'push'; rid: number; commit: LiveCommit }
