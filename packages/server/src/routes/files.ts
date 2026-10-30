@@ -9,7 +9,7 @@
  * ```
  *
  * A write is `{ captureId?, root?, files }`, each file one of
- * `{ path, text, base? }` (a note, or `.gitattributes`/`.gitignore`),
+ * `{ path, text, base? }` (a note, or a hidden path such as `.gitattributes`),
  * `{ path, lfs: { oid, size }, base? }` (any other file, whose LFS object
  * must already be uploaded and verified), or `{ path, delete: true, base }`.
  * Paths are repository-relative and must lie under `root` when it is given.
@@ -26,12 +26,21 @@
  *   racing replace lands beside it as a conflict copy (`conflictSibling`);
  * - an edit beats a delete.
  *
+ * The first commit of a repository also holds `REPOSITORY_ATTRIBUTES` as
+ * `.gitattributes` (decision 59), unless the write brings its own, so a
+ * desktop clone of a repository the web made runs Git LFS.
+ *
  * The reply is the receipt `{ commit, paths, blobs, outcomes }`. A write
  * with a `captureId` moves `refs/epicenter/captures/<id>` with `main`, in
  * one transaction; a replay returns the original receipt while its commit
  * is still on `main`, and otherwise lands the capture again as a create
  * (decision 50), which is nothing when its files are already there.
  */
+
+import {
+	REPOSITORY_ATTRIBUTES,
+	storedWithLfs,
+} from '@epicenter/definition/contract';
 import {
 	conflictSibling,
 	settle,
@@ -39,11 +48,7 @@ import {
 	writePointer,
 } from '@epicenter/definition/merge';
 import { parseRowSource } from '@epicenter/definition/note';
-import {
-	MAX_POINTER_BYTES,
-	needsPointer,
-	readPointer,
-} from '../git/lfs-rule.js';
+import { MAX_POINTER_BYTES, readPointer } from '../git/lfs-rule.js';
 import {
 	commitObject,
 	type GitObjects,
@@ -188,7 +193,7 @@ export function readWriteRequest(body: unknown): WriteRequest | Refusal {
 				return bad('a delete names the base it read', p);
 		} else if (file.text !== undefined) {
 			if (typeof file.text !== 'string') return bad('text is a string', p);
-			if (needsPointer(p))
+			if (storedWithLfs(p))
 				return bad(
 					'files other than .md notes are stored with Git LFS: send lfs',
 					p,
@@ -204,7 +209,8 @@ export function readWriteRequest(body: unknown): WriteRequest | Refusal {
 				lfs.size < 0
 			)
 				return bad('lfs is { oid: 64 hex digits, size }', p);
-			if (!needsPointer(p)) return bad('a .md note is text, not LFS', p);
+			if (!storedWithLfs(p))
+				return bad('a .md note or a hidden path is text, not LFS', p);
 		}
 	}
 	return {
@@ -435,6 +441,17 @@ export async function applyWrite({
 		}
 
 		const paths = outcomes.map((o) => o.landed);
+		// A repository's first commit holds the standard attributes
+		// (decision 59), unless the write brings its own.
+		if (
+			main === ZERO_OID &&
+			changes.size > 0 &&
+			!changes.has('.gitattributes')
+		) {
+			const attributes = makeObject('blob', REPOSITORY_ATTRIBUTES);
+			blobs.push(attributes);
+			changes.set('.gitattributes', { oid: attributes.oid, mode: '100644' });
+		}
 		let next = main;
 		const written: PackObject[] = [...blobs];
 		if (changes.size > 0) {
@@ -528,7 +545,7 @@ export async function listRepositoryFiles(
 	const entries = await listFiles(objects, tree, folder);
 	const files = await Promise.all(
 		entries.map(async ({ path, oid }) => {
-			if (!needsPointer(path)) return { path, blob: oid };
+			if (!storedWithLfs(path)) return { path, blob: oid };
 			const found = await objects.read(oid, { maxBytes: MAX_POINTER_BYTES });
 			const pointer = found?.bytes ? readPointer(found.bytes) : null;
 			return pointer ? { path, blob: oid, lfs: pointer } : { path, blob: oid };
@@ -553,7 +570,7 @@ export async function readRepositoryFile(
 	const entry = await lookup(objects, tree, p);
 	if (!entry)
 		return json({ error: 'not_found', message: `${p} is not on main` }, 404);
-	if (needsPointer(p)) {
+	if (storedWithLfs(p)) {
 		const found = await objects.read(entry.oid, {
 			maxBytes: MAX_POINTER_BYTES,
 		});

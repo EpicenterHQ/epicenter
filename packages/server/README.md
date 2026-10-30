@@ -72,13 +72,16 @@ elsewhere (`resolveOAuthAudiences`).
 With a store that has `objects` (the disk store), every push goes to the
 receiver (`src/routes/receive.ts`), never the store's own receive-pack. It
 accepts `refs/heads/main` alone, decides fast-forward from the pushed commits,
-accepts merge commits, and requires every changed file other than a `.md` note,
-`.gitattributes` or `.gitignore` to be a Git LFS pointer whose object is stored,
-whatever `.gitattributes` says (`src/git/lfs-rule.ts`). Only the owner may
+accepts merge commits, and requires every changed file other than a `.md` note
+or a hidden path (any segment starting with `.`) to be a Git LFS pointer whose
+object is stored, whatever `.gitattributes` says (`storedWithLfs` in
+`@epicenter/definition/contract`). Only the owner may
 replace `main`; the replaced commit is kept as `refs/epicenter/replaced/<time>`.
 Web writes go to the translator (`src/routes/files.ts`): one commit per
 request, notes merged with `@epicenter/definition/merge`'s `settle`, a losing
-binary written beside its target as a conflict copy, and `captureId` receipts
+binary written beside its target as a conflict copy, the standard
+`.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first commit, and
+`captureId` receipts
 kept under `refs/epicenter/captures/<id>`, moved with `main` in one transaction
 and hidden from clients. Both use the `GitObjects` port (`src/git/objects.ts`):
 refs, object reads, ancestry, and an atomic compare-and-swap `apply`.

@@ -12,8 +12,8 @@
  * - A push that is not a fast-forward is accepted only from the repository
  *   owner, and saves the `main` it replaces as
  *   `refs/epicenter/replaced/<time>` in the same transaction (decision 33).
- * - Every file other than a `.md` note, `.gitattributes` or `.gitignore`
- *   must be a Git LFS pointer whose object is stored and verified, whatever
+ * - Every file other than a `.md` note or a hidden path (decision 58) must
+ *   be a Git LFS pointer whose object is stored and verified, whatever
  *   `.gitattributes` says (decisions 38 and 40, codex-2's amendment). Only
  *   entries a pushed commit changes against its first parent are checked.
  *   Symlinks and submodules are refused.
@@ -24,11 +24,8 @@
  * `! [remote rejected] main -> main (<reason>)`.
  */
 
-import {
-	MAX_POINTER_BYTES,
-	needsPointer,
-	readPointer,
-} from '../git/lfs-rule.js';
+import { storedWithLfs } from '@epicenter/definition/contract';
+import { MAX_POINTER_BYTES, readPointer } from '../git/lfs-rule.js';
 import {
 	type GitObjects,
 	MAIN,
@@ -170,7 +167,7 @@ export async function checkPushedTrees(
 			problem = `${path} in ${commit.slice(0, 8)} has unsupported mode ${entry.mode}`;
 			return;
 		}
-		if (!needsPointer(path)) return;
+		if (!storedWithLfs(path)) return;
 		let pointer = checkedBlobs.get(entry.oid);
 		if (pointer === undefined) {
 			const found = await read(entry.oid, MAX_POINTER_BYTES);

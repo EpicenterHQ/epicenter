@@ -179,6 +179,19 @@ describe('receivePush', () => {
 		expect(await r.main()).toBe(one);
 	});
 
+	test('hidden paths are outside the contract: raw bytes there land (decision 58)', async () => {
+		const r = await setup();
+		const one = await r.commit({ 'a.md': 'x\n' });
+		await r.push(one);
+		const hidden = await r.commit({
+			'.DS_Store': new Uint8Array([0, 0, 0, 1, 66, 117, 100, 49]),
+			'recordings/.DS_Store': new Uint8Array([0, 1, 2]),
+			'.epicenter/outbox/c1.json': '{"state":"pending"}\n',
+			'recordings/.cache/a.webm': new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+		});
+		expect(await r.push(hidden)).toContain(`ok ${MAIN}`);
+	});
+
 	test('a pointer lands only once its object is uploaded', async () => {
 		const r = await setup();
 		const audio = new TextEncoder().encode('opus bytes');

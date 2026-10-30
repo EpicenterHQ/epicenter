@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { conflictSibling } from '@epicenter/definition/merge';
 import { type GitObjects, MAIN, readCommit, ZERO_OID } from '../git/objects.js';
 import { createDiskGitHost, repositoryPath } from '../git-disk-store.js';
@@ -145,6 +146,44 @@ describe('POST writes', () => {
 		expect((await repo.objects.refs()).get(captureRef('cap-a'))).toBe(
 			landed.body.commit,
 		);
+	});
+
+	test("a repository's first commit holds the standard .gitattributes (decision 59)", async () => {
+		const repo = await repository();
+		const first = await repo.write({
+			captureId: 'cap-first',
+			files: [{ path: 'recordings/a.md', text: 'a\n' }],
+		});
+		expect(await repo.show('.gitattributes')).toBe(REPOSITORY_ATTRIBUTES);
+		// The receipt names the request's files only.
+		expect(first.body.paths).toEqual(['recordings/a.md']);
+		// Later writes leave it alone.
+		await repo.write({ files: [{ path: 'b.md', text: 'b\n' }] });
+		expect(
+			(
+				await box.ok(repo.gitDir, [
+					'log',
+					'--format=%s',
+					'--',
+					'.gitattributes',
+				])
+			).trim(),
+		).toBe('Capture cap-first');
+
+		// A first write that brings its own keeps it.
+		const own = await repository();
+		await own.write({
+			files: [{ path: '.gitattributes', text: '*.bin filter=lfs\n' }],
+		});
+		expect(await own.show('.gitattributes')).toBe('*.bin filter=lfs\n');
+	});
+
+	test('a hidden path takes text, being outside the contract (decision 58)', async () => {
+		const repo = await repository();
+		const written = await repo.write({
+			files: [{ path: '.epicenter/settings.json', text: '{}\n' }],
+		});
+		expect(written.status).toBe(200);
 	});
 
 	test('refuses what a write may not hold', async () => {

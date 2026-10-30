@@ -11,6 +11,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { type Client, Pool } from 'pg';
 import { registerFirstPartyClients } from '../auth/oauth-registrations.js';
@@ -35,11 +36,6 @@ const recorder = {
 	clientId: 'so.epicenter.recorder-demo',
 	redirectUri: 'https://recorder.example.test/auth/callback',
 };
-/** What `epicenter init` commits (spike 7's block). */
-const ATTRIBUTES = `* filter=lfs diff=lfs merge=lfs -text
-*.md !filter !diff merge=epicenter text
-.* !filter !diff !merge !text
-`;
 
 let origin = '';
 let audiences = { api: '', git: '' };
@@ -254,10 +250,6 @@ describe('the file contract on the local server', () => {
 
 	test('a web capture (note plus audio) is one commit, and a replay returns its receipt', async () => {
 		web = webClient(owner.token, group, 'whispering');
-		const seeded = await web.write({
-			files: [{ path: '.gitattributes', text: ATTRIBUTES }],
-		});
-		expect(seeded.status).toBe(200);
 		const before = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
 		);
@@ -280,6 +272,15 @@ describe('the file contract on the local server', () => {
 		await box.ok(dir, ['lfs', 'pull']);
 		const pulled = await readFile(join(dir, 'recordings/a.webm'));
 		expect(sha256(pulled)).toBe(sha256(audio));
+		// The server wrote the standard attributes in the first commit (decision 59).
+		expect(await Bun.file(join(dir, '.gitattributes')).text()).toBe(
+			REPOSITORY_ATTRIBUTES,
+		);
+		expect(
+			(
+				await box.ok(dir, ['log', '--format=%s', '--', '.gitattributes'])
+			).trim(),
+		).toBe('Capture cap-a');
 		expect(
 			(
 				await box.ok(dir, [
@@ -368,7 +369,7 @@ describe('the file contract on the local server', () => {
 		).toBe(5);
 	}, 60_000);
 
-	test('raw audio is refused, also after a .gitattributes edit; an LFS push lands', async () => {
+	test('raw audio is refused, also after a .gitattributes edit; an LFS push and a raw hidden file land', async () => {
 		const dir = await desktop(member.token, web.repo);
 		const raw = randomBytes(50_000);
 		const noFilter = [
@@ -431,6 +432,16 @@ describe('the file contract on the local server', () => {
 			oid: sha256(desk),
 			size: desk.length,
 		});
+
+		// A hidden path is outside the contract: Finder's .DS_Store lands raw (decision 58).
+		await box.write(dir, { 'recordings/.DS_Store': randomBytes(4096) });
+		await box.ok(dir, ['add', 'recordings/.DS_Store']);
+		expect(
+			await box.ok(dir, ['check-attr', 'filter', 'recordings/.DS_Store']),
+		).toBe('recordings/.DS_Store: filter: unspecified\n');
+		await box.ok(dir, ['commit', '--quiet', '-m', 'finder']);
+		const hidden = await box.git(dir, ['push', 'origin', 'HEAD:main']);
+		expect(hidden.code).toBe(0);
 	}, 120_000);
 
 	test("a member's force-push is refused; the owner's lands and keeps the old main", async () => {

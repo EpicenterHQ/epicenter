@@ -1,20 +1,13 @@
 /**
- * Decision 40, the one rule the receiver and the write translator both
- * enforce: inside a data folder, every file except a `.md` note and Git's
- * own `.gitattributes` and `.gitignore` is a Git LFS pointer, whatever
- * `.gitattributes` says. The pointer format is phase 1's (`parsePointer`).
+ * Reading a Git LFS pointer out of a blob, for the receiver and the write
+ * translator. Which paths must hold one is `storedWithLfs`
+ * (`@epicenter/definition/contract`, decisions 40 and 58); the pointer format
+ * is `parsePointer`'s.
  */
 import { type LfsPointer, parsePointer } from '@epicenter/definition/merge';
 
-const GIT_METADATA = new Set(['.gitattributes', '.gitignore']);
 /** No pointer is longer; anything larger is not read as one. */
 export const MAX_POINTER_BYTES = 512;
-
-/** Whether `path` must be stored as an LFS pointer. */
-export function needsPointer(path: string): boolean {
-	const name = path.slice(path.lastIndexOf('/') + 1);
-	return !name.endsWith('.md') && !GIT_METADATA.has(name);
-}
 
 /** The pointer `bytes` hold, or null when they are not exactly one. */
 export function readPointer(bytes: Uint8Array): LfsPointer | null {
