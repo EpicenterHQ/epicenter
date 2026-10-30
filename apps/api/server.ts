@@ -7,7 +7,8 @@
  *
  *   - the `db` leg   a module-scope `pg.Pool` over `DATABASE_URL`, drained
  *                    fire-and-forget in the live process (no `waitUntil`)
- *   - hosted Git     bare repositories on disk under `GIT_STORE_ROOT`
+ *   - hosted Git     bare repositories on disk under `GIT_STORE_ROOT`, and
+ *                    Git LFS objects under `LFS_STORE_ROOT`
  *
  * This is additive: `wrangler dev`/`deploy` still serve the Worker unchanged.
  * `bun --watch server.ts` boots instantly with real stack traces. This entry is
@@ -47,6 +48,7 @@ import {
 	createCloudContextMiddleware,
 	createDb,
 	createDiskGitHost,
+	createDiskLfsStore,
 	createServerApp,
 	mountAuthRoutes,
 	mountGitHost,
@@ -85,6 +87,9 @@ const ApiBunBindings = ServerBindings.merge(CloudAuthBindings).merge({
 	'API_PUBLIC_ORIGIN?': 'string',
 	// Where hosted Git keeps its bare repositories. Unset, Git answers 503.
 	'GIT_STORE_ROOT?': 'string',
+	// Where Git LFS objects live, by repository. Unset, the LFS routes and
+	// web writes of files other than notes answer 503.
+	'LFS_STORE_ROOT?': 'string',
 	// The built authorization pages (`apps/api/ui`'s `build`), by default
 	// beside this file at `ui/build`.
 	'API_UI_DIR?': 'string',
@@ -219,14 +224,20 @@ export async function startBunApiServer(): Promise<void> {
 	const resource = (audience: 'api' | 'git', scope: OAuthScope) =>
 		every(cloudContext, requireAccessToken({ audience, scope }));
 	// Hosted Git (ADR-0546) keeps bare repositories on disk under
-	// GIT_STORE_ROOT, served by `git http-backend`. Unset, the routes stay in
-	// the shared profile and answer 503 `git_unavailable`.
+	// GIT_STORE_ROOT: clone and fetch through `git http-backend`, pushes
+	// through the receiver, web writes through the translator. Git LFS
+	// objects live under LFS_STORE_ROOT. Unset, the routes stay in the
+	// shared profile and answer 503 `git_unavailable`.
 	const gitHost = env.GIT_STORE_ROOT
 		? createDiskGitHost({ root: env.GIT_STORE_ROOT })
+		: null;
+	const lfsStore = env.LFS_STORE_ROOT
+		? createDiskLfsStore({ root: env.LFS_STORE_ROOT })
 		: null;
 	mountGitHost(app, {
 		setup: cloudContext,
 		resolveHost: () => gitHost,
+		resolveLfs: () => lfsStore,
 	});
 	mountInferenceApp(app, { auth: resource('api', 'ai') });
 	// The STT sibling of the inference gateway, on the same house key. Unmetered
