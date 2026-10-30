@@ -77,6 +77,21 @@ export const APPS = {
 export type AppKey = keyof typeof APPS;
 
 /**
+ * Apps served only against a local deployment, such as a demo: a dev `port`
+ * and an `id` (its OAuth client), but no production `url`. A local API
+ * registers each as a browser client and trusts its `localhost` origin; a
+ * deployed API knows none of them, because an origin nothing serves from is
+ * trust granted to nobody (`apps/api/worker/trusted-origins.ts`).
+ */
+export const LOCAL_APPS = {
+	RECORDER_DEMO: {
+		port: 5214,
+		id: 'so.epicenter.recorder-demo',
+		name: 'Recorder demo',
+	},
+} as const;
+
+/**
  * Dev listen port for the apps/api Bun runtime (`apps/api/server.ts`,
  * ADR-0066): the off-Cloudflare twin of the wrangler dev server on
  * {@link APPS.API.port} (8787), one apart so both can run at once. An

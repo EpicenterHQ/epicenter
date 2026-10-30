@@ -10,6 +10,7 @@
  */
 import {
 	APPS,
+	LOCAL_APPS,
 	localUrl,
 	resolveOAuthAudiences,
 } from '@epicenter/constants/apps';
@@ -39,6 +40,38 @@ const BROWSER_APPS = [
 ] as const;
 
 /**
+ * A browser build's client: one access token per origin, no refresh token,
+ * consent skipped, target `*`, signing in back to `/auth/callback` on each of
+ * `appOrigins`.
+ */
+function browserClient(
+	{
+		clientId,
+		name,
+		resources,
+	}: { clientId: string; name: string; resources: string[] },
+	appOrigins: string[],
+): FirstPartyClient {
+	return {
+		clientId,
+		name,
+		redirectUris: appOrigins.map((appOrigin) => `${appOrigin}/auth/callback`),
+		grantTypes: ['authorization_code'],
+		scopes: [
+			'openid',
+			'profile',
+			'email',
+			'ai',
+			'folders:read',
+			'folders:write',
+		],
+		resources,
+		skipConsent: true,
+		applicationType: 'web',
+	};
+}
+
+/**
  * Every first-party client this deployment registers. The dashboard is not
  * one: it is the authorization server's own page and uses its session cookie.
  */
@@ -47,29 +80,26 @@ export function buildFirstPartyClients(origin: string): FirstPartyClient[] {
 	const local = isLocalDeployment(origin);
 	const firstPartyResources = [audiences.api, audiences.git];
 	return [
-		// A browser build: one access token per origin, no refresh token,
-		// consent skipped, target `*`.
-		...BROWSER_APPS.map(
-			({ clientId, name, app }): FirstPartyClient => ({
-				clientId,
-				name,
-				redirectUris: [app.url, ...(local ? [localUrl(app)] : [])].map(
-					(appOrigin) => `${appOrigin}/auth/callback`,
-				),
-				grantTypes: ['authorization_code'],
-				scopes: [
-					'openid',
-					'profile',
-					'email',
-					'ai',
-					'folders:read',
-					'folders:write',
-				],
-				resources: firstPartyResources,
-				skipConsent: true,
-				applicationType: 'web',
-			}),
+		...BROWSER_APPS.map(({ clientId, name, app }) =>
+			browserClient({ clientId, name, resources: firstPartyResources }, [
+				app.url,
+				...(local ? [localUrl(app)] : []),
+			]),
 		),
+		// A local deployment also serves the apps that have no production
+		// origin (a demo), at their dev origin only.
+		...(local
+			? Object.values(LOCAL_APPS).map((app) =>
+					browserClient(
+						{
+							clientId: app.id,
+							name: app.name,
+							resources: firstPartyResources,
+						},
+						[localUrl(app)],
+					),
+				)
+			: []),
 		// The desktop app signs in through a loopback redirect on any port
 		// (RFC 8252), and holds the only refresh token a first-party app keeps.
 		{

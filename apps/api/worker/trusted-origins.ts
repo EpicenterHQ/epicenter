@@ -1,4 +1,4 @@
-import { APPS, localUrl } from '@epicenter/constants/apps';
+import { APPS, LOCAL_APPS, localUrl } from '@epicenter/constants/apps';
 
 /**
  * Epicenter cloud's trusted-origin set. This lives in `apps/api`, not in the
@@ -46,6 +46,7 @@ const DEVELOPMENT_TRUSTED_ORIGINS: readonly string[] = [
 	'http://localhost:5177',
 	`http://127.0.0.1:${APPS.TODOS.port}`,
 	...Object.values(APPS).map((app) => localUrl(app)),
+	...Object.values(LOCAL_APPS).map((app) => localUrl(app)),
 	`http://${new URL(APPS.API.url).host}`,
 ];
 
