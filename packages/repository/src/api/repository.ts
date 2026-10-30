@@ -28,7 +28,7 @@ import { SaveError as SaveErrors } from '../client/page.js';
 import type { BlobStoreError, Sealed } from '../client/blobs.js';
 import { BlobError, type BlobPut, type Put, type PutError } from '../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus, Outcome } from '../client/replica.js';
-import { type App, type BlobName, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
+import { type App, type BlobName, type Definitions, type Lens, type NoteName, noteIssues } from '../core/lens.js';
 import { bodyOf, headerOf, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
 import { fold, isNote } from '../core/door.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
@@ -368,7 +368,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	function toNote(lens: NoteLens, path: string, params: Record<string, string>, text: string, fields: string | null | undefined, state: FileStatus): Note {
 		const base = { path, params, text, body: bodyOf(text), state };
 		const read = fields === undefined || fields === null ? parseMarkdown(text).fields : (JSON.parse(fields) as Record<string, unknown>);
-		const issues = schemaIssues(lens.schema, read);
+		const issues = noteIssues(lens.schema, text, read);
 		return (issues.length === 0 ? { ...base, valid: true, fields: read } : { ...base, valid: false, fields: read, issues }) as Note;
 	}
 

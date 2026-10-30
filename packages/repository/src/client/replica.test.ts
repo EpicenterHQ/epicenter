@@ -326,11 +326,11 @@ test("the app's views read what the person sees, held text included, and a watch
 	expect(heard).toEqual([[PATH], [PATH]]);
 	expect(replica.state(PATH)).toEqual({ status: 'synced' });
 
-	// Frontmatter that does not parse: a note with no fields, its whole text the body, and it goes.
+	// A header that does not parse: a note with no fields, its body what follows the header, and it goes.
 	const broken = `---\ntitle: A\ntitle: B\n---\ntwo\n`;
 	replica.write(PATH, broken);
 	expect(replica.state(PATH).status).toBe('sending');
-	expect(replica.query('SELECT title, body FROM notes')).toEqual([{ title: null, body: broken }]);
+	expect(replica.query('SELECT title, body FROM notes')).toEqual([{ title: null, body: 'two\n' }]);
 	link.deliver();
 	// Text the door refuses is held, and still what the person sees.
 	const crlf = note('two\n').replaceAll('\n', '\r\n');

@@ -41,10 +41,10 @@ describe('settle', () => {
 		expect(settle(fields('A'), fields('Mine'), fields('Theirs'), { parties })).toEqual({ text: fields('Theirs'), blocks: false });
 	});
 
-	test("two headers written at once over a note whose header does not parse are one header with the later write's value and no block, never a duplicate key", () => {
+	test("two patches of one key at once on a note whose header does not parse: the later write's value, no block, never a duplicate key", () => {
 		const broken = '---\na: [\n---\nbody\n';
 		const settled = settle(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { done: false } }), { parties });
-		expect(settled).toEqual({ text: `---\ndone: false\n---\n${broken}`, blocks: false });
+		expect(settled).toEqual({ text: '---\na: [\ndone: false\n---\nbody\n', blocks: false });
 	});
 
 	test('a path created twice or deleted since base holds another note (D3)', () => {

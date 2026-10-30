@@ -18,7 +18,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts, type Labels } from './conflict.js';
-import { formatMarkdown, parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
+import { formatMarkdown, parseMarkdown, readNote, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
 import { type ContentOverlap, merge, withBlocks } from './merge.js';
 
 const labels: Labels = {
@@ -106,8 +106,7 @@ describe('examples', () => {
 
 	test('frontmatter compares parsed values, so formatting is not a clash', () => {
 		const r = merge('---\na: 1\nb: x\n---\n', "---\na: 1\nb: 'x'  # quoted\n---\n", '---\na: 2\nb: x\n---\n');
-		// Written in house style: the comment keeps its place, one space from its value.
-		expect(r.text).toBe("---\na: 2\nb: 'x' # quoted\n---\n");
+		expect(r.text).toBe("---\na: 2\nb: 'x'  # quoted\n---\n");
 		expect(r.overlaps).toEqual([]);
 	});
 
@@ -431,16 +430,45 @@ describe('the header merges by top-level key, each value whole', () => {
 		expect(won.text).toBe(note('# about this note\ntitle: u # renamed\ntags: [a, b] # topics\n'));
 	});
 
-	test("a header that does not parse is body: two headers written over it at once are one header, holding the later write's value", () => {
+	test("two patches of one key at once on a header that does not parse: the later write's value, never a duplicate key", () => {
 		const broken = '---\na: [\n---\nbody\n';
 		const r = merge(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { done: false } }));
-		expect(r.text).toBe(`---\ndone: false\n---\n${broken}`);
-		expect(r.overlaps).toEqual([]);
+		expect(r).toEqual({ text: '---\na: [\ndone: false\n---\nbody\n', overlaps: [] });
+		// Different keys are both kept.
+		expect(merge(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { mood: 'ok' } })).text).toBe('---\na: [\ndone: true\nmood: ok\n---\nbody\n');
 	});
 
 	test('a side that breaks its header drops it: the broken block is its body, and no empty header is left', () => {
 		const r = merge(note('title: A\n', 'one\nbob\n'), note('title: A\n', 'one\nBOB\n'), `---\ntitle: A\ntitle: B\n---\nONE\nbob\n`);
 		expect(r.text).toBe('---\ntitle: A\ntitle: B\n---\nONE\nBOB\n');
+	});
+});
+
+describe('the header is a list of key blocks: a broken key merges by key like any other', () => {
+	test('two people breaking one header at once: each break is its own key, never a line copied into the body (property seed W 800031)', () => {
+		// Bob breaks the header over a main that had no block yet; Carol breaks it over a main that did.
+		const bob = merge('---\ntitle: t\n---\n', '---\ntitle: t\n---\nBLOCK\n', '---\nxb: "open\ntitle: t\n---\n').text ?? '';
+		expect(bob).toBe('---\ntitle: t\nxb: "open\n---\nBLOCK\n');
+		const carol = merge('---\ntitle: t\n---\nBLOCK\n', bob, '---\nxc: "open\ntitle: t\n---\nBLOCK\n').text ?? '';
+		expect(carol).toBe('---\ntitle: t\nxb: "open\nxc: "open\n---\nBLOCK\n');
+	});
+
+	test('two concurrent breaks of different keys merge per key', () => {
+		const base = '---\ntitle: t\nmood: m\n---\nbody\n';
+		const r = merge(base, '---\ntitle: "t\nmood: m\n---\nbody\n', '---\ntitle: t\nmood: [m\n---\nbody\n');
+		expect(r).toEqual({ text: '---\ntitle: "t\nmood: [m\n---\nbody\n', overlaps: [] });
+	});
+
+	test("two concurrent breaks of the same key: the later write's", () => {
+		const r = merge('---\ntitle: t\ndone: true\n---\nbody\n', '---\ntitle: "t\ndone: true\n---\nbody\n', '---\ntitle: [t\ndone: true\n---\nbody\n');
+		expect(r).toEqual({ text: '---\ntitle: [t\ndone: true\n---\nbody\n', overlaps: [] });
+	});
+
+	test("a text whose closing fence went is all body: its old header lines are body, and the other side's header edit stays in the header", () => {
+		// Current adds a key (broken); incoming deletes the closing fence, so its header lines are body.
+		const r = merge('---\ntitle: a\n---\nbody\n', '---\nxc: "open\ntitle: a\n---\nbody\n', '---\ntitle: a\nbody\n');
+		expect(r.text).toBe('---\nxc: "open\n---\n---\ntitle: a\nbody\n');
+		expect(r.text?.match(/title: a/g)).toHaveLength(1);
 	});
 });
 
@@ -503,6 +531,37 @@ describe('a merge never breaks a note', () => {
 			if (!keepsHeader(current, incoming, result.text) || !keepsHeader(current, incoming, marked)) throw new Error(`a merge lost the header: ${JSON.stringify({ base, current, incoming, merged: result.text, marked })}`);
 		}
 	});
+
+	test('merges, patches and house style never break a key that parses, and never write a key twice: only typed text breaks a key', () => {
+		const brokenOf = (text: string | null) => new Set(text === null ? [] : parseMarkdown(text).broken);
+		const twice = (text: string | null) => {
+			const keys = readNote(text ?? '').header?.blocks.map((block) => block.key) ?? [];
+			return new Set(keys.filter((key, n) => keys.indexOf(key) !== n));
+		};
+		const within = (inner: Set<string>, ...outer: Set<string>[]) => [...inner].every((key) => outer.some((set) => set.has(key)));
+		/** Typed text that breaks a key: a quote left open on a new key line or a key's own line. */
+		const typed = (text: string) => {
+			if (next() > 0.25 || splitMarkdown(text).yaml === null) return text;
+			return next() < 0.5 ? `---\nx: "open\n${text.slice(4)}` : text.replace(/^(title|mood|a): .*$/m, '$1: "open');
+		};
+		for (let k = 0; k < 20_000; k++) {
+			const base = next() < 0.15 ? null : typed(writeMarkdown(null, { fields: fields(), body: body() }));
+			const current = typed(edit(base ?? writeMarkdown(null, { fields: fields(), body: body() })));
+			const incoming = typed(edit(base ?? writeMarkdown(null, { fields: fields(), body: body() })));
+			for (const text of [current, incoming]) {
+				const key = choose(['title', 'a', 'mood', 'tags', 'new']);
+				const patched = writeMarkdown(text, { fields: { [key]: next() < 0.3 ? undefined : choose(VALUES) } });
+				const formatted = formatMarkdown(text);
+				const without = new Set([...brokenOf(text)].filter((other) => other !== key));
+				if (!within(brokenOf(patched), without) || twice(patched).size > twice(text).size) throw new Error(`a patch broke a key: ${JSON.stringify({ text, patched })}`);
+				if (!within(brokenOf(formatted), brokenOf(text)) || !sameValue(parseMarkdown(formatted).fields, parseMarkdown(text).fields)) throw new Error(`house style broke a key: ${JSON.stringify({ text, formatted })}`);
+			}
+			const result = merge(base, current, incoming);
+			for (const out of [result.text, withBlocks(result, labels)])
+				if (!within(brokenOf(out), brokenOf(current), brokenOf(incoming)) || !within(twice(out), twice(current), twice(incoming)))
+					throw new Error(`a merge broke a key: ${JSON.stringify({ base, current, incoming, merged: out })}`);
+		}
+	}, 60_000);
 
 	test('house style is idempotent, and merges commute with it: merging formatted texts formats to what merging the texts does', () => {
 		let checked = 0;

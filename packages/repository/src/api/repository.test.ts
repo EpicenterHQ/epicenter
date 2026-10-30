@@ -70,8 +70,8 @@ test('a collection kept in memory lists every note whole, invalid ones with thei
 	const named = (note: Note<'todos/{stem}.md', typeof todos>): ValidNote<'todos/{stem}.md', typeof todos> | InvalidNote<'todos/{stem}.md'> => note;
 	const titles = repo.todos.all().map(named).map((note) => (note.valid ? note.fields.title : note.issues.length));
 	expect(titles).toHaveLength(3);
-	// Its frontmatter does not parse: a note all the same, with no fields, its whole text the body, its fields missing.
-	expect(broken).toMatchObject({ valid: false, fields: {}, body: '---\ntitle: A\ntitle: B\n---\n', issues: ['/ must have required properties title, done'] });
+	// Its title is held twice: a note all the same, that key an issue of its own and missing; its body is what follows the header.
+	expect(broken).toMatchObject({ valid: false, fields: {}, body: '', issues: ['/title does not parse', '/ must have required properties title, done'] });
 	expect(broken?.state.status).not.toBe('waiting');
 	expect(repo.todos.get({ stem: 'milk' })).toBe(milk);
 	// The same array until a note changes.

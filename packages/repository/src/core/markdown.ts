@@ -1,14 +1,17 @@
 /**
- * The Markdown codec: split a file into frontmatter and body, parse the
- * frontmatter with `yaml`, and change fields by editing the YAML text in place
- * so untouched keys, their order, quoting and comments stay as their writer
- * left them. Also the Git LFS pointer format, which is how a blob's file reads.
+ * The Markdown codec: split a file into a header and a body, split the header
+ * into key blocks, read each with `yaml` on its own, and change a key by
+ * replacing its block, so every other key, its order, quoting and comments
+ * stay as their writer left them. Also the Git LFS pointer format, which is
+ * how a blob's file reads.
  *
- * A note is always valid: a text that does not open with parseable
- * frontmatter (a YAML mapping between `---` fences) is a note with no fields,
- * and its whole text is the body.
+ * RULE: position decides the header and its keys, parsing decides each
+ * value. A note's header is the text between a `---` first line and the
+ * next `---` line, whether or not it parses; with no closing fence there is
+ * none, and the whole text is body. Its keys are its key blocks
+ * (`keyBlocks`); a key whose value does not parse costs only that key.
  */
-import { Document, isMap, isScalar, parseDocument, stringify } from 'yaml';
+import { type Document, isMap, isNode, isScalar, parseDocument, stringify } from 'yaml';
 
 /** Values are written out in full: an alias would break when its anchor's key is removed. */
 const PLAIN = { aliasDuplicateObjects: false } as const;
@@ -17,9 +20,9 @@ const OPEN = '---\n';
 const CLOSE = '\n---\n';
 
 /**
- * Where the `---` fences are, by syntax alone: the text starts with a `---`
+ * Where the header is, by position alone: the text starts with a `---`
  * line and a later line is exactly `---`. The door bounds the cost of
- * parsing this span before it is parsed; whether it is frontmatter is
+ * parsing this span before it is parsed; whether it parses is
  * `parseMarkdown`'s question.
  */
 export function splitMarkdown(text: string) {
@@ -34,55 +37,123 @@ export function splitMarkdown(text: string) {
 	};
 }
 
-/**
- * The body as SQL over a row's `text` and `fields`, where `fields` is
- * non-null exactly when the text has frontmatter (the replica's
- * `fieldsOf`): the same body `bodyOf` reads.
- */
-export const BODY_SQL = `CASE WHEN fields IS NOT NULL AND substr(text, 1, 4) = '---' || char(10) AND instr(substr(text || char(10), 4), char(10) || '---' || char(10)) > 0 THEN substr(text, instr(substr(text || char(10), 4), char(10) || '---' || char(10)) + 8) ELSE text END`;
+/** The body as SQL over a row's `text`: the same body `bodyOf` reads. */
+export const BODY_SQL = `CASE WHEN substr(text, 1, 4) = '---' || char(10) AND instr(substr(text || char(10), 4), char(10) || '---' || char(10)) > 0 THEN substr(text, instr(substr(text || char(10), 4), char(10) || '---' || char(10)) + 8) ELSE text END`;
 
 export type ParsedMarkdown = {
 	fields: Record<string, unknown>;
 	body: string;
+	/** The note has a header, by position. */
 	hasFrontmatter: boolean;
+	/** Keys whose value does not parse, or that the header holds twice: each costs only itself. */
+	broken: string[];
 };
 
-/** A text's frontmatter, parsed: null when it does not open with a YAML mapping between fences. */
-function frontmatter(text: string) {
-	const parts = splitMarkdown(text);
-	if (parts.yaml === null) return null;
-	const read = readYaml(parts.yaml);
-	return read === null ? null : { yaml: parts.yaml, bodyStart: parts.bodyStart, ...read };
+/** One top-level key of a header: its lines, from any comments just above its key line to the next key's. */
+export type KeyBlock = { key: string; text: string };
+
+/**
+ * The key a block's first line names, by position alone: what precedes its
+ * first unquoted `:` that ends the line or is followed by a space (a quoted
+ * key unquoted), or the whole line where there is none. No parse, so it
+ * names a key whose value does not parse.
+ */
+function keyText(line: string): string {
+	const text = line.replace(/\r?\n$/, '');
+	let quote: string | null = null;
+	for (let at = 0; at < text.length; at++) {
+		const char = text[at];
+		if (quote !== null) {
+			if (char === '\\' && quote === '"') at++;
+			else if (char === quote) quote = null;
+		} else if ((char === '"' || char === "'") && text.slice(0, at).trim() === '') quote = char;
+		else if (char === ':' && /^(\s|$)/.test(text.slice(at + 1))) return unquoted(text.slice(0, at).trimEnd());
+	}
+	return text.trimEnd();
 }
 
-/** A note's fields and body: with no parseable frontmatter, no fields and the whole text. */
-export function parseMarkdown(text: string): ParsedMarkdown {
-	const front = frontmatter(text);
-	if (front === null) return { fields: {}, body: text, hasFrontmatter: false };
-	return { fields: front.fields, body: text.slice(front.bodyStart), hasFrontmatter: true };
+const unquoted = (key: string) => {
+	if (key.length > 1 && key.startsWith("'") && key.endsWith("'")) return key.slice(1, -1).replaceAll("''", "'");
+	if (key.length > 1 && key.startsWith('"') && key.endsWith('"'))
+		try {
+			return JSON.parse(key) as string;
+		} catch {
+			return key;
+		}
+	return key;
+};
+
+/**
+ * RULE: a header is a list of key blocks, split by position, never by
+ * `yaml`'s error recovery (which reads a broken line as part of its
+ * neighbour). Each line at column 0 that is not blank, not a comment and
+ * not a `- ` item (which continues the value above it) starts a block, which
+ * runs to the next such line; comment lines at column 0 belong to the block
+ * after them. Lines before the first block are the preamble. A header that
+ * does not parse splits the same way.
+ */
+export function keyBlocks(yaml: string): { preamble: string; blocks: KeyBlock[] } {
+	const lines = yaml.split(/(?<=\n)/).filter((line) => line !== '');
+	let preamble = '';
+	const blocks: KeyBlock[] = [];
+	let comments = '';
+	for (const line of lines) {
+		const last = blocks.at(-1);
+		if (line.startsWith('#')) comments += line;
+		else if (/^(\s|-(\s|$))/.test(line) || line.trim() === '') {
+			if (last === undefined) preamble += comments + line;
+			else last.text += comments + line;
+			comments = '';
+		} else {
+			blocks.push({ key: keyText(line), text: comments + line });
+			comments = '';
+		}
+	}
+	const last = blocks.at(-1);
+	if (last === undefined) preamble += comments;
+	else last.text += comments;
+	return { preamble, blocks };
 }
 
-/** A note as its header, a `yaml` document of its own (null when it has none), and its body. */
-export function readNote(text: string): { document: Document | null; fields: Record<string, unknown>; body: string } {
-	const front = frontmatter(text);
-	if (front === null) return { document: null, fields: {}, body: text };
-	return { document: front.document, fields: front.fields, body: text.slice(front.bodyStart) };
-}
-
-/** The frontmatter YAML read as a mapping (an empty one has no fields), or null when it is not one. */
-function readYaml(yaml: string) {
-	const document = parseDocument(yaml, { prettyErrors: false, uniqueKeys: true });
-	if (document.errors.length > 0) return null;
-	const contents = document.contents;
-	if (contents === null || (isScalar(contents) && contents.value === null))
-		return { document, fields: {} as Record<string, unknown> };
-	if (!isMap(contents)) return null;
+/** A key block's value, read on its own: null when the block is not that one key with a value that parses. */
+function readBlock(block: KeyBlock): { value: unknown; document: Document } | null {
+	const document = parseDocument(block.text, { prettyErrors: false, uniqueKeys: true });
+	if (document.errors.length > 0 || !isMap(document.contents) || document.contents.items.length !== 1) return null;
+	const pair = document.contents.items[0];
+	if (pair === undefined || !isScalar(pair.key) || String(pair.key.value) !== block.key) return null;
 	try {
-		return { document, fields: document.toJS() as Record<string, unknown> };
+		return { value: (document.toJS() as Record<string, unknown>)[block.key], document };
 	} catch {
-		// An alias with no anchor, or more aliases than `yaml` expands: a mapping that has no fields to read.
+		// An alias with no anchor, or more aliases than `yaml` expands.
 		return null;
 	}
+}
+
+/**
+ * A note as its header's preamble and key blocks (null when it has no
+ * header) and its body.
+ */
+export function readNote(text: string) {
+	const { yaml, bodyStart } = splitMarkdown(text);
+	return { header: yaml === null ? null : keyBlocks(yaml), body: text.slice(bodyStart) };
+}
+
+/**
+ * RULE: a broken key costs only that key. Each key's value is read on its
+ * own; one that does not parse, or a key the header holds twice, is
+ * `broken`, and every other key is a field.
+ */
+export function parseMarkdown(text: string): ParsedMarkdown {
+	const { header, body } = readNote(text);
+	const fields: Record<string, unknown> = {};
+	const broken: string[] = [];
+	const blocks = header?.blocks ?? [];
+	for (const block of blocks) {
+		const read = blocks.filter((other) => other.key === block.key).length === 1 ? readBlock(block) : null;
+		if (read !== null) fields[block.key] = read.value;
+		else if (!broken.includes(block.key)) broken.push(block.key);
+	}
+	return { fields, body, hasFrontmatter: header !== null, broken };
 }
 
 export type MarkdownChange = {
@@ -91,164 +162,111 @@ export type MarkdownChange = {
 	body?: string;
 };
 
-/**
- * Apply a change to a file's text (null for a new file). Only keys whose value
- * changes are rewritten; new keys are appended after the existing ones. A
- * text with no parseable frontmatter gains a header before its whole text.
- */
-export function writeMarkdown(previous: string | null, change: MarkdownChange): string {
-	const source = previous ?? '';
-	const front = frontmatter(source);
-	const body = change.body ?? source.slice(front?.bodyStart ?? 0);
-	const changes = Object.entries(change.fields ?? {});
-
-	if (front === null) {
-		const added = changes.filter(([, value]) => value !== undefined);
-		if (added.length === 0) return guardBody('', body);
-		return `${OPEN}${stringify(Object.fromEntries(added), PLAIN)}---\n${body}`;
-	}
-
-	const { document, fields } = front;
-	const pending = changes.filter(([key, value]) =>
-		value === undefined ? Object.hasOwn(fields, key) : !sameValue(fields[key], value),
-	);
-	let yaml = front.yaml;
-	if (pending.length > 0) {
-		const expected = { ...fields };
-		for (const [key, value] of pending) {
-			if (value === undefined) delete expected[key];
-			else expected[key] = value;
-		}
-		const reads = (candidate: string | null) => candidate !== null && sameValue(readYaml(candidate)?.fields, expected);
-		const spliced = spliceYaml(front.yaml, document, pending);
-		if (reads(spliced)) yaml = spliced as string;
-		else {
-			const rewritten = rewriteYaml(document, pending);
-			// A document whose aliases the change broke is written as its fields alone.
-			yaml = reads(rewritten) ? (rewritten as string) : Object.keys(expected).length === 0 ? '' : stringify(expected, PLAIN);
-		}
-	}
-	return `${OPEN}${yaml}---\n${body}`;
-}
-
 /** How the house style prints YAML: `yaml`'s printer, never folding a line, flow collections unpadded. */
 const HOUSE = { lineWidth: 0, flowCollectionPadding: false } as const;
 
-/**
- * RULE: a header in house style: `yaml`'s printer over the document as it
- * stands, so comments, key order and each scalar's quoting are kept, between
- * fences. Null when the printing would not read back as `fields`.
- */
-export function houseHeader(document: Document, fields: Record<string, unknown>): string | null {
-	let printed: string;
+/** A key and its value as house-style lines. */
+const printKey = (key: string, value: unknown) => stringify({ [key]: value }, { ...PLAIN, ...HOUSE });
+
+/** `document` printed in house style, when it reads back as one block of `key` holding `value`. */
+function printed(document: Document, key: string, value: unknown) {
+	let text: string;
 	try {
-		printed = document.toString(HOUSE);
+		text = document.toString(HOUSE);
 	} catch {
 		return null;
 	}
-	const header = `${OPEN}${printed === 'null\n' || printed === '{}\n' ? '' : printed}---\n`;
-	return sameValue(frontmatter(header)?.fields, fields) ? header : null;
+	const { preamble, blocks } = keyBlocks(text);
+	const [only] = blocks;
+	if (preamble !== '' || blocks.length !== 1 || only === undefined || only.key !== key) return null;
+	const read = readBlock(only);
+	return read !== null && sameValue(read.value, value) ? text : null;
 }
 
-/** A header holding `fields` alone, in house style: what a document that cannot print as itself is written as. */
-export const plainHeader = (fields: Record<string, unknown>) => houseHeader(new Document(fields, PLAIN), fields) ?? `${OPEN}${stringify(fields, PLAIN)}---\n`;
+/**
+ * Apply a change to a file's text (null for a new file). A key's block is
+ * replaced (its value set in place, so its comments stay, where it
+ * parses), or appended; a removed key's block goes; a key held twice is
+ * left once. Every other line stays as typed, so a patch works on a header
+ * that does not parse and takes effect once it does. A text with no header
+ * gains one.
+ */
+export function writeMarkdown(previous: string | null, change: MarkdownChange): string {
+	const source = previous ?? '';
+	const { yaml } = splitMarkdown(source);
+	const body = change.body ?? bodyOf(source);
+	const changes = Object.entries(change.fields ?? {});
+	if (yaml === null) {
+		const added = changes.filter(([, value]) => value !== undefined);
+		if (added.length === 0) return withBody(source, body);
+		return `${OPEN}${added.map(([key, value]) => printKey(key, value)).join('')}---\n${body}`;
+	}
+	if (changes.length === 0) return withBody(source, body);
+	const { preamble, blocks } = keyBlocks(yaml);
+	let out = blocks;
+	for (const [key, value] of changes) {
+		const at = out.findIndex((block) => block.key === key);
+		const found = out[at];
+		if (value === undefined || found === undefined) {
+			out = value === undefined ? out.filter((block) => block.key !== key) : [...out, { key, text: printKey(key, value) }];
+			continue;
+		}
+		const read = readBlock(found);
+		let text = printKey(key, value);
+		if (read !== null) {
+			if (sameValue(read.value, value)) text = found.text;
+			else {
+				const old = read.document.get(key, true);
+				const node = read.document.createNode(value, PLAIN);
+				if (isNode(old) && isNode(node)) node.comment = old.comment;
+				read.document.set(key, node);
+				text = printed(read.document, key, value) ?? text;
+			}
+		}
+		out = out.flatMap((block, n) => (n === at ? [{ key, text }] : block.key === key ? [] : [block]));
+	}
+	return `${OPEN}${preamble}${out.map((block) => block.text).join('')}---\n${body}`;
+}
+
+/** A key block in house style: printed by `yaml` where its value parses, comments kept; as typed where it does not. */
+function houseBlock(block: KeyBlock) {
+	const read = readBlock(block);
+	return read === null ? block.text : (printed(read.document, block.key, read.value) ?? block.text);
+}
 
 /**
  * RULE: the house style, which the server applies to every note that lands:
- * the header printed by `houseHeader`, and the body never touched.
- * Deterministic and idempotent; a text with no parseable frontmatter is
- * left as it is, and so is one whose printing would read differently.
+ * each key that parses printed one way (`yaml`'s printer, comments, quoting
+ * and key order kept), a broken key and the preamble left exactly as typed,
+ * and the body never touched. Deterministic and idempotent.
  */
 export function formatMarkdown(text: string): string {
-	const front = frontmatter(text);
-	if (front === null) return text;
-	const header = houseHeader(front.document, front.fields);
-	return header === null ? text : header + text.slice(front.bodyStart);
+	const { yaml, bodyStart } = splitMarkdown(text);
+	if (yaml === null) return text;
+	const { preamble, blocks } = keyBlocks(yaml);
+	const twice = (key: string) => blocks.filter((block) => block.key === key).length > 1;
+	return `${OPEN}${preamble}${blocks.map((block) => (twice(block.key) ? block.text : houseBlock(block))).join('')}---\n${text.slice(bodyStart)}`;
 }
 
-/** A text's body: what follows its frontmatter, or the whole text when it has none. */
-export const bodyOf = (text: string) => text.slice(frontmatter(text)?.bodyStart ?? 0);
+/** A text's body: what follows its header, or the whole text when it has none. */
+export const bodyOf = (text: string) => text.slice(splitMarkdown(text).bodyStart);
 
-/** A text's frontmatter with its fences, byte for byte: empty when it has none. */
-export const headerOf = (text: string) => text.slice(0, frontmatter(text)?.bodyStart ?? 0);
+/** A text's header with its fences, byte for byte, whether or not it parses: empty when it has none. */
+export const headerOf = (text: string) => text.slice(0, splitMarkdown(text).bodyStart);
 
 /**
- * `text` with its body replaced by `body`, its frontmatter kept byte for
- * byte, so an editor's body never touches a field.
+ * `text` with its body replaced by `body`, its header kept byte for byte,
+ * so an editor's body never touches the header.
  */
 export function withBody(text: string, body: string) {
 	const header = headerOf(text);
 	// A closing fence at the very end has no newline after it yet.
 	if (header !== '' && !header.endsWith('\n') && body !== '') return `${header}\n${body}`;
-	return guardBody(header, body);
-}
-
-/** RULE: a body after no header must not itself read as one: it gets an empty header. */
-export const emptyHeaderFor = (body: string) => (frontmatter(body) === null ? '' : `${OPEN}---\n`);
-
-function guardBody(header: string, body: string) {
 	return `${header === '' ? emptyHeaderFor(body) : header}${body}`;
 }
 
-/**
- * Change the YAML text by replacing only the changed pairs' source spans.
- * Returns null when a pair's span cannot be located; the caller then verifies
- * the result reads back as expected and otherwise falls back to `rewriteYaml`.
- */
-function spliceYaml(
-	yaml: string,
-	document: Document,
-	changes: [string, unknown][],
-): string | null {
-	const contents = document.contents;
-	const items = isMap(contents) ? contents.items : [];
-	type Edit = { start: number; end: number; text: string };
-	const edits: Edit[] = [];
-	let appended = '';
-	for (const [key, value] of changes) {
-		const pair = items.find((item) => isScalar(item.key) && String(item.key.value) === key);
-		const rendered = stringify({ [key]: value }, PLAIN);
-		if (pair === undefined) {
-			if (value !== undefined) appended += rendered;
-			continue;
-		}
-		const keyRange = isScalar(pair.key) ? pair.key.range : undefined;
-		const valueRange =
-			pair.value !== null && typeof pair.value === 'object' && 'range' in pair.value
-				? (pair.value.range as [number, number, number] | undefined)
-				: undefined;
-		const start = keyRange?.[0];
-		const end = valueRange?.[1] ?? keyRange?.[1];
-		if (start === undefined || end === undefined) return null;
-		const endsLine = yaml[end - 1] === '\n';
-		if (value === undefined) {
-			const lineStart = yaml.lastIndexOf('\n', start - 1) + 1;
-			const next = yaml.indexOf('\n', endsLine ? end - 1 : end);
-			edits.push({ start: lineStart, end: next < 0 ? yaml.length : next + 1, text: '' });
-			continue;
-		}
-		edits.push({ start, end, text: endsLine ? rendered : rendered.replace(/\n$/, '') });
-	}
-	let out = yaml;
-	for (const edit of edits.sort((a, b) => b.start - a.start))
-		out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
-	if (appended !== '') out = (out === '' || out.endsWith('\n') ? out : `${out}\n`) + appended;
-	return out;
-}
-
-/** The fallback: change the parsed document and print it whole; null when it cannot be printed (an alias whose anchor went). */
-function rewriteYaml(document: Document, changes: [string, unknown][]) {
-	for (const [key, value] of changes) {
-		if (value === undefined) document.delete(key);
-		else document.set(key, value);
-	}
-	try {
-		const printed = document.toString();
-		return printed === '{}\n' || printed === 'null\n' ? '' : printed;
-	} catch {
-		return null;
-	}
-}
+/** RULE: a body after no header must not itself read as one: one that opens with fences gets an empty header. */
+export const emptyHeaderFor = (body: string) => (splitMarkdown(body).yaml === null ? '' : `${OPEN}---\n`);
 
 /** Deep equality over plain JSON-like values. */
 export function sameValue(a: unknown, b: unknown): boolean {

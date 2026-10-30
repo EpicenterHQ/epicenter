@@ -2,16 +2,18 @@
  * The Epicenter merge: one pure function that merges a write against its base.
  * The server, devices replaying unsent edits, and the CLI all use it.
  *
- * A note is a header and a body: the header is the fenced block at the very
- * top when it parses; otherwise there is none and the whole text is body.
- * Each merges by its kind, and the text is written from the merged structure.
+ * A note is a header and a body, by position: the header is the text between
+ * a `---` first line and the next `---` line, whether or not it parses; with
+ * no closing fence there is none. Header merges with header and body with
+ * body, so a header's lines never move into the body.
  *
- * - The header merges by top-level key, each value whole. A key both sides
- *   changed takes the later write's value: `incoming` (the write arriving
- *   now, in the server's order) over `current` (what `main` holds). A key
- *   one side deleted keeps the other side's change, as a file does. It is
- *   written in house style from current's document, so its comments stay.
- *   No markers ever go into the header.
+ * - The header merges by key (core/markdown's `keyBlocks`), never as lines.
+ *   Each key's block is compared as text, whether or not it parses. A key
+ *   both sides changed takes the later write's block: `incoming` (the write
+ *   arriving now, in the server's order) over `current` (what `main`
+ *   holds). A key one side deleted keeps the other side's change, as a file
+ *   does. Blocks are written as their side typed them, comments included;
+ *   the server's house style formats the ones that parse.
  * - The body merges by line, so edits on neighboring lines do not conflict;
  *   lines both sides changed merge again by word, so letters never blend.
  *   Two insertions at one point are both kept, current first.
@@ -20,8 +22,8 @@
  *
  * The text is already settled the people's way, except that body overlaps hold
  * `current`. Every clash is reported in `overlaps`, and `settle` decides what
- * they mean: `withBlocks` writes the body ones as conflict blocks. A header
- * key is never a clash.
+ * they mean: `withBlocks` writes them as conflict blocks. A header key is
+ * never a clash.
  *
  * One clash is one conflict block, however many writes follow it: an edit of
  * lines that a block already offers as one of its sides continues that side,
@@ -29,9 +31,8 @@
  * moved main, a device replaying unsent work over what arrived, and an
  * editor's write all reach it here.
  */
-import { Document, isMap, isNode, isScalar, type Pair, type YAMLMap } from 'yaml';
 import { block, findConflicts, type Labels, sideOffering, withSide } from './conflict.js';
-import { emptyHeaderFor, houseHeader, plainHeader, readNote, sameValue } from './markdown.js';
+import { emptyHeaderFor, readNote } from './markdown.js';
 
 /** Something both sides changed, as the merge found it. */
 export type ContentOverlap =
@@ -111,89 +112,46 @@ function markdown(base: string | null, current: string, incoming: string): Merge
 	const b = base === null ? null : readNote(base);
 	const c = readNote(current);
 	const i = readNote(incoming);
-	const fields = mergeFields(b?.fields ?? {}, c.fields, i.fields);
 	const parts: Part[] = b === null ? [{ text: joinCreates(c.body, i.body) }] : bodyParts(b.body, c.body, i.body);
 	const body = parts.map((part) => ('text' in part ? part.text : part.overlap.current)).join('');
-	// Whether there is a header at all merges as a value does: a side that dropped its header (or broke it, so its block is body) drops it.
-	const [had, has, sent] = [b !== null && b.document !== null, c.document !== null, i.document !== null];
-	const headed = Object.keys(fields).length > 0 || (has === had ? sent : has);
-	return finish(parts, created, headed ? headerFor(c, i, fields) : emptyHeaderFor(body));
+	const header = mergeHeader(b?.header ?? null, c.header, i.header);
+	// Whether there is a header at all merges as a value does: a side that dropped its header drops it.
+	const [had, has, sent] = [b !== null && b.header !== null, c.header !== null, i.header !== null];
+	const kept = header !== '' || (has === had ? sent : has);
+	return finish(parts, created, kept ? `---\n${header}---\n` : emptyHeaderFor(body));
 }
 
 // ============================================================================
-// Header: by top-level key, each value whole, the later write winning a key
+// Header: by key, each key's text whole, the later write winning a key
 // ============================================================================
 
-type Fields = Record<string, unknown>;
+type Header = ReturnType<typeof readNote>['header'];
 
 /**
- * RULE: the header merges by top-level key, each value whole (a map or a
- * list is one value). A key one side changed takes that side's value. A
- * key both sides changed takes the later write's: `incoming`, the write
- * arriving now in the server's order, over `current`, what `main` holds
- * (never a device clock). A delete still loses to an edit it had not seen,
- * as a file's does. No clash is reported and no block is written: the value
- * that lost stays in history. A side or base with no header has no keys, so
- * what the other added is added.
+ * RULE: header merges with header and body with body; a header's lines
+ * never move into the body, and it never merges as lines. It merges by
+ * key (`keyBlocks`), each key's block whole, compared as text whether or
+ * not it parses, so a broken key merges like any other. A key one side
+ * changed takes that side's block. A key both sides changed takes the
+ * later write's: `incoming`, the write arriving now in the server's order,
+ * over `current`, what `main` holds (never a device clock); a delete loses
+ * to an edit it had not seen. No clash is reported and no block is
+ * written: the value that lost stays in history. Keys keep current's order,
+ * keys new from incoming after them; the preamble merges as one value.
  */
-function mergeFields(base: Fields, current: Fields, incoming: Fields): Fields {
-	const merged: Fields = {};
-	for (const key of new Set([...Object.keys(current), ...Object.keys(incoming), ...Object.keys(base)])) {
-		const [b, c, i] = [base[key], current[key], incoming[key]];
-		let value: unknown;
-		if (sameValue(c, i) || sameValue(i, b)) value = c;
-		else if (sameValue(c, b)) value = i;
-		// Both changed it: the later write, incoming, wins; its delete loses to an edit it had not seen.
-		else value = i === undefined ? c : i;
-		if (value !== undefined) merged[key] = value;
-	}
-	return merged;
-}
-
-/**
- * The merged header in house style: current's document (or incoming's,
- * where current has none) with each key's value set to the merged one, so
- * comments, key order and quoting stay. A key keeps its own pair, and a
- * value taken from incoming is incoming's node, its comments with it; a key
- * only incoming has is incoming's pair, appended.
- */
-function headerFor(current: Note, incoming: Note, fields: Fields) {
-	const document = current.document ?? incoming.document ?? new Document();
-	const sides = [current.document, incoming.document].filter((side) => side !== null);
-	const map = isMap(document.contents) ? document.contents : (document.createNode({}) as YAMLMap);
-	const keys = new Set([...map.items.map(keyOf).filter((key) => Object.hasOwn(fields, key)), ...Object.keys(fields)]);
-	/** The side's pair for `key` whose value reads as the merged one, in `document` (copied, if it is another's). */
-	const pairFrom = (key: string) => {
-		for (const side of sides) {
-			const pair = pairIn(side.contents, key);
-			if (pair !== undefined && sameValue(valueOf(pair.value, side), fields[key])) return side === document ? pair : pair.clone();
-		}
-		return document.createPair(key, fields[key], PLAIN);
+function mergeHeader(base: Header, current: Header, incoming: Header): string {
+	const textOf = (header: Header) => {
+		const texts = new Map<string, string>();
+		for (const block of header?.blocks ?? []) texts.set(block.key, (texts.get(block.key) ?? '') + block.text);
+		return texts;
 	};
-	map.items = [...keys].map((key) => {
-		const own = pairIn(map, key);
-		if (own === undefined) return pairFrom(key);
-		if (!sameValue(valueOf(own.value, document), fields[key])) own.value = pairFrom(key).value;
-		return own;
-	});
-	if (map.items.length > 0 || isMap(document.contents)) document.contents = map;
-	return houseHeader(document, fields) ?? plainHeader(fields);
+	const [b, c, i] = [textOf(base), textOf(current), textOf(incoming)];
+	const pick = <T>(was: T, mine: T, theirs: T) => (mine === theirs || theirs === was ? mine : mine === was || theirs !== undefined ? theirs : mine);
+	const preamble = pick(base?.preamble ?? '', current?.preamble ?? '', incoming?.preamble ?? '');
+	let out = preamble;
+	for (const key of new Set([...c.keys(), ...i.keys()])) out += pick(b.get(key), c.get(key), i.get(key)) ?? '';
+	return out;
 }
-
-type Note = ReturnType<typeof readNote>;
-const valueOf = (node: unknown, document: Document): unknown => {
-	if (!isNode(node)) return node === null ? null : undefined;
-	try {
-		return node.toJS(document);
-	} catch {
-		return undefined;
-	}
-};
-const keyOf = (pair: Pair) => String(isScalar(pair.key) ? pair.key.value : pair.key);
-const pairIn = (node: unknown, key: string) => (isMap(node) ? node.items.find((pair) => keyOf(pair) === key) : undefined);
-
-/** Values are written out in full: an alias would break when its anchor's key is removed. */
-const PLAIN = { aliasDuplicateObjects: false } as const;
 
 /** Two creates at one path keep both bodies, current first, a blank line apart. */
 function joinCreates(current: string, incoming: string) {
@@ -205,9 +163,9 @@ function joinCreates(current: string, incoming: string) {
 /** A merged run, or a clash; `whole`: a clash of lines both sides moved there, never merged again by word. */
 type Part = { text: string } | { overlap: { base: string; current: string; incoming: string }; whole?: true };
 
-function finish(parts: Part[], fields: ContentOverlap[], header = ''): MergeResult {
+function finish(parts: Part[], reported: ContentOverlap[], header = ''): MergeResult {
 	let text = header;
-	const overlaps: ContentOverlap[] = [...fields];
+	const overlaps: ContentOverlap[] = [...reported];
 	for (const part of parts) {
 		if ('text' in part) {
 			text += part.text;

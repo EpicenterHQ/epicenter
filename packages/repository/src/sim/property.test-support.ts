@@ -108,8 +108,8 @@ const TOKEN = /t\d+z/g;
 const FILLER = `big ${'x'.repeat(1_100_000)}`;
 /** `hasFiller(text)` is pathologically slow in JavaScriptCore on a long text of x's, so look for it this way. */
 const hasFiller = (text: string) => /x{1000}/.test(text);
-/** Whether a text's fences, if any, hold parseable frontmatter. A text where they do not is a note all the same, with no fields. */
-const opensParsed = (text: string) => splitMarkdown(text).yaml === null || parseMarkdown(text).hasFrontmatter;
+/** Whether every key of a text's header, if any, parses. A note with a broken key is a note all the same: that key is missing. */
+const opensParsed = (text: string) => parseMarkdown(text).broken.length === 0;
 /** Pushes a member makes in one burst; the server's admission limit must hold a flood below the bound. */
 const FLOOD = 60;
 const FLOOD_BOUND = 30;

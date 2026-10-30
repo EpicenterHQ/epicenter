@@ -5,7 +5,7 @@
  * whether it wrote a conflict block (a merge that did is its own Git commit
  * at the next flush).
  *
- * Every conflict is text: body overlaps are conflict blocks. A header key
+ * Every conflict is text: overlaps are conflict blocks. A header key
  * both sides set takes the later write's value, `incoming`'s (the write
  * arriving now) over `current`'s (`main`'s), with no block: the value that
  * lost stays in history. A path that was deleted since `base`, or that two
@@ -15,11 +15,10 @@
  * writes follow it (`merge`'s `continuedBlock`). A blob never merges:
  * `settlePointer` is its rule, compare-and-swap.
  *
- * A merge never breaks a note: `merge` writes the header from the merged
- * values, printed in house style and read back, keeps a body after no
- * header from reading as one, and puts markers only in the body (a seeded
- * property in `merge.test.ts`). A side whose top block does not parse has
- * no header, and that block is its body's.
+ * A merge never breaks a key: the header merges key by key, each key's
+ * block whole, and a body after no header is kept from reading as one (a
+ * seeded property in `merge.test.ts`). Only typed text breaks a key, and a
+ * broken key costs only that key.
  */
 import { block, type Labels, type Party, versionOf, withBlock } from './conflict.js';
 import { merge, withBlocks } from './merge.js';
