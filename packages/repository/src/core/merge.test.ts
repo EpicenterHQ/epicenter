@@ -17,7 +17,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts, type Labels } from './conflict.js';
-import { parseMarkdown, splitMarkdown, writeMarkdown } from './markdown.js';
+import { formatMarkdown, parseMarkdown, splitMarkdown, writeMarkdown } from './markdown.js';
 import { type ContentOverlap, merge, withBlocks } from './merge.js';
 
 const labels: Labels = {
@@ -426,5 +426,22 @@ describe('a merge never breaks a note', () => {
 			if (!opensParsed(result.text) || !opensParsed(marked)) throw new Error(`a merge broke a note: ${JSON.stringify({ base, current, incoming, merged: result.text, marked })}`);
 		}
 		expect(checked).toBeGreaterThan(10_000);
+	});
+
+	test('house style is idempotent, and merges commute with it: merging formatted texts formats to what merging the texts does', () => {
+		let checked = 0;
+		const formatted = (text: string | null) => (text === null ? null : formatMarkdown(text));
+		for (let k = 0; k < 10_000; k++) {
+			const base = next() < 0.15 ? null : writeMarkdown(null, { fields: fields(), body: body() });
+			const current = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
+			const incoming = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
+			if (![base, current, incoming].every(opensParsed)) continue;
+			checked++;
+			for (const text of [current, incoming]) if (formatMarkdown(formatMarkdown(text)) !== formatMarkdown(text)) throw new Error(`not idempotent: ${JSON.stringify(text)}`);
+			const plain = formatted(merge(base, current, incoming).text);
+			const styled = formatted(merge(formatted(base), formatted(current), formatted(incoming)).text);
+			if (plain !== styled) throw new Error(`a merge does not commute with house style: ${JSON.stringify({ base, current, incoming, plain, styled })}`);
+		}
+		expect(checked).toBeGreaterThan(5_000);
 	});
 });

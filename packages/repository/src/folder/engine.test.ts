@@ -60,6 +60,21 @@ test('a save in the folder reaches the server, a change from elsewhere reaches t
 	expect(folder.disk.violations).toEqual([]);
 });
 
+test('a note lands in house style, and the folder writes the formatted text back once: nothing more is sent', async () => {
+	const { world, folder } = await setup();
+	folder.disk.write('notes/s.md', encoder.encode('---\ntitle:    S   # mine\ntags: [x,   y]\n---\nbody  \n'));
+	await runFor(world, 3_000);
+	const styled = '---\ntitle: S # mine\ntags: [x, y]\n---\nbody  \n';
+	expect(world.server.read('notes/s.md')).toBe(styled);
+	expect(folder.disk.text('notes/s.md')).toBe(styled);
+	const before = folder.replica.stats().pushes;
+	await runFor(world, 5_000);
+	await until(world, folder.engine.scan());
+	await runFor(world, 2_000);
+	expect(folder.replica.stats().pushes).toBe(before);
+	expect(folder.disk.text('notes/s.md')).toBe(styled);
+});
+
 test('a rename is a delete and a create: both land', async () => {
 	const { world, folder } = await setup();
 	folder.disk.write('notes/a.md', encoder.encode(note('one\n')));

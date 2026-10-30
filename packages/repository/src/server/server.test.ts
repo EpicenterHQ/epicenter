@@ -99,6 +99,27 @@ describe('admission', () => {
 	});
 });
 
+describe('house style', () => {
+	test('every note lands in house style: one already in it is applied as sent; one not is formatted, its commit kept as the side of a merge', () => {
+		const { server } = setup();
+		const styled = make(server, [{ path: 'n/a.md', text: '---\ntitle: A\n---\nbody  \n' }]);
+		expect(server.push(styled, alice)).toMatchObject({ kind: 'applied', main: styled.id });
+		const loose = make(server, [{ path: 'n/b.md', text: '---\ntitle:    B   # mine\ntags: [x,   y]\n---\nbody  \n' }]);
+		const answer = server.push(loose, alice);
+		expect(answer).toMatchObject({ kind: 'merged', files: expect.arrayContaining([expect.objectContaining({ path: 'n/b.md', text: '---\ntitle: B # mine\ntags: [x, y]\n---\nbody  \n' })]) });
+		expect(server.read('n/b.md')).toBe('---\ntitle: B # mine\ntags: [x, y]\n---\nbody  \n');
+		// Sent again, the same answer; a note with no parseable frontmatter lands as written.
+		expect(server.push(loose, alice)).toMatchObject({ kind: 'merged' });
+		expect(server.push(make(server, [{ path: 'n/c.md', text: '---\ntitle:  [\n---\nc\n' }]), alice)).toMatchObject({ kind: 'applied' });
+		expect(server.read('n/c.md')).toBe('---\ntitle:  [\n---\nc\n');
+		// A merge's result is formatted too.
+		const base = server.main();
+		server.push(make(server, [{ path: 'n/a.md', text: '---\ntitle: A\n---\nbody  \nmore\n' }]), alice);
+		server.push(make(server, [{ path: 'n/a.md', text: '---\ntitle:   A\nmood:   calm\n---\nbody  \n' }], { parent: base }), alice);
+		expect(server.read('n/a.md')).toBe('---\ntitle: A\nmood: calm\n---\nbody  \nmore\n');
+	});
+});
+
 describe('merging', () => {
 	test("one clash is one block: a person's second commit on a stale parent, after main already holds the block, continues it", () => {
 		const { server } = setup();

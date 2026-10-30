@@ -127,6 +127,31 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 	return `${OPEN}${yaml}---\n${body}`;
 }
 
+/** How the house style prints YAML: `yaml`'s printer, never folding a line, flow collections unpadded. */
+const HOUSE = { lineWidth: 0, flowCollectionPadding: false } as const;
+
+/**
+ * RULE: the house style, which the server applies to every note that lands:
+ * the frontmatter printed one way (`yaml`'s printer over the document as
+ * written, so comments, key order and each scalar's quoting are kept), and
+ * the body never touched. Deterministic and idempotent; a text with no
+ * parseable frontmatter is left as it is, and so is one whose printing
+ * would read differently.
+ */
+export function formatMarkdown(text: string): string {
+	const front = frontmatter(text);
+	if (front === null) return text;
+	let printed: string;
+	try {
+		printed = front.document.toString(HOUSE);
+	} catch {
+		return text;
+	}
+	const yaml = printed === 'null\n' || printed === '{}\n' ? '' : printed;
+	const formatted = `${OPEN}${yaml}---\n${text.slice(front.bodyStart)}`;
+	return sameValue(frontmatter(formatted)?.fields, front.fields) ? formatted : text;
+}
+
 /** A text's body: what follows its frontmatter, or the whole text when it has none. */
 export const bodyOf = (text: string) => text.slice(frontmatter(text)?.bodyStart ?? 0);
 

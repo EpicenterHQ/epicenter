@@ -43,7 +43,7 @@ import { type Author, type CommitFile, commitId, type LiveCommit } from '../core
 import { findConflicts } from '../core/conflict.js';
 import { admissible, fold, isNote, MAX_BLOB_BYTES, MAX_FILE_BYTES } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
-import { parsePointer } from '../core/markdown.js';
+import { formatMarkdown, parsePointer } from '../core/markdown.js';
 import { BLOCK_CAP, conflictSibling, settle, settlePointer } from '../core/settle.js';
 import { COLLISIONS } from '../core/tree.js';
 import { first, type SqlDriver } from '../sql.js';
@@ -490,7 +490,9 @@ export function createServer({
 		if (clash !== null) return clash;
 		/** What a file was written over: a blob's `over` when its writer said, else what the commit's parent holds there. */
 		const over = (file: CommitFile) => (file.over !== undefined && !isNote(file.path) ? file.over : history.textIn(base.tree, file.path));
-		if (commit.parent === head.id && commit.files.every((file) => over(file) === history.textIn(head.tree, file.path))) {
+		/** RULE: every note lands in house style (core/markdown's `formatMarkdown`); a commit whose notes are not in it is merged, so the commit kept is the one its writer sent. */
+		const styled = (path: string, text: string | null) => (text === null || !isNote(path) ? text : formatMarkdown(text));
+		if (commit.parent === head.id && commit.files.every((file) => over(file) === history.textIn(head.tree, file.path) && styled(file.path, file.text) === file.text)) {
 			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false }, commit.files);
 			return record(commit, 'applied', commit.id, base, spelled);
 		}
@@ -517,10 +519,11 @@ export function createServer({
 				continue;
 			}
 			const who = history.lastAuthor(file.path) ?? SERVER;
-			const settled = settle(base, ours, file.text, {
+			const merged = settle(base, ours, file.text, {
 				deletedSince: history.deletedSince(from, file.path),
 				parties: { current: { author: `${who.user}/${who.device}`, time: head.time }, incoming: { author: `${author.user}/${author.device}`, time: commit.time } },
 			});
+			const settled = { ...merged, text: styled(file.path, merged.text) };
 			if (settled.text !== null) {
 				// RULE, the first named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
 				if (bytes(settled.text) > MAX_FILE_BYTES) return refusal('merge-too-large', file.path, head.id);

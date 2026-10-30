@@ -20,6 +20,7 @@ import { describe, expect, test } from 'bun:test';
 import {
 	BODY_SQL,
 	bodyOf,
+	formatMarkdown,
 	withBody,
 	parseMarkdown,
 	parsePointer,
@@ -148,6 +149,28 @@ describe('write', () => {
 		const broken = '---\na: [\n---\nB\n';
 		for (const body of ['---\na: [\n---\nC\n', 'plain\n', '---\na: 1\n---\nlooks like frontmatter\n'])
 			expect(bodyOf(withBody(broken, body))).toBe(body);
+	});
+});
+
+describe('house style', () => {
+	test('the frontmatter is printed one way, comments, quoting and key order kept; the body is never touched', () => {
+		const text = '---\n# who\ntitle:   "Hello"   # keep me\ntags: [a,  b]\nlist:\n    - a\n    - b\n---\nBody  \n\n  indented\n';
+		expect(formatMarkdown(text)).toBe('---\n# who\ntitle: "Hello" # keep me\ntags: [a, b]\nlist:\n  - a\n  - b\n---\nBody  \n\n  indented\n');
+		expect(formatMarkdown('---\n---\nB')).toBe('---\n---\nB');
+		expect(formatMarkdown('---\na: 1\n---')).toBe('---\na: 1\n---\n');
+	});
+
+	test('a text with no parseable frontmatter is left as it is', () => {
+		for (const text of ['plain\n', '---\na: [\n---\nB\n', '', '---\nno close\n']) expect(formatMarkdown(text)).toBe(text);
+	});
+
+	test('it is idempotent, and a formatted text reads the same fields and body', () => {
+		for (const text of samples) {
+			const once = formatMarkdown(text);
+			expect(formatMarkdown(once)).toBe(once);
+			expect(parseMarkdown(once).fields).toEqual(parseMarkdown(text).fields);
+			expect(bodyOf(once)).toBe(bodyOf(text));
+		}
 	});
 });
 
