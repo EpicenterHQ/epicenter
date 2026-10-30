@@ -188,9 +188,11 @@ describe('settlePointer: a blob write lands only over the blob its writer saw', 
 		expect(settlePointer(null, b, a)).toEqual({ lost: true });
 		expect(settlePointer(null, a, a)).toEqual({ text: a });
 	});
-	test('a replace over a file that changed or went is lost', () => {
+	test('a replace over a file that changed is lost', () => {
 		expect(settlePointer(a, b, c)).toEqual({ lost: true });
-		expect(settlePointer(a, null, c)).toEqual({ lost: true });
+	});
+	test('a replace over a file that went brings it back: an edit beats a delete (decision 15)', () => {
+		expect(settlePointer(a, null, c)).toEqual({ text: c });
 	});
 	test('a delete that does not land leaves the file, with no refusal', () => {
 		expect(settlePointer(a, b, null)).toEqual({ text: b });

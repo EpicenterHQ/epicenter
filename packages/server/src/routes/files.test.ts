@@ -417,6 +417,29 @@ describe('POST writes', () => {
 		expect(await repo.show('e.md')).toBe('e edited\n');
 	});
 
+	test('a binary edit beats a delete too: the edited file is back at its path (decision 15)', async () => {
+		const repo = await repository();
+		const first = await upload(repo, new TextEncoder().encode('take one'));
+		const seeded = await repo.write({
+			files: [{ path: 'r/a.m4a', lfs: first }],
+		});
+		const base = seeded.body.blobs['r/a.m4a'] as string;
+		const deleted = await repo.write({
+			files: [{ path: 'r/a.m4a', base, delete: true }],
+		});
+		expect(deleted.body.outcomes[0]?.outcome).toBe('deleted');
+		const second = await upload(repo, new TextEncoder().encode('take two'));
+		const edited = await repo.write({
+			files: [{ path: 'r/a.m4a', base, lfs: second }],
+		});
+		expect(edited.body.outcomes[0]).toEqual({
+			path: 'r/a.m4a',
+			landed: 'r/a.m4a',
+			outcome: 'written',
+		});
+		expect(await repo.show('r/a.m4a')).toContain(second.oid);
+	});
+
 	test('two identical captures at once make one commit', async () => {
 		const repo = await repository();
 		await repo.write({ files: [{ path: 'seed.md', text: 'seed\n' }] });

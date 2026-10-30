@@ -58,11 +58,12 @@ const labelled = (
  * Settle a blob path (every file that is not a note) by compare-and-swap:
  * `incoming` lands only where `current` is still `base`, the blob its
  * writer saw (null: none, for a create). Create, replace and delete are the
- * one rule. A create or replace that does not land is `lost`: the server
- * puts it beside the other at a sibling (`conflictSibling`), so both are
- * kept; a delete that does not land leaves the file, as a delete that lost
- * to an edit of a note does. Writing what is already there lands as
- * nothing, so two writes of the same bytes are one file.
+ * one rule. An edit beats a delete, as for a note (decision 15): a delete
+ * that does not land leaves the file, and a replace of a file that was
+ * deleted since brings it back at its path. Any other create or replace
+ * that does not land is `lost`: the server puts it beside the other at a
+ * sibling (`conflictSibling`), so both are kept. Writing what is already
+ * there lands as nothing, so two writes of the same bytes are one file.
  */
 export function settlePointer(
 	base: string | null,
@@ -72,6 +73,7 @@ export function settlePointer(
 	if (incoming === current || incoming === base || current === base)
 		return { text: incoming === base ? current : incoming };
 	if (incoming === null) return { text: current };
+	if (current === null) return { text: incoming };
 	return { lost: true };
 }
 
