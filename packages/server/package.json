@@ -35,7 +35,6 @@
 		"@cloudflare/workers-types": "^4.20260405.1",
 		"@types/bun": "catalog:",
 		"@types/pg": "^8.18.0",
-		"isomorphic-git": "1.38.5",
 		"typescript": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"

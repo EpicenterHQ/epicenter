@@ -20,7 +20,6 @@
 		"test:engine": "bun test --isolate src/browser/ src/shared/",
 		"smoke:local": "bun smoke/local.ts",
 		"smoke:sync:local": "bun smoke/sync.ts",
-		"gen:vectors": "bun src/git/commit-subject-vectors.ts",
 		"schema:generate": "bun src/declaration/generate-schema.ts"
 	},
 	"dependencies": {

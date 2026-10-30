@@ -1,30 +1,117 @@
 /**
- * The native Git backend's host in Bun and Node: the system `git` and
- * `node:fs`. Every desktop Git operation runs here, in the `epicenter` CLI
- * (ADR-0559), so these are the one set of Git safety rules: the shell runs
- * no `git`.
+ * The system `git` in Bun and Node, for the `epicenter` CLI (ADR-0559): found
+ * without the xcrun shim, run with one set of safety rules (no hooks, no
+ * fsmonitor, no `ext` or `fd` transport, no inherited repository
+ * variables), and given a credential only as an `Authorization` header for
+ * its own `https` remote. `epicenter init`, `sync`, and `clone` run every
+ * `git` through `runGit`; the shell runs none.
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
-import { lstat, mkdir, readdir } from 'node:fs/promises';
-import { delimiter, dirname, join } from 'node:path';
-import type { GitInstall } from './errors.js';
-import {
-	credentialEnvironment,
-	GitCommandError,
-	type GitRun,
-} from './native-backend.js';
+import { delimiter, join } from 'node:path';
+
+export class GitCommandError extends Error {
+	constructor(
+		readonly args: readonly string[],
+		readonly code: number | null,
+		readonly stderr: string,
+	) {
+		super(
+			stderr.trim() === ''
+				? `git ${args[0]} exited with ${code}`
+				: `git ${args[0]}: ${stderr.trim()}`,
+		);
+		this.name = 'GitCommandError';
+	}
+}
+
+export type GitRun = (
+	args: readonly string[],
+	options?: {
+		input?: Uint8Array | string;
+		signal?: AbortSignal;
+		allowFailure?: boolean;
+		env?: Readonly<Record<string, string>>;
+		/**
+		 * An `Authorization` header for a push or fetch, sent only to `url`,
+		 * which is the remote the command names. The host passes it to Git
+		 * outside its arguments.
+		 */
+		credential?: GitAuthorization;
+	},
+) => Promise<{ code: number | null; stdout: Uint8Array; stderr: string }>;
+
+/** One `Authorization` header value, for exactly one URL. */
+type GitAuthorization = {
+	readonly url: string;
+	readonly authorization: string;
+};
+
+/**
+ * The Git configuration that sends `credential`'s header to its URL alone,
+ * follows no redirect, and asks no credential helper, as environment
+ * variables, so the header never appears in a process list. Redirects are
+ * refused for the URL too: Git prefers a URL-specific
+ * `http.<url>.followRedirects` from any other configuration over a plain
+ * `http.followRedirects`.
+ */
+export function credentialEnvironment({
+	url,
+	authorization,
+}: GitAuthorization): Record<string, string> {
+	if (!/^(Basic|Bearer) [\x21-\x7e]+$/.test(authorization))
+		throw new Error('A Git credential must be one Basic or Bearer header');
+	return {
+		GIT_CONFIG_COUNT: '4',
+		GIT_CONFIG_KEY_0: `http.${url}.extraHeader`,
+		GIT_CONFIG_VALUE_0: `Authorization: ${authorization}`,
+		GIT_CONFIG_KEY_1: 'http.followRedirects',
+		GIT_CONFIG_VALUE_1: 'false',
+		GIT_CONFIG_KEY_2: `http.${url}.followRedirects`,
+		GIT_CONFIG_VALUE_2: 'false',
+		GIT_CONFIG_KEY_3: 'credential.helper',
+		GIT_CONFIG_VALUE_3: '',
+	};
+}
+
+/** A username and password for one remote. A token is the password. */
+export type GitCredential = {
+	readonly username: string;
+	readonly password: string;
+};
+
+/**
+ * Asked right before each push and fetch, with the exact URL Git is about to
+ * reach. `undefined` sends no credential; a throw refuses the transfer. The
+ * folder keeps nothing it returns: not in `origin`, its files, or its Git
+ * configuration.
+ */
+export type GitCredentials = (
+	url: string,
+	signal: AbortSignal,
+) => Promise<GitCredential | undefined>;
+
+/** The `Authorization` value for `credential`: HTTP Basic, UTF-8. */
+export function basicAuthorization({ username, password }: GitCredential) {
+	const bytes = new TextEncoder().encode(`${username}:${password}`);
+	let binary = '';
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+	return `Basic ${btoa(binary)}`;
+}
+
+/** How a computer without `git` gets one. */
+export type GitInstall =
+	| 'command-line-tools'
+	| 'git-for-windows'
+	| 'package-manager';
 
 /**
  * Inherited variables that would point Git at another repository, index, or
  * object store: the names `git rev-parse --local-env-vars` lists, plus the
- * ref namespace. Each command addresses the repository in its working
- * directory, whatever the parent process had set. The ceiling stops discovery
- * at the root, so a root whose `.git` is missing never resolves to a
- * repository in a directory above it. `GIT_OPTIONAL_LOCKS=0` keeps read-only
- * commands such as `status` and `diff` from taking `index.lock` to refresh
- * the index, so observing the folder never looks like a change to it.
- * `GIT_SSH_COMMAND` goes too, so SSH runs as Git's configuration says.
+ * ref namespace. Each command addresses the repository it finds from its
+ * working directory, whatever the parent process had set; the person's
+ * `GIT_CEILING_DIRECTORIES` still bounds that search. `GIT_SSH_COMMAND` goes
+ * too, so SSH runs as Git's configuration says.
  *
  * Trace variables are removed too, and Trace2 is switched off, because a
  * trace records Git's configuration and requests, credential headers
@@ -32,55 +119,6 @@ import {
  */
 const REPOSITORY_ENV =
 	/^GIT_(DIR|WORK_TREE|IMPLICIT_WORK_TREE|INDEX_FILE|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|COMMON_DIR|NAMESPACE|PREFIX|GRAFT_FILE|SHALLOW_FILE|NO_REPLACE_OBJECTS|REPLACE_REF_BASE|CONFIG|CONFIG_PARAMETERS|CONFIG_COUNT|CONFIG_KEY_.*|CONFIG_VALUE_.*|TRACE.*|CURL_VERBOSE|SSH_COMMAND)$/;
-
-function gitEnvironment(root: string): NodeJS.ProcessEnv {
-	const env: NodeJS.ProcessEnv = {};
-	for (const [name, value] of Object.entries(process.env))
-		if (!REPOSITORY_ENV.test(name)) env[name] = value;
-	return {
-		...env,
-		GIT_CEILING_DIRECTORIES: dirname(root),
-		GIT_OPTIONAL_LOCKS: '0',
-		GIT_TERMINAL_PROMPT: '0',
-		GIT_TRACE2: '0',
-		GIT_TRACE2_EVENT: '0',
-		GIT_TRACE2_PERF: '0',
-		LC_ALL: 'C',
-	};
-}
-
-/**
- * The directory `core.hooksPath` names for every command: no hook is found
- * there on any platform, whatever the repository or the person configures.
- * It is made when missing, and before each command it must be a real, empty
- * directory, since a hook another program planted there would run on
- * `git add`. Before the repository exists it is only named: `git init` runs
- * no hook, and the next command makes it.
- */
-async function noHooksDirectory(root: string): Promise<string> {
-	const git = join(root, '.git');
-	const epicenter = join(git, 'epicenter');
-	const noHooks = join(epicenter, 'no-hooks');
-	const kind = (path: string) =>
-		lstat(path).catch((cause: { code?: string }) => {
-			if (cause.code === 'ENOENT') return undefined;
-			throw cause;
-		});
-	if (!(await kind(git))?.isDirectory()) return noHooks;
-	// `mkdir` would follow a linked `.git/epicenter` out of the folder.
-	const parent = await kind(epicenter);
-	if (parent !== undefined && !parent.isDirectory())
-		throw new Error(
-			`'${epicenter}' must be a directory, because every Git command looks for hooks inside it; remove it, and it is made again`,
-		);
-	await mkdir(noHooks, { recursive: true });
-	const found = await kind(noHooks);
-	if (!found?.isDirectory() || (await readdir(noHooks)).length > 0)
-		throw new Error(
-			`'${noHooks}' must be an empty directory, because every Git command looks for hooks there; remove it, and it is made again empty`,
-		);
-	return noHooks;
-}
 
 /** No usable `git` was found on this computer (ADR-0559). */
 export class GitMissingError extends Error {
@@ -191,115 +229,6 @@ function find(): string {
 	return runs(shim) ? shim : MISSING;
 }
 
-/**
- * A remote the folder may sync with: `https://` or `ssh://` with a host,
- * `http://` only to this computer's loopback (`127.0.0.1` or `localhost`,
- * for a development server), or SSH's `user@host:path`. Never a local path,
- * `file://`, or a `transport::address` helper such as `ext::`, which would
- * run a program or write another repository on this computer; and never a
- * URL that carries a password, which Git would keep in the folder's
- * configuration and put in its arguments.
- */
-export function isNetworkUrl(url: string): boolean {
-	if (
-		url === '' ||
-		url.startsWith('-') ||
-		url.includes('::') ||
-		// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses.
-		/[\u0000-\u0020\u007f]/.test(url)
-	)
-		return false;
-	const authorityOf = (rest: string) => rest.split(/[/?#]/)[0] ?? '';
-	if (url.startsWith('http://')) {
-		const authority = authorityOf(url.slice('http://'.length));
-		const colon = authority.indexOf(':');
-		const host = colon === -1 ? authority : authority.slice(0, colon);
-		const port = colon === -1 ? '' : authority.slice(colon + 1);
-		return (
-			(colon === -1 || /^[0-9]+$/.test(port)) &&
-			(host === '127.0.0.1' || host === 'localhost')
-		);
-	}
-	for (const scheme of ['https://', 'ssh://'])
-		if (url.startsWith(scheme)) {
-			const authority = authorityOf(url.slice(scheme.length));
-			const at = authority.lastIndexOf('@');
-			const user = at === -1 ? '' : authority.slice(0, at);
-			const host = at === -1 ? authority : authority.slice(at + 1);
-			return host !== '' && !host.startsWith('-') && !user.includes(':');
-		}
-	const at = url.indexOf('@');
-	if (at === -1) return false;
-	const user = url.slice(0, at);
-	const rest = url.slice(at + 1);
-	const colon = rest.indexOf(':');
-	if (colon === -1) return false;
-	const host = rest.slice(0, colon);
-	const path = rest.slice(colon + 1);
-	const name = (part: string) =>
-		/^[A-Za-z0-9._-]+$/.test(part) && !part.startsWith('-');
-	return name(user) && name(host) && path !== '' && !path.startsWith('-');
-}
-
-/**
- * Why `root`'s Git state would send writes somewhere else, or `undefined`:
- * `.git` as a link or a `gitdir:` file, a `.git/commondir`, or a link at
- * `.git/objects`, among its first level, or anywhere in `.git/refs` and
- * `.git/logs`, through which `hash-object -w` and `update-ref` would write
- * outside the folder; or a linked `.git/epicenter`. This check belongs to
- * Git history operations. Local Folder opening and saving leave `.git`
- * alone, including linked worktree state. The CLI checks before each history
- * operation, since another program may change `.git` while the folder is open.
- */
-export async function gitLayoutProblem(
-	root: string,
-): Promise<string | undefined> {
-	const kind = (path: string) =>
-		lstat(path).catch((cause: { code?: string }) => {
-			if (cause.code === 'ENOENT') return undefined;
-			throw cause;
-		});
-	const git = join(root, '.git');
-	const top = await kind(git);
-	if (top === undefined) return undefined;
-	if (top.isSymbolicLink()) return '.git is a symbolic link';
-	if (!top.isDirectory())
-		return '.git is a file that points at another Git directory';
-	if ((await kind(join(git, 'commondir'))) !== undefined)
-		return ".git/commondir exists, so the repository's objects and refs live in another Git directory";
-	const links = async (
-		path: string,
-		label: string,
-		depth: number,
-	): Promise<string | undefined> => {
-		const found = await kind(path);
-		if (found === undefined) return undefined;
-		if (found.isSymbolicLink()) return `${label} is a symbolic link`;
-		if (!found.isDirectory() || depth === 0) return undefined;
-		for (const name of await readdir(path)) {
-			const problem = await links(
-				join(path, name),
-				`${label}/${name}`,
-				depth - 1,
-			);
-			if (problem !== undefined) return problem;
-		}
-		return undefined;
-	};
-	for (const [name, depth] of [
-		['objects', 1],
-		['refs', Number.POSITIVE_INFINITY],
-		['logs', Number.POSITIVE_INFINITY],
-	] as const) {
-		const problem = await links(join(git, name), `.git/${name}`, depth);
-		if (problem !== undefined) return problem;
-	}
-	const epicenter = await kind(join(git, 'epicenter'));
-	if (epicenter !== undefined && !epicenter.isDirectory())
-		return '.git/epicenter is not a directory';
-	return undefined;
-}
-
 /** The process groups of the `git` commands running now, by leader. */
 const running = new Set<number>();
 
@@ -332,13 +261,9 @@ function killGroup(group: number) {
  * `core.autocrlf=false` and `core.eol=lf` cover line endings that come from
  * configuration alone: a person's `core.autocrlf` (Git for Windows sets
  * `true` when it installs), and the `native` default of `core.eol`, which is
- * CRLF on Windows for a file `text` selects. They matter for a checkout in a
- * repository without `NEUTRAL_ATTRIBUTES`, such as an app clone installed
- * before it was written. They do not stop attributes: `text` with `eol`,
- * `ident`, `working-tree-encoding`, and filters, from a committed
- * `.gitattributes` or `core.attributesFile`, still apply wherever
- * `NEUTRAL_ATTRIBUTES` is missing (`neutral-attributes.ts`). Epicenter's commits never
- * convert either way (`native-backend.ts`).
+ * CRLF on Windows for a file `text` selects. Attributes still apply: a
+ * committed `.gitattributes` selects the LFS filter and the note merge
+ * driver (`epicenter init`), and filters are configuration, not hooks.
  */
 const SAFETY = (hooksPath: string) => [
 	'-c',
@@ -360,33 +285,13 @@ const SAFETY = (hooksPath: string) => [
 type GitRunOptions = NonNullable<Parameters<GitRun>[1]>;
 
 /**
- * Run the system `git` (`locateGit`) in `root`: the safety configuration
- * above, the environment above, and a credential sent only to an `https`
- * URL, never in the clear. Each `git` leads its own process group, so an
- * abort ends it with every helper it started. Throws `GitMissingError` when
- * this computer has no `git`.
- */
-export function createGitRunner(root: string): GitRun {
-	return async (args, options = {}) => {
-		refuseCleartextCredential(options);
-		options.signal?.throwIfAborted();
-		const program = locateGit();
-		const noHooks = await noHooksDirectory(root);
-		return spawnGit(program, [...SAFETY(noHooks), ...args], {
-			cwd: root,
-			env: gitEnvironment(root),
-			options,
-		});
-	};
-}
-
-/**
- * Run the system `git` (`locateGit`) for a command that addresses no
- * folder: a clone into a new directory, or the person's global
- * configuration. It gets the same safety configuration as
- * `createGitRunner`, with hooks looked for nowhere, and `environment`
- * (this process's by default) without the variables that would point it at
- * another repository.
+ * Run the system `git` (`locateGit`) in `cwd` (this process's by default):
+ * the safety configuration above, with hooks looked for nowhere, and
+ * `environment` (this process's by default) without the variables that
+ * would point it at another repository. A credential goes only to an
+ * `https` URL, never in the clear. Each `git` leads its own process group,
+ * so an abort ends it with every helper it started. Throws
+ * `GitMissingError` when this computer has no `git`.
  */
 export async function runGit(
 	args: readonly string[],

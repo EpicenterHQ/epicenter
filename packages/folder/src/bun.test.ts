@@ -13,9 +13,6 @@
  *   and the last one wins
  * - A save lock not taken in time is `NothingChanged`, so the put it guarded
  *   is `Io`, never `Unconfirmed`, and leaves no staged file or new directory
- * - The CLI's history saves and syncs staging beside the folder, as a Bun
- *   folder does, sweeps what a stopped save left there, and leaves
- *   `.git/epicenter/scratch` as it is
  *
  * See also:
  * - `directory.test.ts` for the Folder over directory storage
@@ -23,33 +20,14 @@
  *   save waits for a Bun process holding the same lock
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import {
-	chmod,
-	mkdir,
-	readdir,
-	readFile,
-	rm,
-	stat,
-	writeFile,
-} from 'node:fs/promises';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { expectOk } from 'wellcrafted/testing';
-import {
-	defineFolder,
-	formatDefinition,
-	holdingFileLock,
-	openFolder,
-	runHistory,
-} from './bun.js';
+import { holdingFileLock, openFolder } from './bun.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { NothingChanged } from './errors.js';
-import {
-	GIT_ENV,
-	git,
-	initWithOrigin,
-	scratch,
-} from './git-http.test-support.js';
+import { GIT_ENV, scratch } from './git-http.test-support.js';
 import { hashBytes } from './hash.js';
 
 const originalEnv = { ...process.env };
@@ -280,81 +258,3 @@ test('a save lock not taken in time changes nothing, so the put it guarded is Io
 		await rm(besideRoot(root, 'scratch'), { recursive: true, force: true });
 	}
 });
-
-test("the CLI's history stages beside the folder, sweeps what a stopped save left there, and leaves .git/epicenter/scratch alone", async () => {
-	const parent = await scratch('bun-history-scratch-');
-	const bare = join(parent, 'remote.git');
-	const root = join(parent, 'folder');
-	const other = join(parent, 'other');
-	const author = { name: 'Notes', email: 'notes@example.test' };
-	try {
-		await git(
-			parent,
-			'init',
-			'--quiet',
-			'--bare',
-			'--initial-branch=main',
-			bare,
-		);
-		await initWithOrigin(root, bare);
-		await writeFile(
-			join(root, 'epicenter.json'),
-			formatDefinition(defineFolder({ tables: {} })),
-		);
-		await writeFile(join(root, 'kept.md'), 'kept\n');
-		// What an older version staged in `.git` is a person's to remove.
-		const oldScratch = join(root, '.git/epicenter/scratch');
-		const oldName = `${(1).toString(36)}-${'0'.repeat(32)}-0`;
-		await mkdir(oldScratch, { recursive: true });
-		await writeFile(join(oldScratch, oldName), 'older version');
-		// A save that stopped an hour ago left a file beside the folder, in a
-		// scratch directory an older version made open to everyone.
-		const staging = besideRoot(root, 'scratch');
-		const stale = `${(Date.now() - 2 * 60 * 60 * 1000).toString(36)}-${'0'.repeat(32)}-0`;
-		await mkdir(staging);
-		await chmod(staging, 0o755);
-		await writeFile(join(staging, stale), 'stopped');
-
-		const saved = await runHistory(
-			root,
-			{ op: 'saveVersion', message: 'Start' },
-			{ author },
-		);
-		expect(saved.result).toMatchObject({ status: 'committed' });
-		expect(await readdir(staging)).toEqual([]);
-		const pushed = await runHistory(root, { op: 'sync' }, { author });
-		expect(expectOk(pushed.result as never)).toMatchObject({ kind: 'synced' });
-
-		// Another clone adds a file; the sync lands it through the storage.
-		await git(parent, 'clone', '--quiet', bare, other);
-		await writeFile(join(other, 'theirs.md'), 'theirs\n');
-		await git(other, 'add', 'theirs.md');
-		await git(
-			other,
-			'-c',
-			'user.name=Other',
-			'-c',
-			'user.email=other@example.test',
-			'commit',
-			'--quiet',
-			'-m',
-			'Theirs',
-		);
-		await git(other, 'push', '--quiet', 'origin', 'main');
-		const synced = await runHistory(root, { op: 'sync' }, { author });
-		expect(expectOk(synced.result as never)).toMatchObject({ kind: 'synced' });
-		expect(synced.landed).toEqual(['theirs.md']);
-		expect(await readFile(join(root, 'theirs.md'), 'utf8')).toBe('theirs\n');
-		expect(await readFile(join(root, 'kept.md'), 'utf8')).toBe('kept\n');
-
-		// The sync staged beside the folder, privately, and left nothing.
-		expect((await stat(staging)).mode & 0o777).toBe(0o700);
-		expect(await readdir(staging)).toEqual([]);
-		expect(await readdir(oldScratch)).toEqual([oldName]);
-		expect(await readFile(join(oldScratch, oldName), 'utf8')).toBe(
-			'older version',
-		);
-	} finally {
-		await rm(parent, { recursive: true, force: true });
-	}
-}, 60_000);

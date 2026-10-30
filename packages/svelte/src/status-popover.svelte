@@ -7,7 +7,7 @@
 	```svelte
 	<StatusPopover {summary} details={[{ name: 'Files', testid: 'status-files', line: files }]}>
 		<StatusRow name="Folder" data-testid="status-folder">{location}</StatusRow>
-		{#snippet footer()}<Button size="sm" onclick={saveVersion}>Save version</Button>{/snippet}
+		{#snippet footer()}<Button size="sm" onclick={refresh}>Refresh</Button>{/snippet}
 	</StatusPopover>
 	```
 

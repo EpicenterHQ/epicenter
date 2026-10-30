@@ -1,26 +1,17 @@
 /**
- * A directory's history asks its `credentials` for each push and fetch and
- * sends what it gets as one `Authorization` header to exactly that remote,
- * through the system `git`, whose configuration comes from its environment,
- * not its arguments. The runner sends one only to an `https` remote, as the
- * desktop shell does.
+ * The runner sends a credential as one `Authorization` header to exactly its
+ * remote, through Git configuration in the environment, never in the
+ * arguments; it follows no redirect for that remote and sends a credential
+ * only to an `https` remote.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
-import { openDirectoryHistory } from './directory-history.test-support.js';
-import { basicAuthorization } from './git/http.js';
-import { credentialEnvironment } from './git/native-backend.js';
-import { createGitRunner } from './git/native-host.js';
+import { rm } from 'node:fs/promises';
 import {
-	createBareRemote,
-	GIT_ENV,
-	git,
-	gitHttpFetch,
-	initWithOrigin,
-	scratch,
-} from './git-http.test-support.js';
+	basicAuthorization,
+	credentialEnvironment,
+	runGit,
+} from './git/native-host.js';
+import { GIT_ENV, git, scratch } from './git-http.test-support.js';
 
 const AUTHORIZATION = basicAuthorization({
 	username: 'x-token',
@@ -41,128 +32,11 @@ afterAll(() => {
 		else process.env[key] = originalEnv[key];
 });
 
-/** A throwaway certificate for `127.0.0.1`, made in `root`. */
-async function selfSignedTls(root: string) {
-	const key = join(root, 'key.pem');
-	const cert = join(root, 'cert.pem');
-	const child = Bun.spawnSync(
-		[
-			'openssl',
-			'req',
-			'-x509',
-			'-newkey',
-			'rsa:2048',
-			'-nodes',
-			'-days',
-			'1',
-			'-subj',
-			'/CN=127.0.0.1',
-			'-keyout',
-			key,
-			'-out',
-			cert,
-		],
-		{ stdout: 'ignore', stderr: 'pipe' },
-	);
-	if (child.exitCode !== 0)
-		throw new Error(`openssl could not make a certificate: ${child.stderr}`);
-	return { key: Bun.file(key), cert: Bun.file(cert) };
-}
-
-/** Smart HTTP over `root` that answers 401 without the expected header. */
-async function guardedGit(root: string) {
-	const serveGit = await gitHttpFetch(root);
-	const seen: {
-		url: string;
-		authorization: string | null;
-		init?: RequestInit;
-	}[] = [];
-	const serve = (request: Request, init?: RequestInit) => {
-		const authorization = request.headers.get('authorization');
-		seen.push({ url: request.url, authorization, init });
-		if (authorization !== AUTHORIZATION)
-			return new Response('Token required', { status: 401 });
-		const url = new URL(request.url);
-		return serveGit(
-			new Request(`http://git.test${url.pathname}${url.search}`, request),
-		);
-	};
-	return { serve, seen };
-}
-
-test('a directory history passes its credential to `git` through configuration, scoped to the remote', async () => {
-	const root = await scratch('folder-credentials-bun-');
-	const bare = await createBareRemote(root);
-	const { serve, seen } = await guardedGit(root);
-	// A token goes only to an `https` remote, so the server speaks TLS with a
-	// certificate the repository is told not to verify.
-	const server = Bun.serve({
-		hostname: '127.0.0.1',
-		port: 0,
-		tls: await selfSignedTls(root),
-		fetch: (request) => serve(request),
-	});
-	const remote = `https://127.0.0.1:${server.port}/remote.git`;
-	const directory = join(root, 'folder');
-	await mkdir(directory);
-	await initWithOrigin(directory, remote);
-	await git(directory, 'config', 'http.sslVerify', 'false');
-	const asked: string[] = [];
-	const folder = await openDirectoryHistory({
-		root: directory,
-		git: {
-			author: { name: 'Test', email: 'test@example.test' },
-			credentials: async (url) => {
-				asked.push(url);
-				return { username: 'x-token', password: 's3cret' };
-			},
-		},
-	});
-	try {
-		expectOk(await folder.write('language.txt', 'Chinese\n'));
-		expectOk((await folder.request({ op: 'sync' })).result);
-		expect(await git(bare, 'rev-parse', 'main')).toBe(
-			await git(directory, 'rev-parse', 'main'),
-		);
-		expect(new Set(asked)).toEqual(new Set([remote]));
-		expect(
-			seen.some((request) => request.url.endsWith('/git-receive-pack')),
-		).toBe(true);
-		// Nothing reached the repository's configuration.
-		expect(await git(directory, 'config', '--list', '--local')).not.toContain(
-			's3cret',
-		);
-		// Inherited trace settings would print the header; the runner drops them.
-		const traces = {
-			GIT_TRACE: '1',
-			GIT_TRACE_CURL: '1',
-			GIT_CURL_VERBOSE: '1',
-			GIT_TRACE_REDACT: '0',
-			GIT_TRACE2_EVENT: '1',
-			GIT_TRACE2_CONFIG_PARAMS: 'http.*.extraheader',
-		};
-		const saved = Object.fromEntries(
-			Object.keys(traces).map((name) => [name, process.env[name]]),
-		);
-		Object.assign(process.env, traces);
-		try {
-			const listed = await createGitRunner(directory)(['ls-remote', remote], {
-				allowFailure: true,
-				credential: { url: remote, authorization: AUTHORIZATION },
-			});
-			expect(listed.code).toBe(0);
-			expect(listed.stderr).not.toContain(AUTHORIZATION.slice('Basic '.length));
-		} finally {
-			for (const [name, value] of Object.entries(saved))
-				if (value === undefined) delete process.env[name];
-				else process.env[name] = value;
-		}
-	} finally {
-		await folder.close();
-		server.stop(true);
-		await rm(root, { recursive: true, force: true });
-	}
-});
+/** `runGit` in `root`, as the CLI's sync verbs run it. */
+const createGitRunner =
+	(root: string) =>
+	(args: string[], options: Parameters<typeof runGit>[1] = {}) =>
+		runGit(args, { cwd: root, ...options });
 
 test('a credential becomes URL-scoped Git configuration and nothing else', () => {
 	const remote = 'https://api.example.test/git/todos.git';
