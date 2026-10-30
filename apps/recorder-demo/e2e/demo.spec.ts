@@ -13,6 +13,9 @@
  *    reload.
  * 5. A web rename and a desktop edit of other fields race on one note: both
  *    land.
+ * 6. Shared read only with a second person (`epicenter share`), the
+ *    recording shows and plays in their own signed-in browser, opened with
+ *    `?repository=<owner>/recorder-demo`.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -343,4 +346,53 @@ test('5. a web rename and a desktop edit of other fields race, and both land', a
 		clone,
 	);
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
+});
+
+test('6. shared with a second person, the recording shows and plays in their browser', async ({
+	stack,
+	person,
+	playwright,
+	browserName,
+	launchOptions,
+}) => {
+	const guest = stack.guests[test.info().project.name];
+	if (!guest) throw new Error(`no guest for ${test.info().project.name}`);
+	const repository = `${person.namespace}/recorder-demo`;
+	const shared = await epicenter(
+		stack,
+		person,
+		'share',
+		repository,
+		guest.namespace,
+		'--read',
+	);
+	expect(shared.code, `${shared.stdout}\n${shared.stderr}`).toBe(0);
+
+	const guestProfile = await mkdtemp(
+		join(tmpdir(), `recorder-demo-guest-${browserName}-`),
+	);
+	const guestContext = await playwright[browserName].launchPersistentContext(
+		guestProfile,
+		launchOptions,
+	);
+	try {
+		const guestPage = guestContext.pages()[0] ?? (await guestContext.newPage());
+		await guestContext.addCookies([{ ...guest.cookie, url: stack.origin }]);
+		await guestPage.goto(`${stack.app}/`);
+		await guestPage.getByRole('button', { name: 'Sign in' }).click();
+		await expect(
+			guestPage.getByRole('button', { name: 'Sign out' }),
+		).toBeVisible();
+
+		await guestPage.goto(`${stack.app}/?repository=${repository}`);
+		const theirs = guestPage.locator(
+			`li[data-id="${id}"][data-where="repository"]`,
+		);
+		await expect(theirs.getByLabel('Title')).toHaveValue('Web title');
+		await theirs.getByRole('button', { name: 'Play' }).click();
+		await expect(theirs.locator('audio')).toHaveAttribute('src', /^blob:/);
+	} finally {
+		await guestContext.close();
+		await rm(guestProfile, { recursive: true, force: true });
+	}
 });

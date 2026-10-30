@@ -11,10 +11,17 @@
 	const { account }: { account: Account } = $props();
 
 	const device = getDevice();
+	// `?repository=<owner>/recorder-demo` opens a repository its owner shared
+	// with this account; this browser's captures upload only to its own.
+	const shared = new URLSearchParams(location.search).get('repository') as
+		| `${string}/${string}`
+		| null;
 	// svelte-ignore state_referenced_locally
-	const remote = setRemote(openRemote(recorder, { account }));
-	const uploader = startUploading(device, remote);
-	onDestroy(() => uploader[Symbol.dispose]());
+	const remote = setRemote(
+		openRemote(recorder, shared ? { account, repository: shared } : { account }),
+	);
+	const uploader = shared ? null : startUploading(device, remote);
+	onDestroy(() => uploader?.[Symbol.dispose]());
 </script>
 
 <Library {remote} {uploader} />

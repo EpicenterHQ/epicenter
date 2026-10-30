@@ -64,7 +64,11 @@ export type Stack = {
 	/** `packages/cli/src/bin.ts`: the `epicenter` command from this checkout. */
 	cli: string;
 	people: Record<string, Person>;
+	/** Per browser project, a second person the first shares with: a browser session only. */
+	guests: Record<string, Guest>;
 };
+
+export type Guest = Pick<Person, 'namespace' | 'cookie'>;
 
 export type Person = {
 	namespace: string;
@@ -248,6 +252,7 @@ try {
 	const deployment = resolveDeployment(origin);
 	const { git } = resolveOAuthAudiences(origin);
 	const people: Record<string, Person> = {};
+	const guests: Record<string, Guest> = {};
 	for (const project of projects) {
 		const person = await client.person(project);
 		const home = await sandbox(`desktop-${project}`);
@@ -309,6 +314,15 @@ try {
 			home,
 			env,
 		};
+		const guest = await client.person(`${project}-guest`);
+		const [guestName, guestValue] = guest.cookie.split(/=(.*)/s) as [
+			string,
+			string,
+		];
+		guests[project] = {
+			namespace: guest.personal,
+			cookie: { name: guestName, value: guestValue },
+		};
 	}
 
 	stopOnSignal();
@@ -343,7 +357,14 @@ try {
 	});
 	await waitFor(`${app}/contract.json`, previewLog);
 
-	const stack: Stack = { origin, app, bun: process.execPath, cli, people };
+	const stack: Stack = {
+		origin,
+		app,
+		bun: process.execPath,
+		cli,
+		people,
+		guests,
+	};
 	if (statePath) await writeFile(statePath, JSON.stringify(stack, null, '\t'));
 	if (demo) await printDemo(stack);
 	console.log('ready');

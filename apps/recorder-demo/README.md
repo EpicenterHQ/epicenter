@@ -58,6 +58,10 @@ README and build or start the app with `VITE_EPICENTER_SERVER` set to it.
 
 `?fixture=tone` records a 440 Hz oscillator instead of the microphone.
 
+`?repository=<owner handle>/recorder-demo` shows a repository another person
+shared with the signed-in account (`epicenter share`); this browser's own
+recordings then stay on it and upload only when the parameter is gone.
+
 ## Tests
 
 ```sh
