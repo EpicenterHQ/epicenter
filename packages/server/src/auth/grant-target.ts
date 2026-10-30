@@ -1,6 +1,7 @@
 /**
  * A grant targets `*` (every namespace the person is a member of, now and
- * later) or one namespace, `ns:<id>` (ADR-0549). The person picks it on the
+ * later, and every repository shared with them) or one namespace, `ns:<id>`
+ * (ADR-0549). The person picks it on the
  * consent page, which also approves a device code: the device page sends the
  * person to `/oauth2/authorize?user_code=<code>`. The provider stores the
  * choice as the consent's `referenceId`, and on the approved device code, and
@@ -25,7 +26,7 @@ import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Db } from '../db/create-db.js';
 import { namespace, namespaceMember } from '../db/schema/namespace.js';
 
-/** Every namespace the person is a member of, now and later. */
+/** Every namespace the person is a member of, now and later, and every repository shared with them. */
 export const ALL_NAMESPACES_TARGET = '*';
 const SELECTION_TTL_MS = 10 * 60 * 1000;
 

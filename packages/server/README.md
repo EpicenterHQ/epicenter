@@ -30,7 +30,7 @@ choice and any deployment policy.
 
 | Mount | Source | Notes |
 | --- | --- | --- |
-| `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`: clone and fetch, the forward-only receiver, Git LFS, the web write translator, write-to-create, and `GET /api/repos`; the deployment supplies the stores (`GitHost`, `LfsStore`). |
+| `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`: clone and fetch, the forward-only receiver, Git LFS, the web write translator, write-to-create, `GET /api/repos`, and the owner's per-repository grants; the deployment supplies the stores (`GitHost`, `LfsStore`). |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -65,9 +65,25 @@ elsewhere (`resolveOAuthAudiences`).
 | `GET epicenter/files?root=`, `GET epicenter/file?path=` | `folders:read`, the `read` role |
 | `POST epicenter/writes` | `folders:write`, the `push` role |
 | `GET /api/repos` | `folders:read` on the Git audience |
+| `GET /api/repos/<namespace>/<name>/grants` | `folders:read` on the Git audience, the `manage` role (owner) |
+| `PUT`/`DELETE /api/repos/<namespace>/<name>/grants/<person>` | `folders:write` on the Git audience, the `manage` role (owner) |
 
 `<namespace>` may be `~`, the caller's personal namespace, so a web app reaches
 `<account>/<app>` from its token alone (decision 46 of the file contract).
+
+**Grants.** The owner shares one repository with a person outside its
+namespace: `PUT .../grants/<person>` with `{ "level": "read" | "write" }`
+grants or changes it, `DELETE` revokes it (`{ "person", "revoked" }`), and
+`GET .../grants` lists `{ "grants": [{ "person", "level" }] }`. A person is
+named by their handle, the id of their personal namespace, and reaches the
+repository at `<owner handle>/<name>`. A grant is a row in `repository_grant`
+naming the repository by id, so it follows a rename or a move. The same
+statement that resolves membership resolves it, as the `reader` or `writer`
+role, so clone, fetch, push, LFS and web writes all apply one rule: `read`
+reads, `write` also pushes forward and writes from the web, and only the owner
+replaces `main` or manages grants. A grant never creates a repository, and a
+token whose grant targets one namespace (`ns:<id>`) reaches no repository
+shared from another. A member of the namespace cannot also be granted it.
 
 With a store that has `objects` (the disk store), every push goes to the
 receiver (`src/routes/receive.ts`), never the store's own receive-pack. It
@@ -88,8 +104,9 @@ refs, object reads, ancestry, and an atomic compare-and-swap `apply`.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,
-and grant target; the namespace membership and role; and `<namespace>/<name>`
-resolved through `repository`, then `repository_alias`. A repository that has
+and grant target; the namespace membership and role, or a grant on the
+repository; and `<namespace>/<name>` resolved through `repository`, then
+`repository_alias`. A repository that has
 moved is checked against the namespace it lives in now. Nothing is cached.
 
 A name nobody holds is not a repository until something is written to it.
@@ -221,9 +238,10 @@ test-only route for the namespace check.
 `src/db/schema/namespace.ts` holds ADR-0547's `namespace` and
 `namespace_member` tables. The `user_personal_namespace` trigger in
 `apps/api/drizzle` gives each account its personal namespace, with the account
-as its only `owner`, inside the statement that inserts the account. Roles are
-`owner` and `member`; `NAMESPACE_ROLES`, internal to `src/namespace-roles.ts`,
-says what each may do.
+as its only `owner`, inside the statement that inserts the account.
+Membership roles are `owner` and `member`; a grant on one repository gives a
+person outside the namespace `reader` or `writer`. `ROLES`, internal to
+`src/namespace-roles.ts`, says what each may do.
 
 ## Tests that need Postgres
 

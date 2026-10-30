@@ -43,6 +43,13 @@
 			"when": 1792117504649,
 			"tag": "0005_better_auth_1_8",
 			"breakpoints": true
+		},
+		{
+			"idx": 6,
+			"version": "7",
+			"when": 1793382035200,
+			"tag": "0006_repository_grants",
+			"breakpoints": true
 		}
 	]
 }

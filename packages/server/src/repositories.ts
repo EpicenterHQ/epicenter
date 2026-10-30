@@ -1,15 +1,18 @@
 /**
  * Hosted repositories as rows (ADR-0546, ADR-0547): creating one on its first
- * push, listing a caller's, and the `manage` role's rename and move, each of
- * which leaves an alias so every existing clone's remote keeps working.
+ * push, listing a caller's, the `manage` role's rename and move, each of
+ * which leaves an alias so every existing clone's remote keeps working, and
+ * its grants to people outside the namespace.
  *
  * Storage is not touched here. It names a repository by its immutable id, so
  * a rename or a move is one row update and an alias, and no copy.
  */
 import {
+	type GrantLevel,
 	isNamespaceId,
 	isRepositoryName,
 	type ListedNamespace,
+	type RepositoryGrant,
 	repositoryUrl,
 } from '@epicenter/constants/repositories';
 import { sql } from 'drizzle-orm';
@@ -17,8 +20,8 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Db } from './db/create-db.js';
 import {
-	type NamespaceOperation,
 	type NamespaceRole,
+	type RepositoryOperation,
 	roleAllows,
 } from './namespace-roles.js';
 
@@ -148,7 +151,7 @@ export const RepositoryChangeError = defineErrors({
 		operation,
 	}: {
 		namespaceId: string;
-		operation: NamespaceOperation;
+		operation: RepositoryOperation;
 	}) => ({
 		message: `This account may not ${operation} in namespace ${namespaceId}.`,
 		namespaceId,
@@ -344,4 +347,95 @@ export function moveRepository(
 		name,
 		to: { namespaceId: toNamespaceId },
 	});
+}
+
+/** Why a grant could not be made or revoked. */
+export const GrantError = defineErrors({
+	UnknownPerson: ({ person }: { person: string }) => ({
+		message: `No person has the handle ${person}.`,
+		person,
+	}),
+	Member: ({ person }: { person: string }) => ({
+		message: `${person} is a member of the repository's namespace already; a grant is for someone outside it.`,
+		person,
+	}),
+});
+export type GrantError = InferErrors<typeof GrantError>;
+
+/** The account whose handle (personal namespace id) is `person`. */
+async function personOf(
+	tx: Pick<Db, 'execute'>,
+	person: string,
+): Promise<string | undefined> {
+	if (!isNamespaceId(person)) return undefined;
+	const { rows } = await tx.execute<{ account_id: string }>(sql`
+		select personal_account_id as account_id from namespace
+		where id = ${person} and personal_account_id is not null
+	`);
+	return rows[0]?.account_id;
+}
+
+/**
+ * Let `person` (a handle) `level` the repository `repositoryId` in
+ * `namespaceId`, replacing any grant they had. The caller has decided the
+ * account may `manage` it. A member of the namespace already has a role
+ * there, so granting them is refused rather than silently ignored.
+ */
+export async function grantRepository(
+	db: Db,
+	{
+		repositoryId,
+		namespaceId,
+		person,
+		level,
+	}: {
+		repositoryId: string;
+		namespaceId: string;
+		person: string;
+		level: GrantLevel;
+	},
+): Promise<Result<RepositoryGrant, GrantError>> {
+	return db.transaction(async (tx) => {
+		const accountId = await personOf(tx, person);
+		if (accountId === undefined) return GrantError.UnknownPerson({ person });
+		if ((await roleIn(tx, accountId, namespaceId)) !== undefined)
+			return GrantError.Member({ person });
+		await tx.execute(sql`
+			insert into repository_grant (repository_id, account_id, level)
+			values (${repositoryId}, ${accountId}, ${level})
+			on conflict (repository_id, account_id)
+			do update set level = excluded.level
+		`);
+		return Ok({ person, level });
+	});
+}
+
+/** Revoke `person`'s grant on `repositoryId`; `false` when they had none. */
+export async function revokeRepositoryGrant(
+	db: Db,
+	{ repositoryId, person }: { repositoryId: string; person: string },
+): Promise<Result<boolean, GrantError>> {
+	const accountId = await personOf(db, person);
+	if (accountId === undefined) return GrantError.UnknownPerson({ person });
+	const { rows } = await db.execute<{ account_id: string }>(sql`
+		delete from repository_grant
+		where repository_id = ${repositoryId} and account_id = ${accountId}
+		returning account_id
+	`);
+	return Ok(rows.length > 0);
+}
+
+/** Every grant on `repositoryId`, by handle, in the order granted. */
+export async function listRepositoryGrants(
+	db: Db,
+	repositoryId: string,
+): Promise<RepositoryGrant[]> {
+	const { rows } = await db.execute<RepositoryGrant>(sql`
+		select n.id as person, g.level
+		from repository_grant g
+		join namespace n on n.personal_account_id = g.account_id
+		where g.repository_id = ${repositoryId}
+		order by g.created_at, n.id
+	`);
+	return rows.map(({ person, level }) => ({ person, level }));
 }

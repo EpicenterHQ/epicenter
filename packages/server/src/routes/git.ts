@@ -11,7 +11,17 @@
  * <git>/<ns>/<name>.git/info/lfs/…                 Git LFS, lfs.ts
  * <git>/<ns>/<name>.git/epicenter/{files,file,writes}   the write translator, files.ts
  * <api>/api/repos                                  GET   folders:read on the Git audience: the caller's repositories by namespace
+ * <api>/api/repos/<ns|~>/<name>/grants             GET   folders:read, manage: the repository's grants
+ * <api>/api/repos/<ns|~>/<name>/grants/<person>    PUT { level } grants, DELETE revokes; folders:write, manage
  * ```
+ *
+ * A person outside the namespace reaches one repository through a grant
+ * (`repository_grant`): `read` gives the `reader` role, `write` the
+ * `writer` role (`namespace-roles.ts`). The decision is the same one
+ * statement as membership's, so every route above, Git, LFS and web writes
+ * alike, applies one rule. A grant names an existing repository and never
+ * creates one; only the owner rewrites `main` or manages grants. A person
+ * is named by their handle, the id of their personal namespace.
  *
  * The Git audience is `https://git.epicenter.so` for the hosted cloud and
  * `<origin>/git` for any other deployment (`resolveOAuthAudiences`), so a
@@ -53,7 +63,8 @@
  *                                Basic challenge for terminal Git;
  *   - 403 `insufficient_scope`   the token lacks the operation's scope;
  *   - 403 `forbidden`            the namespace is outside the grant, the account
- *                                is not a member, or its role may not do this;
+ *                                is neither a member nor granted the repository,
+ *                                or its role may not do this;
  *   - 404 `not_found`            a missing repository's advertisement, for a
  *                                role that may not push, or its upload-pack;
  *   - 413 `too_large`            a push over 64 MiB;
@@ -66,8 +77,11 @@
  */
 
 import {
+	type GrantLevel,
 	isNamespaceId,
 	isRepositoryName,
+	type RepositoryGrantRevoked,
+	type RepositoryGrants,
 	type RepositoryListing,
 } from '@epicenter/constants/repositories';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
@@ -85,11 +99,14 @@ import {
 } from '../auth/resource-access.js';
 import type { GitObjects } from '../git/objects.js';
 import type { LfsStore } from '../lfs/lfs-store.js';
-import { type NamespaceRole, roleAllows } from '../namespace-roles.js';
+import { type RepositoryRole, roleAllows } from '../namespace-roles.js';
 import {
 	createRepository,
+	grantRepository,
 	listRepositories,
+	listRepositoryGrants,
 	newRepositoryId,
+	revokeRepositoryGrant,
 } from '../repositories.js';
 import type { CloudEnv } from '../types.js';
 import {
@@ -160,7 +177,8 @@ export type GitHost = {
 /** What one request may do to one repository, as a deployment's access decided it. */
 export type RepositoryAccess = {
 	accountId: string;
-	role: NamespaceRole;
+	/** From membership in the namespace, or a grant on the repository. */
+	role: RepositoryRole;
 	/** The namespace the role is in (`~` resolved to the caller's own). */
 	namespaceId: string;
 	/** The repository the name resolves to, or null while nothing has been written to it. */
@@ -716,7 +734,7 @@ export function mountGitHost(
 			batch: LfsBatch | null;
 			remote: string;
 			accountId: string;
-			role: NamespaceRole;
+			role: RepositoryRole;
 		},
 	): Promise<Response> {
 		if (lfs) {
@@ -862,5 +880,116 @@ export function mountGitHost(
 			};
 			return c.json(listing, 200, { 'cache-control': 'no-store' });
 		}),
+	);
+
+	/**
+	 * The owner's sharing routes, decided by `access` like any Git request:
+	 * listing reads, a change writes, and both need the `manage` role. One
+	 * who may not manage the repository gets 403 whether or not it exists.
+	 */
+	const grants = (action: 'list' | 'grant' | 'revoke') =>
+		createMiddleware<CloudEnv>(async (c) => {
+			const namespaceId = c.req.param('namespace') ?? '';
+			const name = c.req.param('name') ?? '';
+			if (
+				(namespaceId !== PERSONAL_NAMESPACE && !isNamespaceId(namespaceId)) ||
+				!isRepositoryName(name)
+			)
+				return refuse(
+					c,
+					404,
+					'not_found',
+					'Not a repository this server names.',
+				);
+			try {
+				const decided = await access.authorize(c, {
+					namespaceId,
+					name,
+					operation: action === 'list' ? 'read' : 'push',
+				});
+				if (decided.error !== null)
+					return refuse(
+						c,
+						decided.error.status,
+						decided.error.body.error,
+						decided.error.body.error_description,
+						[decided.error.challenge],
+					);
+				const { role, repository } = decided.data;
+				if (!roleAllows(role, 'manage'))
+					return refuse(
+						c,
+						403,
+						'forbidden',
+						"Only the repository's owner may share it.",
+						[
+							`Bearer resource_metadata="${protectedResourceMetadataUrl(c.var.audiences.git)}"`,
+						],
+					);
+				if (repository === null)
+					return refuse(
+						c,
+						404,
+						'not_found',
+						`No repository is named ${namespaceId}/${name}.`,
+					);
+				let level: GrantLevel | undefined;
+				if (action === 'grant') {
+					const body = (await c.req.json().catch(() => null)) as {
+						level?: unknown;
+					} | null;
+					if (body?.level !== 'read' && body?.level !== 'write')
+						return refuse(
+							c,
+							400,
+							'invalid_request',
+							'Send { "level": "read" } or { "level": "write" }.',
+						);
+					level = body.level;
+				}
+				const noStore = { 'cache-control': 'no-store' };
+				if (action === 'list') {
+					const body: RepositoryGrants = {
+						grants: await listRepositoryGrants(c.var.db, repository.id),
+					};
+					return c.json(body, 200, noStore);
+				}
+				const person = c.req.param('person') ?? '';
+				if (level !== undefined) {
+					const { data, error } = await grantRepository(c.var.db, {
+						repositoryId: repository.id,
+						namespaceId: decided.data.namespaceId,
+						person,
+						level,
+					});
+					if (error !== null)
+						return error.name === 'UnknownPerson'
+							? refuse(c, 404, 'not_found', error.message)
+							: refuse(c, 400, 'invalid_request', error.message);
+					return c.json(data, 200, noStore);
+				}
+				const { data, error } = await revokeRepositoryGrant(c.var.db, {
+					repositoryId: repository.id,
+					person,
+				});
+				if (error !== null) return refuse(c, 404, 'not_found', error.message);
+				const body: RepositoryGrantRevoked = { person, revoked: data };
+				return c.json(body, 200, noStore);
+			} catch (cause) {
+				log.error(GitHostError.AuthorizeFailed({ cause }).error);
+				return refuse(
+					c,
+					503,
+					'git_unavailable',
+					'The request could not be checked. Try again.',
+				);
+			}
+		});
+	app.get('/api/repos/:namespace/:name/grants', setup, grants('list'));
+	app.put('/api/repos/:namespace/:name/grants/:person', setup, grants('grant'));
+	app.delete(
+		'/api/repos/:namespace/:name/grants/:person',
+		setup,
+		grants('revoke'),
 	);
 }

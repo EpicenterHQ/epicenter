@@ -201,7 +201,7 @@ of local saving. The Folder exposes only local `saving()`; it does not expose th
 | Runtime or shell | The environment executing an app or providing native mechanisms. Qualify a Git host or inference host separately. |
 | Deployment | A hosted or self-hosted service installation. Hosted-only billing stays in `apps/api/worker/billing/`. |
 | Account or principal | The person's service account, or the precise authenticated identity where technical code uses principal. Neither is required for local data use. |
-| Membership, owner, member | A hosted repository's access list and roles. Removing membership does not recall existing copies. |
+| Membership, owner, member | A hosted repository's access list and roles. A repository grant (`read` or `write`) lets one person outside the namespace reach one repository; only the owner rewrites `main` or grants. Removing membership or revoking a grant does not recall existing copies. |
 | Grant, consent, scope, audience | Permission, its approval, allowed operations, and the service accepting a token. Qualify repository grants, account grants, and inference authorization. |
 | Credential, token, provider key | Authentication material, retained outside synchronized data. It does not identify a local dataset. |
 | Inference provider | The service or local model used for AI work. Its configuration is independent of a Git remote and repository permission. |

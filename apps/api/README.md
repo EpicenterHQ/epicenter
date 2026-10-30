@@ -69,8 +69,9 @@ This Worker is the OAuth 2.1 authorization server of
 [ADR-0549](../../docs/adr/0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md),
 and every resource it serves accepts only its opaque access tokens: `/v1/*`
 takes the API audience and `ai`, Git requests the Git audience with
-`folders:read` or `folders:write` and a namespace role, and `GET /api/repos`
-the Git audience with `folders:read`. Epicenter hosts no MCP server
+`folders:read` or `folders:write` and a namespace role or a grant on the
+repository, and `GET /api/repos` and the owner's grant routes the Git audience
+with `folders:read` (listing) or `folders:write` (granting, revoking). Epicenter hosts no MCP server
 ([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)) and no blobs
 ([ADR-0577](../../docs/adr/0577-audio-stays-on-the-machine-that-recorded-it.md)). An app reads who signed in from Better Auth's
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
@@ -124,6 +125,7 @@ Cloudflare Workers
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/repos             the caller's repositories, by namespace
+│   ├── /api/repos/:ns/:name/grants  the owner's grants: list, grant (PUT), revoke (DELETE)
 │   ├── git audience /:namespace/:name.git/*  Git smart HTTP (clone and fetch forwarded to Artifacts;
 │   │                          pushes through the receiver), web writes, Git LFS
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways

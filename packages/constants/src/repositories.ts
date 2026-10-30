@@ -12,6 +12,10 @@
  *   `-`, and starts with a letter or digit.
  *
  * Storage never sees either: it names each repository by its immutable id.
+ *
+ * A person's handle is their personal namespace's id: the owner of
+ * `<handle>/<name>`, and whom a grant names. `~` in place of a namespace
+ * means the caller's own.
  */
 
 /** A namespace id: twelve characters of lowercase a-z and 0-9. */
@@ -127,3 +131,33 @@ export type ListedNamespace = {
 
 /** The body of `GET /api/repos`: the personal namespace first, then each group by title. */
 export type RepositoryListing = { namespaces: ListedNamespace[] };
+
+/**
+ * What a grant lets one person outside a repository's namespace do to it:
+ * `read` (clone, fetch, LFS download, reading files), or `write` (also push
+ * forward, LFS upload, and web writes). Only the owner rewrites `main`.
+ */
+export type GrantLevel = 'read' | 'write';
+
+/** One person's grant on a repository, by their handle. */
+export type RepositoryGrant = { person: string; level: GrantLevel };
+
+/** The body of `GET /api/repos/<namespace>/<name>/grants`, in the order granted. */
+export type RepositoryGrants = { grants: RepositoryGrant[] };
+
+/** The body of `DELETE /api/repos/<namespace>/<name>/grants/<person>`. */
+export type RepositoryGrantRevoked = { person: string; revoked: boolean };
+
+/**
+ * The owner's sharing routes on a deployment's API origin:
+ * `<api>/api/repos/<namespace|~>/<name>/grants`, and `/<person>` under it to
+ * grant (`PUT { level }`) or revoke (`DELETE`).
+ */
+export function repositoryGrantsUrl(
+	apiOrigin: string,
+	{ namespace, name }: RepositoryPath,
+	person?: string,
+): string {
+	const base = `${apiOrigin.replace(/\/+$/, '')}/api/repos/${namespace}/${name}/grants`;
+	return person === undefined ? base : `${base}/${person}`;
+}

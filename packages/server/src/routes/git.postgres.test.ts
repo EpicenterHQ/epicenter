@@ -675,3 +675,259 @@ describe('hosted Git over the disk store', () => {
 		expect(mine.namespaces.flatMap((n) => n.repositories)).toEqual([]);
 	}, 120_000);
 });
+
+describe('per-repository grants', () => {
+	/** `<api>/api/repos/<namespace>/<name>/grants[/<person>]`, the owner's sharing routes. */
+	const grants = (namespace: string, name: string, person?: string) =>
+		`${origin}/api/repos/${namespace}/${name}/grants${person === undefined ? '' : `/${person}`}`;
+
+	async function share(
+		token: string,
+		url: string,
+		level: 'read' | 'write' | 'none',
+	) {
+		const response = await fetch(url, {
+			method: level === 'none' ? 'DELETE' : 'PUT',
+			headers: {
+				authorization: `Bearer ${token}`,
+				'content-type': 'application/json',
+			},
+			body: level === 'none' ? undefined : JSON.stringify({ level }),
+		});
+		return {
+			status: response.status,
+			body: (await response.json()) as Record<string, unknown>,
+		};
+	}
+
+	async function listed(token: string, url: string) {
+		const response = await fetch(url, {
+			headers: { authorization: `Bearer ${token}` },
+		});
+		return { status: response.status, body: await response.json() };
+	}
+
+	test('a read grant clones and fetches but cannot push; a write grant pushes forward but never rewrites; a revoke refuses the next fetch', async () => {
+		const alice = await signedIn('grant-alice');
+		const bob = await signedIn('grant-bob');
+		const url = remote(alice.person.personal, 'family');
+		const dir = await workingCopy('family', { 'a.md': 'one\n' });
+		expect((await git(dir, alice.token, 'push', url, 'HEAD:main')).code).toBe(
+			0,
+		);
+
+		// Before any grant, Bob is a stranger.
+		const before = join(scratch, `before-${crypto.randomUUID().slice(0, 8)}`);
+		expect((await git(scratch, bob.token, 'clone', url, before)).code).not.toBe(
+			0,
+		);
+
+		const read = await share(
+			alice.token,
+			grants('~', 'family', bob.person.personal),
+			'read',
+		);
+		expect(read).toEqual({
+			status: 200,
+			body: { person: bob.person.personal, level: 'read' },
+		});
+		const copy = join(scratch, `bob-${crypto.randomUUID().slice(0, 8)}`);
+		expect((await git(scratch, bob.token, 'clone', url, copy)).code).toBe(0);
+		expect(await Bun.file(join(copy, 'a.md')).text()).toBe('one\n');
+		await commit(copy, { 'b.md': 'bob\n' }, 'bob writes');
+		const refused = await git(copy, bob.token, 'push', 'origin', 'HEAD:main');
+		expect(refused.code).not.toBe(0);
+		expect(refused.stderr).toContain('403');
+		// A web write is a push too.
+		const web = await fetch(`${url}/epicenter/writes`, {
+			method: 'POST',
+			headers: {
+				authorization: `Bearer ${bob.token}`,
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({ files: [{ path: 'w.md', text: 'web\n' }] }),
+		});
+		expect(web.status).toBe(403);
+
+		// Upgraded to write, the same push lands.
+		expect(
+			(
+				await share(
+					alice.token,
+					grants(alice.person.personal, 'family', bob.person.personal),
+					'write',
+				)
+			).body,
+		).toEqual({ person: bob.person.personal, level: 'write' });
+		expect(
+			(await git(copy, bob.token, 'push', 'origin', 'HEAD:main')).code,
+		).toBe(0);
+		// Only the owner may rewrite main (decision 33).
+		const unrelated = await workingCopy('unrelated', { 'z.md': 'z\n' });
+		const forced = await git(
+			unrelated,
+			bob.token,
+			'push',
+			'--force',
+			url,
+			'HEAD:main',
+		);
+		expect(forced.code).not.toBe(0);
+		expect(forced.stderr).toContain(
+			'only the repository owner may rewrite main',
+		);
+
+		expect((await listed(alice.token, grants('~', 'family'))).body).toEqual({
+			grants: [{ person: bob.person.personal, level: 'write' }],
+		});
+		expect(
+			await share(
+				alice.token,
+				grants('~', 'family', bob.person.personal),
+				'none',
+			),
+		).toEqual({
+			status: 200,
+			body: { person: bob.person.personal, revoked: true },
+		});
+		// Nothing is cached: the next fetch is refused, and the clone stays.
+		const fetched = await git(copy, bob.token, 'fetch', 'origin');
+		expect(fetched.code).not.toBe(0);
+		expect(await Bun.file(join(copy, 'b.md')).text()).toBe('bob\n');
+		expect(
+			await share(
+				alice.token,
+				grants('~', 'family', bob.person.personal),
+				'none',
+			),
+		).toEqual({
+			status: 200,
+			body: { person: bob.person.personal, revoked: false },
+		});
+	}, 180_000);
+
+	test('only the owner manages grants, to another person, on a repository that exists', async () => {
+		const alice = await signedIn('manage-alice');
+		const bob = await signedIn('manage-bob');
+		const carol = await signedIn('manage-carol');
+		const url = remote(alice.person.personal, 'album');
+		const dir = await workingCopy('album', { 'a.md': 'a\n' });
+		expect((await git(dir, alice.token, 'push', url, 'HEAD:main')).code).toBe(
+			0,
+		);
+		const album = (person?: string) =>
+			grants(alice.person.personal, 'album', person);
+
+		expect((await listed(alice.token, album())).body).toEqual({ grants: [] });
+		expect(
+			(await share(alice.token, album(bob.person.personal), 'write')).status,
+		).toBe(200);
+		// A grantee, even with write, may not share it on, list, or revoke.
+		for (const level of ['read', 'none'] as const)
+			expect(
+				(await share(bob.token, album(carol.person.personal), level)).status,
+			).toBe(403);
+		expect((await listed(bob.token, album())).status).toBe(403);
+		// A stranger learns nothing more than a grantee.
+		expect((await listed(carol.token, album())).status).toBe(403);
+		// No token, no answer.
+		expect((await fetch(album())).status).toBe(401);
+
+		expect(
+			(await share(alice.token, album(alice.person.personal), 'read')).body
+				.error,
+		).toBe('invalid_request');
+		expect(
+			(await share(alice.token, album('zzzzzzzzzzzz'), 'read')).status,
+		).toBe(404);
+		expect(
+			(
+				await share(
+					alice.token,
+					grants('~', 'nothing', bob.person.personal),
+					'read',
+				)
+			).status,
+		).toBe(404);
+		const badLevel = await fetch(album(bob.person.personal), {
+			method: 'PUT',
+			headers: {
+				authorization: `Bearer ${alice.token}`,
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({ level: 'admin' }),
+		});
+		expect(badLevel.status).toBe(400);
+		// A group's id is not a person.
+		const group = await client.group(carol.person, 'Choir', 'owner');
+		expect((await share(alice.token, album(group), 'read')).status).toBe(404);
+	}, 120_000);
+
+	test('a grant names the repository, so it follows a rename and reaches nothing else in the namespace', async () => {
+		const alice = await signedIn('rename-alice');
+		const bob = await signedIn('rename-bob');
+		for (const name of ['shared', 'private']) {
+			const dir = await workingCopy(name, { 'a.md': `${name}\n` });
+			expect(
+				(
+					await git(
+						dir,
+						alice.token,
+						'push',
+						remote(alice.person.personal, name),
+						'HEAD:main',
+					)
+				).code,
+			).toBe(0);
+		}
+		expect(
+			(
+				await share(
+					alice.token,
+					grants('~', 'shared', bob.person.personal),
+					'write',
+				)
+			).status,
+		).toBe(200);
+		const advertise = (name: string, token: string) =>
+			fetch(
+				`${remote(alice.person.personal, name)}/info/refs?service=git-upload-pack`,
+				{ headers: { authorization: `Bearer ${token}` } },
+			).then((response) => response.status);
+		expect(await advertise('private', bob.token)).toBe(403);
+		// A write grant does not create a repository in someone else's namespace.
+		const planted = await workingCopy('planted', { 'p.md': 'p\n' });
+		expect(
+			(
+				await git(
+					planted,
+					bob.token,
+					'push',
+					remote(alice.person.personal, 'planted'),
+					'HEAD:main',
+				)
+			).code,
+		).not.toBe(0);
+
+		expect(
+			(
+				await renameRepository(db, {
+					accountId: alice.person.id,
+					namespaceId: alice.person.personal,
+					name: 'shared',
+					newName: 'renamed',
+				})
+			).error,
+		).toBeNull();
+		expect(await advertise('renamed', bob.token)).toBe(200);
+		expect(await advertise('shared', bob.token)).toBe(200);
+
+		// A token granted for one namespace (ADR-0549) reaches only that one,
+		// so a repository shared from another is outside it.
+		await sql.query(
+			"update oauth_access_token set reference_id = 'ns:' || $1 where user_id = $2",
+			[bob.person.personal, bob.person.id],
+		);
+		expect(await advertise('renamed', bob.token)).toBe(403);
+	}, 120_000);
+});
