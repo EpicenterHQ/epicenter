@@ -170,7 +170,7 @@ export type RepositoryAccess = {
 /**
  * Who may do what to which repository. The hosted cloud decides from the
  * database (`databaseGitAccess`, the default); a deployment with no database
- * (the Cloudflare spike Worker) injects its own. Every rule after the
+ * (deployed spike 8's bearer-token Worker) injects its own. Every rule after the
  * decision (roles, first writes, the receiver, the translator, LFS) is
  * this module's, so each deployment runs the same routes.
  */

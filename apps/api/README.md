@@ -305,12 +305,6 @@ used a separate Worker and namespace, and have not been repeated for the
 per-id store; run them before the first deploy of ADR-0546. The local launcher
 does not enable that integration path.
 
-`wrangler.spike.jsonc` deploys the same Git routes as a separate spike Worker
-(`worker/spike.ts`) over its own Artifacts namespace and R2 bucket, with two
-bearer tokens in place of the OAuth server, which needs a database. Deploy it
-only with `wrangler deploy --config wrangler.spike.jsonc`, and delete it after
-the measurement.
-
 ### Database commands
 
 ```bash

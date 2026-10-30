@@ -134,9 +134,9 @@ Who may reach a repository is the deployment's `GitAccess`, passed to
 `mountGitHost` as `access`: `authorize` decides one request (account, role,
 namespace, and the repository the name resolves to, or null before its first
 write), and `create` makes the repository at its first write. The default,
-`databaseGitAccess`, is the Postgres statement above. The Cloudflare spike
-Worker (`apps/api/worker/spike.ts`) injects bearer tokens instead; every rule
-after the decision is the same code.
+`databaseGitAccess`, is the Postgres statement above. A deployment without
+a database (deployed spike 8's bearer-token Worker, kept outside the
+repository) injects its own; every rule after the decision is the same code.
 
 The route resolves names to ids and lists from Postgres, so the store takes
 an id where ADR-0546 sketches `(namespace, name)`, and has no `list`: a rename
