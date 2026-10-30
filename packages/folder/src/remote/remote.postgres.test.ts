@@ -364,11 +364,19 @@ describe('upload', () => {
 		using uploader = startUploading(device, remote);
 		const resent = await uploader.drain();
 
-		expect(resent.interrupted).toBeNull();
+		// The capture, then the kept edit queued under an id of its own.
+		expect(resent).toMatchObject({ refused: [], interrupted: null });
+		expect(resent.uploaded).toHaveLength(2);
+		expect(resent.uploaded[0]).toBe(id);
 		const [lost, replay, update] = person.requests(WRITES);
+		// The resend carries other bytes than landed, so the server refuses it
+		// with the first landing's receipt, which the device takes as its own.
 		expect(replay?.body).toMatchObject({
-			commit: (lost?.body as { commit: string }).commit,
-			replayed: true,
+			error: 'CaptureMismatch',
+			receipt: {
+				commit: (lost?.body as { commit: string }).commit,
+				replayed: true,
+			},
 		});
 		// The kept edit went up under an id of its own, over the blob that landed.
 		expect(update?.body).toMatchObject({

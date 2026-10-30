@@ -238,7 +238,13 @@ export function createWire(account: RemoteAccount, name: string) {
 				return refused(sent.data);
 			return Ok(answer as RemoteFile);
 		},
-		/** One write request: one commit on `main`, or a refusal. */
+		/**
+		 * One write request: one commit on `main`, or a refusal. A capture
+		 * resent with other bytes than its first landing (an edit made after
+		 * a lost reply) is refused with that landing's receipt (409
+		 * `CaptureMismatch`); it answers as that receipt, replayed, so the
+		 * device lets go only of what landed and sends the rest as updates.
+		 */
 		async write(request: {
 			captureId?: string;
 			files: FileWrite[];
@@ -253,6 +259,20 @@ export function createWire(account: RemoteAccount, name: string) {
 			const fields = isRecord(answer) ? answer : {};
 			if (sent.data.ok && typeof fields.commit === 'string')
 				return Ok({ landed: true, receipt: fields as WriteReceipt });
+			if (
+				sent.data.status === 409 &&
+				fields.error === 'CaptureMismatch' &&
+				isRecord(fields.receipt) &&
+				typeof fields.receipt.commit === 'string' &&
+				isRecord(fields.receipt.blobs)
+			)
+				return Ok({
+					landed: true,
+					receipt: {
+						...(fields.receipt as WriteReceipt),
+						replayed: true,
+					},
+				});
 			if (sent.data.status !== 400 && sent.data.status !== 409)
 				return refused(sent.data);
 			return Ok({
