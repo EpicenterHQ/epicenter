@@ -2,11 +2,14 @@
 	The bar above every app: the repository it shows (its page is one click
 	away), and where its files stand. A repository kept only on this device
 	says so; one that syncs counts the files not yet sent and those held
-	here with a reason, across every file, whichever app wrote it.
+	here with a reason, across every file, whichever app wrote it. Where
+	this browser holds work that exists nowhere else and its storage is not
+	persistent, the bar says the browser may delete it (`storageLine`).
 -->
 <script lang="ts">
 	import type { FileEntry } from '@epicenter/repository';
-	import { syncLine } from '@epicenter/svelte/status-line';
+	import { type Persistence, storagePersistence } from '@epicenter/repository/browser';
+	import { storageLine, syncLine } from '@epicenter/svelte/status-line';
 	import { addressOf, type Manifest, whereOf } from './device.svelte.js';
 	import type { ShellRepository } from './lens.js';
 
@@ -33,6 +36,11 @@
 		return syncLine({ sending, held });
 	});
 	const address = $derived(addressOf(manifest));
+
+	/** Whether this browser's storage is persistent; the first save asks for it. */
+	let persistence = $state<Persistence>('checking');
+	$effect(() => storagePersistence.subscribe((next) => (persistence = next)));
+	const storage = $derived(storageLine({ persistence, local: manifest.url === null, unsent: waiting.length > 0 }));
 </script>
 
 <nav class="flex h-9 shrink-0 items-center gap-2 border-b bg-muted/40 px-3 text-xs" aria-label="Repository">
@@ -54,3 +62,6 @@
 		<span class="truncate">{line.label}</span>
 	</span>
 </nav>
+{#if storage !== null}
+	<p class="shrink-0 border-b bg-amber-50 px-3 py-1 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-100" role="status" data-testid="repository-storage">{storage.label}</p>
+{/if}

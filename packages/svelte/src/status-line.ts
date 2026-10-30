@@ -39,3 +39,17 @@ export function syncLine({ sending, held }: { sending: number; held: number }): 
 	if (sending > 0) return { label: 'Sending…', detail: `${files(sending)} not sent yet`, tone: 'busy' };
 	return { label: 'Synced', tone: 'good' };
 }
+
+/**
+ * RULE: a browser that holds work existing nowhere else (a repository kept
+ * only here, or changes not yet sent) and whose storage is not persistent
+ * (the request was refused, or never answered) says the browser may delete
+ * it; null otherwise. `persistence` is `storagePersistence` from
+ * `@epicenter/repository/browser`.
+ */
+export function storageLine({ persistence, local, unsent }: { persistence: 'checking' | 'not-asked' | 'granted' | 'denied'; local: boolean; unsent: boolean }): StatusLine | null {
+	if (persistence === 'granted' || persistence === 'checking') return null;
+	if (local) return { label: 'This repository exists only in this browser, and the browser may delete it when space runs low. Sign in to sync.', tone: 'warning' };
+	if (unsent) return { label: 'Unsent changes exist only in this browser, and the browser may delete them when space runs low.', tone: 'warning' };
+	return null;
+}

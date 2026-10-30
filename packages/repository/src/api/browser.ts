@@ -46,7 +46,7 @@ export async function createBrowserRepository<TDefs extends Definitions>({
 	return Ok({ manifest: created.data.manifest, repository: openRepository({ app, host: browserHost(created.data) }) });
 }
 
-export { BrowserReplicaError, type Manifest, type Syncing } from '../hosts/browser/index.js';
+export { BrowserReplicaError, type Manifest, type Persistence, storagePersistence, type Syncing } from '../hosts/browser/index.js';
 
 /** This browser's repositories, from their manifests: which repository each is and whose (null: yours), its name here, the account and the server (null: kept only here). */
 export const listBrowserRepositories = (): Promise<Manifest[]> => listReplicas();
