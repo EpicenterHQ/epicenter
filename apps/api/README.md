@@ -1,5 +1,16 @@
 # Epicenter API (Hosted Personal Cloud)
 
+> [!CAUTION]
+> **Do not deploy the `api` Worker from this line yet.** Its Artifacts host
+> now has `objects` (`worker/git-repositories.ts`), so every push goes
+> through the receiver, which refuses any file other than a `.md` note or a
+> hidden path unless it is a Git LFS pointer whose object is stored. `api`
+> binds no LFS bucket (`wrangler.jsonc` has no `LFS_BUCKET`, and
+> `resolveR2Lfs` returns null), so those pushes would be refused and the LFS
+> routes would answer 503. Deploy only after an R2 bucket (`LFS_BUCKET`,
+> `LFS_BUCKET_NAME`) and an R2 S3 key pair (`R2_ACCESS_KEY_ID`,
+> `R2_SECRET_ACCESS_KEY`) are bound. See [Hosted Git](#hosted-git).
+
 Epicenter Cloud Worker. Handles authentication, hosted Git, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
 This folder is a single Cloudflare Worker deployment: `worker/` (Hono code) and `ui/` (SvelteKit dashboard SPA) ship together. The same app also runs on Bun with Postgres (`server.ts`), which is how you self-host it.
@@ -202,7 +213,7 @@ There are three layers, each with a different URL source:
 
 ```bash
 bun dev              # Local dev server (uses local Postgres)
-bun deploy           # Deploy to Cloudflare Workers
+bun deploy           # Deploy to Cloudflare Workers (not until LFS is bound; see the caution at the top)
 bun run typecheck    # Type check
 bun run test         # Run tests, each file isolated
 ```
