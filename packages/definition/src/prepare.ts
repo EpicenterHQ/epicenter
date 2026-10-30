@@ -420,8 +420,9 @@ const SCHEMA_KEYWORDS = new Set([
  *
  * TypeBox's own hidden `~` keywords are allowed and left behind; a visible
  * `~` key is refused, so optionality has one spelling in a file: `required`.
+ * A contract's note fields (`contract/contract.ts`) are held to the same rules.
  */
-function schemaProblem(declared: object): string | undefined {
+export function schemaProblem(declared: object): string | undefined {
 	const seen = new Set<object>();
 	const visit = (
 		node: unknown,

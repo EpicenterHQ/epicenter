@@ -7,7 +7,9 @@
 	"sideEffects": false,
 	"exports": {
 		".": "./src/index.ts",
+		"./contract": "./src/contract/index.ts",
 		"./field": "./src/field/index.ts",
+		"./ids": "./src/ids.ts",
 		"./note": "./src/note/index.ts"
 	},
 	"scripts": {
@@ -15,6 +17,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"nanoid": "catalog:",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
 		"yaml": "catalog:"

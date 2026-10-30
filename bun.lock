@@ -550,6 +550,7 @@
       "name": "@epicenter/definition",
       "version": "0.0.1",
       "dependencies": {
+        "nanoid": "catalog:",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
         "yaml": "catalog:",
