@@ -46,6 +46,28 @@ import { driverCommand, identity, repositoryRoot } from './setup.ts';
 
 const LAST_SEEN = 'refs/epicenter/last-seen';
 const REMOTE_MAIN = 'refs/remotes/origin/main';
+/**
+ * What a failed `git push` means for the round.
+ *
+ * - `moved`: the remote moved first (not a fast-forward, or a lost race on the
+ *   ref update); fetch, merge, and push again.
+ * - `refused`: the remote's policy turned the push down (a raw file where an
+ *   LFS pointer belongs, a ref other than `main`). Pushing again cannot help,
+ *   so the round stops for a person or an agent.
+ * - `failed`: anything else, such as the network; run the round again later.
+ */
+export function classifyPush(stderr: string): 'moved' | 'refused' | 'failed' {
+	if (
+		/\[rejected\]|non-fast-forward|fetch first|cannot lock ref|failed to update ref|stale/.test(
+			stderr,
+		)
+	)
+		return 'moved';
+	if (/\[remote rejected\]|pre-receive hook declined/.test(stderr))
+		return 'refused';
+	return 'failed';
+}
+
 /** Fetch, merge, and push attempts in one round before a rejected push is a `retry`. */
 const ATTEMPTS = 5;
 /** How long a round waits for another round in the same repository. */
@@ -313,12 +335,13 @@ async function round(
 			notes.push(`pushed ${at.slice(0, 7)}`);
 			return at;
 		}
-		// Rejected as not a fast-forward, or the remote moved between the pack and the ref update.
-		const rejected =
-			/\[rejected\]|non-fast-forward|fetch first|cannot lock ref|failed to update ref|stale info/.test(
-				pushed.stderr,
+		const outcome = classifyPush(pushed.stderr);
+		if (outcome === 'refused')
+			throw new Stop(
+				`the remote refused the push: ${pushed.stderr.trim()}`,
+				'stopped',
 			);
-		if (!rejected)
+		if (outcome === 'failed')
 			throw new Stop(`git push failed: ${pushed.stderr.trim()}`, 'retry');
 		if (attempt >= ATTEMPTS)
 			throw new Stop(
