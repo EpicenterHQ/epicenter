@@ -6,6 +6,7 @@
 import { Ok, type Result } from 'wellcrafted/result';
 import { parseRowSource } from '../note/canonical.js';
 import { type ContractError, compileContract } from './contract.js';
+import { isHiddenPath } from './storage.js';
 import { isFilePath, isNotePath } from './templates.js';
 
 /** One reason a file does not fit the contract, located like a compiler diagnostic. */
@@ -52,7 +53,7 @@ export function checkContract(
 	if (compiled.error !== null) return compiled;
 	const issues: FileIssue[] = [];
 	for (const { path, text } of files) {
-		if (path.split('/').some((segment) => segment.startsWith('.'))) continue;
+		if (isHiddenPath(path)) continue;
 		if (!isFilePath(path)) {
 			issues.push({ path, message: 'The path is not a usable file path' });
 			continue;
