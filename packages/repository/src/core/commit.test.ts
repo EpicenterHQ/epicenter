@@ -22,7 +22,12 @@ const body: CommitBody = {
 };
 
 test('the id depends on the canonical form only', () => {
-	const reordered = { files: body.files, time: body.time, author: { device: 'laptop', user: 'alice' }, parent: 'p' } as const;
+	const reordered = {
+		files: body.files,
+		time: body.time,
+		author: { device: 'laptop', user: 'alice' },
+		parent: 'p',
+	} as const;
 	expect(commitId(reordered)).toBe(commitId(body));
 	const live: LiveCommit = { ...body, id: 'ignored' };
 	expect(commitId(live)).toBe(commitId(body));
@@ -34,9 +39,27 @@ test('every part of the commit changes its id', () => {
 		{ ...body, author: { user: 'bob', device: 'laptop' } },
 		{ ...body, author: { user: 'alice', device: 'phone' } },
 		{ ...body, time: '2026-10-28T14:02:12Z' },
-		{ ...body, files: [{ path: 'notes/trip.md', text: 'hello!\n' }, body.files[1] ?? { path: '', text: null }] },
-		{ ...body, files: [{ path: 'notes/Trip.md', text: 'hello\n' }, body.files[1] ?? { path: '', text: null }] },
-		{ ...body, files: [{ path: 'notes/trip.md', text: 'hello\n' }, { path: 'notes/old.md', text: '' }] },
+		{
+			...body,
+			files: [
+				{ path: 'notes/trip.md', text: 'hello!\n' },
+				body.files[1] ?? { path: '', text: null },
+			],
+		},
+		{
+			...body,
+			files: [
+				{ path: 'notes/Trip.md', text: 'hello\n' },
+				body.files[1] ?? { path: '', text: null },
+			],
+		},
+		{
+			...body,
+			files: [
+				{ path: 'notes/trip.md', text: 'hello\n' },
+				{ path: 'notes/old.md', text: '' },
+			],
+		},
 	];
 	const ids = new Set([commitId(body), ...variants.map(commitId)]);
 	expect(ids.size).toBe(variants.length + 1);

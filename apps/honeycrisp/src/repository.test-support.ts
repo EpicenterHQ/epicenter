@@ -16,7 +16,16 @@ import type { HoneycrispRepository } from './repository.js';
 
 export async function openDevice(files: Record<string, string> = {}) {
 	const driver = openBunSqlite();
-	const replica = unwrap(openReplica({ driver, binding: { repository: 'honeycrisp', server: null, account: null }, device: 'this-device', app: honeycrispApp, after: () => {}, now: () => 0 }));
+	const replica = unwrap(
+		openReplica({
+			driver,
+			binding: { repository: 'honeycrisp', server: null, account: null },
+			device: 'this-device',
+			app: honeycrispApp,
+			after: () => {},
+			now: () => 0,
+		}),
+	);
 	for (const [path, text] of Object.entries(files)) replica.write(path, text);
 	/** When set, the replica refuses every change, as a full disk would. */
 	let refuse = false;
@@ -29,7 +38,10 @@ export async function openDevice(files: Record<string, string> = {}) {
 	};
 	const opened: HoneycrispRepository[] = [];
 	const open = (over: Replica): HoneycrispRepository => {
-		const repository = openRepository({ app: honeycrispApp, host: createLocalHost({ replica: over, app: honeycrispApp }).host });
+		const repository = openRepository({
+			app: honeycrispApp,
+			host: createLocalHost({ replica: over, app: honeycrispApp }).host,
+		});
 		opened.push(repository);
 		return repository;
 	};
@@ -83,10 +95,15 @@ export function noteText({
 }
 
 /** A folder's text in Honeycrisp's form. */
-export const folderText = (name: string) => `---\nname: ${JSON.stringify(name)}\nicon: null\n---\n`;
+export const folderText = (name: string) =>
+	`---\nname: ${JSON.stringify(name)}\nicon: null\n---\n`;
 
 /** Poll `check`, running `flush` (such as Svelte's `flushSync`) first, until it holds. */
-export async function until(check: () => boolean, what: string, flush: () => void = () => {}) {
+export async function until(
+	check: () => boolean,
+	what: string,
+	flush: () => void = () => {},
+) {
 	for (let tries = 0; tries < 400; tries++) {
 		flush();
 		try {

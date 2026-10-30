@@ -90,11 +90,15 @@ export type Lens =
  * app's source, found when it is loaded, not runtime conditions.
  */
 export function defineApp<const TDefs extends Definitions>(definitions: TDefs) {
-	const lenses = Object.entries(definitions).map(([name, definition]) => lensOf(name, definition));
+	const lenses = Object.entries(definitions).map(([name, definition]) =>
+		lensOf(name, definition),
+	);
 	for (const [index, a] of lenses.entries())
 		for (const b of lenses.slice(index + 1))
 			if (templatesOverlap(a.template, b.template))
-				throw new Error(`The templates '${a.name}' and '${b.name}' can match the same file`);
+				throw new Error(
+					`The templates '${a.name}' and '${b.name}' can match the same file`,
+				);
 	return appOver(definitions, lenses);
 }
 
@@ -110,13 +114,20 @@ export function combineApps(apps: readonly App[]): App {
 	const definitions: Definitions = {};
 	for (const app of apps)
 		for (const [name, definition] of Object.entries(app.definitions)) {
-			if (name in definitions) throw new Error(`Two apps name a collection '${name}'`);
+			if (name in definitions)
+				throw new Error(`Two apps name a collection '${name}'`);
 			definitions[name] = definition;
 		}
-	return appOver(definitions, apps.flatMap((app) => app.lenses));
+	return appOver(
+		definitions,
+		apps.flatMap((app) => app.lenses),
+	);
 }
 
-function lensOf(name: string, definition: NoteDefinition | BlobDefinition): Lens {
+function lensOf(
+	name: string,
+	definition: NoteDefinition | BlobDefinition,
+): Lens {
 	if (!IDENTIFIER.test(name) || name.startsWith('sqlite_'))
 		throw new Error(`'${name}' is not an identifier usable as a name`);
 	if (RESERVED.has(name))
@@ -133,7 +144,9 @@ function lensOf(name: string, definition: NoteDefinition | BlobDefinition): Lens
 		const fields = schemaFields(definition.schema);
 		for (const field of fields) {
 			if (VIEW_COLUMNS.has(field) || template.params.includes(field))
-				throw new Error(`The field '${field}' in '${name}' collides with a column`);
+				throw new Error(
+					`The field '${field}' in '${name}' collides with a column`,
+				);
 			if (field.includes('"'))
 				throw new Error(`The field '${field}' in '${name}' cannot be a column`);
 		}
@@ -148,11 +161,21 @@ function lensOf(name: string, definition: NoteDefinition | BlobDefinition): Lens
 		};
 	}
 	if (templateEnds(template, '.md'))
-		throw new Error(`The blob template '${definition.path}' must not end in .md`);
-	return { kind: 'blob', name, template, view: viewSql(name, template, BLOB_COLUMNS) };
+		throw new Error(
+			`The blob template '${definition.path}' must not end in .md`,
+		);
+	return {
+		kind: 'blob',
+		name,
+		template,
+		view: viewSql(name, template, BLOB_COLUMNS),
+	};
 }
 
-function appOver<const TDefs extends Definitions>(definitions: TDefs, lenses: Lens[]) {
+function appOver<const TDefs extends Definitions>(
+	definitions: TDefs,
+	lenses: Lens[],
+) {
 	return {
 		definitions,
 		lenses,
@@ -176,17 +199,25 @@ function appOver<const TDefs extends Definitions>(definitions: TDefs, lenses: Le
 		 * editor or a CLI can check a text before it is written.
 		 */
 		check(text: string, { as }: { as?: NoteName<TDefs> } = {}): TextStatus {
-			const lens = as === undefined ? undefined : lenses.find((candidate) => candidate.name === as);
+			const lens =
+				as === undefined
+					? undefined
+					: lenses.find((candidate) => candidate.name === as);
 			if (lens?.kind !== 'note') return { matches: null };
 			const issues = schemaIssues(lens.schema, parseMarkdown(text).fields);
-			return issues.length === 0 ? { matches: true } : { matches: false, issues };
+			return issues.length === 0
+				? { matches: true }
+				: { matches: false, issues };
 		},
 	};
 }
-export type App<TDefs extends Definitions = Definitions> = ReturnType<typeof appOver<TDefs>>;
+export type App<TDefs extends Definitions = Definitions> = ReturnType<
+	typeof appOver<TDefs>
+>;
 
 function schemaFields(schema: TSchema): string[] {
-	const properties = (schema as { properties?: Record<string, unknown> }).properties;
+	const properties = (schema as { properties?: Record<string, unknown> })
+		.properties;
 	return properties === undefined ? [] : Object.keys(properties);
 }
 
@@ -200,7 +231,10 @@ const BLOB_COLUMNS = [
 
 function noteColumns(fields: string[]) {
 	return [
-		...fields.map((field) => `json_extract(fields, ${literal(`$."${field}"`)}) AS ${quote(field)}`),
+		...fields.map(
+			(field) =>
+				`json_extract(fields, ${literal(`$."${field}"`)}) AS ${quote(field)}`,
+		),
 		'body',
 	];
 }
@@ -224,7 +258,8 @@ function viewSql(name: string, template: Template, columns: string[]) {
 			continue;
 		}
 		const length = s.suffix.length;
-		if (length > 0) where.push(`substr(${value}, -${length}) = ${literal(s.suffix)}`);
+		if (length > 0)
+			where.push(`substr(${value}, -${length}) = ${literal(s.suffix)}`);
 		where.push(`length(${value}) > ${length}`, `substr(${value}, 1, 1) <> '.'`);
 		params.push(
 			`${length > 0 ? `substr(${value}, 1, length(${value}) - ${length})` : value} AS ${quote(s.param)}`,
@@ -239,12 +274,20 @@ function viewSql(name: string, template: Template, columns: string[]) {
  * schema: a field the text lacks is an issue. `matches` is null when no
  * name was given.
  */
-export type TextStatus = { matches: null } | { matches: true } | { matches: false; issues: string[] };
+export type TextStatus =
+	| { matches: null }
+	| { matches: true }
+	| { matches: false; issues: string[] };
 
 /** How `fields` fails `schema`, one line per issue; none when they match. */
-export function schemaIssues(schema: TSchema, fields: Record<string, unknown>): string[] {
+export function schemaIssues(
+	schema: TSchema,
+	fields: Record<string, unknown>,
+): string[] {
 	if (Check(schema, fields)) return [];
-	return Errors(schema, fields).map((error) => `${error.instancePath || '/'} ${error.message}`);
+	return Errors(schema, fields).map(
+		(error) => `${error.instancePath || '/'} ${error.message}`,
+	);
 }
 
 // ============================================================================
@@ -253,5 +296,8 @@ export function schemaIssues(schema: TSchema, fields: Record<string, unknown>): 
 
 /** A sortable UTC stem for a moment: `2026-10-28T12-00-00Z`. */
 export function timestamp(at: Date = new Date()): string {
-	return at.toISOString().replace(/\.\d{3}Z$/, 'Z').replaceAll(':', '-');
+	return at
+		.toISOString()
+		.replace(/\.\d{3}Z$/, 'Z')
+		.replaceAll(':', '-');
 }

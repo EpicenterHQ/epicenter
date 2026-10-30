@@ -13,7 +13,12 @@
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
 /** An installed app: the hostname that identifies it, its name, the hash of the bundle installed, and when. */
-export type InstalledApp = { hostname: string; name: string; hash: string; installedAt: string };
+export type InstalledApp = {
+	hostname: string;
+	name: string;
+	hash: string;
+	installedAt: string;
+};
 
 /** What the record is kept as. */
 type Stored = { version: 1; apps: InstalledApp[] };
@@ -29,7 +34,9 @@ export const RECORD_KEY = 'epicenter:installed-apps';
 const isApp = (value: unknown): value is InstalledApp => {
 	if (typeof value !== 'object' || value === null) return false;
 	const app = value as Record<string, unknown>;
-	return ['hostname', 'name', 'hash', 'installedAt'].every((key) => typeof app[key] === 'string');
+	return ['hostname', 'name', 'hash', 'installedAt'].every(
+		(key) => typeof app[key] === 'string',
+	);
 };
 
 /** The record as kept, or null when there is none or it does not read as one. */
@@ -38,7 +45,11 @@ function read(storage: RecordStorage): InstalledApp[] | null {
 	if (text === null) return null;
 	try {
 		const parsed = JSON.parse(text) as Partial<Stored>;
-		return parsed.version === 1 && Array.isArray(parsed.apps) && parsed.apps.every(isApp) ? parsed.apps : null;
+		return parsed.version === 1 &&
+			Array.isArray(parsed.apps) &&
+			parsed.apps.every(isApp)
+			? parsed.apps
+			: null;
 	} catch {
 		return null;
 	}
@@ -62,21 +73,34 @@ export function openInstalled({
 	now?: () => Date;
 }) {
 	let apps: InstalledApp[] = read(storage) ?? [];
-	const save = () => storage.setItem(RECORD_KEY, JSON.stringify({ version: 1, apps } satisfies Stored));
+	const save = () =>
+		storage.setItem(
+			RECORD_KEY,
+			JSON.stringify({ version: 1, apps } satisfies Stored),
+		);
 
 	/** Install the app at `hostname`, pinned to the hash of the bundle this shell has for it; installing one already installed changes nothing. */
 	function install(hostname: string): Result<InstalledApp, string> {
 		const known = apps.find((app) => app.hostname === hostname);
 		if (known !== undefined) return Ok(known);
 		const bundle = installable(hostname);
-		if (bundle === undefined) return Err(`Installing an app from ${hostname} is not built yet: only Epicenter's own apps install.`);
-		const app: InstalledApp = { hostname, name: bundle.name, hash: bundle.hash, installedAt: now().toISOString() };
+		if (bundle === undefined)
+			return Err(
+				`Installing an app from ${hostname} is not built yet: only Epicenter's own apps install.`,
+			);
+		const app: InstalledApp = {
+			hostname,
+			name: bundle.name,
+			hash: bundle.hash,
+			installedAt: now().toISOString(),
+		};
 		apps = [...apps, app];
 		save();
 		return Ok(app);
 	}
 
-	if (read(storage) === null) for (const hostname of defaults) install(hostname);
+	if (read(storage) === null)
+		for (const hostname of defaults) install(hostname);
 
 	return {
 		/** Every installed app, in the order installed. */

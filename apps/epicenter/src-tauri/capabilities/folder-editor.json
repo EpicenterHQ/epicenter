@@ -4,8 +4,5 @@
 	"description": "A folder editor window, labelled files:<digest of the folder's directory>, which the Folders window opens on one listed folder (open_folder_editor in data_folders.rs). The shell binds that directory to the window before it exists; the page opens it with the folder plugin, edits its files as text, and listens for the plugin's private observation and close channels. Closing waits for in-flight writes, then destroys the window. It runs read-only SQL over its bound folder through allow-folder-query, which takes no path. It runs no folder history, launches nothing, and calls no account, AI, recorder, or model command. Its page is the Folders build's /folders/editor/ route on the epicenter-app scheme, so the capability is local (ADR-0561).",
 	"local": true,
 	"windows": ["files:*"],
-	"permissions": [
-		"epicenter-folder:default",
-		"allow-folder-query"
-	]
+	"permissions": ["epicenter-folder:default", "allow-folder-query"]
 }

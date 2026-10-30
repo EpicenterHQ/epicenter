@@ -28,11 +28,11 @@ import {
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { CaptureDevice, CaptureStart } from './capture.js';
+import { deferred } from './services.test-support.js';
 import {
 	createWebViewMicrophone,
 	type MicrophoneEnvironment,
 } from './webview-microphone.js';
-import { deferred } from './services.test-support.js';
 
 const USB = { deviceId: 'usb-id', label: 'USB Microphone' };
 

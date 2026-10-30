@@ -26,7 +26,10 @@ export function gitObjectId({ kind, bytes }: GitObject): string {
 
 /** The Git blob id (`git hash-object`) of `content`. */
 export function gitBlobHash(content: string | Uint8Array): string {
-	return gitObjectId({ kind: 'blob', bytes: typeof content === 'string' ? encoder.encode(content) : content });
+	return gitObjectId({
+		kind: 'blob',
+		bytes: typeof content === 'string' ? encoder.encode(content) : content,
+	});
 }
 
 /**
@@ -39,17 +42,30 @@ export type TreeEntry = { kind: 'blob' | 'tree'; hash: string; mode?: string };
  * The Git tree object of `entries`: each entry is `<mode> <name>\0<20-byte
  * id>`, sorted by name with a subtree compared as if its name ended in `/`.
  */
-export function gitTreeObject(entries: [name: string, entry: TreeEntry][]): GitObject {
-	const key = ([name, entry]: [string, TreeEntry]) => (entry.kind === 'tree' ? `${name}/` : name);
-	const sorted = [...entries].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
+export function gitTreeObject(
+	entries: [name: string, entry: TreeEntry][],
+): GitObject {
+	const key = ([name, entry]: [string, TreeEntry]) =>
+		entry.kind === 'tree' ? `${name}/` : name;
+	const sorted = [...entries].sort((a, b) =>
+		key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0,
+	);
 	const parts = sorted.map(([name, entry]) => {
-		const head = encoder.encode(`${entry.mode ?? (entry.kind === 'tree' ? '40000' : '100644')} ${name}\0`);
+		const head = encoder.encode(
+			`${entry.mode ?? (entry.kind === 'tree' ? '40000' : '100644')} ${name}\0`,
+		);
 		const part = new Uint8Array(head.length + 20);
 		part.set(head);
-		for (let i = 0; i < 20; i++) part[head.length + i] = Number.parseInt(entry.hash.slice(i * 2, i * 2 + 2), 16);
+		for (let i = 0; i < 20; i++)
+			part[head.length + i] = Number.parseInt(
+				entry.hash.slice(i * 2, i * 2 + 2),
+				16,
+			);
 		return part;
 	});
-	const body = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+	const body = new Uint8Array(
+		parts.reduce((total, part) => total + part.length, 0),
+	);
 	let at = 0;
 	for (const part of parts) {
 		body.set(part, at);
@@ -59,13 +75,21 @@ export function gitTreeObject(entries: [name: string, entry: TreeEntry][]): GitO
 }
 
 /** The Git tree id (`git write-tree`) of `entries`. */
-export const gitTreeHash = (entries: [name: string, entry: TreeEntry][]): string => gitObjectId(gitTreeObject(entries));
+export const gitTreeHash = (
+	entries: [name: string, entry: TreeEntry][],
+): string => gitObjectId(gitTreeObject(entries));
 
 /** Who made a Git commit, and when (seconds since the epoch, UTC). */
 export type GitSignature = { name: string; email: string; at: number };
 
 /** What a Git commit holds. */
-export type GitCommit = { tree: string; parents: string[]; author: GitSignature; committer: GitSignature; message: string };
+export type GitCommit = {
+	tree: string;
+	parents: string[];
+	author: GitSignature;
+	committer: GitSignature;
+	message: string;
+};
 
 /**
  * The Git commit object of a commit: its tree, its parents, author and
@@ -78,13 +102,23 @@ export function gitCommitObject({
 	committer,
 	message,
 }: GitCommit): GitObject {
-	const sign = ({ name, email, at }: GitSignature) => `${name} <${email}> ${at} +0000`;
-	const header = [`tree ${tree}`, ...parents.map((parent) => `parent ${parent}`), `author ${sign(author)}`, `committer ${sign(committer)}`];
-	return { kind: 'commit', bytes: encoder.encode(`${header.join('\n')}\n\n${message}`) };
+	const sign = ({ name, email, at }: GitSignature) =>
+		`${name} <${email}> ${at} +0000`;
+	const header = [
+		`tree ${tree}`,
+		...parents.map((parent) => `parent ${parent}`),
+		`author ${sign(author)}`,
+		`committer ${sign(committer)}`,
+	];
+	return {
+		kind: 'commit',
+		bytes: encoder.encode(`${header.join('\n')}\n\n${message}`),
+	};
 }
 
 /** The Git commit id (`git commit-tree`) of a commit. */
-export const gitCommitHash = (commit: GitCommit): string => gitObjectId(gitCommitObject(commit));
+export const gitCommitHash = (commit: GitCommit): string =>
+	gitObjectId(gitCommitObject(commit));
 
 /** The LFS object id of a blob's bytes: lowercase hex SHA-256. */
 export async function lfsOid(bytes: Uint8Array): Promise<string> {
@@ -116,7 +150,8 @@ export function sha1(message: Uint8Array): string {
 	for (let offset = 0; offset < padded.length; offset += 64) {
 		for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4);
 		for (let i = 16; i < 80; i++) {
-			const x = (w[i - 3] ?? 0) ^ (w[i - 8] ?? 0) ^ (w[i - 14] ?? 0) ^ (w[i - 16] ?? 0);
+			const x =
+				(w[i - 3] ?? 0) ^ (w[i - 8] ?? 0) ^ (w[i - 14] ?? 0) ^ (w[i - 16] ?? 0);
 			w[i] = (x << 1) | (x >>> 31);
 		}
 		let a = h0;
@@ -153,5 +188,7 @@ export function sha1(message: Uint8Array): string {
 		h3 = (h3 + d) >>> 0;
 		h4 = (h4 + e) >>> 0;
 	}
-	return [h0, h1, h2, h3, h4].map((h) => (h >>> 0).toString(16).padStart(8, '0')).join('');
+	return [h0, h1, h2, h3, h4]
+		.map((h) => (h >>> 0).toString(16).padStart(8, '0'))
+		.join('');
 }

@@ -42,13 +42,15 @@ describe('match and build', () => {
 	});
 
 	test('hidden files never match', () => {
-		expect(matchTemplate(compile('notes/{stem}.md'), 'notes/.draft.md')).toBeNull();
+		expect(
+			matchTemplate(compile('notes/{stem}.md'), 'notes/.draft.md'),
+		).toBeNull();
 	});
 
 	test('a value may contain dots and spaces', () => {
-		expect(matchTemplate(compile('notes/{stem}.md'), 'notes/v1.2 plan.md')).toEqual(
-			{ stem: 'v1.2 plan' },
-		);
+		expect(
+			matchTemplate(compile('notes/{stem}.md'), 'notes/v1.2 plan.md'),
+		).toEqual({ stem: 'v1.2 plan' });
 	});
 
 	test('a template without parameters matches exactly one file', () => {
@@ -59,9 +61,14 @@ describe('match and build', () => {
 	});
 
 	test('build round-trips with match', () => {
-		const path = expectOk(buildPath(tasks, { project: 'acme', stem: 'fix-login' }));
+		const path = expectOk(
+			buildPath(tasks, { project: 'acme', stem: 'fix-login' }),
+		);
 		expect(path).toBe('projects/acme/tasks/fix-login.md');
-		expect(matchTemplate(tasks, path)).toEqual({ project: 'acme', stem: 'fix-login' });
+		expect(matchTemplate(tasks, path)).toEqual({
+			project: 'acme',
+			stem: 'fix-login',
+		});
 	});
 
 	test('build refuses values that would escape or hide their segment', () => {
@@ -69,7 +76,9 @@ describe('match and build', () => {
 			const error = expectErr(buildPath(tasks, { project: bad, stem: 'x' }));
 			expect(error.name).toBe('InvalidValue');
 		}
-		expect(expectErr(buildPath(tasks, { project: 'acme' })).name).toBe('InvalidValue');
+		expect(expectErr(buildPath(tasks, { project: 'acme' })).name).toBe(
+			'InvalidValue',
+		);
 	});
 
 	test('bad templates are refused', () => {
@@ -91,7 +100,8 @@ describe('match and build', () => {
 });
 
 describe('overlap detection', () => {
-	const overlap = (a: string, b: string) => templatesOverlap(compile(a), compile(b));
+	const overlap = (a: string, b: string) =>
+		templatesOverlap(compile(a), compile(b));
 
 	test('disjoint folders do not overlap', () => {
 		expect(overlap('notes/{stem}.md', 'todos/{stem}.md')).toBe(false);
@@ -100,10 +110,14 @@ describe('overlap detection', () => {
 		expect(overlap('notes/{stem}.md', 'notes/{stem}/index.md')).toBe(false);
 	});
 	test('different suffixes do not overlap', () => {
-		expect(overlap('recordings/{stem}.md', 'recordings/{stem}.m4a')).toBe(false);
+		expect(overlap('recordings/{stem}.md', 'recordings/{stem}.m4a')).toBe(
+			false,
+		);
 	});
 	test('a parameter folder overlaps a literal folder', () => {
-		expect(overlap('{space}/notes/{stem}.md', 'work/notes/{stem}.md')).toBe(true);
+		expect(overlap('{space}/notes/{stem}.md', 'work/notes/{stem}.md')).toBe(
+			true,
+		);
 	});
 	test('{file} overlaps {stem}.md in the same folder', () => {
 		expect(overlap('notes/{stem}/{file}', 'notes/{stem}/{name}.md')).toBe(true);

@@ -51,9 +51,9 @@
  */
 import { defineErrors, extractErrorMessage } from 'wellcrafted/error';
 import type { Logger } from 'wellcrafted/logger';
-import { UPLOAD_REFUSALS } from '../client/uploads.js';
-import { createHasher, type BlobStore, type Sealed } from '../client/blobs.js';
+import { type BlobStore, createHasher, type Sealed } from '../client/blobs.js';
 import type { Replica } from '../client/replica.js';
+import { UPLOAD_REFUSALS } from '../client/uploads.js';
 import { fold, isNote, NOT_UTF8, TWIN } from '../core/door.js';
 import { parsePointer, writePointer } from '../core/markdown.js';
 import type { SqlDriver } from '../sql.js';
@@ -71,13 +71,23 @@ import { type Entry, type FolderFs, OWN } from './fs.js';
  * `#name#`, Office's `~$name`, JetBrains' safe-write temporaries, and
  * partial downloads.
  */
-export const DROPPINGS: readonly RegExp[] = [/~$/, /^4913$/, /^#.*#$/, /^~\$/, /___jb_(tmp|old)___$/, /\.(part|crdownload)$/];
+export const DROPPINGS: readonly RegExp[] = [
+	/~$/,
+	/^4913$/,
+	/^#.*#$/,
+	/^~\$/,
+	/___jb_(tmp|old)___$/,
+	/\.(part|crdownload)$/,
+];
 
 /** Whether the engine leaves `path` alone: a dot segment, or a dropping's name. */
 export function ignored(path: string) {
 	const segments = path.split('/');
 	const name = segments.at(-1) ?? '';
-	return segments.some((segment) => segment.startsWith('.')) || DROPPINGS.some((dropping) => dropping.test(name));
+	return (
+		segments.some((segment) => segment.startsWith('.')) ||
+		DROPPINGS.some((dropping) => dropping.test(name))
+	);
 }
 
 // ============================================================================
@@ -104,15 +114,31 @@ CREATE TABLE IF NOT EXISTS "epicenter/folder" (key TEXT PRIMARY KEY, value TEXT 
 
 const FolderDiagnostic = defineErrors({
 	/** A file in the scratch directory that no capture of this engine journaled: left for the person. */
-	StrayScratch: ({ scratch }: { scratch: string }) => ({ message: `${OWN}/tmp/${scratch} is not one of the engine's captures; it is left as it is`, scratch }),
+	StrayScratch: ({ scratch }: { scratch: string }) => ({
+		message: `${OWN}/tmp/${scratch} is not one of the engine's captures; it is left as it is`,
+		scratch,
+	}),
 	/** A job of the engine threw: what it was reconciling is read again by the next scan. */
-	Failed: ({ cause }: { cause: unknown }) => ({ message: `The folder engine failed: ${extractErrorMessage(cause)}`, cause }),
+	Failed: ({ cause }: { cause: unknown }) => ({
+		message: `The folder engine failed: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
 	/** The folder's watch could not be opened again: the engine stops. */
-	WatchFailed: ({ cause }: { cause: unknown }) => ({ message: `The folder can no longer be watched: ${extractErrorMessage(cause)}`, cause }),
+	WatchFailed: ({ cause }: { cause: unknown }) => ({
+		message: `The folder can no longer be watched: ${extractErrorMessage(cause)}`,
+		cause,
+	}),
 });
 
 /** What the engine last wrote or read at a path. `text` is a note's text or a blob's pointer. */
-type Recorded = { hash: string; size: number; mtime: number; ino: number; at: number; text: string };
+type Recorded = {
+	hash: string;
+	size: number;
+	mtime: number;
+	ino: number;
+	at: number;
+	text: string;
+};
 
 /** A racy-Git window: a file modified this close to when it was recorded may have changed within the same mtime tick, so it is hashed. */
 const RACY = 2_000;
@@ -136,7 +162,11 @@ const encoder = new TextEncoder();
  * is never written back only to normalize it; a change from elsewhere is
  * written as the repository holds it.
  */
-const readNote = (buffer: Uint8Array) => decoder.decode(buffer).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+const readNote = (buffer: Uint8Array) =>
+	decoder
+		.decode(buffer)
+		.replace(/^\uFEFF/, '')
+		.replace(/\r\n?/g, '\n');
 
 async function hashOf(bytes: Blob) {
 	const hasher = createHasher();
@@ -183,13 +213,33 @@ export const QUIET = 150;
 /** Why a file whose path folds to another file's is held. */
 export { TWIN } from '../core/door.js';
 
-export function createFolderEngine({ fs, replica, driver, store, fetch, after, now, quiet = QUIET, scanEvery = null, log }: FolderEngineOptions) {
+export function createFolderEngine({
+	fs,
+	replica,
+	driver,
+	store,
+	fetch,
+	after,
+	now,
+	quiet = QUIET,
+	scanEvery = null,
+	log,
+}: FolderEngineOptions) {
 	driver.exec(SCHEMA);
 	/** Stopped: a job not started does nothing, and a job in progress writes nothing more. */
 	let stopped = false;
 	const meta = {
-		get: (key: string) => first<{ value: string }>(driver, 'SELECT value FROM "epicenter/folder" WHERE key = ?', [key])?.value ?? null,
-		set: (key: string, value: string) => driver.run('INSERT OR REPLACE INTO "epicenter/folder" (key, value) VALUES (?, ?)', [key, value]),
+		get: (key: string) =>
+			first<{ value: string }>(
+				driver,
+				'SELECT value FROM "epicenter/folder" WHERE key = ?',
+				[key],
+			)?.value ?? null,
+		set: (key: string, value: string) =>
+			driver.run(
+				'INSERT OR REPLACE INTO "epicenter/folder" (key, value) VALUES (?, ?)',
+				[key, value],
+			),
 	};
 	let next = Number(meta.get('scratch') ?? 0);
 	/** A scratch name no run has used: the counter is stored before the name is. */
@@ -199,31 +249,60 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		return `d-${next}`;
 	};
 
-	const recorded = (path: string): Recorded | null => first<Recorded>(driver, 'SELECT hash, size, mtime, ino, at, text FROM "epicenter/disk" WHERE path = ?', [path]) ?? null;
+	const recorded = (path: string): Recorded | null =>
+		first<Recorded>(
+			driver,
+			'SELECT hash, size, mtime, ino, at, text FROM "epicenter/disk" WHERE path = ?',
+			[path],
+		) ?? null;
 	function setRecord(path: string, value: Omit<Recorded, 'at'> | null) {
 		live();
-		if (value === null) driver.run('DELETE FROM "epicenter/disk" WHERE path = ?', [path]);
+		if (value === null)
+			driver.run('DELETE FROM "epicenter/disk" WHERE path = ?', [path]);
 		else
-			driver.run('INSERT OR REPLACE INTO "epicenter/disk" (path, fold, hash, size, mtime, ino, at, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-				path,
-				fold(path),
-				value.hash,
-				value.size,
-				value.mtime,
-				value.ino,
-				now(),
-				value.text,
-			]);
+			driver.run(
+				'INSERT OR REPLACE INTO "epicenter/disk" (path, fold, hash, size, mtime, ino, at, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+				[
+					path,
+					fold(path),
+					value.hash,
+					value.size,
+					value.mtime,
+					value.ino,
+					now(),
+					value.text,
+				],
+			);
 	}
-	const mineAt = (path: string) => first<{ text: string | null }>(driver, 'SELECT text FROM "epicenter/files" WHERE path = ?', [path])?.text ?? null;
+	const mineAt = (path: string) =>
+		first<{ text: string | null }>(
+			driver,
+			'SELECT text FROM "epicenter/files" WHERE path = ?',
+			[path],
+		)?.text ?? null;
 
 	/** Why the replica holds a save refused at `path` as found, or null. */
-	const refusedAt = (path: string) => first<{ reason: string }>(driver, 'SELECT reason FROM "epicenter/refused" WHERE path = ?', [path])?.reason ?? null;
+	const refusedAt = (path: string) =>
+		first<{ reason: string }>(
+			driver,
+			'SELECT reason FROM "epicenter/refused" WHERE path = ?',
+			[path],
+		)?.reason ?? null;
 
 	/** Other spellings of `path` the engine knows of: recorded, in the replica, or refused there. */
 	function spellings(path: string) {
 		const folded = fold(path.normalize('NFC'));
-		const known = ['"epicenter/disk"', '"epicenter/files"', '"epicenter/refused"'].flatMap((table) => driver.all<{ path: string }>(`SELECT path FROM ${table} WHERE fold = ?`, [folded]).map((row) => row.path));
+		const known = [
+			'"epicenter/disk"',
+			'"epicenter/files"',
+			'"epicenter/refused"',
+		].flatMap((table) =>
+			driver
+				.all<{ path: string }>(`SELECT path FROM ${table} WHERE fold = ?`, [
+					folded,
+				])
+				.map((row) => row.path),
+		);
 		return [...new Set(known)].filter((other) => other !== path);
 	}
 
@@ -241,14 +320,19 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			if (found === undefined) {
 				found = fs.list(dir).then((list) => {
 					const byFold = new Map<string, Set<string>>();
-					for (const name of list) byFold.set(folded(name), (byFold.get(folded(name)) ?? new Set()).add(name));
+					for (const name of list)
+						byFold.set(
+							folded(name),
+							(byFold.get(folded(name)) ?? new Set()).add(name),
+						);
 					return byFold;
 				});
 				read.set(dir, found);
 			}
 			return found;
 		};
-		const parent = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
+		const parent = (path: string) =>
+			path.slice(0, Math.max(0, path.lastIndexOf('/')));
 		const base = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 		return {
 			/** Paths in the folder other than `path` that fold to it, one directory level at a time. */
@@ -256,23 +340,35 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				let at = [''];
 				for (const segment of path.split('/')) {
 					const next: string[] = [];
-					for (const dir of at) for (const name of (await names(dir)).get(folded(segment)) ?? []) next.push(dir === '' ? name : `${dir}/${name}`);
+					for (const dir of at)
+						for (const name of (await names(dir)).get(folded(segment)) ?? [])
+							next.push(dir === '' ? name : `${dir}/${name}`);
 					at = next;
 				}
 				return at.filter((other) => other !== path);
 			},
 			/** The engine made `path` (and any directory above it) or removed it. */
 			async made(path: string) {
-				for (let child = path, dir = parent(path); ; child = dir, dir = parent(dir)) {
+				for (
+					let child = path, dir = parent(path);
+					;
+					child = dir, dir = parent(dir)
+				) {
 					if (read.has(dir)) {
 						const byFold = await names(dir);
-						byFold.set(folded(base(child)), (byFold.get(folded(base(child))) ?? new Set()).add(base(child)));
+						byFold.set(
+							folded(base(child)),
+							(byFold.get(folded(base(child))) ?? new Set()).add(base(child)),
+						);
 					}
 					if (dir === '') return;
 				}
 			},
 			async gone(path: string) {
-				if (read.has(parent(path))) (await names(parent(path))).get(folded(base(path)))?.delete(base(path));
+				if (read.has(parent(path)))
+					(await names(parent(path)))
+						.get(folded(base(path)))
+						?.delete(base(path));
 			},
 		};
 	}
@@ -284,7 +380,10 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	 * case- or normalization-insensitive one); and whether another file's path
 	 * folds to this one's (`twin`).
 	 */
-	async function spellingAt(path: string, listed: Listings): Promise<{ path: string; twin: boolean }> {
+	async function spellingAt(
+		path: string,
+		listed: Listings,
+	): Promise<{ path: string; twin: boolean }> {
 		const known = spellings(path);
 		const others = [...new Set([...known, ...(await listed.beside(path))])];
 		if (others.length === 0) return { path, twin: false };
@@ -294,7 +393,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			const there = await fs.stat(other);
 			if (there === null || there.kind === 'directory') continue;
 			// One file under two spellings: the one the engine already knows names it.
-			if (here !== null && here.ino === there.ino && here.ino !== 0) return { path: known.includes(other) ? other : path, twin: false };
+			if (here !== null && here.ino === there.ino && here.ino !== 0)
+				return { path: known.includes(other) ? other : path, twin: false };
 			twin = true;
 		}
 		return { path, twin };
@@ -312,7 +412,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 
 	async function look(path: string): Promise<Look> {
 		const before = await fs.stat(path);
-		if (before === null || before.kind === 'directory') return { path, kind: 'absent' };
+		if (before === null || before.kind === 'directory')
+			return { path, kind: 'absent' };
 		if (before.kind !== 'file') return { path, kind: 'special' };
 		const bytes = await fs.read(path);
 		if (bytes === null) return { path, kind: 'absent' };
@@ -326,27 +427,49 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			}
 			const hasher = createHasher();
 			hasher.update(buffer);
-			return { path, kind: 'note', hash: hasher.digest(), text, entry: { ...before, size: buffer.byteLength } };
+			return {
+				path,
+				kind: 'note',
+				hash: hasher.digest(),
+				text,
+				entry: { ...before, size: buffer.byteLength },
+			};
 		}
 		const { hash, size } = await hashOf(bytes);
 		return { path, kind: 'blob', hash, size, entry: { ...before, size } };
 	}
-	const hashLooked = (seen: Look) => (seen.kind === 'note' || seen.kind === 'blob' ? seen.hash : null);
+	const hashLooked = (seen: Look) =>
+		seen.kind === 'note' || seen.kind === 'blob' ? seen.hash : null;
 
 	// --------------------------------------------------------------------------
 	// Reconcile: the one function
 	// --------------------------------------------------------------------------
 
 	/** One save found: the change for the replica and the record it leaves. */
-	type Save = { path: string; text: string | null; over: string | null; record: Omit<Recorded, 'at'> | null; refuse?: string };
+	type Save = {
+		path: string;
+		text: string | null;
+		over: string | null;
+		record: Omit<Recorded, 'at'> | null;
+		refuse?: string;
+	};
 	/** What a reconcile found at one path: a save, and the replica's word on a save refused there (why, or null: it can be taken again). */
-	type Found = { path: string; save?: Save; was: string | null; refused?: string | null };
+	type Found = {
+		path: string;
+		save?: Save;
+		was: string | null;
+		refused?: string | null;
+	};
 
 	/** Seal a blob's bytes into the device store: its pointer, null when the file vanished meanwhile, or why the store could not keep them. */
-	async function seal(seen: Extract<Look, { kind: 'blob' }>): Promise<Sealed | null | { refused: string }> {
+	async function seal(
+		seen: Extract<Look, { kind: 'blob' }>,
+	): Promise<Sealed | null | { refused: string }> {
 		const bytes = await fs.read(seen.path);
 		if (bytes === null) return null;
-		const sealed = await store.seal(bytes.stream() as ReadableStream<Uint8Array>);
+		const sealed = await store.seal(
+			bytes.stream() as ReadableStream<Uint8Array>,
+		);
 		if (sealed.error !== null) {
 			log?.warn(sealed.error);
 			return { refused: sealed.error.message };
@@ -355,27 +478,66 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	}
 
 	/** The save `seen` makes over the record, or why the repository cannot take it. */
-	async function saveOf(seen: Extract<Look, { kind: 'absent' | 'note' | 'blob' }>, record: Recorded | null): Promise<Save | { refused: string }> {
+	async function saveOf(
+		seen: Extract<Look, { kind: 'absent' | 'note' | 'blob' }>,
+		record: Recorded | null,
+	): Promise<Save | { refused: string }> {
 		const over = record?.text ?? null;
 		switch (seen.kind) {
 			case 'absent':
 				return { path: seen.path, text: null, over, record: null };
 			case 'note':
-				return { path: seen.path, text: seen.text, over, record: { hash: seen.hash, size: seen.entry.size, mtime: seen.entry.mtime, ino: seen.entry.ino, text: seen.text } };
+				return {
+					path: seen.path,
+					text: seen.text,
+					over,
+					record: {
+						hash: seen.hash,
+						size: seen.entry.size,
+						mtime: seen.entry.mtime,
+						ino: seen.entry.ino,
+						text: seen.text,
+					},
+				};
 			case 'blob': {
 				if (seen.size > replica.blobLimit()) {
 					// RULE: bytes past the repository's limit are not sealed: the pointer is saved and held at once with the upload track's reason (phase 8), so the file stays and says why.
 					const pointer = writePointer({ oid: seen.hash, size: seen.size });
-					return { path: seen.path, text: pointer, over, refuse: UPLOAD_REFUSALS[422], record: { hash: seen.hash, size: seen.size, mtime: seen.entry.mtime, ino: seen.entry.ino, text: pointer } };
+					return {
+						path: seen.path,
+						text: pointer,
+						over,
+						refuse: UPLOAD_REFUSALS[422],
+						record: {
+							hash: seen.hash,
+							size: seen.size,
+							mtime: seen.entry.mtime,
+							ino: seen.entry.ino,
+							text: pointer,
+						},
+					};
 				}
 				const sealed = await seal(seen);
 				// Vanished while it was read: a missing file is a delete.
-				if (sealed === null) return saveOf({ path: seen.path, kind: 'absent' }, record);
+				if (sealed === null)
+					return saveOf({ path: seen.path, kind: 'absent' }, record);
 				if ('refused' in sealed) return sealed;
 				const pointer = writePointer(sealed);
 				// The sealed bytes are what goes in; if the file changed since it was hashed, its stat no longer matches, and the next look reads it.
-				const entry = sealed.oid === seen.hash ? seen.entry : { ...seen.entry, ino: 0 };
-				return { path: seen.path, text: pointer, over, record: { hash: sealed.oid, size: sealed.size, mtime: entry.mtime, ino: entry.ino, text: pointer } };
+				const entry =
+					sealed.oid === seen.hash ? seen.entry : { ...seen.entry, ino: 0 };
+				return {
+					path: seen.path,
+					text: pointer,
+					over,
+					record: {
+						hash: sealed.oid,
+						size: sealed.size,
+						mtime: entry.mtime,
+						ino: entry.ino,
+						text: pointer,
+					},
+				};
 			}
 		}
 	}
@@ -396,11 +558,20 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		const saves = found.flatMap((f) => (f.save === undefined ? [] : [f.save]));
 		driver.transaction(() => {
 			for (const save of saves) setRecord(save.path, save.record);
-			replica.writeAll(Object.fromEntries(saves.map((save) => [save.path, save.text])), {
-				over: Object.fromEntries(saves.map((save) => [save.path, save.over])),
-				refused: Object.fromEntries(found.flatMap((f) => (f.refused === undefined ? [] : [[f.path, f.refused]]))),
-			});
-			for (const save of saves) if (save.refuse !== undefined && save.record !== null) replica.refused(save.record.hash, save.refuse);
+			replica.writeAll(
+				Object.fromEntries(saves.map((save) => [save.path, save.text])),
+				{
+					over: Object.fromEntries(saves.map((save) => [save.path, save.over])),
+					refused: Object.fromEntries(
+						found.flatMap((f) =>
+							f.refused === undefined ? [] : [[f.path, f.refused]],
+						),
+					),
+				},
+			);
+			for (const save of saves)
+				if (save.refuse !== undefined && save.record !== null)
+					replica.refused(save.record.hash, save.refuse);
 		});
 	}
 
@@ -447,8 +618,19 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			}
 			if (disk === was) {
 				// The same as the record. A stat that moved (a touch), or one recorded within the racy window, is recorded again, so the next scan skips the file.
-				if (seen.kind !== 'absent' && record !== null && (record.mtime !== seen.entry.mtime || record.ino !== seen.entry.ino || seen.entry.mtime + RACY >= record.at))
-					setRecord(path, { ...record, mtime: seen.entry.mtime, ino: seen.entry.ino, size: seen.entry.size });
+				if (
+					seen.kind !== 'absent' &&
+					record !== null &&
+					(record.mtime !== seen.entry.mtime ||
+						record.ino !== seen.entry.ino ||
+						seen.entry.mtime + RACY >= record.at)
+				)
+					setRecord(path, {
+						...record,
+						mtime: seen.entry.mtime,
+						ino: seen.entry.ino,
+						size: seen.entry.size,
+					});
 				if (standing !== null) found.push({ path, was, ...release });
 				continue;
 			}
@@ -456,7 +638,18 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			if (disk === (mine === null ? null : hashOfMine(path, mine))) {
 				// The file is what the replica shows (a crash between a write and its record lands here): recorded, nothing saved.
 				driver.transaction(() =>
-					setRecord(path, seen.kind === 'absent' || mine === null ? null : { hash: disk as string, size: seen.entry.size, mtime: seen.entry.mtime, ino: seen.entry.ino, text: mine }),
+					setRecord(
+						path,
+						seen.kind === 'absent' || mine === null
+							? null
+							: {
+									hash: disk as string,
+									size: seen.entry.size,
+									mtime: seen.entry.mtime,
+									ino: seen.entry.ino,
+									text: mine,
+								},
+					),
 				);
 				if (standing !== null) found.push({ path, was, ...release });
 				continue;
@@ -486,8 +679,19 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		const there = await fs.stat(path);
 		if ((there === null) !== (record === null)) return hint([path]);
 		// RULE: the engine never makes a file whose path folds to another file's in the folder: it waits until that one is gone (renamed by the person, or the engine's own, removed).
-		if (there === null && mine !== null && (await spellingAt(path, listed)).twin) return;
-		if (there !== null && record !== null && (there.ino !== record.ino || there.size !== record.size || there.mtime !== record.mtime)) {
+		if (
+			there === null &&
+			mine !== null &&
+			(await spellingAt(path, listed)).twin
+		)
+			return;
+		if (
+			there !== null &&
+			record !== null &&
+			(there.ino !== record.ino ||
+				there.size !== record.size ||
+				there.mtime !== record.mtime)
+		) {
 			const seen = await look(path);
 			if (hashLooked(seen) !== record.hash) return hint([path]);
 		}
@@ -511,8 +715,22 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		if (mineAt(path) !== mine) return project(path, listed);
 		live();
 		const name = scratchName();
-		driver.run('INSERT INTO "epicenter/displaced" (name, path, hash, text, writing, removing) VALUES (?, ?, ?, ?, ?, ?)', [name, path, record?.hash ?? null, record?.text ?? null, mine, mine === null ? 1 : 0]);
-		const written = () => driver.run('UPDATE "epicenter/displaced" SET writing = NULL, removing = 0 WHERE name = ?', [name]);
+		driver.run(
+			'INSERT INTO "epicenter/displaced" (name, path, hash, text, writing, removing) VALUES (?, ?, ?, ?, ?, ?)',
+			[
+				name,
+				path,
+				record?.hash ?? null,
+				record?.text ?? null,
+				mine,
+				mine === null ? 1 : 0,
+			],
+		);
+		const written = () =>
+			driver.run(
+				'UPDATE "epicenter/displaced" SET writing = NULL, removing = 0 WHERE name = ?',
+				[name],
+			);
 		if (bytes === null) {
 			const removed = await fs.remove(path, { scratch: name });
 			if (removed.error !== null) {
@@ -539,7 +757,13 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		if (replaced.data.written) await listed.made(path);
 		if (replaced.data.written && entry !== null && mine !== null)
 			driver.transaction(() => {
-				setRecord(path, { hash: hashOfMine(path, mine), size: entry.size, mtime: entry.mtime, ino: entry.ino, text: mine });
+				setRecord(path, {
+					hash: hashOfMine(path, mine),
+					size: entry.size,
+					mtime: entry.mtime,
+					ino: entry.ino,
+					text: mine,
+				});
 				written();
 			});
 		else {
@@ -575,15 +799,31 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	}
 
 	/** Take a captured file's bytes in: a save if they are not what was expected there, which they become. */
-	async function ingestScratch(name: string, path: string, hash: string | null, over: string | null, bytes: Blob) {
+	async function ingestScratch(
+		name: string,
+		path: string,
+		hash: string | null,
+		over: string | null,
+		bytes: Blob,
+	) {
 		const { hash: held, size } = await hashOf(bytes);
 		if (held === hash) return;
 		/** Bytes the repository cannot take stay in scratch, named, for the person, and the replica holds the save refused at its path. */
 		const setAside = (why: string) => {
 			live();
 			driver.transaction(() => {
-				replica.writeAll({}, { refused: { [path]: `${why}: the save was set aside at ${OWN}/tmp/${name}` } });
-				driver.run('UPDATE "epicenter/displaced" SET hash = ? WHERE name = ?', [held, name]);
+				replica.writeAll(
+					{},
+					{
+						refused: {
+							[path]: `${why}: the save was set aside at ${OWN}/tmp/${name}`,
+						},
+					},
+				);
+				driver.run('UPDATE "epicenter/displaced" SET hash = ? WHERE name = ?', [
+					held,
+					name,
+				]);
 			});
 		};
 		let text: string;
@@ -594,7 +834,9 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 				return setAside(NOT_UTF8);
 			}
 		} else {
-			const sealed = await store.seal(bytes.stream() as ReadableStream<Uint8Array>);
+			const sealed = await store.seal(
+				bytes.stream() as ReadableStream<Uint8Array>,
+			);
 			if (sealed.error !== null) {
 				log?.warn(sealed.error);
 				return setAside(sealed.error.message);
@@ -604,14 +846,25 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		live();
 		driver.transaction(() => {
 			replica.writeAll({ [path]: text }, { over: { [path]: over } });
-			driver.run('UPDATE "epicenter/displaced" SET hash = ?, text = ? WHERE name = ?', [held, isNote(path) ? text : writePointer({ oid: held, size }), name]);
+			driver.run(
+				'UPDATE "epicenter/displaced" SET hash = ?, text = ? WHERE name = ?',
+				[held, isNote(path) ? text : writePointer({ oid: held, size }), name],
+			);
 		});
 		hint([path]);
 	}
 
 	/** Read a captured file once it is still: what it holds is a save if it is not what was expected; then it goes. */
 	async function recheck(name: string) {
-		const row = first<{ path: string; hash: string | null; text: string | null }>(driver, 'SELECT path, hash, text FROM "epicenter/displaced" WHERE name = ?', [name]);
+		const row = first<{
+			path: string;
+			hash: string | null;
+			text: string | null;
+		}>(
+			driver,
+			'SELECT path, hash, text FROM "epicenter/displaced" WHERE name = ?',
+			[name],
+		);
 		if (row === undefined) return;
 		const captured = await fs.readScratch(name);
 		const again = () => void after(quiet, () => enqueue(() => recheck(name)));
@@ -620,7 +873,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			if (now() - captured.mtime < quiet) return again();
 			await ingestScratch(name, row.path, row.hash, row.text, captured.bytes);
 			// Written into meanwhile: read again once it is still.
-			if ((await fs.readScratch(name))?.mtime !== captured.mtime) return again();
+			if ((await fs.readScratch(name))?.mtime !== captured.mtime)
+				return again();
 			// Bytes set aside stay where the person was told they are.
 			if (refusedAt(row.path)?.endsWith(`${OWN}/tmp/${name}`) === true) return;
 			await fs.drop(name);
@@ -632,29 +886,65 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	async function recover() {
 		const names = new Set(await fs.scratches());
 		// A write the record never heard of: if the file holds what the engine was writing, it is the engine's own, and recorded; if the capture happened and the file is another's, it was made over nothing (the rule in `project`).
-		for (const row of driver.all<{ name: string; path: string; writing: string | null; removing: number }>('SELECT name, path, writing, removing FROM "epicenter/displaced" WHERE writing IS NOT NULL OR removing = 1')) {
+		for (const row of driver.all<{
+			name: string;
+			path: string;
+			writing: string | null;
+			removing: number;
+		}>(
+			'SELECT name, path, writing, removing FROM "epicenter/displaced" WHERE writing IS NOT NULL OR removing = 1',
+		)) {
 			const seen = await look(row.path);
 			driver.transaction(() => {
-				if (row.removing === 1 && seen.kind === 'absent') setRecord(row.path, null);
-				else if (row.writing !== null && (seen.kind === 'note' || seen.kind === 'blob') && seen.hash === hashOfMine(row.path, row.writing))
-					setRecord(row.path, { hash: seen.hash, size: seen.entry.size, mtime: seen.entry.mtime, ino: seen.entry.ino, text: row.writing });
-				else if (names.has(row.name) && seen.kind !== 'absent') setRecord(row.path, null);
-				driver.run('UPDATE "epicenter/displaced" SET writing = NULL, removing = 0 WHERE name = ?', [row.name]);
+				if (row.removing === 1 && seen.kind === 'absent')
+					setRecord(row.path, null);
+				else if (
+					row.writing !== null &&
+					(seen.kind === 'note' || seen.kind === 'blob') &&
+					seen.hash === hashOfMine(row.path, row.writing)
+				)
+					setRecord(row.path, {
+						hash: seen.hash,
+						size: seen.entry.size,
+						mtime: seen.entry.mtime,
+						ino: seen.entry.ino,
+						text: row.writing,
+					});
+				else if (names.has(row.name) && seen.kind !== 'absent')
+					setRecord(row.path, null);
+				driver.run(
+					'UPDATE "epicenter/displaced" SET writing = NULL, removing = 0 WHERE name = ?',
+					[row.name],
+				);
 			});
 		}
-		const rows = driver.all<{ name: string; path: string; hash: string | null; text: string | null }>('SELECT name, path, hash, text FROM "epicenter/displaced"');
+		const rows = driver.all<{
+			name: string;
+			path: string;
+			hash: string | null;
+			text: string | null;
+		}>('SELECT name, path, hash, text FROM "epicenter/displaced"');
 		for (const row of rows) {
 			if (!names.has(row.name)) {
-				driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [row.name]);
+				driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [
+					row.name,
+				]);
 				continue;
 			}
-			if ((await fs.stat(row.path)) === null && (await fs.restore(row.name, row.path))) {
-				driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [row.name]);
+			if (
+				(await fs.stat(row.path)) === null &&
+				(await fs.restore(row.name, row.path))
+			) {
+				driver.run('DELETE FROM "epicenter/displaced" WHERE name = ?', [
+					row.name,
+				]);
 				continue;
 			}
 			await recheck(row.name);
 		}
-		for (const name of names) if (!rows.some((row) => row.name === name)) log?.warn(FolderDiagnostic.StrayScratch({ scratch: name }).error);
+		for (const name of names)
+			if (!rows.some((row) => row.name === name))
+				log?.warn(FolderDiagnostic.StrayScratch({ scratch: name }).error);
 	}
 
 	// --------------------------------------------------------------------------
@@ -663,9 +953,15 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 
 	/** Paths whose record and the replica's `mine` differ: what projection owes. */
 	const owedProjection = () => [
-		...driver.all<{ path: string }>('SELECT d.path FROM "epicenter/disk" d LEFT JOIN "epicenter/files" f ON f.path = d.path WHERE f.text IS NOT d.text').map((row) => row.path),
 		...driver
-			.all<{ path: string }>('SELECT f.path FROM "epicenter/files" f WHERE f.text IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "epicenter/disk" d WHERE d.path = f.path)')
+			.all<{ path: string }>(
+				'SELECT d.path FROM "epicenter/disk" d LEFT JOIN "epicenter/files" f ON f.path = d.path WHERE f.text IS NOT d.text',
+			)
+			.map((row) => row.path),
+		...driver
+			.all<{ path: string }>(
+				'SELECT f.path FROM "epicenter/files" f WHERE f.text IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "epicenter/disk" d WHERE d.path = f.path)',
+			)
 			.map((row) => row.path),
 	];
 
@@ -676,17 +972,29 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	 * visit, in a temporary table, not a set in memory.
 	 */
 	async function* scanned(): AsyncGenerator<string> {
-		driver.exec('CREATE TEMP TABLE IF NOT EXISTS "folder/visited" (path TEXT PRIMARY KEY)');
+		driver.exec(
+			'CREATE TEMP TABLE IF NOT EXISTS "folder/visited" (path TEXT PRIMARY KEY)',
+		);
 		driver.run('DELETE FROM temp."folder/visited"');
 		/** Entries walked and not yet looked at: a batch is recorded as visited in one write, then compared. */
 		let walked: Entry[] = [];
 		const compare = function* () {
 			driver.transaction(() => {
-				for (const entry of walked) driver.run('INSERT OR IGNORE INTO temp."folder/visited" (path) VALUES (?)', [entry.path]);
+				for (const entry of walked)
+					driver.run(
+						'INSERT OR IGNORE INTO temp."folder/visited" (path) VALUES (?)',
+						[entry.path],
+					);
 			});
 			for (const entry of walked) {
 				const record = recorded(entry.path);
-				const same = record !== null && entry.kind === 'file' && record.size === entry.size && record.mtime === entry.mtime && record.ino === entry.ino && entry.mtime + RACY < record.at;
+				const same =
+					record !== null &&
+					entry.kind === 'file' &&
+					record.size === entry.size &&
+					record.mtime === entry.mtime &&
+					record.ino === entry.ino &&
+					entry.mtime + RACY < record.at;
 				if (!same) yield entry.path;
 			}
 			walked = [];
@@ -697,10 +1005,16 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			if (walked.length >= BATCH) yield* compare();
 		}
 		yield* compare();
-		for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/disk" WHERE path NOT IN (SELECT path FROM temp."folder/visited")')) yield path;
+		for (const { path } of driver.all<{ path: string }>(
+			'SELECT path FROM "epicenter/disk" WHERE path NOT IN (SELECT path FROM temp."folder/visited")',
+		))
+			yield path;
 		driver.run('DELETE FROM temp."folder/visited"');
 		// Saves refused where they were found are looked at again: one renamed, removed or fixed can be taken.
-		for (const { path } of driver.all<{ path: string }>('SELECT path FROM "epicenter/refused"')) yield path;
+		for (const { path } of driver.all<{ path: string }>(
+			'SELECT path FROM "epicenter/refused"',
+		))
+			yield path;
 		yield* owedProjection();
 	}
 
@@ -774,15 +1088,25 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			if (now() - at < quiet) continue;
 			const entry = await fs.stat(path);
 			// RULE: a file modified within the last quiet window is still being written: it is read once it has been still for one.
-			if (entry !== null && entry.kind === 'file' && now() - entry.mtime < quiet) continue;
+			if (
+				entry !== null &&
+				entry.kind === 'file' &&
+				now() - entry.mtime < quiet
+			)
+				continue;
 			pending.delete(path);
 			if (entry?.kind === 'directory') {
-				for await (const inside of fs.walk(path, ignored)) if (inside.kind !== 'directory') ready.push(inside.path);
+				for await (const inside of fs.walk(path, ignored))
+					if (inside.kind !== 'directory') ready.push(inside.path);
 				// A file the directory took the place of is gone, as a scan finds it.
 				if (recorded(path) !== null) ready.push(path);
 			} else ready.push(path);
 			// A directory that moved or went: every record under it.
-			for (const { path: under } of driver.all<{ path: string }>('SELECT path FROM "epicenter/disk" WHERE path >= ? AND path < ?', [`${path}/`, `${path}0`])) ready.push(under);
+			for (const { path: under } of driver.all<{ path: string }>(
+				'SELECT path FROM "epicenter/disk" WHERE path >= ? AND path < ?',
+				[`${path}/`, `${path}0`],
+			))
+				ready.push(under);
 		}
 		if (ready.length > 0) await reconcile(ready);
 		if (pending.size > 0) arm(quiet);
@@ -790,7 +1114,10 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 
 	// What the replica changes is projected: the paths go through the same reconcile.
 	const unwatch = replica.watch((paths) => {
-		const owed = paths.filter((path) => !ignored(path) && mineAt(path) !== (recorded(path)?.text ?? null));
+		const owed = paths.filter(
+			(path) =>
+				!ignored(path) && mineAt(path) !== (recorded(path)?.text ?? null),
+		);
 		if (owed.length > 0) void enqueue(() => reconcile(owed));
 	});
 

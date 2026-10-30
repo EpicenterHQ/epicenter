@@ -16,9 +16,9 @@ import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
+import { createFolder } from './folder.js';
 import { scratchDirectory } from './native/directory.js';
 import { watchDirectory } from './native/watch.js';
-import { createFolder } from './folder.js';
 import { storageHost } from './storage.js';
 
 const roots: string[] = [];
@@ -40,7 +40,9 @@ test('refresh sees a same-size outside replacement without a hint', async () => 
 		primitives: nodeDirectoryPrimitives,
 		scratch: scratchDirectory(root),
 	});
-	const folder = expectOk(await createFolder(storageHost(storage), { tables: {} }));
+	const folder = expectOk(
+		await createFolder(storageHost(storage), { tables: {} }),
+	);
 	expect(folder.file('note.txt')?.data).toBe('old');
 	await writeFile(join(root, 'replacement'), 'new');
 	await utimes(join(root, 'replacement'), fixed, fixed);
@@ -48,7 +50,11 @@ test('refresh sees a same-size outside replacement without a hint', async () => 
 	await folder.refresh();
 	expect(folder.file('note.txt')?.data).toBe('new');
 	await writeFile(join(root, 'note.txt'), 'end');
-	await utimes(join(root, 'note.txt'), new Date(fixed.getTime() + 1000), new Date(fixed.getTime() + 1000));
+	await utimes(
+		join(root, 'note.txt'),
+		new Date(fixed.getTime() + 1000),
+		new Date(fixed.getTime() + 1000),
+	);
 	await folder.refresh();
 	expect(folder.file('note.txt')?.data).toBe('end');
 	await folder.close();
@@ -70,7 +76,9 @@ test('a native save leaves a stamp that refresh can reuse without reading', asyn
 		primitives,
 		scratch: scratchDirectory(root),
 	});
-	const folder = expectOk(await createFolder(storageHost(storage), { tables: {} }));
+	const folder = expectOk(
+		await createFolder(storageHost(storage), { tables: {} }),
+	);
 	expectOk(await folder.write('note.txt', 'saved'));
 	const before = reads;
 	await folder.refresh();

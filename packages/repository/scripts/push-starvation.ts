@@ -55,13 +55,21 @@ import { commitId, type LiveCommit } from '../src/core/commit.js';
 import { ATTRIBUTES } from '../src/core/door.js';
 import { type GitObjects, MAIN } from '../src/server/git-store.js';
 import { createMemoryGitStore } from '../src/server/memory-git.js';
-import { createServer, type Server, type Session } from '../src/server/server.js';
+import {
+	createServer,
+	type Server,
+	type Session,
+} from '../src/server/server.js';
 
 const minutes = Number(process.argv[2] ?? 20);
 const seeds = Number(process.argv[3] ?? 3);
 const peopleCounts = (process.argv[4] ?? '0,1,10').split(',').map(Number);
-const strategies = (process.argv[5] ?? 'retry,wait-flush,fetch-flush').split(',') as Strategy[];
-const profileNames = (process.argv[6] ?? 'instant,fast,typical,slow').split(',');
+const strategies = (process.argv[5] ?? 'retry,wait-flush,fetch-flush').split(
+	',',
+) as Strategy[];
+const profileNames = (process.argv[6] ?? 'instant,fast,typical,slow').split(
+	',',
+);
 const patterns = (process.argv[7] ?? 'steady').split(',') as Pattern[];
 
 type Strategy = 'retry' | 'wait-flush' | 'fetch-flush';
@@ -92,7 +100,11 @@ function createVirtualTime() {
 		while (low < high) {
 			const mid = (low + high) >> 1;
 			const other = timers[mid] as (typeof timers)[number];
-			if (other.at < timer.at || (other.at === timer.at && other.seq < timer.seq)) low = mid + 1;
+			if (
+				other.at < timer.at ||
+				(other.at === timer.at && other.seq < timer.seq)
+			)
+				low = mid + 1;
 			else high = mid;
 		}
 		timers.splice(low, 0, timer);
@@ -101,10 +113,14 @@ function createVirtualTime() {
 	return {
 		now: () => now,
 		at,
-		sleep: (ms: number) => new Promise<void>((resolve) => at(now + ms, resolve)),
+		sleep: (ms: number) =>
+			new Promise<void>((resolve) => at(now + ms, resolve)),
 		async run(until: number) {
 			await drain();
-			while (timers.length > 0 && (timers[0] as (typeof timers)[number]).at <= until) {
+			while (
+				timers.length > 0 &&
+				(timers[0] as (typeof timers)[number]).at <= until
+			) {
 				const timer = timers.shift() as (typeof timers)[number];
 				now = timer.at;
 				timer.fn();
@@ -143,12 +159,16 @@ function createWriter(index: number, random: () => number) {
 		/** One autosave's worth of typing: a few words, sometimes a new paragraph or an edit mid-note. */
 		edit() {
 			const roll = random();
-			if (roll < 0.1) paragraphs.push(`${word()[0]?.toUpperCase()}${word().slice(1)}`);
+			if (roll < 0.1)
+				paragraphs.push(`${word()[0]?.toUpperCase()}${word().slice(1)}`);
 			else if (roll < 0.2 && paragraphs.length > 1) {
 				const at = Math.floor(random() * (paragraphs.length - 1));
 				paragraphs[at] = (paragraphs[at] as string).replace(/\b\w+\b/, word());
 			}
-			const words = Array.from({ length: 3 + Math.floor(random() * 10) }, word).join(' ');
+			const words = Array.from(
+				{ length: 3 + Math.floor(random() * 10) },
+				word,
+			).join(' ');
 			paragraphs[paragraphs.length - 1] += ` ${words}`;
 			if (random() < 0.15) paragraphs[paragraphs.length - 1] += '.';
 			while (paragraphs.join('\n\n').length > 4_000) paragraphs.shift();
@@ -161,20 +181,43 @@ function createWriter(index: number, random: () => number) {
 // One run
 // ============================================================================
 
-type Attempt = { at: number; answer: 'accepted' | 'pending' | 'landed' | 'main-moved' | string; merged?: boolean; oid?: string };
-type LogicalPush = { started: number; attempts: Attempt[]; landed: number | null };
+type Attempt = {
+	at: number;
+	answer: 'accepted' | 'pending' | 'landed' | 'main-moved' | string;
+	merged?: boolean;
+	oid?: string;
+};
+type LogicalPush = {
+	started: number;
+	attempts: Attempt[];
+	landed: number | null;
+};
 
-async function runOnce({ people, strategy, profile, pattern, seed }: { people: number; strategy: Strategy; profile: Profile; pattern: Pattern; seed: number }) {
+async function runOnce({
+	people,
+	strategy,
+	profile,
+	pattern,
+	seed,
+}: {
+	people: number;
+	strategy: Strategy;
+	profile: Profile;
+	pattern: Pattern;
+	seed: number;
+}) {
 	const random = mulberry32(seed * 7919 + people * 31 + strategy.length);
 	const exponential = (mean: number) => -mean * Math.log(1 - random());
 	const vt = createVirtualTime();
 	const raw = createMemoryGitStore();
 	let readCommits = 0;
 	// The server's Git: every call costs `profile.git` of virtual time.
-	const slow = <A extends unknown[], R>(fn: (...args: A) => Promise<R>) => async (...args: A) => {
-		await vt.sleep(profile.git);
-		return fn(...args);
-	};
+	const slow =
+		<A extends unknown[], R>(fn: (...args: A) => Promise<R>) =>
+		async (...args: A) => {
+			await vt.sleep(profile.git);
+			return fn(...args);
+		};
 	const git: GitObjects = {
 		readRef: slow(raw.readRef),
 		readCommit: slow(async (oid: string) => {
@@ -216,7 +259,14 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 	const agentPath = 'agent/log.md';
 	const agentSession: Session = { user: 'agent', role: 'writer' };
 	{
-		const body = { parent: server.main(), author: { user: 'agent', device: 'cli' }, time: iso(), files: [{ path: agentPath, text: '---\ntitle: Agent log\n---\nStarted.\n' }] };
+		const body = {
+			parent: server.main(),
+			author: { user: 'agent', device: 'cli' },
+			time: iso(),
+			files: [
+				{ path: agentPath, text: '---\ntitle: Agent log\n---\nStarted.\n' },
+			],
+		};
 		server.push({ id: commitId(body), ...body }, agentSession);
 	}
 	const seeded = server.flush();
@@ -229,8 +279,12 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 		const writer = createWriter(i, random);
 		const session: Session = { user: `person-${i}`, role: 'writer' };
 		let parent = server.main();
-		let typingUntil = pattern === 'steady' || random() < 1 / 3 ? Number.POSITIVE_INFINITY : vt.now() - 1;
-		if (pattern === 'bursty' && typingUntil === Number.POSITIVE_INFINITY) typingUntil = vt.now() + exponential(60_000);
+		let typingUntil =
+			pattern === 'steady' || random() < 1 / 3
+				? Number.POSITIVE_INFINITY
+				: vt.now() - 1;
+		if (pattern === 'bursty' && typingUntil === Number.POSITIVE_INFINITY)
+			typingUntil = vt.now() + exponential(60_000);
 		const save = () => {
 			if (vt.now() >= end) return;
 			if (vt.now() > typingUntil) {
@@ -244,7 +298,12 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 				});
 				return;
 			}
-			const body = { parent, author: { user: session.user, device: 'laptop' }, time: iso(), files: [{ path: writer.path, text: writer.edit() }] };
+			const body = {
+				parent,
+				author: { user: session.user, device: 'laptop' },
+				time: iso(),
+				files: [{ path: writer.path, text: writer.edit() }],
+			};
 			const commit: LiveCommit = { id: commitId(body), ...body };
 			const answer = server.push(commit, session);
 			if (answer.kind === 'applied' || answer.kind === 'merged') {
@@ -267,22 +326,42 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 		const old = await raw.readRef(MAIN);
 		await vt.sleep(profile.fetch / 2);
 		// Rebase: the pusher's line on Git's main as fetched.
-		const tree = await raw.readTree((await raw.readCommit(old as string))?.tree as string);
+		const tree = await raw.readTree(
+			(await raw.readCommit(old as string))?.tree as string,
+		);
 		const entry = tree.get(agentPath);
-		const before = entry === undefined ? '---\ntitle: Agent log\n---\n' : decoder.decode((await raw.readBlob(entry.oid)) ?? new Uint8Array());
-		tree.set(agentPath, { mode: '100644', oid: await raw.writeBlob(encoder.encode(`${before}${lineText}\n`)) });
-		const next = await raw.writeCommit({ tree: await raw.writeTree(tree), parents: [old as string], message: `${lineText}\n`, author: { name: 'agent', email: 'agent@example.com' }, at: new Date(vt.now()) });
+		const before =
+			entry === undefined
+				? '---\ntitle: Agent log\n---\n'
+				: decoder.decode((await raw.readBlob(entry.oid)) ?? new Uint8Array());
+		tree.set(agentPath, {
+			mode: '100644',
+			oid: await raw.writeBlob(encoder.encode(`${before}${lineText}\n`)),
+		});
+		const next = await raw.writeCommit({
+			tree: await raw.writeTree(tree),
+			parents: [old as string],
+			message: `${lineText}\n`,
+			author: { name: 'agent', email: 'agent@example.com' },
+			at: new Date(vt.now()),
+		});
 		await vt.sleep(profile.upload);
 		const reads = readCommits;
 		const answer = await server.receive({ ref: MAIN, old, next }, agentSession);
 		await vt.sleep(profile.fetch / 2);
-		if (answer.kind === 'accepted') return { answer: 'accepted', merged: answer.merged, oid: next };
-		if ((answer.code as string) === 'unflushed') return { answer: readCommits > reads ? 'landed' : 'pending' };
+		if (answer.kind === 'accepted')
+			return { answer: 'accepted', merged: answer.merged, oid: next };
+		if ((answer.code as string) === 'unflushed')
+			return { answer: readCommits > reads ? 'landed' : 'pending' };
 		return { answer: answer.code };
 	}
 	(async () => {
 		while (vt.now() < end) {
-			const push: LogicalPush = { started: vt.now(), attempts: [], landed: null };
+			const push: LogicalPush = {
+				started: vt.now(),
+				attempts: [],
+				landed: null,
+			};
 			pushes.push(push);
 			const lineText = `Step ${++line} done.`;
 			while (vt.now() < end) {
@@ -294,7 +373,11 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 					break;
 				}
 				if (strategy === 'retry') await vt.sleep(BACKOFF);
-				else if (strategy === 'wait-flush' && (answer === 'pending' || answer === 'landed')) await server.idle();
+				else if (
+					strategy === 'wait-flush' &&
+					(answer === 'pending' || answer === 'landed')
+				)
+					await server.idle();
 			}
 			if (push.landed === null) break;
 			await vt.sleep(3_000 + random() * 5_000);
@@ -303,7 +386,10 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 	await vt.run(end);
 	const flushes = server.history().flushes;
 	// What was measured stops at `end`; an attempt still in flight may finish during the check below and is not counted.
-	const measured = pushes.map((push) => ({ ...push, attempts: [...push.attempts] }));
+	const measured = pushes.map((push) => ({
+		...push,
+		attempts: [...push.attempts],
+	}));
 	// History check: flush what is left, then every landed push is in Git's history and Git's main holds the live tree.
 	const final = server.flush();
 	await vt.run(end + 600_000);
@@ -316,11 +402,24 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 		reachable.add(oid);
 		stack.push(...((await raw.readCommit(oid))?.parents ?? []));
 	}
-	const landedOids = pushes.flatMap((push) => push.attempts.filter((a) => a.answer === 'accepted').map((a) => a.oid as string));
+	const landedOids = pushes.flatMap((push) =>
+		push.attempts
+			.filter((a) => a.answer === 'accepted')
+			.map((a) => a.oid as string),
+	);
 	const gitTexts = new Map<string, string>();
-	for (const [path, entry] of await raw.readTree((await raw.readCommit(head))?.tree as string)) gitTexts.set(path, decoder.decode((await raw.readBlob(entry.oid)) ?? new Uint8Array()));
+	for (const [path, entry] of await raw.readTree(
+		(await raw.readCommit(head))?.tree as string,
+	))
+		gitTexts.set(
+			path,
+			decoder.decode((await raw.readBlob(entry.oid)) ?? new Uint8Array()),
+		);
 	const live = new Map([['.gitattributes', ATTRIBUTES], ...server.snapshot()]);
-	const historyOk = landedOids.every((oid) => reachable.has(oid)) && gitTexts.size === live.size && [...live].every(([path, text]) => gitTexts.get(path) === text);
+	const historyOk =
+		landedOids.every((oid) => reachable.has(oid)) &&
+		gitTexts.size === live.size &&
+		[...live].every(([path, text]) => gitTexts.get(path) === text);
 	return { pushes: measured, saves, saveRefusals, flushes, end, historyOk };
 }
 
@@ -331,45 +430,64 @@ async function runOnce({ people, strategy, profile, pattern, seed }: { people: n
 const quantile = (values: number[], q: number) => {
 	if (values.length === 0) return NaN;
 	const sorted = [...values].sort((a, b) => a - b);
-	return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] as number;
+	return sorted[
+		Math.min(sorted.length - 1, Math.floor(q * sorted.length))
+	] as number;
 };
-const s = (ms: number) => (Number.isNaN(ms) ? '-' : `${(ms / 1000).toFixed(1)}s`);
+const s = (ms: number) =>
+	Number.isNaN(ms) ? '-' : `${(ms / 1000).toFixed(1)}s`;
 
-console.log(`push starvation: ${minutes} virtual minutes per run, ${seeds} seeds, schedule 60 s quiet / 5 min busy\n`);
-console.log('| people | pattern | strategy | profile | pushes landed | attempts | accepted/attempt | merged | retries to land p50/p90/max | time to land p50/p90/max | stuck at end (age) | refusals pending/landed/main-moved/other | saves | Git commits written | history ok |');
+console.log(
+	`push starvation: ${minutes} virtual minutes per run, ${seeds} seeds, schedule 60 s quiet / 5 min busy\n`,
+);
+console.log(
+	'| people | pattern | strategy | profile | pushes landed | attempts | accepted/attempt | merged | retries to land p50/p90/max | time to land p50/p90/max | stuck at end (age) | refusals pending/landed/main-moved/other | saves | Git commits written | history ok |',
+);
 console.log('|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
 const started = performance.now();
 for (const people of peopleCounts)
 	for (const pattern of patterns)
-	for (const strategy of strategies)
-		for (const name of profileNames) {
-			const profile = PROFILES[name] as Profile;
-			const all: LogicalPush[] = [];
-			let saves = 0;
-			let saveRefusals = 0;
-			let flushes = 0;
-			let historyOk = true;
-			const ends: number[] = [];
-			for (let seed = 1; seed <= seeds; seed++) {
-				const run = await runOnce({ people, strategy, profile, pattern, seed });
-				all.push(...run.pushes);
-				saves += run.saves;
-				saveRefusals += run.saveRefusals;
-				flushes += run.flushes;
-				historyOk &&= run.historyOk;
-				ends.push(run.end);
+		for (const strategy of strategies)
+			for (const name of profileNames) {
+				const profile = PROFILES[name] as Profile;
+				const all: LogicalPush[] = [];
+				let saves = 0;
+				let saveRefusals = 0;
+				let flushes = 0;
+				let historyOk = true;
+				const ends: number[] = [];
+				for (let seed = 1; seed <= seeds; seed++) {
+					const run = await runOnce({
+						people,
+						strategy,
+						profile,
+						pattern,
+						seed,
+					});
+					all.push(...run.pushes);
+					saves += run.saves;
+					saveRefusals += run.saveRefusals;
+					flushes += run.flushes;
+					historyOk &&= run.historyOk;
+					ends.push(run.end);
+				}
+				const landed = all.filter((push) => push.landed !== null);
+				const stuck = all.filter((push) => push.landed === null);
+				const attempts = all.flatMap((push) => push.attempts);
+				const count = (answer: string) =>
+					attempts.filter((a) => a.answer === answer).length;
+				const other = attempts.filter(
+					(a) =>
+						!['accepted', 'pending', 'landed', 'main-moved'].includes(a.answer),
+				).length;
+				const retries = landed.map((push) => push.attempts.length - 1);
+				const times = landed.map(
+					(push) => (push.landed as number) - push.started,
+				);
+				const end = ends[0] as number;
+				const stuckAges = stuck.map((push) => end - push.started);
+				console.log(
+					`| ${people} | ${pattern} | ${strategy} | ${name} | ${landed.length}/${all.length} | ${attempts.length} | ${((100 * count('accepted')) / Math.max(1, attempts.length)).toFixed(1)}% | ${attempts.filter((a) => a.merged === true).length} | ${quantile(retries, 0.5)}/${quantile(retries, 0.9)}/${retries.length === 0 ? '-' : Math.max(...retries)} | ${s(quantile(times, 0.5))}/${s(quantile(times, 0.9))}/${s(times.length === 0 ? NaN : Math.max(...times))} | ${stuck.length}${stuck.length > 0 ? ` (${stuckAges.map((age) => s(age)).join(', ')})` : ''} | ${count('pending')}/${count('landed')}/${count('main-moved')}/${other} | ${saves}${saveRefusals > 0 ? ` (${saveRefusals} refused)` : ''} | ${flushes} | ${historyOk ? 'yes' : 'NO'} |`,
+				);
 			}
-			const landed = all.filter((push) => push.landed !== null);
-			const stuck = all.filter((push) => push.landed === null);
-			const attempts = all.flatMap((push) => push.attempts);
-			const count = (answer: string) => attempts.filter((a) => a.answer === answer).length;
-			const other = attempts.filter((a) => !['accepted', 'pending', 'landed', 'main-moved'].includes(a.answer)).length;
-			const retries = landed.map((push) => push.attempts.length - 1);
-			const times = landed.map((push) => (push.landed as number) - push.started);
-			const end = ends[0] as number;
-			const stuckAges = stuck.map((push) => end - push.started);
-			console.log(
-				`| ${people} | ${pattern} | ${strategy} | ${name} | ${landed.length}/${all.length} | ${attempts.length} | ${((100 * count('accepted')) / Math.max(1, attempts.length)).toFixed(1)}% | ${attempts.filter((a) => a.merged === true).length} | ${quantile(retries, 0.5)}/${quantile(retries, 0.9)}/${retries.length === 0 ? '-' : Math.max(...retries)} | ${s(quantile(times, 0.5))}/${s(quantile(times, 0.9))}/${s(times.length === 0 ? NaN : Math.max(...times))} | ${stuck.length}${stuck.length > 0 ? ` (${stuckAges.map((age) => s(age)).join(', ')})` : ''} | ${count('pending')}/${count('landed')}/${count('main-moved')}/${other} | ${saves}${saveRefusals > 0 ? ` (${saveRefusals} refused)` : ''} | ${flushes} | ${historyOk ? 'yes' : 'NO'} |`,
-			);
-		}
 console.log(`\n(${((performance.now() - started) / 1000).toFixed(1)} s wall)`);

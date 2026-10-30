@@ -58,7 +58,17 @@ export type Stored = {
 	blocks: boolean;
 };
 
-type Row = { id: string; place: number | null; parents: string; user: string; device: string; time: string; at: number; tree: string; blocks: number };
+type Row = {
+	id: string;
+	place: number | null;
+	parents: string;
+	user: string;
+	device: string;
+	time: string;
+	at: number;
+	tree: string;
+	blocks: number;
+};
 
 const fromRow = (row: Row): Stored => ({
 	id: row.id,
@@ -72,14 +82,31 @@ const fromRow = (row: Row): Stored => ({
 });
 
 /** Whether the server holds a pointer's bytes, at its size: a pointer is admitted only then. */
-export const holdsBlob = (store: SqlDriver, { oid, size }: LfsPointer) => first(store, 'SELECT 1 FROM uploads WHERE oid = ? AND size = ?', [oid, size]) !== undefined;
+export const holdsBlob = (store: SqlDriver, { oid, size }: LfsPointer) =>
+	first(store, 'SELECT 1 FROM uploads WHERE oid = ? AND size = ?', [
+		oid,
+		size,
+	]) !== undefined;
 
 export function openHistory(store: SqlDriver) {
 	// Presence before sizes were recorded (phase 8) admits nothing at a size, so it starts again.
-	if (store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'oid') && !store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'size')) store.exec('DROP TABLE uploads');
+	if (
+		store
+			.all<{ name: string }>('PRAGMA table_info(uploads)')
+			.some((column) => column.name === 'oid') &&
+		!store
+			.all<{ name: string }>('PRAGMA table_info(uploads)')
+			.some((column) => column.name === 'size')
+	)
+		store.exec('DROP TABLE uploads');
 	store.exec(SCHEMA);
 	// Where a pushed blob that lost landed (phase 9g), so a retry's answer names it too.
-	if (!store.all<{ name: string }>('PRAGMA table_info(received)').some((column) => column.name === 'siblings')) store.exec('ALTER TABLE received ADD COLUMN siblings TEXT');
+	if (
+		!store
+			.all<{ name: string }>('PRAGMA table_info(received)')
+			.some((column) => column.name === 'siblings')
+	)
+		store.exec('ALTER TABLE received ADD COLUMN siblings TEXT');
 
 	// Tree nodes: cached once read or written, stored once.
 	const cache = new Map<string, Map<string, TreeEntry>>();
@@ -87,7 +114,11 @@ export function openHistory(store: SqlDriver) {
 		get(hash) {
 			const cached = cache.get(hash);
 			if (cached !== undefined) return cached;
-			const row = first<{ entries: string }>(store, 'SELECT entries FROM nodes WHERE hash = ?', [hash]);
+			const row = first<{ entries: string }>(
+				store,
+				'SELECT entries FROM nodes WHERE hash = ?',
+				[hash],
+			);
 			if (row === undefined) return undefined;
 			const entries = new Map(JSON.parse(row.entries) as [string, TreeEntry][]);
 			cache.set(hash, entries);
@@ -96,21 +127,37 @@ export function openHistory(store: SqlDriver) {
 		set(hash, entries) {
 			if (cache.has(hash)) return;
 			cache.set(hash, entries);
-			store.run('INSERT OR IGNORE INTO nodes (hash, entries) VALUES (?, ?)', [hash, JSON.stringify([...entries])]);
+			store.run('INSERT OR IGNORE INTO nodes (hash, entries) VALUES (?, ?)', [
+				hash,
+				JSON.stringify([...entries]),
+			]);
 		},
 	};
 	const trees = createTreeStore(nodes);
 
 	const meta = {
-		get: (key: string) => first<{ value: string }>(store, 'SELECT value FROM meta WHERE key = ?', [key])?.value ?? null,
-		set: (key: string, value: string | number) => store.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [key, String(value)]),
+		get: (key: string) =>
+			first<{ value: string }>(store, 'SELECT value FROM meta WHERE key = ?', [
+				key,
+			])?.value ?? null,
+		set: (key: string, value: string | number) =>
+			store.run('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)', [
+				key,
+				String(value),
+			]),
 		number: (key: string) => Number(meta.get(key) ?? 0),
 	};
 
-	const blob = (hash: string) => first<{ text: string }>(store, 'SELECT text FROM blobs WHERE hash = ?', [hash])?.text ?? null;
+	const blob = (hash: string) =>
+		first<{ text: string }>(store, 'SELECT text FROM blobs WHERE hash = ?', [
+			hash,
+		])?.text ?? null;
 	const keep = (text: string) => {
 		const hash = gitBlobHash(text);
-		store.run('INSERT OR IGNORE INTO blobs (hash, text) VALUES (?, ?)', [hash, text]);
+		store.run('INSERT OR IGNORE INTO blobs (hash, text) VALUES (?, ?)', [
+			hash,
+			text,
+		]);
 		return hash;
 	};
 
@@ -119,24 +166,29 @@ export function openHistory(store: SqlDriver) {
 		return row === undefined ? null : fromRow(row);
 	};
 	const at = (place: number) => {
-		const row = first<Row>(store, 'SELECT * FROM commits WHERE place = ?', [place]);
+		const row = first<Row>(store, 'SELECT * FROM commits WHERE place = ?', [
+			place,
+		]);
 		if (row === undefined) throw new Error(`no commit at place ${place}`);
 		return fromRow(row);
 	};
 	const top = () => meta.number('top');
 	const insert = (stored: Stored, mergedInto: string | null = null) =>
-		store.run('INSERT OR REPLACE INTO commits (id, place, parents, user, device, time, at, tree, blocks, merged_into) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
-			stored.id,
-			stored.place,
-			JSON.stringify(stored.parents),
-			stored.author.user,
-			stored.author.device,
-			stored.time,
-			stored.at,
-			stored.tree,
-			stored.blocks ? 1 : 0,
-			mergedInto,
-		]);
+		store.run(
+			'INSERT OR REPLACE INTO commits (id, place, parents, user, device, time, at, tree, blocks, merged_into) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+			[
+				stored.id,
+				stored.place,
+				JSON.stringify(stored.parents),
+				stored.author.user,
+				stored.author.device,
+				stored.time,
+				stored.at,
+				stored.tree,
+				stored.blocks ? 1 : 0,
+				mergedInto,
+			],
+		);
 
 	const textIn = (tree: string, path: string) => {
 		const hash = trees.read(tree, path);
@@ -157,7 +209,12 @@ export function openHistory(store: SqlDriver) {
 		offset: () => meta.number('offset'),
 		main: () => at(top()),
 		/** A commit's place on `main`, or undefined when it is not on `main` or was pruned. */
-		placeOf: (id: string) => first<{ place: number | null }>(store, 'SELECT place FROM commits WHERE id = ?', [id])?.place ?? undefined,
+		placeOf: (id: string) =>
+			first<{ place: number | null }>(
+				store,
+				'SELECT place FROM commits WHERE id = ?',
+				[id],
+			)?.place ?? undefined,
 		/**
 		 * What a commit on `id` is merged against: its tree, and the place on
 		 * `main` after which changes are its writer's news (its own place, or
@@ -165,22 +222,56 @@ export function openHistory(store: SqlDriver) {
 		 * history no longer keeps it.
 		 */
 		baseOf(id: string): { from: number; tree: string } | undefined {
-			const row = first<{ place: number | null; tree: string; merged_into: string | null }>(store, 'SELECT place, tree, merged_into FROM commits WHERE id = ?', [id]);
+			const row = first<{
+				place: number | null;
+				tree: string;
+				merged_into: string | null;
+			}>(store, 'SELECT place, tree, merged_into FROM commits WHERE id = ?', [
+				id,
+			]);
 			if (row === undefined) return undefined;
 			if (row.place !== null) return { from: row.place, tree: row.tree };
-			const into = row.merged_into === null ? undefined : first<{ place: number | null }>(store, 'SELECT place FROM commits WHERE id = ?', [row.merged_into])?.place;
-			return into === undefined || into === null ? undefined : { from: into, tree: row.tree };
+			const into =
+				row.merged_into === null
+					? undefined
+					: first<{ place: number | null }>(
+							store,
+							'SELECT place FROM commits WHERE id = ?',
+							[row.merged_into],
+						)?.place;
+			return into === undefined || into === null
+				? undefined
+				: { from: into, tree: row.tree };
 		},
 		textIn,
 		/** Was `path` deleted on `main` after place `from`? */
-		deletedSince: (from: number, path: string) => first(store, 'SELECT 1 FROM deletes WHERE path = ? AND place > ? LIMIT 1', [path, from]) !== undefined,
+		deletedSince: (from: number, path: string) =>
+			first(
+				store,
+				'SELECT 1 FROM deletes WHERE path = ? AND place > ? LIMIT 1',
+				[path, from],
+			) !== undefined,
 		/** The ids on `main` after place `from`, through place `to`. */
 		idsAfter: (from: number, to = top()) =>
-			store.all<{ id: string }>('SELECT id FROM commits WHERE place > ? AND place <= ? ORDER BY place', [from, to]).map((row) => row.id),
+			store
+				.all<{ id: string }>(
+					'SELECT id FROM commits WHERE place > ? AND place <= ? ORDER BY place',
+					[from, to],
+				)
+				.map((row) => row.id),
 		/** `main`'s spelling of a path, by its folded identity. */
-		spelling: (path: string) => first<{ path: string }>(store, 'SELECT path FROM spellings WHERE folded = ?', [fold(path)])?.path ?? null,
+		spelling: (path: string) =>
+			first<{ path: string }>(
+				store,
+				'SELECT path FROM spellings WHERE folded = ?',
+				[fold(path)],
+			)?.path ?? null,
 		lastAuthor: (path: string): Author | null => {
-			const row = first<{ user: string; device: string }>(store, 'SELECT user, device FROM authors WHERE path = ?', [path]);
+			const row = first<{ user: string; device: string }>(
+				store,
+				'SELECT user, device FROM authors WHERE path = ?',
+				[path],
+			);
 			return row === undefined ? null : { user: row.user, device: row.device };
 		},
 		/** Start history with a root commit whose tree is `tree`. */
@@ -188,7 +279,11 @@ export function openHistory(store: SqlDriver) {
 			insert({ ...stored, place: 0 });
 			meta.set('top', 0);
 			meta.set('offset', 0);
-			for (const path of trees.diff(trees.empty, stored.tree)) store.run('INSERT OR REPLACE INTO spellings (folded, path) VALUES (?, ?)', [fold(path), path]);
+			for (const path of trees.diff(trees.empty, stored.tree))
+				store.run(
+					'INSERT OR REPLACE INTO spellings (folded, path) VALUES (?, ?)',
+					[fold(path), path],
+				);
 		},
 		/**
 		 * Put a commit on `main`: its tree, the paths it changed and deleted,
@@ -199,10 +294,17 @@ export function openHistory(store: SqlDriver) {
 			const before = at(top());
 			const tree = trees.update(
 				before.tree,
-				files.map((f) => [f.path.split('/'), f.text === null ? null : keep(f.text)]),
+				files.map((f) => [
+					f.path.split('/'),
+					f.text === null ? null : keep(f.text),
+				]),
 			);
 			const changed = files
-				.map((f) => ({ path: f.path, before: textIn(before.tree, f.path), after: f.text }))
+				.map((f) => ({
+					path: f.path,
+					before: textIn(before.tree, f.path),
+					after: f.text,
+				}))
 				.filter((f) => f.before !== f.after);
 			const place = top() + 1;
 			insert({ ...stored, place, tree });
@@ -210,15 +312,29 @@ export function openHistory(store: SqlDriver) {
 			meta.set('made', meta.number('made') + 1);
 			for (const { path, after } of changed) {
 				if (after === null) {
-					store.run('INSERT OR IGNORE INTO deletes (path, place) VALUES (?, ?)', [path, place]);
+					store.run(
+						'INSERT OR IGNORE INTO deletes (path, place) VALUES (?, ?)',
+						[path, place],
+					);
 					store.run('DELETE FROM spellings WHERE folded = ?', [fold(path)]);
-				} else store.run('INSERT OR REPLACE INTO spellings (folded, path) VALUES (?, ?)', [fold(path), path]);
-				store.run('INSERT OR REPLACE INTO authors (path, user, device) VALUES (?, ?, ?)', [path, stored.author.user, stored.author.device]);
+				} else
+					store.run(
+						'INSERT OR REPLACE INTO spellings (folded, path) VALUES (?, ?)',
+						[fold(path), path],
+					);
+				store.run(
+					'INSERT OR REPLACE INTO authors (path, user, device) VALUES (?, ?, ?)',
+					[path, stored.author.user, stored.author.device],
+				);
 			}
 			return { tree, changed };
 		},
 		/** Keep a device's commit that a merge takes in as its second parent. */
-		keepSide(stored: Omit<Stored, 'place'>, mergedInto: string, files: CommitFile[]) {
+		keepSide(
+			stored: Omit<Stored, 'place'>,
+			mergedInto: string,
+			files: CommitFile[],
+		) {
 			for (const f of files) if (f.text !== null) keep(f.text);
 			insert({ ...stored, place: null }, mergedInto);
 		},
@@ -226,7 +342,10 @@ export function openHistory(store: SqlDriver) {
 		pruneBefore(keep: number) {
 			const offset = meta.number('offset');
 			if (keep <= offset) return;
-			store.run('DELETE FROM commits WHERE merged_into IN (SELECT id FROM commits WHERE place < ?)', [keep]);
+			store.run(
+				'DELETE FROM commits WHERE merged_into IN (SELECT id FROM commits WHERE place < ?)',
+				[keep],
+			);
 			store.run('DELETE FROM commits WHERE place < ?', [keep]);
 			store.run('DELETE FROM deletes WHERE place < ?', [keep]);
 			meta.set('offset', keep);
@@ -248,17 +367,31 @@ export function openHistory(store: SqlDriver) {
 				}
 			};
 			walk(trees.empty);
-			for (const { tree } of store.all<{ tree: string }>('SELECT DISTINCT tree FROM commits')) walk(tree);
+			for (const { tree } of store.all<{ tree: string }>(
+				'SELECT DISTINCT tree FROM commits',
+			))
+				walk(tree);
 			for (const tree of roots) walk(tree);
-			for (const { hash } of store.all<{ hash: string }>('SELECT hash FROM nodes'))
+			for (const { hash } of store.all<{ hash: string }>(
+				'SELECT hash FROM nodes',
+			))
 				if (!reached.has(hash)) {
 					store.run('DELETE FROM nodes WHERE hash = ?', [hash]);
 					cache.delete(hash);
 				}
-			for (const { hash } of store.all<{ hash: string }>('SELECT hash FROM blobs')) if (!texts.has(hash)) store.run('DELETE FROM blobs WHERE hash = ?', [hash]);
+			for (const { hash } of store.all<{ hash: string }>(
+				'SELECT hash FROM blobs',
+			))
+				if (!texts.has(hash))
+					store.run('DELETE FROM blobs WHERE hash = ?', [hash]);
 		},
 		/** The newest place whose commit is older than `cutoff`, or -1. */
-		newestBefore: (cutoff: number) => first<{ place: number | null }>(store, 'SELECT MAX(place) AS place FROM commits WHERE place IS NOT NULL AND at < ?', [cutoff])?.place ?? -1,
+		newestBefore: (cutoff: number) =>
+			first<{ place: number | null }>(
+				store,
+				'SELECT MAX(place) AS place FROM commits WHERE place IS NOT NULL AND at < ?',
+				[cutoff],
+			)?.place ?? -1,
 	};
 }
 export type History = ReturnType<typeof openHistory>;

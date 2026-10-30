@@ -13,7 +13,11 @@ export function startGate(upstream: string) {
 	requests.protocol = requests.protocol.replace(/^ws/, 'http');
 	let open = true;
 	let dropReply = false;
-	type Data = { target: string; upstream?: WebSocket; buffered: (string | Buffer)[] };
+	type Data = {
+		target: string;
+		upstream?: WebSocket;
+		buffered: (string | Buffer)[];
+	};
 	const clients = new Set<Bun.ServerWebSocket<Data>>();
 	const server = Bun.serve<Data>({
 		hostname: '127.0.0.1',
@@ -23,14 +27,29 @@ export function startGate(upstream: string) {
 			const { pathname, search } = new URL(request.url);
 			if (request.headers.get('upgrade')?.toLowerCase() === 'websocket') {
 				const target = new URL(`${pathname}${search}`, sockets);
-				if (server.upgrade(request, { data: { target: target.href, buffered: [] } })) return undefined;
+				if (
+					server.upgrade(request, {
+						data: { target: target.href, buffered: [] },
+					})
+				)
+					return undefined;
 				return new Response('Expected a WebSocket upgrade', { status: 426 });
 			}
 			const headers = new Headers(request.headers);
 			headers.delete('host');
-			const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
-			const answered = await fetch(new URL(`${pathname}${search}`, requests), { method: request.method, headers, body });
-			return new Response(answered.body, { status: answered.status, headers: answered.headers });
+			const body =
+				request.method === 'GET' || request.method === 'HEAD'
+					? undefined
+					: await request.arrayBuffer();
+			const answered = await fetch(new URL(`${pathname}${search}`, requests), {
+				method: request.method,
+				headers,
+				body,
+			});
+			return new Response(answered.body, {
+				status: answered.status,
+				headers: answered.headers,
+			});
 		},
 		websocket: {
 			open(client) {
@@ -38,12 +57,18 @@ export function startGate(upstream: string) {
 				const socket = new WebSocket(client.data.target);
 				client.data.upstream = socket;
 				socket.onopen = () => {
-					for (const frame of client.data.buffered.splice(0)) socket.send(frame);
+					for (const frame of client.data.buffered.splice(0))
+						socket.send(frame);
 				};
 				socket.onmessage = (event) => {
 					const frame = String(event.data);
 					// The legacy server's replies are `reply`; design B's are `answer`.
-					if (dropReply && ['reply', 'answer'].includes((JSON.parse(frame) as { type: string }).type)) {
+					if (
+						dropReply &&
+						['reply', 'answer'].includes(
+							(JSON.parse(frame) as { type: string }).type,
+						)
+					) {
 						dropReply = false;
 						client.close();
 						return;

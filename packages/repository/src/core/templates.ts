@@ -22,7 +22,11 @@ export type ParamsArg<TPath extends string> = [keyof Params<TPath>] extends [
 
 type Segment = { literal: string } | { param: string; suffix: string };
 
-export type Template = { source: string; segments: Segment[]; params: string[] };
+export type Template = {
+	source: string;
+	segments: Segment[];
+	params: string[];
+};
 
 export const TemplateError = defineErrors({
 	/** The template's source is not a valid template. */
@@ -58,7 +62,8 @@ function isUsableSegment(value: string) {
 }
 
 /** Whether `path` is a usable file path: `/`-separated segments, none empty, hidden or relative. */
-export const isFilePath = (path: string) => path.split('/').every(isUsableSegment);
+export const isFilePath = (path: string) =>
+	path.split('/').every(isUsableSegment);
 
 export function compileTemplate(
 	source: string,

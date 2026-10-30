@@ -12,24 +12,49 @@
  * by default), and with an `lfs` client the upload track runs here, as in a
  * browser's worker: from the start, and after every change.
  */
-import { type Collection, type PageServer, servePage } from '../client/page.js';
+
 import { type BlobStore, createMemoryBlobStore } from '../client/blobs.js';
 import { type Bytes, serveBytes } from '../client/bytes.js';
+import { type Collection, type PageServer, servePage } from '../client/page.js';
 import type { Replica } from '../client/replica.js';
 import { startUploads, type Uploads } from '../client/uploads.js';
-import type { LfsClient } from '../wire/client.js';
 import type { App, Definitions, Lens } from '../core/lens.js';
-import { type Host, type HostState, openRepository, type Repository, type Session } from './repository.js';
+import type { LfsClient } from '../wire/client.js';
+import {
+	type Host,
+	type HostState,
+	openRepository,
+	type Repository,
+	type Session,
+} from './repository.js';
 
 /** An app's note collections as a replica serves them. */
 export function collectionsOf(app: { lenses: Lens[] }): Collection[] {
-	return app.lenses.flatMap((lens) => (lens.kind === 'note' ? [{ name: lens.name, view: lens.view, template: lens.template, memory: lens.memory }] : []));
+	return app.lenses.flatMap((lens) =>
+		lens.kind === 'note'
+			? [
+					{
+						name: lens.name,
+						view: lens.view,
+						template: lens.template,
+						memory: lens.memory,
+					},
+				]
+			: [],
+	);
 }
 
 const ended = () => Promise.reject(new Error('The session ended'));
 
-function sessionOver(page: PageServer, bytes: Bytes, alive: () => boolean): Session {
-	const answer = <T>(run: () => T): Promise<T> => (alive() ? Promise.resolve().then(() => (alive() ? run() : ended())) : ended());
+function sessionOver(
+	page: PageServer,
+	bytes: Bytes,
+	alive: () => boolean,
+): Session {
+	const answer = <T>(run: () => T): Promise<T> =>
+		alive()
+			? Promise.resolve().then(() => (alive() ? run() : ended()))
+			: ended();
 	return {
 		snapshot: () => answer(() => page.snapshot()),
 		row: (path) => answer(() => page.read(path)),
@@ -50,8 +75,16 @@ function sessionOver(page: PageServer, bytes: Bytes, alive: () => boolean): Sess
 				}),
 			);
 		},
-		put: (blobs, changes, token) => (alive() ? bytes.put(blobs, changes, token).then((result) => (alive() ? result : ended())) : ended()),
-		open: (path) => (alive() ? bytes.open(path).then((result) => (alive() ? result : ended())) : ended()),
+		put: (blobs, changes, token) =>
+			alive()
+				? bytes
+						.put(blobs, changes, token)
+						.then((result) => (alive() ? result : ended()))
+				: ended(),
+		open: (path) =>
+			alive()
+				? bytes.open(path).then((result) => (alive() ? result : ended()))
+				: ended(),
 	};
 }
 
@@ -85,9 +118,14 @@ export function createLocalHost({
 		// The page's own watch on the replica stops with the session.
 		const stops: (() => void)[] = [];
 		uploads?.stop();
-		const track = lfs === null ? null : startUploads({ replica: over, store, lfs });
+		const track =
+			lfs === null ? null : startUploads({ replica: over, store, lfs });
 		uploads = track;
-		if (track !== null) stops.push(over.watch(() => track.kick()), () => track.stop());
+		if (track !== null)
+			stops.push(
+				over.watch(() => track.kick()),
+				() => track.stop(),
+			);
 		const session = sessionOver(
 			{
 				...page,
@@ -97,7 +135,15 @@ export function createLocalHost({
 					return stop;
 				},
 			},
-			serveBytes({ replica: { read: over.read, blobLimit: over.blobLimit, change: page.change }, store, lfs }),
+			serveBytes({
+				replica: {
+					read: over.read,
+					blobLimit: over.blobLimit,
+					change: page.change,
+				},
+				store,
+				lfs,
+			}),
 			alive,
 		);
 		stopPage = () => {
@@ -152,5 +198,13 @@ export function openLocalRepository<TDefs extends Definitions>({
 	store?: BlobStore<Blob>;
 	lfs?: LfsClient | null;
 }): Repository<TDefs> {
-	return openRepository({ app, host: createLocalHost({ replica, app, ...(store === undefined ? {} : { store }), ...(lfs === undefined ? {} : { lfs }) }).host });
+	return openRepository({
+		app,
+		host: createLocalHost({
+			replica,
+			app,
+			...(store === undefined ? {} : { store }),
+			...(lfs === undefined ? {} : { lfs }),
+		}).host,
+	});
 }

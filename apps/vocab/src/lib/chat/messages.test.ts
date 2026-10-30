@@ -211,10 +211,13 @@ test('observe fires when another tab adds a message', async () => {
 	const value = message('one', 'outside');
 	const other = createChatMessageStore(otherFolder, 'chat-a');
 	expectOk(await other.set('one', value));
-	await until(() => {
-		flushSync();
-		return changes > 0;
-	}, { timeout: 4000 });
+	await until(
+		() => {
+			flushSync();
+			return changes > 0;
+		},
+		{ timeout: 4000 },
+	);
 	stop();
 	expect([...store.entries()][0]?.key).toBe('one');
 });

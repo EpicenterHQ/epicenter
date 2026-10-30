@@ -2,13 +2,13 @@
 import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { Ok } from 'wellcrafted/result';
 import { createFileLfsStore } from '../src/bun/lfs-store.js';
 import { serveRepository } from '../src/bun/serve.js';
 import { openBunSqlite } from '../src/bun/sqlite.js';
+import { type LfsStore, LfsStoreError } from '../src/server/lfs-store.js';
 import { createMemoryGitStore } from '../src/server/memory-git.js';
 import { createServer } from '../src/server/server.js';
-import { LfsStoreError, type LfsStore } from '../src/server/lfs-store.js';
-import { Ok } from 'wellcrafted/result';
 
 type Mode = 'null' | 'file';
 const mode = Bun.argv[2] as Mode | '--server';

@@ -13,12 +13,23 @@ import { expect, test } from 'bun:test';
 import { gitBlobHash, lfsOid } from './hash.js';
 
 const gitHash = (content: string) =>
-	Bun.spawnSync(['git', 'hash-object', '--stdin'], { stdin: new TextEncoder().encode(content) })
+	Bun.spawnSync(['git', 'hash-object', '--stdin'], {
+		stdin: new TextEncoder().encode(content),
+	})
 		.stdout.toString()
 		.trim();
 
 test('gitBlobHash equals git hash-object', () => {
-	for (const content of ['', 'a', 'hello\nworld', 'x'.repeat(55), 'x'.repeat(56), 'x'.repeat(64), 'å 中文 😀\n', 'y'.repeat(100_000)])
+	for (const content of [
+		'',
+		'a',
+		'hello\nworld',
+		'x'.repeat(55),
+		'x'.repeat(56),
+		'x'.repeat(64),
+		'å 中文 😀\n',
+		'y'.repeat(100_000),
+	])
 		expect(gitBlobHash(content)).toBe(gitHash(content));
 });
 

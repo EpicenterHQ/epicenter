@@ -21,8 +21,20 @@
  * block). The server merging a commit onto a moved main, a device replaying
  * unsent work over what arrived, and an editor's write all reach it here.
  */
-import { block, findConflicts, type Labels, sideOffering, withSide } from './conflict.js';
-import { headerOf, parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
+import {
+	block,
+	findConflicts,
+	type Labels,
+	sideOffering,
+	withSide,
+} from './conflict.js';
+import {
+	headerOf,
+	parseMarkdown,
+	sameValue,
+	splitMarkdown,
+	writeMarkdown,
+} from './markdown.js';
 
 /** Something both sides changed, as the merge found it. */
 export type ContentOverlap =
@@ -30,11 +42,31 @@ export type ContentOverlap =
 	 * Lines or words both sides changed. `start` and `end` are offsets in the
 	 * merged text, which holds `current` there.
 	 */
-	| { unit: 'body'; base: string; current: string; incoming: string; start: number; end: number }
+	| {
+			unit: 'body';
+			base: string;
+			current: string;
+			incoming: string;
+			start: number;
+			end: number;
+	  }
 	/** The same, where a side's span holds an existing conflict block. */
-	| { unit: 'block'; base: string; current: string; incoming: string; start: number; end: number }
+	| {
+			unit: 'block';
+			base: string;
+			current: string;
+			incoming: string;
+			start: number;
+			end: number;
+	  }
 	/** A frontmatter key both sides changed. A missing value means the key was absent. */
-	| { unit: 'field'; key: string; base?: unknown; current?: unknown; incoming?: unknown }
+	| {
+			unit: 'field';
+			key: string;
+			base?: unknown;
+			current?: unknown;
+			incoming?: unknown;
+	  }
 	/** One side deleted the file and the other edited it. */
 	| { unit: 'file'; clash: 'deleted'; side: 'current' | 'incoming' }
 	/** Both sides created the file. */
@@ -53,7 +85,8 @@ const same = (a: string[], b: string[]) =>
 	a.length === b.length && a.every((item, index) => item === b[index]);
 const clean = (text: string | null): MergeResult => ({ text, overlaps: [] });
 type SpanOverlap = Extract<ContentOverlap, { unit: 'body' | 'block' }>;
-const isSpan = (overlap: ContentOverlap): overlap is SpanOverlap => overlap.unit === 'body' || overlap.unit === 'block';
+const isSpan = (overlap: ContentOverlap): overlap is SpanOverlap =>
+	overlap.unit === 'body' || overlap.unit === 'block';
 
 /**
  * Merge `incoming` into `current`, both descended from `base`. null means no
@@ -73,14 +106,25 @@ export function merge(
 	if (current === null || incoming === null)
 		return {
 			text: current ?? incoming,
-			overlaps: [{ unit: 'file', clash: 'deleted', side: current === null ? 'current' : 'incoming' }],
+			overlaps: [
+				{
+					unit: 'file',
+					clash: 'deleted',
+					side: current === null ? 'current' : 'incoming',
+				},
+			],
 		};
 
-	const result = markdown(base === null ? null : lf(base), lf(current), lf(incoming));
+	const result = markdown(
+		base === null ? null : lf(base),
+		lf(current),
+		lf(incoming),
+	);
 	if (!current.includes('\r\n')) return result;
 	// Restore current's line endings and move offsets past the added CRs.
 	const merged = result.text ?? '';
-	const crsBefore = (offset: number) => merged.slice(0, offset).match(/\n/g)?.length ?? 0;
+	const crsBefore = (offset: number) =>
+		merged.slice(0, offset).match(/\n/g)?.length ?? 0;
 	return {
 		...result,
 		text: styled(merged, current),
@@ -100,24 +144,43 @@ export function merge(
 }
 
 /** A text that opens with `---` fences whose span is not a YAML mapping: a note with no fields, whose fences are body. */
-const fencedBody = (text: string) => splitMarkdown(text).yaml !== null && !parseMarkdown(text).hasFrontmatter;
+const fencedBody = (text: string) =>
+	splitMarkdown(text).yaml !== null && !parseMarkdown(text).hasFrontmatter;
 
-function markdown(base: string | null, current: string, incoming: string): MergeResult {
-	const created: ContentOverlap[] = base === null && current !== incoming ? [{ unit: 'file', clash: 'created' }] : [];
+function markdown(
+	base: string | null,
+	current: string,
+	incoming: string,
+): MergeResult {
+	const created: ContentOverlap[] =
+		base === null && current !== incoming
+			? [{ unit: 'file', clash: 'created' }]
+			: [];
 	// Fences that hold no frontmatter on any side (a person halfway through typing it, say): merge the whole text as body, so its lines merge as lines.
-	if (fencedBody(current) || fencedBody(incoming) || (base !== null && fencedBody(base))) {
+	if (
+		fencedBody(current) ||
+		fencedBody(incoming) ||
+		(base !== null && fencedBody(base))
+	) {
 		return finish(bodyParts(base ?? '', current, incoming), created);
 	}
 	const b = base === null ? null : parseMarkdown(base);
 	const c = parseMarkdown(current);
 	const i = parseMarkdown(incoming);
 	const { chosen, clashes } = chooseFields(b?.fields ?? {}, c.fields, i.fields);
-	const parts: Part[] = b === null ? [{ text: joinCreates(c.body, i.body) }] : bodyParts(b.body, c.body, i.body);
-	const mergedBody = parts.map((part) => ('text' in part ? part.text : part.overlap.current)).join('');
+	const parts: Part[] =
+		b === null
+			? [{ text: joinCreates(c.body, i.body) }]
+			: bodyParts(b.body, c.body, i.body);
+	const mergedBody = parts
+		.map((part) => ('text' in part ? part.text : part.overlap.current))
+		.join('');
 	const changed: Record<string, unknown> = {};
 	for (const key of new Set([...Object.keys(c.fields), ...Object.keys(chosen)]))
 		if (!sameValue(c.fields[key], chosen[key])) changed[key] = chosen[key];
-	const header = headerOf(writeMarkdown(current, { fields: changed, body: mergedBody }));
+	const header = headerOf(
+		writeMarkdown(current, { fields: changed, body: mergedBody }),
+	);
 	const result = finish(parts, [...created, ...clashes], header);
 	return header === '' ? guarded(result) : result;
 }
@@ -125,11 +188,16 @@ function markdown(base: string | null, current: string, incoming: string): Merge
 /** An empty header before the body: a merged body that opens with fences (two bodies joined, say) is kept as body behind an empty frontmatter, so no body line becomes a field or a fence. */
 const EMPTY_HEADER = '---\n---\n';
 function guarded(result: MergeResult): MergeResult {
-	if (result.text === null || splitMarkdown(result.text).yaml === null) return result;
+	if (result.text === null || splitMarkdown(result.text).yaml === null)
+		return result;
 	const shift = EMPTY_HEADER.length;
 	return {
 		text: EMPTY_HEADER + result.text,
-		overlaps: result.overlaps.map((overlap) => (isSpan(overlap) ? { ...overlap, start: overlap.start + shift, end: overlap.end + shift } : overlap)),
+		overlaps: result.overlaps.map((overlap) =>
+			isSpan(overlap)
+				? { ...overlap, start: overlap.start + shift, end: overlap.end + shift }
+				: overlap,
+		),
 	};
 }
 
@@ -140,7 +208,11 @@ function chooseFields(
 ) {
 	const chosen: Record<string, unknown> = {};
 	const clashes: ContentOverlap[] = [];
-	for (const key of new Set([...Object.keys(current), ...Object.keys(incoming), ...Object.keys(base)])) {
+	for (const key of new Set([
+		...Object.keys(current),
+		...Object.keys(incoming),
+		...Object.keys(base),
+	])) {
 		const b = base[key];
 		const c = current[key];
 		const i = incoming[key];
@@ -171,9 +243,18 @@ function joinCreates(current: string, incoming: string) {
 }
 
 /** A merged run, or a clash; `whole`: a clash of lines both sides moved there, never merged again by word. */
-type Part = { text: string } | { overlap: { base: string; current: string; incoming: string }; whole?: true };
+type Part =
+	| { text: string }
+	| {
+			overlap: { base: string; current: string; incoming: string };
+			whole?: true;
+	  };
 
-function finish(parts: Part[], fields: ContentOverlap[], header = ''): MergeResult {
+function finish(
+	parts: Part[],
+	fields: ContentOverlap[],
+	header = '',
+): MergeResult {
 	let text = header;
 	const overlaps: ContentOverlap[] = [...fields];
 	for (const part of parts) {
@@ -222,7 +303,11 @@ const hasBlock = (text: string) => text.includes('<<<<<<< ');
 function splitBlocks(text: string) {
 	const plain: string[] = [];
 	const blocks: string[] = [];
-	for (const line of lines(text)) (line.startsWith('<<<<<<< ') && line.includes('\n>>>>>>> ') ? blocks : plain).push(line);
+	for (const line of lines(text))
+		(line.startsWith('<<<<<<< ') && line.includes('\n>>>>>>> ')
+			? blocks
+			: plain
+		).push(line);
 	return { plain: plain.join(''), blocks };
 }
 
@@ -230,59 +315,120 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 	const parts: Part[] = [];
 	/** The line-level part emitted last ends mid-line: a side's last line, unterminated at the end of its file. */
 	let open = false;
-	for (const part of mergeSequence(lines(base), lines(current), lines(incoming), { lines: true })) {
+	for (const part of mergeSequence(
+		lines(base),
+		lines(current),
+		lines(incoming),
+		{ lines: true },
+	)) {
 		const { overlap } = 'text' in part ? { overlap: null } : part;
 		// Marker blocks stay atomic: never split, so never nested.
-		const emitted = overlap === null || ('whole' in part && part.whole) || [overlap.base, overlap.current, overlap.incoming].some(hasBlock) ? [part] : mergeSequence(words(overlap.base), words(overlap.current), words(overlap.incoming));
-		const content = emitted.map((p) => ('text' in p ? p.text : p.overlap.current)).join('');
+		const emitted =
+			overlap === null ||
+			('whole' in part && part.whole) ||
+			[overlap.base, overlap.current, overlap.incoming].some(hasBlock)
+				? [part]
+				: mergeSequence(
+						words(overlap.base),
+						words(overlap.current),
+						words(overlap.incoming),
+					);
+		const content = emitted
+			.map((p) => ('text' in p ? p.text : p.overlap.current))
+			.join('');
 		// RULE: two lines never become one: a part that follows a line one side left unterminated starts on a line of its own.
 		if (open && content !== '') parts.push({ text: '\n' });
 		parts.push(...emitted);
 		const last = emitted.at(-1);
-		if (content !== '') open = last !== undefined && 'text' in last && !last.text.endsWith('\n');
+		if (content !== '')
+			open = last !== undefined && 'text' in last && !last.text.endsWith('\n');
 	}
 	return parts;
 }
 
 /** One run of `base` (`start` to `end`) that `side` replaces with its own run (`sideStart` to `sideEnd`). */
-export type Hunk = { start: number; end: number; sideStart: number; sideEnd: number };
+export type Hunk = {
+	start: number;
+	end: number;
+	sideStart: number;
+	sideEnd: number;
+};
 type SourcedHunk = Hunk & { source: 'current' | 'incoming' };
 
 /** Merge two edits of `base`, as lines (each with its terminator) or as words. */
-function mergeSequence(base: string[], current: string[], incoming: string[], { lines = false } = {}): Part[] {
+function mergeSequence(
+	base: string[],
+	current: string[],
+	incoming: string[],
+	{ lines = false } = {},
+): Part[] {
 	const edits: SourcedHunk[] = [
 		...diff(base, current).map((h) => ({ ...h, source: 'current' as const })),
 		...diff(base, incoming).map((h) => ({ ...h, source: 'incoming' as const })),
 	].sort((a, b) => a.start - b.start || a.end - b.end);
-	type Group = { start: number; end: number; edits: SourcedHunk[]; shared?: true };
+	type Group = {
+		start: number;
+		end: number;
+		edits: SourcedHunk[];
+		shared?: true;
+	};
 	const groups: Group[] = [];
 	/** The lines a hunk writes, as its side has them. */
-	const written = (hunk: SourcedHunk) => (hunk.source === 'current' ? current : incoming).slice(hunk.sideStart, hunk.sideEnd);
+	const written = (hunk: SourcedHunk) =>
+		(hunk.source === 'current' ? current : incoming).slice(
+			hunk.sideStart,
+			hunk.sideEnd,
+		);
 	/** Whether two hunks write a line in common that the base they replace does not have (lines both moved there), blank lines aside. */
 	const share = (a: SourcedHunk, b: SourcedHunk) => {
-		const had = new Set(base.slice(Math.min(a.start, b.start), Math.max(a.end, b.end)).map((line) => line.replace(/\n$/, '')));
-		const mine = new Set(written(a).filter((line) => line.trim() !== '' && !had.has(line.replace(/\n$/, ''))));
+		const had = new Set(
+			base
+				.slice(Math.min(a.start, b.start), Math.max(a.end, b.end))
+				.map((line) => line.replace(/\n$/, '')),
+		);
+		const mine = new Set(
+			written(a).filter(
+				(line) => line.trim() !== '' && !had.has(line.replace(/\n$/, '')),
+			),
+		);
 		return written(b).some((line) => mine.has(line));
 	};
 	for (const hunk of edits) {
 		const group = groups.at(-1);
 		// Shared boundaries are independent; insertions at one point group together.
 		// As lines, two sides' hunks that overlap or touch and write a line in common (both moved the same lines there) are one clash, kept whole.
-		const moved = lines && group !== undefined && hunk.start <= group.end && group.edits.some((other) => other.source !== hunk.source && share(other, hunk));
+		const moved =
+			lines &&
+			group !== undefined &&
+			hunk.start <= group.end &&
+			group.edits.some(
+				(other) => other.source !== hunk.source && share(other, hunk),
+			);
 		const joins =
 			group !== undefined &&
-			(hunk.start < group.end || (hunk.start === group.start && hunk.end === hunk.start && group.end === group.start) || moved);
+			(hunk.start < group.end ||
+				(hunk.start === group.start &&
+					hunk.end === hunk.start &&
+					group.end === group.start) ||
+				moved);
 		if (joins && moved) group.shared = true;
 		if (joins) {
 			group.end = Math.max(group.end, hunk.end);
 			group.edits.push(hunk);
 		} else groups.push({ start: hunk.start, end: hunk.end, edits: [hunk] });
 	}
-	const sideFor = (group: Group, source: SourcedHunk['source'], side: string[]) => {
+	const sideFor = (
+		group: Group,
+		source: SourcedHunk['source'],
+		side: string[],
+	) => {
 		const out: string[] = [];
 		let at = group.start;
 		for (const hunk of group.edits.filter((h) => h.source === source)) {
-			out.push(...base.slice(at, hunk.start), ...side.slice(hunk.sideStart, hunk.sideEnd));
+			out.push(
+				...base.slice(at, hunk.start),
+				...side.slice(hunk.sideStart, hunk.sideEnd),
+			);
 			at = hunk.end;
 		}
 		out.push(...base.slice(at, group.end));
@@ -291,19 +437,33 @@ function mergeSequence(base: string[], current: string[], incoming: string[], { 
 	const parts: Part[] = [];
 	let at = 0;
 	for (const group of groups) {
-		if (at < group.start) parts.push({ text: base.slice(at, group.start).join('') });
+		if (at < group.start)
+			parts.push({ text: base.slice(at, group.start).join('') });
 		const b = base.slice(group.start, group.end);
 		const c = sideFor(group, 'current', current);
 		const i = sideFor(group, 'incoming', incoming);
 		const sources = new Set(group.edits.map((h) => h.source));
-		if (sources.size === 1 || same(c, i)) parts.push({ text: (sources.has('current') ? c : i).join('') });
+		if (sources.size === 1 || same(c, i))
+			parts.push({ text: (sources.has('current') ? c : i).join('') });
 		else if (b.length === 0 && group.edits.every((h) => h.start === h.end)) {
 			// Both inserted at one point (identical insertions were deduplicated above). RULE: as lines, current's last line ends before incoming's begins: one unterminated (only at the end of a file) is terminated, so two lines never become one.
 			const last = c.at(-1);
-			const ended = lines && last !== undefined && !last.endsWith('\n') ? [...c.slice(0, -1), `${last}\n`] : c;
-			parts.push({ text: (lines ? interleave(ended, i) : [...ended, ...i]).join('') });
-		}
-		else parts.push({ overlap: { base: b.join(''), current: c.join(''), incoming: i.join('') }, ...(group.shared ? { whole: true as const } : {}) });
+			const ended =
+				lines && last !== undefined && !last.endsWith('\n')
+					? [...c.slice(0, -1), `${last}\n`]
+					: c;
+			parts.push({
+				text: (lines ? interleave(ended, i) : [...ended, ...i]).join(''),
+			});
+		} else
+			parts.push({
+				overlap: {
+					base: b.join(''),
+					current: c.join(''),
+					incoming: i.join(''),
+				},
+				...(group.shared ? { whole: true as const } : {}),
+			});
 		at = group.end;
 	}
 	if (at < base.length) parts.push({ text: base.slice(at).join('') });
@@ -321,7 +481,10 @@ function interleave(current: string[], incoming: string[]): string[] {
 	const out: string[] = [];
 	let at = 0;
 	for (const hunk of diff(current, incoming)) {
-		out.push(...current.slice(at, hunk.end), ...incoming.slice(hunk.sideStart, hunk.sideEnd));
+		out.push(
+			...current.slice(at, hunk.end),
+			...incoming.slice(hunk.sideStart, hunk.sideEnd),
+		);
 		at = hunk.end;
 	}
 	out.push(...current.slice(at));
@@ -343,8 +506,12 @@ export function diff(base: string[], side: string[]): Hunk[] {
 	const hunks: Hunk[] = [];
 	let a = 0;
 	let b = 0;
-	for (const [i, j] of [...matches, [base.length, side.length] as [number, number]]) {
-		if (i > a || j > b) hunks.push({ start: a, end: i, sideStart: b, sideEnd: j });
+	for (const [i, j] of [
+		...matches,
+		[base.length, side.length] as [number, number],
+	]) {
+		if (i > a || j > b)
+			hunks.push({ start: a, end: i, sideStart: b, sideEnd: j });
 		a = i + 1;
 		b = j + 1;
 	}
@@ -360,13 +527,16 @@ function matchRegion(
 	bHi: number,
 	out: [number, number][],
 ) {
-	while (aLo < aHi && bLo < bHi && base[aLo] === side[bLo]) out.push([aLo++, bLo++]);
+	while (aLo < aHi && bLo < bHi && base[aLo] === side[bLo])
+		out.push([aLo++, bLo++]);
 	const tail: [number, number][] = [];
-	while (aLo < aHi && bLo < bHi && base[aHi - 1] === side[bHi - 1]) tail.unshift([--aHi, --bHi]);
+	while (aLo < aHi && bLo < bHi && base[aHi - 1] === side[bHi - 1])
+		tail.unshift([--aHi, --bHi]);
 	const n = aHi - aLo;
 	const m = bHi - bLo;
 	if (n > 0 && m > 0) {
-		if ((n + 1) * (m + 1) <= TABLE_LIMIT) tableMatches(base, side, aLo, aHi, bLo, bHi, out);
+		if ((n + 1) * (m + 1) <= TABLE_LIMIT)
+			tableMatches(base, side, aLo, aHi, bLo, bHi, out);
 		else {
 			const anchors = uniqueAnchors(base, side, aLo, aHi, bLo, bHi);
 			let a = aLo;
@@ -409,14 +579,20 @@ function tableMatches(
 		for (let j = m - 1; j >= 0; j--) {
 			const token = base[aLo + i] ?? '';
 			const skip = Math.max(at(i + 1, j), at(i, j + 1));
-			row[j] = token === side[bLo + j] ? Math.max(at(i + 1, j + 1) + weight(token), skip) : skip;
+			row[j] =
+				token === side[bLo + j]
+					? Math.max(at(i + 1, j + 1) + weight(token), skip)
+					: skip;
 		}
 	}
 	let i = 0;
 	let j = 0;
 	while (i < n && j < m) {
 		const token = base[aLo + i] ?? '';
-		if (token === side[bLo + j] && at(i, j) === at(i + 1, j + 1) + weight(token)) {
+		if (
+			token === side[bLo + j] &&
+			at(i, j) === at(i + 1, j + 1) + weight(token)
+		) {
 			out.push([aLo + i, bLo + j]);
 			i++;
 			j++;
@@ -483,7 +659,12 @@ function uniqueAnchors(
  * those lines, continues that side of it (relabelled as its writer's), and
  * no block of its own is written. Null where the span is not that.
  */
-function continuedBlock(base: string, current: string, incoming: string, labels: Labels): string | null {
+function continuedBlock(
+	base: string,
+	current: string,
+	incoming: string,
+	labels: Labels,
+): string | null {
 	if (hasBlock(base)) return null;
 	for (const [held, edit, by] of [
 		[current, incoming, labels.incoming],
@@ -492,7 +673,8 @@ function continuedBlock(base: string, current: string, incoming: string, labels:
 		if (hasBlock(edit)) continue;
 		const found = findConflicts(held);
 		const conflict = found[0];
-		if (found.length !== 1 || conflict === undefined || conflict.raw !== held) continue;
+		if (found.length !== 1 || conflict === undefined || conflict.raw !== held)
+			continue;
 		const side = sideOffering(conflict, base);
 		if (side !== null) return withSide(conflict, side, edit, by);
 	}
@@ -513,16 +695,24 @@ function continuedBlock(base: string, current: string, incoming: string, labels:
 export function withBlocks(result: MergeResult, labels: Labels): string | null {
 	if (result.text === null) return null;
 	const crlf = result.text.includes('\r\n');
-	const crsBefore = (offset: number) => result.text?.slice(0, offset).match(/\r\n/g)?.length ?? 0;
+	const crsBefore = (offset: number) =>
+		result.text?.slice(0, offset).match(/\r\n/g)?.length ?? 0;
 	const text = crlf ? lf(result.text) : result.text;
-	const terminated = (part: string) => (part !== '' && !part.endsWith('\n') ? `${part}\n` : part);
+	const terminated = (part: string) =>
+		part !== '' && !part.endsWith('\n') ? `${part}\n` : part;
 	let out = '';
 	let at = 0;
 	for (const overlap of result.overlaps) {
 		if (!isSpan(overlap)) continue;
-		const start = crlf ? overlap.start - crsBefore(overlap.start) : overlap.start;
+		const start = crlf
+			? overlap.start - crsBefore(overlap.start)
+			: overlap.start;
 		const end = crlf ? overlap.end - crsBefore(overlap.end) : overlap.end;
-		const [base, current, incoming] = [overlap.base, overlap.current, overlap.incoming].map(lf) as [string, string, string];
+		const [base, current, incoming] = [
+			overlap.base,
+			overlap.current,
+			overlap.incoming,
+		].map(lf) as [string, string, string];
 		out += text.slice(at, start);
 		if (out !== '' && !out.endsWith('\n')) out += '\n';
 		if (overlap.unit === 'block') {
@@ -537,8 +727,19 @@ export function withBlocks(result: MergeResult, labels: Labels): string | null {
 			out +=
 				mine.plain === theirs.plain
 					? terminated(mine.plain)
-					: block({ current: mine.plain, base: splitBlocks(base).plain, incoming: theirs.plain }, labels);
-			for (const existing of [...mine.blocks, ...theirs.blocks.filter((b) => !mine.blocks.includes(b))]) out += terminated(existing);
+					: block(
+							{
+								current: mine.plain,
+								base: splitBlocks(base).plain,
+								incoming: theirs.plain,
+							},
+							labels,
+						);
+			for (const existing of [
+				...mine.blocks,
+				...theirs.blocks.filter((b) => !mine.blocks.includes(b)),
+			])
+				out += terminated(existing);
 			at = end;
 			continue;
 		}

@@ -3,11 +3,6 @@
 	"identifier": "messages",
 	"description": "Messages has its bound folder and the fixed Beeper CLI operation. No page connects to a network directly.",
 	"local": true,
-	"windows": [
-		"messages:*"
-	],
-	"permissions": [
-		"epicenter-folder:default",
-		"allow-messages-beeper"
-	]
+	"windows": ["messages:*"],
+	"permissions": ["epicenter-folder:default", "allow-messages-beeper"]
 }

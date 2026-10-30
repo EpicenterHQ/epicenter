@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectOk } from 'wellcrafted/testing';
-import { isCallbackAuthClient, type AuthState } from './auth-contract.js';
+import { type AuthState, isCallbackAuthClient } from './auth-contract.js';
 import { epicenterCloud } from './auth-server.js';
 import {
 	type CreateBrowserOAuthOptions,

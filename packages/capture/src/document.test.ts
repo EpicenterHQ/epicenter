@@ -44,7 +44,8 @@ type CaptureDocument = Omit<CaptureBodyReading, 'text'> & {
 // through the codec; Folder's own tests cover frontmatter serialization.
 function bodyStart(source: string): number {
 	const header = /^\uFEFF?---\r?\n(?:[^\r\n]*\r?\n)*?---\r?\n/.exec(source);
-	if (header === null) throw new Error('fixture: a capture file has frontmatter');
+	if (header === null)
+		throw new Error('fixture: a capture file has frontmatter');
 	return header[0].length;
 }
 
@@ -64,10 +65,7 @@ function parseCapture(source: string): CaptureDocument {
 function write(document: CaptureDocument, value: CaptureBody): Edit {
 	if (document.refusal) return { ok: false, refusal: document.refusal };
 	const start = bodyStart(document.source);
-	const result = captureBody.encode(
-		value,
-		document.source.slice(start),
-	);
+	const result = captureBody.encode(value, document.source.slice(start));
 	return result.error === null
 		? {
 				ok: true,
@@ -264,21 +262,24 @@ test.each([
 	],
 	['two marker styles', 'a\n\n## Thoughts\n\n- x\n* y\n', 'section-shape'],
 	['an ordered list', 'a\n\n## Thoughts\n\n1. x\n', 'section-shape'],
-] as const)('%s refuses structured reading and every operation', (_name, body, code) => {
-	const document = parseCapture(`${HEAD}${body}`);
-	expect(document.refusal?.code).toBe(code);
-	expect(document.text).toBeUndefined();
-	expect(document.thoughts).toEqual([]);
-	const seen = 0;
-	for (const edit of [
-		setText(document, 'new'),
-		addThought(document, 'new'),
-		editThought(document, seen, 'new'),
-		deleteThought(document, seen),
-		swapThoughts(document, seen, 1),
-	])
-		expect(refusalOf(edit).code).toBe(code);
-});
+] as const)(
+	'%s refuses structured reading and every operation',
+	(_name, body, code) => {
+		const document = parseCapture(`${HEAD}${body}`);
+		expect(document.refusal?.code).toBe(code);
+		expect(document.text).toBeUndefined();
+		expect(document.thoughts).toEqual([]);
+		const seen = 0;
+		for (const edit of [
+			setText(document, 'new'),
+			addThought(document, 'new'),
+			editThought(document, seen, 'new'),
+			deleteThought(document, seen),
+			swapThoughts(document, seen, 1),
+		])
+			expect(refusalOf(edit).code).toBe(code);
+	},
+);
 
 // ============================================================================
 // Preservation
@@ -298,11 +299,13 @@ test('reading reports the text with its own whitespace and LF lines', () => {
 test('locating thoughts answers each item from its marker to its last line, in CRLF source', () => {
 	const body = PRESERVED.slice(bodyStart(PRESERVED));
 	const { thoughts } = expectOk(captureBody.locate(body));
-	expect(
-		thoughts.map(({ start, end }) => body.slice(start, end)),
-	).toEqual(['- one', '- two\r\n  more']);
+	expect(thoughts.map(({ start, end }) => body.slice(start, end))).toEqual([
+		'- one',
+		'- two\r\n  more',
+	]);
 	// An item's blank lines and nested Markdown are its own; what follows the list is not.
-	const nested = '\nText\n\n## Thoughts\n\n- a\n\n  more\n  - nested\n- b\n\nAfter.\n';
+	const nested =
+		'\nText\n\n## Thoughts\n\n- a\n\n  more\n  - nested\n- b\n\nAfter.\n';
 	expect(
 		expectOk(captureBody.locate(nested)).thoughts.map(({ start, end }) =>
 			nested.slice(start, end),

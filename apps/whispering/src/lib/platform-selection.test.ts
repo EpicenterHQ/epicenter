@@ -40,7 +40,8 @@ const folderModule = (name: string) => (path: string) =>
 const reaches = (modules: string[], suffix: string) =>
 	modules.some((path) => path.endsWith(suffix));
 
-const PAGE_FORBIDDEN = /packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
+const PAGE_FORBIDDEN =
+	/packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
 
 describe('#platform/services', () => {
 	test(

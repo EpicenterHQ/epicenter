@@ -202,59 +202,57 @@ const ecosystem = [
 
 				<div class="grid lg:grid-cols-2 gap-8">
 					{tools.map((tool) => (
-							<Card.Root class="group overflow-hidden border-muted/50 shadow-sm transition-all duration-300 hover:border-primary/20 hover:shadow-xl">
-								<Card.Header class="pb-4">
-									<div class="flex items-start justify-between">
-										<div class="flex items-start gap-4">
-											<div class="text-5xl transition-transform duration-300 group-hover:scale-110">
-												{tool.emoji}
-											</div>
-											<div>
-												<Card.Title class="mb-2 text-2xl">
-													{tool.name}
-												</Card.Title>
-												<Card.Description class="text-base">
-													{tool.description}
-												</Card.Description>
-											</div>
+						<Card.Root class="group overflow-hidden border-muted/50 shadow-sm transition-all duration-300 hover:border-primary/20 hover:shadow-xl">
+							<Card.Header class="pb-4">
+								<div class="flex items-start justify-between">
+									<div class="flex items-start gap-4">
+										<div class="text-5xl transition-transform duration-300 group-hover:scale-110">
+											{tool.emoji}
+										</div>
+										<div>
+											<Card.Title class="mb-2 text-2xl">{tool.name}</Card.Title>
+											<Card.Description class="text-base">
+												{tool.description}
+											</Card.Description>
 										</div>
 									</div>
-								</Card.Header>
-								<Card.Content class="py-6">
-									<ul class="space-y-3">
-										{tool.features.map((feature) => (
-											<li class="flex items-center gap-3 text-sm">
-												<div class="shrink-0 rounded-full bg-success/10 p-1">
-													<CheckIcon class="h-3 w-3 text-success" />
-												</div>
-												<span class="text-muted-foreground transition-colors group-hover:text-foreground">
-													{feature}
-												</span>
-											</li>
-										))}
-									</ul>
-								</Card.Content>
-								<Card.Footer class="border-muted/50 border-t pt-4">
-									<div class="flex gap-2">
-										<Button
-											href={tool.tryNowUrl}
-											variant="secondary"
-											class="flex-1 transition-all hover:border-primary hover:bg-primary hover:text-primary-foreground group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground"
-										>
-											Try Now
-											<ArrowRightIcon class="h-4 w-4 transition-transform group-hover:translate-x-1" />
-										</Button>
-										<Button
-											href={tool.githubUrl}
-											variant="outline"
-											class="flex-1"
-										>
-											View on GitHub
-										</Button>
-									</div>
-								</Card.Footer>
-							</Card.Root>
-						))}
+								</div>
+							</Card.Header>
+							<Card.Content class="py-6">
+								<ul class="space-y-3">
+									{tool.features.map((feature) => (
+										<li class="flex items-center gap-3 text-sm">
+											<div class="shrink-0 rounded-full bg-success/10 p-1">
+												<CheckIcon class="h-3 w-3 text-success" />
+											</div>
+											<span class="text-muted-foreground transition-colors group-hover:text-foreground">
+												{feature}
+											</span>
+										</li>
+									))}
+								</ul>
+							</Card.Content>
+							<Card.Footer class="border-muted/50 border-t pt-4">
+								<div class="flex gap-2">
+									<Button
+										href={tool.tryNowUrl}
+										variant="secondary"
+										class="flex-1 transition-all hover:border-primary hover:bg-primary hover:text-primary-foreground group-hover:border-primary group-hover:bg-primary group-hover:text-primary-foreground"
+									>
+										Try Now
+										<ArrowRightIcon class="h-4 w-4 transition-transform group-hover:translate-x-1" />
+									</Button>
+									<Button
+										href={tool.githubUrl}
+										variant="outline"
+										class="flex-1"
+									>
+										View on GitHub
+									</Button>
+								</div>
+							</Card.Footer>
+						</Card.Root>
+					))}
 				</div>
 
 				<div class="mt-16 text-center">
@@ -297,20 +295,20 @@ const ecosystem = [
 						</h3>
 						<div class="space-y-6">
 							{userPrinciples.map((principle) => (
-									<div class="flex items-start gap-4">
+								<div class="flex items-start gap-4">
 									<div class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15">
 										<principle.icon class="h-5 w-5" />
 									</div>
-										<div>
-											<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
-												{principle.title}
-											</h4>
-											<p class="text-muted-foreground text-sm leading-relaxed">
-												{principle.description}
-											</p>
-										</div>
+									<div>
+										<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
+											{principle.title}
+										</h4>
+										<p class="text-muted-foreground text-sm leading-relaxed">
+											{principle.description}
+										</p>
 									</div>
-								))}
+								</div>
+							))}
 						</div>
 					</div>
 
@@ -325,20 +323,20 @@ const ecosystem = [
 						</h3>
 						<div class="space-y-6">
 							{developerPrinciples.map((principle) => (
-									<div class="flex items-start gap-4">
+								<div class="flex items-start gap-4">
 									<div class="shrink-0 rounded-xl bg-primary/10 p-3 text-primary transition-colors group-hover:bg-primary/15">
 										<principle.icon class="h-5 w-5" />
 									</div>
-										<div>
-											<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
-												{principle.title}
-											</h4>
-											<p class="text-muted-foreground text-sm leading-relaxed">
-												{principle.description}
-											</p>
-										</div>
+									<div>
+										<h4 class="mb-2 font-semibold text-lg transition-colors group-hover:text-primary">
+											{principle.title}
+										</h4>
+										<p class="text-muted-foreground text-sm leading-relaxed">
+											{principle.description}
+										</p>
 									</div>
-								))}
+								</div>
+							))}
 						</div>
 					</div>
 				</div>
@@ -445,22 +443,22 @@ const ecosystem = [
 
 				<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
 					{ecosystem.map((tool) => (
-							<div class="group cursor-default rounded-xl border border-muted/50 bg-card p-6 transition-all duration-300 hover:shadow-lg">
-								<div class="flex items-start gap-4">
-									<div class="shrink-0 text-4xl transition-transform duration-300 group-hover:scale-110">
-										{tool.icon}
-									</div>
-									<div>
-										<h3 class="mb-2 font-semibold text-foreground text-lg transition-colors group-hover:text-primary">
-											{tool.name}
-										</h3>
-										<p class="text-muted-foreground text-sm leading-relaxed">
-											{tool.description}
-										</p>
-									</div>
+						<div class="group cursor-default rounded-xl border border-muted/50 bg-card p-6 transition-all duration-300 hover:shadow-lg">
+							<div class="flex items-start gap-4">
+								<div class="shrink-0 text-4xl transition-transform duration-300 group-hover:scale-110">
+									{tool.icon}
+								</div>
+								<div>
+									<h3 class="mb-2 font-semibold text-foreground text-lg transition-colors group-hover:text-primary">
+										{tool.name}
+									</h3>
+									<p class="text-muted-foreground text-sm leading-relaxed">
+										{tool.description}
+									</p>
 								</div>
 							</div>
-						))}
+						</div>
+					))}
 
 					<!-- Custom Tool Card -->
 					<div

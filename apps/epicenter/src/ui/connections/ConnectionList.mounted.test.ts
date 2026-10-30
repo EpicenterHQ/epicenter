@@ -11,9 +11,12 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 		'../../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
-	const { createFolder, memoryHost, SaveError, until: waitUntil } = await import(
-		'@epicenter/folder/testing'
-	);
+	const {
+		createFolder,
+		memoryHost,
+		SaveError,
+		until: waitUntil,
+	} = await import('@epicenter/folder/testing');
 	const { svelteFolder } = await import('@epicenter/svelte/folder');
 	const { connectionTables } = await import('./connections.js');
 	const { default: Host } = await import('./ConnectionListHost.svelte');
@@ -107,12 +110,18 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 			);
 			const title = fixture.target.querySelector<HTMLInputElement>('li input');
 			type(title, 'Changed');
-			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			await until(
+				() => fixture.target.textContent?.includes('Not saved:') ?? false,
+			);
 			expect(title?.value).toBe('Changed');
 			expect(fixture.text('connections/account.md')).toContain('title: First');
 			fixture.control.failPut.delete('connections/account.md');
 			click(fixture.target, 'Save again');
-			await until(() => fixture.text('connections/account.md')?.includes('title: Changed') ?? false);
+			await until(
+				() =>
+					fixture.text('connections/account.md')?.includes('title: Changed') ??
+					false,
+			);
 			expect(fixture.target.textContent).not.toContain('Not saved:');
 		} finally {
 			await fixture.close();
@@ -122,14 +131,28 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 	test('a failed add reports the write error beside the form', async () => {
 		const fixture = await setup();
 		try {
-			fixture.control.failPut.set('connections/account.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			fixture.control.failPut.set(
+				'connections/account.md',
+				SaveError.StorageFailed({ cause: 'full' }).error!,
+			);
 			type(fixture.target.querySelector('[aria-label="Title"]'), 'Account');
-			const kind = fixture.target.querySelector<HTMLSelectElement>('[aria-label="Kind"]');
+			const kind = fixture.target.querySelector<HTMLSelectElement>(
+				'[aria-label="Kind"]',
+			);
 			if (!kind) throw new Error('Missing kind');
 			kind.value = 'epicenter';
 			kind.dispatchEvent(new Event('change', { bubbles: true }));
-			fixture.target.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-			await until(() => fixture.target.textContent?.includes('The connection was not added:') ?? false);
+			fixture.target
+				.querySelector('form')
+				?.dispatchEvent(
+					new Event('submit', { bubbles: true, cancelable: true }),
+				);
+			await until(
+				() =>
+					fixture.target.textContent?.includes(
+						'The connection was not added:',
+					) ?? false,
+			);
 			expect(fixture.folder.tables.connections.row('account')).toBeUndefined();
 		} finally {
 			await fixture.close();
@@ -186,19 +209,32 @@ describe.skipIf(!browser)('Settings connections mirror', async () => {
 
 	test('a failed deletion keeps the row and reports the write error', async () => {
 		const fixture = await setup({
-			'connections/account.md': '---\nkind: epicenter\ntitle: Account\nmodel: ""\n---\n',
+			'connections/account.md':
+				'---\nkind: epicenter\ntitle: Account\nmodel: ""\n---\n',
 		});
 		const { commands } = await import('../bindings.gen.js');
 		const previous = Reflect.get(commands, 'aiKeyRemove');
-		Reflect.set(commands, 'aiKeyRemove', async () => ({ data: true, error: null }));
+		Reflect.set(commands, 'aiKeyRemove', async () => ({
+			data: true,
+			error: null,
+		}));
 		try {
-			fixture.control.failPut.set('connections/account.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			fixture.control.failPut.set(
+				'connections/account.md',
+				SaveError.StorageFailed({ cause: 'full' }).error!,
+			);
 			await until(() => fixture.target.querySelector('li input') !== null);
 			click(fixture.target, 'Delete connection');
-			await until(() => fixture.target.textContent?.includes('The connection was not deleted:') ?? false);
+			await until(
+				() =>
+					fixture.target.textContent?.includes(
+						'The connection was not deleted:',
+					) ?? false,
+			);
 			expect(fixture.folder.tables.connections.row('account')).toBeDefined();
 		} finally {
-			if (previous === undefined) Reflect.deleteProperty(commands, 'aiKeyRemove');
+			if (previous === undefined)
+				Reflect.deleteProperty(commands, 'aiKeyRemove');
 			else Reflect.set(commands, 'aiKeyRemove', previous);
 			await fixture.close();
 		}

@@ -23,29 +23,47 @@
  * the replica checks against its binding, and `main`, which tells it
  * whether it must catch up: a device resumes from its last head.
  */
-import { openBunSqlite } from '../bun/sqlite.js';
+
+import { unwrap } from 'wellcrafted/result';
 import { serveRepository, socketWithHeaders } from '../bun/serve.js';
+import { openBunSqlite } from '../bun/sqlite.js';
+import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
-import { type Committed, createServer, type Session } from '../server/server.js';
+import {
+	type Committed,
+	createServer,
+	type Session,
+} from '../server/server.js';
 import { createWireClient, type SocketConnection } from '../wire/client.js';
 import { authenticateBearer, type SocketMessage } from '../wire/wire.js';
 import { type Device, EPOCH, virtualAlarm } from './harness.js';
-import { unwrap } from 'wellcrafted/result';
-import { openReplica, type Reply, type Request } from '../client/replica.js';
 import { createNet } from './net.js';
 import type { PropertyWorld, WorldOptions } from './property.test-support.js';
 
 export type Transport = 'socket' | 'http';
 
 export function createWireWorld(
-	{ seed = 1, latency = { min: 5, max: 40 }, loss = { up: 0, down: 0 }, streamLoss = 0, stall, timeout = 2_000, limits, trace }: WorldOptions = {},
+	{
+		seed = 1,
+		latency = { min: 5, max: 40 },
+		loss = { up: 0, down: 0 },
+		streamLoss = 0,
+		stall,
+		timeout = 2_000,
+		limits,
+		trace,
+	}: WorldOptions = {},
 	{ transport = 'socket' }: { transport?: Transport } = {},
 ): PropertyWorld {
 	const net = createNet(seed);
 	const { random } = net;
 	const links = { loss: { ...loss }, streamLoss, stall };
 	const commitHooks: ((committed: Committed) => void)[] = [];
-	const requestHooks: ((device: string, request: Request, reply: Reply) => void)[] = [];
+	const requestHooks: ((
+		device: string,
+		request: Request,
+		reply: Reply,
+	) => void)[] = [];
 	const members = new Set(['mallory']);
 	const git = createMemoryGitStore();
 	const server = createServer({
@@ -56,8 +74,16 @@ export function createWireWorld(
 		...(limits === undefined ? {} : { limits }),
 		onCommit: (committed) => commitHooks.forEach((hook) => hook(committed)),
 	});
-	const session = (user: string): Session => ({ user, role: members.has(user) ? 'writer' : null });
-	const served = serveRepository({ repository: 'test', serverId: 'test-server', server, authenticate: authenticateBearer(session) });
+	const session = (user: string): Session => ({
+		user,
+		role: members.has(user) ? 'writer' : null,
+	});
+	const served = serveRepository({
+		repository: 'test',
+		serverId: 'test-server',
+		server,
+		authenticate: authenticateBearer(session),
+	});
 	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0 };
 
 	/** Real I/O in progress: the world waits for all of it before the next event. */
@@ -76,14 +102,25 @@ export function createWireWorld(
 	server.subscribe(() => {
 		stirred = true;
 	});
-	const delay = () => random.int(latency.min, latency.max) + (links.stall !== undefined && random.chance(links.stall.chance) ? random.int(0, links.stall.ms) : 0);
+	const delay = () =>
+		random.int(latency.min, latency.max) +
+		(links.stall !== undefined && random.chance(links.stall.chance)
+			? random.int(0, links.stall.ms)
+			: 0);
 	/** When a message on an ordered connection arrives: its own delay, but never before the one sent before it. */
 	const inOrder = (last: { at: number }) => {
 		last.at = Math.max(net.now() + delay(), last.at);
 		return last.at - net.now();
 	};
 
-	type Socket = { connection: SocketConnection; open: boolean; inbox: (SocketMessage | 'closed')[]; up: { at: number }; down: { at: number }; loseNextDown: boolean };
+	type Socket = {
+		connection: SocketConnection;
+		open: boolean;
+		inbox: (SocketMessage | 'closed')[];
+		up: { at: number };
+		down: { at: number };
+		loseNextDown: boolean;
+	};
 	const devices: { ping(): Promise<void>; drain(): void }[] = [];
 
 	async function quiesce() {
@@ -108,10 +145,23 @@ export function createWireWorld(
 	function device(name: string): Device {
 		members.add(name);
 		const authorization = { authorization: `Bearer ${name}` };
-		const client = createWireClient({ url: served.url, headers: authorization, openSocket: socketWithHeaders(authorization) });
+		const client = createWireClient({
+			url: served.url,
+			headers: authorization,
+			openSocket: socketWithHeaders(authorization),
+		});
 		let driver = openBunSqlite();
 		const make = () =>
-			unwrap(openReplica({ driver, binding: { repository: 'test', server: 'test-server', account: name }, device: name, after: net.after, now: () => EPOCH + net.now(), timeout }));
+			unwrap(
+				openReplica({
+					driver,
+					binding: { repository: 'test', server: 'test-server', account: name },
+					device: name,
+					after: net.after,
+					now: () => EPOCH + net.now(),
+					timeout,
+				}),
+			);
 		let replica = make();
 		let online = true;
 		/** HTTP requests: each delayed and lost on its own. */
@@ -123,7 +173,8 @@ export function createWireWorld(
 
 		function overHttp(request: Request) {
 			const current = link;
-			if (current === null || !current.open || random.chance(links.loss.up)) return;
+			if (current === null || !current.open || random.chance(links.loss.up))
+				return;
 			net.after(delay(), () => {
 				if (!current.open) return;
 				counts[request.type]++;
@@ -131,7 +182,9 @@ export function createWireWorld(
 					client.send(request).then(({ data: reply, error }) => {
 						if (error !== null) throw error;
 						for (const hook of requestHooks) hook(name, request, reply);
-						trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
+						trace?.(
+							`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`,
+						);
 						const lost = current.loseNextDown || random.chance(links.loss.down);
 						current.loseNextDown = false;
 						if (!current.open || lost) return;
@@ -159,7 +212,8 @@ export function createWireWorld(
 			});
 		}
 
-		const send = (request: Request) => (transport === 'socket' ? overSocket(request) : overHttp(request));
+		const send = (request: Request) =>
+			transport === 'socket' ? overSocket(request) : overHttp(request);
 		const attach = () => replica.attach(send);
 
 		function openLink() {
@@ -222,13 +276,21 @@ export function createWireWorld(
 			switch (message.type) {
 				case 'head': {
 					// The binding is checked first; then the device resumes from its last head, catching up only when main is not where it stands.
-					const { error } = replica.hello({ server: message.server, repository: message.repository, user: message.user, main: message.main, limits: message.limits });
+					const { error } = replica.hello({
+						server: message.server,
+						repository: message.repository,
+						user: message.user,
+						main: message.main,
+						limits: message.limits,
+					});
 					if (error !== null) throw new Error(`${name}: ${error.message}`);
 					if (transport === 'socket') attach();
 					return true;
 				}
 				case 'error':
-					throw new Error(`${name}: the socket refused a request: ${message.error}`);
+					throw new Error(
+						`${name}: the socket refused a request: ${message.error}`,
+					);
 				case 'commit': {
 					if (random.chance(links.streamLoss)) return false;
 					const { type: _, ...event } = message;
@@ -242,11 +304,17 @@ export function createWireWorld(
 				}
 				case 'answer':
 				case 'caught-up': {
-					const reply: Reply = message.type === 'answer' ? { type: 'answer', rid: message.rid, answer: message.answer } : message;
+					const reply: Reply =
+						message.type === 'answer'
+							? { type: 'answer', rid: message.rid, answer: message.answer }
+							: message;
 					const request = sent.get(message.rid);
 					sent.delete(message.rid);
-					if (request !== undefined) for (const hook of requestHooks) hook(name, request, reply);
-					trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
+					if (request !== undefined)
+						for (const hook of requestHooks) hook(name, request, reply);
+					trace?.(
+						`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`,
+					);
 					const lost = current.loseNextDown || random.chance(links.loss.down);
 					current.loseNextDown = false;
 					if (lost) return false;
@@ -321,7 +389,8 @@ export function createWireWorld(
 				replica.attach(null);
 			},
 			loseNextReply: () => {
-				if (transport === 'socket' && socket !== null) socket.loseNextDown = true;
+				if (transport === 'socket' && socket !== null)
+					socket.loseNextDown = true;
 				else if (link !== null) link.loseNextDown = true;
 			},
 			restart() {

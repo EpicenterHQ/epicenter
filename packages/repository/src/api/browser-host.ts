@@ -39,7 +39,11 @@ export function browserHost(tab: ReplicaTab): Host {
 						break;
 					}
 					case 'unavailable':
-						next = { status: 'unavailable', reason: state.error.message, retry: state.retry };
+						next = {
+							status: 'unavailable',
+							reason: state.error.message,
+							retry: state.retry,
+						};
 						break;
 					default:
 						next = state;

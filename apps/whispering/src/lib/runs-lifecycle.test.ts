@@ -25,8 +25,8 @@ import {
 	eventually,
 	openMemoryTestFolder,
 	openTestServices,
-	waitForSaves,
 	type TestServicesOptions,
+	waitForSaves,
 } from './services.test-support.js';
 import { TranscriptionError } from './transcription.js';
 

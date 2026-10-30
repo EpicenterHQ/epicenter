@@ -127,10 +127,13 @@ test('an outside invalid edit keeps repair open after a valid draft', async () =
 	expectOk(await folder.write('entries/broken.md', repaired));
 	host.outside('entries/broken.md', 'invalid again', { hint: true });
 	await folder.refresh();
-	await until(() => {
-		const row = folder.tables.entries.row('broken');
-		return row !== undefined && row.issues !== null;
-	}, { timeout: 4000 });
+	await until(
+		() => {
+			const row = folder.tables.entries.row('broken');
+			return row !== undefined && row.issues !== null;
+		},
+		{ timeout: 4000 },
+	);
 	expect(entries.repair.close(repaired)).toBe(false);
 	expect(entries.repair.open).toBe('broken');
 	await core.close();

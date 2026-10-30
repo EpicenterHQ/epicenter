@@ -17,7 +17,14 @@
  * after the worker that read it ends. Sync access handles exist only in
  * dedicated workers, so the store runs in the owning tab's worker.
  */
-import { type BlobStore, BlobStoreError, isQuotaExceeded, OID, type Sealed, sealStream } from '../../client/blobs.js';
+import {
+	type BlobStore,
+	BlobStoreError,
+	isQuotaExceeded,
+	OID,
+	type Sealed,
+	sealStream,
+} from '../../client/blobs.js';
 import { fileIn, isNotFound, type WorkerFileHandle } from './opfs.js';
 
 /** Store blob bytes as files in `directory`, a replica's `objects/`. */
@@ -35,7 +42,8 @@ export function createOpfsBlobStore(directory: FileSystemDirectoryHandle) {
 			return running;
 		},
 		read: async (oid) => (OID.test(oid) ? fileIn(directory, oid) : null),
-		has: async (oid) => OID.test(oid) && (await fileIn(directory, oid)) !== null,
+		has: async (oid) =>
+			OID.test(oid) && (await fileIn(directory, oid)) !== null,
 		async evict(oid) {
 			if (!OID.test(oid)) return;
 			await directory.removeEntry(oid).catch((cause: unknown) => {
@@ -46,16 +54,22 @@ export function createOpfsBlobStore(directory: FileSystemDirectoryHandle) {
 
 	async function seal(stream: ReadableStream<Uint8Array>, expect?: Sealed) {
 		const temporary = `${crypto.randomUUID()}.tmp`;
-		const fail = (cause: unknown) => (isQuotaExceeded(cause) ? BlobStoreError.QuotaExceeded({ cause }) : BlobStoreError.Failed({ cause }));
+		const fail = (cause: unknown) =>
+			isQuotaExceeded(cause)
+				? BlobStoreError.QuotaExceeded({ cause })
+				: BlobStoreError.Failed({ cause });
 		try {
-			const handle = (await directory.getFileHandle(temporary, { create: true })) as WorkerFileHandle;
+			const handle = (await directory.getFileHandle(temporary, {
+				create: true,
+			})) as WorkerFileHandle;
 			const access = await handle.createSyncAccessHandle();
 			let sealed: Awaited<ReturnType<typeof sealStream>>;
 			try {
 				sealed = await sealStream(
 					stream,
 					(chunk, at) => {
-						if (access.write(chunk, { at }) !== chunk.byteLength) throw new Error(`The write to '${temporary}' was short`);
+						if (access.write(chunk, { at }) !== chunk.byteLength)
+							throw new Error(`The write to '${temporary}' was short`);
 					},
 					expect,
 				);
@@ -70,7 +84,8 @@ export function createOpfsBlobStore(directory: FileSystemDirectoryHandle) {
 			const { oid } = sealed.data;
 			const named = naming.then(async () => {
 				// Already here: the bytes under an oid never change, and leaving the file alone keeps every File read from it readable.
-				if ((await fileIn(directory, oid)) !== null) await directory.removeEntry(temporary);
+				if ((await fileIn(directory, oid)) !== null)
+					await directory.removeEntry(temporary);
 				else await handle.move(directory, oid);
 			});
 			naming = named.catch(() => {});

@@ -18,8 +18,10 @@ const { openCaptures } = await import('../local-folder.test-support.js');
 const { locateThought } = await import('../capture-actions.svelte.ts');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 setWide(true);
-const until = (check: () => boolean, options: { timeout?: number } = { timeout: 2500 }) =>
-	waitUntil(check, options);
+const until = (
+	check: () => boolean,
+	options: { timeout?: number } = { timeout: 2500 },
+) => waitUntil(check, options);
 const AT = '2026-10-04T20:49:23.041Z';
 const PATH = 'captures/one.md';
 const FILE = `---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- first\n`;

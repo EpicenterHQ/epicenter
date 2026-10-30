@@ -8,11 +8,24 @@
  * history after 60 s of quiet, at most every 5 minutes while busy, and on
  * demand.
  */
-import { openBunSqlite } from '../bun/sqlite.js';
-import { createMemoryGitStore } from '../server/memory-git.js';
-import { type Committed, createServer, type Event, type Limits, SCHEDULE, type Session } from '../server/server.js';
+
 import { unwrap } from 'wellcrafted/result';
-import { openReplica, type Reply, SEND_QUIET, type Request } from '../client/replica.js';
+import { openBunSqlite } from '../bun/sqlite.js';
+import {
+	openReplica,
+	type Reply,
+	type Request,
+	SEND_QUIET,
+} from '../client/replica.js';
+import { createMemoryGitStore } from '../server/memory-git.js';
+import {
+	type Committed,
+	createServer,
+	type Event,
+	type Limits,
+	SCHEDULE,
+	type Session,
+} from '../server/server.js';
 import { createNet, type LinkOptions } from './net.js';
 
 export const QUIET = SCHEDULE.quiet;
@@ -41,12 +54,27 @@ export const virtualAlarm =
 	};
 
 /** A server alone over an in-memory Store and Git, for tests that push to it directly. */
-export function createTestServer({ clock = () => EPOCH, limits }: { clock?: () => number; limits?: Parameters<typeof createServer>[0]['limits'] } = {}) {
-	return createServer({ store: openBunSqlite(), git: createMemoryGitStore(), clock, ...(limits === undefined ? {} : { limits }) });
+export function createTestServer({
+	clock = () => EPOCH,
+	limits,
+}: {
+	clock?: () => number;
+	limits?: Parameters<typeof createServer>[0]['limits'];
+} = {}) {
+	return createServer({
+		store: openBunSqlite(),
+		git: createMemoryGitStore(),
+		clock,
+		...(limits === undefined ? {} : { limits }),
+	});
 }
 
 /** The memory world's binding for a person's replica. */
-const BINDING = (account: string) => ({ repository: 'test', server: 'memory', account });
+const BINDING = (account: string) => ({
+	repository: 'test',
+	server: 'memory',
+	account,
+});
 
 /** A writer's session, as a host would verify it. */
 export const writer = (user: string): Session => ({ user, role: 'writer' });
@@ -79,10 +107,26 @@ export function createWorld({
 	trace?: (line: string) => void;
 } = {}) {
 	const net = createNet(seed);
-	const requests: LinkOptions = { ordered: false, lossCloses: false, latency, loss: { ...loss }, ...(stall === undefined ? {} : { stall }) };
-	const stream: LinkOptions = { ordered: false, lossCloses: true, latency, loss: { up: 0, down: streamLoss }, ...(stall === undefined ? {} : { stall }) };
+	const requests: LinkOptions = {
+		ordered: false,
+		lossCloses: false,
+		latency,
+		loss: { ...loss },
+		...(stall === undefined ? {} : { stall }),
+	};
+	const stream: LinkOptions = {
+		ordered: false,
+		lossCloses: true,
+		latency,
+		loss: { up: 0, down: streamLoss },
+		...(stall === undefined ? {} : { stall }),
+	};
 	const commitHooks: ((committed: Committed) => void)[] = [];
-	const requestHooks: ((device: string, request: Request, reply: Reply) => void)[] = [];
+	const requestHooks: ((
+		device: string,
+		request: Request,
+		reply: Reply,
+	) => void)[] = [];
 	/** The repository's members: every device's person, and `mallory`, a member who writes straight to the server. */
 	const members = new Set(['mallory']);
 	const git = createMemoryGitStore();
@@ -97,17 +141,32 @@ export function createWorld({
 	});
 	const counts = { push: 0, 'catch-up': 0, fetch: 0, notifications: 0 };
 	/** The session the host would verify for `user`: a writer if a member. */
-	const session = (user: string): Session => ({ user, role: members.has(user) ? 'writer' : null });
+	const session = (user: string): Session => ({
+		user,
+		role: members.has(user) ? 'writer' : null,
+	});
 
 	function device(name: string) {
 		members.add(name);
 		// The device's database: a restart opens a new replica over it; a lost device gets a new one.
 		let driver = openBunSqlite();
-		const make = () => unwrap(openReplica({ driver, binding: BINDING(name), device: name, after: net.after, now: () => EPOCH + net.now(), timeout, quiet }));
+		const make = () =>
+			unwrap(
+				openReplica({
+					driver,
+					binding: BINDING(name),
+					device: name,
+					after: net.after,
+					now: () => EPOCH + net.now(),
+					timeout,
+					quiet,
+				}),
+			);
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;
-		let notifications: ReturnType<typeof net.connect<never, Event>> | null = null;
+		let notifications: ReturnType<typeof net.connect<never, Event>> | null =
+			null;
 		let reopening = false;
 
 		function answer(request: Request): Reply {
@@ -122,7 +181,11 @@ export function createWorld({
 					return { type: 'caught-up', rid: request.rid, catchUp };
 				}
 				case 'fetch':
-					return { type: 'fetched', rid: request.rid, texts: server.fetch(request.hashes) };
+					return {
+						type: 'fetched',
+						rid: request.rid,
+						texts: server.fetch(request.hashes),
+					};
 			}
 		}
 
@@ -131,7 +194,9 @@ export function createWorld({
 				server: (request) => {
 					const reply = answer(request);
 					for (const hook of requestHooks) hook(name, request, reply);
-					trace?.(`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`);
+					trace?.(
+						`${net.now()} ${name} ${JSON.stringify(request)}\n    -> ${JSON.stringify(reply)}`,
+					);
 					current.down(reply);
 				},
 				client: (reply) => {
@@ -164,7 +229,14 @@ export function createWorld({
 			unsubscribe = server.subscribe((event) => current.down(event));
 			notifications = current;
 			// The stream's first exchange, as a socket's hello: a main other than the device's position means it may have missed something.
-			unwrap(replica.hello({ ...BINDING(name), user: name, main: server.main(), limits: server.sizing() }));
+			unwrap(
+				replica.hello({
+					...BINDING(name),
+					user: name,
+					main: server.main(),
+					limits: server.sizing(),
+				}),
+			);
 		}
 
 		function reopen() {
@@ -254,7 +326,9 @@ export function createWorld({
 		},
 		onCommit: (hook: (committed: Committed) => void) => commitHooks.push(hook),
 		/** Every request the server answered, with its reply. */
-		onRequest: (hook: (device: string, request: Request, reply: Reply) => void) => requestHooks.push(hook),
+		onRequest: (
+			hook: (device: string, request: Request, reply: Reply) => void,
+		) => requestHooks.push(hook),
 		counts: () => ({ ...counts, flushes: server.history().flushes }),
 		/** Run until no event is left; false if it never went idle. */
 		settle: (limit?: number) => net.runUntilIdle(limit),

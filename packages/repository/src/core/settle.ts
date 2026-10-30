@@ -24,7 +24,17 @@
  * a note with no fields, merged as whole text.
  */
 import { stringify } from 'yaml';
-import { block, findConflicts, type Labels, type Party, sideOffering, unlabelled, versionOf, withBlock, withSide } from './conflict.js';
+import {
+	block,
+	findConflicts,
+	type Labels,
+	type Party,
+	sideOffering,
+	unlabelled,
+	versionOf,
+	withBlock,
+	withSide,
+} from './conflict.js';
 import { merge, withBlocks } from './merge.js';
 
 export type Settled = {
@@ -36,10 +46,16 @@ export type Settled = {
 /** Who wrote each side, and when; settle adds each side's version. */
 export type Parties = { current: Party; incoming: Party };
 
-const stringifyField = (key: string, value: unknown) => stringify({ [key]: value });
+const stringifyField = (key: string, value: unknown) =>
+	stringify({ [key]: value });
 
 /** Labels for a block between these texts: each side's party and the version of the note it had. */
-const labelled = (parties: Parties, base: string | null, current: string | null, incoming: string | null): Labels => ({
+const labelled = (
+	parties: Parties,
+	base: string | null,
+	current: string | null,
+	incoming: string | null,
+): Labels => ({
 	current: { ...parties.current, version: versionOf(current) },
 	base: { version: versionOf(base) },
 	incoming: { ...parties.incoming, version: versionOf(incoming) },
@@ -49,8 +65,18 @@ const labelled = (parties: Parties, base: string | null, current: string | null,
 export const BLOCK_CAP = 20;
 
 /** One conflict block holding `incoming` whole, after `current`. */
-export function appendBlock(current: string, incoming: string, parties: Parties) {
-	return withBlock(current, block({ current: '', incoming }, labelled(parties, null, current, incoming)));
+export function appendBlock(
+	current: string,
+	incoming: string,
+	parties: Parties,
+) {
+	return withBlock(
+		current,
+		block(
+			{ current: '', incoming },
+			labelled(parties, null, current, incoming),
+		),
+	);
 }
 
 /**
@@ -63,8 +89,13 @@ export function appendBlock(current: string, incoming: string, parties: Parties)
  * to an edit of a note does. Writing what is already there lands as
  * nothing, so two writes of the same bytes are one file.
  */
-export function settlePointer(base: string | null, current: string | null, incoming: string | null): { text: string | null } | { lost: true } {
-	if (incoming === current || incoming === base || current === base) return { text: incoming === base ? current : incoming };
+export function settlePointer(
+	base: string | null,
+	current: string | null,
+	incoming: string | null,
+): { text: string | null } | { lost: true } {
+	if (incoming === current || incoming === base || current === base)
+		return { text: incoming === base ? current : incoming };
 	if (incoming === null) return { text: current };
 	return { lost: true };
 }
@@ -80,15 +111,24 @@ const SIBLING_SUFFIX = / \(conflict [0-9a-f]{7,64}\)$/;
  * shortened, by whole characters, until the name fits 255 bytes and the
  * path `maxPath` bytes.
  */
-export function conflictSibling(path: string, oid: string, chars = 7, maxPath = Number.POSITIVE_INFINITY) {
+export function conflictSibling(
+	path: string,
+	oid: string,
+	chars = 7,
+	maxPath = Number.POSITIVE_INFINITY,
+) {
 	const slash = path.lastIndexOf('/');
 	const folder = path.slice(0, slash + 1);
 	const name = path.slice(slash + 1);
 	const dot = name.lastIndexOf('.');
 	const ext = dot > 0 ? name.slice(dot) : '';
 	const suffix = ` (conflict ${oid.slice(0, chars)})${ext}`;
-	let stem = [...(dot > 0 ? name.slice(0, dot) : name).replace(SIBLING_SUFFIX, '')];
-	const fits = () => utf8.encode(stem.join('') + suffix).length <= 255 && utf8.encode(folder + stem.join('') + suffix).length <= maxPath;
+	let stem = [
+		...(dot > 0 ? name.slice(0, dot) : name).replace(SIBLING_SUFFIX, ''),
+	];
+	const fits = () =>
+		utf8.encode(stem.join('') + suffix).length <= 255 &&
+		utf8.encode(folder + stem.join('') + suffix).length <= maxPath;
 	while (stem.length > 0 && !fits()) stem = stem.slice(0, -1);
 	return `${folder}${stem.join('')}${suffix}`;
 }
@@ -102,34 +142,62 @@ export function settle(
 	base: string | null,
 	current: string | null,
 	incoming: string | null,
-	{ deletedSince = false, parties }: { deletedSince?: boolean; parties: Parties },
+	{
+		deletedSince = false,
+		parties,
+	}: { deletedSince?: boolean; parties: Parties },
 ): Settled {
 	if (incoming === current) return { text: current, blocks: false };
 	if (incoming === base) return { text: current, blocks: false };
-	if (current === base && !deletedSince) return { text: incoming, blocks: false };
+	if (current === base && !deletedSince)
+		return { text: incoming, blocks: false };
 	// A delete against an edit it had not seen keeps the edit; an edit brings a deleted note back.
 	if (incoming === null) return { text: current, blocks: false };
 	if (current === null) return { text: incoming, blocks: false };
 	// Two creates, or a path deleted and created again: another note.
 	const labels = labelled(parties, base, current, incoming);
-	if (base === null || deletedSince) return { text: withBlock(current, block({ current: '', incoming }, labels)), blocks: true };
+	if (base === null || deletedSince)
+		return {
+			text: withBlock(current, block({ current: '', incoming }, labels)),
+			blocks: true,
+		};
 
 	const result = merge(base, current, incoming);
 	let text = withBlocks(result, labels) ?? current;
-	let conflict = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block');
+	let conflict = result.overlaps.some(
+		(o) => o.unit === 'body' || o.unit === 'block',
+	);
 	for (const overlap of result.overlaps) {
-		if (overlap.unit !== 'field' || overlap.incoming === undefined || overlap.current === undefined) continue;
+		if (
+			overlap.unit !== 'field' ||
+			overlap.incoming === undefined ||
+			overlap.current === undefined
+		)
+			continue;
 		// D2: the value that lost is a block in the body.
 		const values = {
 			current: stringifyField(overlap.key, overlap.current),
-			base: overlap.base === undefined ? '' : stringifyField(overlap.key, overlap.base),
+			base:
+				overlap.base === undefined
+					? ''
+					: stringifyField(overlap.key, overlap.base),
 			incoming: stringifyField(overlap.key, overlap.incoming),
 		};
 		// One clash is one block: a field's block that offers this edit's base value as a side is continued, not joined by another.
 		// Only a block the edit's base did not hold: one the writer had seen is not this clash, and their edit of the field is a change of its own.
-		const seen = new Set(findConflicts(base).map((existing) => unlabelled(existing.raw)));
-		const continued = values.base === '' ? undefined : findConflicts(text).find((existing) => !seen.has(unlabelled(existing.raw)) && sideOffering(existing, values.base) !== null);
-		const side = continued === undefined ? null : sideOffering(continued, values.base);
+		const seen = new Set(
+			findConflicts(base).map((existing) => unlabelled(existing.raw)),
+		);
+		const continued =
+			values.base === ''
+				? undefined
+				: findConflicts(text).find(
+						(existing) =>
+							!seen.has(unlabelled(existing.raw)) &&
+							sideOffering(existing, values.base) !== null,
+					);
+		const side =
+			continued === undefined ? null : sideOffering(continued, values.base);
 		text =
 			continued === undefined || side === null
 				? withBlock(text, block(values, labels))

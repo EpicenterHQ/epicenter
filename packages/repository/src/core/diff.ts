@@ -15,7 +15,8 @@ import { diff } from './merge.js';
 export type TextChange = { from: number; to: number; insert: string };
 
 const linesOf = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-const content = (line: string) => (line.endsWith('\n') ? line.slice(0, -1) : line);
+const content = (line: string) =>
+	line.endsWith('\n') ? line.slice(0, -1) : line;
 
 /** The changes that turn `a` into `b`. */
 export function diffText(a: string, b: string): TextChange[] {
@@ -35,15 +36,40 @@ export function diffText(a: string, b: string): TextChange[] {
 		const x = a.slice(aFrom, aTo);
 		const y = b.slice(bFrom, bTo);
 		if (x === y) return;
-		for (const hunk of diff([...x], [...y])) changes.push({ from: aFrom + hunk.start, to: aFrom + hunk.end, insert: [...y].slice(hunk.sideStart, hunk.sideEnd).join('') });
+		for (const hunk of diff([...x], [...y]))
+			changes.push({
+				from: aFrom + hunk.start,
+				to: aFrom + hunk.end,
+				insert: [...y].slice(hunk.sideStart, hunk.sideEnd).join(''),
+			});
 	};
 	let i = 0;
 	let j = 0;
 	const hunks = diff(left.map(content), right.map(content));
-	for (const hunk of [...hunks, { start: left.length, end: left.length, sideStart: right.length, sideEnd: right.length }]) {
+	for (const hunk of [
+		...hunks,
+		{
+			start: left.length,
+			end: left.length,
+			sideStart: right.length,
+			sideEnd: right.length,
+		},
+	]) {
 		// Lines that match by content: only a terminator can differ.
-		for (; i < hunk.start; i++, j++) refine(leftAt[i] ?? 0, leftAt[i + 1] ?? 0, rightAt[j] ?? 0, rightAt[j + 1] ?? 0);
-		if (hunk.end > hunk.start || hunk.sideEnd > hunk.sideStart) refine(leftAt[hunk.start] ?? 0, leftAt[hunk.end] ?? 0, rightAt[hunk.sideStart] ?? 0, rightAt[hunk.sideEnd] ?? 0);
+		for (; i < hunk.start; i++, j++)
+			refine(
+				leftAt[i] ?? 0,
+				leftAt[i + 1] ?? 0,
+				rightAt[j] ?? 0,
+				rightAt[j + 1] ?? 0,
+			);
+		if (hunk.end > hunk.start || hunk.sideEnd > hunk.sideStart)
+			refine(
+				leftAt[hunk.start] ?? 0,
+				leftAt[hunk.end] ?? 0,
+				rightAt[hunk.sideStart] ?? 0,
+				rightAt[hunk.sideEnd] ?? 0,
+			);
 		i = hunk.end;
 		j = hunk.sideEnd;
 	}
@@ -62,7 +88,8 @@ export function applyChanges(text: string, changes: TextChange[]) {
 }
 
 /** Whether two changes to one text touch the same characters, or one inserts strictly inside what the other replaces. */
-const overlaps = (x: TextChange, y: TextChange) => x.from < y.to && y.from < x.to;
+const overlaps = (x: TextChange, y: TextChange) =>
+	x.from < y.to && y.from < x.to;
 
 /**
  * Carry the typing from `sent` to `draft` onto `merged`, the text the
@@ -83,17 +110,28 @@ const overlaps = (x: TextChange, y: TextChange) => x.from < y.to && y.from < x.t
  * so the cursor and the undo history map through them; `typed` in the
  * answer is the typing again, over `merged`.
  */
-export function rebase(sent: string, draft: string, merged: string, typed: TextChange[] = diffText(sent, draft)): { text: string; changes: TextChange[]; typed: TextChange[] } | null {
+export function rebase(
+	sent: string,
+	draft: string,
+	merged: string,
+	typed: TextChange[] = diffText(sent, draft),
+): { text: string; changes: TextChange[]; typed: TextChange[] } | null {
 	const worker = diffText(sent, merged);
-	for (const x of typed) for (const y of worker) if (overlaps(x, y)) return null;
+	for (const x of typed)
+		for (const y of worker) if (overlaps(x, y)) return null;
 	const changes: TextChange[] = [];
-	const wholeLines = (y: TextChange) => y.from === y.to && (y.from === 0 || sent[y.from - 1] === '\n') && y.insert.endsWith('\n');
-	const before = (x: TextChange, y: TextChange) => x.to < y.from || (x.to === y.from && !(x.from === x.to && wholeLines(y)));
+	const wholeLines = (y: TextChange) =>
+		y.from === y.to &&
+		(y.from === 0 || sent[y.from - 1] === '\n') &&
+		y.insert.endsWith('\n');
+	const before = (x: TextChange, y: TextChange) =>
+		x.to < y.from || (x.to === y.from && !(x.from === x.to && wholeLines(y)));
 	// How far the typing before each change moved it, in the draft's positions.
 	let shift = 0;
 	let t = 0;
 	for (const y of worker) {
-		for (let x = typed[t]; x !== undefined && before(x, y); x = typed[++t]) shift += x.insert.length - (x.to - x.from);
+		for (let x = typed[t]; x !== undefined && before(x, y); x = typed[++t])
+			shift += x.insert.length - (x.to - x.from);
 		changes.push({ from: y.from + shift, to: y.to + shift, insert: y.insert });
 	}
 	// The typing again, now over `merged`: each change moved by the worker's changes before it.
@@ -101,7 +139,8 @@ export function rebase(sent: string, draft: string, merged: string, typed: TextC
 	let moved = 0;
 	let w = 0;
 	for (const x of typed) {
-		for (let y = worker[w]; y !== undefined && !before(x, y); y = worker[++w]) moved += y.insert.length - (y.to - y.from);
+		for (let y = worker[w]; y !== undefined && !before(x, y); y = worker[++w])
+			moved += y.insert.length - (y.to - y.from);
 		carried.push({ from: x.from + moved, to: x.to + moved, insert: x.insert });
 	}
 	return { text: applyChanges(draft, changes), changes, typed: carried };
@@ -127,9 +166,18 @@ function opsOf(changes: TextChange[], length: number): Op[] {
  * The changes `first` then `second` make together: `first` turns a text of
  * `length` into another, and `second` turns that one into a third.
  */
-export function composeChanges(first: TextChange[], second: TextChange[], length: number): TextChange[] {
+export function composeChanges(
+	first: TextChange[],
+	second: TextChange[],
+	length: number,
+): TextChange[] {
 	const a = opsOf(first, length);
-	const middle = length + first.reduce((sum, change) => sum + change.insert.length - (change.to - change.from), 0);
+	const middle =
+		length +
+		first.reduce(
+			(sum, change) => sum + change.insert.length - (change.to - change.from),
+			0,
+		);
 	const b = opsOf(second, middle);
 	const out: TextChange[] = [];
 	let at = 0;
@@ -164,11 +212,23 @@ export function composeChanges(first: TextChange[], second: TextChange[], length
 			else if ('retain' in x) edit(n, '');
 			else if ('retain' in y) edit(0, x.insert.slice(0, n));
 			// An insertion the second removed is no change at all.
-			x = xs > n ? ('retain' in x ? { retain: xs - n } : { insert: x.insert.slice(n) }) : a[++i];
-			y = ys > n ? ('retain' in y ? { retain: ys - n } : { remove: ys - n }) : b[++j];
+			x =
+				xs > n
+					? 'retain' in x
+						? { retain: xs - n }
+						: { insert: x.insert.slice(n) }
+					: a[++i];
+			y =
+				ys > n
+					? 'retain' in y
+						? { retain: ys - n }
+						: { remove: ys - n }
+					: b[++j];
 		}
 	}
-	return out.filter((change) => change.to > change.from || change.insert !== '');
+	return out.filter(
+		(change) => change.to > change.from || change.insert !== '',
+	);
 }
 
 /**
@@ -177,10 +237,20 @@ export function composeChanges(first: TextChange[], second: TextChange[], length
  * changes left out. Where a change crosses the frontmatter's edge (a note
  * gaining or losing its header), the two bodies' diff.
  */
-export function bodyChanges(before: string, after: string, changes: TextChange[]): TextChange[] {
+export function bodyChanges(
+	before: string,
+	after: string,
+	changes: TextChange[],
+): TextChange[] {
 	const body = bodyOf(before);
 	const header = before.length - body.length;
-	const moved = changes.filter((change) => change.from >= header).map((change) => ({ from: change.from - header, to: change.to - header, insert: change.insert }));
+	const moved = changes
+		.filter((change) => change.from >= header)
+		.map((change) => ({
+			from: change.from - header,
+			to: change.to - header,
+			insert: change.insert,
+		}));
 	const next = bodyOf(after);
 	return applyChanges(body, moved) === next ? moved : diffText(body, next);
 }

@@ -21,9 +21,9 @@ import {
 	BODY_SQL,
 	bodyOf,
 	formatMarkdown,
-	withBody,
 	parseMarkdown,
 	parsePointer,
+	withBody,
 	writeMarkdown,
 	writePointer,
 } from './markdown.js';
@@ -51,7 +51,9 @@ describe('split', () => {
 		);
 		// The replica stores `fields` only for a text with frontmatter (`fieldsOf`).
 		for (const text of [...samples, '---\na: [\n---\nB\n', '---\n- a\n---\n'])
-			expect(query.get(text, parseMarkdown(text).hasFrontmatter ? '{}' : null)?.body).toBe(bodyOf(text));
+			expect(
+				query.get(text, parseMarkdown(text).hasFrontmatter ? '{}' : null)?.body,
+			).toBe(bodyOf(text));
 	});
 
 	test('parse reads fields and body', () => {
@@ -69,8 +71,18 @@ describe('split', () => {
 	});
 
 	test('a text that does not open with parseable frontmatter is a note with no fields, its whole text the body', () => {
-		for (const text of ['---\na: [\n---\nB\n', '---\n- a\n- b\n---\n', '---\na: 1\na: 2\n---\n', '---\na: {b\n---', '---\na: *missing\n---\nB\n'])
-			expect(parseMarkdown(text)).toEqual({ fields: {}, body: text, hasFrontmatter: false });
+		for (const text of [
+			'---\na: [\n---\nB\n',
+			'---\n- a\n- b\n---\n',
+			'---\na: 1\na: 2\n---\n',
+			'---\na: {b\n---',
+			'---\na: *missing\n---\nB\n',
+		])
+			expect(parseMarkdown(text)).toEqual({
+				fields: {},
+				body: text,
+				hasFrontmatter: false,
+			});
 		expect(bodyOf('---\na: [\n---\nB\n')).toBe('---\na: [\n---\nB\n');
 	});
 });
@@ -104,7 +116,9 @@ describe('write', () => {
 
 	test('a new key is appended after the existing ones', () => {
 		const out = writeMarkdown(source, { fields: { due: '2026-11-01' } });
-		expect(out).toBe(source.replace("mood: 'ok'\n", "mood: 'ok'\ndue: 2026-11-01\n"));
+		expect(out).toBe(
+			source.replace("mood: 'ok'\n", "mood: 'ok'\ndue: 2026-11-01\n"),
+		);
 		expect(parseMarkdown(out).fields.due).toBe('2026-11-01');
 	});
 
@@ -119,8 +133,12 @@ describe('write', () => {
 	});
 
 	test('fields on a file without frontmatter add a header', () => {
-		expect(writeMarkdown('Body\n', { fields: { a: 1 } })).toBe('---\na: 1\n---\nBody\n');
-		expect(writeMarkdown(null, { fields: { a: 1 }, body: 'B' })).toBe('---\na: 1\n---\nB');
+		expect(writeMarkdown('Body\n', { fields: { a: 1 } })).toBe(
+			'---\na: 1\n---\nBody\n',
+		);
+		expect(writeMarkdown(null, { fields: { a: 1 }, body: 'B' })).toBe(
+			'---\na: 1\n---\nB',
+		);
 	});
 
 	test('a body that looks like frontmatter is guarded on a header-less file', () => {
@@ -129,12 +147,18 @@ describe('write', () => {
 	});
 
 	test('a closing fence at the end stays bare', () => {
-		expect(writeMarkdown('---\na: 1\n---', { fields: { a: 2 } })).toBe('---\na: 2\n---');
-		expect(writeMarkdown('---\na: 1\n---', { body: 'B' })).toBe('---\na: 1\n---\nB');
+		expect(writeMarkdown('---\na: 1\n---', { fields: { a: 2 } })).toBe(
+			'---\na: 2\n---',
+		);
+		expect(writeMarkdown('---\na: 1\n---', { body: 'B' })).toBe(
+			'---\na: 1\n---\nB',
+		);
 	});
 
 	test('a key needing quotes is written so it reads back', () => {
-		const out = writeMarkdown('---\na: 1\n---\n', { fields: { 'b: c': 'd: e' } });
+		const out = writeMarkdown('---\na: 1\n---\n', {
+			fields: { 'b: c': 'd: e' },
+		});
 		expect(parseMarkdown(out).fields).toEqual({ a: 1, 'b: c': 'd: e' });
 	});
 
@@ -142,26 +166,43 @@ describe('write', () => {
 		const broken = '---\na: [\n---\nB\n';
 		const out = writeMarkdown(broken, { fields: { a: 1 } });
 		expect(out).toBe(`---\na: 1\n---\n${broken}`);
-		expect(parseMarkdown(out)).toEqual({ fields: { a: 1 }, body: broken, hasFrontmatter: true });
+		expect(parseMarkdown(out)).toEqual({
+			fields: { a: 1 },
+			body: broken,
+			hasFrontmatter: true,
+		});
 	});
 
 	test('a body typed over a note whose frontmatter does not parse is the whole text, and reads back as typed', () => {
 		const broken = '---\na: [\n---\nB\n';
-		for (const body of ['---\na: [\n---\nC\n', 'plain\n', '---\na: 1\n---\nlooks like frontmatter\n'])
+		for (const body of [
+			'---\na: [\n---\nC\n',
+			'plain\n',
+			'---\na: 1\n---\nlooks like frontmatter\n',
+		])
 			expect(bodyOf(withBody(broken, body))).toBe(body);
 	});
 });
 
 describe('house style', () => {
 	test('the frontmatter is printed one way, comments, quoting and key order kept; the body is never touched', () => {
-		const text = '---\n# who\ntitle:   "Hello"   # keep me\ntags: [a,  b]\nlist:\n    - a\n    - b\n---\nBody  \n\n  indented\n';
-		expect(formatMarkdown(text)).toBe('---\n# who\ntitle: "Hello" # keep me\ntags: [a, b]\nlist:\n  - a\n  - b\n---\nBody  \n\n  indented\n');
+		const text =
+			'---\n# who\ntitle:   "Hello"   # keep me\ntags: [a,  b]\nlist:\n    - a\n    - b\n---\nBody  \n\n  indented\n';
+		expect(formatMarkdown(text)).toBe(
+			'---\n# who\ntitle: "Hello" # keep me\ntags: [a, b]\nlist:\n  - a\n  - b\n---\nBody  \n\n  indented\n',
+		);
 		expect(formatMarkdown('---\n---\nB')).toBe('---\n---\nB');
 		expect(formatMarkdown('---\na: 1\n---')).toBe('---\na: 1\n---\n');
 	});
 
 	test('a text with no parseable frontmatter is left as it is', () => {
-		for (const text of ['plain\n', '---\na: [\n---\nB\n', '', '---\nno close\n']) expect(formatMarkdown(text)).toBe(text);
+		for (const text of [
+			'plain\n',
+			'---\na: [\n---\nB\n',
+			'',
+			'---\nno close\n',
+		])
+			expect(formatMarkdown(text)).toBe(text);
 	});
 
 	test('it is idempotent, and a formatted text reads the same fields and body', () => {
@@ -179,14 +220,18 @@ describe('LFS pointers', () => {
 
 	test('a pointer round-trips', () => {
 		const text = writePointer({ oid, size: 12 });
-		expect(text).toBe(`version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize 12\n`);
+		expect(text).toBe(
+			`version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize 12\n`,
+		);
 		expect(parsePointer(text)).toEqual({ oid, size: 12 });
 	});
 
 	test('text that is not exactly a pointer is not one', () => {
 		expect(parsePointer('hello')).toBeNull();
 		expect(parsePointer(writePointer({ oid, size: 1 }).trimEnd())).toBeNull();
-		expect(parsePointer(writePointer({ oid: 'z'.repeat(64), size: 1 }))).toBeNull();
+		expect(
+			parsePointer(writePointer({ oid: 'z'.repeat(64), size: 1 })),
+		).toBeNull();
 	});
 });
 
@@ -201,6 +246,10 @@ test('replacing a body keeps the frontmatter byte for byte, parsing or not, and 
 	for (const [text, body] of cases) {
 		const next = withBody(text, body);
 		expect(bodyOf(next)).toBe(body);
-		expect(next.slice(0, next.length - body.length).startsWith(text.slice(0, text.length - bodyOf(text).length))).toBe(true);
+		expect(
+			next
+				.slice(0, next.length - body.length)
+				.startsWith(text.slice(0, text.length - bodyOf(text).length)),
+		).toBe(true);
 	}
 });

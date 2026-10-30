@@ -208,10 +208,7 @@ export const createServices: CreateServices = (folder) => ({
 		// A browser reports a refused cross-origin request only as a failed
 		// fetch, so say what a tab needs that the desktop app does not.
 		const { error: transformError } = answered;
-		if (
-			transformError?.name === 'Unreachable' &&
-			selected?.source === 'custom'
-		)
+		if (transformError?.name === 'Unreachable' && selected?.source === 'custom')
 			return TransformationError.Unreachable({
 				url: transformError.url,
 				reason: `${transformError.reason}. In a browser tab the endpoint must allow requests from ${location.origin} (CORS). Whispering in Epicenter sends from Epicenter and has no such limit`,

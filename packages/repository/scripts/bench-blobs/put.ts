@@ -20,7 +20,7 @@ import { chromium, webkit } from 'playwright';
 import { Ok } from 'wellcrafted/result';
 import { serveRepository } from '../../src/bun/serve.js';
 import { openBunSqlite } from '../../src/bun/sqlite.js';
-import { LfsStoreError, type LfsStore } from '../../src/server/lfs-store.js';
+import { type LfsStore, LfsStoreError } from '../../src/server/lfs-store.js';
 import { createMemoryGitStore } from '../../src/server/memory-git.js';
 import { createServer } from '../../src/server/server.js';
 import { authenticateBearer } from '../../src/wire/wire.js';
@@ -38,7 +38,11 @@ const discard: LfsStore = {
 		const started = performance.now();
 		let count = 0;
 		const reader = body.getReader();
-		for (let read = await reader.read(); !read.done; read = await reader.read()) {
+		for (
+			let read = await reader.read();
+			!read.done;
+			read = await reader.read()
+		) {
 			const chunk = read.value;
 			count += chunk.byteLength;
 			digest.update(chunk);

@@ -52,19 +52,28 @@ function frontmatter(text: string) {
 	const parts = splitMarkdown(text);
 	if (parts.yaml === null) return null;
 	const read = readYaml(parts.yaml);
-	return read === null ? null : { yaml: parts.yaml, bodyStart: parts.bodyStart, ...read };
+	return read === null
+		? null
+		: { yaml: parts.yaml, bodyStart: parts.bodyStart, ...read };
 }
 
 /** A note's fields and body: with no parseable frontmatter, no fields and the whole text. */
 export function parseMarkdown(text: string): ParsedMarkdown {
 	const front = frontmatter(text);
 	if (front === null) return { fields: {}, body: text, hasFrontmatter: false };
-	return { fields: front.fields, body: text.slice(front.bodyStart), hasFrontmatter: true };
+	return {
+		fields: front.fields,
+		body: text.slice(front.bodyStart),
+		hasFrontmatter: true,
+	};
 }
 
 /** The frontmatter YAML read as a mapping (an empty one has no fields), or null when it is not one. */
 function readYaml(yaml: string) {
-	const document = parseDocument(yaml, { prettyErrors: false, uniqueKeys: true });
+	const document = parseDocument(yaml, {
+		prettyErrors: false,
+		uniqueKeys: true,
+	});
 	if (document.errors.length > 0) return null;
 	const contents = document.contents;
 	if (contents === null || (isScalar(contents) && contents.value === null))
@@ -89,7 +98,10 @@ export type MarkdownChange = {
  * changes are rewritten; new keys are appended after the existing ones. A
  * text with no parseable frontmatter gains a header before its whole text.
  */
-export function writeMarkdown(previous: string | null, change: MarkdownChange): string {
+export function writeMarkdown(
+	previous: string | null,
+	change: MarkdownChange,
+): string {
 	const source = previous ?? '';
 	const front = frontmatter(source);
 	const body = change.body ?? source.slice(front?.bodyStart ?? 0);
@@ -103,7 +115,9 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 
 	const { document, fields } = front;
 	const pending = changes.filter(([key, value]) =>
-		value === undefined ? Object.hasOwn(fields, key) : !sameValue(fields[key], value),
+		value === undefined
+			? Object.hasOwn(fields, key)
+			: !sameValue(fields[key], value),
 	);
 	let yaml = front.yaml;
 	if (pending.length > 0) {
@@ -112,17 +126,23 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 			if (value === undefined) delete expected[key];
 			else expected[key] = value;
 		}
-		const reads = (candidate: string | null) => candidate !== null && sameValue(readYaml(candidate)?.fields, expected);
+		const reads = (candidate: string | null) =>
+			candidate !== null && sameValue(readYaml(candidate)?.fields, expected);
 		const spliced = spliceYaml(front.yaml, document, pending);
 		if (reads(spliced)) yaml = spliced as string;
 		else {
 			const rewritten = rewriteYaml(document, pending);
 			// A document whose aliases the change broke is written as its fields alone.
-			yaml = reads(rewritten) ? (rewritten as string) : Object.keys(expected).length === 0 ? '' : stringify(expected, PLAIN);
+			yaml = reads(rewritten)
+				? (rewritten as string)
+				: Object.keys(expected).length === 0
+					? ''
+					: stringify(expected, PLAIN);
 		}
 	}
 	// A closing fence at the very end with no newline stays that way.
-	const isBareClose = front.bodyStart === source.length && !source.endsWith('\n');
+	const isBareClose =
+		front.bodyStart === source.length && !source.endsWith('\n');
 	if (isBareClose && body === '') return `${OPEN}${yaml}---`;
 	return `${OPEN}${yaml}---\n${body}`;
 }
@@ -149,14 +169,18 @@ export function formatMarkdown(text: string): string {
 	}
 	const yaml = printed === 'null\n' || printed === '{}\n' ? '' : printed;
 	const formatted = `${OPEN}${yaml}---\n${text.slice(front.bodyStart)}`;
-	return sameValue(frontmatter(formatted)?.fields, front.fields) ? formatted : text;
+	return sameValue(frontmatter(formatted)?.fields, front.fields)
+		? formatted
+		: text;
 }
 
 /** A text's body: what follows its frontmatter, or the whole text when it has none. */
-export const bodyOf = (text: string) => text.slice(frontmatter(text)?.bodyStart ?? 0);
+export const bodyOf = (text: string) =>
+	text.slice(frontmatter(text)?.bodyStart ?? 0);
 
 /** A text's frontmatter with its fences, byte for byte: empty when it has none. */
-export const headerOf = (text: string) => text.slice(0, frontmatter(text)?.bodyStart ?? 0);
+export const headerOf = (text: string) =>
+	text.slice(0, frontmatter(text)?.bodyStart ?? 0);
 
 /**
  * `text` with its body replaced by `body`, its frontmatter kept byte for
@@ -165,13 +189,16 @@ export const headerOf = (text: string) => text.slice(0, frontmatter(text)?.bodyS
 export function withBody(text: string, body: string) {
 	const header = headerOf(text);
 	// A closing fence at the very end has no newline after it yet.
-	if (header !== '' && !header.endsWith('\n') && body !== '') return `${header}\n${body}`;
+	if (header !== '' && !header.endsWith('\n') && body !== '')
+		return `${header}\n${body}`;
 	return guardBody(header, body);
 }
 
 /** A body after an empty header must not itself read as frontmatter. */
 function guardBody(header: string, body: string) {
-	return header === '' && frontmatter(body) !== null ? `${OPEN}---\n${body}` : header + body;
+	return header === '' && frontmatter(body) !== null
+		? `${OPEN}---\n${body}`
+		: header + body;
 }
 
 /**
@@ -190,7 +217,9 @@ function spliceYaml(
 	const edits: Edit[] = [];
 	let appended = '';
 	for (const [key, value] of changes) {
-		const pair = items.find((item) => isScalar(item.key) && String(item.key.value) === key);
+		const pair = items.find(
+			(item) => isScalar(item.key) && String(item.key.value) === key,
+		);
 		const rendered = stringify({ [key]: value }, PLAIN);
 		if (pair === undefined) {
 			if (value !== undefined) appended += rendered;
@@ -198,7 +227,9 @@ function spliceYaml(
 		}
 		const keyRange = isScalar(pair.key) ? pair.key.range : undefined;
 		const valueRange =
-			pair.value !== null && typeof pair.value === 'object' && 'range' in pair.value
+			pair.value !== null &&
+			typeof pair.value === 'object' &&
+			'range' in pair.value
 				? (pair.value.range as [number, number, number] | undefined)
 				: undefined;
 		const start = keyRange?.[0];
@@ -208,15 +239,24 @@ function spliceYaml(
 		if (value === undefined) {
 			const lineStart = yaml.lastIndexOf('\n', start - 1) + 1;
 			const next = yaml.indexOf('\n', endsLine ? end - 1 : end);
-			edits.push({ start: lineStart, end: next < 0 ? yaml.length : next + 1, text: '' });
+			edits.push({
+				start: lineStart,
+				end: next < 0 ? yaml.length : next + 1,
+				text: '',
+			});
 			continue;
 		}
-		edits.push({ start, end, text: endsLine ? rendered : rendered.replace(/\n$/, '') });
+		edits.push({
+			start,
+			end,
+			text: endsLine ? rendered : rendered.replace(/\n$/, ''),
+		});
 	}
 	let out = yaml;
 	for (const edit of edits.sort((a, b) => b.start - a.start))
 		out = out.slice(0, edit.start) + edit.text + out.slice(edit.end);
-	if (appended !== '') out = (out === '' || out.endsWith('\n') ? out : `${out}\n`) + appended;
+	if (appended !== '')
+		out = (out === '' || out.endsWith('\n') ? out : `${out}\n`) + appended;
 	return out;
 }
 
@@ -237,7 +277,13 @@ function rewriteYaml(document: Document, changes: [string, unknown][]) {
 /** Deep equality over plain JSON-like values. */
 export function sameValue(a: unknown, b: unknown): boolean {
 	if (Object.is(a, b)) return true;
-	if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+	if (
+		typeof a !== 'object' ||
+		typeof b !== 'object' ||
+		a === null ||
+		b === null
+	)
+		return false;
 	if (Array.isArray(a) !== Array.isArray(b)) return false;
 	const aKeys = Object.keys(a);
 	const bKeys = Object.keys(b);
@@ -245,7 +291,10 @@ export function sameValue(a: unknown, b: unknown): boolean {
 	return aKeys.every(
 		(key) =>
 			Object.hasOwn(b, key) &&
-			sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+			sameValue(
+				(a as Record<string, unknown>)[key],
+				(b as Record<string, unknown>)[key],
+			),
 	);
 }
 
@@ -255,7 +304,8 @@ export function sameValue(a: unknown, b: unknown): boolean {
 
 export type LfsPointer = { oid: string; size: number };
 
-const POINTER = /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([0-9a-f]{64})\nsize (\d+)\n$/;
+const POINTER =
+	/^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([0-9a-f]{64})\nsize (\d+)\n$/;
 
 /** The pointer a file's text holds, or null when the text is not a pointer. */
 export function parsePointer(text: string): LfsPointer | null {

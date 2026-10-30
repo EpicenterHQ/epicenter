@@ -1,8 +1,9 @@
 /** Machine-local pins and successful openings in one SQLite database. */
-import { lstat, mkdir, realpath, rm } from 'node:fs/promises';
-import { lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+
 import { Database } from 'bun:sqlite';
+import { lstatSync, realpathSync } from 'node:fs';
+import { lstat, mkdir, realpath, rm } from 'node:fs/promises';
+import { isAbsolute, join, resolve } from 'node:path';
 import { holdingFileLock } from '@epicenter/folder/bun';
 import { resolveAppPaths } from './app-paths.js';
 import { EXIT, writeJson, writeOut } from './output.js';

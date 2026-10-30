@@ -2,7 +2,9 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 let open: () => unknown = () => null;
-let changeChannel: { onmessage?: (value: { paths: string[] | null }) => void } | undefined;
+let changeChannel:
+	| { onmessage?: (value: { paths: string[] | null }) => void }
+	| undefined;
 let putExpectation: string | undefined;
 let putStamp: string | null = 'v1:1:2:3:4';
 let openCalls = 0;
@@ -27,12 +29,18 @@ mock.module('@tauri-apps/api/core', () => ({
 		}
 		if (command === 'plugin:epicenter-folder|list_folder')
 			return {
-				files: [{ path: 'note.txt', size: listedText.length, stamp: listedStamp }],
+				files: [
+					{ path: 'note.txt', size: listedText.length, stamp: listedStamp },
+				],
 				directories: [],
 			};
 		if (command === 'plugin:epicenter-folder|read_folder_file') {
 			const stamp = new TextEncoder().encode(listedStamp);
-			return Uint8Array.from([...stamp, 0, ...new TextEncoder().encode(listedText)]).buffer;
+			return Uint8Array.from([
+				...stamp,
+				0,
+				...new TextEncoder().encode(listedText),
+			]).buffer;
 		}
 		if (command === 'plugin:epicenter-folder|put_folder_file') {
 			putExpectation = options?.headers?.expected;
@@ -61,7 +69,11 @@ test('Tauri list, read and put retain the shell stamps', async () => {
 	const read = expectOk(await files.read('note.txt'));
 	expect(new TextDecoder().decode(read.bytes)).toBe('old');
 	expect(read.stamp).toBe('v1:3:1:3:4');
-	expect(expectOk(await files.change('note.txt', new TextEncoder().encode('new'), 'any'))).toEqual({
+	expect(
+		expectOk(
+			await files.change('note.txt', new TextEncoder().encode('new'), 'any'),
+		),
+	).toEqual({
 		kind: 'landed',
 		stamp: 'v1:1:2:3:4',
 	});
@@ -94,7 +106,10 @@ for (const mode of ['concurrent', 'sequential'] as const) {
 		open = () => null;
 		const [first, second] =
 			mode === 'concurrent'
-				? await Promise.all([openFolder({ tables: {} }), openFolder({ tables: {} })])
+				? await Promise.all([
+						openFolder({ tables: {} }),
+						openFolder({ tables: {} }),
+					])
 				: [await openFolder({ tables: {} }), await openFolder({ tables: {} })];
 		const firstFolder = expectOk(first);
 		const secondFolder = expectOk(second);

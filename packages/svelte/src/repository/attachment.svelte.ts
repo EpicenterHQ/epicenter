@@ -27,7 +27,10 @@ export type AttachmentSource = {
 	subscribe(listener: (change: RepositoryChange) => void): () => void;
 };
 
-export function attachment(repo: AttachmentSource, getPath: () => string | null | undefined) {
+export function attachment(
+	repo: AttachmentSource,
+	getPath: () => string | null | undefined,
+) {
 	let state = $state<AttachmentState>({ status: 'fetching' });
 	/** Bumped to open the path again: a retry, a status change, other bytes at the path. */
 	let attempt = $state(0);
@@ -53,10 +56,16 @@ export function attachment(repo: AttachmentSource, getPath: () => string | null 
 				url = URL.createObjectURL(file);
 				state = { status: 'here', url, file };
 			} else if (error.name === 'NotFound') state = { status: 'missing' };
-			else state = { status: 'unavailable', reason: error.message, retry: () => void attempt++ };
+			else
+				state = {
+					status: 'unavailable',
+					reason: error.message,
+					retry: () => void attempt++,
+				};
 		})();
 		const stop = repo.subscribe((change) => {
-			if (change.status && state.status === 'unavailable') return void attempt++;
+			if (change.status && state.status === 'unavailable')
+				return void attempt++;
 			if (!change.files) return;
 			void repo.files.read(path).then(({ data }) => {
 				if (!gone && (data?.text ?? null) !== opened) attempt++;

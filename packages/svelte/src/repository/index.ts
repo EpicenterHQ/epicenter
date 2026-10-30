@@ -18,13 +18,23 @@
  * `attachment(repo, () => path)` is a blob's bytes for display, with its
  * object URL (`./attachment.svelte.ts`).
  */
-import type { Definitions, Editor, Repository, RepositoryChange } from '@epicenter/repository';
+import type {
+	Definitions,
+	Editor,
+	Repository,
+	RepositoryChange,
+} from '@epicenter/repository';
 import { createSubscriber } from 'svelte/reactivity';
 
-const isCollection = (value: unknown): value is Record<string, (...args: never[]) => unknown> => typeof value === 'object' && value !== null && 'create' in value;
+const isCollection = (
+	value: unknown,
+): value is Record<string, (...args: never[]) => unknown> =>
+	typeof value === 'object' && value !== null && 'create' in value;
 
 /** The repository, its reads tracked per collection, its status and its revision. */
-export function reactive<TRepository extends Repository<Definitions>>(repo: TRepository): TRepository {
+export function reactive<TRepository extends Repository<Definitions>>(
+	repo: TRepository,
+): TRepository {
 	const tracker = (heard: (change: RepositoryChange) => boolean) =>
 		createSubscriber((update) =>
 			repo.subscribe((change) => {
@@ -47,8 +57,13 @@ export function reactive<TRepository extends Repository<Definitions>>(repo: TRep
 	};
 	for (const [name, collection] of Object.entries(repo)) {
 		if (!isCollection(collection) || !('all' in collection)) continue;
-		const track = tracker((change) => change.status || change.collections.includes(name));
-		const { all, get } = collection as unknown as { all(): unknown; get(params: unknown): unknown };
+		const track = tracker(
+			(change) => change.status || change.collections.includes(name),
+		);
+		const { all, get } = collection as unknown as {
+			all(): unknown;
+			get(params: unknown): unknown;
+		};
 		wrapped[name] = {
 			...collection,
 			all() {
@@ -80,5 +95,9 @@ export function tracked(editor: Editor) {
 	};
 }
 
-export { editorBinding, createEditorView } from './codemirror.js';
-export { attachment, type AttachmentSource, type AttachmentState } from './attachment.svelte.js';
+export {
+	type AttachmentSource,
+	type AttachmentState,
+	attachment,
+} from './attachment.svelte.js';
+export { createEditorView, editorBinding } from './codemirror.js';

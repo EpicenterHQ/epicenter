@@ -55,8 +55,8 @@ import {
 	eventually,
 	openMemoryTestFolder,
 	openTestServices,
-	waitForSaves,
 	type TestServicesOptions,
+	waitForSaves,
 } from './services.test-support.js';
 import { TransformationError } from './transformation.js';
 import type { Whispering } from './whispering.svelte.js';
@@ -188,7 +188,9 @@ test('saving a transformation keeps fields the app does not know, in the canonic
 
 	const written = await readFile(path, 'utf8');
 	const row = folder.tables.transformations.row('mine')!;
-	expect<Record<string, unknown>>(row.fields as Record<string, unknown>).toEqual({
+	expect<Record<string, unknown>>(
+		row.fields as Record<string, unknown>,
+	).toEqual({
 		title: 'Renamed',
 		model: 'chat-model',
 		temperature: 0.2,

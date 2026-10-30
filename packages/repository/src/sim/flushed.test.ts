@@ -17,24 +17,60 @@ import { createTestServer, writer } from './harness.js';
 const note = (body: string) => `---\ntitle: Todo\n---\n${body}`;
 const SERVER = 'example';
 
-function device(server: ReturnType<typeof createTestServer>, account: string, id: string) {
+function device(
+	server: ReturnType<typeof createTestServer>,
+	account: string,
+	id: string,
+) {
 	const binding = { repository: 'r1', server: SERVER, account };
-	const opened = openReplica({ driver: openBunSqlite(), binding, device: id, after: () => {}, now: () => 0, quiet: 0 });
+	const opened = openReplica({
+		driver: openBunSqlite(),
+		binding,
+		device: id,
+		after: () => {},
+		now: () => 0,
+		quiet: 0,
+	});
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const replica = opened.data;
-	replica.hello({ ...binding, server: SERVER, main: server.main(), user: account, limits: server.sizing() });
+	replica.hello({
+		...binding,
+		server: SERVER,
+		main: server.main(),
+		user: account,
+		limits: server.sizing(),
+	});
 	const sent: Request[] = [];
 	replica.attach((request) => sent.push(request));
 	const reply = (request: Request): Reply => {
-		if (request.type === 'push') return { type: 'answer', rid: request.rid, answer: server.push(request.commit, writer(account)) };
-		if (request.type === 'catch-up') return { type: 'caught-up', rid: request.rid, catchUp: server.catchUp(request) };
-		return { type: 'fetched', rid: request.rid, texts: server.fetch(request.hashes) };
+		if (request.type === 'push')
+			return {
+				type: 'answer',
+				rid: request.rid,
+				answer: server.push(request.commit, writer(account)),
+			};
+		if (request.type === 'catch-up')
+			return {
+				type: 'caught-up',
+				rid: request.rid,
+				catchUp: server.catchUp(request),
+			};
+		return {
+			type: 'fetched',
+			rid: request.rid,
+			texts: server.fetch(request.hashes),
+		};
 	};
 	return {
 		replica,
 		sent,
 		deliver() {
-			for (let request = sent.shift(); request !== undefined; request = sent.shift()) replica.reply(reply(request));
+			for (
+				let request = sent.shift();
+				request !== undefined;
+				request = sent.shift()
+			)
+				replica.reply(reply(request));
 		},
 	};
 }
@@ -52,13 +88,22 @@ for (const kind of ['merged', 'flushed'] as const)
 		const push = bob.sent.shift();
 		if (push?.type !== 'push') throw new Error('bob sent no push');
 		const real = server.push(push.commit, writer('bob'));
-		if (real.kind !== 'applied' && real.kind !== 'merged') throw new Error(`the push was ${real.kind}`);
+		if (real.kind !== 'applied' && real.kind !== 'merged')
+			throw new Error(`the push was ${real.kind}`);
 		// Bob types more before the answer comes.
 		bob.replica.edit('notes/todo.md', (text) => `${text ?? ''}more\n`);
 		const answer: PushAnswer =
 			kind === 'merged'
 				? real
-				: { kind: 'flushed', main: server.main(), files: real.files.filter((f) => ['notes/todo.md', 'notes/Todo.md'].includes(f.path)).map(({ deleted: _, ...file }) => file) };
+				: {
+						kind: 'flushed',
+						main: server.main(),
+						files: real.files
+							.filter((f) =>
+								['notes/todo.md', 'notes/Todo.md'].includes(f.path),
+							)
+							.map(({ deleted: _, ...file }) => file),
+					};
 		bob.replica.reply({ type: 'answer', rid: push.rid, answer });
 		for (let round = 0; round < 3; round++) bob.deliver();
 		const text = server.read('notes/Todo.md') ?? '';

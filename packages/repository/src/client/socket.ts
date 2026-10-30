@@ -23,7 +23,11 @@ export type ReplicaEnd = Pick<Replica, 'hello' | 'attach' | 'reply' | 'notify'>;
  * the replica's binding: a socket that reached another repository, server
  * or account is closed and not reopened.
  */
-export function connectSocket(replica: ReplicaEnd, client: WireClient, { retry = 1_000, log }: { retry?: number; log?: Logger } = {}) {
+export function connectSocket(
+	replica: ReplicaEnd,
+	client: WireClient,
+	{ retry = 1_000, log }: { retry?: number; log?: Logger } = {},
+) {
 	let stopped = false;
 	let socket: ReturnType<WireClient['socket']> | null = null;
 	function open() {
@@ -31,7 +35,13 @@ export function connectSocket(replica: ReplicaEnd, client: WireClient, { retry =
 			message(message) {
 				switch (message.type) {
 					case 'head': {
-						const { error } = replica.hello({ server: message.server, repository: message.repository, user: message.user, main: message.main, limits: message.limits });
+						const { error } = replica.hello({
+							server: message.server,
+							repository: message.repository,
+							user: message.user,
+							main: message.main,
+							limits: message.limits,
+						});
 						if (error !== null) {
 							log?.error(error);
 							stopped = true;
@@ -52,11 +62,20 @@ export function connectSocket(replica: ReplicaEnd, client: WireClient, { retry =
 						return replica.notify(event);
 					}
 					case 'answer':
-						return replica.reply({ type: 'answer', rid: message.rid, answer: message.answer });
+						return replica.reply({
+							type: 'answer',
+							rid: message.rid,
+							answer: message.answer,
+						});
 					case 'caught-up':
 						return replica.reply(message);
 					case 'error':
-						return log?.warn(WireClientError.Unexpected({ status: message.status, body: message.error }));
+						return log?.warn(
+							WireClientError.Unexpected({
+								status: message.status,
+								body: message.error,
+							}),
+						);
 					default:
 						return message satisfies never;
 				}

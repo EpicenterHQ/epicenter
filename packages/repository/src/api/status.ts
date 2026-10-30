@@ -21,6 +21,9 @@ export type RepositoryStatus =
 
 export const RepositoryError = defineErrors({
 	/** The repository is not open in this page (it is opening, elsewhere, or closed): nothing was saved, read or opened. */
-	Unavailable: ({ status }: { status: RepositoryStatus['status'] }) => ({ message: `The repository is ${status}, not open, so this cannot be done now`, status }),
+	Unavailable: ({ status }: { status: RepositoryStatus['status'] }) => ({
+		message: `The repository is ${status}, not open, so this cannot be done now`,
+		status,
+	}),
 });
 export type RepositoryError = InferErrors<typeof RepositoryError>;

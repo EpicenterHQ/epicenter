@@ -11,7 +11,14 @@
  * hands them to the replica, then the time until nothing is left to send,
  * and how many requests that took). Refuses to run with less than 4 GB free.
  */
-import { mkdirSync, mkdtempSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs';
+import {
+	mkdirSync,
+	mkdtempSync,
+	rmSync,
+	statfsSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -20,12 +27,20 @@ import { serveRepository } from '../src/bun/serve.js';
 import { createTestServer } from '../src/sim/harness.js';
 import { authenticateBearer } from '../src/wire/wire.js';
 
-const { values } = parseArgs({ args: Bun.argv.slice(2), options: { notes: { type: 'string', default: '10000' }, blobs: { type: 'string', default: '200' }, commit: { type: 'string', default: '1000' } } });
+const { values } = parseArgs({
+	args: Bun.argv.slice(2),
+	options: {
+		notes: { type: 'string', default: '10000' },
+		blobs: { type: 'string', default: '200' },
+		commit: { type: 'string', default: '1000' },
+	},
+});
 const NOTES = Number(values.notes);
 const BLOBS = Number(values.blobs);
 const CHANGED = Number(values.commit);
 const free = statfsSync(tmpdir());
-if (free.bavail * free.bsize < 4 * 1024 ** 3) throw new Error('Less than 4 GB free: not running');
+if (free.bavail * free.bsize < 4 * 1024 ** 3)
+	throw new Error('Less than 4 GB free: not running');
 
 const root = mkdtempSync(join(tmpdir(), 'bench-folder-'));
 let peak = 0;
@@ -37,7 +52,8 @@ const time = async <T>(run: () => Promise<T>) => {
 	const value = await run();
 	return { ms: Math.round(performance.now() - start), value };
 };
-const body = (i: number) => `---\ntitle: Note ${i}\ntags: [bench]\n---\n${`Line ${i} of a note that reads like one.\n`.repeat(8)}`;
+const body = (i: number) =>
+	`---\ntitle: Note ${i}\ntags: [bench]\n---\n${`Line ${i} of a note that reads like one.\n`.repeat(8)}`;
 try {
 	const dir = join(root, 'folder');
 	for (let i = 0; i < NOTES; i++) {
@@ -46,7 +62,11 @@ try {
 		writeFileSync(join(sub, `n${i}.md`), body(i));
 	}
 	mkdirSync(join(dir, 'media'), { recursive: true });
-	for (let i = 0; i < BLOBS; i++) writeFileSync(join(dir, 'media', `b${i}.png`), new Uint8Array(4096).fill(i % 251));
+	for (let i = 0; i < BLOBS; i++)
+		writeFileSync(
+			join(dir, 'media', `b${i}.png`),
+			new Uint8Array(4096).fill(i % 251),
+		);
 	const dataDir = join(root, 'data');
 	// Files older than the racy window, as a folder's files are: a file modified within 2 s of its record is hashed again.
 	await Bun.sleep(2_500);
@@ -60,7 +80,9 @@ try {
 	const warm = await time(() => opened.data.engine.scan());
 	await opened.data.engine.stop();
 	opened.data.close();
-	const database = statSync(join(dataDir, 'replicas', opened.data.identity.replica, 'replica.sqlite')).size;
+	const database = statSync(
+		join(dataDir, 'replicas', opened.data.identity.replica, 'replica.sqlite'),
+	).size;
 	const again = await openFolderEngine({ dir, dataDir });
 	if (again.error !== null) throw new Error(again.error.message);
 	const warmAfterRestart = await time(() => again.data.engine.scan());
@@ -69,13 +91,29 @@ try {
 
 	// Commit over CHANGED notes, against a served repository.
 	const server = createTestServer({ clock: () => Date.now() });
-	const served = serveRepository({ repository: 'bench', serverId: 'local', server, authenticate: authenticateBearer((token) => ({ user: token, role: 'owner' })), port: 0 });
+	const served = serveRepository({
+		repository: 'bench',
+		serverId: 'local',
+		server,
+		authenticate: authenticateBearer((token) => ({
+			user: token,
+			role: 'owner',
+		})),
+		port: 0,
+	});
 	const small = join(root, 'committing');
 	mkdirSync(small, { recursive: true });
-	const joined = await openFolderEngine({ dir: small, dataDir, join: { repository: 'me/bench', server: served.url }, token: 'ada', agent: 'bench' });
+	const joined = await openFolderEngine({
+		dir: small,
+		dataDir,
+		join: { repository: 'me/bench', server: served.url },
+		token: 'ada',
+		agent: 'bench',
+	});
 	if (joined.error !== null) throw new Error(joined.error.message);
 	await joined.data.engine.start({ watch: false });
-	for (let i = 0; i < CHANGED; i++) writeFileSync(join(small, `c${i}.md`), body(i));
+	for (let i = 0; i < CHANGED; i++)
+		writeFileSync(join(small, `c${i}.md`), body(i));
 	// A scan reads a file only once it has been still for the quiet window, as an editor's in-place save needs.
 	await Bun.sleep(500);
 	const group = await time(() => joined.data.engine.scan());
@@ -84,12 +122,18 @@ try {
 	const link = joined.data.connect();
 	const sent = await time(async () => {
 		for (let i = 0; i < 600; i++) {
-			if (!joined.data.replica.busy() || joined.data.replica.notSent().length > 0) break;
+			if (
+				!joined.data.replica.busy() ||
+				joined.data.replica.notSent().length > 0
+			)
+				break;
 			await Bun.sleep(50);
 		}
 	});
 	const held = joined.data.replica.notSent();
-	const landed = Array.from({ length: CHANGED }, (_, i) => server.read(`c${i}.md`)).filter((text) => text !== null).length;
+	const landed = Array.from({ length: CHANGED }, (_, i) =>
+		server.read(`c${i}.md`),
+	).filter((text) => text !== null).length;
 	const pushes = joined.data.replica.stats().pushes - pushesBefore;
 	link?.close();
 	await joined.data.engine.stop();
@@ -106,7 +150,16 @@ try {
 				warmScanAfterRestartMs: warmAfterRestart.ms,
 				peakRssMB: Math.round(Math.max(peak, coldPeak) / 1024 ** 2),
 				databaseMB: Math.round((database / 1024 ** 2) * 10) / 10,
-				send: { files: CHANGED, scanMs: group.ms, saved, sentMs: sent.ms, pushes, landed, held: held.slice(0, 2), heldCount: held.length },
+				send: {
+					files: CHANGED,
+					scanMs: group.ms,
+					saved,
+					sentMs: sent.ms,
+					pushes,
+					landed,
+					held: held.slice(0, 2),
+					heldCount: held.length,
+				},
 			},
 			null,
 			'\t',

@@ -25,15 +25,23 @@
  * - A flush writes one Git commit per merge that wrote a block; pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
  */
 import { expect, test } from 'bun:test';
-import { writePointer } from '../core/markdown.js';
+import { commitId, type LiveCommit } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
 import { admissible } from '../core/door.js';
+import { writePointer } from '../core/markdown.js';
 import { MAIN } from '../server/git-store.js';
 import type { Session } from '../server/server.js';
-import { createTestServer, createWorld, EPOCH, QUIET, STAMP, writer } from './harness.js';
-import { commitId, type LiveCommit } from '../core/commit.js';
+import {
+	createTestServer,
+	createWorld,
+	EPOCH,
+	QUIET,
+	STAMP,
+	writer,
+} from './harness.js';
 
-const note = (body: string, fields = 'title: A') => `---\n${fields}\n---\n${body}`;
+const note = (body: string, fields = 'title: A') =>
+	`---\n${fields}\n---\n${body}`;
 
 function setup(names = ['alice', 'bob']) {
 	const world = createWorld({ latency: { min: 20, max: 20 }, quiet: 0 });
@@ -48,19 +56,32 @@ function setup(names = ['alice', 'bob']) {
 test('P1: an offline check-off of a todo deleted and created again lands as one block in the new todo, and its person is told', async () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'todos/buy-milk.md';
-	alice.replica.write(path, note('from the corner shop\n', 'title: Buy milk\ndone: false'));
+	alice.replica.write(
+		path,
+		note('from the corner shop\n', 'title: Buy milk\ndone: false'),
+	);
 	settle();
 	alice.setOnline(false);
-	alice.replica.edit(path, (text) => (text ?? '').replace('done: false', 'done: true'));
+	alice.replica.edit(path, (text) =>
+		(text ?? '').replace('done: false', 'done: true'),
+	);
 	bob.replica.write(path, null, { over: bob.replica.read(path) });
 	settle();
 	await world.flush();
-	bob.replica.write(path, note('oat milk this time\n', 'title: Buy milk\ndone: false'), { over: null });
+	bob.replica.write(
+		path,
+		note('oat milk this time\n', 'title: Buy milk\ndone: false'),
+		{ over: null },
+	);
 	settle();
 	alice.setOnline(true);
 	settle();
 	const text = world.server.read(path) ?? '';
-	expect(text.startsWith(note('oat milk this time\n', 'title: Buy milk\ndone: false'))).toBe(true);
+	expect(
+		text.startsWith(
+			note('oat milk this time\n', 'title: Buy milk\ndone: false'),
+		),
+	).toBe(true);
 	expect(text).toContain('<<<<<<< ');
 	expect(text).toContain('done: true');
 	expect(findConflicts(text)).toHaveLength(1);
@@ -76,7 +97,11 @@ test('P2: an offline append to a journal deleted and created again lands as one 
 	alice.replica.edit(path, (text) => `${text}private: called the lawyer\n`);
 	bob.replica.write(path, null, { over: bob.replica.read(path) });
 	settle();
-	bob.replica.write(path, note('day one in Lisbon\n', 'title: Shared trip log'), { over: null });
+	bob.replica.write(
+		path,
+		note('day one in Lisbon\n', 'title: Shared trip log'),
+		{ over: null },
+	);
 	settle();
 	alice.setOnline(true);
 	settle();
@@ -92,14 +117,26 @@ test('P3: two offline creates at one path keep the first and append the second a
 	const path = 'notes/ideas.md';
 	alice.setOnline(false);
 	bob.setOnline(false);
-	alice.replica.write(path, note('alice: quarterly plan\n', 'title: Ideas\ntags: [work]'), { over: null });
-	bob.replica.write(path, note('bob: paint the fence\n', 'title: Ideas\ntags: [home]'), { over: null });
+	alice.replica.write(
+		path,
+		note('alice: quarterly plan\n', 'title: Ideas\ntags: [work]'),
+		{ over: null },
+	);
+	bob.replica.write(
+		path,
+		note('bob: paint the fence\n', 'title: Ideas\ntags: [home]'),
+		{ over: null },
+	);
 	alice.setOnline(true);
 	settle();
 	bob.setOnline(true);
 	settle();
 	const text = world.server.read(path) ?? '';
-	expect(text.startsWith(note('alice: quarterly plan\n', 'title: Ideas\ntags: [work]'))).toBe(true);
+	expect(
+		text.startsWith(
+			note('alice: quarterly plan\n', 'title: Ideas\ntags: [work]'),
+		),
+	).toBe(true);
 	expect(text).toContain('bob: paint the fence');
 	expect(findConflicts(text)).toHaveLength(1);
 });
@@ -109,14 +146,23 @@ test('P4: a rename onto a path someone just created appends as one block there, 
 	alice.replica.write('notes/draft.md', note('alice plan\n', 'title: Plan'));
 	settle();
 	alice.setOnline(false);
-	alice.replica.writeAll({ 'notes/draft.md': null, 'notes/plan.md': note('alice plan\n', 'title: Plan') });
-	bob.replica.write('notes/plan.md', note('bob plan\n', 'title: Plan\nowner: bob'), { over: null });
+	alice.replica.writeAll({
+		'notes/draft.md': null,
+		'notes/plan.md': note('alice plan\n', 'title: Plan'),
+	});
+	bob.replica.write(
+		'notes/plan.md',
+		note('bob plan\n', 'title: Plan\nowner: bob'),
+		{ over: null },
+	);
 	settle();
 	alice.setOnline(true);
 	settle();
 	expect(world.server.read('notes/draft.md')).toBeNull();
 	const text = world.server.read('notes/plan.md') ?? '';
-	expect(text.startsWith(note('bob plan\n', 'title: Plan\nowner: bob'))).toBe(true);
+	expect(text.startsWith(note('bob plan\n', 'title: Plan\nowner: bob'))).toBe(
+		true,
+	);
 	expect(text).toContain('alice plan');
 	expect(findConflicts(text)).toHaveLength(1);
 });
@@ -127,37 +173,63 @@ test('P5: a rename racing an offline edit of the old path keeps both', () => {
 	settle();
 	bob.setOnline(false);
 	bob.replica.edit('notes/trip.md', (text) => `${text}buy adapter\n`);
-	alice.replica.writeAll({ 'notes/trip.md': null, 'notes/lisbon-trip.md': note('pack\n', 'title: Trip') });
+	alice.replica.writeAll({
+		'notes/trip.md': null,
+		'notes/lisbon-trip.md': note('pack\n', 'title: Trip'),
+	});
 	settle();
 	bob.setOnline(true);
 	settle();
-	expect(world.server.read('notes/trip.md')).toBe(note('pack\nbuy adapter\n', 'title: Trip'));
-	expect(world.server.read('notes/lisbon-trip.md')).toBe(note('pack\n', 'title: Trip'));
+	expect(world.server.read('notes/trip.md')).toBe(
+		note('pack\nbuy adapter\n', 'title: Trip'),
+	);
+	expect(world.server.read('notes/lisbon-trip.md')).toBe(
+		note('pack\n', 'title: Trip'),
+	);
 });
 
 test('P6: a note whose frontmatter does not parse is a note: it lands, and two repairs of it merge by line', () => {
 	const { world, alice, bob, settle } = setup();
-	const body = { parent: world.server.main(), author: { user: 'alice', device: 'ci' }, time: STAMP, files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }] };
-	expect(world.server.push({ id: commitId(body), ...body }, writer('alice'))).toMatchObject({ kind: 'applied' });
+	const body = {
+		parent: world.server.main(),
+		author: { user: 'alice', device: 'ci' },
+		time: STAMP,
+		files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }],
+	};
+	expect(
+		world.server.push({ id: commitId(body), ...body }, writer('alice')),
+	).toMatchObject({ kind: 'applied' });
 	settle();
-	expect(alice.replica.read('notes/x.md')).toBe('---\ntitle: "open\n---\nbody\n');
+	expect(alice.replica.read('notes/x.md')).toBe(
+		'---\ntitle: "open\n---\nbody\n',
+	);
 	expect(alice.replica.notSent()).toEqual([]);
 	// Both repair it at once: the two repairs merge by line, as text does.
 	alice.setOnline(false);
-	alice.replica.edit('notes/x.md', (text) => (text ?? '').replace('"open', '"open"'));
-	bob.replica.edit('notes/x.md', (text) => (text ?? '').replace('body', 'body!'));
+	alice.replica.edit('notes/x.md', (text) =>
+		(text ?? '').replace('"open', '"open"'),
+	);
+	bob.replica.edit('notes/x.md', (text) =>
+		(text ?? '').replace('body', 'body!'),
+	);
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(world.server.read('notes/x.md')).toBe('---\ntitle: "open"\n---\nbody!\n');
+	expect(world.server.read('notes/x.md')).toBe(
+		'---\ntitle: "open"\n---\nbody!\n',
+	);
 });
 
 test('P7: a half-typed draft meeting a remote create at its path lands beside it as one block, nothing glued', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/new.md';
 	alice.setOnline(false);
-	alice.replica.write(path, '---\ntitle: "Half typed\n---\nmy draft\n', { over: null });
-	bob.replica.write(path, note('bob body\n', 'title: Bob note'), { over: null });
+	alice.replica.write(path, '---\ntitle: "Half typed\n---\nmy draft\n', {
+		over: null,
+	});
+	bob.replica.write(path, note('bob body\n', 'title: Bob note'), {
+		over: null,
+	});
 	settle();
 	alice.setOnline(true);
 	settle();
@@ -182,8 +254,12 @@ test('P8 (changed): a delete that lost to an edit leaves the edited note on the 
 	world.net.runFor(300);
 	await world.flush();
 	settle();
-	expect(world.server.read(path)).toBe(note('x\nbob still uses this\n', 'title: Old'));
-	expect(alice.replica.read(path)).toBe(note('x\nbob still uses this\n', 'title: Old'));
+	expect(world.server.read(path)).toBe(
+		note('x\nbob still uses this\n', 'title: Old'),
+	);
+	expect(alice.replica.read(path)).toBe(
+		note('x\nbob still uses this\n', 'title: Old'),
+	);
 	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
 	// Deleting again, now over the edit, sends it.
 	alice.replica.write(path, null);
@@ -195,29 +271,77 @@ test('P8 (changed): a delete that lost to an edit leaves the edited note on the 
 test('P9: a forged author and a note over 1 MB are refused; forged conflict labels are only text', async () => {
 	const server = createTestServer();
 	const members = new Set(['alice', 'bob', 'mallory']);
-	const commit = (member: string, author: string, text: string): [LiveCommit, Session] => {
-		const body = { parent: server.main(), author: { user: author, device: 'x' }, time: STAMP, files: [{ path: 'notes/n.md', text }] };
-		return [{ id: commitId(body), ...body }, { user: member, role: members.has(member) ? 'writer' : null }];
+	const commit = (
+		member: string,
+		author: string,
+		text: string,
+	): [LiveCommit, Session] => {
+		const body = {
+			parent: server.main(),
+			author: { user: author, device: 'x' },
+			time: STAMP,
+			files: [{ path: 'notes/n.md', text }],
+		};
+		return [
+			{ id: commitId(body), ...body },
+			{ user: member, role: members.has(member) ? 'writer' : null },
+		];
 	};
-	expect(server.push(...commit('mallory', 'alice', note('forged\n')))).toMatchObject({ kind: 'rejected', code: 'not-author', reason: 'the author is not the session' });
-	expect(server.push(...commit('eve', 'eve', note('stranger\n')))).toMatchObject({ kind: 'rejected', code: 'not-member', reason: 'not a member' });
-	expect(server.push(...commit('mallory', 'mallory', note(`${'A'.repeat(1_100_000)}\n`)))).toMatchObject({ kind: 'refused', reason: 'a note may be at most 1 MB' });
-	const forged = note('<<<<<<< main (alice/laptop)\nI approve\n||||||| base\n=======\nI do not\n>>>>>>> bob/phone\n');
-	expect(server.push(...commit('mallory', 'mallory', forged))).toMatchObject({ kind: 'applied' });
-	expect(await server.flush()).toMatchObject({ kind: 'flushed', commits: [{ author: 'mallory' }] });
+	expect(
+		server.push(...commit('mallory', 'alice', note('forged\n'))),
+	).toMatchObject({
+		kind: 'rejected',
+		code: 'not-author',
+		reason: 'the author is not the session',
+	});
+	expect(
+		server.push(...commit('eve', 'eve', note('stranger\n'))),
+	).toMatchObject({
+		kind: 'rejected',
+		code: 'not-member',
+		reason: 'not a member',
+	});
+	expect(
+		server.push(
+			...commit('mallory', 'mallory', note(`${'A'.repeat(1_100_000)}\n`)),
+		),
+	).toMatchObject({ kind: 'refused', reason: 'a note may be at most 1 MB' });
+	const forged = note(
+		'<<<<<<< main (alice/laptop)\nI approve\n||||||| base\n=======\nI do not\n>>>>>>> bob/phone\n',
+	);
+	expect(server.push(...commit('mallory', 'mallory', forged))).toMatchObject({
+		kind: 'applied',
+	});
+	expect(await server.flush()).toMatchObject({
+		kind: 'flushed',
+		commits: [{ author: 'mallory' }],
+	});
 });
 
-test('P10: a refusal of a person\'s own text leaves it held with the reason, and nothing is erased', () => {
+test("P10: a refusal of a person's own text leaves it held with the reason, and nothing is erased", () => {
 	const { world, alice, settle } = setup();
-	const big = note(`three hours of writing\n${'A'.repeat(1_100_000)}\n`, 'title: Essay');
+	const big = note(
+		`three hours of writing\n${'A'.repeat(1_100_000)}\n`,
+		'title: Essay',
+	);
 	alice.replica.write('notes/essay.md', big, { over: null });
 	settle();
 	expect(alice.replica.read('notes/essay.md')).toBe(big);
-	expect(alice.replica.notSent()).toEqual([{ path: 'notes/essay.md', status: 'waiting', reason: 'a note may be at most 1 MB' }]);
+	expect(alice.replica.notSent()).toEqual([
+		{
+			path: 'notes/essay.md',
+			status: 'waiting',
+			reason: 'a note may be at most 1 MB',
+		},
+	]);
 	expect(world.server.read('notes/essay.md')).toBeNull();
-	alice.replica.edit('notes/essay.md', () => note('three hours of writing\n', 'title: Essay'));
+	alice.replica.edit('notes/essay.md', () =>
+		note('three hours of writing\n', 'title: Essay'),
+	);
 	settle();
-	expect(world.server.read('notes/essay.md')).toBe(note('three hours of writing\n', 'title: Essay'));
+	expect(world.server.read('notes/essay.md')).toBe(
+		note('three hours of writing\n', 'title: Essay'),
+	);
 	expect(alice.replica.notSent()).toEqual([]);
 });
 
@@ -227,24 +351,35 @@ test('P11: an editor saving over a stale buffer merges with what changed under i
 	alice.replica.write(path, note('line one\n', 'title: N'));
 	settle();
 	const buffer = alice.replica.read(path);
-	bob.replica.edit(path, () => note('line one\nbob added this\n', 'title: N\nstatus: done'));
+	bob.replica.edit(path, () =>
+		note('line one\nbob added this\n', 'title: N\nstatus: done'),
+	);
 	settle();
 	alice.replica.write(path, `${buffer}alice types\n`, { over: buffer });
 	settle();
-	expect(world.server.read(path)).toBe(note('line one\nbob added this\nalice types\n', 'title: N\nstatus: done'));
+	expect(world.server.read(path)).toBe(
+		note('line one\nbob added this\nalice types\n', 'title: N\nstatus: done'),
+	);
 });
 
 test('P12: a blob write lands only over the blob its writer saw; one that lost lands beside it at a sibling named from its bytes, and a stale delete leaves the file', () => {
 	const { world, alice, bob, settle } = setup();
 	const blob = (x: string, size: number) => ({ oid: x.repeat(64), size });
-	const [a, b, c, d, e] = [blob('a', 1000), blob('b', 1001), blob('c', 1002), blob('d', 1003), blob('e', 1004)] as const;
+	const [a, b, c, d, e] = [
+		blob('a', 1000),
+		blob('b', 1001),
+		blob('c', 1002),
+		blob('d', 1003),
+		blob('e', 1004),
+	] as const;
 	// Every byte is on the server, and both devices' upload tracks have heard so.
 	for (const p of [a, b, c, d, e]) {
 		world.upload(p.oid, p.size);
 		for (const device of [alice, bob]) device.replica.present(p.oid, p.size);
 	}
 	const path = 'recordings/2026-10-28T12-00-00Z.webm';
-	const beside = (p: { oid: string }) => `recordings/2026-10-28T12-00-00Z (conflict ${p.oid.slice(0, 7)}).webm`;
+	const beside = (p: { oid: string }) =>
+		`recordings/2026-10-28T12-00-00Z (conflict ${p.oid.slice(0, 7)}).webm`;
 	// Concurrent creates: bob's lands at the path, alice's beside it; both devices see both, and nothing is held.
 	alice.setOnline(false);
 	alice.replica.write(path, writePointer(a), { over: null });
@@ -286,7 +421,7 @@ test('P12: a blob write lands only over the blob its writer saw; one that lost l
 	expect(bob.replica.state(beside(a))).toEqual({ status: 'synced' });
 });
 
-test('a field both sides set keeps main\'s value in the frontmatter and writes the other as a conflict block (D2)', () => {
+test("a field both sides set keeps main's value in the frontmatter and writes the other as a conflict block (D2)", () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/a.md';
 	alice.replica.write(path, note('one\n'));
@@ -305,11 +440,20 @@ test('a field both sides set keeps main\'s value in the frontmatter and writes t
 
 test('a pending delete and an offline rename survive a flush and the window passing', async () => {
 	const { world, alice, bob, settle } = setup();
-	alice.replica.writeAll({ 'notes/a.md': note('x\n'), 'notes/b.md': note('y\n', 'title: B'), 'notes/c.md': note('z\n', 'title: C') });
+	alice.replica.writeAll({
+		'notes/a.md': note('x\n'),
+		'notes/b.md': note('y\n', 'title: B'),
+		'notes/c.md': note('z\n', 'title: C'),
+	});
 	settle();
 	alice.setOnline(false);
-	alice.replica.write('notes/a.md', null, { over: alice.replica.read('notes/a.md') });
-	alice.replica.writeAll({ 'notes/c.md': null, 'notes/d.md': note('z\n', 'title: C') });
+	alice.replica.write('notes/a.md', null, {
+		over: alice.replica.read('notes/a.md'),
+	});
+	alice.replica.writeAll({
+		'notes/c.md': null,
+		'notes/d.md': note('z\n', 'title: C'),
+	});
 	bob.replica.edit('notes/b.md', (text) => `${text}bob\n`);
 	settle();
 	await world.flush();
@@ -318,10 +462,13 @@ test('a pending delete and an offline rename survive a flush and the window pass
 	alice.setOnline(true);
 	settle();
 	expect(alice.replica.paths()).toEqual(['notes/b.md', 'notes/d.md']);
-	expect([...world.server.snapshot().keys()]).toEqual(['notes/b.md', 'notes/d.md']);
+	expect([...world.server.snapshot().keys()]).toEqual([
+		'notes/b.md',
+		'notes/d.md',
+	]);
 });
 
-test('D1: a Git push is a fast-forward of Git\'s main, merged over live edits Git does not hold yet; refused when main moved', async () => {
+test("D1: a Git push is a fast-forward of Git's main, merged over live edits Git does not hold yet; refused when main moved", async () => {
 	const world = createWorld({ quiet: 0 });
 	const alice = world.device('alice');
 	world.net.runFor(500);
@@ -330,24 +477,51 @@ test('D1: a Git push is a fast-forward of Git\'s main, merged over live edits Gi
 	const { git } = world;
 	// A clone's commit on top of what Git has, written as a transport would before asking.
 	const commitOn = async (parent: string | null, text: string) => {
-		const tree = new Map((parent === null ? [] : [...(await git.readTree((await git.readCommit(parent))?.tree ?? ''))]) as [string, { mode: string; oid: string }][]);
-		tree.set('notes/a.md', { mode: '100644', oid: await git.writeBlob(new TextEncoder().encode(text)) });
+		const tree = new Map(
+			(parent === null
+				? []
+				: [
+						...(await git.readTree((await git.readCommit(parent))?.tree ?? '')),
+					]) as [string, { mode: string; oid: string }][],
+		);
+		tree.set('notes/a.md', {
+			mode: '100644',
+			oid: await git.writeBlob(new TextEncoder().encode(text)),
+		});
 		const author = { name: 'alice', email: 'alice@example.com' };
-		return git.writeCommit({ tree: await git.writeTree(tree), parents: parent === null ? [] : [parent], message: 'from git\n', author, at: new Date(EPOCH) });
+		return git.writeCommit({
+			tree: await git.writeTree(tree),
+			parents: parent === null ? [] : [parent],
+			message: 'from git\n',
+			author,
+			at: new Date(EPOCH),
+		});
 	};
-	const push = (old: string | null, next: string) => world.server.receive({ ref: MAIN, old, next }, world.session('alice'));
+	const push = (old: string | null, next: string) =>
+		world.server.receive({ ref: MAIN, old, next }, world.session('alice'));
 	// Git is empty and the live edit is not in it yet: the push is merged over it, the note created twice (two creates hold both).
 	const early = await commitOn(null, note('from git\n'));
-	expect(await push(null, early)).toMatchObject({ kind: 'accepted', main: early, merged: true });
+	expect(await push(null, early)).toMatchObject({
+		kind: 'accepted',
+		main: early,
+		merged: true,
+	});
 	expect(world.server.read('notes/a.md')).toContain('from http');
 	expect(world.server.read('notes/a.md')).toContain('from git');
 	await world.flush();
 	const flushed = await git.readRef(MAIN);
 	const stale = await commitOn(null, note('from git, again\n'));
-	expect(await push(null, stale)).toMatchObject({ kind: 'refused', code: 'main-moved' });
+	expect(await push(null, stale)).toMatchObject({
+		kind: 'refused',
+		code: 'main-moved',
+	});
 	// Nothing live is ahead of Git now: a push rebased on it is applied as it stands.
 	const rebased = await commitOn(flushed, note('from git, rebased\n'));
-	expect(await push(flushed, rebased)).toMatchObject({ kind: 'accepted', main: rebased, merged: false });
+	expect(await push(flushed, rebased)).toMatchObject({
+		kind: 'accepted',
+		main: rebased,
+		merged: false,
+	});
 	expect(await git.readRef(MAIN)).toBe(rebased);
 	expect(world.server.read('notes/a.md')).toBe(note('from git, rebased\n'));
 	// Git already holds it: the next flush has nothing to write.
@@ -374,12 +548,28 @@ test('changed: a field removal that lost to an edit leaves the edited field, and
 
 test('the door refuses what would break a clone, the same on the device and the server', () => {
 	for (const [path, text, reason] of [
-		['notes/a.md', '---\r\ntitle: X\r\n---\r\nbody\r\n', 'a note must use LF line endings'],
-		['notes/a.md', '\uFEFF---\ntitle: X\n---\n', 'a note may not start with a byte order mark'],
-		['notes/a.md', writePointer({ oid: 'a'.repeat(64), size: 1 }), 'a note may not be an LFS pointer'],
+		[
+			'notes/a.md',
+			'---\r\ntitle: X\r\n---\r\nbody\r\n',
+			'a note must use LF line endings',
+		],
+		[
+			'notes/a.md',
+			'\uFEFF---\ntitle: X\n---\n',
+			'a note may not start with a byte order mark',
+		],
+		[
+			'notes/a.md',
+			writePointer({ oid: 'a'.repeat(64), size: 1 }),
+			'a note may not be an LFS pointer',
+		],
 		['export.json', '{}\n', 'a file other than a note goes through Git LFS'],
 		['notes/con.md', '---\n---\n', 'a name may not be a reserved device name'],
-		['notes/what?.md', '---\n---\n', 'a name may not hold < > : " \\ | ? * or control characters'],
+		[
+			'notes/what?.md',
+			'---\n---\n',
+			'a name may not hold < > : " \\ | ? * or control characters',
+		],
 		['notes/dot.', 'x', 'a name may not end in a space or a period'],
 		['a/.GIT/config', 'x', '.git is reserved'],
 		['cafe\u0301.md', '---\n---\n', 'the path is not NFC'],
@@ -389,7 +579,10 @@ test('the door refuses what would break a clone, the same on the device and the 
 		expect([path, admissible(path, text)]).toEqual([path, reason]);
 	const { world, alice } = setup();
 	alice.replica.write('notes/con.md', '---\n---\n', { over: null });
-	expect(alice.replica.state('notes/con.md')).toEqual({ status: 'refused', reason: 'a name may not be a reserved device name' });
+	expect(alice.replica.state('notes/con.md')).toEqual({
+		status: 'refused',
+		reason: 'a name may not be a reserved device name',
+	});
 	expect(world.server.read('notes/con.md')).toBeNull();
 });
 
@@ -397,8 +590,12 @@ test('paths equal after NFC and case folding are one path: concurrent creates of
 	const { world, alice, bob, settle } = setup();
 	alice.setOnline(false);
 	bob.setOnline(false);
-	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), { over: null });
-	bob.replica.write('notes/todo.md', note('bob\n', 'title: Todo'), { over: null });
+	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), {
+		over: null,
+	});
+	bob.replica.write('notes/todo.md', note('bob\n', 'title: Todo'), {
+		over: null,
+	});
 	alice.setOnline(true);
 	settle();
 	bob.setOnline(true);
@@ -411,17 +608,27 @@ test('paths equal after NFC and case folding are one path: concurrent creates of
 	expect(bob.replica.read('notes/Todo.md')).toBe(text);
 });
 
-test('paths equal after NFC and case folding are one path: a create waiting to go meets main\'s spelling when it arrives, and merges', () => {
+test("paths equal after NFC and case folding are one path: a create waiting to go meets main's spelling when it arrives, and merges", () => {
 	const { world, alice, bob, settle } = setup();
 	// Bob's todo.md waits to go: he is offline.
 	bob.setOnline(false);
-	bob.replica.change([{ kind: 'create', path: 'notes/todo.md', text: note('bob\n', 'title: Todo') }]);
+	bob.replica.change([
+		{
+			kind: 'create',
+			path: 'notes/todo.md',
+			text: note('bob\n', 'title: Todo'),
+		},
+	]);
 	// Meanwhile alice's Todo.md lands; bob hears of it when he is back.
-	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), { over: null });
+	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), {
+		over: null,
+	});
 	settle();
 	bob.setOnline(true);
 	settle();
-	expect([...world.server.snapshot().keys()].filter((path) => path.endsWith('.md'))).toEqual(['notes/Todo.md']);
+	expect(
+		[...world.server.snapshot().keys()].filter((path) => path.endsWith('.md')),
+	).toEqual(['notes/Todo.md']);
 	const text = world.server.read('notes/Todo.md') ?? '';
 	expect(text).toContain('alice');
 	expect(text).toContain('bob');
@@ -430,15 +637,22 @@ test('paths equal after NFC and case folding are one path: a create waiting to g
 	expect(alice.replica.read('notes/Todo.md')).toBe(text);
 });
 
-test('paths equal after NFC and case folding are one path: work saved while a create of another spelling is in flight merges with main\'s', () => {
+test("paths equal after NFC and case folding are one path: work saved while a create of another spelling is in flight merges with main's", () => {
 	const { world, alice, bob, settle } = setup();
 	bob.setOnline(false);
-	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), { over: null });
+	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), {
+		over: null,
+	});
 	settle();
-	bob.replica.write('notes/todo.md', note('bob\n', 'title: Todo'), { over: null });
+	bob.replica.write('notes/todo.md', note('bob\n', 'title: Todo'), {
+		over: null,
+	});
 	bob.setOnline(true);
-	for (let n = 0; n < 2_000 && bob.replica.sent() === null; n++) world.net.runFor(1);
-	expect(bob.replica.sent()?.files.map((f) => f.path)).toEqual(['notes/todo.md']);
+	for (let n = 0; n < 2_000 && bob.replica.sent() === null; n++)
+		world.net.runFor(1);
+	expect(bob.replica.sent()?.files.map((f) => f.path)).toEqual([
+		'notes/todo.md',
+	]);
 	// Bob types more before the create's answer comes.
 	bob.replica.edit('notes/todo.md', (text) => `${text ?? ''}more\n`);
 	settle();
@@ -463,7 +677,10 @@ test('a merge that would grow a note past 1 MB is the one named exception: held 
 	bob.setOnline(true);
 	settle();
 	expect(world.server.read(path)).toBe(note(`start\n${half}a\n`));
-	expect(bob.replica.state(path)).toEqual({ status: 'waiting', reason: 'the merge would grow the note past 1 MB' });
+	expect(bob.replica.state(path)).toEqual({
+		status: 'waiting',
+		reason: 'the merge would grow the note past 1 MB',
+	});
 	expect(bob.replica.read(path)).toContain(`${half}b`);
 });
 
@@ -478,13 +695,21 @@ test('a flush writes one Git commit at each merge that wrote a block, then one a
 	settle();
 	bob.setOnline(true);
 	settle();
-	alice.replica.edit('notes/a.md', (text) => (text ?? '').replace(/<<<<<<<[\s\S]*>>>>>>> [^\n]*\n/, ''));
+	alice.replica.edit('notes/a.md', (text) =>
+		(text ?? '').replace(/<<<<<<<[\s\S]*>>>>>>> [^\n]*\n/, ''),
+	);
 	settle();
 	const flushed = await world.flush();
-	if (flushed.kind !== 'flushed') throw new Error(`nothing flushed: ${flushed.kind}`);
-	expect(flushed.commits.map((c) => c.message.split('\n')[0])).toEqual(["Merge bob's change into notes/a.md", 'Edit notes/a.md']);
+	if (flushed.kind !== 'flushed')
+		throw new Error(`nothing flushed: ${flushed.kind}`);
+	expect(flushed.commits.map((c) => c.message.split('\n')[0])).toEqual([
+		"Merge bob's change into notes/a.md",
+		'Edit notes/a.md',
+	]);
 	const head = await world.git.readRef(MAIN);
 	expect(head).toBe(flushed.head);
-	const tree = await world.git.readTree((await world.git.readCommit(head ?? ''))?.tree ?? '');
+	const tree = await world.git.readTree(
+		(await world.git.readCommit(head ?? ''))?.tree ?? '',
+	);
 	expect([...tree.keys()].sort()).toEqual(['.gitattributes', 'notes/a.md']);
 });

@@ -2,8 +2,8 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readdir } from 'node:fs/promises';
-import { SaveError } from '../../../../packages/folder/src/shared/errors.js';
 import { expectOk } from 'wellcrafted/testing';
+import { SaveError } from '../../../../packages/folder/src/shared/errors.js';
 import type { WhisperingFolder } from './folder.js';
 import { deferred, openTestServices } from './services.test-support.js';
 import {
@@ -27,7 +27,9 @@ function replacing(folder: WhisperingFolder, calls: FileCalls) {
 	return Object.assign(replaced, calls);
 }
 
-async function fixture(change: (folder: WhisperingFolder) => FileCalls = () => ({})) {
+async function fixture(
+	change: (folder: WhisperingFolder) => FileCalls = () => ({}),
+) {
 	const test = await openTestServices();
 	cleanups.push(test.remove);
 	const folder = replacing(test.folder, change(test.folder));

@@ -29,7 +29,8 @@ export const REPLICA_ID = /^[A-Za-z0-9_-]{1,64}$/;
 export const replicaLock = (replica: string) => `epicenter:replica:${replica}`;
 
 /** The opfs-sahpool directory of a replica, from the origin's root. */
-export const sqliteDirectory = (replica: string) => `.epicenter/replicas/${replica}/sqlite`;
+export const sqliteDirectory = (replica: string) =>
+	`.epicenter/replicas/${replica}/sqlite`;
 
 export const SQLITE = 'sqlite';
 export const OBJECTS = 'objects';
@@ -50,7 +51,10 @@ const identity = {
  * that account's (there are no sessions without one).
  */
 const ManifestSchema = Type.Union([
-	Type.Object({ ...identity, account: Type.Null(), url: Type.Null() }, { additionalProperties: false }),
+	Type.Object(
+		{ ...identity, account: Type.Null(), url: Type.Null() },
+		{ additionalProperties: false },
+	),
 	Type.Object(
 		{
 			...identity,
@@ -67,20 +71,29 @@ const ManifestSchema = Type.Union([
 export type Manifest = Static<typeof ManifestSchema>;
 
 /** Whom a new replica syncs as, and with which server: both, or neither for one kept only here. */
-export type Syncing = { account: null; url: null } | { account: string; url: string };
+export type Syncing =
+	| { account: null; url: null }
+	| { account: string; url: string };
 
 /** `.epicenter/replicas`, created when missing. */
 export async function replicasDirectory() {
 	const root = await navigator.storage.getDirectory();
-	const epicenter = await root.getDirectoryHandle('.epicenter', { create: true });
+	const epicenter = await root.getDirectoryHandle('.epicenter', {
+		create: true,
+	});
 	return epicenter.getDirectoryHandle('replicas', { create: true });
 }
 
 /** A replica's root directory, or null when there is none; `create` makes it. */
-export async function replicaDirectory(replica: string, { create = false } = {}) {
+export async function replicaDirectory(
+	replica: string,
+	{ create = false } = {},
+) {
 	if (!REPLICA_ID.test(replica)) return null;
 	const replicas = await replicasDirectory();
-	return create ? replicas.getDirectoryHandle(replica, { create: true }) : directoryIn(replicas, replica);
+	return create
+		? replicas.getDirectoryHandle(replica, { create: true })
+		: directoryIn(replicas, replica);
 }
 
 /** Whether a replica's removal has begun and not finished. */
@@ -89,7 +102,9 @@ async function isRemoving(root: FileSystemDirectoryHandle) {
 }
 
 /** The manifest in `root`, or null when it is missing, unreadable, or the replica is being removed. */
-async function manifestIn(root: FileSystemDirectoryHandle): Promise<Manifest | null> {
+async function manifestIn(
+	root: FileSystemDirectoryHandle,
+): Promise<Manifest | null> {
 	if (await isRemoving(root)) return null;
 	const file = await fileIn(root, MANIFEST);
 	if (file === null) return null;
@@ -111,8 +126,13 @@ export async function readManifest(replica: string) {
 /** Write a new replica's manifest, whole or not at all. In the owning worker only. */
 export async function writeManifest(manifest: Manifest) {
 	const root = await replicaDirectory(manifest.replica, { create: true });
-	if (root === null) throw new Error(`'${manifest.replica}' is not a replica id`);
-	await writeWhole(root, MANIFEST, new TextEncoder().encode(`${JSON.stringify(manifest, null, '\t')}\n`));
+	if (root === null)
+		throw new Error(`'${manifest.replica}' is not a replica id`);
+	await writeWhole(
+		root,
+		MANIFEST,
+		new TextEncoder().encode(`${JSON.stringify(manifest, null, '\t')}\n`),
+	);
 }
 
 /**
@@ -125,7 +145,8 @@ export async function removeReplicaFiles(replica: string) {
 	const root = await replicaDirectory(replica);
 	if (root === null) return;
 	await root.getFileHandle(REMOVING, { create: true });
-	for (const [name] of await entriesOf(root)) if (name !== REMOVING) await root.removeEntry(name, { recursive: true });
+	for (const [name] of await entriesOf(root))
+		if (name !== REMOVING) await root.removeEntry(name, { recursive: true });
 	await (await replicasDirectory()).removeEntry(replica, { recursive: true });
 }
 
@@ -152,9 +173,13 @@ export async function listReplicas(): Promise<Manifest[]> {
 
 /** Finish an interrupted removal, unless a tab holds the replica (it finishes it later). */
 async function finishRemoval(replica: string) {
-	await navigator.locks.request(replicaLock(replica), { ifAvailable: true }, async (lock) => {
-		if (lock === null) return;
-		// A worker that has not let go yet keeps it marked for the next listing.
-		await removeReplicaFiles(replica).catch(() => {});
-	});
+	await navigator.locks.request(
+		replicaLock(replica),
+		{ ifAvailable: true },
+		async (lock) => {
+			if (lock === null) return;
+			// A worker that has not let go yet keeps it marked for the next listing.
+			await removeReplicaFiles(replica).catch(() => {});
+		},
+	);
 }

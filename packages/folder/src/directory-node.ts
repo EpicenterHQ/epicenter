@@ -240,7 +240,10 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 		return new Uint8Array(await readFile(path));
 	},
 	async readStamped(path) {
-		const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+		const file = await open(
+			path,
+			constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+		);
 		try {
 			const stats = await file.stat({ bigint: true });
 			if (!stats.isFile()) throw new Error(`'${path}' is not a regular file`);

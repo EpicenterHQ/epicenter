@@ -6,7 +6,12 @@
  *
  *     export const mount = mountSvelte<typeof manifest>(TodosApp);
  */
-import type { AnyManifest, DefinitionsOf, Mount, Navigate } from '@epicenter/app';
+import type {
+	AnyManifest,
+	DefinitionsOf,
+	Mount,
+	Navigate,
+} from '@epicenter/app';
 import type { Repository } from '@epicenter/repository';
 import { type Component, mount, unmount } from 'svelte';
 import { reactive } from '../repository/index.js';
@@ -22,7 +27,9 @@ export type AppProps<TManifest extends AnyManifest> = {
 };
 
 /** The `mount` of an app whose root is `Root`. */
-export function mountSvelte<TManifest extends AnyManifest>(Root: Component<AppProps<TManifest>>): Mount<TManifest> {
+export function mountSvelte<TManifest extends AnyManifest>(
+	Root: Component<AppProps<TManifest>>,
+): Mount<TManifest> {
 	return (element, { repo, path, navigate }) => {
 		// Only the path changes; the repository stays one object, not a deep proxy of it.
 		let current = $state(path);
@@ -34,7 +41,10 @@ export function mountSvelte<TManifest extends AnyManifest>(Root: Component<AppPr
 			},
 			navigate,
 		};
-		const frame = mount(AppFrame<AppProps<TManifest>>, { target: element, props: { Root, props } });
+		const frame = mount(AppFrame<AppProps<TManifest>>, {
+			target: element,
+			props: { Root, props },
+		});
 		return {
 			unmount: () => unmount(frame),
 			setPath(next) {

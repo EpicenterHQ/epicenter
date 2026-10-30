@@ -26,15 +26,31 @@ const build = join(shell, 'build');
 export const OWNER = 'team';
 
 /** Each first-party app's hostname, its address segment. */
-export const HOSTNAMES = { files: 'files.epicenter.so', todos: 'todos.epicenter.so', honeycrisp: 'honeycrisp.epicenter.so' } as const;
+export const HOSTNAMES = {
+	files: 'files.epicenter.so',
+	todos: 'todos.epicenter.so',
+	honeycrisp: 'honeycrisp.epicenter.so',
+} as const;
 export type AppName = keyof typeof HOSTNAMES;
 
-type Data = { target: string; person: string; upstream?: WebSocket; buffered: (string | Buffer)[] };
+type Data = {
+	target: string;
+	person: string;
+	upstream?: WebSocket;
+	buffered: (string | Buffer)[];
+};
 
 /** Build the shell as it ships (`vite build`). */
 async function buildShell() {
-	const built = Bun.spawn(['bun', 'run', 'build'], { cwd: shell, stdout: 'ignore', stderr: 'pipe' });
-	if ((await built.exited) !== 0) throw new Error(`The shell's build failed: ${await new Response(built.stderr).text()}`);
+	const built = Bun.spawn(['bun', 'run', 'build'], {
+		cwd: shell,
+		stdout: 'ignore',
+		stderr: 'pipe',
+	});
+	if ((await built.exited) !== 0)
+		throw new Error(
+			`The shell's build failed: ${await new Response(built.stderr).text()}`,
+		);
 }
 
 /** Serve the built shell from 127.0.0.1 on a port of its own: one origin. */
@@ -46,7 +62,11 @@ function serveSite() {
 			const { pathname } = new URL(request.url);
 			const file = Bun.file(join(build, pathname));
 			// A single-page app: every address is the index page.
-			return new Response(pathname !== '/' && (await file.exists()) ? file : Bun.file(join(build, 'index.html')));
+			return new Response(
+				pathname !== '/' && (await file.exists())
+					? file
+					: Bun.file(join(build, 'index.html')),
+			);
 		},
 	});
 }
@@ -71,7 +91,10 @@ export async function startWorld(people: readonly string[]) {
 		repository,
 		serverId: 'shell-browser',
 		server,
-		authenticate: authenticateBearer((token) => ({ user: token, role: 'writer' })),
+		authenticate: authenticateBearer((token) => ({
+			user: token,
+			role: 'writer',
+		})),
 		origins: [...sites.values()],
 	});
 	const upstream = new URL(served.url);
@@ -82,19 +105,33 @@ export async function startWorld(people: readonly string[]) {
 		async fetch(request, bun) {
 			const origin = request.headers.get('origin') ?? '';
 			const person = [...sites].find(([, url]) => url === origin)?.[0];
-			if (person === undefined) return new Response('Unknown origin', { status: 403 });
+			if (person === undefined)
+				return new Response('Unknown origin', { status: 403 });
 			if (offline.has(person)) return new Response('Offline', { status: 503 });
 			const url = new URL(request.url);
 			const target = new URL(`${url.pathname}${url.search}`, upstream);
 			if (url.pathname === '/socket') {
 				target.protocol = 'ws:';
-				if (bun.upgrade(request, { data: { target: target.href, person, buffered: [] } })) return undefined;
+				if (
+					bun.upgrade(request, {
+						data: { target: target.href, person, buffered: [] },
+					})
+				)
+					return undefined;
 				return new Response('Expected a WebSocket upgrade', { status: 426 });
 			}
 			const headers = new Headers(request.headers);
 			headers.delete('host');
-			const body = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
-			return fetch(target, { method: request.method, headers, body, redirect: 'manual' });
+			const body =
+				request.method === 'GET' || request.method === 'HEAD'
+					? undefined
+					: await request.arrayBuffer();
+			return fetch(target, {
+				method: request.method,
+				headers,
+				body,
+				redirect: 'manual',
+			});
 		},
 		websocket: {
 			open(client) {
@@ -102,7 +139,8 @@ export async function startWorld(people: readonly string[]) {
 				const socket = new WebSocket(client.data.target);
 				client.data.upstream = socket;
 				socket.onopen = () => {
-					for (const frame of client.data.buffered.splice(0)) socket.send(frame);
+					for (const frame of client.data.buffered.splice(0))
+						socket.send(frame);
 				};
 				socket.onmessage = (event) => client.send(String(event.data));
 				socket.onclose = () => client.close();
@@ -121,20 +159,23 @@ export async function startWorld(people: readonly string[]) {
 
 	const site = (person: string) => {
 		const origin = sites.get(person);
-		if (origin === undefined) throw new Error(`${person} has no site in this world`);
+		if (origin === undefined)
+			throw new Error(`${person} has no site in this world`);
 		return origin;
 	};
 	/** The synced repository's address. */
 	const address = `/${OWNER}/${repository}`;
 	/** The link that joins the synced repository, on `person`'s site. */
-	const link = (person: string) => `${site(person)}${address}?server=${encodeURIComponent(proxy.url.href)}`;
+	const link = (person: string) =>
+		`${site(person)}${address}?server=${encodeURIComponent(proxy.url.href)}`;
 	return {
 		address,
 		link,
 		/** `person`'s site, at `path`. */
 		url: (person: string, path = '/') => `${site(person)}${path}`,
 		/** `person`'s profile on their site, opened at `path` (by default `/`, their home). */
-		local: (browser: BrowserType, person: string, path = '/') => openProfile(browser, `${site(person)}${path}`),
+		local: (browser: BrowserType, person: string, path = '/') =>
+			openProfile(browser, `${site(person)}${path}`),
 		/** `person`'s profile with this browser's copy of the synced repository, joined by its link as them, open in `app`. */
 		async open(browser: BrowserType, person: string, app: AppName) {
 			const profile = await openProfile(browser, link(person));
@@ -148,7 +189,8 @@ export async function startWorld(people: readonly string[]) {
 			if (value) offline.delete(person);
 			else {
 				offline.add(person);
-				for (const client of clients) if (client.data.person === person) client.close();
+				for (const client of clients)
+					if (client.data.person === person) client.close();
 			}
 		},
 		/** The file's text on the server's main. */
@@ -174,7 +216,10 @@ export type World = Awaited<ReturnType<typeof startWorld>>;
 export async function openProfile(browser: BrowserType, url: string) {
 	const dir = await mkdtemp(join(tmpdir(), 'shell-profile-'));
 	// Wide enough for the folders, the list and the open note side by side.
-	const context = await browser.launchPersistentContext(dir, { headless: true, viewport: { width: 1400, height: 900 } });
+	const context = await browser.launchPersistentContext(dir, {
+		headless: true,
+		viewport: { width: 1400, height: 900 },
+	});
 	await context.addInitScript(() => {
 		const counted = globalThis as unknown as { workers: number };
 		counted.workers = 0;
@@ -204,10 +249,12 @@ function profile(context: BrowserContext, page: Page, dir: string) {
 }
 
 /** How many workers `page` has started since it loaded. */
-export const workers = (page: Page) => page.evaluate(() => (globalThis as unknown as { workers: number }).workers);
+export const workers = (page: Page) =>
+	page.evaluate(() => (globalThis as unknown as { workers: number }).workers);
 
 /** Wait for a repository's page. */
-export const repositoryPage = (page: Page) => page.getByRole('list', { name: 'Apps', exact: true }).waitFor();
+export const repositoryPage = (page: Page) =>
+	page.getByRole('list', { name: 'Apps', exact: true }).waitFor();
 
 /**
  * On a join link: join as `account`, unless this browser already has the
@@ -227,13 +274,19 @@ export async function joined(page: Page, account: string) {
 
 /** Wait for `app` to show the repository: Files its folder, Todos its todos, Honeycrisp its notes. */
 export async function opened(page: Page, app: AppName) {
-	if (app === 'files') await page.getByRole('region', { name: 'Folder' }).waitFor();
-	else if (app === 'todos') await page.getByRole('list', { name: 'Todos' }).waitFor();
+	if (app === 'files')
+		await page.getByRole('region', { name: 'Folder' }).waitFor();
+	else if (app === 'todos')
+		await page.getByRole('list', { name: 'Todos' }).waitFor();
 	else await page.getByRole('region', { name: 'Notes' }).waitFor();
 }
 
 /** Poll until `check` holds. */
-export async function until(check: () => Promise<boolean>, what: string, timeout = 20_000) {
+export async function until(
+	check: () => Promise<boolean>,
+	what: string,
+	timeout = 20_000,
+) {
 	const deadline = Date.now() + timeout;
 	while (!(await check())) {
 		if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
@@ -242,4 +295,7 @@ export async function until(check: () => Promise<boolean>, what: string, timeout
 }
 
 /** The open todo's notes editor. */
-export const notesOf = (page: Page) => page.getByRole('region', { name: 'Todo' }).getByRole('textbox', { name: 'Notes' });
+export const notesOf = (page: Page) =>
+	page
+		.getByRole('region', { name: 'Todo' })
+		.getByRole('textbox', { name: 'Notes' });

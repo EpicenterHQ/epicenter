@@ -17,12 +17,12 @@
 import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { readRow } from './shared/row.js';
 import {
 	type CanonicalDocument,
 	formatRowSource,
 	parseRowSource,
 } from './shared/content/canonical.js';
+import { readRow } from './shared/row.js';
 
 /** A todos table's declared field order. */
 const DECLARED = ['title', 'done', 'priority'] as const;

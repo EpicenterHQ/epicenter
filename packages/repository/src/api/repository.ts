@@ -23,17 +23,57 @@
  */
 import type { Static, TSchema } from 'typebox';
 import { Ok, type Result } from 'wellcrafted/result';
-import type { Delta, FileEntry, Row, SaveError, Snapshot } from '../client/page.js';
-import { SaveError as SaveErrors } from '../client/page.js';
 import type { BlobStoreError, Sealed } from '../client/blobs.js';
-import { BlobError, type BlobPut, type Put, type PutError } from '../client/bytes.js';
-import type { Change, Changed, ChangeError, FileStatus, Outcome } from '../client/replica.js';
-import { type App, type BlobName, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
-import { bodyOf, headerOf, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
+import {
+	BlobError,
+	type BlobPut,
+	type Put,
+	type PutError,
+} from '../client/bytes.js';
+import type {
+	Delta,
+	FileEntry,
+	Row,
+	SaveError,
+	Snapshot,
+} from '../client/page.js';
+import { SaveError as SaveErrors } from '../client/page.js';
+import type {
+	Change,
+	Changed,
+	ChangeError,
+	FileStatus,
+	Outcome,
+} from '../client/replica.js';
 import { fold, isNote } from '../core/door.js';
-import { buildPath, type Params, type TemplateError } from '../core/templates.js';
+import {
+	type App,
+	type BlobName,
+	type Definitions,
+	type Lens,
+	type NoteName,
+	schemaIssues,
+} from '../core/lens.js';
+import {
+	bodyOf,
+	headerOf,
+	parseMarkdown,
+	parsePointer,
+	writeMarkdown,
+} from '../core/markdown.js';
+import {
+	buildPath,
+	type Params,
+	type TemplateError,
+} from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
-import { createEditors, type Editor, type EditorError, mergedOver, type Unsaved } from './editor.js';
+import {
+	createEditors,
+	type Editor,
+	type EditorError,
+	mergedOver,
+	type Unsaved,
+} from './editor.js';
 import { RepositoryError, type RepositoryStatus } from './status.js';
 
 export { RepositoryError, type RepositoryStatus } from './status.js';
@@ -52,19 +92,31 @@ export type Session = {
 	waiting(): Promise<FileEntry[]>;
 	/** How each file this device sent last landed. */
 	outcomes(): Promise<{ path: string; outcome: Outcome }[]>;
-	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<TRow[]>;
+	query<TRow = Record<string, SqlValue>>(
+		sql: string,
+		params?: SqlValue[],
+	): Promise<TRow[]>;
 	/** Apply `changes` in one transaction; the change it makes is heard with `token`. */
-	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
+	change(
+		changes: Change[],
+		token: number,
+	): Promise<Result<Changed, ChangeError | SaveError>>;
 	/** Hear each stored change in revision order; returns the function that stops it. */
 	watch(listener: (delta: Delta) => void): () => void;
 	/** Seal each blob, then store a pointer to it at its path together with `changes`, in one transaction; the change it makes is heard with `token`. */
-	put(blobs: BlobPut[], changes: Change[], token: number): Promise<Result<Put, PutError>>;
+	put(
+		blobs: BlobPut[],
+		changes: Change[],
+		token: number,
+	): Promise<Result<Put, PutError>>;
 	/** A blob's bytes as a File: from this device, or fetched and verified first. */
 	open(path: string): Promise<Result<File, BlobError>>;
 };
 
 /** A host's state: a repository status, with the session while one is open. */
-export type HostState = Exclude<RepositoryStatus, { status: 'open' }> | { status: 'open'; session: Session };
+export type HostState =
+	| Exclude<RepositoryStatus, { status: 'open' }>
+	| { status: 'open'; session: Session };
 
 /** Where a replica runs for a page: it moves through states, opening a session each time it can. */
 export type Host = {
@@ -76,11 +128,16 @@ export type Host = {
 // What a page reads and writes
 // ============================================================================
 
-
 /** Why a write was not stored. */
-export type WriteError = RepositoryError | ChangeError | SaveError | TemplateError;
+export type WriteError =
+	| RepositoryError
+	| ChangeError
+	| SaveError
+	| TemplateError;
 /** Why the plain file API's text write was not stored: a write's reasons, or text at a path that is not a note. */
-export type FileWriteError = WriteError | Extract<BlobError, { name: 'NotPointer' }>;
+export type FileWriteError =
+	| WriteError
+	| Extract<BlobError, { name: 'NotPointer' }>;
 
 /** A stored write: the note's text after it (null: no note) and the revision it made. */
 export type Written = { text: string | null; revision: number };
@@ -97,28 +154,55 @@ type NoteParts<TPath extends string> = {
 	state: FileStatus;
 };
 /** A note whose fields fit its schema. */
-export type ValidNote<TPath extends string = string, TNoteSchema extends TSchema = TSchema> = NoteParts<TPath> & { valid: true; fields: Static<TNoteSchema> };
+export type ValidNote<
+	TPath extends string = string,
+	TNoteSchema extends TSchema = TSchema,
+> = NoteParts<TPath> & { valid: true; fields: Static<TNoteSchema> };
 /** A note whose fields do not fit its schema (a note with no parseable frontmatter has none): its fields as written, and why. */
-export type InvalidNote<TPath extends string = string> = NoteParts<TPath> & { valid: false; fields: Record<string, unknown>; issues: string[] };
+export type InvalidNote<TPath extends string = string> = NoteParts<TPath> & {
+	valid: false;
+	fields: Record<string, unknown>;
+	issues: string[];
+};
 /** A note as a page reads it: narrow on `valid` once. */
-export type Note<TPath extends string = string, TNoteSchema extends TSchema = TSchema> = ValidNote<TPath, TNoteSchema> | InvalidNote<TPath>;
+export type Note<
+	TPath extends string = string,
+	TNoteSchema extends TSchema = TSchema,
+> = ValidNote<TPath, TNoteSchema> | InvalidNote<TPath>;
 
-export type NoteInput<TNoteSchema extends TSchema> = { fields?: Partial<Static<TNoteSchema>>; body?: string };
+export type NoteInput<TNoteSchema extends TSchema> = {
+	fields?: Partial<Static<TNoteSchema>>;
+	body?: string;
+};
 
 /** Field changes: a key set to undefined is removed. */
-export type FieldPatch<TNoteSchema extends TSchema> = { [K in keyof Static<TNoteSchema>]?: Static<TNoteSchema>[K] | undefined };
+export type FieldPatch<TNoteSchema extends TSchema> = {
+	[K in keyof Static<TNoteSchema>]?: Static<TNoteSchema>[K] | undefined;
+};
 
 /** What any collection writes. */
 export type Writes<TPath extends string, TNoteSchema extends TSchema> = {
 	/** A new note. Where one is already, it stays, and this one is added to it as one conflict block. */
-	create(params: Params<TPath>, input?: NoteInput<TNoteSchema>): Promise<Result<Written, WriteError>>;
+	create(
+		params: Params<TPath>,
+		input?: NoteInput<TNoteSchema>,
+	): Promise<Result<Written, WriteError>>;
 	/** Set fields on the note as the worker holds it; its other keys, their formatting and its body stay. */
-	patch(params: Params<TPath>, fields: FieldPatch<TNoteSchema>): Promise<Result<Written, WriteError>>;
+	patch(
+		params: Params<TPath>,
+		fields: FieldPatch<TNoteSchema>,
+	): Promise<Result<Written, WriteError>>;
 	delete(params: Params<TPath>): Promise<Result<Written, WriteError>>;
 	/** Exact source: `text`, made from `over` (merged where the note moved since); without `over`, over what the worker holds. */
-	write(params: Params<TPath>, text: string | null, options?: { over?: string | null }): Promise<Result<Written, WriteError>>;
+	write(
+		params: Params<TPath>,
+		text: string | null,
+		options?: { over?: string | null },
+	): Promise<Result<Written, WriteError>>;
 	/** The editor of one note, shared by every view of it: each view closes it when done. */
-	openEditor(params: Params<TPath>): Promise<Result<Editor, WriteError | EditorError>>;
+	openEditor(
+		params: Params<TPath>,
+	): Promise<Result<Editor, WriteError | EditorError>>;
 };
 
 /** A stored blob write: the pointer's text and the revision it made, and the bytes' oid and size. */
@@ -140,46 +224,80 @@ export type OpenBlobError = BlobError | RepositoryError | TemplateError;
  */
 export type BlobCollection<TPath extends string> = {
 	/** New bytes at a path this device shows no file at; refused at once where it shows one. */
-	create(params: Params<TPath>, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	create(
+		params: Params<TPath>,
+		blob: Blob,
+	): Promise<Result<BlobWritten, BlobWriteError>>;
 	/** Other bytes at a path this device shows a file at; refused at once where it shows none. */
-	replace(params: Params<TPath>, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	replace(
+		params: Params<TPath>,
+		blob: Blob,
+	): Promise<Result<BlobWritten, BlobWriteError>>;
 	delete(params: Params<TPath>): Promise<Result<Written, WriteError>>;
 	/** The bytes as a File typed by the path's extension: from this device, or fetched and verified first. */
 	open(params: Params<TPath>): Promise<Result<File, OpenBlobError>>;
 };
 
 /** A collection kept in memory: every note, synchronously. */
-export type MemoryCollection<TPath extends string, TNoteSchema extends TSchema> = Writes<TPath, TNoteSchema> & {
+export type MemoryCollection<
+	TPath extends string,
+	TNoteSchema extends TSchema,
+> = Writes<TPath, TNoteSchema> & {
 	/** Every note, ordered by path. The same array until one of them changes. */
 	all(): Note<TPath, TNoteSchema>[];
 	get(params: Params<TPath>): Note<TPath, TNoteSchema> | undefined;
 };
 
 /** A collection not kept in memory: one note at a time, and SQL. */
-export type StoredCollection<TPath extends string, TNoteSchema extends TSchema> = Writes<TPath, TNoteSchema> & {
-	read(params: Params<TPath>): Promise<Result<Note<TPath, TNoteSchema> | null, RepositoryError | TemplateError>>;
+export type StoredCollection<
+	TPath extends string,
+	TNoteSchema extends TSchema,
+> = Writes<TPath, TNoteSchema> & {
+	read(
+		params: Params<TPath>,
+	): Promise<
+		Result<Note<TPath, TNoteSchema> | null, RepositoryError | TemplateError>
+	>;
 };
 
-type BlobCollectionOf<TDef> = TDef extends { path: infer TPath extends string; blob: true } ? BlobCollection<TPath> : never;
+type BlobCollectionOf<TDef> = TDef extends {
+	path: infer TPath extends string;
+	blob: true;
+}
+	? BlobCollection<TPath>
+	: never;
 
-type CollectionOf<TDef> = TDef extends { path: infer TPath extends string; schema: infer TNoteSchema extends TSchema }
+type CollectionOf<TDef> = TDef extends {
+	path: infer TPath extends string;
+	schema: infer TNoteSchema extends TSchema;
+}
 	? TDef extends { memory: false }
 		? StoredCollection<TPath, TNoteSchema>
 		: MemoryCollection<TPath, TNoteSchema>
 	: never;
 
 /** The write verbs of a collection inside `commit`: each adds one change to the batch. */
-type BatchCollection<TDef> = TDef extends { path: infer TPath extends string; schema: infer TNoteSchema extends TSchema }
+type BatchCollection<TDef> = TDef extends {
+	path: infer TPath extends string;
+	schema: infer TNoteSchema extends TSchema;
+}
 	? {
 			create(params: Params<TPath>, input?: NoteInput<TNoteSchema>): void;
 			patch(params: Params<TPath>, fields: FieldPatch<TNoteSchema>): void;
 			delete(params: Params<TPath>): void;
-			write(params: Params<TPath>, text: string | null, options?: { over?: string | null }): void;
+			write(
+				params: Params<TPath>,
+				text: string | null,
+				options?: { over?: string | null },
+			): void;
 		}
 	: never;
 
 /** A blob collection's writes inside `commit`: its bytes are sealed before the batch is stored, and the batch waits for them to upload. */
-type BatchBlobCollection<TDef> = TDef extends { path: infer TPath extends string; blob: true }
+type BatchBlobCollection<TDef> = TDef extends {
+	path: infer TPath extends string;
+	blob: true;
+}
 	? {
 			create(params: Params<TPath>, blob: Blob): void;
 			replace(params: Params<TPath>, blob: Blob): void;
@@ -188,7 +306,11 @@ type BatchBlobCollection<TDef> = TDef extends { path: infer TPath extends string
 	: never;
 
 /** What changed, for a subscriber: the collections whose notes changed, whether any file did (in a collection or none), and whether the status did. */
-export type RepositoryChange = { collections: string[]; files: boolean; status: boolean };
+export type RepositoryChange = {
+	collections: string[];
+	files: boolean;
+	status: boolean;
+};
 
 export type { FileEntry };
 
@@ -208,7 +330,9 @@ export type Files = {
 	/** Every file not yet synced (sending, waiting or refused with why), deletes included: as many as wait, never the whole repository, so a status can count them on every change. */
 	waiting(): Promise<Result<FileEntry[], RepositoryError>>;
 	/** How each file this device sent last landed (as sent, with conflict blocks, at a sibling with its path, or a delete that did not take), until it is saved again. */
-	outcomes(): Promise<Result<{ path: string; outcome: Outcome }[], RepositoryError>>;
+	outcomes(): Promise<
+		Result<{ path: string; outcome: Outcome }[], RepositoryError>
+	>;
 	/** One file's exact text, found by any spelling of its path, or null for none. */
 	read(path: string): Promise<Result<FileText | null, RepositoryError>>;
 	/**
@@ -217,13 +341,23 @@ export type Files = {
 	 * this device shows a file.
 	 */
 	create(path: string, text: string): Promise<Result<Written, FileWriteError>>;
-	create(path: string, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	create(
+		path: string,
+		blob: Blob,
+	): Promise<Result<BlobWritten, BlobWriteError>>;
 	/** Other bytes at a path this device shows a file that is not a note at. */
-	replace(path: string, blob: Blob): Promise<Result<BlobWritten, BlobWriteError>>;
+	replace(
+		path: string,
+		blob: Blob,
+	): Promise<Result<BlobWritten, BlobWriteError>>;
 	/** A file's bytes as a File typed by its extension: from this device, or fetched and verified first. */
 	open(path: string): Promise<Result<File, OpenBlobError>>;
 	/** Exact text (null deletes), merged where the file moved since `over`. */
-	write(path: string, text: string | null, options?: { over?: string | null }): Promise<Result<Written, FileWriteError>>;
+	write(
+		path: string,
+		text: string | null,
+		options?: { over?: string | null },
+	): Promise<Result<Written, FileWriteError>>;
 	delete(path: string): Promise<Result<Written, WriteError>>;
 	/** The one editor of the file's exact text, shared by every view of it. */
 	openEditor(path: string): Promise<Result<Editor, WriteError | EditorError>>;
@@ -234,11 +368,17 @@ export type BatchFiles = {
 	/** A note is text; any other file is bytes, a blob collection's create. */
 	create(path: string, content: string | Blob): void;
 	replace(path: string, blob: Blob): void;
-	write(path: string, text: string | null, options?: { over?: string | null }): void;
+	write(
+		path: string,
+		text: string | null,
+		options?: { over?: string | null },
+	): void;
 	delete(path: string): void;
 };
 
-export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: CollectionOf<TDefs[K]> } & { [K in BlobName<TDefs>]: BlobCollectionOf<TDefs[K]> } & {
+export type Repository<TDefs extends Definitions> = {
+	[K in NoteName<TDefs>]: CollectionOf<TDefs[K]>;
+} & { [K in BlobName<TDefs>]: BlobCollectionOf<TDefs[K]> } & {
 	status(): RepositoryStatus;
 	/** The revision of the last change heard: every SQL result older than it may be stale. */
 	revision(): number;
@@ -247,7 +387,10 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 	/** The plain file API. */
 	files: Files;
 	/** One read-only SQL statement over the app's views, or `"epicenter/files"`. */
-	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>>;
+	query<TRow = Record<string, SqlValue>>(
+		sql: string,
+		params?: SqlValue[],
+	): Promise<Result<TRow[], RepositoryError>>;
 	/**
 	 * Several writes, blobs included, stored on this device as one
 	 * transaction: every path is checked and every blob sealed first, so
@@ -256,7 +399,11 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 	 * save: one that cannot go yet (held, or owed its bytes) waits alone.
 	 */
 	commit(
-		build: (batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> } & { [K in BlobName<TDefs>]: BatchBlobCollection<TDefs[K]> } & { files: BatchFiles }) => void,
+		build: (
+			batch: { [K in NoteName<TDefs>]: BatchCollection<TDefs[K]> } & {
+				[K in BlobName<TDefs>]: BatchBlobCollection<TDefs[K]>;
+			} & { files: BatchFiles },
+		) => void,
 	): Promise<Result<Committed, BlobWriteError>>;
 	/** Stop: every editor stops and the host lets the replica go. Returns the drafts that could not be saved, for the caller to keep or drop (an account change). */
 	close(): Unsaved[];
@@ -268,7 +415,8 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 
 type NoteLens = Extract<Lens, { kind: 'note' }>;
 type BlobLens = Extract<Lens, { kind: 'blob' }>;
-const byPath = (a: Note, b: Note) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+const byPath = (a: Note, b: Note) =>
+	a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 /** Where `path` is in a list ordered by path, or -1. */
 function indexOf(list: Note[], path: string) {
 	let lo = 0;
@@ -281,8 +429,10 @@ function indexOf(list: Note[], path: string) {
 	return list[lo]?.path === path ? lo : -1;
 }
 const SENDING: FileStatus = { status: 'sending' };
-const reasonOf = (state: FileStatus) => ('reason' in state ? state.reason : undefined);
-const sameState = (a: FileStatus, b: FileStatus) => a.status === b.status && reasonOf(a) === reasonOf(b);
+const reasonOf = (state: FileStatus) =>
+	'reason' in state ? state.reason : undefined;
+const sameState = (a: FileStatus, b: FileStatus) =>
+	a.status === b.status && reasonOf(a) === reasonOf(b);
 
 /** A change as it shows before its answer, over a note's text, applied as the worker will apply it. */
 function project(text: string | null, change: Change): string | null {
@@ -290,19 +440,31 @@ function project(text: string | null, change: Change): string | null {
 		case 'create':
 			return text === null ? change.text : mergedOver(null, text, change.text);
 		case 'write':
-			return change.over === undefined ? change.text : mergedOver(change.over, text, change.text);
+			return change.over === undefined
+				? change.text
+				: mergedOver(change.over, text, change.text);
 		case 'delete':
 			return null;
 		case 'patch':
-			return text === null ? null : writeMarkdown(text, { fields: change.fields });
+			return text === null
+				? null
+				: writeMarkdown(text, { fields: change.fields });
 	}
 }
 
 /** Open `app`'s repository over `host`. */
-export function openRepository<TDefs extends Definitions>({ app, host }: { app: App<TDefs>; host: Host }): Repository<TDefs> {
+export function openRepository<TDefs extends Definitions>({
+	app,
+	host,
+}: {
+	app: App<TDefs>;
+	host: Host;
+}): Repository<TDefs> {
 	const notesOf = new Map<string, Map<string, Note>>();
 	const lists = new Map<string, Note[]>();
-	const lenses = app.lenses.filter((lens): lens is NoteLens => lens.kind === 'note');
+	const lenses = app.lenses.filter(
+		(lens): lens is NoteLens => lens.kind === 'note',
+	);
 	for (const lens of lenses) if (lens.memory) notesOf.set(lens.name, new Map());
 
 	let status: RepositoryStatus = { status: 'opening' };
@@ -330,7 +492,10 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	 * the rows that hold them are never shown with them applied again.
 	 * `done` settles once their answer is in.
 	 */
-	const pending = new Map<string, { id: number; token: number; change: Change; done: Promise<void> }[]>();
+	const pending = new Map<
+		string,
+		{ id: number; token: number; change: Change; done: Promise<void> }[]
+	>();
 	let nextId = 1;
 	let nextToken = 1;
 	/** Stop showing the writes sent with `token`: what is stored holds them now. */
@@ -349,7 +514,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 
 	function emit() {
 		if (touched.size === 0 && !filesChanged && !statusChanged) return;
-		const change = { collections: [...touched].sort(), files: filesChanged, status: statusChanged };
+		const change = {
+			collections: [...touched].sort(),
+			files: filesChanged,
+			status: statusChanged,
+		};
 		touched.clear();
 		filesChanged = false;
 		statusChanged = false;
@@ -361,26 +530,56 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	};
 
 	/** The note collections that claim a path, with its parameters: apps combined may share one. */
-	function claims(path: string): { lens: NoteLens; params: Record<string, string> }[] {
-		return app.claims(path).flatMap((claim) => (claim.lens.kind === 'note' ? [{ lens: claim.lens, params: claim.params }] : []));
+	function claims(
+		path: string,
+	): { lens: NoteLens; params: Record<string, string> }[] {
+		return app
+			.claims(path)
+			.flatMap((claim) =>
+				claim.lens.kind === 'note'
+					? [{ lens: claim.lens, params: claim.params }]
+					: [],
+			);
 	}
 
-	function toNote(lens: NoteLens, path: string, params: Record<string, string>, text: string, fields: string | null | undefined, state: FileStatus): Note {
+	function toNote(
+		lens: NoteLens,
+		path: string,
+		params: Record<string, string>,
+		text: string,
+		fields: string | null | undefined,
+		state: FileStatus,
+	): Note {
 		const base = { path, params, text, body: bodyOf(text), state };
-		const read = fields === undefined || fields === null ? parseMarkdown(text).fields : (JSON.parse(fields) as Record<string, unknown>);
+		const read =
+			fields === undefined || fields === null
+				? parseMarkdown(text).fields
+				: (JSON.parse(fields) as Record<string, unknown>);
 		const issues = schemaIssues(lens.schema, read);
-		return (issues.length === 0 ? { ...base, valid: true, fields: read } : { ...base, valid: false, fields: read, issues }) as Note;
+		return (
+			issues.length === 0
+				? { ...base, valid: true, fields: read }
+				: { ...base, valid: false, fields: read, issues }
+		) as Note;
 	}
 
 	const editors = createEditors({
 		session: () => (status.status === 'open' ? session : null),
 		status: () => status,
 		revision: () => revision,
-		stored: (path) => (claims(path).some(({ lens }) => lens.memory) ? (stored.get(path)?.text ?? null) : undefined),
-		row: (path) => (session === null ? Promise.reject(new Error('No session is open')) : session.row(path)),
+		stored: (path) =>
+			claims(path).some(({ lens }) => lens.memory)
+				? (stored.get(path)?.text ?? null)
+				: undefined,
+		row: (path) =>
+			session === null
+				? Promise.reject(new Error('No session is open'))
+				: session.row(path),
 		// Paths equal after NFC and case folding are one path: a write to any spelling of it counts.
 		answered: async (path) => {
-			const writes = [...pending].filter(([other]) => fold(other) === fold(path)).flatMap(([, each]) => each);
+			const writes = [...pending]
+				.filter(([other]) => fold(other) === fold(path))
+				.flatMap(([, each]) => each);
 			await Promise.all(writes.map((write) => write.done));
 		},
 		spelled: (path) => spelled(path),
@@ -423,16 +622,30 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 				notes.delete(path);
 				lists.delete(lens.name);
 			} else {
-				if (before !== undefined && before.text === text && sameState(before.state, state)) continue;
+				if (
+					before !== undefined &&
+					before.text === text &&
+					sameState(before.state, state)
+				)
+					continue;
 				// Typing in the body leaves the frontmatter as it was: its fields are read again only when it changes.
 				const note =
 					before !== undefined && headerOf(before.text) === headerOf(text)
 						? ({ ...before, text, body: bodyOf(text), state } as Note)
-						: toNote(lens, path, params, text, row?.text === text ? row.fields : undefined, state);
+						: toNote(
+								lens,
+								path,
+								params,
+								text,
+								row?.text === text ? row.fields : undefined,
+								state,
+							);
 				notes.set(path, note);
 				const list = lists.get(lens.name);
-				const at = before === undefined || list === undefined ? -1 : indexOf(list, path);
-				if (list !== undefined && at >= 0) lists.set(lens.name, list.with(at, note));
+				const at =
+					before === undefined || list === undefined ? -1 : indexOf(list, path);
+				if (list !== undefined && at >= 0)
+					lists.set(lens.name, list.with(at, note));
 				else lists.delete(lens.name);
 			}
 			touched.add(lens.name);
@@ -442,7 +655,8 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	/** Every collection a changed path belongs to is told, kept in memory or not. */
 	function heard(paths: string[]) {
 		if (paths.length > 0) filesChanged = true;
-		for (const path of paths) for (const { lens } of claims(path)) touched.add(lens.name);
+		for (const path of paths)
+			for (const { lens } of claims(path)) touched.add(lens.name);
 	}
 
 	function applyDelta(delta: Delta) {
@@ -482,9 +696,11 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		stored = new Map(snapshot.rows.map((row) => [row.path, row]));
 		spellings = new Map(snapshot.rows.map((row) => [fold(row.path), row.path]));
 		revision = snapshot.revision;
-		for (const path of new Set([...previous.keys(), ...stored.keys()])) refresh(path);
+		for (const path of new Set([...previous.keys(), ...stored.keys()]))
+			refresh(path);
 		hydrated = true;
-		for (const delta of early) if (delta.revision > snapshot.revision) applyDelta(delta);
+		for (const delta of early)
+			if (delta.revision > snapshot.revision) applyDelta(delta);
 		// Every collection may have changed while no session was open.
 		for (const lens of lenses) touched.add(lens.name);
 		filesChanged = true;
@@ -514,18 +730,36 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	 * blobs): shown at once over the notes kept in memory, cleared when
 	 * answered, dropped when they fail.
 	 */
-	async function saveVia<T, E>(changes: Change[], ask: (current: Session, token: number) => Promise<Result<T, E>>): Promise<Result<T, E | RepositoryError | SaveError>> {
+	async function saveVia<T, E>(
+		changes: Change[],
+		ask: (current: Session, token: number) => Promise<Result<T, E>>,
+	): Promise<Result<T, E | RepositoryError | SaveError>> {
 		const current = status.status === 'open' ? session : null;
-		if (current === null) return RepositoryError.Unavailable({ status: status.status });
+		if (current === null)
+			return RepositoryError.Unavailable({ status: status.status });
 		// A note deleted here takes its editor with it: one owner of the path, so no draft keeps it listed or brings it back.
-		for (const change of changes) if (change.kind === 'delete' || (change.kind === 'write' && change.text === null)) editors.deleted(change.path);
+		for (const change of changes)
+			if (
+				change.kind === 'delete' ||
+				(change.kind === 'write' && change.text === null)
+			)
+				editors.deleted(change.path);
 		let finish = () => {};
 		const done = new Promise<void>((resolve) => {
 			finish = resolve;
 		});
 		const token = nextToken++;
-		const sent = changes.map((change) => ({ id: nextId++, token, change, done }));
-		for (const write of sent) pending.set(write.change.path, [...(pending.get(write.change.path) ?? []), write]);
+		const sent = changes.map((change) => ({
+			id: nextId++,
+			token,
+			change,
+			done,
+		}));
+		for (const write of sent)
+			pending.set(write.change.path, [
+				...(pending.get(write.change.path) ?? []),
+				write,
+			]);
 		for (const write of sent) refresh(write.change.path);
 		emit();
 		let result: Result<T, E | SaveError>;
@@ -535,7 +769,9 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			result = SaveErrors.Closed();
 		}
 		for (const write of sent) {
-			const left = (pending.get(write.change.path) ?? []).filter((other) => other.id !== write.id);
+			const left = (pending.get(write.change.path) ?? []).filter(
+				(other) => other.id !== write.id,
+			);
 			if (left.length === 0) pending.delete(write.change.path);
 			else pending.set(write.change.path, left);
 		}
@@ -546,37 +782,73 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	}
 
 	/** Send changes, in one transaction and one save. */
-	const send = (changes: Change[]): Promise<Result<Changed, WriteError>> => saveVia(changes, (current, token) => current.change(changes, token));
+	const send = (changes: Change[]): Promise<Result<Changed, WriteError>> =>
+		saveVia(changes, (current, token) => current.change(changes, token));
 	/** Seal each blob, then send its pointer with `changes`, in one transaction. */
-	const put = (blobs: BlobPut[], changes: Change[] = []): Promise<Result<Put, BlobWriteError>> => saveVia(changes, (current, token) => current.put(blobs, changes, token));
+	const put = (
+		blobs: BlobPut[],
+		changes: Change[] = [],
+	): Promise<Result<Put, BlobWriteError>> =>
+		saveVia(changes, (current, token) => current.put(blobs, changes, token));
 
-	const one = async (path: string, change: Change): Promise<Result<Written, WriteError>> => {
+	const one = async (
+		path: string,
+		change: Change,
+	): Promise<Result<Written, WriteError>> => {
 		const result = await send([change]);
 		if (result.error !== null) return result;
-		return Ok({ text: result.data.texts[path] ?? null, revision: result.data.revision });
+		return Ok({
+			text: result.data.texts[path] ?? null,
+			revision: result.data.revision,
+		});
 	};
 
 	/** The changes one collection's verbs make, for a path built from its parameters. */
 	function changesOf(lens: NoteLens) {
 		/** The path the parameters name, as this device spells it. */
-		const pathOf = (params: Record<string, unknown>): Result<string, TemplateError> => {
+		const pathOf = (
+			params: Record<string, unknown>,
+		): Result<string, TemplateError> => {
 			const built = buildPath(lens.template, params);
 			return built.error === null ? Ok(spelled(built.data)) : built;
 		};
 		return {
 			pathOf,
-			create: (path: string, input: NoteInput<TSchema> = {}): Change => ({ kind: 'create', path, text: writeMarkdown(null, input as { fields?: Record<string, unknown>; body?: string }) }),
-			patch: (path: string, fields: Record<string, unknown>): Change => ({ kind: 'patch', path, fields }),
+			create: (path: string, input: NoteInput<TSchema> = {}): Change => ({
+				kind: 'create',
+				path,
+				text: writeMarkdown(
+					null,
+					input as { fields?: Record<string, unknown>; body?: string },
+				),
+			}),
+			patch: (path: string, fields: Record<string, unknown>): Change => ({
+				kind: 'patch',
+				path,
+				fields,
+			}),
 			delete: (path: string): Change => ({ kind: 'delete', path }),
-			write: (path: string, text: string | null, { over }: { over?: string | null } = {}): Change => (over === undefined ? { kind: 'write', path, text } : { kind: 'write', path, text, over }),
+			write: (
+				path: string,
+				text: string | null,
+				{ over }: { over?: string | null } = {},
+			): Change =>
+				over === undefined
+					? { kind: 'write', path, text }
+					: { kind: 'write', path, text, over },
 		};
 	}
 
 	function collection(lens: NoteLens) {
 		const changes = changesOf(lens);
 		const at =
-			<TArgs extends unknown[]>(make: (path: string, ...args: TArgs) => Change) =>
-			async (params: Record<string, unknown>, ...args: TArgs): Promise<Result<Written, WriteError>> => {
+			<TArgs extends unknown[]>(
+				make: (path: string, ...args: TArgs) => Change,
+			) =>
+			async (
+				params: Record<string, unknown>,
+				...args: TArgs
+			): Promise<Result<Written, WriteError>> => {
 				const path = changes.pathOf(params);
 				if (path.error !== null) return path;
 				return one(path.data, make(path.data, ...args));
@@ -586,7 +858,9 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			patch: at(changes.patch),
 			delete: at(changes.delete),
 			write: at(changes.write),
-			async openEditor(params: Record<string, unknown>): Promise<Result<Editor, WriteError | EditorError>> {
+			async openEditor(
+				params: Record<string, unknown>,
+			): Promise<Result<Editor, WriteError | EditorError>> {
 				const path = changes.pathOf(params);
 				if (path.error !== null) return path;
 				return editors.open(path.data);
@@ -595,19 +869,36 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		if (!lens.memory)
 			return {
 				...writes,
-				async read(params: Record<string, unknown>): Promise<Result<Note | null, RepositoryError | TemplateError>> {
+				async read(
+					params: Record<string, unknown>,
+				): Promise<Result<Note | null, RepositoryError | TemplateError>> {
 					const path = changes.pathOf(params);
 					if (path.error !== null) return path;
 					const current = status.status === 'open' ? session : null;
-					if (current === null) return RepositoryError.Unavailable({ status: status.status });
+					if (current === null)
+						return RepositoryError.Unavailable({ status: status.status });
 					let row: Row | null;
 					try {
 						row = await current.row(path.data);
 					} catch {
-						return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
+						return RepositoryError.Unavailable({
+							status: status.status === 'open' ? 'opening' : status.status,
+						});
 					}
 					// Found by any spelling of its path, it reads under the spelling this device has.
-					return Ok(row === null ? null : toNote(lens, row.path, claims(row.path).find((claim) => claim.lens === lens)?.params ?? (params as Record<string, string>), row.text, row.fields, row.state));
+					return Ok(
+						row === null
+							? null
+							: toNote(
+									lens,
+									row.path,
+									claims(row.path).find((claim) => claim.lens === lens)
+										?.params ?? (params as Record<string, string>),
+									row.text,
+									row.fields,
+									row.state,
+								),
+					);
 				},
 			};
 		const notes = notesOf.get(lens.name) ?? new Map<string, Note>();
@@ -629,12 +920,21 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	}
 
 	/** Seal `blob` and store a pointer to it at `path`, through the open session. */
-	async function putBlob(path: string, blob: Blob, replace: boolean): Promise<Result<BlobWritten, BlobWriteError>> {
+	async function putBlob(
+		path: string,
+		blob: Blob,
+		replace: boolean,
+	): Promise<Result<BlobWritten, BlobWriteError>> {
 		const at = spelled(path);
 		const result = await put([{ path: at, blob, replace }]);
 		if (result.error !== null) return result;
 		const sealed = result.data.sealed[at] as Sealed;
-		return Ok({ text: result.data.texts[at] ?? null, revision: result.data.revision, oid: sealed.oid, size: sealed.size });
+		return Ok({
+			text: result.data.texts[at] ?? null,
+			revision: result.data.revision,
+			oid: sealed.oid,
+			size: sealed.size,
+		});
 	}
 	async function openBlob(path: string): Promise<Result<File, OpenBlobError>> {
 		const opened = await asked((current) => current.open(spelled(path)));
@@ -642,12 +942,21 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	}
 
 	function blobCollection(lens: BlobLens): BlobCollection<string> {
-		const pathOf = (params: Record<string, unknown>): Result<string, TemplateError> => {
+		const pathOf = (
+			params: Record<string, unknown>,
+		): Result<string, TemplateError> => {
 			const built = buildPath(lens.template, params);
 			return built.error === null ? Ok(spelled(built.data)) : built;
 		};
 		const at =
-			<TArgs extends unknown[], TResult>(run: (path: string, ...args: TArgs) => Promise<Result<TResult, BlobWriteError | OpenBlobError | WriteError>>) =>
+			<TArgs extends unknown[], TResult>(
+				run: (
+					path: string,
+					...args: TArgs
+				) => Promise<
+					Result<TResult, BlobWriteError | OpenBlobError | WriteError>
+				>,
+			) =>
 			async (params: Record<string, unknown>, ...args: TArgs) => {
 				const path = pathOf(params);
 				return path.error !== null ? path : run(path.data, ...args);
@@ -662,31 +971,52 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 
 	/** The changes the plain file API makes, at `path` as this device spells it. */
 	/** RULE: a file that is not a note holds bytes: text there is the pointer to them (a blob moved by writing its pointer), or it is refused at once, never stored to be held. */
-	const notPointer = (path: string, text: string | null) => (text === null || isNote(path) || parsePointer(text) !== null ? null : BlobError.NotPointer({ path }));
+	const notPointer = (path: string, text: string | null) =>
+		text === null || isNote(path) || parsePointer(text) !== null
+			? null
+			: BlobError.NotPointer({ path });
 	const fileChanges = {
-		create: (path: string, text: string): Change => ({ kind: 'create', path: spelled(path), text }),
-		write: (path: string, text: string | null, { over }: { over?: string | null } = {}): Change =>
-			over === undefined ? { kind: 'write', path: spelled(path), text } : { kind: 'write', path: spelled(path), text, over },
+		create: (path: string, text: string): Change => ({
+			kind: 'create',
+			path: spelled(path),
+			text,
+		}),
+		write: (
+			path: string,
+			text: string | null,
+			{ over }: { over?: string | null } = {},
+		): Change =>
+			over === undefined
+				? { kind: 'write', path: spelled(path), text }
+				: { kind: 'write', path: spelled(path), text, over },
 		delete: (path: string): Change => ({ kind: 'delete', path: spelled(path) }),
 	};
 	/** Ask the open session, or say why there is none. */
-	async function asked<T>(ask: (session: Session) => Promise<T>): Promise<Result<T, RepositoryError>> {
+	async function asked<T>(
+		ask: (session: Session) => Promise<T>,
+	): Promise<Result<T, RepositoryError>> {
 		const current = status.status === 'open' ? session : null;
-		if (current === null) return RepositoryError.Unavailable({ status: status.status });
+		if (current === null)
+			return RepositoryError.Unavailable({ status: status.status });
 		try {
 			return Ok(await ask(current));
 		} catch {
-			return RepositoryError.Unavailable({ status: status.status === 'open' ? 'opening' : status.status });
+			return RepositoryError.Unavailable({
+				status: status.status === 'open' ? 'opening' : status.status,
+			});
 		}
 	}
 	const files: Files = {
 		list: () => asked((current) => current.files()),
 		waiting: () => asked((current) => current.waiting()),
 		outcomes: () => asked((current) => current.outcomes()),
-		read: (path) => asked(async (current) => {
-			const row = await current.row(path);
-			return row === null ? null : { path: row.path, text: row.text, state: row.state };
-		}),
+		read: (path) =>
+			asked(async (current) => {
+				const row = await current.row(path);
+				return row === null
+					? null
+					: { path: row.path, text: row.text, state: row.state };
+			}),
 		create: ((path: string, content: string | Blob) => {
 			if (content instanceof Blob) return putBlob(path, content, false);
 			const refused = notPointer(path, content);
@@ -719,8 +1049,14 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 				listeners.delete(listener);
 			};
 		},
-		query: <TRow>(sql: string, params?: SqlValue[]): Promise<Result<TRow[], RepositoryError>> => asked((current) => current.query<TRow>(sql, params)),
-		commit(build: (batch: Record<string, unknown>) => void): Promise<Result<Committed, BlobWriteError>> {
+		query: <TRow>(
+			sql: string,
+			params?: SqlValue[],
+		): Promise<Result<TRow[], RepositoryError>> =>
+			asked((current) => current.query<TRow>(sql, params)),
+		commit(
+			build: (batch: Record<string, unknown>) => void,
+		): Promise<Result<Committed, BlobWriteError>> {
 			const batch: Change[] = [];
 			const blobs: BlobPut[] = [];
 			const handles: Record<string, unknown> = {};
@@ -728,46 +1064,75 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 			for (const lens of lenses) {
 				const changes = changesOf(lens);
 				const add =
-					<TArgs extends unknown[]>(make: (path: string, ...args: TArgs) => Change) =>
+					<TArgs extends unknown[]>(
+						make: (path: string, ...args: TArgs) => Change,
+					) =>
 					(params: Record<string, unknown>, ...args: TArgs) => {
 						const path = changes.pathOf(params);
 						if (path.error !== null) invalid ??= path.error;
 						else batch.push(make(path.data, ...args));
 					};
-				handles[lens.name] = { create: add(changes.create), patch: add(changes.patch), delete: add(changes.delete), write: add(changes.write) };
+				handles[lens.name] = {
+					create: add(changes.create),
+					patch: add(changes.patch),
+					delete: add(changes.delete),
+					write: add(changes.write),
+				};
 			}
 			for (const lens of app.lenses) {
 				if (lens.kind !== 'blob') continue;
 				const add =
-					<TArgs extends unknown[]>(make: (path: string, ...args: TArgs) => void) =>
+					<TArgs extends unknown[]>(
+						make: (path: string, ...args: TArgs) => void,
+					) =>
 					(params: Record<string, unknown>, ...args: TArgs) => {
 						const path = buildPath(lens.template, params);
 						if (path.error !== null) invalid ??= path.error;
 						else make(spelled(path.data), ...args);
 					};
 				handles[lens.name] = {
-					create: add((path, blob: Blob) => blobs.push({ path, blob, replace: false })),
-					replace: add((path, blob: Blob) => blobs.push({ path, blob, replace: true })),
+					create: add((path, blob: Blob) =>
+						blobs.push({ path, blob, replace: false }),
+					),
+					replace: add((path, blob: Blob) =>
+						blobs.push({ path, blob, replace: true }),
+					),
 					delete: add((path) => batch.push({ kind: 'delete', path })),
 				};
 			}
 			handles.files = {
 				create: (path: string, content: string | Blob) => {
-					if (content instanceof Blob) return void blobs.push({ path: spelled(path), blob: content, replace: false });
+					if (content instanceof Blob)
+						return void blobs.push({
+							path: spelled(path),
+							blob: content,
+							replace: false,
+						});
 					invalid ??= notPointer(path, content)?.error ?? null;
 					batch.push(fileChanges.create(path, content));
 				},
-				replace: (path: string, blob: Blob) => blobs.push({ path: spelled(path), blob, replace: true }),
-				write: (path: string, text: string | null, options?: { over?: string | null }) => {
+				replace: (path: string, blob: Blob) =>
+					blobs.push({ path: spelled(path), blob, replace: true }),
+				write: (
+					path: string,
+					text: string | null,
+					options?: { over?: string | null },
+				) => {
 					invalid ??= notPointer(path, text)?.error ?? null;
 					batch.push(fileChanges.write(path, text, options));
 				},
 				delete: (path: string) => batch.push(fileChanges.delete(path)),
 			} satisfies Record<keyof BatchFiles, unknown>;
 			build(handles);
-			if (invalid !== null) return Promise.resolve({ data: null, error: invalid });
+			if (invalid !== null)
+				return Promise.resolve({ data: null, error: invalid });
 			const saved = blobs.length === 0 ? send(batch) : put(blobs, batch);
-			return saved.then((result): Result<Committed, BlobWriteError> => (result.error === null ? Ok({ revision: result.data.revision }) : result));
+			return saved.then(
+				(result): Result<Committed, BlobWriteError> =>
+					result.error === null
+						? Ok({ revision: result.data.revision })
+						: result,
+			);
 		},
 		close(): Unsaved[] {
 			if (status.status === 'closed') return [];
@@ -783,6 +1148,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		},
 	};
 	for (const lens of lenses) repository[lens.name] = collection(lens);
-	for (const lens of app.lenses) if (lens.kind === 'blob') repository[lens.name] = blobCollection(lens);
+	for (const lens of app.lenses)
+		if (lens.kind === 'blob') repository[lens.name] = blobCollection(lens);
 	return repository as Repository<TDefs>;
 }

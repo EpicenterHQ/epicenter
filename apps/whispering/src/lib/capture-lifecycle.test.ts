@@ -137,7 +137,9 @@ async function rows(root: string) {
 }
 
 /** Make storage refuse every recording row save from now on. */
-function refuseRows(host: NonNullable<Awaited<ReturnType<typeof open>>['host']>) {
+function refuseRows(
+	host: NonNullable<Awaited<ReturnType<typeof open>>['host']>,
+) {
 	host.control.beforePut = (path) => {
 		if (isRow(path)) throw new Error('the disk refused the row');
 	};

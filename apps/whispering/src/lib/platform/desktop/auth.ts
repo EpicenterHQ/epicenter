@@ -1,7 +1,7 @@
 /** The one host-owned account facade shared by Whispering's UI and requests. */
 import { fromAuth } from '@epicenter/auth/svelte';
-import { createDesktopAccount } from './account.js';
 import type { PlatformAuth } from '../types.js';
+import { createDesktopAccount } from './account.js';
 
 let client: ReturnType<typeof createDesktopAccount> | undefined;
 let auth: PlatformAuth | undefined;

@@ -22,34 +22,68 @@ import { join } from 'node:path';
 import { Type } from 'typebox';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { createTestServer, STAMP, writer } from '../sim/harness.js';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { findConflicts } from '../core/conflict.js';
-import { BODY_SQL, writePointer } from '../core/markdown.js';
-import { defineApp } from '../core/lens.js';
 import type { LiveCommit } from '../core/commit.js';
 import { commitId } from '../core/commit.js';
+import { findConflicts } from '../core/conflict.js';
+import { defineApp } from '../core/lens.js';
+import { BODY_SQL, writePointer } from '../core/markdown.js';
 import type { Event, Server } from '../server/server.js';
+import { createTestServer, STAMP, writer } from '../sim/harness.js';
 import type { SqlDriver } from '../sql.js';
-import { type Binding, openReplica, type Replica, type Reply, type Request } from './replica.js';
+import {
+	type Binding,
+	openReplica,
+	type Replica,
+	type Reply,
+	type Request,
+} from './replica.js';
 
 const PATH = 'notes/a.md';
-const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`;
+const note = (body: string, title = 'A') =>
+	`---\ntitle: ${title}\n---\n${body}`;
 const SERVER = 'example';
 const BINDING: Binding = { repository: 'r1', server: SERVER, account: 'alice' };
 
-const open = (driver: SqlDriver, options: Partial<Parameters<typeof openReplica>[0]> = {}) =>
-	openReplica({ driver, binding: BINDING, device: 'laptop', after: () => {}, now: () => 0, quiet: 0, ...options });
+const open = (
+	driver: SqlDriver,
+	options: Partial<Parameters<typeof openReplica>[0]> = {},
+) =>
+	openReplica({
+		driver,
+		binding: BINDING,
+		device: 'laptop',
+		after: () => {},
+		now: () => 0,
+		quiet: 0,
+		...options,
+	});
 
 /** The server's reply to one request, as the wire would carry it. */
-function answer(server: Server, request: Request, session = writer('alice')): Reply {
+function answer(
+	server: Server,
+	request: Request,
+	session = writer('alice'),
+): Reply {
 	switch (request.type) {
 		case 'push':
-			return { type: 'answer', rid: request.rid, answer: server.push(request.commit, session) };
+			return {
+				type: 'answer',
+				rid: request.rid,
+				answer: server.push(request.commit, session),
+			};
 		case 'catch-up':
-			return { type: 'caught-up', rid: request.rid, catchUp: server.catchUp(request) };
+			return {
+				type: 'caught-up',
+				rid: request.rid,
+				catchUp: server.catchUp(request),
+			};
 		case 'fetch':
-			return { type: 'fetched', rid: request.rid, texts: server.fetch(request.hashes) };
+			return {
+				type: 'fetched',
+				rid: request.rid,
+				texts: server.fetch(request.hashes),
+			};
 	}
 }
 
@@ -62,7 +96,11 @@ function connect(replica: Replica, server: Server) {
 		sent,
 		pushes,
 		deliver(session = writer('alice')) {
-			for (let request = sent.shift(); request !== undefined; request = sent.shift()) {
+			for (
+				let request = sent.shift();
+				request !== undefined;
+				request = sent.shift()
+			) {
 				if (request.type === 'push') pushes.push(request.commit);
 				replica.reply(answer(server, request, session));
 			}
@@ -70,22 +108,36 @@ function connect(replica: Replica, server: Server) {
 	};
 }
 
-const bytes = (commit: LiveCommit) => new TextEncoder().encode(JSON.stringify(commit)).length;
+const bytes = (commit: LiveCommit) =>
+	new TextEncoder().encode(JSON.stringify(commit)).length;
 
 test("commits fit the server's bounds from the hello: saves split into several", () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
+	expectOk(
+		replica.hello({
+			...BINDING,
+			server: SERVER,
+			main: server.main(),
+			user: 'alice',
+			limits: server.sizing(),
+		}),
+	);
 	const link = connect(replica, server);
 	link.deliver();
 	replica.attach(null);
 	// Offline, the saves amend one unsent commit far larger than one request.
-	for (const name of ['a', 'b', 'c', 'd']) replica.write(`notes/${name}.md`, note(`${name.repeat(900)}\n`));
-	replica.writeAll({ 'notes/e.md': note(`${'e'.repeat(500)}\n`), 'notes/f.md': note(`${'f'.repeat(500)}\n`) });
+	for (const name of ['a', 'b', 'c', 'd'])
+		replica.write(`notes/${name}.md`, note(`${name.repeat(900)}\n`));
+	replica.writeAll({
+		'notes/e.md': note(`${'e'.repeat(500)}\n`),
+		'notes/f.md': note(`${'f'.repeat(500)}\n`),
+	});
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
 	expect(link.pushes.length).toBeGreaterThan(2);
-	for (const commit of link.pushes) expect(bytes(commit)).toBeLessThanOrEqual(3_000);
+	for (const commit of link.pushes)
+		expect(bytes(commit)).toBeLessThanOrEqual(3_000);
 	expect(replica.notSent()).toEqual([]);
 	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
 	expect(replica.busy()).toBe(false);
@@ -97,7 +149,8 @@ test('a commit rejected as too large is split in half; one file too large alone 
 	const link = connect(replica, server);
 	link.deliver();
 	replica.attach(null);
-	for (const name of ['a', 'b', 'c', 'd']) replica.write(`notes/${name}.md`, note(`${name.repeat(900)}\n`));
+	for (const name of ['a', 'b', 'c', 'd'])
+		replica.write(`notes/${name}.md`, note(`${name.repeat(900)}\n`));
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
 	expect(replica.notSent()).toEqual([]);
@@ -106,7 +159,9 @@ test('a commit rejected as too large is split in half; one file too large alone 
 	const big = note(`${'x'.repeat(3_200)}\n`);
 	replica.writeAll({ 'notes/x.md': big, 'notes/y.md': note('y\n') });
 	link.deliver();
-	expect(replica.notSent()).toEqual([{ path: 'notes/x.md', status: 'waiting', reason: 'request too large' }]);
+	expect(replica.notSent()).toEqual([
+		{ path: 'notes/x.md', status: 'waiting', reason: 'request too large' },
+	]);
 	expect(replica.read('notes/x.md')).toBe(big);
 	expect(server.read('notes/y.md')).toBe(note('y\n'));
 	// Saved smaller, x goes.
@@ -124,8 +179,14 @@ test('a request rejection holds no text: the work stays committed, the files say
 	replica.write(PATH, note('one\n'));
 	link.deliver({ user: 'alice', role: 'reader' });
 	expect(replica.notSent()).toEqual([]);
-	expect(replica.state(PATH)).toEqual({ status: 'sending', reason: 'a reader may not write' });
-	expect(replica.rejection()).toEqual({ code: 'reader', reason: 'a reader may not write' });
+	expect(replica.state(PATH)).toEqual({
+		status: 'sending',
+		reason: 'a reader may not write',
+	});
+	expect(replica.rejection()).toEqual({
+		code: 'reader',
+		reason: 'a reader may not write',
+	});
 	// Nothing more goes on this connection, even a new save.
 	replica.write(PATH, note('one\ntwo\n'));
 	expect(link.sent.filter((request) => request.type === 'push')).toEqual([]);
@@ -141,28 +202,55 @@ test('a request rejection holds no text: the work stays committed, the files say
 test('a database bound to another repository, server or account is refused, and so is a hello naming another', () => {
 	const driver = openBunSqlite();
 	const replica = expectOk(open(driver));
-	expect(expectErr(open(driver, { binding: { ...BINDING, repository: 'r2' } })).name).toBe('BoundElsewhere');
-	expect(expectErr(open(driver, { binding: { ...BINDING, account: null } })).name).toBe('BoundElsewhere');
+	expect(
+		expectErr(open(driver, { binding: { ...BINDING, repository: 'r2' } })).name,
+	).toBe('BoundElsewhere');
+	expect(
+		expectErr(open(driver, { binding: { ...BINDING, account: null } })).name,
+	).toBe('BoundElsewhere');
 	expect(expectOk(open(driver)).binding()).toEqual(BINDING);
 
-	const hello = { repository: BINDING.repository, server: SERVER, main: 'm', user: 'alice' };
-	expect(expectErr(replica.hello({ ...hello, server: 'elsewhere' })).field).toBe('server');
+	const hello = {
+		repository: BINDING.repository,
+		server: SERVER,
+		main: 'm',
+		user: 'alice',
+	};
+	expect(
+		expectErr(replica.hello({ ...hello, server: 'elsewhere' })).field,
+	).toBe('server');
 	// A session's user is its account: a replica refuses any other's.
-	expect(expectErr(replica.hello({ ...hello, user: 'bob' })).field).toBe('account');
+	expect(expectErr(replica.hello({ ...hello, user: 'bob' })).field).toBe(
+		'account',
+	);
 	// A repository kept only here has no account, so no server's hello passes it.
-	const kept = expectOk(open(openBunSqlite(), { binding: { ...BINDING, server: null, account: null } }));
+	const kept = expectOk(
+		open(openBunSqlite(), {
+			binding: { ...BINDING, server: null, account: null },
+		}),
+	);
 	expect(expectErr(kept.hello(hello)).field).toBe('account');
 	expectOk(replica.hello(hello));
 
 	// A replica that has met no server records the first one it meets, for good, and a host that does not know it opens it with null.
 	const driver2 = openBunSqlite();
-	const local = expectOk(open(driver2, { binding: { ...BINDING, server: null } }));
+	const local = expectOk(
+		open(driver2, { binding: { ...BINDING, server: null } }),
+	);
 	expectOk(local.hello({ ...hello, server: 'first' }));
 	expect(local.binding().server).toBe('first');
-	expect(expectErr(local.hello({ ...hello, server: 'second' })).field).toBe('server');
+	expect(expectErr(local.hello({ ...hello, server: 'second' })).field).toBe(
+		'server',
+	);
 	local.close();
-	expect(expectOk(open(driver2, { binding: { ...BINDING, server: null } })).binding().server).toBe('first');
-	expect(expectErr(open(driver2, { binding: { ...BINDING, server: 'second' } })).field).toBe('server');
+	expect(
+		expectOk(open(driver2, { binding: { ...BINDING, server: null } })).binding()
+			.server,
+	).toBe('first');
+	expect(
+		expectErr(open(driver2, { binding: { ...BINDING, server: 'second' } }))
+			.field,
+	).toBe('server');
 });
 
 test('a commit in flight whose answer was lost survives reopening the database file, and lands once', () => {
@@ -189,7 +277,10 @@ test('a commit in flight whose answer was lost survives reopening the database f
 		expect(reopened.read(PATH)).toBe(note('one\n'));
 		expect(reopened.state(PATH)).toEqual({ status: 'sending' });
 		const again = connect(reopened, server);
-		expect(again.sent[0]).toMatchObject({ type: 'push', commit: { id: push.commit.id } });
+		expect(again.sent[0]).toMatchObject({
+			type: 'push',
+			commit: { id: push.commit.id },
+		});
 		again.deliver();
 		expect(server.history().commits).toBe(1);
 		expect(server.read(PATH)).toBe(note('one\n'));
@@ -209,18 +300,37 @@ test("a commit carries the host's clock as its time", () => {
 	link.deliver();
 	replica.write(PATH, note('one\n'));
 	const [push] = link.sent;
-	expect(push).toMatchObject({ type: 'push', commit: { time: '2026-10-29T10:30:00.000Z' } });
+	expect(push).toMatchObject({
+		type: 'push',
+		commit: { time: '2026-10-29T10:30:00.000Z' },
+	});
 });
 
 test('a notification costs what it names, not every text the device holds', () => {
-	const server = createTestServer({ limits: { request: 64 * 1024 * 1024, files: 5_000 } });
+	const server = createTestServer({
+		limits: { request: 64 * 1024 * 1024, files: 5_000 },
+	});
 	const bob = writer('bob');
-	const text = (i: number, version = 0) => note(`${'word '.repeat(1_000)}${version}\n`, `n${i}`);
+	const text = (i: number, version = 0) =>
+		note(`${'word '.repeat(1_000)}${version}\n`, `n${i}`);
 	const commit = (files: LiveCommit['files']) => {
-		const body = { parent: server.main(), author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		const body = {
+			parent: server.main(),
+			author: { user: 'bob', device: 'd' },
+			time: STAMP,
+			files,
+		};
 		return { id: commitId(body), ...body };
 	};
-	server.push(commit(Array.from({ length: 2_000 }, (_, i) => ({ path: `notes/${i}.md`, text: text(i) }))), bob);
+	server.push(
+		commit(
+			Array.from({ length: 2_000 }, (_, i) => ({
+				path: `notes/${i}.md`,
+				text: text(i),
+			})),
+		),
+		bob,
+	);
 	const replica = unwrap(open(openBunSqlite()));
 	const link = connect(replica, server);
 	link.deliver();
@@ -243,14 +353,31 @@ test('a notification costs what it names, not every text the device holds', () =
 });
 
 test("a catch-up's texts are read in batches, and a read that times out is asked again without gathering the pages again", () => {
-	const server = createTestServer({ limits: { page: 100, request: 64 * 1024 * 1024 } });
+	const server = createTestServer({
+		limits: { page: 100, request: 64 * 1024 * 1024 },
+	});
 	const commit = (files: LiveCommit['files']) => {
-		const body = { parent: server.main(), author: { user: 'bob', device: 'd' }, time: STAMP, files };
+		const body = {
+			parent: server.main(),
+			author: { user: 'bob', device: 'd' },
+			time: STAMP,
+			files,
+		};
 		return { id: commitId(body), ...body };
 	};
-	server.push(commit(Array.from({ length: 600 }, (_, i) => ({ path: `notes/${String(i).padStart(3, '0')}.md`, text: note(`${i}\n`) }))), writer('bob'));
+	server.push(
+		commit(
+			Array.from({ length: 600 }, (_, i) => ({
+				path: `notes/${String(i).padStart(3, '0')}.md`,
+				text: note(`${i}\n`),
+			})),
+		),
+		writer('bob'),
+	);
 	const timers: (() => void)[] = [];
-	const replica = unwrap(open(openBunSqlite(), { after: (_, run) => timers.push(run) }));
+	const replica = unwrap(
+		open(openBunSqlite(), { after: (_, run) => timers.push(run) }),
+	);
 	const sent: Request[] = [];
 	replica.attach((request) => sent.push(request));
 	const answerNext = () => {
@@ -259,7 +386,8 @@ test("a catch-up's texts are read in batches, and a read that times out is asked
 		return request;
 	};
 	// Six pages, then the first batch of texts.
-	for (let page = 0; page < 6; page++) expect(answerNext()?.type).toBe('catch-up');
+	for (let page = 0; page < 6; page++)
+		expect(answerNext()?.type).toBe('catch-up');
 	const first = answerNext();
 	expect(first?.type === 'fetch' && first.hashes.length).toBe(256);
 	// The second batch's reply is lost: its timeout asks for that batch again, not for the pages.
@@ -267,16 +395,33 @@ test("a catch-up's texts are read in batches, and a read that times out is asked
 	expect(lost?.type === 'fetch' && lost.hashes.length).toBe(256);
 	for (const run of timers.splice(0)) run();
 	const again = sent[0];
-	expect(again?.type === 'fetch' && lost?.type === 'fetch' && again.hashes).toEqual(lost?.type === 'fetch' ? lost.hashes : []);
-	for (let request = answerNext(); request !== undefined; request = answerNext()) expect(request.type).toBe('fetch');
+	expect(
+		again?.type === 'fetch' && lost?.type === 'fetch' && again.hashes,
+	).toEqual(lost?.type === 'fetch' ? lost.hashes : []);
+	for (
+		let request = answerNext();
+		request !== undefined;
+		request = answerNext()
+	)
+		expect(request.type).toBe('fetch');
 	expect(replica.paths()).toHaveLength(600);
 	expect(replica.position()).toBe(server.main());
 	expect(replica.stats().catchUps).toBe(1);
 });
 
 test('a replica keeps no text in memory: each read and save reads the database, and a restart mid catch-up starts it again', () => {
-	const server = createTestServer({ limits: { page: 2, request: 64 * 1024 * 1024 } });
-	const body = { parent: server.main(), author: { user: 'bob', device: 'd' }, time: STAMP, files: ['a', 'b', 'c'].map((stem) => ({ path: `notes/${stem}.md`, text: note(`${stem}\n`) })) };
+	const server = createTestServer({
+		limits: { page: 2, request: 64 * 1024 * 1024 },
+	});
+	const body = {
+		parent: server.main(),
+		author: { user: 'bob', device: 'd' },
+		time: STAMP,
+		files: ['a', 'b', 'c'].map((stem) => ({
+			path: `notes/${stem}.md`,
+			text: note(`${stem}\n`),
+		})),
+	};
 	server.push({ id: commitId(body), ...body }, writer('bob'));
 	const directory = mkdtempSync(join(tmpdir(), 'replica-'));
 	try {
@@ -288,7 +433,10 @@ test('a replica keeps no text in memory: each read and save reads the database, 
 		// One page staged, then the process stops before the next.
 		const page = sent.shift();
 		if (page !== undefined) replica.reply(answer(server, page));
-		expect(driver.all('SELECT path FROM "epicenter/staged"')).toEqual([{ path: 'notes/a.md' }, { path: 'notes/b.md' }]);
+		expect(driver.all('SELECT path FROM "epicenter/staged"')).toEqual([
+			{ path: 'notes/a.md' },
+			{ path: 'notes/b.md' },
+		]);
 		replica.close();
 		driver.close();
 
@@ -299,7 +447,10 @@ test('a replica keeps no text in memory: each read and save reads the database, 
 		expect(replica.paths()).toEqual(['notes/a.md', 'notes/b.md', 'notes/c.md']);
 
 		// The database is what the replica reads: a text changed beneath it is what it shows, and what a save merges with.
-		driver.run('UPDATE "epicenter/files" SET text = ? WHERE path = ?', [note('a\nbelow\n'), 'notes/a.md']);
+		driver.run('UPDATE "epicenter/files" SET text = ? WHERE path = ?', [
+			note('a\nbelow\n'),
+			'notes/a.md',
+		]);
 		expect(replica.read('notes/a.md')).toBe(note('a\nbelow\n'));
 		replica.write('notes/a.md', note('above\na\n'), { over: note('a\n') });
 		expect(replica.read('notes/a.md')).toBe(note('above\na\nbelow\n'));
@@ -311,7 +462,12 @@ test('a replica keeps no text in memory: each read and save reads the database, 
 });
 
 test("the app's views read what the person sees, held text included, and a watcher hears each change once it is stored", () => {
-	const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.String() }) } });
+	const app = defineApp({
+		notes: {
+			path: 'notes/{stem}.md',
+			schema: Type.Object({ title: Type.String() }),
+		},
+	});
 	const driver = openBunSqlite();
 	const replica = unwrap(open(driver, { app }));
 	const link = connect(replica, createTestServer());
@@ -321,7 +477,9 @@ test("the app's views read what the person sees, held text included, and a watch
 
 	replica.write(PATH, note('one\n'));
 	expect(heard).toEqual([[PATH]]);
-	expect(replica.query('SELECT stem, title, body FROM notes')).toEqual([{ stem: 'a', title: 'A', body: 'one\n' }]);
+	expect(replica.query('SELECT stem, title, body FROM notes')).toEqual([
+		{ stem: 'a', title: 'A', body: 'one\n' },
+	]);
 	link.deliver();
 	expect(heard).toEqual([[PATH], [PATH]]);
 	expect(replica.state(PATH)).toEqual({ status: 'synced' });
@@ -330,23 +488,44 @@ test("the app's views read what the person sees, held text included, and a watch
 	const broken = `---\ntitle: A\ntitle: B\n---\ntwo\n`;
 	replica.write(PATH, broken);
 	expect(replica.state(PATH).status).toBe('sending');
-	expect(replica.query('SELECT title, body FROM notes')).toEqual([{ title: null, body: broken }]);
+	expect(replica.query('SELECT title, body FROM notes')).toEqual([
+		{ title: null, body: broken },
+	]);
 	link.deliver();
 	// Text the door refuses is held, and still what the person sees.
 	const crlf = note('two\n').replaceAll('\n', '\r\n');
 	replica.write(PATH, crlf);
 	expect(replica.state(PATH).status).toBe('waiting');
-	expect(replica.query<{ body: string }>('SELECT body FROM notes')).toEqual([{ body: crlf }]);
-	expect(replica.query('SELECT path, held IS NOT NULL AS held FROM "epicenter/files"')).toEqual([{ path: PATH, held: 1 }]);
+	expect(replica.query<{ body: string }>('SELECT body FROM notes')).toEqual([
+		{ body: crlf },
+	]);
+	expect(
+		replica.query(
+			'SELECT path, held IS NOT NULL AS held FROM "epicenter/files"',
+		),
+	).toEqual([{ path: PATH, held: 1 }]);
 	expect(() => replica.query('DELETE FROM "epicenter/files"')).toThrow();
 });
 
 test('one clash is one block: unsent text replayed over an arrived block that offers its base continues that block', () => {
 	const server = createTestServer();
 	const device = (account: string) => {
-		const replica = unwrap(open(openBunSqlite(), { binding: { ...BINDING, account }, device: `${account}-laptop` }));
+		const replica = unwrap(
+			open(openBunSqlite(), {
+				binding: { ...BINDING, account },
+				device: `${account}-laptop`,
+			}),
+		);
 		const link = connect(replica, server);
-		const hello = () => expectOk(replica.hello({ repository: BINDING.repository, server: SERVER, main: server.main(), user: account }));
+		const hello = () =>
+			expectOk(
+				replica.hello({
+					repository: BINDING.repository,
+					server: SERVER,
+					main: server.main(),
+					user: account,
+				}),
+			);
 		hello();
 		return {
 			replica,
@@ -370,7 +549,9 @@ test('one clash is one block: unsent text replayed over an arrived block that of
 	bob.sync();
 	alice.catchUp();
 	const text = alice.replica.read(PATH) ?? '';
-	expect(findConflicts(text)).toMatchObject([{ current: 'oneAB\n', base: 'one\n', incoming: 'oneR\n' }]);
+	expect(findConflicts(text)).toMatchObject([
+		{ current: 'oneAB\n', base: 'one\n', incoming: 'oneR\n' },
+	]);
 	alice.sync();
 	bob.catchUp();
 	expect(bob.replica.read(PATH)).toBe(text);
@@ -382,13 +563,22 @@ test('a database made before the fold column opens, the column filled from each 
 	driver.exec(
 		`CREATE TABLE "epicenter/files" (path TEXT PRIMARY KEY, text TEXT, fields TEXT, body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL, base TEXT, hash TEXT, saved INTEGER NOT NULL DEFAULT 0, held TEXT, unknown INTEGER NOT NULL DEFAULT 0) STRICT`,
 	);
-	driver.run('INSERT INTO "epicenter/files" (path, text, base) VALUES (?, ?, ?)', ['notes/Plan.md', note('one\n'), note('one\n')]);
+	driver.run(
+		'INSERT INTO "epicenter/files" (path, text, base) VALUES (?, ?, ?)',
+		['notes/Plan.md', note('one\n'), note('one\n')],
+	);
 	const replica = unwrap(open(driver));
 	expect(replica.read('notes/Plan.md')).toBe(note('one\n'));
 	// Another spelling finds it, through the column just filled.
-	expectOk(replica.change([{ kind: 'patch', path: 'notes/plan.md', fields: { title: 'B' } }]));
+	expectOk(
+		replica.change([
+			{ kind: 'patch', path: 'notes/plan.md', fields: { title: 'B' } },
+		]),
+	);
 	expect(replica.read('notes/Plan.md')).toBe(note('one\n', 'B'));
-	expect(replica.query('SELECT body FROM "epicenter/files"')).toEqual([{ body: 'one\n' }]);
+	expect(replica.query('SELECT body FROM "epicenter/files"')).toEqual([
+		{ body: 'one\n' },
+	]);
 });
 
 test('a held file holds only itself: what was saved with it goes', () => {
@@ -400,7 +590,10 @@ test('a held file holds only itself: what was saved with it goes', () => {
 	link.deliver();
 	// One save of a with nothing changed and b changed, offline.
 	replica.attach(null);
-	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\nmore\n') });
+	replica.writeAll({
+		'notes/a.md': note('a\n'),
+		'notes/b.md': note('b\nmore\n'),
+	});
 	// A later save of a alone that the door refuses holds a, and only a.
 	replica.write('notes/a.md', 'a\r\n');
 	expect(replica.state('notes/a.md').status).toBe('waiting');
@@ -423,7 +616,10 @@ test('work whose outcome is unknown goes as a labelled conflict block over what 
 	replica.writeAll({ [PATH]: note('one\n'), 'media/x.png': pointer('a') });
 	link.deliver();
 	// Her edit goes out and is lost on the way, twice sent; meanwhile someone else edits both files.
-	replica.writeAll({ [PATH]: note('one\nmine\n'), 'media/x.png': pointer('b') });
+	replica.writeAll({
+		[PATH]: note('one\nmine\n'),
+		'media/x.png': pointer('b'),
+	});
 	link.sent.length = 0;
 	replica.attach(null);
 	replica.attach(link.sent.push.bind(link.sent));
@@ -431,11 +627,23 @@ test('work whose outcome is unknown goes as a labelled conflict block over what 
 	if (resend?.type !== 'push') throw new Error('a resend');
 	link.sent.length = 0;
 	const other = (files: { path: string; text: string }[]) => {
-		const body = { parent: server.main(), author: { user: 'bob', device: 'phone' }, time: STAMP, files };
+		const body = {
+			parent: server.main(),
+			author: { user: 'bob', device: 'phone' },
+			time: STAMP,
+			files,
+		};
 		return server.push({ id: commitId(body), ...body }, writer('bob'));
 	};
-	other([{ path: PATH, text: note('one\ntheirs\n') }, { path: 'media/x.png', text: pointer('c') }]);
-	replica.reply({ type: 'answer', rid: resend.rid, answer: { kind: 'outcome-unknown', main: server.main() } });
+	other([
+		{ path: PATH, text: note('one\ntheirs\n') },
+		{ path: 'media/x.png', text: pointer('c') },
+	]);
+	replica.reply({
+		type: 'answer',
+		rid: resend.rid,
+		answer: { kind: 'outcome-unknown', main: server.main() },
+	});
 	link.deliver();
 	expect(replica.notSent()).toEqual([]);
 	const text = server.read(PATH) ?? '';
@@ -446,7 +654,9 @@ test('work whose outcome is unknown goes as a labelled conflict block over what 
 	expect(replica.read(PATH)).toBe(text);
 	// The blob was made over `a`, which moved: it lands beside.
 	expect(server.read('media/x.png')).toBe(pointer('c'));
-	expect(server.read(`media/x (conflict ${'b'.repeat(7)}).png`)).toBe(pointer('b'));
+	expect(server.read(`media/x (conflict ${'b'.repeat(7)}).png`)).toBe(
+		pointer('b'),
+	);
 	expect(replica.busy()).toBe(false);
 });
 
@@ -462,23 +672,51 @@ test('a newer save over a blob write that lost, whose commit was turned away, st
 	}
 	replica.write('media/x.png', pointer('a'));
 	link.deliver();
-	const body = { parent: server.main(), author: { user: 'bob', device: 'phone' }, time: STAMP, files: [{ path: 'media/x.png', text: pointer('b') }] };
+	const body = {
+		parent: server.main(),
+		author: { user: 'bob', device: 'phone' },
+		time: STAMP,
+		files: [{ path: 'media/x.png', text: pointer('b') }],
+	};
 	server.push({ id: commitId(body), ...body }, writer('bob'));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice' }));
+	expectOk(
+		replica.hello({
+			...BINDING,
+			server: SERVER,
+			main: server.main(),
+			user: 'alice',
+		}),
+	);
 	link.deliver();
 	expect(replica.read('media/x.png')).toBe(pointer('b'));
 	// A save made over `a` (a folder's file read late): it lost, and goes saying so.
-	replica.writeAll({ 'media/x.png': pointer('c') }, { over: { 'media/x.png': pointer('a') } });
+	replica.writeAll(
+		{ 'media/x.png': pointer('c') },
+		{ over: { 'media/x.png': pointer('a') } },
+	);
 	const push = link.sent.shift();
 	if (push?.type !== 'push') throw new Error('a push');
-	expect(push.commit.files).toEqual([{ path: 'media/x.png', text: pointer('c'), over: pointer('a') }]);
+	expect(push.commit.files).toEqual([
+		{ path: 'media/x.png', text: pointer('c'), over: pointer('a') },
+	]);
 	// Typed over again while it is out; then the push is turned away, and a new connection sends again.
 	replica.write('media/x.png', pointer('d'));
-	replica.reply({ type: 'answer', rid: push.rid, answer: { kind: 'rejected', code: 'not-member', reason: 'not a member', main: server.main() } });
+	replica.reply({
+		type: 'answer',
+		rid: push.rid,
+		answer: {
+			kind: 'rejected',
+			code: 'not-member',
+			reason: 'not a member',
+			main: server.main(),
+		},
+	});
 	replica.attach(null);
 	link.sent.length = 0;
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
 	expect(server.read('media/x.png')).toBe(pointer('b'));
-	expect(server.read(`media/x (conflict ${'d'.repeat(7)}).png`)).toBe(pointer('d'));
+	expect(server.read(`media/x (conflict ${'d'.repeat(7)}).png`)).toBe(
+		pointer('d'),
+	);
 });

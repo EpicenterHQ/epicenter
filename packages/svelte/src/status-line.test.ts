@@ -8,11 +8,19 @@ test('saveLine shows busy for writes and a neutral device line otherwise', () =>
 });
 
 test('syncLine says synced only when nothing is sending, waiting or refused, and a refused file wins', () => {
-	expect(syncLine({ sending: 0, refused: 0 })).toEqual({ label: 'Synced', tone: 'good' });
-	expect(syncLine({ sending: 2, refused: 0 })).toEqual({ label: 'Sending…', detail: '2 files not sent yet', tone: 'busy' });
+	expect(syncLine({ sending: 0, refused: 0 })).toEqual({
+		label: 'Synced',
+		tone: 'good',
+	});
+	expect(syncLine({ sending: 2, refused: 0 })).toEqual({
+		label: 'Sending…',
+		detail: '2 files not sent yet',
+		tone: 'busy',
+	});
 	expect(syncLine({ sending: 1, refused: 1 })).toEqual({
 		label: 'Not sent',
-		detail: "1 file is saved on this device and needs a fix; 1 file isn't sent yet",
+		detail:
+			"1 file is saved on this device and needs a fix; 1 file isn't sent yet",
 		tone: 'warning',
 	});
 	expect(syncLine({ sending: 0, refused: 2 })).toEqual({
@@ -23,12 +31,23 @@ test('syncLine says synced only when nothing is sending, waiting or refused, and
 });
 
 test('storageLine warns only where this browser holds work that exists nowhere else and its storage is not persistent', () => {
-	const local = 'This repository exists only in this browser, and the browser may delete it when space runs low. Sign in to sync.';
-	const unsent = 'Unsent changes exist only in this browser, and the browser may delete them when space runs low.';
+	const local =
+		'This repository exists only in this browser, and the browser may delete it when space runs low. Sign in to sync.';
+	const unsent =
+		'Unsent changes exist only in this browser, and the browser may delete them when space runs low.';
 	for (const persistence of ['denied', 'not-asked'] as const) {
-		expect(storageLine({ persistence, local: true, unsent: false })).toEqual({ label: local, tone: 'warning' });
-		expect(storageLine({ persistence, local: false, unsent: true })).toEqual({ label: unsent, tone: 'warning' });
-		expect(storageLine({ persistence, local: false, unsent: false })).toBeNull();
+		expect(storageLine({ persistence, local: true, unsent: false })).toEqual({
+			label: local,
+			tone: 'warning',
+		});
+		expect(storageLine({ persistence, local: false, unsent: true })).toEqual({
+			label: unsent,
+			tone: 'warning',
+		});
+		expect(
+			storageLine({ persistence, local: false, unsent: false }),
+		).toBeNull();
 	}
-	for (const persistence of ['granted', 'checking'] as const) expect(storageLine({ persistence, local: true, unsent: true })).toBeNull();
+	for (const persistence of ['granted', 'checking'] as const)
+		expect(storageLine({ persistence, local: true, unsent: true })).toBeNull();
 });

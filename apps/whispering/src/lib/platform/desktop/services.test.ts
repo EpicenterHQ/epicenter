@@ -33,6 +33,8 @@ import {
 	saveKey,
 	sendRequest,
 } from '@epicenter/ai/send';
+import { openFolder as openDirectoryFolder } from '@epicenter/folder/bun';
+import { svelteFolder } from '@epicenter/svelte/folder';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { resolveAppPaths } from '../../../../../../packages/cli/src/app-paths.js';
 import {
@@ -45,8 +47,6 @@ import {
 	grantedDirectory,
 	shellArguments,
 } from '../../../../../../packages/folder/src/granted-shell.test-support.js';
-import { openFolder as openDirectoryFolder } from '@epicenter/folder/bun';
-import { svelteFolder } from '@epicenter/svelte/folder';
 import { toneWav } from '../../capture.js';
 import { whisperingTables } from '../../definition.js';
 import { readBytes } from '../../files.js';
@@ -223,9 +223,7 @@ const noCommands: LocalTranscriptionCommands = {
 
 /** The desktop services over the scripted shell. */
 async function openDesktop(options: Parameters<typeof createServices>[1] = {}) {
-	const folder = expectOk(
-		await openFolder({ tables: whisperingTables }),
-	);
+	const folder = expectOk(await openFolder({ tables: whisperingTables }));
 	cleanups.push(() => folder.close());
 	return {
 		/** The opened folder; the services get it as `<OpenFolder>` hands it on. */

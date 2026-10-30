@@ -2,6 +2,8 @@
  * Navigation command tests across fresh CLI processes and isolated AppData.
  * Checks strict storage, reset cleanup, path identity, and concurrent writers.
  */
+
+import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import {
@@ -16,7 +18,6 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Database } from 'bun:sqlite';
 
 const temporary: string[] = [];
 afterEach(async () => {

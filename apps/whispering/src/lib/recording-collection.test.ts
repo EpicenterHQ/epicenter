@@ -738,9 +738,7 @@ test('nothing is opened after closing', async () => {
 
 test('closing while several are being transcribed sends nothing more: the one under way ends as it ends, the rest are reported as not sent', async () => {
 	const first = deferred<Awaited<ReturnType<Transcribe>>>();
-	const { folder, whispering, sent, root } = await history(
-		() => first.promise,
-	);
+	const { folder, whispering, sent, root } = await history(() => first.promise);
 
 	const running = transcribeRows(whispering, [
 		path('dentist'),

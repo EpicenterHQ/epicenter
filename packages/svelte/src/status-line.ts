@@ -32,12 +32,30 @@ const files = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;
  * wins: it is never sent until the person fixes it, so the header must not
  * say Synced; a waiting file is on its way, like a sending one.
  */
-export function syncLine({ sending, refused }: { sending: number; refused: number }): StatusLine {
+export function syncLine({
+	sending,
+	refused,
+}: {
+	sending: number;
+	refused: number;
+}): StatusLine {
 	if (refused > 0) {
 		const fix = `${files(refused)} ${refused === 1 ? 'is' : 'are'} saved on this device and ${refused === 1 ? 'needs' : 'need'} a fix`;
-		return { label: 'Not sent', detail: sending > 0 ? `${fix}; ${files(sending)} ${sending === 1 ? "isn't" : "aren't"} sent yet` : fix, tone: 'warning' };
+		return {
+			label: 'Not sent',
+			detail:
+				sending > 0
+					? `${fix}; ${files(sending)} ${sending === 1 ? "isn't" : "aren't"} sent yet`
+					: fix,
+			tone: 'warning',
+		};
 	}
-	if (sending > 0) return { label: 'Sending…', detail: `${files(sending)} not sent yet`, tone: 'busy' };
+	if (sending > 0)
+		return {
+			label: 'Sending…',
+			detail: `${files(sending)} not sent yet`,
+			tone: 'busy',
+		};
 	return { label: 'Synced', tone: 'good' };
 }
 
@@ -48,9 +66,27 @@ export function syncLine({ sending, refused }: { sending: number; refused: numbe
  * it; null otherwise. `persistence` is `storagePersistence` from
  * `@epicenter/repository/browser`.
  */
-export function storageLine({ persistence, local, unsent }: { persistence: 'checking' | 'not-asked' | 'granted' | 'denied'; local: boolean; unsent: boolean }): StatusLine | null {
+export function storageLine({
+	persistence,
+	local,
+	unsent,
+}: {
+	persistence: 'checking' | 'not-asked' | 'granted' | 'denied';
+	local: boolean;
+	unsent: boolean;
+}): StatusLine | null {
 	if (persistence === 'granted' || persistence === 'checking') return null;
-	if (local) return { label: 'This repository exists only in this browser, and the browser may delete it when space runs low. Sign in to sync.', tone: 'warning' };
-	if (unsent) return { label: 'Unsent changes exist only in this browser, and the browser may delete them when space runs low.', tone: 'warning' };
+	if (local)
+		return {
+			label:
+				'This repository exists only in this browser, and the browser may delete it when space runs low. Sign in to sync.',
+			tone: 'warning',
+		};
+	if (unsent)
+		return {
+			label:
+				'Unsent changes exist only in this browser, and the browser may delete them when space runs low.',
+			tone: 'warning',
+		};
 	return null;
 }

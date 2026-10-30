@@ -8,7 +8,14 @@
  */
 import { syntaxTree } from '@codemirror/language';
 import type { EditorState, Range } from '@codemirror/state';
-import { Decoration, type DecorationSet, EditorView, ViewPlugin, type ViewUpdate, WidgetType } from '@codemirror/view';
+import {
+	Decoration,
+	type DecorationSet,
+	EditorView,
+	ViewPlugin,
+	type ViewUpdate,
+	WidgetType,
+} from '@codemirror/view';
 
 const hidden = Decoration.replace({});
 const styles: Record<string, Decoration> = {
@@ -18,7 +25,9 @@ const styles: Record<string, Decoration> = {
 	InlineCode: Decoration.mark({ class: 'cm-md-code' }),
 	Link: Decoration.mark({ class: 'cm-md-link' }),
 };
-const headings = [1, 2, 3, 4, 5, 6].map((level) => Decoration.line({ class: `cm-md-heading cm-md-h${level}` }));
+const headings = [1, 2, 3, 4, 5, 6].map((level) =>
+	Decoration.line({ class: `cm-md-heading cm-md-h${level}` }),
+);
 
 /** The checkbox a task's `[ ]` or `[x]` shows as. Clicking it toggles that one character. */
 class TaskBox extends WidgetType {
@@ -42,7 +51,11 @@ class TaskBox extends WidgetType {
 			const marker = view.state.sliceDoc(at, at + 3);
 			if (!/^\[[ xX]\]$/.test(marker)) return;
 			view.dispatch({
-				changes: { from: at + 1, to: at + 2, insert: marker[1] === ' ' ? 'x' : ' ' },
+				changes: {
+					from: at + 1,
+					to: at + 2,
+					insert: marker[1] === ' ' ? 'x' : ' ',
+				},
 				userEvent: 'input.toggle',
 			});
 		});
@@ -58,7 +71,8 @@ function activeLines(state: EditorState) {
 	const lines = new Set<number>();
 	for (const range of state.selection.ranges) {
 		const last = state.doc.lineAt(range.to).number;
-		for (let line = state.doc.lineAt(range.from).number; line <= last; line++) lines.add(line);
+		for (let line = state.doc.lineAt(range.from).number; line <= last; line++)
+			lines.add(line);
 	}
 	return lines;
 }
@@ -79,16 +93,26 @@ function decorate(view: EditorView): DecorationSet {
 				const name = node.name;
 				const level = /^ATXHeading([1-6])$/.exec(name)?.[1];
 				if (level !== undefined) {
-					found.push(headings[Number(level) - 1]!.range(state.doc.lineAt(node.from).from));
+					found.push(
+						headings[Number(level) - 1]!.range(
+							state.doc.lineAt(node.from).from,
+						),
+					);
 					return;
 				}
 				const style = styles[name];
-				if (style !== undefined && node.from < node.to) found.push(style.range(node.from, node.to));
+				if (style !== undefined && node.from < node.to)
+					found.push(style.range(node.from, node.to));
 				switch (name) {
 					case 'HeaderMark': {
 						// The opening marks take the space after them; closing ones the space before.
 						const after = state.sliceDoc(node.to, node.to + 1) === ' ' ? 1 : 0;
-						const before = node.from > 0 && state.sliceDoc(node.from - 1, node.from) === ' ' && after === 0 ? 1 : 0;
+						const before =
+							node.from > 0 &&
+							state.sliceDoc(node.from - 1, node.from) === ' ' &&
+							after === 0
+								? 1
+								: 0;
 						hide(node.from - before, node.to + after);
 						return;
 					}
@@ -97,7 +121,8 @@ function decorate(view: EditorView): DecorationSet {
 						hide(node.from, node.to);
 						return;
 					case 'CodeMark':
-						if (node.node.parent?.name === 'InlineCode') hide(node.from, node.to);
+						if (node.node.parent?.name === 'InlineCode')
+							hide(node.from, node.to);
 						return;
 					case 'LinkMark':
 					case 'URL':
@@ -107,13 +132,25 @@ function decorate(view: EditorView): DecorationSet {
 						// A task's checkbox stands in for its bullet.
 						const item = node.node.parent;
 						if (item?.name === 'ListItem' && item.getChild('Task') !== null)
-							hide(node.from, state.sliceDoc(node.to, node.to + 1) === ' ' ? node.to + 1 : node.to);
+							hide(
+								node.from,
+								state.sliceDoc(node.to, node.to + 1) === ' '
+									? node.to + 1
+									: node.to,
+							);
 						return;
 					}
 					case 'TaskMarker': {
 						if (isActive(node.from)) return;
-						const checked = /x/i.test(state.sliceDoc(node.from + 1, node.from + 2));
-						found.push(Decoration.replace({ widget: new TaskBox(checked) }).range(node.from, node.to));
+						const checked = /x/i.test(
+							state.sliceDoc(node.from + 1, node.from + 2),
+						);
+						found.push(
+							Decoration.replace({ widget: new TaskBox(checked) }).range(
+								node.from,
+								node.to,
+							),
+						);
 						return;
 					}
 				}
@@ -130,7 +167,12 @@ const preview = ViewPlugin.fromClass(
 			this.decorations = decorate(view);
 		}
 		update(update: ViewUpdate) {
-			if (update.docChanged || update.selectionSet || update.viewportChanged || syntaxTree(update.state) !== syntaxTree(update.startState))
+			if (
+				update.docChanged ||
+				update.selectionSet ||
+				update.viewportChanged ||
+				syntaxTree(update.state) !== syntaxTree(update.startState)
+			)
 				this.decorations = decorate(update.view);
 		}
 	},
@@ -146,9 +188,19 @@ const theme = EditorView.baseTheme({
 	'.cm-md-strong': { fontWeight: '700' },
 	'.cm-md-em': { fontStyle: 'italic' },
 	'.cm-md-strike': { textDecoration: 'line-through' },
-	'.cm-md-code': { fontFamily: 'var(--font-mono, ui-monospace, monospace)', fontSize: '0.9em', borderRadius: '3px', padding: '0 2px', backgroundColor: 'rgb(127 127 127 / 0.15)' },
+	'.cm-md-code': {
+		fontFamily: 'var(--font-mono, ui-monospace, monospace)',
+		fontSize: '0.9em',
+		borderRadius: '3px',
+		padding: '0 2px',
+		backgroundColor: 'rgb(127 127 127 / 0.15)',
+	},
 	'.cm-md-link': { textDecoration: 'underline', textUnderlineOffset: '2px' },
-	'.cm-md-task': { margin: '0 0.35em 0 0', verticalAlign: 'middle', cursor: 'pointer' },
+	'.cm-md-task': {
+		margin: '0 0.35em 0 0',
+		verticalAlign: 'middle',
+		cursor: 'pointer',
+	},
 });
 
 /** Live preview: rendered Markdown, with the syntax of the lines being edited shown. */

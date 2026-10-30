@@ -5,8 +5,8 @@
  * these; the edit owner applies field edits to arbitrary files with them.
  */
 import { type TSchema, Type } from 'typebox';
-import { type Row, type RowChange } from './row.js';
 import { changeMarkdown, readMarkdown } from './markdown-codec.js';
+import { type Row, type RowChange } from './row.js';
 
 const anyFields = Type.Record(Type.String(), Type.Unknown());
 

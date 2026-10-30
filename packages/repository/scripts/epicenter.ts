@@ -27,10 +27,13 @@ const { values, positionals } = parseArgs({
 		json: { type: 'boolean', default: false },
 	},
 });
-const print = (line: Line) => console.log(values.json ? JSON.stringify(line) : plain(line));
+const print = (line: Line) =>
+	console.log(values.json ? JSON.stringify(line) : plain(line));
 const [command, dir] = positionals;
 const usage = () => {
-	console.error('Usage: epicenter sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]');
+	console.error(
+		'Usage: epicenter sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]',
+	);
 	process.exit(1);
 };
 if (dir === undefined) usage();
@@ -38,7 +41,9 @@ const folder = dir as string;
 if ((values.join === undefined) !== (values.server === undefined)) usage();
 const options = {
 	dir: folder,
-	...(values.join !== undefined && values.server !== undefined ? { join: { repository: values.join, server: values.server } } : {}),
+	...(values.join !== undefined && values.server !== undefined
+		? { join: { repository: values.join, server: values.server } }
+		: {}),
 	...(values.token === undefined ? {} : { token: values.token }),
 	...(values.agent === undefined ? {} : { agent: values.agent }),
 	// A periodic scan finds what a silently dropped event hid: a warm scan of 100,000 files took 1.8 s, so every 5 minutes is about 0.6% of one core (the phase 9 report).

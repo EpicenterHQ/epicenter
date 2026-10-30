@@ -43,7 +43,13 @@ async function boundNote(text: string) {
 	const { view, destroy } = createNoteEditor({ parent, editor });
 	cleanups.push(destroy);
 	/** Once every keystroke so far is stored. */
-	const saved = () => until(() => editor.state().status === 'saved' && device.text('notes/a.md') === editor.draft(), 'the editor to save');
+	const saved = () =>
+		until(
+			() =>
+				editor.state().status === 'saved' &&
+				device.text('notes/a.md') === editor.draft(),
+			'the editor to save',
+		);
 	return { device, editor, view, saved, body: () => bodyOf(editor.draft()) };
 }
 
@@ -51,7 +57,10 @@ async function boundNote(text: string) {
 const editorOver = (body: string) => boundNote(noteText({ body }));
 
 /** Type `text` at the cursor, as a person's input does. */
-function type(view: Awaited<ReturnType<typeof boundNote>>['view'], text: string) {
+function type(
+	view: Awaited<ReturnType<typeof boundNote>>['view'],
+	text: string,
+) {
 	view.dispatch(view.state.replaceSelection(text), { userEvent: 'input.type' });
 }
 
@@ -90,7 +99,9 @@ test('a local edit writes exactly the typed characters, and its undo restores th
 	view.dispatch({ selection: { anchor: at } });
 	type(view, ' and oat milk');
 	await saved();
-	expect(device.text('notes/a.md')).toBe(handwritten.replace('milk  ', 'milk and oat milk  '));
+	expect(device.text('notes/a.md')).toBe(
+		handwritten.replace('milk  ', 'milk and oat milk  '),
+	);
 	expect(undo(view)).toBe(true);
 	await saved();
 	expect(device.text('notes/a.md')).toBe(handwritten);
@@ -104,34 +115,59 @@ test('a change from elsewhere keeps the cursor where it was and is not undone by
 	type(view, ' Mine');
 	await saved();
 	// Their edit lands in the first paragraph, before the cursor.
-	device.theirs('notes/a.md', noteText({ body: body.replace('First paragraph.', 'First paragraph, theirs.').replace('Third paragraph.', 'Third paragraph Mine.') }));
-	await until(() => view.state.doc.toString() === 'First paragraph, theirs.\n\nSecond paragraph.\n\nThird paragraph Mine.\n', 'their edit in the view');
+	device.theirs(
+		'notes/a.md',
+		noteText({
+			body: body
+				.replace('First paragraph.', 'First paragraph, theirs.')
+				.replace('Third paragraph.', 'Third paragraph Mine.'),
+		}),
+	);
+	await until(
+		() =>
+			view.state.doc.toString() ===
+			'First paragraph, theirs.\n\nSecond paragraph.\n\nThird paragraph Mine.\n',
+		'their edit in the view',
+	);
 	const head = view.state.selection.main.head;
 	expect(view.state.doc.sliceString(head - 'Mine'.length, head)).toBe('Mine');
 	expect(undo(view)).toBe(true);
-	expect(view.state.doc.toString()).toBe('First paragraph, theirs.\n\nSecond paragraph.\n\nThird paragraph.\n');
+	expect(view.state.doc.toString()).toBe(
+		'First paragraph, theirs.\n\nSecond paragraph.\n\nThird paragraph.\n',
+	);
 });
 
 test('live preview hides syntax off the cursor line and shows it on the line being edited', async () => {
 	const { view } = await editorOver('# Title\n\nSome **bold** text\n');
-	const lines = () => [...view.contentDOM.querySelectorAll('.cm-line')].map((line) => line.textContent);
+	const lines = () =>
+		[...view.contentDOM.querySelectorAll('.cm-line')].map(
+			(line) => line.textContent,
+		);
 	view.dispatch({ selection: { anchor: 0 } });
 	expect(lines()).toEqual(['# Title', '', 'Some bold text', '']);
 	expect(view.contentDOM.querySelector('.cm-md-h1')).not.toBeNull();
-	expect(view.contentDOM.querySelector('.cm-md-strong')?.textContent).toBe('bold');
+	expect(view.contentDOM.querySelector('.cm-md-strong')?.textContent).toBe(
+		'bold',
+	);
 	view.dispatch({ selection: { anchor: view.state.doc.length - 3 } });
 	expect(lines()).toEqual(['Title', '', 'Some **bold** text', '']);
 });
 
 test('a task checkbox toggles exactly the character inside its brackets', async () => {
-	const { view, body, saved, device } = await editorOver('- [ ] milk\n- [x] eggs\n\nend');
+	const { view, body, saved, device } = await editorOver(
+		'- [ ] milk\n- [x] eggs\n\nend',
+	);
 	view.dispatch({ selection: { anchor: view.state.doc.length } });
-	const boxes = [...view.contentDOM.querySelectorAll<HTMLInputElement>('input.cm-md-task')];
+	const boxes = [
+		...view.contentDOM.querySelectorAll<HTMLInputElement>('input.cm-md-task'),
+	];
 	expect(boxes.map((box) => box.checked)).toEqual([false, true]);
 	boxes[0]?.click();
 	expect(body()).toBe('- [x] milk\n- [x] eggs\n\nend');
 	await saved();
-	expect(device.text('notes/a.md')).toBe(noteText({ body: '- [x] milk\n- [x] eggs\n\nend' }));
+	expect(device.text('notes/a.md')).toBe(
+		noteText({ body: '- [x] milk\n- [x] eggs\n\nend' }),
+	);
 });
 
 const conflicted = [
@@ -153,11 +189,19 @@ test('a conflict block renders as one card and resolving it is one edit that rem
 	const editor = { view };
 	const [conflict] = conflictsIn(editor.view.state);
 	// A section line that reads as a delimiter is escaped in the file and shown, and kept, as written.
-	expect(conflict).toMatchObject({ current: 'Hers.\n=======\n', incoming: 'His.\n', labels: ['alice, 2026-10-28T12:00:00Z', 'bob, 2026-10-28T12:01:00Z'] });
-	const card = editor.view.dom.querySelector('[aria-label="Overlapping edits"]');
+	expect(conflict).toMatchObject({
+		current: 'Hers.\n=======\n',
+		incoming: 'His.\n',
+		labels: ['alice, 2026-10-28T12:00:00Z', 'bob, 2026-10-28T12:01:00Z'],
+	});
+	const card = editor.view.dom.querySelector(
+		'[aria-label="Overlapping edits"]',
+	);
 	expect(card?.textContent).toContain('Keep both');
 	expect(editor.view.contentDOM.textContent).not.toContain('<<<<<<<');
-	const keepBoth = [...(card?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Keep both');
+	const keepBoth = [...(card?.querySelectorAll('button') ?? [])].find(
+		(button) => button.textContent === 'Keep both',
+	);
 	keepBoth?.click();
 	expect(body()).toBe('Before.\nHers.\n=======\nHis.\nAfter.\n');
 	expect(conflictsIn(editor.view.state)).toEqual([]);

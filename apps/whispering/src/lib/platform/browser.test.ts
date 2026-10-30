@@ -43,7 +43,9 @@ const { createServices } = await import('./browser.js');
 const { openFolder } = await import('@epicenter/folder/browser');
 
 /** Open the test's folder through the browser opener, and the services over it. */
-async function servicesOver(services: Awaited<ReturnType<typeof openTestServices>>) {
+async function servicesOver(
+	services: Awaited<ReturnType<typeof openTestServices>>,
+) {
 	folder = services.folder;
 	opened = services.opened;
 	expect(expectOk(await openFolder({ tables: whisperingTables }))).toBe(opened);

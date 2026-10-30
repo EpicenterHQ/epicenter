@@ -24,15 +24,40 @@
  * path (`/tmp` is `/private/tmp`), or FSEvents' names match no prefix.
  */
 import { watch as watchFs } from 'node:fs';
-import { constants, copyFile, link, lstat, mkdir, open, opendir, readdir, rename, rm, unlink } from 'node:fs/promises';
+import {
+	constants,
+	copyFile,
+	link,
+	lstat,
+	mkdir,
+	open,
+	opendir,
+	readdir,
+	rename,
+	rm,
+	unlink,
+} from 'node:fs/promises';
 import { basename, dirname, join, relative, sep } from 'node:path';
 import { Ok } from 'wellcrafted/result';
-import { type Entry, type FolderFs, FolderFsError, SCRATCH } from '../folder/fs.js';
+import {
+	type Entry,
+	type FolderFs,
+	FolderFsError,
+	SCRATCH,
+} from '../folder/fs.js';
 
-const code = (cause: unknown) => (typeof cause === 'object' && cause !== null && 'code' in cause ? (cause as { code: unknown }).code : undefined);
-const toPosix = (path: string) => (sep === '/' ? path : path.split(sep).join('/'));
+const code = (cause: unknown) =>
+	typeof cause === 'object' && cause !== null && 'code' in cause
+		? (cause as { code: unknown }).code
+		: undefined;
+const toPosix = (path: string) =>
+	sep === '/' ? path : path.split(sep).join('/');
 
-function kindOf(stats: { isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean }): Entry['kind'] {
+function kindOf(stats: {
+	isFile(): boolean;
+	isDirectory(): boolean;
+	isSymbolicLink(): boolean;
+}): Entry['kind'] {
 	if (stats.isSymbolicLink()) return 'symlink';
 	if (stats.isFile()) return 'file';
 	if (stats.isDirectory()) return 'directory';
@@ -48,7 +73,13 @@ export function createBunFolderFs(root: string): FolderFs {
 	const statOf = async (path: string): Promise<Entry | null> => {
 		try {
 			const stats = await lstat(at(path));
-			return { path, kind: kindOf(stats), size: stats.size, mtime: stats.mtimeMs, ino: stats.ino };
+			return {
+				path,
+				kind: kindOf(stats),
+				size: stats.size,
+				mtime: stats.mtimeMs,
+				ino: stats.ino,
+			};
 		} catch (cause) {
 			if (code(cause) === 'ENOENT' || code(cause) === 'ENOTDIR') return null;
 			throw cause;
@@ -59,7 +90,12 @@ export function createBunFolderFs(root: string): FolderFs {
 	async function stage(bytes: Blob) {
 		await mkdir(join(root, ...SCRATCH.split('/')), { recursive: true });
 		const temp = scratchAt(`w-${process.pid}-${++temporary}`);
-		const name = 'name' in bytes && typeof bytes.name === 'string' && bytes.name.startsWith('/') ? bytes.name : null;
+		const name =
+			'name' in bytes &&
+			typeof bytes.name === 'string' &&
+			bytes.name.startsWith('/')
+				? bytes.name
+				: null;
 		if (name !== null) {
 			// A file on disk (the device store's object): cloned where the file system can, else copied.
 			await copyFile(name, temp, constants.COPYFILE_FICLONE);
@@ -69,7 +105,11 @@ export function createBunFolderFs(root: string): FolderFs {
 		try {
 			const reader = bytes.stream().getReader();
 			let offset = 0;
-			for (let read = await reader.read(); !read.done; read = await reader.read()) {
+			for (
+				let read = await reader.read();
+				!read.done;
+				read = await reader.read()
+			) {
 				await file.write(read.value, 0, read.value.byteLength, offset);
 				offset += read.value.byteLength;
 			}
@@ -105,7 +145,8 @@ export function createBunFolderFs(root: string): FolderFs {
 					throw cause;
 				}
 				for await (const dirent of handle) {
-					const path = directory === '' ? dirent.name : `${directory}/${dirent.name}`;
+					const path =
+						directory === '' ? dirent.name : `${directory}/${dirent.name}`;
 					if (dirent.isDirectory()) {
 						if (skip(path)) continue;
 						pending.push(path);
@@ -142,10 +183,21 @@ export function createBunFolderFs(root: string): FolderFs {
 					await link(temp, at(path));
 				} catch (cause) {
 					// An editor created the file between the capture and the link: theirs stays.
-					if (code(cause) === 'EEXIST') return Ok({ written: false, entry: null, displaced });
+					if (code(cause) === 'EEXIST')
+						return Ok({ written: false, entry: null, displaced });
 					throw cause;
 				}
-				return Ok({ written: true, entry: { path, kind: 'file', size: made.size, mtime: made.mtimeMs, ino: made.ino }, displaced });
+				return Ok({
+					written: true,
+					entry: {
+						path,
+						kind: 'file',
+						size: made.size,
+						mtime: made.mtimeMs,
+						ino: made.ino,
+					},
+					displaced,
+				});
 			} catch (cause) {
 				return FolderFsError.Failed({ path, cause });
 			} finally {
@@ -162,7 +214,9 @@ export function createBunFolderFs(root: string): FolderFs {
 		async readScratch(name) {
 			try {
 				const stats = await lstat(scratchAt(name));
-				return stats.isFile() ? { bytes: Bun.file(scratchAt(name)), mtime: stats.mtimeMs } : null;
+				return stats.isFile()
+					? { bytes: Bun.file(scratchAt(name)), mtime: stats.mtimeMs }
+					: null;
 			} catch {
 				return null;
 			}
@@ -188,7 +242,9 @@ export function createBunFolderFs(root: string): FolderFs {
 				return [];
 			}
 			// A temporary a killed process left was never linked anywhere: it goes.
-			for (const name of names) if (name.startsWith('w-') && !name.startsWith(`w-${process.pid}-`)) await rm(scratchAt(name), { force: true });
+			for (const name of names)
+				if (name.startsWith('w-') && !name.startsWith(`w-${process.pid}-`))
+					await rm(scratchAt(name), { force: true });
 			return names.filter((name) => !name.startsWith('w-'));
 		},
 		watch(listener, failed) {
@@ -197,11 +253,17 @@ export function createBunFolderFs(root: string): FolderFs {
 			const start = () => {
 				try {
 					watcher = watchFs(root, { recursive: true }, (_event, filename) => {
-						if (filename === null || filename === undefined) return listener(null);
-						const name = typeof filename === 'string' ? filename : new TextDecoder().decode(filename);
+						if (filename === null || filename === undefined)
+							return listener(null);
+						const name =
+							typeof filename === 'string'
+								? filename
+								: new TextDecoder().decode(filename);
 						// FSEvents dropped events: Bun reports the watched root by its own name.
 						if (name === basename(root)) return listener(null);
-						listener([toPosix(name.startsWith('/') ? relative(root, name) : name)]);
+						listener([
+							toPosix(name.startsWith('/') ? relative(root, name) : name),
+						]);
 					});
 					watcher.on('error', () => {
 						watcher?.close();

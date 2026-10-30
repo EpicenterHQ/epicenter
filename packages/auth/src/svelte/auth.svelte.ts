@@ -17,9 +17,10 @@ import type { AuthClient, AuthState } from '../index.js';
  * The parameter carries the wrapped client's own type through, so a
  * `CallbackAuthClient` keeps `completeSignIn` for its callback route.
  */
-export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
-	Omit<TClient, 'getState' | 'state'> & { readonly state: AuthState } &
-	Brand<'ReactiveAuthClient'>;
+export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> = Omit<
+	TClient,
+	'getState' | 'state'
+> & { readonly state: AuthState } & Brand<'ReactiveAuthClient'>;
 
 /**
  * Bridge an auth client's state into Svelte's graph.
@@ -57,14 +58,17 @@ export function fromAuth<TClient extends AuthClient>(
 	);
 	const descriptors = Object.getOwnPropertyDescriptors(authClient);
 	Reflect.deleteProperty(descriptors, 'getState');
-	return Object.defineProperties({}, {
-		...descriptors,
-		state: {
-			enumerable: true,
-			get() {
-				subscribeState();
-				return authClient.getState();
+	return Object.defineProperties(
+		{},
+		{
+			...descriptors,
+			state: {
+				enumerable: true,
+				get() {
+					subscribeState();
+					return authClient.getState();
+				},
 			},
 		},
-	}) as ReactiveAuthClient<TClient>;
+	) as ReactiveAuthClient<TClient>;
 }

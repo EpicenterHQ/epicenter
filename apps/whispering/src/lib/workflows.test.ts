@@ -45,8 +45,8 @@ import { chmodSync } from 'node:fs';
 import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { Folder } from '@epicenter/folder';
-import { SaveError } from '@epicenter/folder/testing';
 import { pathProblem } from '@epicenter/folder/file-browser';
+import { SaveError } from '@epicenter/folder/testing';
 import { Err, Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { audioMimeTypeOf } from './audio-format.js';
@@ -62,9 +62,9 @@ import {
 	eventually,
 	openMemoryTestFolder,
 	openTestFolder,
-	waitForSaves,
 	TEST_BASE_URL,
 	testConnections,
+	waitForSaves,
 	whisperingDirectory,
 } from './services.test-support.js';
 import type { Whispering } from './whispering.svelte.js';
@@ -864,7 +864,10 @@ test('a partial recording deletion names the result left behind and its write fa
 	await whispering.transcribe(entry);
 	const { transcript } = newest(whispering, entry.stem);
 	const deletion = expectOk(await whispering.deletionFor(entry.path));
-	host!.control.failPut.set(transcript.path, SaveError.StorageFailed({ cause: 'disk full' }).error);
+	host!.control.failPut.set(
+		transcript.path,
+		SaveError.StorageFailed({ cause: 'disk full' }).error,
+	);
 
 	const problem = await whispering.delete(deletion);
 	expect(problem).toContain(transcript.path);
@@ -1032,7 +1035,10 @@ test('a failed delete returns its write failure and leaves the file', async () =
 	});
 	expectOk(await folder.write('notes.txt', 'Keep this'));
 	const deletion = expectOk(await whispering.deletionFor('notes.txt'));
-	host!.control.failPut.set('notes.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+	host!.control.failPut.set(
+		'notes.txt',
+		SaveError.StorageFailed({ cause: 'disk full' }).error,
+	);
 	expect(await whispering.delete(deletion)).toContain('disk full');
 	expect(folder.file('notes.txt')?.data).toBe('Keep this');
 });
@@ -1060,7 +1066,9 @@ test('renaming text moves its exact bytes, a byte order mark and line endings in
 	folder.refresh();
 	await eventually(() => folder.file('unopened.txt') !== undefined);
 
-	expect(await whispering.rename('unopened.txt', 'renamed.txt')).toBeUndefined();
+	expect(
+		await whispering.rename('unopened.txt', 'renamed.txt'),
+	).toBeUndefined();
 	expect(await readFile(join(root, 'renamed.txt'))).toEqual(
 		Buffer.from(original, 'utf8'),
 	);
@@ -1106,9 +1114,14 @@ test('a failed removal during a move reports both paths and keeps the selection'
 	const { folder, host, whispering } = await open({ memory: true });
 	expectOk(await folder.write('from.txt', 'Saved text'));
 	expect(whispering.open('from.txt')).toBe(true);
-	host!.control.failPut.set('from.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+	host!.control.failPut.set(
+		'from.txt',
+		SaveError.StorageFailed({ cause: 'disk full' }).error,
+	);
 
-	expect(await whispering.rename('from.txt', 'to.txt')).toContain('Copied from.txt to to.txt');
+	expect(await whispering.rename('from.txt', 'to.txt')).toContain(
+		'Copied from.txt to to.txt',
+	);
 	expect(host!.text('from.txt')).toBe('Saved text');
 	expect(host!.text('to.txt')).toBe('Saved text');
 	expect(whispering.selectedPath).toBe('from.txt');

@@ -23,16 +23,25 @@ import { expect, test } from 'bun:test';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { REQUEST_TIMEOUT } from '../client/replica.js';
-import { applyChanges } from '../core/diff.js';
 import { findConflicts } from '../core/conflict.js';
+import { applyChanges } from '../core/diff.js';
 import { defineApp } from '../core/lens.js';
 import { bodyOf, parseMarkdown, withBody } from '../core/markdown.js';
 import { settled, twoDevices } from './api.test-support.js';
 import { RepositoryError } from './status.js';
 
-const app = defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.String(), pinned: Type.Optional(Type.Boolean()) }) } });
+const app = defineApp({
+	notes: {
+		path: 'notes/{stem}.md',
+		schema: Type.Object({
+			title: Type.String(),
+			pinned: Type.Optional(Type.Boolean()),
+		}),
+	},
+});
 const PATH = 'notes/plan.md';
-const note = (body: string, title = 'Base') => `---\ntitle: ${title}\n---\n${body}`;
+const note = (body: string, title = 'Base') =>
+	`---\ntitle: ${title}\n---\n${body}`;
 
 test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1 is in flight: one conflict block, every keystroke, the fields kept', async () => {
 	const { alice, bob, gate, repo } = twoDevices(app);
@@ -61,7 +70,11 @@ test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1
 	const text = alice.replica.read(PATH) ?? '';
 	const blocks = findConflicts(text);
 	expect(blocks).toHaveLength(1);
-	expect(blocks[0]).toMatchObject({ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' });
+	expect(blocks[0]).toMatchObject({
+		current: 'oneR\n',
+		base: 'one\n',
+		incoming: 'oneABC\n',
+	});
 	expect(parseMarkdown(text).fields).toEqual({ title: 'Remote', pinned: true });
 	expect(editor.draft()).toBe(text);
 	expect(editor.state()).toEqual({ status: 'saved' });
@@ -71,7 +84,10 @@ test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1
 test('an editor opened right after a create, without waiting for it, opens over the created note', async () => {
 	const { repo } = twoDevices(app);
 	await settled();
-	void repo.notes.create({ stem: 'new' }, { fields: { title: 'New' }, body: 'x\n' });
+	void repo.notes.create(
+		{ stem: 'new' },
+		{ fields: { title: 'New' }, body: 'x\n' },
+	);
 	const editor = expectOk(await repo.notes.openEditor({ stem: 'new' }));
 	expect(editor.draft()).toBe(note('x\n', 'New'));
 });
@@ -80,26 +96,43 @@ test('an editor waits for a write left unanswered only as long as the replica wa
 	const { repo, gate } = twoDevices(app);
 	await settled();
 	gate.hold();
-	const created = repo.notes.create({ stem: 'new' }, { fields: { title: 'New' }, body: 'x\n' });
+	const created = repo.notes.create(
+		{ stem: 'new' },
+		{ fields: { title: 'New' }, body: 'x\n' },
+	);
 	const started = Date.now();
-	expect(expectErr(await repo.notes.openEditor({ stem: 'new' })).name).toBe('Unanswered');
+	expect(expectErr(await repo.notes.openEditor({ stem: 'new' })).name).toBe(
+		'Unanswered',
+	);
 	expect(Date.now() - started).toBeGreaterThanOrEqual(REQUEST_TIMEOUT - 50);
 	// The create still goes: the note shows, sending.
-	expect(repo.notes.get({ stem: 'new' })).toMatchObject({ body: 'x\n', state: { status: 'sending' } });
+	expect(repo.notes.get({ stem: 'new' })).toMatchObject({
+		body: 'x\n',
+		state: { status: 'sending' },
+	});
 	gate.release();
 	expectOk(await created);
-	expect(expectOk(await repo.notes.openEditor({ stem: 'new' })).draft()).toBe(note('x\n', 'New'));
+	expect(expectOk(await repo.notes.openEditor({ stem: 'new' })).draft()).toBe(
+		note('x\n', 'New'),
+	);
 });
 
 test('a note is found, written and edited through another spelling of its path, as the one note it is', async () => {
 	const { repo } = twoDevices(app);
 	await settled();
-	expectOk(await repo.notes.create({ stem: 'plan' }, { fields: { title: 'Plan' }, body: 'x\n' }));
+	expectOk(
+		await repo.notes.create(
+			{ stem: 'plan' },
+			{ fields: { title: 'Plan' }, body: 'x\n' },
+		),
+	);
 	expect(repo.notes.get({ stem: 'Plan' })?.path).toBe(PATH);
 	// A write through another spelling shows on the one note, and answers its text.
 	const patched = repo.notes.patch({ stem: 'PLAN' }, { pinned: true });
 	expect(repo.notes.all().map((each) => each.path)).toEqual([PATH]);
-	expect(expectOk(await patched).text).toBe('---\ntitle: Plan\npinned: true\n---\nx\n');
+	expect(expectOk(await patched).text).toBe(
+		'---\ntitle: Plan\npinned: true\n---\nx\n',
+	);
 	// One note, one editor, whichever spelling opens it.
 	const editor = expectOk(await repo.notes.openEditor({ stem: 'Plan' }));
 	expect(editor.path).toBe(PATH);
@@ -150,7 +183,9 @@ test("a remote same-line edit landing between two of the person's writes is one 
 	await settled();
 	await settled();
 	const text = world.alice.replica.read(PATH) ?? '';
-	expect(findConflicts(text)).toMatchObject([{ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' }]);
+	expect(findConflicts(text)).toMatchObject([
+		{ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' },
+	]);
 	expect(world.editor.draft()).toBe(text);
 	expect(world.shown()).toBe(bodyOf(text));
 	expect(world.editor.state()).toEqual({ status: 'saved' });
@@ -204,7 +239,9 @@ test('typing inside what the worker changed, while a write is in flight, is save
 	await settled();
 	await settled();
 	const text = world.alice.replica.read(PATH) ?? '';
-	expect(findConflicts(text)).toMatchObject([{ current: 'BETA\n', base: 'beta\n', incoming: 'beXta\n' }]);
+	expect(findConflicts(text)).toMatchObject([
+		{ current: 'BETA\n', base: 'beta\n', incoming: 'beXta\n' },
+	]);
 	expect(text.startsWith(note('alphaX\n'))).toBe(true);
 	expect(world.editor.state()).toEqual({ status: 'saved' });
 	expect(world.editor.draft()).toBe(text);
@@ -230,7 +267,10 @@ test('a refused write keeps the draft, shown in the list too, and retry saves it
 	world.alice.fail();
 	world.type('one two\n');
 	await settled();
-	expect(world.editor.state()).toMatchObject({ status: 'failed', error: { name: 'Failed' } });
+	expect(world.editor.state()).toMatchObject({
+		status: 'failed',
+		error: { name: 'Failed' },
+	});
 	expect(world.editor.draft()).toBe(note('one two\n'));
 	// The repository dropped its projection of the write; the list still shows the typing.
 	expect(world.repo.notes.get({ stem: 'plan' })?.body).toBe('one two\n');
@@ -294,7 +334,9 @@ test('an editor closed with typing unsaved leaves once a later session saves it'
 	world.alice.sync();
 	world.bob.catchUp();
 	await settled();
-	expect(world.repo.notes.get({ stem: 'plan' })?.state).toEqual({ status: 'synced' });
+	expect(world.repo.notes.get({ stem: 'plan' })?.state).toEqual({
+		status: 'synced',
+	});
 	// Gone: the list shows a change from elsewhere, the old handle does not follow it, and the next view gets a new editor.
 	remote(world, 'bob\n');
 	await settled();
@@ -401,16 +443,23 @@ test('what shows between a stored change and its answer is the stored note, not 
 	expect(repo.notes.get({ stem: 'plan' })?.text).toBe(stored);
 	gate.release();
 	await settled();
-	expect(findConflicts(repo.notes.get({ stem: 'plan' })?.text ?? '')).toHaveLength(1);
+	expect(
+		findConflicts(repo.notes.get({ stem: 'plan' })?.text ?? ''),
+	).toHaveLength(1);
 
 	// A batch that creates over a note and patches it shows what the worker stored.
 	gate.hold();
 	const batch = repo.commit((each) => {
-		each.notes.create({ stem: 'other' }, { fields: { title: 'Other' }, body: 'n\n' });
+		each.notes.create(
+			{ stem: 'other' },
+			{ fields: { title: 'Other' }, body: 'n\n' },
+		);
 		each.notes.patch({ stem: 'other' }, { pinned: true });
 	});
 	await settled();
-	expect(repo.notes.get({ stem: 'other' })?.text).toBe(alice.replica.read('notes/other.md') ?? '');
+	expect(repo.notes.get({ stem: 'other' })?.text).toBe(
+		alice.replica.read('notes/other.md') ?? '',
+	);
 	gate.release();
 	expectOk(await batch);
 });
@@ -442,7 +491,10 @@ test('a note made again under another spelling of a deleted one opens as the not
 	await settled();
 	expectOk(await repo.notes.delete({ stem: 'x' }));
 	await settled();
-	const created = repo.notes.create({ stem: 'X' }, { fields: { title: 'New' }, body: 'b\n' });
+	const created = repo.notes.create(
+		{ stem: 'X' },
+		{ fields: { title: 'New' }, body: 'b\n' },
+	);
 	const editor = expectOk(await repo.notes.openEditor({ stem: 'X' }));
 	expectOk(await created);
 	await settled();
@@ -457,7 +509,10 @@ test("an editor waits for the unanswered writes to any spelling of its note's pa
 	const { repo, gate } = twoDevices(app);
 	await settled();
 	gate.hold();
-	const created = repo.notes.create({ stem: 'Day' }, { fields: { title: 'Day' }, body: 'b\n' });
+	const created = repo.notes.create(
+		{ stem: 'Day' },
+		{ fields: { title: 'Day' }, body: 'b\n' },
+	);
 	let opened = false;
 	const opening = repo.notes.openEditor({ stem: 'DAY' }).then((result) => {
 		opened = true;
@@ -477,7 +532,9 @@ test('an editor that cannot open while the repository is not open says so with t
 	local.end();
 	const error = expectErr(await repo.notes.openEditor({ stem: 'plan' }));
 	expect(error).toMatchObject({ name: 'Unavailable', status: 'opening' });
-	expect(error).toEqual(RepositoryError.Unavailable({ status: 'opening' }).error);
+	expect(error).toEqual(
+		RepositoryError.Unavailable({ status: 'opening' }).error,
+	);
 });
 
 test('a list shows a note waiting or failed as waiting with why, never as sending', async () => {
@@ -490,7 +547,10 @@ test('a list shows a note waiting or failed as waiting with why, never as sendin
 	await settled();
 	await settled();
 	expect(editor.state().status).toBe('failed');
-	expect(repo.notes.get({ stem: 'plan' })?.state).toEqual({ status: 'waiting', reason: 'The save was not stored: disk I/O error' });
+	expect(repo.notes.get({ stem: 'plan' })?.state).toEqual({
+		status: 'waiting',
+		reason: 'The save was not stored: disk I/O error',
+	});
 	alice.fail(false);
 	editor.retry();
 	await settled();

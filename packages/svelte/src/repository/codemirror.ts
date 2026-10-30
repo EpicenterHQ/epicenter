@@ -15,22 +15,35 @@ import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { EditorState, type Extension, Transaction } from '@codemirror/state';
 import { EditorView, keymap, ViewPlugin } from '@codemirror/view';
-import { bodyChanges, bodyOf, type Editor, type TextChange, withBody } from '@epicenter/repository';
+import {
+	bodyChanges,
+	bodyOf,
+	type Editor,
+	type TextChange,
+	withBody,
+} from '@epicenter/repository';
 
 /** What a view shows of the note: its exact text, or its body under the frontmatter. */
 export type Shows = 'source' | 'body';
 
 /** What a view of `shows` shows of the exact text `text`. */
-const shown = (text: string, shows: Shows) => (shows === 'body' ? bodyOf(text) : text);
+const shown = (text: string, shows: Shows) =>
+	shows === 'body' ? bodyOf(text) : text;
 
 /** Keep a view and an editor's draft one text. */
-export function editorBinding(editor: Editor, { shows = 'source' }: { shows?: Shows } = {}): Extension {
+export function editorBinding(
+	editor: Editor,
+	{ shows = 'source' }: { shows?: Shows } = {},
+): Extension {
 	/** The exact text this view shows, as it last showed it. */
 	let over = editor.draft();
 	return [
 		EditorView.updateListener.of((update) => {
 			if (!update.docChanged) return;
-			const local = update.transactions.filter((transaction) => transaction.docChanged && !transaction.annotation(Transaction.remote));
+			const local = update.transactions.filter(
+				(transaction) =>
+					transaction.docChanged && !transaction.annotation(Transaction.remote),
+			);
 			if (local.length === 0) return;
 			const doc = update.state.doc.toString();
 			const before = over;
@@ -38,8 +51,16 @@ export function editorBinding(editor: Editor, { shows = 'source' }: { shows?: Sh
 			// The person's own change set, in the exact text's positions: the editor places their typing by it, not by a guess.
 			const header = before.length - shown(before, shows).length;
 			const changes: TextChange[] = [];
-			update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => changes.push({ from: fromA + header, to: toA + header, insert: inserted.toString() }));
-			const exact = local.length === update.transactions.length && over === before.slice(0, header) + doc;
+			update.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) =>
+				changes.push({
+					from: fromA + header,
+					to: toA + header,
+					insert: inserted.toString(),
+				}),
+			);
+			const exact =
+				local.length === update.transactions.length &&
+				over === before.slice(0, header) + doc;
 			editor.update(over, exact ? changes : undefined);
 		}),
 		ViewPlugin.define((view) => {
@@ -49,9 +70,16 @@ export function editorBinding(editor: Editor, { shows = 'source' }: { shows?: Sh
 				if (made === null || editor.draft() === over) return;
 				const before = over;
 				over = editor.draft();
-				const changes = shows === 'body' ? bodyChanges(before, over, made) : made;
+				const changes =
+					shows === 'body' ? bodyChanges(before, over, made) : made;
 				if (changes.length === 0) return;
-				view.dispatch({ changes, annotations: [Transaction.remote.of(true), Transaction.addToHistory.of(false)] });
+				view.dispatch({
+					changes,
+					annotations: [
+						Transaction.remote.of(true),
+						Transaction.addToHistory.of(false),
+					],
+				});
 			});
 			return { destroy: stop };
 		}),
@@ -81,7 +109,10 @@ export function createEditorView({
 				keymap.of([...defaultKeymap, ...historyKeymap]),
 				markdown({ base: markdownLanguage }),
 				EditorView.lineWrapping,
-				EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'false' }),
+				EditorView.contentAttributes.of({
+					'aria-label': label,
+					spellcheck: 'false',
+				}),
 				editorBinding(editor, { shows }),
 				...extensions,
 			],

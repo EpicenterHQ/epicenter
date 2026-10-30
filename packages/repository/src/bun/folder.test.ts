@@ -12,7 +12,14 @@
  * - A folder that is not empty joining a repository that is not empty: an equal file is only recorded; a different one meets the note as a create (one conflict block)
  */
 import { afterAll, expect, test } from 'bun:test';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+	cpSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { findConflicts } from '../core/conflict.js';
@@ -33,7 +40,16 @@ function setup() {
 	const root = mkdtempSync(join(tmpdir(), 'folder-commands-'));
 	roots.push(root);
 	const server = createTestServer({ clock: () => Date.now() });
-	const served = serveRepository({ repository: 'home', serverId: 'local', server, authenticate: authenticateBearer((token) => ({ user: token, role: 'owner' })), port: 0 });
+	const served = serveRepository({
+		repository: 'home',
+		serverId: 'local',
+		server,
+		authenticate: authenticateBearer((token) => ({
+			user: token,
+			role: 'owner',
+		})),
+		port: 0,
+	});
 	stops.push(served.stop);
 	const folder = (name: string) => {
 		const dir = join(root, name);
@@ -51,19 +67,37 @@ test('sync --join makes the identity, and a save in one folder reaches another t
 	const [a, b] = [folder('a'), folder('b')];
 	const join_ = { repository: 'me/home', server: served.url };
 	writeFileSync(join(a, 'hello.md'), note('one\n'));
-	expect(await sync({ ...base, dir: a, join: join_, once: true }, print)).toBe(0);
+	expect(await sync({ ...base, dir: a, join: join_, once: true }, print)).toBe(
+		0,
+	);
 	expect(lines[0]).toMatchObject({ joined: 'me/home' });
-	expect(JSON.parse(readFileSync(join(a, '.epicenter/repository'), 'utf8'))).toMatchObject({ repository: 'me/home', server: served.url, account: 'ada' });
+	expect(
+		JSON.parse(readFileSync(join(a, '.epicenter/repository'), 'utf8')),
+	).toMatchObject({
+		repository: 'me/home',
+		server: served.url,
+		account: 'ada',
+	});
 	expect(server.read('hello.md')).toBe(note('one\n'));
-	expect(await sync({ ...base, dir: b, join: join_, once: true }, print)).toBe(0);
+	expect(await sync({ ...base, dir: b, join: join_, once: true }, print)).toBe(
+		0,
+	);
 	expect(readFileSync(join(b, 'hello.md'), 'utf8')).toBe(note('one\n'));
 	// A live folder takes a save from the other.
 	let stop = () => {};
-	const running = sync({ ...base, dir: b, stop: new Promise<void>((resolve) => (stop = resolve)) }, print);
+	const running = sync(
+		{ ...base, dir: b, stop: new Promise<void>((resolve) => (stop = resolve)) },
+		print,
+	);
 	await Bun.sleep(500);
 	writeFileSync(join(a, 'hello.md'), note('one\ntwo\n'));
 	expect(await sync({ ...base, dir: a, once: true }, print)).toBe(0);
-	for (let i = 0; i < 60 && readFileSync(join(b, 'hello.md'), 'utf8') !== note('one\ntwo\n'); i++) await Bun.sleep(100);
+	for (
+		let i = 0;
+		i < 60 && readFileSync(join(b, 'hello.md'), 'utf8') !== note('one\ntwo\n');
+		i++
+	)
+		await Bun.sleep(100);
 	expect(readFileSync(join(b, 'hello.md'), 'utf8')).toBe(note('one\ntwo\n'));
 	stop();
 	expect(await running).toBe(0);
@@ -72,7 +106,18 @@ test('sync --join makes the identity, and a save in one folder reaches another t
 test('sync --once sends now: what can go lands, each file saying how; a file only a person can fix is refused alone, exit 2, until fixed', async () => {
 	const { server, served, folder, print, base, lines } = setup();
 	const dir = folder('agent');
-	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
+	expect(
+		await sync(
+			{
+				...base,
+				dir,
+				join: { repository: 'me/home', server: served.url },
+				agent: 'claude',
+				once: true,
+			},
+			print,
+		),
+	).toBe(0);
 	writeFileSync(join(dir, 'a.md'), note('a\n'));
 	writeFileSync(join(dir, 'c.png'), 'png bytes');
 	expect(await sync({ ...base, dir, once: true }, print)).toBe(0);
@@ -84,8 +129,15 @@ test('sync --once sends now: what can go lands, each file saying how; a file onl
 	writeFileSync(join(dir, 'binary.md'), new Uint8Array([0xff, 0xfe, 0x41]));
 	lines.length = 0;
 	expect(await sync({ ...base, dir, once: true }, print)).toBe(2);
-	expect(lines).toContainEqual({ refused: [{ path: 'binary.md', reason: 'not UTF-8 text' }] });
-	expect(lines).toContainEqual({ landed: expect.arrayContaining([{ path: 'a.md', outcome: { kind: 'landed' } }, { path: 'bad.md', outcome: { kind: 'landed' } }]) });
+	expect(lines).toContainEqual({
+		refused: [{ path: 'binary.md', reason: 'not UTF-8 text' }],
+	});
+	expect(lines).toContainEqual({
+		landed: expect.arrayContaining([
+			{ path: 'a.md', outcome: { kind: 'landed' } },
+			{ path: 'bad.md', outcome: { kind: 'landed' } },
+		]),
+	});
 	expect(server.read('a.md')).toBe(note('a\nmore\n'));
 	expect(server.read('bad.md')).toBe('---\ntitle: [\n---\n');
 	writeFileSync(join(dir, 'bad.md'), note('fixed\n'));
@@ -95,35 +147,83 @@ test('sync --once sends now: what can go lands, each file saying how; a file onl
 	expect(server.read('binary.md')).toBe(note('text now\n'));
 }, 30_000);
 
-test('--agent names who writes from the folder on every run: one that differs from the folder\'s label is refused, never ignored', async () => {
+test("--agent names who writes from the folder on every run: one that differs from the folder's label is refused, never ignored", async () => {
 	const { server, served, folder, print, base, lines } = setup();
 	const person = folder('person');
-	expect(await sync({ ...base, dir: person, join: { repository: 'me/home', server: served.url }, once: true }, print)).toBe(0);
+	expect(
+		await sync(
+			{
+				...base,
+				dir: person,
+				join: { repository: 'me/home', server: served.url },
+				once: true,
+			},
+			print,
+		),
+	).toBe(0);
 	writeFileSync(join(person, 'a.md'), note('a\n'));
 	lines.length = 0;
-	expect(await sync({ ...base, dir: person, agent: 'claude', once: true }, print)).toBe(1);
+	expect(
+		await sync({ ...base, dir: person, agent: 'claude', once: true }, print),
+	).toBe(1);
 	expect(lines).toEqual([{ error: expect.stringContaining('claude') }]);
 	expect(server.read('a.md')).toBeNull();
 	const agent = folder('agent');
-	expect(await sync({ ...base, dir: agent, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
+	expect(
+		await sync(
+			{
+				...base,
+				dir: agent,
+				join: { repository: 'me/home', server: served.url },
+				agent: 'claude',
+				once: true,
+			},
+			print,
+		),
+	).toBe(0);
 	writeFileSync(join(agent, 'b.md'), note('b\n'));
-	expect(await sync({ ...base, dir: agent, agent: 'claude', once: true }, print)).toBe(0);
+	expect(
+		await sync({ ...base, dir: agent, agent: 'claude', once: true }, print),
+	).toBe(0);
 	expect(server.read('b.md')).toBe(note('b\n'));
-	expect(await sync({ ...base, dir: agent, agent: 'codex', once: true }, print)).toBe(1);
+	expect(
+		await sync({ ...base, dir: agent, agent: 'codex', once: true }, print),
+	).toBe(1);
 }, 30_000);
 
 test('a second engine over a held replica is refused, and a copy is refused until --join makes it new', async () => {
 	const { served, folder, print, base, lines, root } = setup();
 	const dir = folder('home');
-	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, once: true }, print)).toBe(0);
+	expect(
+		await sync(
+			{
+				...base,
+				dir,
+				join: { repository: 'me/home', server: served.url },
+				once: true,
+			},
+			print,
+		),
+	).toBe(0);
 	// Another process holds the replica.
-	const holder = Bun.spawn(['bun', '-e', `const { openFolderEngine } = await import(${JSON.stringify(join(import.meta.dir, 'folder.ts'))}); const o = await openFolderEngine({ dir: ${JSON.stringify(dir)}, dataDir: ${JSON.stringify(base.dataDir)}, token: 'ada' }); if (o.error) { console.log('ERR', o.error.message); process.exit(1); } console.log('HELD'); await Bun.sleep(4000);`], { stdout: 'pipe' });
+	const holder = Bun.spawn(
+		[
+			'bun',
+			'-e',
+			`const { openFolderEngine } = await import(${JSON.stringify(join(import.meta.dir, 'folder.ts'))}); const o = await openFolderEngine({ dir: ${JSON.stringify(dir)}, dataDir: ${JSON.stringify(base.dataDir)}, token: 'ada' }); if (o.error) { console.log('ERR', o.error.message); process.exit(1); } console.log('HELD'); await Bun.sleep(4000);`,
+		],
+		{ stdout: 'pipe' },
+	);
 	const reader = holder.stdout.getReader();
 	const first = new TextDecoder().decode((await reader.read()).value);
 	expect(first).toContain('HELD');
 	lines.length = 0;
 	expect(await sync({ ...base, dir, once: true }, print)).toBe(1);
-	expect(lines.at(-1)).toMatchObject({ error: expect.stringContaining('is kept by another engine (a running epicenter sync)') });
+	expect(lines.at(-1)).toMatchObject({
+		error: expect.stringContaining(
+			'is kept by another engine (a running epicenter sync)',
+		),
+	});
 	holder.kill();
 	await holder.exited;
 	// A crash releases it.
@@ -132,8 +232,20 @@ test('a second engine over a held replica is refused, and a copy is refused unti
 	cpSync(dir, copy, { recursive: true });
 	lines.length = 0;
 	expect(await sync({ ...base, dir: copy, once: true }, print)).toBe(1);
-	expect(lines.at(-1)).toMatchObject({ error: expect.stringContaining('this folder is a copy of') });
-	expect(await sync({ ...base, dir: copy, join: { repository: 'me/home', server: served.url }, once: true }, print)).toBe(0);
+	expect(lines.at(-1)).toMatchObject({
+		error: expect.stringContaining('this folder is a copy of'),
+	});
+	expect(
+		await sync(
+			{
+				...base,
+				dir: copy,
+				join: { repository: 'me/home', server: served.url },
+				once: true,
+			},
+			print,
+		),
+	).toBe(0);
 }, 30_000);
 
 test('a folder that is not empty joins a repository that is not empty: an equal file is recorded, a different one meets the note', async () => {
@@ -141,11 +253,31 @@ test('a folder that is not empty joins a repository that is not empty: an equal 
 	const first = folder('first');
 	writeFileSync(join(first, 'same.md'), note('same\n'));
 	writeFileSync(join(first, 'differs.md'), note('theirs\n'));
-	expect(await sync({ ...base, dir: first, join: { repository: 'me/home', server: served.url }, once: true }, print)).toBe(0);
+	expect(
+		await sync(
+			{
+				...base,
+				dir: first,
+				join: { repository: 'me/home', server: served.url },
+				once: true,
+			},
+			print,
+		),
+	).toBe(0);
 	const second = folder('second');
 	writeFileSync(join(second, 'same.md'), note('same\n'));
 	writeFileSync(join(second, 'differs.md'), note('mine\n'));
-	expect(await sync({ ...base, dir: second, join: { repository: 'me/home', server: served.url }, once: true }, print)).toBe(0);
+	expect(
+		await sync(
+			{
+				...base,
+				dir: second,
+				join: { repository: 'me/home', server: served.url },
+				once: true,
+			},
+			print,
+		),
+	).toBe(0);
 	expect(server.read('same.md')).toBe(note('same\n'));
 	const merged = server.read('differs.md') ?? '';
 	expect(merged).toContain('theirs');

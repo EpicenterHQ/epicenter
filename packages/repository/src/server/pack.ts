@@ -9,7 +9,9 @@ import { type GitObject, sha1 } from '../core/hash.js';
 const TYPES = { commit: 1, tree: 2, blob: 3 } as const;
 
 async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
-	const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('deflate'));
+	const stream = new Blob([bytes as BlobPart])
+		.stream()
+		.pipeThrough(new CompressionStream('deflate'));
 	return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 
@@ -36,7 +38,9 @@ export async function encodePack(objects: GitObject[]): Promise<Uint8Array> {
 		header.push(byte);
 		parts.push(new Uint8Array(header), await deflate(bytes));
 	}
-	const body = new Uint8Array(parts.reduce((total, part) => total + part.length, 0));
+	const body = new Uint8Array(
+		parts.reduce((total, part) => total + part.length, 0),
+	);
 	let at = 0;
 	for (const part of parts) {
 		body.set(part, at);
@@ -45,6 +49,7 @@ export async function encodePack(objects: GitObject[]): Promise<Uint8Array> {
 	const digest = sha1(body);
 	const pack = new Uint8Array(body.length + 20);
 	pack.set(body);
-	for (let i = 0; i < 20; i++) pack[body.length + i] = Number.parseInt(digest.slice(i * 2, i * 2 + 2), 16);
+	for (let i = 0; i < 20; i++)
+		pack[body.length + i] = Number.parseInt(digest.slice(i * 2, i * 2 + 2), 16);
 	return pack;
 }

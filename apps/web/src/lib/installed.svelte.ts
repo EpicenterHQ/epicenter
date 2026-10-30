@@ -15,7 +15,9 @@ const record = openInstalled({
 	storage: localStorage,
 	installable: (hostname) => {
 		const bundle = bundleFor(hostname);
-		return bundle === undefined ? undefined : { name: bundle.manifest.name, hash: bundle.hash };
+		return bundle === undefined
+			? undefined
+			: { name: bundle.manifest.name, hash: bundle.hash };
 	},
 	defaults: DEFAULT_APPS,
 });
@@ -33,7 +35,9 @@ export const installedApps = (): readonly InstalledApp[] => apps;
 
 /** The bundle of the installed app at `hostname`; undefined when none is installed there. */
 export const installedBundle = (hostname: string): Bundle | undefined =>
-	apps.some((app) => app.hostname === hostname) ? bundleFor(hostname) : undefined;
+	apps.some((app) => app.hostname === hostname)
+		? bundleFor(hostname)
+		: undefined;
 
 /** Install the app at `hostname`, pinned to its hash. Only the bundles this shell carries install yet. */
 export function install(hostname: string): Result<InstalledApp, string> {
@@ -43,7 +47,9 @@ export function install(hostname: string): Result<InstalledApp, string> {
 }
 
 /** What the lens depends on: an open repository opens again when it changes. */
-export const installedKey = () => apps.map(({ hostname }) => hostname).join(' ');
+export const installedKey = () =>
+	apps.map(({ hostname }) => hostname).join(' ');
 
 /** The lens every repository opens with: every installed app's collections. */
-export const installedLens = () => lensOf(apps.flatMap(({ hostname }) => bundleFor(hostname)?.manifest ?? []));
+export const installedLens = () =>
+	lensOf(apps.flatMap(({ hostname }) => bundleFor(hostname)?.manifest ?? []));

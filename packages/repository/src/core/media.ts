@@ -36,9 +36,15 @@ const BY_EXTENSION: ReadonlyMap<string, string> = new Map([
 	['csv', 'text/csv'],
 	['json', 'application/json'],
 	['zip', 'application/zip'],
-	['docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+	[
+		'docx',
+		'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+	],
 	['xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
-	['pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation'],
+	[
+		'pptx',
+		'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+	],
 ]);
 
 /** A path's extension, lower case, without its dot; empty when its name has none. */
@@ -49,4 +55,5 @@ export function extensionOf(path: string): string {
 }
 
 /** A path's media type by its extension; `application/octet-stream` when unknown. */
-export const mediaType = (path: string) => BY_EXTENSION.get(extensionOf(path)) ?? 'application/octet-stream';
+export const mediaType = (path: string) =>
+	BY_EXTENSION.get(extensionOf(path)) ?? 'application/octet-stream';

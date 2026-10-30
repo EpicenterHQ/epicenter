@@ -6,16 +6,16 @@
 import { Channel, isTauri } from '@tauri-apps/api/core';
 import { hostStorage } from './boundary.js';
 import { OpenFolderError } from './errors.js';
-import { commands, type FolderChanged } from './native/bindings.gen.js';
-import { openRefusal } from './native/open-refusal.js';
-import { tauriHostFiles } from './tauri-files.js';
 import {
 	createFolder,
 	type Opened,
 	type OpenOptions,
 	type Tables,
 } from './folder.js';
+import { commands, type FolderChanged } from './native/bindings.gen.js';
+import { openRefusal } from './native/open-refusal.js';
 import { storageHost } from './storage.js';
+import { tauriHostFiles } from './tauri-files.js';
 
 export * from './contract.js';
 

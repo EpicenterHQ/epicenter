@@ -27,23 +27,47 @@ for (const [engine, browser] of [
 		test(
 			"a new note's title and body survive a reload and reach the server",
 			async () => {
-				const { page, cleanup } = await world.open(browser, 'ada', 'honeycrisp');
+				const { page, cleanup } = await world.open(
+					browser,
+					'ada',
+					'honeycrisp',
+				);
 				try {
 					await page.getByRole('button', { name: 'New note' }).click();
 					const title = page.getByLabel('Title', { exact: true });
 					await title.fill(`Groceries ${engine}`);
-					await page.getByRole('region', { name: 'Note' }).locator('.cm-content').click();
+					await page
+						.getByRole('region', { name: 'Note' })
+						.locator('.cm-content')
+						.click();
 					await page.keyboard.type('Milk');
 					await page.keyboard.press('Enter');
 					// The list shows the editor's typing, stored or not; a reload keeps what the page has not stored yet (`leaving` in the browser host).
-					await page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: `Groceries ${engine}` }).filter({ hasText: 'Milk' }).waitFor();
+					await page
+						.getByRole('region', { name: 'Notes' })
+						.locator('[data-note]', { hasText: `Groceries ${engine}` })
+						.filter({ hasText: 'Milk' })
+						.waitFor();
 					await page.reload();
 					await opened(page, 'honeycrisp');
-					await page.getByRole('region', { name: 'Notes' }).getByText(`Groceries ${engine}`).click();
+					await page
+						.getByRole('region', { name: 'Notes' })
+						.getByText(`Groceries ${engine}`)
+						.click();
 					await expect(title.inputValue()).resolves.toBe(`Groceries ${engine}`);
-					const path = await page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: `Groceries ${engine}` }).getAttribute('data-note');
-					for (let tries = 0; tries < 100 && !(await world.read(path ?? ''))?.includes('Milk'); tries++) await Bun.sleep(50);
-					expect(await world.read(path ?? '')).toContain(`title: Groceries ${engine}`);
+					const path = await page
+						.getByRole('region', { name: 'Notes' })
+						.locator('[data-note]', { hasText: `Groceries ${engine}` })
+						.getAttribute('data-note');
+					for (
+						let tries = 0;
+						tries < 100 && !(await world.read(path ?? ''))?.includes('Milk');
+						tries++
+					)
+						await Bun.sleep(50);
+					expect(await world.read(path ?? '')).toContain(
+						`title: Groceries ${engine}`,
+					);
 					expect(await world.read(path ?? '')).toContain('Milk\n');
 				} finally {
 					await cleanup();

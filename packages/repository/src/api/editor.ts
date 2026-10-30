@@ -32,7 +32,12 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { Delta, Row } from '../client/page.js';
-import { type Change, type Changed, ChangeError, REQUEST_TIMEOUT } from '../client/replica.js';
+import {
+	type Change,
+	type Changed,
+	ChangeError,
+	REQUEST_TIMEOUT,
+} from '../client/replica.js';
 import { applyChanges, diffText, type TextChange } from '../core/diff.js';
 import { type Parties, settle } from '../core/settle.js';
 import type { Session, WriteError } from './repository.js';
@@ -50,9 +55,25 @@ export type EditorState =
 
 export const EditorError = defineErrors({
 	/** A write to the note was sent and not answered within the replica's timeout, so no editor opened over it; the write still goes, and nothing was lost. */
-	Unanswered: ({ path }: { path: string }) => ({ message: `${path} has a change that has not been saved yet, so it cannot be edited now; try again`, path }),
+	Unanswered: ({ path }: { path: string }) => ({
+		message: `${path} has a change that has not been saved yet, so it cannot be edited now; try again`,
+		path,
+	}),
 	/** The editor was closed with typing it could not save: `draft` holds it, and the editor keeps it until discarded. */
-	Unsaved: ({ path, draft, reason }: { path: string; draft: string; reason: string }) => ({ message: `${path} has typing that is not saved: ${reason}`, path, draft, reason }),
+	Unsaved: ({
+		path,
+		draft,
+		reason,
+	}: {
+		path: string;
+		draft: string;
+		reason: string;
+	}) => ({
+		message: `${path} has typing that is not saved: ${reason}`,
+		path,
+		draft,
+		reason,
+	}),
 });
 export type EditorError = InferErrors<typeof EditorError>;
 /** Why a close could not save: the only way it fails. */
@@ -67,7 +88,10 @@ export type Unsaved = { path: string; draft: string };
  * another. Either holds the changes that turn the draft before into the
  * draft now; a view applies those it did not make itself.
  */
-export type EditorChange = { replaced: TextChange[] | null; typed: TextChange[] | null };
+export type EditorChange = {
+	replaced: TextChange[] | null;
+	typed: TextChange[] | null;
+};
 
 export type Editor = {
 	path: string;
@@ -115,13 +139,21 @@ type Entry = Editor & {
 };
 
 /** Who wrote each side of a conflict block shown before its answer: the worker labels the one it writes. */
-const SHOWN: Parties = { current: { author: 'elsewhere', time: '-' }, incoming: { author: 'you', time: '-' } };
+const SHOWN: Parties = {
+	current: { author: 'elsewhere', time: '-' },
+	incoming: { author: 'you', time: '-' },
+};
 
 /** `text`, made over `over`, as the worker will apply it over `current`: merged where `current` moved since. */
-export const mergedOver = (over: string | null, current: string | null, text: string | null) => settle(over, current, text, { parties: SHOWN }).text;
+export const mergedOver = (
+	over: string | null,
+	current: string | null,
+	text: string | null,
+) => settle(over, current, text, { parties: SHOWN }).text;
 
 /** Why an editor did not open: a session that ended mid-open reads as opening again. */
-const notOpen = (status: RepositoryStatus['status']) => (status === 'open' ? 'opening' : status);
+const notOpen = (status: RepositoryStatus['status']) =>
+	status === 'open' ? 'opening' : status;
 
 /** Whether `promise` settles within `ms`. */
 function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
@@ -129,18 +161,25 @@ function within(promise: Promise<unknown>, ms: number): Promise<boolean> {
 	const late = new Promise<false>((resolve) => {
 		timer = setTimeout(() => resolve(false), ms);
 	});
-	return Promise.race([promise.then(() => true as const), late]).finally(() => clearTimeout(timer));
+	return Promise.race([promise.then(() => true as const), late]).finally(() =>
+		clearTimeout(timer),
+	);
 }
 
 /** A write lost with its session goes again in the next one. */
-const lostWithSession = (error: WriteError) => error.name === 'Closed' || error.name === 'Unavailable';
+const lostWithSession = (error: WriteError) =>
+	error.name === 'Closed' || error.name === 'Unavailable';
 
 /** The editors of one repository, by path. */
 export function createEditors(deps: Deps) {
 	const editors = new Map<string, Entry>();
 	/** The repository is not open (or its session ended while the editor opened): the note opens once it is open again. */
-	const unavailable = () => RepositoryError.Unavailable({ status: notOpen(deps.status().status) });
-	const opening = new Map<string, Promise<Result<Entry | { spelled: string }, WriteError | EditorError>>>();
+	const unavailable = () =>
+		RepositoryError.Unavailable({ status: notOpen(deps.status().status) });
+	const opening = new Map<
+		string,
+		Promise<Result<Entry | { spelled: string }, WriteError | EditorError>>
+	>();
 
 	function make(path: string, text: string, revision: number): Entry {
 		/** The last text the worker said it holds: an answer, or a change heard while nothing was in flight. */
@@ -159,7 +198,10 @@ export function createEditors(deps: Deps) {
 		const closers: ((result: Result<undefined, UnsavedError>) => void)[] = [];
 		let ended = false;
 
-		const tell = (replaced: TextChange[] | null, typed: TextChange[] | null = null) => {
+		const tell = (
+			replaced: TextChange[] | null,
+			typed: TextChange[] | null = null,
+		) => {
 			for (const listener of listeners) listener({ replaced, typed });
 		};
 		/** The text the next write goes over: the last one sent, or the base. */
@@ -191,17 +233,26 @@ export function createEditors(deps: Deps) {
 							? `the repository is ${deps.status().status}`
 							: null;
 			if (reason === null) return;
-			for (const close of closers.splice(0)) close(EditorError.Unsaved({ path, draft, reason }));
+			for (const close of closers.splice(0))
+				close(EditorError.Unsaved({ path, draft, reason }));
 		}
 
 		/** Write the draft over `over`, now: the worker merges it with whatever reached it since. */
 		function send(over: string) {
-			if (ended || state.status === 'failed' || state.status === 'closed' || draft === over) return;
+			if (
+				ended ||
+				state.status === 'failed' ||
+				state.status === 'closed' ||
+				draft === over
+			)
+				return;
 			state = { status: 'saving' };
 			if (deps.session() === null) return;
 			const text = draft;
 			sent.push(text);
-			void deps.send([{ kind: 'write', path, text, over }]).then((result) => answered(text, result));
+			void deps
+				.send([{ kind: 'write', path, text, over }])
+				.then((result) => answered(text, result));
 		}
 
 		function answered(text: string, result: Result<Changed, WriteError>) {
@@ -217,7 +268,10 @@ export function createEditors(deps: Deps) {
 			}
 			const stored = result.data.texts[path];
 			if (stored === undefined || stored === null) {
-				state = { status: 'failed', error: ChangeError.NotFound({ path }).error };
+				state = {
+					status: 'failed',
+					error: ChangeError.NotFound({ path }).error,
+				};
 				tell(null);
 				deps.refresh(path);
 				return settleClosing();
@@ -227,8 +281,10 @@ export function createEditors(deps: Deps) {
 			if (sent.length > 0) return;
 			// Nothing in flight: the views show what the worker holds, which every write and every change before them made. After a failure the draft stays, for `retry`.
 			if (draft === text && state.status !== 'failed') show(stored);
-			for (const { revision, text: heardText } of heardInFlight.splice(0)) take(revision, heardText);
-			if (state.status === 'saving' && draft === base) state = { status: 'saved' };
+			for (const { revision, text: heardText } of heardInFlight.splice(0))
+				take(revision, heardText);
+			if (state.status === 'saving' && draft === base)
+				state = { status: 'saved' };
 			tell(null);
 			deps.refresh(path);
 			settleClosing();
@@ -271,12 +327,19 @@ export function createEditors(deps: Deps) {
 			update(next, changes) {
 				if (ended || next === draft) return;
 				const over = draft;
-				const typed = changes !== undefined && applyChanges(draft, changes) === next ? changes : diffText(draft, next);
+				const typed =
+					changes !== undefined && applyChanges(draft, changes) === next
+						? changes
+						: diffText(draft, next);
 				draft = next;
 				deps.refresh(path);
 				tell(null, typed);
 				// Typing made with no session, or after a failed write, waits for a session or a retry, shown.
-				if (state.status === 'failed' || deps.session() === null || over !== lastSent()) {
+				if (
+					state.status === 'failed' ||
+					deps.session() === null ||
+					over !== lastSent()
+				) {
 					if (state.status === 'saved') state = { status: 'saving' };
 					return;
 				}
@@ -297,7 +360,9 @@ export function createEditors(deps: Deps) {
 			close() {
 				if (entry.views > 0) entry.views--;
 				if (entry.views > 0) return Promise.resolve(Ok(undefined));
-				const closed = new Promise<Result<undefined, UnsavedError>>((resolve) => closers.push(resolve));
+				const closed = new Promise<Result<undefined, UnsavedError>>((resolve) =>
+					closers.push(resolve),
+				);
 				settleClosing();
 				return closed;
 			},
@@ -318,7 +383,8 @@ export function createEditors(deps: Deps) {
 			 */
 			reopened(text) {
 				if (ended) return;
-				if (state.status === 'failed' && lostWithSession(state.error)) state = { status: 'saving' };
+				if (state.status === 'failed' && lostWithSession(state.error))
+					state = { status: 'saving' };
 				seen = deps.revision();
 				const candidates = [...unknown, base];
 				unknown = [];
@@ -353,13 +419,24 @@ export function createEditors(deps: Deps) {
 				const unsaved = draft !== lastSent();
 				state = { status: 'closed' };
 				tell(null);
-				for (const close of closers.splice(0)) close(unsaved ? EditorError.Unsaved({ path, draft, reason: 'the repository closed' }) : Ok(undefined));
+				for (const close of closers.splice(0))
+					close(
+						unsaved
+							? EditorError.Unsaved({
+									path,
+									draft,
+									reason: 'the repository closed',
+								})
+							: Ok(undefined),
+					);
 			},
 		};
 		return entry;
 	}
 
-	async function open(path: string): Promise<Result<Editor, WriteError | EditorError>> {
+	async function open(
+		path: string,
+	): Promise<Result<Editor, WriteError | EditorError>> {
 		const existing = editors.get(path);
 		if (existing !== undefined) {
 			existing.views++;
@@ -372,11 +449,15 @@ export function createEditors(deps: Deps) {
 			return open(path);
 		}
 		/** The editor, or the spelling of the path this device has when the note is stored under another one. */
-		const starting = (async (): Promise<Result<Entry | { spelled: string }, WriteError | EditorError>> => {
+		const starting = (async (): Promise<
+			Result<Entry | { spelled: string }, WriteError | EditorError>
+		> => {
 			// A write to this path still unanswered (a create just made) is what the editor opens over, within the replica's bound on an answer.
-			if (!(await within(deps.answered(path), REQUEST_TIMEOUT))) return EditorError.Unanswered({ path });
+			if (!(await within(deps.answered(path), REQUEST_TIMEOUT)))
+				return EditorError.Unanswered({ path });
 			// What was just stored may keep another spelling of the path (a create over a deleted note's), as the replica does.
-			if (deps.spelled(path) !== path) return Ok({ spelled: deps.spelled(path) });
+			if (deps.spelled(path) !== path)
+				return Ok({ spelled: deps.spelled(path) });
 			if (deps.session() === null) return unavailable();
 			const revision = deps.revision();
 			let text = deps.stored(path);
@@ -409,7 +490,9 @@ export function createEditors(deps: Deps) {
 		/** What a list shows for `path` over `text`: the typing an editor holds unsent, merged over it as the worker will merge it. */
 		draftOver(path: string, text: string | null) {
 			const editor = editors.get(path);
-			return editor?.dirty() ? mergedOver(editor.typedOver(), text, editor.draft()) : text;
+			return editor?.dirty()
+				? mergedOver(editor.typedOver(), text, editor.draft())
+				: text;
 		},
 		/** Whether an editor of `path` holds typing not yet stored. */
 		unsaved: (path: string) => editors.get(path)?.dirty() ?? false,
@@ -422,7 +505,8 @@ export function createEditors(deps: Deps) {
 		/** A stored change, in revision order. */
 		heard(delta: Delta) {
 			for (const [path, editor] of editors) {
-				if (path in delta.rows) editor.heard(delta.revision, delta.rows[path]?.text ?? null);
+				if (path in delta.rows)
+					editor.heard(delta.revision, delta.rows[path]?.text ?? null);
 				else if (delta.paths.includes(path))
 					// Not kept in memory: its text is read, at this revision or later.
 					void deps.row(path).then(
@@ -454,7 +538,9 @@ export function createEditors(deps: Deps) {
 		/** The repository closed: every editor stops, and the typing no write carried is returned. */
 		closeAll(): Unsaved[] {
 			// A write already handed to the worker is stored: a session that ends finishes the calls it was sent. Only typing no write carried is unsaved.
-			const unsaved = [...editors.values()].filter((editor) => editor.draft() !== editor.typedOver()).map(({ path, draft }) => ({ path, draft: draft() }));
+			const unsaved = [...editors.values()]
+				.filter((editor) => editor.draft() !== editor.typedOver())
+				.map(({ path, draft }) => ({ path, draft: draft() }));
 			for (const editor of editors.values()) editor.end();
 			return unsaved;
 		},

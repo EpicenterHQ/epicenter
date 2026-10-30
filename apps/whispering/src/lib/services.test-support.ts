@@ -147,9 +147,7 @@ function wrap(opened: Folder<WhisperingTables>): TestFolder {
 }
 
 /** A real directory opened with Whispering's tables, by this test process. */
-export async function openTestFolder(
-	root: string,
-): Promise<TestFolder> {
+export async function openTestFolder(root: string): Promise<TestFolder> {
 	return wrap(
 		expectOk(
 			await openFolder({

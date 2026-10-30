@@ -13,7 +13,7 @@
  * `collision`, which its caller refuses (only a person can fix it, by
  * renaming one). `update` throws on one rather than drop either side.
  */
-import { gitTreeHash, type TreeEntry as Entry } from './hash.js';
+import { type TreeEntry as Entry, gitTreeHash } from './hash.js';
 
 /** Why a change set cannot be one tree, by the path of the file it would write: over a folder, or beneath a file. */
 export const COLLISIONS = {
@@ -22,14 +22,15 @@ export const COLLISIONS = {
 } as const;
 export type Collision = { path: string; code: keyof typeof COLLISIONS };
 
-
 /** Where a tree store keeps its trees, by id: a `Map` in memory, or a host's table. */
 export type TreeNodes = {
 	get(hash: string): Map<string, Entry> | undefined;
 	set(hash: string, entries: Map<string, Entry>): void;
 };
 
-export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, Entry>>()) {
+export function createTreeStore(
+	nodes: TreeNodes = new Map<string, Map<string, Entry>>(),
+) {
 	const store = (entries: Map<string, Entry>) => {
 		const hash = gitTreeHash([...entries]);
 		nodes.set(hash, entries);
@@ -42,9 +43,15 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 	 * where the result holds a folder with files, or beneath a file, or null
 	 * when the result is one tree. Reads only the entries along written paths.
 	 */
-	function collision(tree: string, changes: [string[], string | null][]): Collision | null {
-		const changed = new Map(changes.map(([segments, hash]) => [segments.join('/'), hash]));
-		const child = (entry: Entry | undefined, name: string) => (entry?.kind === 'tree' ? nodes.get(entry.hash)?.get(name) : undefined);
+	function collision(
+		tree: string,
+		changes: [string[], string | null][],
+	): Collision | null {
+		const changed = new Map(
+			changes.map(([segments, hash]) => [segments.join('/'), hash]),
+		);
+		const child = (entry: Entry | undefined, name: string) =>
+			entry?.kind === 'tree' ? nodes.get(entry.hash)?.get(name) : undefined;
 		for (const [path, hash] of changed) {
 			if (hash === null) continue;
 			const segments = path.split('/');
@@ -52,11 +59,18 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 			for (let i = 0; i < segments.length - 1; i++) {
 				at = child(at, segments[i] as string);
 				const named = changed.get(segments.slice(0, i + 1).join('/'));
-				if (named === undefined ? at?.kind === 'blob' : named !== null) return { path, code: 'under-a-file' };
+				if (named === undefined ? at?.kind === 'blob' : named !== null)
+					return { path, code: 'under-a-file' };
 			}
 			const here = child(at, segments.at(-1) as string);
 			// A folder at the name collides unless the change set deletes every file in it; a write into it is caught from its own side.
-			if (here?.kind === 'tree' && diff(empty, here.hash).some((inside) => changed.get(`${path}/${inside}`) !== null)) return { path, code: 'is-a-folder' };
+			if (
+				here?.kind === 'tree' &&
+				diff(empty, here.hash).some(
+					(inside) => changed.get(`${path}/${inside}`) !== null,
+				)
+			)
+				return { path, code: 'is-a-folder' };
 		}
 		return null;
 	}
@@ -64,7 +78,8 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 	/** The tree with each path (as segments) set to a blob id, or removed for null; throws on a `collision`, which its caller must refuse first. */
 	function update(tree: string, changes: [string[], string | null][]): string {
 		const found = collision(tree, changes);
-		if (found !== null) throw new Error(`${found.path}: ${COLLISIONS[found.code]}`);
+		if (found !== null)
+			throw new Error(`${found.path}: ${COLLISIONS[found.code]}`);
 		return build(tree, changes);
 	}
 
@@ -80,7 +95,8 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 		for (const name of new Set([...own.keys(), ...below.keys()])) {
 			const write = own.get(name);
 			// A delete names a file: a folder at that name is not it, and keeps its files.
-			if (write === null && entries.get(name)?.kind === 'blob') entries.delete(name);
+			if (write === null && entries.get(name)?.kind === 'blob')
+				entries.delete(name);
 			const child = entries.get(name);
 			const sub = below.get(name);
 			// Below a file there is nothing to delete; `collision` refused any write there.
@@ -90,7 +106,8 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 				else entries.set(name, { kind: 'tree', hash: next });
 			}
 			// A file's write comes after its folder emptied, so one change set may turn either into the other.
-			if (typeof write === 'string') entries.set(name, { kind: 'blob', hash: write });
+			if (typeof write === 'string')
+				entries.set(name, { kind: 'blob', hash: write });
 		}
 		return store(entries);
 	}
@@ -102,7 +119,8 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 		for (const [i, name] of segments.entries()) {
 			const entry = nodes.get(at)?.get(name);
 			if (entry === undefined) return null;
-			if (i === segments.length - 1) return entry.kind === 'tree' ? null : entry.hash;
+			if (i === segments.length - 1)
+				return entry.kind === 'tree' ? null : entry.hash;
 			if (entry.kind !== 'tree') return null;
 			at = entry.hash;
 		}
@@ -122,7 +140,11 @@ export function createTreeStore(nodes: TreeNodes = new Map<string, Map<string, E
 				if (x?.hash === y?.hash && x?.kind === y?.kind) continue;
 				const path = prefix + name;
 				if (x?.kind === 'tree' || y?.kind === 'tree')
-					walk(x?.kind === 'tree' ? x.hash : empty, y?.kind === 'tree' ? y.hash : empty, `${path}/`);
+					walk(
+						x?.kind === 'tree' ? x.hash : empty,
+						y?.kind === 'tree' ? y.hash : empty,
+						`${path}/`,
+					);
 				if (x?.kind === 'blob' || y?.kind === 'blob') out.push(path);
 			}
 		};

@@ -27,6 +27,7 @@ import {
 } from '@epicenter/ai/send';
 import { createDesktopAccountAuth } from '@epicenter/auth/desktop';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
+import { openFolder as openDirectoryFolder } from '@epicenter/folder/bun';
 import { resolveAppPaths } from '../../../../../../packages/cli/src/app-paths.js';
 import {
 	type AuthContext,
@@ -39,7 +40,6 @@ import {
 	readConnectionRow,
 	setConnectionRow,
 } from '../../../../../../packages/cli/src/connection-rows.js';
-import { openFolder as openDirectoryFolder } from '@epicenter/folder/bun';
 import {
 	type CloudEnv,
 	createCloudContextMiddleware,

@@ -26,10 +26,15 @@ import { gitBlobHash } from './hash.js';
 export type Party = { author: string; time: string };
 /** A side's label: its party and the version of the note it had. */
 export type Side = Party & { version: string };
-export type Labels = { current: Side; incoming: Side; base?: { version: string } };
+export type Labels = {
+	current: Side;
+	incoming: Side;
+	base?: { version: string };
+};
 
 /** The short version label for a note's text: its Git blob id's first 7 digits, `-` for no note. */
-export const versionOf = (text: string | null) => (text === null ? '-' : gitBlobHash(text).slice(0, 7));
+export const versionOf = (text: string | null) =>
+	text === null ? '-' : gitBlobHash(text).slice(0, 7);
 
 const OPEN = '<<<<<<< ';
 const BASE = '||||||| base';
@@ -37,24 +42,43 @@ const SPLIT = '=======';
 const CLOSE = '>>>>>>> ';
 
 const isDelimiter = (line: string) =>
-	line.startsWith(OPEN) || line.startsWith('|||||||') || line.startsWith(SPLIT) || line.startsWith(CLOSE.trimEnd());
+	line.startsWith(OPEN) ||
+	line.startsWith('|||||||') ||
+	line.startsWith(SPLIT) ||
+	line.startsWith(CLOSE.trimEnd());
 
 /** A content line that would read as a delimiter (or as an escaped one) gets one more backslash. */
-const escapeLine = (line: string) => (isDelimiter(line.replace(/^\\+/, '')) ? `\\${line}` : line);
-const unescapeLine = (line: string) => (/^\\+/.test(line) && isDelimiter(line.replace(/^\\+/, '')) ? line.slice(1) : line);
-export const escapeLines = (text: string) => text.split('\n').map(escapeLine).join('\n');
+const escapeLine = (line: string) =>
+	isDelimiter(line.replace(/^\\+/, '')) ? `\\${line}` : line;
+const unescapeLine = (line: string) =>
+	/^\\+/.test(line) && isDelimiter(line.replace(/^\\+/, ''))
+		? line.slice(1)
+		: line;
+export const escapeLines = (text: string) =>
+	text.split('\n').map(escapeLine).join('\n');
 
 /** A label field holds no whitespace, so a label splits back into its fields. */
 const field = (value: string) => value.replace(/\s+/g, '_') || '-';
-const label = (side: 'current' | 'incoming', { author, time, version }: Side) => `${side} ${field(author)} ${field(time)} ${field(version)}`;
+const label = (side: 'current' | 'incoming', { author, time, version }: Side) =>
+	`${side} ${field(author)} ${field(time)} ${field(version)}`;
 
-const unterminated = (text: string) => (text.endsWith('\n') ? text.slice(0, -1) : text);
+const unterminated = (text: string) =>
+	text.endsWith('\n') ? text.slice(0, -1) : text;
 /** A section's lines, escaped and terminated. */
-const sectionLines = (text: string) => (text === '' ? '' : `${escapeLines(unterminated(text))}\n`);
+const sectionLines = (text: string) =>
+	text === '' ? '' : `${escapeLines(unterminated(text))}\n`;
 
 /** One block: each section's lines escaped, each delimiter labelled. */
-export function block({ current, base = '', incoming }: { current: string; base?: string; incoming: string }, labels: Labels) {
-	const baseLine = labels.base === undefined ? BASE : `${BASE} ${field(labels.base.version)}`;
+export function block(
+	{
+		current,
+		base = '',
+		incoming,
+	}: { current: string; base?: string; incoming: string },
+	labels: Labels,
+) {
+	const baseLine =
+		labels.base === undefined ? BASE : `${BASE} ${field(labels.base.version)}`;
 	return `${OPEN}${label('current', labels.current)}\n${sectionLines(current)}${baseLine}\n${sectionLines(base)}${SPLIT}\n${sectionLines(incoming)}${CLOSE}${label('incoming', labels.incoming)}\n`;
 }
 
@@ -77,7 +101,14 @@ export type Conflict = {
 
 const sideOf = (text: string, side: 'current' | 'incoming'): Side | null => {
 	const [name, author, time, version, ...rest] = text.split(' ');
-	if (name !== side || author === undefined || time === undefined || version === undefined || rest.length > 0) return null;
+	if (
+		name !== side ||
+		author === undefined ||
+		time === undefined ||
+		version === undefined ||
+		rest.length > 0
+	)
+		return null;
 	return { author, time, version };
 };
 
@@ -101,7 +132,11 @@ export function findConflicts(text: string): Conflict[] {
 			if (line.startsWith(OPEN)) break;
 			if (base < 0 && (line === BASE || line.startsWith(`${BASE} `))) base = j;
 			else if (base >= 0 && split < 0 && line === SPLIT) split = j;
-			else if (split >= 0 && line.startsWith(CLOSE) && line.length > CLOSE.length) {
+			else if (
+				split >= 0 &&
+				line.startsWith(CLOSE) &&
+				line.length > CLOSE.length
+			) {
 				close = j;
 				break;
 			}
@@ -113,7 +148,10 @@ export function findConflicts(text: string): Conflict[] {
 				.map((line) => `${unescapeLine(line)}\n`)
 				.join('');
 		const from = starts[i] ?? 0;
-		const to = Math.min(text.length, (starts[close] ?? 0) + (lines[close] ?? '').length + 1);
+		const to = Math.min(
+			text.length,
+			(starts[close] ?? 0) + (lines[close] ?? '').length + 1,
+		);
 		const labels = {
 			current: open.slice(OPEN.length),
 			base: (lines[base] ?? '').slice(BASE.length + 1),
@@ -128,7 +166,10 @@ export function findConflicts(text: string): Conflict[] {
 			base: section(base + 1, split),
 			incoming: section(split + 1, close),
 			labels,
-			sides: { current: sideOf(labels.current, 'current'), incoming: sideOf(labels.incoming, 'incoming') },
+			sides: {
+				current: sideOf(labels.current, 'current'),
+				incoming: sideOf(labels.incoming, 'incoming'),
+			},
 		});
 		i = close;
 	}
@@ -136,9 +177,13 @@ export function findConflicts(text: string): Conflict[] {
 }
 
 /** The side of `conflict` whose lines are `lines`, if one is: the alternative a later edit of those lines continues. */
-export function sideOffering(conflict: Conflict, lines: string): 'current' | 'incoming' | null {
+export function sideOffering(
+	conflict: Conflict,
+	lines: string,
+): 'current' | 'incoming' | null {
 	if (unterminated(conflict.current) === unterminated(lines)) return 'current';
-	if (unterminated(conflict.incoming) === unterminated(lines)) return 'incoming';
+	if (unterminated(conflict.incoming) === unterminated(lines))
+		return 'incoming';
 	return null;
 }
 
@@ -147,16 +192,31 @@ export function sideOffering(conflict: Conflict, lines: string): 'current' | 'in
  * written by `by` (where its label is one Epicenter wrote): the block a later edit of that side makes. Its other side
  * and its base stay as they were.
  */
-export function withSide(conflict: Conflict, side: 'current' | 'incoming', text: string, by: Side) {
+export function withSide(
+	conflict: Conflict,
+	side: 'current' | 'incoming',
+	text: string,
+	by: Side,
+) {
 	// A label is rewritten only where it reads as one Epicenter wrote; anything else on the delimiter's line is text, and stays.
-	const current = side === 'current' && conflict.sides.current !== null ? label('current', by) : conflict.labels.current;
-	const incoming = side === 'incoming' && conflict.sides.incoming !== null ? label('incoming', by) : conflict.labels.incoming;
-	const baseLine = conflict.labels.base === '' ? BASE : `${BASE} ${conflict.labels.base}`;
+	const current =
+		side === 'current' && conflict.sides.current !== null
+			? label('current', by)
+			: conflict.labels.current;
+	const incoming =
+		side === 'incoming' && conflict.sides.incoming !== null
+			? label('incoming', by)
+			: conflict.labels.incoming;
+	const baseLine =
+		conflict.labels.base === '' ? BASE : `${BASE} ${conflict.labels.base}`;
 	return `${OPEN}${current}\n${sectionLines(side === 'current' ? text : conflict.current)}${baseLine}\n${sectionLines(conflict.base)}${SPLIT}\n${sectionLines(side === 'incoming' ? text : conflict.incoming)}${CLOSE}${incoming}\n`;
 }
 
 /** A block with its labels removed, so two blocks with the same sections compare equal whoever wrote them. */
-export const unlabelled = (text: string) => text.replace(/^(<<<<<<<|>>>>>>>) .*$/gm, '$1').replace(/^\|\|\|\|\|\|\| base .*$/gm, BASE);
+export const unlabelled = (text: string) =>
+	text
+		.replace(/^(<<<<<<<|>>>>>>>) .*$/gm, '$1')
+		.replace(/^\|\|\|\|\|\|\| base .*$/gm, BASE);
 
 /** `text` with `added` (one block) after it, unless a block with the same sections, whoever's labels, is already there. */
 export function withBlock(text: string, added: string) {
