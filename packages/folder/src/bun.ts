@@ -34,10 +34,8 @@ export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
 export {
 	type CheckedTable,
 	checkFolder,
-	DEFINITION_SOURCE_PATH,
 	type Finding,
 	type FolderCheck,
-	hasDefinitionSource,
 } from './check-folder.js';
 export * from './contract.js';
 export {
@@ -54,10 +52,6 @@ export {
 export { type Definition, defineFolder } from './definition.js';
 export { readDirectoryDocuments } from './directory-documents.js';
 export { nodeDirectoryPrimitives } from './directory-node.js';
-export {
-	GenerateDefinitionError,
-	generateDefinition,
-} from './generate-declaration.js';
 export { basicAuthorization, type GitCredentials } from './git/http.js';
 export { GitCommandError, type GitRun } from './git/native-backend.js';
 export {

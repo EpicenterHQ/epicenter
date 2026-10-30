@@ -7,10 +7,7 @@ import { Type } from 'typebox';
 import { Ok } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import type { FolderStorage } from './boundary.js';
-import {
-	importTables,
-	writeGeneratedDeclaration,
-} from './declaration-write.js';
+import { importTables } from './declaration-write.js';
 import { FileError } from './errors.js';
 import { hashBytes } from './hash.js';
 import { exportTables } from './schema-export.js';
@@ -32,7 +29,11 @@ function setup(
 		async read(path) {
 			if (current === null) return FileError.NotFound({ path });
 			const bytes = new TextEncoder().encode(current);
-			return Ok({ bytes, sha256: await hashBytes(bytes), stamp: `test:${current}` });
+			return Ok({
+				bytes,
+				sha256: await hashBytes(bytes),
+				stamp: `test:${current}`,
+			});
 		},
 		async put(_path, bytes, expected) {
 			puts++;
@@ -47,7 +48,10 @@ function setup(
 					: typeof expected === 'object' && hash === expected.sha256;
 			if (!holds) return Ok({ kind: 'stale' });
 			current = bytes === null ? null : new TextDecoder().decode(bytes);
-			return Ok({ kind: 'landed', stamp: current === null ? null : `test:${current}` });
+			return Ok({
+				kind: 'landed',
+				stamp: current === null ? null : `test:${current}`,
+			});
 		},
 	};
 	return { storage, source: () => current, puts: () => puts };
@@ -133,26 +137,6 @@ test('a table that becomes conflicting before publication requires replacement o
 	).toContain('--replace');
 	expect(fixture.source()).toBe(concurrent);
 	expect(fixture.puts()).toBe(1);
-});
-
-test('generate changes its owned sections and retains concurrently added view configuration', async () => {
-	const fixture = setup(
-		'{"title":"Old","tables":{}}',
-		() =>
-			'{"title":"Old","tables":{},"$schema":"editor","views":{"keep":{"type":"future"}}}',
-	);
-	expectOk(
-		await writeGeneratedDeclaration(
-			fixture.storage,
-			JSON.stringify({ title: 'New', tables: { tasks } }),
-		),
-	);
-	expect(JSON.parse(fixture.source() ?? '')).toEqual({
-		title: 'New',
-		tables: { tasks },
-		$schema: 'editor',
-		views: { keep: { type: 'future' } },
-	});
 });
 
 test('duplicate source keys, escaped aliases and malformed JSON never reach publication', async () => {
@@ -287,19 +271,6 @@ test('case-folded collision admission uses the latest tables on each retry', asy
 	).toContain('collides case-insensitively');
 	expect(fixture.source()).toBe(concurrent);
 	expect(fixture.puts()).toBe(1);
-});
-
-test('generate refuses a malformed table type before any publication', async () => {
-	const source = '{"tables":{},"views":{"retained":{}}}';
-	const fixture = setup(source);
-	const generated = JSON.stringify({
-		tables: {
-			tasks: { type: 'object', properties: { title: { type: 'strng' } } },
-		},
-	});
-	expectErr(await writeGeneratedDeclaration(fixture.storage, generated));
-	expect(fixture.source()).toBe(source);
-	expect(fixture.puts()).toBe(0);
 });
 
 test('app export refuses hidden refinements, codecs and guards with their field path', () => {

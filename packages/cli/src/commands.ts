@@ -6,7 +6,14 @@
 import type { CommandSpec } from './parse.ts';
 
 export const COMMANDS: readonly CommandSpec[] = [
-	{ path: ['messages'], args: '', minArgs: 0, maxArgs: 0, hidden: true, summary: 'Beeper operation as JSON on stdin' },
+	{
+		path: ['messages'],
+		args: '',
+		minArgs: 0,
+		maxArgs: 0,
+		hidden: true,
+		summary: 'Beeper operation as JSON on stdin',
+	},
 	{
 		path: ['schema', 'export'],
 		args: '<dir>',
@@ -63,10 +70,17 @@ export const COMMANDS: readonly CommandSpec[] = [
 
 	{
 		path: ['check'],
-		args: '<dir>',
+		args: '<contract> [<dir>]',
 		minArgs: 1,
-		maxArgs: 1,
-		summary: 'report each file in a data folder that does not conform',
+		maxArgs: 2,
+		summary: "report each file in a folder that does not fit an app's contract",
+	},
+	{
+		path: ['format'],
+		args: '<contract> [<dir>]',
+		minArgs: 1,
+		maxArgs: 2,
+		summary: "rewrite every note an app's contract claims in house style",
 	},
 	{
 		path: ['query'],
@@ -75,13 +89,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		maxArgs: 2,
 		summary:
 			'describe the tables, or answer one read-only SQL statement over the files that conform',
-	},
-	{
-		path: ['generate'],
-		args: '<dir>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary: 'run <dir>/epicenter.ts and write the epicenter.json it declares',
 	},
 	{
 		path: ['status'],

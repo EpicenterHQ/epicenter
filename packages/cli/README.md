@@ -1,10 +1,10 @@
 # @epicenter/cli
 
-`check` and `query` require declared table schemas in root `epicenter.json`.
-`schema export` and `schema import` exchange those schemas explicitly. Apps
-keep their runtime TypeBox source and never publish declarations by opening or
-saving. `generate` retains the older trusted `epicenter.ts` workflow, with
-section-preserving writes. See [portable declarations](../folder/README.md#portable-schemas-and-generic-documents)
+`check` and `format` take an app's contract, as a URL or a file path, and
+read or rewrite a folder against it; a folder holds no `epicenter.json` for
+them. `query` still requires declared table schemas in a legacy root
+`epicenter.json`, and `schema export` and `schema import` exchange those
+schemas explicitly. See [portable declarations](../folder/README.md#portable-schemas-and-generic-documents)
 and [shared vocabulary](../../docs/CONTEXT.md).
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
@@ -15,7 +15,7 @@ implemented command surface retains ADR-0558's `auth` group; its `app` group
 is deleted. ADR-0611 describes the planned reduction.
 
 ```sh
-bun run epicenter check path/to/folder          # from the repository root
+bun run epicenter check path/to/contract.json path/to/folder   # from the repository root
 bun packages/cli/src/bin.ts query path/to/folder 'SELECT stem FROM posts'
 ```
 
@@ -34,9 +34,9 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter schema export <dir>` | built | Export the declared `tables` as JSON |
 | `epicenter schema import <dir> <file\|-> [--replace]` | built | Import all tables from the source, preserving unrelated sections |
 | `epicenter documents-query <dir>` | built, hidden | Desktop saved-document SQL; statement on stdin |
-| `epicenter check <dir>` | built | `checkFolder` in `@epicenter/folder/bun` |
+| `epicenter check <contract> [<dir>]` | built | `checkFiles` in `@epicenter/folder/node` |
+| `epicenter format <contract> [<dir>]` | built | `formatNotes` in `@epicenter/folder/node` |
 | `epicenter query <dir> [<sql>]` | built | `checkFolder`, `queryFolder`, `describeTables` |
-| `epicenter generate <dir>` | built | `generateDefinition` |
 | `epicenter status <dir>` | built | `runHistory` in `@epicenter/folder/bun` |
 | `epicenter history <dir> [--depth <n>]` | built, hidden | `runHistory` |
 | `epicenter save-version <dir> [-m <text>]` | built, hidden | `runHistory` |

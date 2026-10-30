@@ -1,8 +1,9 @@
 /**
- * `epicenter check`, `query`, and `generate` against real directories, through
- * fresh CLI processes: exit codes, compiler-style diagnostics, the projection's
- * columns and values, the one-statement read-only rule, and that nothing in the
- * folder is executed or changed.
+ * `epicenter query` against real legacy data folders, and the command
+ * surface, through fresh CLI processes: exit codes, the projection's columns
+ * and values, the one-statement read-only rule, and that nothing in the
+ * folder is executed or changed. `check` and `format`, which take a contract,
+ * are in `contract-commands.test.ts`.
  *
  * They run `src/bin.ts` under Bun, or the compiled binary that
  * `EPICENTER_BIN` names, so the binary the desktop app ships passes the same
@@ -94,19 +95,10 @@ async function setup() {
 }
 
 // ============================================================================
-// check
+// epicenter.json, as query reads it
 // ============================================================================
 
-test('check passes a conforming data folder', async () => {
-	const { folder, run } = await setup();
-	const result = run('check', folder);
-	expect(result.exitCode).toBe(0);
-	expect(result.stdout).toBe(
-		'1 row conforms; 0 files invalid; 0 unreadable.\n',
-	);
-});
-
-test('check and query read tables despite malformed or future unrelated metadata', async () => {
+test('query reads tables despite malformed or future unrelated metadata', async () => {
 	const { folder, write, run } = await setup();
 	for (const metadata of [
 		{ views: { broken: null }, title: false },
@@ -114,7 +106,6 @@ test('check and query read tables despite malformed or future unrelated metadata
 	]) {
 		const source = JSON.stringify({ ...declaration, ...metadata });
 		await write('epicenter.json', source);
-		expect(run('check', folder).exitCode).toBe(0);
 		const query = run('query', folder, 'SELECT stem FROM posts', '--json');
 		expect(query.exitCode).toBe(0);
 		expect(JSON.parse(query.stdout).rows).toEqual([{ stem: 'reel' }]);
@@ -122,36 +113,7 @@ test('check and query read tables despite malformed or future unrelated metadata
 	}
 });
 
-test('check reports invalid rows compiler style and exits 1', async () => {
-	const { folder, write, run } = await setup();
-	await write(
-		'posts/launch.md',
-		'---\ntitle: Launch\nstatus: someday\ndue: null\norder: 2\npinned: false\ntags: []\naccount: instagram\n---\n',
-	);
-	await write('posts/broken.md', '---\ntitle: [broken\n---\n');
-	await write(
-		'posts/latin1.md',
-		new Uint8Array([0x2d, 0x2d, 0x2d, 0x0a, 0xff]),
-	);
-	const result = run('check', folder, '--json');
-	expect(result.exitCode).toBe(1);
-	const report = JSON.parse(result.stdout);
-	expect(report.rows).toBe(1);
-	expect(report.invalid).toEqual([
-		expect.objectContaining({ path: 'posts/broken.md', line: 3 }),
-		{ path: 'posts/latin1.md', message: 'The file is not valid UTF-8 text' },
-		expect.objectContaining({
-			path: 'posts/launch.md',
-			line: 3,
-			field: 'status',
-		}),
-	]);
-	expect(run('check', folder).stdout).toContain(
-		'posts/launch.md:3: status does not conform',
-	);
-});
-
-test('a closed table reports an undeclared key, and query leaves its file out', async () => {
+test('query leaves out a file with a key a closed table does not declare', async () => {
 	const { folder, write, run } = await setup();
 	await write(
 		'epicenter.json',
@@ -169,11 +131,6 @@ test('a closed table reports an undeclared key, and query leaves its file out', 
 	await write('accounts/instagram.md', '---\nkind: social\nhandle: x\n---\n');
 	await write('accounts/threads.md', '---\nkind: social\n---\n');
 
-	const result = run('check', folder);
-	expect(result.exitCode).toBe(1);
-	expect(result.stdout).toContain(
-		'accounts/instagram.md:3: handle is not declared',
-	);
 	const query = run('query', folder, 'SELECT stem FROM accounts', '--json');
 	expect(JSON.parse(query.stdout)).toMatchObject({
 		rows: [{ stem: 'threads' }],
@@ -185,10 +142,10 @@ test('a missing or unusable epicenter.json is a tool failure with exit 2', async
 	const { folder, write, run } = await setup();
 	const empty = await mkdtemp(join(tmpdir(), 'epicenter-cli-test-'));
 	temporaryFolders.push(empty);
-	const missing = run('check', empty);
+	const missing = run('query', empty);
 	expect(missing.exitCode).toBe(2);
 	expect(missing.stderr).toContain('has no epicenter.json');
-	expect(JSON.parse(run('check', empty, '--json').stdout).error).toContain(
+	expect(JSON.parse(run('query', empty, '--json').stdout).error).toContain(
 		'has no epicenter.json',
 	);
 
@@ -198,14 +155,13 @@ test('a missing or unusable epicenter.json is a tool failure with exit 2', async
 			tables: { 'bad name': objectSchema({}) },
 		}),
 	);
-	expect(run('check', folder).exitCode).toBe(2);
+	expect(run('query', folder).exitCode).toBe(2);
 
-	// A declaration missing its tables was not generated; say how to make one.
 	await write('epicenter.json', JSON.stringify({ title: 'No tables' }));
-	const noTables = run('check', folder);
+	const noTables = run('query', folder);
 	expect(noTables.exitCode).toBe(2);
 	expect(noTables.stderr).toContain(
-		"it has no 'tables'; check and query require declared table schemas",
+		"it has no 'tables'; query requires declared table schemas",
 	);
 });
 
@@ -215,7 +171,7 @@ test('a typo epicenter.json would otherwise ignore is refused, and $schema is al
 		write('epicenter.json', JSON.stringify(value));
 
 	await declare({ ...declaration, tabels: {} });
-	const extraKey = run('check', folder);
+	const extraKey = run('query', folder);
 	expect(extraKey.exitCode).toBe(2);
 	expect(extraKey.stderr).toContain("unknown top-level key 'tabels'");
 
@@ -233,7 +189,7 @@ test('a typo epicenter.json would otherwise ignore is refused, and $schema is al
 		$schema: 'https://example.test/epicenter.schema.json',
 		...declaration,
 	});
-	expect(run('check', folder).exitCode).toBe(0);
+	expect(run('query', folder).exitCode).toBe(0);
 });
 
 test('query refuses fields it cannot project: case duplicates, stem, and body', async () => {
@@ -255,26 +211,15 @@ test('query refuses fields it cannot project: case duplicates, stem, and body', 
 		const result = run('query', folder, 'SELECT 1');
 		expect(result.exitCode).toBe(2);
 		expect(result.stderr).toContain(message);
-		expect(run('check', folder).exitCode).not.toBe(2);
 	}
 });
 
-test('a directory named epicenter.ts is not a declaration source', async () => {
-	const { folder, run } = await setup();
-	await mkdir(join(folder, 'epicenter.ts'));
-	const checked = run('check', folder);
-	expect(checked.exitCode).toBe(0);
-	expect(checked.stdout).not.toContain('generated from');
-	expect(run('generate', folder).stderr).toContain('has no epicenter.ts');
-});
-
-test("check and query never run a folder's code", async () => {
+test("query never runs a folder's code", async () => {
 	const { folder, write, run } = await setup();
 	await write(
 		'epicenter.ts',
 		`import { writeFileSync } from 'node:fs';\nwriteFileSync(${JSON.stringify(join(folder, 'ran'))}, 'yes');\nexport default {};`,
 	);
-	expect(run('check', folder).exitCode).toBe(0);
 	expect(run('query', folder, 'SELECT 1').exitCode).toBe(0);
 	expect(await readdir(folder)).not.toContain('ran');
 });
@@ -350,7 +295,7 @@ test('query answers from the files that conform and names the ones it left out',
 	expect(partial.exitCode).toBe(0);
 	expect(partial.stdout).toBe('n\n1\n');
 	expect(partial.stderr).toBe(
-		`1 file excluded because it does not conform: posts/broken.md. Run \`epicenter check ${folder}\`\n`,
+		'1 file excluded because it does not conform: posts/broken.md\n',
 	);
 	const json = run(
 		'query',
@@ -382,22 +327,6 @@ test('nothing outside the data folder is read', async () => {
 	await symlink(join(outside, 'secret.md'), join(folder, 'posts/linked.md'));
 	await symlink(outside, join(folder, 'accounts'));
 
-	const result = run('check', folder, '--json');
-	const report = JSON.parse(result.stdout);
-	expect(result.exitCode).toBe(1);
-	expect(report.invalid).toEqual([
-		{
-			path: 'posts/linked.md',
-			message:
-				'The path is not usable: the path passes through a symbolic link',
-		},
-		{
-			path: 'accounts',
-			message:
-				'The path is not usable: the path passes through a symbolic link',
-		},
-	]);
-	expect(result.stdout).not.toContain('Secret');
 	const query = run('query', folder, 'SELECT title FROM posts', '--json');
 	expect(query.exitCode).toBe(0);
 	expect(query.stdout).not.toContain('Secret');
@@ -410,11 +339,9 @@ test('nothing outside the data folder is read', async () => {
 test('a directory named <stem>.md in a table is a file to fix, not skipped', async () => {
 	const { folder, run } = await setup();
 	await mkdir(join(folder, 'posts/notes.md'));
-	const result = run('check', folder);
-	expect(result.exitCode).toBe(1);
-	expect(result.stdout).toBe(
-		'posts/notes.md: A row must be a file, not a directory\n1 row conforms; 1 file invalid; 0 unreadable.\n',
-	);
+	const result = run('query', folder, 'SELECT stem FROM posts', '--json');
+	expect(result.exitCode).toBe(0);
+	expect(JSON.parse(result.stdout).excluded).toEqual(['posts/notes.md']);
 });
 
 test('query refuses statements that write, attach, or vacuum, and leaves the directory unchanged', async () => {
@@ -451,10 +378,10 @@ test('query runs exactly one statement and accepts leading and trailing comments
 test('the CLI rejects missing or extra arguments', async () => {
 	const { folder, run } = await setup();
 	expect(run('check').exitCode).toBe(2);
-	expect(run('check', folder, 'SELECT 1').exitCode).toBe(2);
+	expect(run('check', 'contract.json', folder, 'extra').exitCode).toBe(2);
 	expect(run('query', folder, 'SELECT 1', 'extra').exitCode).toBe(2);
 	expect(run('validate', folder).exitCode).toBe(2);
-	expect(run('--help').stdout).toContain('epicenter check <dir>');
+	expect(run('--help').stdout).toContain('epicenter check <contract> [<dir>]');
 });
 
 // ============================================================================
@@ -500,8 +427,8 @@ test('--help lists every command but send and install-command, and --json descri
 		'folders list',
 		'folders remove-recent',
 		'check',
+		'format',
 		'query',
-		'generate',
 		'status',
 		'sync',
 		'clone',
@@ -606,127 +533,4 @@ test('install-command refuses to link a CLI that runs from source', async () => 
 	const result = run('install-command', '--json');
 	expect(result.exitCode).toBe(2);
 	expect(JSON.parse(result.stdout).error).toContain('runs from source');
-});
-
-// ============================================================================
-// generate
-// ============================================================================
-
-const source = `import { defineFolder, defineTable, field } from '@epicenter/folder';
-import { isOptional } from '@epicenter/definition';
-import Type from 'typebox';
-import { Compile } from 'typebox/compile';
-
-if (!Compile(Type.String()).Check('x')) throw new Error('typebox did not resolve');
-
-if (!isOptional(field.optional(field.string())))
-	throw new Error('imports did not resolve');
-
-export default defineFolder({
-	tables: {
-		pages: defineTable({
-			fields: {
-				title: field.string(),
-				queuedAt: field.optional(field.date()),
-				meta: field.optional(Type.Object({ words: Type.Integer() })),
-			},
-		}),
-	},
-});
-`;
-
-test('generate writes the epicenter.json that epicenter.ts declares and check reads it', async () => {
-	const { folder, write, run } = await setup();
-	await write('epicenter.ts', source);
-	await write('pages/a.md', '---\ntitle: A\n---\n');
-
-	const generated = run('generate', folder);
-	expect(generated.exitCode).toBe(0);
-	expect(generated.stdout).toBe('wrote epicenter.json from epicenter.ts\n');
-	const declaration = JSON.parse(
-		await readFile(join(folder, 'epicenter.json'), 'utf8'),
-	);
-	expect(declaration.tables.pages).toMatchObject({
-		type: 'object',
-		required: ['title'],
-	});
-	expect(Object.keys(declaration.tables)).toEqual(['pages']);
-	expect(run('generate', folder).stdout).toBe(
-		'unchanged epicenter.json from epicenter.ts\n',
-	);
-
-	const checked = run('check', folder);
-	expect(checked.exitCode).toBe(0);
-	expect(checked.stdout).toBe(
-		'1 row conforms; 0 files invalid; 0 unreadable.\n',
-	);
-	expect(checked.stderr).toContain(
-		'epicenter.json is generated from epicenter.ts',
-	);
-	expect(JSON.parse(run('check', folder, '--json').stdout).source).toBe(
-		'epicenter.ts',
-	);
-	expect(run('generate', folder, '--check').stderr).toContain(
-		'epicenter generate does not take --check',
-	);
-	expect(JSON.parse(run('generate', folder, '--json').stdout)).toEqual({
-		written: false,
-		path: 'epicenter.json',
-		source: 'epicenter.ts',
-	});
-	await rm(join(folder, 'epicenter.json'));
-	expect(run('check', folder).stderr).toContain('run `epicenter generate');
-});
-
-test('generate refuses removed policy options and preserves unreadable source', async () => {
-	const { folder, write, run } = await setup();
-	const read = () => readFile(join(folder, 'epicenter.json'), 'utf8');
-	await write('epicenter.ts', 'export default { tables: {} };\n');
-	await write('epicenter.json', '{"unknown":true}');
-	expect(run('generate', folder).exitCode).toBe(2);
-	expect(await read()).toBe('{"unknown":true}');
-	await rm(join(folder, 'epicenter.json'));
-	await mkdir(join(folder, 'epicenter.json'));
-	const inaccessible = run('generate', folder);
-	expect(inaccessible.exitCode).toBe(2);
-	expect(inaccessible.stderr).toContain('is a directory, not a file');
-	await rm(join(folder, 'epicenter.json'), { recursive: true });
-	await write('epicenter.json', '{"tables":{}}');
-	await write(
-		'epicenter.ts',
-		"export default { local: ['audio/'], tables: {} };\n",
-	);
-	expect(run('generate', folder).exitCode).toBe(2);
-	expect(await read()).toBe('{"tables":{}}');
-});
-
-test('generate refuses a folder with no epicenter.ts, no default export, or a declaration that cannot be kept', async () => {
-	const { folder, write, run } = await setup();
-	expect(run('generate', folder).exitCode).toBe(2);
-
-	await write('epicenter.ts', 'export default null;\n');
-	expect(run('generate', folder).stderr).toContain(
-		'must `export default defineFolder',
-	);
-	await write(
-		'epicenter.ts',
-		'export default { tables: {}, titel: "Typo" };\n',
-	);
-	expect(run('generate', folder).stderr).toContain("also declares 'titel'");
-	await write('epicenter.ts', 'export const nothing = 1;\n');
-	const missing = run('generate', folder);
-	expect(missing.exitCode).toBe(2);
-	expect(missing.stderr).toContain('must `export default defineFolder');
-
-	await write(
-		'epicenter.ts',
-		`export default { tables: { posts: { fields: { a: { type: 'string', format: 'date-tme' } } } } };\n`,
-	);
-	const refused = run('generate', folder);
-	expect(refused.exitCode).toBe(2);
-	expect(refused.stderr).toContain('date-tme');
-	// Nothing was written over the folder's existing declaration.
-	expect(
-		JSON.parse(await readFile(join(folder, 'epicenter.json'), 'utf8')),
-	).toEqual(declaration);
 });

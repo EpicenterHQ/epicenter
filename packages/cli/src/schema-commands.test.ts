@@ -137,50 +137,6 @@ test('duplicate keys and invalid schema input leave the current source byte-for-
 	expect(await readFile(fixture.path, 'utf8')).toBe('{"tables":{}}');
 });
 
-test('legacy generate retains views and schema hints while updating its owned sections', async () => {
-	const fixture = await setup();
-	const kept = {
-		$schema: 'editor',
-		views: { draft: { type: 'future', value: [1, 2] } },
-	};
-	await writeFile(
-		fixture.path,
-		JSON.stringify({ ...kept, title: 'Old', tables: {} }),
-	);
-	await writeFile(
-		join(fixture.directory, 'epicenter.ts'),
-		"import { defineFolder, defineTable, field } from '@epicenter/folder'; export default defineFolder({ title: 'New', tables: { tasks: defineTable({ fields: { title: field.string() } }) } });",
-	);
-	const result = fixture.run(['generate', fixture.directory]);
-	expect(result.exitCode).toBe(0);
-	expect(JSON.parse(await readFile(fixture.path, 'utf8'))).toEqual({
-		...kept,
-		title: 'New',
-		tables: {
-			tasks: {
-				...tasks,
-				properties: {
-					title: { type: 'string', 'x-field': { kind: 'string' } },
-				},
-			},
-		},
-	});
-});
-
-test('generate refuses a legacy declaration that would write a malformed table schema', async () => {
-	const fixture = await setup();
-	const before = '{"tables":{},"views":{"retained":{"type":"future"}}}';
-	await writeFile(fixture.path, before);
-	await writeFile(
-		join(fixture.directory, 'epicenter.ts'),
-		"import { defineFolder, defineTable } from '@epicenter/folder'; export default defineFolder({ tables: { tasks: defineTable({ fields: { title: { type: 'strng' } } }) } });",
-	);
-	const result = fixture.run(['generate', fixture.directory]);
-	expect(result.exitCode).toBe(2);
-	expect(result.stderr).toContain('type');
-	expect(await readFile(fixture.path, 'utf8')).toBe(before);
-});
-
 test('duplicate declaration keys do not block history or change source', async () => {
 	const fixture = await setup();
 	const before = '{"tables":{},"views":{"x":1,"x":2}}';

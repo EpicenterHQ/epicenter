@@ -28,7 +28,7 @@ type Run = (
  * `--version` and `--help` start without the folder engine.
  */
 const HANDLERS: Record<string, Run> = {
-	'messages': async () => (await import('./messages.js')).messagesCommand(),
+	messages: async () => (await import('./messages.js')).messagesCommand(),
 	'schema export': async ({ positionals: [directory], json }) =>
 		(await import('./schema-commands.ts')).exportSchemas(
 			directory as string,
@@ -49,17 +49,29 @@ const HANDLERS: Record<string, Run> = {
 	'folders pin': async ({ positionals: [directory], json }) =>
 		(await import('./navigation.js')).foldersCommand('pin', directory, json),
 	'folders remove-recent': async ({ positionals: [directory], json }) =>
-		(await import('./navigation.js')).foldersCommand('remove-recent', directory, json),
+		(await import('./navigation.js')).foldersCommand(
+			'remove-recent',
+			directory,
+			json,
+		),
 	'folders list': async ({ positionals: [directory], json }) =>
 		(await import('./navigation.js')).foldersCommand('list', directory, json),
 	'folders unpin': async ({ positionals: [directory], json }) =>
 		(await import('./navigation.js')).foldersCommand('unpin', directory, json),
-	check: async ({ positionals: [dir], json }) =>
-		(await import('./folder-commands.ts')).check(dir as string, json),
+	check: async ({ positionals: [contract, dir], json }) =>
+		(await import('./contract-commands.ts')).check(
+			contract as string,
+			dir ?? '.',
+			json,
+		),
+	format: async ({ positionals: [contract, dir], json }) =>
+		(await import('./contract-commands.ts')).format(
+			contract as string,
+			dir ?? '.',
+			json,
+		),
 	query: async ({ positionals: [dir, sql], json }) =>
 		(await import('./folder-commands.ts')).query(dir as string, sql, json),
-	generate: async ({ positionals: [dir], json }) =>
-		(await import('./folder-commands.ts')).generate(dir as string, json),
 	status: async ({ positionals: [dir], options, json, grant }) =>
 		history('status', dir as string, options, json, grant),
 	history: async ({ positionals: [dir], options, json, grant }) =>
@@ -155,15 +167,25 @@ async function history(
 
 /** What `epicenter <command> --help` adds below the usage line. */
 const DETAILS: Record<string, string> = {
-	check: `Prints one line per file that does not conform, compiler style, then a
-summary. Exits 0 when every file conforms, 1 when one does not, and 2 when
-the folder or its definition cannot be used or a file cannot be read.
-Never writes a file or runs the folder's code.`,
+	check: `Checks every file in <dir>, by default this directory, against an app's
+contract: the JSON at <contract>, a URL or a file path. Prints one line per
+problem, compiler style: a path no collection of the contract names, a note
+whose front matter does not parse, or one whose fields do not fit. Hidden
+paths (.git, .epicenter, ...) are not the contract's and are skipped. Exits 0
+when every file fits, 1 when one does not, and 2 when the contract or the
+folder cannot be used. Never writes a file.`,
+	format: `Rewrites every note in <dir>, by default this directory, that a collection
+of the contract at <contract> (a URL or a file path) names, in house style:
+the contract's fields first in its order, other keys after them sorted,
+block YAML, the body untouched. A note whose front matter does not parse is
+left as it is and named. Each note is replaced only while it still holds the
+bytes read. Exits 0 when every note is in house style, 1 when one was left as
+it is, and 2 when the contract or the folder cannot be used.`,
 	query: `Without a statement, describes each table's columns and what they hold.
 With one, runs that single read-only statement (SELECT, WITH, VALUES, or
 EXPLAIN) over the files that conform and prints tab-separated rows. A file
 that does not conform is left out of every table and named on stderr (in
-"excluded" with --json); check says why. Exits 0 when it answers and 2 when
+"excluded" with --json). Exits 0 when it answers and 2 when
 the folder, the definition, or the statement cannot be used.`,
 	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
 under the connection's id, the stem of its row in so.epicenter/connections
@@ -214,13 +236,6 @@ what the remote lost, which its history still holds. A sync asks nothing.
 A folder with no epicenter.json is not synced (nothing says which files stay
 on this computer), and nothing is committed or pushed; declare them in
 epicenter.json's "local" list first.`,
-	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
-@epicenter/folder, and writes the epicenter.json it declares. It is the only
-command that runs a folder's code; check and query read only epicenter.json.
-It may import @epicenter/folder, @epicenter/definition, typebox, and their
-subpaths, which resolve to this binary's own copies. Exits 0, or 2 when
-epicenter.ts cannot be used. To confirm the file is current, run generate
-and then git diff --exit-code -- <dir>/epicenter.json.`,
 	'schema export': `Prints one JSON document containing only the declared tables from
 <dir>/epicenter.json. It executes no code and changes no files. The exported
 copy can be imported into another folder. Output is JSON with or without --json.`,

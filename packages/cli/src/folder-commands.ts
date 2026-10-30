@@ -1,78 +1,23 @@
 /**
- * `check`, `query`, and `generate`: what `@epicenter/folder/bun` reports, as
- * text for a person or JSON for a program (ADR-0520, ADR-0527). The reading,
- * the projection, and running `epicenter.ts` all live in the folder package.
+ * `query`: a legacy data folder's tables, read through its `epicenter.json`,
+ * as text for a person or JSON for a program (ADR-0520). The reading and the
+ * projection live in `@epicenter/folder/bun`. `check` and `format` take an
+ * app's contract instead (`contract-commands.ts`).
  */
 
 import {
 	checkFolder,
-	DEFINITION_PATH,
-	DEFINITION_SOURCE_PATH,
 	describeTables,
-	type Finding,
-	generateDefinition,
-	hasDefinitionSource,
 	queryFolder,
 } from '@epicenter/folder/bun';
 import { count, EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
-
-/**
- * `path:line: message`, compiler style. The message already names its field,
- * so the field stays in `--json` rather than the text.
- */
-function formatFinding({ path, line, message }: Finding) {
-	return `${line === undefined ? path : `${path}:${line}`}: ${message}`;
-}
-
-/** Files with at least one finding, so a row with three issues counts once. */
-function fileCount(findings: Finding[]) {
-	return new Set(findings.map(({ path }) => path)).size;
-}
 
 /** Check a folder, or end the command when it cannot be read as one. */
 async function checked(dir: string, json: boolean) {
 	const { data, error } = await checkFolder(dir);
 	if (error === null) return data;
-	fail(
-		error.name === 'NotDataFolder' && hasDefinitionSource(dir)
-			? `${error.message}; run \`epicenter generate ${dir}\` to write it from ${DEFINITION_SOURCE_PATH}`
-			: error.message,
-		json,
-	);
+	fail(error.message, json);
 	return undefined;
-}
-
-export async function check(dir: string, json: boolean) {
-	const folder = await checked(dir, json);
-	if (folder === undefined) return EXIT.unusable;
-	const { rows, invalid, unreadable, hasSource } = folder;
-	const exitCode = unreadable.length
-		? EXIT.unusable
-		: invalid.length
-			? EXIT.finding
-			: EXIT.ok;
-	if (json) {
-		writeJson({
-			rows,
-			invalid,
-			unreadable,
-			exitCode,
-			...(hasSource ? { source: DEFINITION_SOURCE_PATH } : {}),
-		});
-		return exitCode;
-	}
-	if (hasSource)
-		writeErr(
-			`${DEFINITION_PATH} is generated from ${DEFINITION_SOURCE_PATH}; edit tables, title, and local there and run \`epicenter generate ${dir}\`. Other JSON sections are preserved.`,
-		);
-	writeOut(
-		[
-			...unreadable.map(formatFinding),
-			...invalid.map(formatFinding),
-			`${count(rows, 'row')} ${rows === 1 ? 'conforms' : 'conform'}; ${count(fileCount(invalid), 'file')} invalid; ${unreadable.length} unreadable.`,
-		].join('\n'),
-	);
-	return exitCode;
 }
 
 /**
@@ -125,23 +70,7 @@ export async function query(
 	writeOut(formatRows(columns, rows));
 	if (excluded.length)
 		writeErr(
-			`${count(excluded.length, 'file')} excluded because ${excluded.length === 1 ? 'it does' : 'they do'} not conform: ${excluded.join(', ')}. Run \`epicenter check ${dir}\``,
-		);
-	return EXIT.ok;
-}
-
-export async function generate(dir: string, json: boolean) {
-	const { data, error } = await generateDefinition(dir);
-	if (error !== null) return fail(error.message, json);
-	if (json)
-		writeJson({
-			written: data.written,
-			path: DEFINITION_PATH,
-			source: DEFINITION_SOURCE_PATH,
-		});
-	else
-		writeOut(
-			`${data.written ? 'wrote' : 'unchanged'} ${DEFINITION_PATH} from ${DEFINITION_SOURCE_PATH}`,
+			`${count(excluded.length, 'file')} excluded because ${excluded.length === 1 ? 'it does' : 'they do'} not conform: ${excluded.join(', ')}`,
 		);
 	return EXIT.ok;
 }

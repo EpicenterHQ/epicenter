@@ -177,9 +177,8 @@ type TableUnder<TName, TTable> = TTable extends DeclaredTable
  *
  * The definition is checked here, where it is written: a malformed schema
  * or a key besides `title` and `tables`, such as an `id`, throws at
- * the definition, before generation writes anything. What comes back has the given
- * structure and type, and is the prepared definition: an owned, frozen
- * snapshot of each schema. `epicenter generate` serializes that snapshot.
+ * the definition. What comes back has the given structure and type, and is
+ * the prepared definition: an owned, frozen snapshot of each schema.
  */
 export function defineFolder<const TDefinition extends Definition>(
 	schema: TDefinition & {

@@ -1,11 +1,12 @@
 /**
  * `epicenter.json`: a folder's definition as JSON Schema (ADR-0517).
  *
- * The CLI's `check` and `query` read the root file's tables (ADR-0632). A
- * person or a schema distribution installs it; opening a `Folder` neither
- * reads nor writes it. The older `epicenter generate` still writes it from a
- * folder's `epicenter.ts` (ADR-0527) until its callers migrate. The portable file has independently optional `tables` and `views`; the CLI
- * checking commands still require declared tables.
+ * The CLI's `query` reads the root file's tables (ADR-0632). A person or a
+ * schema distribution installs it; opening a `Folder` neither reads nor
+ * writes it. The portable file has independently optional `tables` and
+ * `views`; `query` still requires declared tables. An app's contract
+ * replaces it (decision 35): `epicenter check` and `format` take the
+ * contract instead.
  *
  * Each table is a complete object schema. Readers retain its root `$defs`,
  * annotations, and constraints and validate each record against that root.
@@ -199,8 +200,7 @@ export async function readDefinition(
 	if (parsed.error !== null) return parsed;
 	if (parsed.data === undefined)
 		return Err({
-			reason:
-				"it has no 'tables'; check and query require declared table schemas",
+			reason: "it has no 'tables'; query requires declared table schemas",
 		});
 	return Ok({ tables: parsed.data });
 }

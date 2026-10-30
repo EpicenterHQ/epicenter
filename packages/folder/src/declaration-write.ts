@@ -1,11 +1,7 @@
 /** Pure view transforms and section-preserving schema installation. */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FolderStorage } from './boundary.js';
-import {
-	parseDeclarationObject,
-	readDeclaredTables,
-	readTableSchemas,
-} from './declaration.js';
+import { parseDeclarationObject, readDeclaredTables } from './declaration.js';
 import { type SavedView, savedViewProblem } from './declaration-schema.js';
 import { hashBytes } from './hash.js';
 import { parseJsonObject } from './json-object.js';
@@ -160,32 +156,6 @@ export async function importTables(
 			names.set(name.toLowerCase(), name);
 		}
 		return Ok({ ...current, tables });
-	});
-}
-
-/** Generation owns tables and title; unrelated saved sections survive. */
-export function writeGeneratedDeclaration(
-	storage: Pick<FolderStorage, 'read' | 'put'>,
-	text: string,
-) {
-	const generated = parseDeclarationObject(text);
-	if (generated.error !== null) return Promise.resolve(generated);
-	const tables = readTableSchemas(generated.data.tables);
-	if (tables.error !== null) return Promise.resolve(tables);
-	if (tables.data === undefined)
-		return Promise.resolve(
-			Err({ reason: "Generated declaration has no 'tables'" }),
-		);
-	const replacement = {
-		...(generated.data.title === undefined
-			? {}
-			: { title: generated.data.title }),
-		tables: tables.data,
-	};
-	return patchDeclaration(storage, (current) => {
-		const next = { ...current };
-		if (generated.data.title === undefined) delete next.title;
-		return Ok({ ...next, ...replacement });
 	});
 }
 

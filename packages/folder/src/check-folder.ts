@@ -1,24 +1,16 @@
 /**
- * Check a data folder on disk: read it through `readFolder`, the same reading
- * apps use, and sort what it reports into the files to fix and the files that
- * could not be read (ADR-0520). `epicenter check` prints this; `epicenter
- * query` projects the rows that conform and names the rest.
+ * Check a legacy data folder on disk, through its `epicenter.json`: read it
+ * through `readFolder`, the same reading apps use, and sort what it reports
+ * into the files to fix and the files that could not be read (ADR-0520).
+ * `epicenter query` projects the rows that conform and names the rest.
  *
  * Nothing executable is read and nothing is written.
  */
 
-import { statSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { FileError } from './errors.js';
 import type { ProjectedTable } from './projection.js';
 import { type ReadFolderError, readFolder } from './read-folder.js';
-
-/**
- * The authored TypeScript definition `generateDefinition` reads
- * (ADR-0527). `checkFolder` only asks whether it exists; it never runs it.
- */
-export const DEFINITION_SOURCE_PATH = 'epicenter.ts';
 
 /** One finding, located as precisely as the source allows. */
 export type Finding = {
@@ -50,8 +42,6 @@ export type FolderCheck = {
 	invalid: Finding[];
 	/** Files that could not be read at all. */
 	unreadable: Finding[];
-	/** Whether `epicenter.ts` sits beside `epicenter.json`. */
-	hasSource: boolean;
 };
 
 /** The fields of the folder package's read errors that a finding draws on. */
@@ -61,16 +51,6 @@ type ReadError = {
 	reason?: string;
 	issues?: readonly Omit<Finding, 'path'>[];
 };
-
-/** Whether `path` is a file; only that is ever asked of `epicenter.ts` here. */
-function isFile(path: string) {
-	return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false;
-}
-
-/** Whether `dir` holds an `epicenter.ts` to generate its definition from. */
-export function hasDefinitionSource(dir: string) {
-	return isFile(resolve(dir, DEFINITION_SOURCE_PATH));
-}
 
 /**
  * Read the data folder at `dir` and sort what it reports. A folder or
@@ -131,7 +111,6 @@ export async function checkFolder(
 		rows: tables.reduce((sum, table) => sum + table.rows.length, 0),
 		invalid,
 		unreadable,
-		hasSource: hasDefinitionSource(dir),
 	});
 }
 
