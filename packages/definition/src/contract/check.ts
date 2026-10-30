@@ -6,7 +6,7 @@
 import { Ok, type Result } from 'wellcrafted/result';
 import { parseRowSource } from '../note/canonical.js';
 import { type ContractError, compileContract } from './contract.js';
-import { isFilePath } from './templates.js';
+import { isFilePath, isNotePath } from './templates.js';
 
 /** One reason a file does not fit the contract, located like a compiler diagnostic. */
 export type FileIssue = {
@@ -61,7 +61,7 @@ export function checkContract(
 		if (claimed === null) {
 			issues.push({
 				path,
-				message: `No ${path.endsWith('.md') ? 'note' : 'file'} collection of this contract names this path`,
+				message: `No ${isNotePath(path) ? 'note' : 'file'} collection of this contract names this path`,
 			});
 			continue;
 		}

@@ -43,7 +43,6 @@ export {
 } from './merge.js';
 export { type LfsPointer, parsePointer, writePointer } from './pointer.js';
 export {
-	BLOCK_CAP,
 	conflictSibling,
 	type Parties,
 	type Settled,

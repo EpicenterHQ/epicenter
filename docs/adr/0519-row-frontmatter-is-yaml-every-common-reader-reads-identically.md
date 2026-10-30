@@ -69,7 +69,7 @@ Some strings that could be plain, such as `café ☕` or `a: b`, are quoted.
 ## Verification
 
 Current serialization coverage lives in
-[content/canonical.test.ts](../../packages/folder/src/shared/content/canonical.test.ts).
+[note/canonical.test.ts](../../packages/definition/src/note/canonical.test.ts).
 The tests and manual corpus results below record verification at decision time.
 
 `2c2cd06e3125:packages/folder/src/row-text.test.ts` and `canonical.test.ts` pin the format,

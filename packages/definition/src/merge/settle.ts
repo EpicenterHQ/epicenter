@@ -54,24 +54,6 @@ const labelled = (
 	incoming: { ...parties.incoming, version: versionOf(incoming) },
 });
 
-/** The most conflict blocks a merge may leave in a note; past it the merge is refused, whoever wrote the blocks: its writer holds it until some are resolved. */
-export const BLOCK_CAP = 20;
-
-/** One conflict block holding `incoming` whole, after `current`. */
-export function appendBlock(
-	current: string,
-	incoming: string,
-	parties: Parties,
-) {
-	return withBlock(
-		current,
-		block(
-			{ current: '', incoming },
-			labelled(parties, null, current, incoming),
-		),
-	);
-}
-
 /**
  * Settle a blob path (every file that is not a note) by compare-and-swap:
  * `incoming` lands only where `current` is still `base`, the blob its
