@@ -33,13 +33,34 @@ export {
 } from './auth/oauth-registrations.js';
 export {
 	authorizeResourceRequest,
+	type ResourceRefusal,
 	readAccessToken,
 } from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 // Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
 export { createDb, type Db } from './db/create-db.js';
-export type { GitObjects } from './git/objects.js';
-export type { LfsStore } from './lfs/lfs-store.js';
+// Git objects, for a store that implements `GitObjects` (Artifacts on the
+// Worker); the disk store is `@epicenter/server/bun`'s.
+export {
+	type ApplyOutcome,
+	type GitObjects,
+	makeObject,
+	type ObjectKind,
+	parseCommit,
+	parseTree,
+	type RefUpdate,
+	type TreeEntry,
+	treeObject,
+	ZERO_OID,
+} from './git/objects.js';
+export { writePack } from './git/pack.js';
+export { FLUSH, pktLine, readCommandLines } from './git/pkt.js';
+export type { LfsAction, LfsObject, LfsStore } from './lfs/lfs-store.js';
+export {
+	createR2LfsStore,
+	type R2LfsBucket,
+	type R2Presigner,
+} from './lfs/r2-lfs-store.js';
 // Protected mounts: an access token for a resource, and the session cookie for
 // account management on the authorization server's own pages (ADR-0549).
 export {
@@ -50,7 +71,13 @@ export {
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // Better Auth endpoints are mounted by mountAuthRoutes.
 export { mountAuthRoutes } from './routes/auth.js';
-export { type GitHost, mountGitHost } from './routes/git.js';
+export {
+	databaseGitAccess,
+	type GitAccess,
+	type GitHost,
+	mountGitHost,
+	type RepositoryAccess,
+} from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS)

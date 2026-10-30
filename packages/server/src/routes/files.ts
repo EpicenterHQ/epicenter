@@ -237,10 +237,8 @@ async function readText(
 	objects: GitObjects,
 	oid: string,
 ): Promise<string | null> {
-	const found = await objects.read(oid);
-	return found?.kind === 'blob' && found.bytes
-		? decoder.decode(found.bytes)
-		: null;
+	const found = await objects.read(oid, 'blob');
+	return found?.bytes ? decoder.decode(found.bytes) : null;
 }
 
 /**
@@ -604,7 +602,9 @@ export async function listRepositoryFiles(
 	const files = await Promise.all(
 		entries.map(async ({ path, oid }) => {
 			if (!storedWithLfs(path)) return { path, blob: oid };
-			const found = await objects.read(oid, { maxBytes: MAX_POINTER_BYTES });
+			const found = await objects.read(oid, 'blob', {
+				maxBytes: MAX_POINTER_BYTES,
+			});
 			const pointer = found?.bytes ? readPointer(found.bytes) : null;
 			return pointer ? { path, blob: oid, lfs: pointer } : { path, blob: oid };
 		}),
@@ -629,7 +629,7 @@ export async function readRepositoryFile(
 	if (!entry)
 		return json({ error: 'not_found', message: `${p} is not on main` }, 404);
 	if (storedWithLfs(p)) {
-		const found = await objects.read(entry.oid, {
+		const found = await objects.read(entry.oid, 'blob', {
 			maxBytes: MAX_POINTER_BYTES,
 		});
 		const pointer = found?.bytes ? readPointer(found.bytes) : null;

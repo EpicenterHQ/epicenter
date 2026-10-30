@@ -8,7 +8,7 @@
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
-import { readFile, rm } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
@@ -142,7 +142,8 @@ afterAll(async () => {
 });
 
 type LfsAnswer = {
-	actions?: Record<'upload' | 'verify', { href: string }>;
+	authenticated?: boolean;
+	actions?: Record<'upload', { href: string }>;
 };
 
 const sha256 = (bytes: Uint8Array) =>
@@ -173,13 +174,15 @@ function webClient(token: string, namespace: string, name: string) {
 			const [answer] = ((await batch.json()) as { objects: LfsAnswer[] })
 				.objects;
 			if (answer?.actions) {
+				// The server's own route: git lfs must send the remote's credential.
+				expect(answer.authenticated).toBeUndefined();
 				const put = await fetch(answer.actions.upload.href, {
 					method: 'PUT',
 					headers: auth,
 					body: bytes as BodyInit,
 				});
 				expect(put.status).toBe(200);
-				const verify = await fetch(answer.actions.verify.href, {
+				const verify = await fetch(`${repo}/info/lfs/verify`, {
 					method: 'POST',
 					headers: { ...auth, 'content-type': 'application/vnd.git-lfs+json' },
 					body: JSON.stringify(object),
@@ -443,6 +446,41 @@ describe('the file contract on the local server', () => {
 		const hidden = await box.git(dir, ['push', 'origin', 'HEAD:main']);
 		expect(hidden.code).toBe(0);
 	}, 120_000);
+
+	test('a clone that authenticates through a credential helper pushes its LFS objects', async () => {
+		// No extraHeader: git and git lfs ask the helper, as with Epicenter's own.
+		const tokenFile = join(box.root, 'helper-token');
+		await writeFile(tokenFile, member.token);
+		const helper = `!f() { test "$1" = get && printf 'username=x\\npassword=%s\\n' "$(cat '${tokenFile}')"; }; f`;
+		const dir = await box.dir('helper-desktop');
+		const cloned = await box.git(
+			box.root,
+			['-c', `credential.helper=${helper}`, 'clone', '--quiet', web.repo, dir],
+			undefined,
+		);
+		expect(cloned.code).toBe(0);
+		await box.ok(dir, ['config', 'credential.helper', helper]);
+		await box.ok(dir, ['lfs', 'install', '--local']);
+		const audio = randomBytes(60_000);
+		await box.write(dir, {
+			'recordings/helper.webm': audio,
+			'recordings/helper.md': '---\ntitle: Helper\n---\n',
+		});
+		await box.ok(dir, ['add', 'recordings']);
+		await box.ok(dir, [
+			'commit',
+			'--quiet',
+			'-m',
+			'recording through a helper',
+		]);
+		const pushed = await box.git(dir, ['push', 'origin', 'HEAD:main']);
+		expect(pushed.stderr).not.toContain('Authorization error');
+		expect(pushed.code).toBe(0);
+		expect((await web.read('recordings/helper.webm')).lfs).toEqual({
+			oid: sha256(audio),
+			size: audio.length,
+		});
+	}, 60_000);
 
 	test("a member's force-push is refused; the owner's lands and keeps the old main", async () => {
 		// The tip is a capture, which the owner's rewrite then drops.

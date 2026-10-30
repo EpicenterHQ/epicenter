@@ -2,7 +2,7 @@
  * The Git object port (`GitObjects`) that the write translator and the
  * push receiver share, and the object formats both read and write.
  *
- * A backend only stores: it lists refs, reads an object by id, answers
+ * A backend only stores: it lists refs, reads an object by id and kind, answers
  * whether one commit is an ancestor of another, and applies ref updates
  * together with a pack, atomically and only where every ref still holds the
  * value the caller read (compare-and-swap). Every rule (fast-forward, LFS
@@ -38,17 +38,19 @@ export type GitObjects = {
 	/** Every ref and the object it names, hidden refs included. */
 	refs(): Promise<Map<string, string>>;
 	/**
-	 * The object `oid`, or null when it is absent. When its content is longer
-	 * than `maxBytes`, only its kind and size come back.
+	 * The `kind` object `oid`, or null when it is absent or of another kind.
+	 * Callers always know the kind they follow (a commit's tree, a tree's
+	 * entry), and a store that reads by kind (Artifacts) needs it. When the
+	 * content is longer than `maxBytes`, only its size comes back.
+	 *
+	 * A commit's bytes are enough to parse (`parseCommit`): a store may
+	 * rebuild them from parsed fields, so they need not hash to `oid`.
 	 */
 	read(
 		oid: string,
+		kind: ObjectKind,
 		options?: { maxBytes?: number },
-	): Promise<{
-		kind: ObjectKind;
-		size: number;
-		bytes: Uint8Array | null;
-	} | null>;
+	): Promise<{ size: number; bytes: Uint8Array | null } | null>;
 	/** Whether `ancestor` is `descendant` or reachable from it. */
 	isAncestor(ancestor: string, descendant: string): Promise<boolean>;
 	/**
@@ -164,10 +166,8 @@ export async function readCommit(
 	objects: GitObjects,
 	oid: string,
 ): Promise<Commit | null> {
-	const found = await objects.read(oid);
-	return found?.kind === 'commit' && found.bytes
-		? parseCommit(found.bytes)
-		: null;
+	const found = await objects.read(oid, 'commit');
+	return found?.bytes ? parseCommit(found.bytes) : null;
 }
 
 /** Read a tree through `objects`, or null when it is absent or not a tree. */
@@ -175,6 +175,6 @@ export async function readTree(
 	objects: GitObjects,
 	oid: string,
 ): Promise<TreeEntry[] | null> {
-	const found = await objects.read(oid);
-	return found?.kind === 'tree' && found.bytes ? parseTree(found.bytes) : null;
+	const found = await objects.read(oid, 'tree');
+	return found?.bytes ? parseTree(found.bytes) : null;
 }

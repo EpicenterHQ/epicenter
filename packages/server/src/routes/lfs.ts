@@ -11,14 +11,20 @@
  * *    locks...          404: locking is not offered
  * ```
  *
- * The batch's actions point back at these routes, carrying no credential,
- * and leave `authenticated` unset: that is what tells `git lfs` to find a
- * credential for the action's URL (its credential helper, or
- * `http.<url>.extraHeader`). `authenticated: true` would tell it none is
- * needed, and it would retry the refused request without one forever. A
- * browser sends `account.fetch`'s. On R2 (phase 7) the actions become
- * presigned URLs, which carry their own authorization and should say
- * `authenticated: true`.
+ * The batch's actions point back at these routes, carrying no credential
+ * and not marked `authenticated`, so `git lfs` sends the remote's own (its
+ * credential helper, or `http.<url>.extraHeader`), and a browser sends
+ * `account.fetch`'s. Marked `authenticated`, they would tell `git lfs` no
+ * credential is needed, and it would retry the refused request without one
+ * forever. A store that presigns (R2) gets presigned upload and
+ * download actions instead, marked `authenticated` so no credential is sent
+ * to them; the client sends their headers as given.
+ *
+ * An upload has no `verify` action. Every store keeps only verified bytes
+ * (the disk store hashes as it writes; R2 refuses bytes other than the
+ * signed checksum), and the receiver and the translator check the object
+ * again before they admit its pointer, so there is nothing to confirm.
+ * `POST verify` stays for a client that wants to know before it writes.
  *
  * `git.ts` authorizes every request and resolves the repository first.
  */
@@ -84,26 +90,34 @@ export async function answerBatch(
 			const { oid, size } = object;
 			const stored =
 				repositoryId !== null && (await store.verified(repositoryId, object));
-			const href = `${remote}/info/lfs/objects/${oid}`;
+			const presigned = store.presign !== undefined && repositoryId !== null;
+			const action = async (direction: 'upload' | 'download') => {
+				if (!presigned)
+					return {
+						href: `${remote}/info/lfs/objects/${oid}`,
+						expires_in: EXPIRES_IN,
+					};
+				const { href, header, expiresIn } = await (
+					store.presign as NonNullable<LfsStore['presign']>
+				)(repositoryId, object, direction);
+				return { href, header, expires_in: expiresIn };
+			};
+			const authenticated = presigned ? { authenticated: true } : {};
 			if (operation === 'upload')
 				return stored
 					? { oid, size }
 					: {
 							oid,
 							size,
-							actions: {
-								upload: { href, expires_in: EXPIRES_IN },
-								verify: {
-									href: `${remote}/info/lfs/verify`,
-									expires_in: EXPIRES_IN,
-								},
-							},
+							...authenticated,
+							actions: { upload: await action('upload') },
 						};
 			return stored
 				? {
 						oid,
 						size,
-						actions: { download: { href, expires_in: EXPIRES_IN } },
+						...authenticated,
+						actions: { download: await action('download') },
 					}
 				: { oid, size, error: { code: 404, message: 'object not found' } };
 		}),

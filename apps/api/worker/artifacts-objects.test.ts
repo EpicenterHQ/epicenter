@@ -1,0 +1,326 @@
+/**
+ * The Artifacts `GitObjects` against a scripted repository handle and a
+ * stubbed `fetch`, which stand in for the binding and Artifacts' Git
+ * endpoint (neither has a local emulation). The deployed spike exercises
+ * the real ones (spike-scratch/deployed-spike-8).
+ */
+import { afterEach, describe, expect, test } from 'bun:test';
+import {
+	FLUSH,
+	makeObject,
+	parseCommit,
+	pktLine,
+	readCommandLines,
+	treeObject,
+	ZERO_OID,
+} from '@epicenter/server';
+import {
+	type ArtifactsCommit,
+	type ArtifactsReader,
+	type ArtifactsTreeEntry,
+	createArtifactsObjects,
+	MAX_WALK,
+} from './artifacts-objects.js';
+import { hideRefs } from './git-repositories.js';
+
+const realFetch = globalThis.fetch;
+afterEach(() => {
+	globalThis.fetch = realFetch;
+});
+
+const REMOTE = 'https://acct.artifacts.cloudflare.net/git/ns/repo1.git';
+const A = 'a'.repeat(40);
+const B = 'b'.repeat(40);
+const C = 'c'.repeat(40);
+
+const pkts = (...parts: (string | null)[]) =>
+	new Blob(parts.map((p) => (p === null ? FLUSH : pktLine(p))) as BlobPart[]);
+
+function commit(
+	hash: string,
+	parents: string[],
+	message = 'm',
+): ArtifactsCommit {
+	return {
+		hash,
+		treeHash: 'f'.repeat(40),
+		parents,
+		message,
+		author: { name: 'Ada', email: 'ada@example.invalid' },
+		committer: { name: 'Ada', email: 'ada@example.invalid' },
+		authoredAt: 1793371154,
+		committedAt: 1793371155,
+	};
+}
+
+function handle({
+	commits = new Map<string, ArtifactsCommit>(),
+	trees = new Map<string, ArtifactsTreeEntry[]>(),
+	blobs = new Map<string, Uint8Array>(),
+} = {}) {
+	const reads: string[] = [];
+	const reader: ArtifactsReader = {
+		async readCommit(oid) {
+			reads.push(`commit ${oid}`);
+			const found = commits.get(oid);
+			if (!found)
+				throw Object.assign(new Error('object not found'), {
+					code: 'NOT_FOUND',
+				});
+			return found;
+		},
+		async readTree(oid) {
+			reads.push(`tree ${oid}`);
+			return trees.get(oid) ?? null;
+		},
+		async readBlob(oid) {
+			reads.push(`blob ${oid}`);
+			const bytes = blobs.get(oid);
+			return bytes
+				? { size: bytes.length, arrayBuffer: async () => bytes.slice().buffer }
+				: null;
+		},
+	};
+	return { reader, reads };
+}
+
+function objectsOver(reader: ArtifactsReader, refused: string[] = []) {
+	return createArtifactsObjects({
+		remote: REMOTE,
+		token: () => ({
+			value: Promise.resolve('art_token'),
+			refused: () => refused.push('refused'),
+		}),
+		repository: async () => reader,
+	});
+}
+
+describe('Artifacts GitObjects', () => {
+	test('refs come from the receive-pack advertisement, hidden refs included', async () => {
+		const requests: [string, string | null][] = [];
+		globalThis.fetch = (async (
+			input: RequestInfo | URL,
+			init?: RequestInit,
+		) => {
+			requests.push([
+				String(input),
+				new Headers(init?.headers).get('authorization'),
+			]);
+			return new Response(
+				pkts(
+					'# service=git-receive-pack\n',
+					null,
+					`${A} refs/heads/main\0report-status atomic ofs-delta\n`,
+					`${B} refs/epicenter/captures/cap-1\n`,
+					null,
+				),
+			);
+		}) as unknown as typeof fetch;
+		const refs = await objectsOver(handle().reader).refs();
+		expect([...refs]).toEqual([
+			['refs/heads/main', A],
+			['refs/epicenter/captures/cap-1', B],
+		]);
+		expect(requests).toEqual([
+			[
+				`${REMOTE}/info/refs?service=git-receive-pack`,
+				`Basic ${btoa('x:art_token')}`,
+			],
+		]);
+	});
+
+	test('a tree is rebuilt byte for byte, so it hashes to its id', async () => {
+		const blob = makeObject('blob', 'hello\n');
+		const sub = treeObject([{ mode: '100644', name: 'a.md', oid: blob.oid }]);
+		const root = treeObject([
+			{ mode: '40000', name: 'notes', oid: sub.oid },
+			{ mode: '100644', name: 'notes.md', oid: blob.oid },
+			{ mode: '100755', name: 'run', oid: blob.oid },
+		]);
+		const { reader } = handle({
+			trees: new Map([
+				[
+					root.oid,
+					[
+						// Artifacts' order and mode spellings, numeric included.
+						{ name: 'run', mode: '100755', hash: blob.oid },
+						{ name: 'notes.md', mode: 0o100644, hash: blob.oid },
+						{ name: 'notes', mode: '040000', hash: sub.oid, type: 'tree' },
+					],
+				],
+			]),
+		});
+		const read = await objectsOver(reader).read(root.oid, 'tree');
+		expect(read?.bytes).toEqual(root.bytes);
+		expect(makeObject('tree', read?.bytes as Uint8Array).oid).toBe(root.oid);
+	});
+
+	test('a commit is rebuilt from its fields, enough to parse', async () => {
+		const message =
+			'Capture cap-1\n\nEpicenter-Path: a.md\nEpicenter-Capture: cap-1';
+		const { reader } = handle({
+			commits: new Map([[A, commit(A, [B, C], message)]]),
+		});
+		const objects = objectsOver(reader);
+		const read = await objects.read(A, 'commit');
+		expect(parseCommit(read?.bytes as Uint8Array)).toEqual({
+			tree: 'f'.repeat(40),
+			parents: [B, C],
+			message,
+		});
+		expect(await objects.read(B, 'commit')).toBeNull();
+	});
+
+	test('a blob over maxBytes comes back with its size only', async () => {
+		const bytes = new TextEncoder().encode('x'.repeat(600));
+		const { reader } = handle({ blobs: new Map([[A, bytes]]) });
+		const objects = objectsOver(reader);
+		expect(await objects.read(A, 'blob', { maxBytes: 512 })).toEqual({
+			size: 600,
+			bytes: null,
+		});
+		expect((await objects.read(A, 'blob'))?.bytes).toEqual(bytes);
+		expect(await objects.read(B, 'blob')).toBeNull();
+	});
+
+	test('apply sends one atomic receive-pack and reads its report', async () => {
+		let sent = new Uint8Array();
+		let reply = pkts(
+			'unpack ok\n',
+			`ok refs/heads/main\n`,
+			'ok refs/epicenter/captures/c\n',
+			null,
+		);
+		globalThis.fetch = (async (
+			_input: RequestInfo | URL,
+			init?: RequestInit,
+		) => {
+			sent = new Uint8Array(await new Response(init?.body).arrayBuffer());
+			return new Response(reply);
+		}) as unknown as typeof fetch;
+		const objects = objectsOver(handle().reader);
+		const updates = [
+			{ ref: 'refs/heads/main', old: A, next: B },
+			{ ref: 'refs/epicenter/captures/c', old: ZERO_OID, next: B },
+		];
+		expect(await objects.apply(updates, null)).toEqual({ ok: true });
+		const { lines, rest } = readCommandLines(sent);
+		expect(lines).toEqual([
+			`${A} ${B} refs/heads/main\0report-status atomic agent=epicenter\n`,
+			`${ZERO_OID} ${B} refs/epicenter/captures/c\n`,
+		]);
+		// No pack given: an empty one, which receive-pack needs for a non-delete.
+		expect(new TextDecoder().decode(rest.subarray(0, 4))).toBe('PACK');
+
+		reply = pkts(
+			'unpack ok\n',
+			'ng refs/heads/main stale ref\n',
+			'ng refs/epicenter/captures/c stale ref\n',
+			null,
+		);
+		expect(await objects.apply(updates, null)).toEqual({
+			ok: false,
+			stale: true,
+			reason:
+				'ng refs/heads/main stale ref; ng refs/epicenter/captures/c stale ref',
+		});
+		reply = pkts('unpack index-pack failed\n', null);
+		expect(await objects.apply(updates, null)).toMatchObject({
+			ok: false,
+			stale: false,
+		});
+	});
+
+	test('a refused token is dropped, and the request fails', async () => {
+		globalThis.fetch = (async () =>
+			new Response('no', { status: 401 })) as unknown as typeof fetch;
+		const refused: string[] = [];
+		await expect(objectsOver(handle().reader, refused).refs()).rejects.toThrow(
+			'Artifacts answered 401',
+		);
+		expect(refused).toEqual(['refused']);
+	});
+
+	test('isAncestor walks parents, merges included, and stops at MAX_WALK', async () => {
+		// D -> (C, B'), C -> A, B' -> A: a merge over A.
+		const D = 'd'.repeat(40);
+		const B2 = 'e'.repeat(40);
+		const commits = new Map([
+			[D, commit(D, [C, B2])],
+			[C, commit(C, [A])],
+			[B2, commit(B2, [A])],
+			[A, commit(A, [])],
+		]);
+		const objects = objectsOver(handle({ commits }).reader);
+		expect(await objects.isAncestor(A, D)).toBe(true);
+		expect(await objects.isAncestor(B2, D)).toBe(true);
+		expect(await objects.isAncestor(D, A)).toBe(false);
+		expect(await objects.isAncestor(D, D)).toBe(true);
+
+		const chain = new Map<string, ArtifactsCommit>();
+		const id = (n: number) => n.toString(16).padStart(40, '0');
+		for (let n = 1; n <= MAX_WALK + 5; n++)
+			chain.set(id(n), commit(id(n), n === 1 ? [] : [id(n - 1)]));
+		const long = handle({ commits: chain });
+		const deep = objectsOver(long.reader);
+		expect(await deep.isAncestor(id(MAX_WALK - 10), id(MAX_WALK + 5))).toBe(
+			true,
+		);
+		expect(await deep.isAncestor(id(1), id(MAX_WALK + 5))).toBe(false);
+		expect(long.reads.length).toBeLessThanOrEqual(MAX_WALK + 15 + MAX_WALK);
+	});
+});
+
+describe('hideRefs', () => {
+	test('drops receipt refs from an upload-pack advertisement and keeps the capabilities', async () => {
+		const hidden = await hideRefs(
+			new Response(
+				pkts(
+					'# service=git-upload-pack\n',
+					null,
+					`${A} HEAD\0multi_ack symref=HEAD:refs/heads/main\n`,
+					`${B} refs/epicenter/captures/cap-1\n`,
+					`${A} refs/epicenter/replaced/20261031-000000000Z\n`,
+					`${A} refs/heads/main\n`,
+					null,
+				),
+				{
+					headers: {
+						'content-type': 'application/x-git-upload-pack-advertisement',
+					},
+				},
+			),
+		);
+		const body = new Uint8Array(await hidden.arrayBuffer());
+		const service = readCommandLines(body);
+		expect(service.lines).toEqual(['# service=git-upload-pack\n']);
+		expect(readCommandLines(service.rest).lines).toEqual([
+			`${A} HEAD\0multi_ack symref=HEAD:refs/heads/main\n`,
+			`${A} refs/epicenter/replaced/20261031-000000000Z\n`,
+			`${A} refs/heads/main\n`,
+		]);
+		expect(hidden.headers.get('content-type')).toBe(
+			'application/x-git-upload-pack-advertisement',
+		);
+	});
+
+	test('when the first ref is hidden, the capabilities move to the next', async () => {
+		const hidden = await hideRefs(
+			new Response(
+				pkts(
+					'# service=git-upload-pack\n',
+					null,
+					`${B} refs/epicenter/captures/cap-1\0multi_ack\n`,
+					`${A} refs/heads/main\n`,
+					null,
+				),
+			),
+		);
+		const rest = readCommandLines(
+			new Uint8Array(await hidden.arrayBuffer()),
+		).rest;
+		expect(readCommandLines(rest).lines).toEqual([
+			`${A} refs/heads/main\0multi_ack\n`,
+		]);
+	});
+});

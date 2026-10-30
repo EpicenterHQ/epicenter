@@ -41,6 +41,7 @@ import {
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
 import { createArtifactsGitHost } from './git-repositories.js';
+import { type LfsBindings, resolveR2Lfs } from './lfs-store.js';
 import { buildFirstPartyClients } from './oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
 
@@ -158,7 +159,10 @@ const accountSession = every(cloudContext, requireSessionCookie());
 // the access token and the namespace membership (`authorizeResourceRequest`),
 // and the listing from a Git-audience token, so they take no guard here.
 // Unmetered. The local dev launcher removes the Artifacts binding and required account secret, so the
-// store resolves to null and hosted Git answers 503.
+// store resolves to null and hosted Git answers 503. Pushes, web writes and
+// LFS go through the receiver and the translator; LFS objects need an R2
+// bucket (`resolveR2Lfs`), which this configuration does not bind yet, so the
+// LFS routes answer 503 and a push with a non-note file is refused.
 const resolveGitHost = (env: ServerBindings) => {
 	const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
 		env as Partial<Cloudflare.Env>;
@@ -172,6 +176,7 @@ const resolveGitHost = (env: ServerBindings) => {
 mountGitHost(app, {
 	setup: cloudContext,
 	resolveHost: resolveGitHost,
+	resolveLfs: (env) => resolveR2Lfs(env as LfsBindings),
 });
 mountInferenceApp(app, {
 	auth: resource('api', 'ai'),
