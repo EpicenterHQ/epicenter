@@ -4,9 +4,12 @@
  * device's captures to it (decision 12).
  *
  * `openRemote(contract, { account })` reaches `<git>/~/<contract name>.git`,
- * the signed-in person's own repository for the app (decision 46). Every
- * request goes through `account.fetch`, so the remote stops working when the
- * account is retired; open a new one for a new account (decision 10).
+ * the signed-in person's own repository for the app (decision 46);
+ * `{ repository: '<owner>/<name>' }` reaches another person's, which they
+ * shared with this account (a `read` grant reads, a `write` grant also
+ * writes). Every request goes through `account.fetch`, so the remote stops
+ * working when the account is retired; open a new one for a new account
+ * (decision 10).
  *
  * @example
  * ```ts
@@ -15,6 +18,7 @@
  *
  * const device = openDevice(recorder);
  * const remote = openRemote(recorder, { account });
+ * const shared = openRemote(recorder, { account, repository: 'k3x9m2p7q1zt/recorder' });
  * using uploader = startUploading(device, remote);
  *
  * const listed = await remote.recordings.list();
@@ -37,15 +41,20 @@ export {
 export { type RemoteAccount, RemoteError } from './remote/wire.js';
 
 /**
- * The typed client of `contract` over the repository `account` (an
- * `@epicenter/auth` `Account`) reaches. A
- * version is the Git blob id on `main`. A server that cannot be reached is
+ * The typed client of `contract` over a repository `account` (an
+ * `@epicenter/auth` `Account`) reaches: `repository`, `<owner>/<name>` where
+ * `<owner>` is a person's handle (`~` for the account's own), by default
+ * `~/<contract name>`. A version is the Git blob id on `main`. A server that
+ * cannot be reached, or that refuses this account the repository, is
  * `Unavailable` on each call, never a throw; a contract that is not well
- * formed throws here, at once.
+ * formed, or a `repository` that names none, throws here, at once.
  */
 export function openRemote<TContract extends Contract>(
 	contract: TContract,
-	{ account }: { account: RemoteAccount },
+	{
+		account,
+		repository,
+	}: { account: RemoteAccount; repository?: `${string}/${string}` },
 ): Client<TContract> {
-	return createRemoteClient(contract, account);
+	return createRemoteClient(contract, account, repository);
 }

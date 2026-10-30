@@ -215,6 +215,9 @@ async function signIn(label: string) {
 	};
 	return {
 		account,
+		/** The person's handle: their personal namespace's id. */
+		handle: person.personal,
+		token,
 		sent,
 		/** The requests whose `METHOD url` matches `pattern`. */
 		requests: (pattern: RegExp) =>
@@ -547,6 +550,65 @@ describe('upload', () => {
 });
 
 describe('the remote client', () => {
+	test("another person's repository is reached under their handle, as far as their grant goes", async () => {
+		const alice = await signIn('shared-owner');
+		const bob = await signIn('shared-guest');
+		const id = timeId();
+		expectOk(
+			await openRemote(recorder, { account: alice.account }).recordings.create({
+				id,
+				title: 'For Bob',
+			}),
+		);
+		const theirs = openRemote(recorder, {
+			account: bob.account,
+			repository: `${alice.handle}/recorder`,
+		});
+		expect(expectErr(await theirs.recordings.list())).toMatchObject({
+			name: 'Unavailable',
+			cause: { name: 'Refused', status: 403 },
+		});
+
+		const granted = await fetch(
+			`${origin}/api/repos/~/recorder/grants/${bob.handle}`,
+			{
+				method: 'PUT',
+				headers: {
+					authorization: `Bearer ${alice.token}`,
+					'content-type': 'application/json',
+				},
+				body: JSON.stringify({ level: 'read' }),
+			},
+		);
+		expect(granted.status).toBe(200);
+		const note = expectOk(await theirs.recordings.get({ id }));
+		expect(note.title).toBe('For Bob');
+		expect(
+			expectErr(
+				await theirs.recordings.update(
+					{ id },
+					{ title: 'From Bob' },
+					{ over: note.version },
+				),
+			),
+		).toMatchObject({
+			name: 'Unavailable',
+			cause: { name: 'Refused', status: 403 },
+		});
+		// The default is still Bob's own repository.
+		expect(
+			expectOk(
+				await openRemote(recorder, { account: bob.account }).recordings.list(),
+			).items,
+		).toEqual([]);
+		expect(() =>
+			openRemote(recorder, {
+				account: bob.account,
+				repository: 'Alice/recorder',
+			}),
+		).toThrow('names no repository');
+	}, 30_000);
+
 	test('a write over a version the server no longer holds is a Conflict, and nothing lands', async () => {
 		const person = await signIn('stale');
 		const remote = openRemote(recorder, { account: person.account });

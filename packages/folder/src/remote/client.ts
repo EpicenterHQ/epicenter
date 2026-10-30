@@ -21,6 +21,11 @@
  * note, or for a file `Occupied` or `Conflict`, since its bytes are not at
  * the path.
  */
+
+import {
+	isNamespaceId,
+	isRepositoryName,
+} from '@epicenter/constants/repositories';
 import {
 	type Client,
 	ClientError,
@@ -77,16 +82,28 @@ export function remoteParts(remote: object): RemoteParts {
 }
 
 /**
- * The client of `contract` over the repository `account` reaches. A
- * contract that is not well formed throws.
+ * The client of `contract` over `repository` (`<owner>/<name>`, by default
+ * `~/<contract name>`) as `account` reaches it. A contract that is not well
+ * formed, or a `repository` that names none, throws.
  */
 export function createRemoteClient<TContract extends Contract>(
 	contract: TContract,
 	account: RemoteAccount,
+	repository?: string,
 ): Client<TContract> {
 	const { data: compiled, error } = compileContract(contract);
 	if (error !== null) throw new Error(error.message, { cause: error });
-	const wire = createWire(account, compiled.name);
+	const path = repository ?? `~/${compiled.name}`;
+	const [owner = '', name = '', extra] = path.split('/');
+	if (
+		extra !== undefined ||
+		(owner !== '~' && !isNamespaceId(owner)) ||
+		!isRepositoryName(name)
+	)
+		throw new Error(
+			`'${path}' names no repository: use <owner>/<name>, where <owner> is a person's handle or ~`,
+		);
+	const wire = createWire(account, path);
 	const clients: Record<string, unknown> = {};
 	for (const collection of compiled.collections)
 		clients[collection.name] =

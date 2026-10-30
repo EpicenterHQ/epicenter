@@ -80,6 +80,20 @@ describe('classifyPush', () => {
 		).toBe('moved');
 	});
 
+	test('a remote that refuses this account the push stops the round: the grant, not time, must change', () => {
+		expect(
+			classifyPush(
+				"fatal: unable to access 'https://git.epicenter.so/k3x9m2p7q1zt/notes.git/': The requested URL returned error: 403",
+			),
+		).toBe('refused');
+		// A 403 named only in a path is not one.
+		expect(
+			classifyPush(
+				'remote: notes/The requested URL returned error: 403.md\nfatal: the remote end hung up unexpectedly',
+			),
+		).toBe('failed');
+	});
+
 	test('anything else, such as the network, runs again later', () => {
 		expect(
 			classifyPush(

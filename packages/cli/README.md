@@ -53,6 +53,8 @@ The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
 | `epicenter forget [<dir>]` | built | `src/sync/setup.ts` |
 | `epicenter merge-driver <base> <ours> <theirs> [<path>]` | built, hidden | `src/sync/merge-driver.ts` over `settle` in `@epicenter/definition/merge` |
 | `epicenter repos` | built | `src/repository-commands.ts` |
+| `epicenter share <owner>/<name> \| <dir> [<handle>] [--read \| --write]` | built | `src/repository-commands.ts` |
+| `epicenter unshare <owner>/<name> \| <dir> <handle>` | built | `src/repository-commands.ts` |
 | `epicenter auth login` | built | `src/auth.ts` |
 | `epicenter auth logout` | built | `src/auth.ts` |
 | `epicenter auth status` | built | `src/auth.ts` |
@@ -150,8 +152,20 @@ owner's 12-character id (`epicenter repos` lists them).
 - `epicenter repos` lists the repositories of every namespace the sign-in may
   reach, the personal one first. With `--json`:
   `{"namespaces": [{"id", "title", "personal", "role", "repositories":
-  [{"id", "name", "url"}]}]}`.
+  [{"id", "name", "url"}]}]}`. Your personal namespace's id is your handle.
+- `epicenter share <repository> <handle> --read|--write` lets the person
+  whose handle that is read, or also push forward and write from the web, one
+  of your repositories; they clone it as `<your handle>/<name>`. Only the
+  owner rewrites `main` or shares it on. Without `<handle>` it lists the
+  grants; `epicenter unshare <repository> <handle>` revokes one, refusing
+  their next fetch and push without recalling their clone. `<repository>` is
+  `<owner>/<name>`, `'~/<name>'`, or a folder cloned from it.
+- A fetch or push the server refuses this account (HTTP 403: a read-only
+  grant pushing, or a revoked one) stops `sync` with exit 2 rather than
+  asking for another run.
 
+`grants.postgres.test.ts` runs sharing between two people, each on a machine
+of their own, with a web client (`openRemote`) beside each.
 `hosted-git.postgres.test.ts` runs these against the real server, and a
 plain `git` signing in through `epicenter auth git-credential`; it seeds the processes'
 in-memory keychain with a signed-in grant through `EPICENTER_TEST_SECRETS`'s

@@ -1,14 +1,15 @@
 /**
  * The one check every resource runs on an access token (ADR-0549): one SQL
  * statement over the token's SHA-256 hash that decides revocation, expiry,
- * audience, scope, grant target, membership, and, for a grant tied to a
- * browser session, that session's life. Nothing is cached, so a revocation or
- * a removed member takes effect on the very next request.
+ * audience, scope, grant target, membership or a grant on the repository,
+ * and, for a grant tied to a browser session, that session's life. Nothing
+ * is cached, so a revocation, a removed member, or a revoked repository
+ * grant takes effect on the very next request.
  */
 import { sql } from 'drizzle-orm';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { Db } from '../db/create-db.js';
-import type { NamespaceRole } from '../namespace-roles.js';
+import type { RepositoryRole } from '../namespace-roles.js';
 import {
 	hashPrefixedToken,
 	type OAuthScope,
@@ -18,7 +19,11 @@ import {
 /** Who the token acts for in the requested namespace. */
 export type ResourceAccess = {
 	accountId: string;
-	role: NamespaceRole;
+	/**
+	 * The account's role: from membership in the namespace, or, when it is
+	 * not a member, from its grant on the named repository.
+	 */
+	role: RepositoryRole;
 	clientId: string;
 	/**
 	 * The namespace the role is in: the requested one, or, when the request
@@ -103,7 +108,7 @@ type AccessRow = {
 	has_audience: boolean;
 	has_scope: boolean;
 	in_target: boolean;
-	role: NamespaceRole | null;
+	role: RepositoryRole | null;
 	namespace_id: string;
 	repository_id: string | null;
 	repository_name: string | null;
@@ -114,13 +119,18 @@ type AccessRow = {
  * the refusal to send. When the request names a `repository`, the same
  * statement resolves `<namespaceId>/<repository>` through `repository`, then
  * `repository_alias`; a repository that has moved is checked against the
- * namespace it lives in now, never the one in the old URL.
+ * namespace it lives in now, never the one in the old URL. An account that
+ * is not a member of that namespace takes its role from a grant on the
+ * repository (`reader` or `writer`); a grant names an existing repository,
+ * so it never creates one. A grant's target (`*`, or `ns:<id>`) applies to
+ * the repository's namespace like a membership's: a token granted for one
+ * namespace reaches no repository shared from another.
  *
  * - 401 `invalid_token` for a missing, unknown, expired, or revoked token, a
  *   token whose approving browser session ended, or another audience's token;
  * - 403 `insufficient_scope` when the token lacks `scope`;
- * - 403 `forbidden` when the namespace is outside the grant's target or the
- *   account is not a member of it.
+ * - 403 `forbidden` when the namespace is outside the grant's target, or the
+ *   account is neither a member of it nor granted the repository.
  */
 export async function authorizeResourceRequest(
 	db: Db,
@@ -171,7 +181,10 @@ export async function authorizeResourceRequest(
 		       ${audience} = any(t.resources) as has_audience,
 		       ${scope} = any(t.scopes) as has_scope,
 		       coalesce(t.reference_id in ('*', 'ns:' || coalesce(n.namespace_id, ${namespaceId})), false) as in_target,
-		       m.role,
+		       coalesce(
+		         m.role,
+		         case g.level when 'write' then 'writer' when 'read' then 'reader' end
+		       ) as role,
 		       coalesce(n.namespace_id, ${namespaceId}) as namespace_id,
 		       n.id as repository_id,
 		       n.name as repository_name
@@ -180,6 +193,9 @@ export async function authorizeResourceRequest(
 		left join namespace_member m
 		       on m.account_id = t.user_id
 		      and m.namespace_id = coalesce(n.namespace_id, ${namespaceId})
+		left join repository_grant g
+		       on g.repository_id = n.id
+		      and g.account_id = t.user_id
 		left join session s on s.id = t.session_id
 		where t.token = ${hash}
 		  and t.revoked is null
@@ -206,7 +222,7 @@ export async function authorizeResourceRequest(
 			body: {
 				error: 'forbidden',
 				error_description: row.in_target
-					? 'This account is not a member of that namespace.'
+					? 'This account is not a member of that namespace, and that repository is not shared with it.'
 					: "That namespace is outside this grant's folders.",
 			},
 		});

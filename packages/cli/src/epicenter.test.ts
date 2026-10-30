@@ -437,6 +437,8 @@ test('--help lists every command but send and install-command, and --json descri
 		'clone',
 		'forget',
 		'repos',
+		'share',
+		'unshare',
 		'auth login',
 		'auth logout',
 		'auth status',

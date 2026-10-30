@@ -149,6 +149,22 @@ export const COMMANDS: readonly CommandSpec[] = [
 		summary: "the caller's repositories",
 	},
 	{
+		path: ['share'],
+		args: '<owner>/<name> | <dir> [<handle>]',
+		minArgs: 1,
+		maxArgs: 2,
+		options: [{ name: 'read' }, { name: 'write' }],
+		summary:
+			'let another person read (--read) or also write (--write) your repository, or list who may',
+	},
+	{
+		path: ['unshare'],
+		args: '<owner>/<name> | <dir> <handle>',
+		minArgs: 2,
+		maxArgs: 2,
+		summary: "revoke a person's access to your repository",
+	},
+	{
 		path: ['auth', 'login'],
 		args: '',
 		minArgs: 0,
