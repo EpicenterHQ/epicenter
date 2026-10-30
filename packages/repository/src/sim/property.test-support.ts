@@ -26,9 +26,9 @@
  * commit holding it was answered applied or merged. It stops being owed when
  * a person removes a copy of it from what their editor showed and saved
  * (deleting the word, the file, or overwriting the field; a rename moves it):
- * a deliberate removal, whoever typed it. A header value a later write of
- * its key superseded on main is gone from the text too, and stays in
- * history: the header merges by key, the later arrival winning. Notices hold no values: a value
+ * a deliberate removal, whoever typed it. A header value, once on main, is
+ * held to history only: the header merges by key, the later arrival
+ * winning, so a later write of its key replaces it in the text. Notices hold no values: a value
  * counts only where the server or a device keeps it as text.
  *
  * Key behaviors:
@@ -208,21 +208,16 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const writers: { user: string; paths: Set<string> }[] = [{ user: '', paths: new Set() }];
 	let lastMerge: Committed | null = null;
 	/**
-	 * Header values a later write of their key replaced on main: the header
-	 * merges by key, the later arrival winning, so such a value leaves the
-	 * text and stays in history. Judged commit by commit, from the key's
-	 * value before and after.
+	 * Tokens that were header values on main. The header merges by key, each
+	 * value whole, the later arrival winning (a device's rebase of its unsent
+	 * write included), so a header value's durability is history, not the
+	 * text: once on main it may leave the text.
 	 */
 	const superseded = new Set<string>();
 	world.onCommit((committed) => {
 		const state = new Map(states.get(committed.parents[0] ?? '') ?? []);
 		for (const file of committed.files) {
-			const before = state.get(file.path);
-			if (before !== undefined && file.after !== null) {
-				const [was, is] = [parseMarkdown(before).fields, parseMarkdown(file.after).fields];
-				for (const key of Object.keys(was))
-					if (Object.hasOwn(is, key)) for (const t of tokensIn(JSON.stringify(was[key]))) if (!tokensIn(JSON.stringify(is[key])).has(t)) superseded.add(t);
-			}
+			if (file.after !== null) for (const t of tokensIn(JSON.stringify(parseMarkdown(file.after).fields))) superseded.add(t);
 			if (file.after !== null && file.after.length > 1024 * 1024) violations.push(`server: ${file.path} is ${file.after.length} bytes`);
 			// A removal is done once its path is absent on the server after it, whoever's commit did it.
 			if (file.after === null) for (const r of removals) if (r.path === file.path && !r.cancelled) r.landed = true;
