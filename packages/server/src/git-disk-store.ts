@@ -259,8 +259,11 @@ export function createDiskObjects({
 			}
 			return refs;
 		},
-		read(oid, options) {
-			return reader.read(oid, options?.maxBytes);
+		async read(oid, kind, options) {
+			const found = await reader.read(oid, options?.maxBytes);
+			return found?.kind === kind
+				? { size: found.size, bytes: found.bytes }
+				: null;
 		},
 		async isAncestor(ancestor, descendant) {
 			if (ancestor === descendant) return true;

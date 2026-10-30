@@ -29,6 +29,7 @@ import { MAX_POINTER_BYTES, readPointer } from '../git/lfs-rule.js';
 import {
 	type GitObjects,
 	MAIN,
+	type ObjectKind,
 	type PackObject,
 	parseCommit,
 	parseTree,
@@ -93,18 +94,23 @@ function report(ref: string, outcome: string, sideBand: boolean): Response {
 
 /** Reads an object from the pushed pack first, then from the store. */
 function objectSource(objects: GitObjects, pushed: Map<string, PackObject>) {
-	return async (oid: string, maxBytes?: number) => {
+	return async (oid: string, kind: ObjectKind, maxBytes?: number) => {
 		const inPack = pushed.get(oid);
 		if (inPack)
-			return {
-				kind: inPack.kind,
-				size: inPack.bytes.length,
-				bytes:
-					maxBytes !== undefined && inPack.bytes.length > maxBytes
-						? null
-						: inPack.bytes,
-			};
-		return objects.read(oid, maxBytes === undefined ? undefined : { maxBytes });
+			return inPack.kind !== kind
+				? null
+				: {
+						size: inPack.bytes.length,
+						bytes:
+							maxBytes !== undefined && inPack.bytes.length > maxBytes
+								? null
+								: inPack.bytes,
+					};
+		return objects.read(
+			oid,
+			kind,
+			maxBytes === undefined ? undefined : { maxBytes },
+		);
 	};
 }
 
@@ -149,10 +155,8 @@ export async function checkPushedTrees(
 		oid: string | null,
 	): Promise<TreeEntry[] | null> => {
 		if (oid === null) return [];
-		const found = await read(oid);
-		return found?.kind === 'tree' && found.bytes
-			? parseTree(found.bytes)
-			: null;
+		const found = await read(oid, 'tree');
+		return found?.bytes ? parseTree(found.bytes) : null;
 	};
 	const pointers = new Map<string, { size: number; path: string }>();
 	const checkedBlobs = new Map<string, { oid: string; size: number } | null>();
@@ -170,9 +174,8 @@ export async function checkPushedTrees(
 		if (!storedWithLfs(path)) return;
 		let pointer = checkedBlobs.get(entry.oid);
 		if (pointer === undefined) {
-			const found = await read(entry.oid, MAX_POINTER_BYTES);
-			pointer =
-				found?.kind === 'blob' && found.bytes ? readPointer(found.bytes) : null;
+			const found = await read(entry.oid, 'blob', MAX_POINTER_BYTES);
+			pointer = found?.bytes ? readPointer(found.bytes) : null;
 			checkedBlobs.set(entry.oid, pointer);
 		}
 		if (pointer === null) {
@@ -227,8 +230,8 @@ export async function checkPushedTrees(
 		const parent = commit.parents[0];
 		let parentTree: string | null = null;
 		if (parent !== undefined) {
-			const found = await read(parent);
-			if (found?.kind !== 'commit' || !found.bytes) {
+			const found = await read(parent, 'commit');
+			if (!found?.bytes) {
 				problem = `parent ${parent.slice(0, 8)} of ${oid.slice(0, 8)} is missing`;
 				break;
 			}

@@ -63,13 +63,14 @@ describe('disk GitObjects', () => {
 			),
 		).toEqual({ ok: true });
 		expect((await objects.refs()).get('refs/heads/main')).toBe(one.commit.oid);
-		const read = await objects.read(one.commit.oid);
-		expect(read?.kind).toBe('commit');
-		expect(await objects.read('f'.repeat(40))).toBeNull();
-		const big = await objects.read(one.objects[0]?.oid as string, {
+		const read = await objects.read(one.commit.oid, 'commit');
+		expect(read?.bytes).toEqual(one.commit.bytes);
+		expect(await objects.read(one.commit.oid, 'tree')).toBeNull();
+		expect(await objects.read('f'.repeat(40), 'blob')).toBeNull();
+		const big = await objects.read(one.objects[0]?.oid as string, 'blob', {
 			maxBytes: 2,
 		});
-		expect(big).toEqual({ kind: 'blob', size: 4, bytes: null });
+		expect(big).toEqual({ size: 4, bytes: null });
 		objects.close();
 	});
 
