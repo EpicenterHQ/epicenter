@@ -44,7 +44,7 @@ import {
 } from './git.ts';
 import { driverCommand, identity, repositoryRoot } from './setup.ts';
 
-export const LAST_SEEN = 'refs/epicenter/last-seen';
+const LAST_SEEN = 'refs/epicenter/last-seen';
 const REMOTE_MAIN = 'refs/remotes/origin/main';
 /** Fetch, merge, and push attempts in one round before a rejected push is a `retry`. */
 const ATTEMPTS = 5;

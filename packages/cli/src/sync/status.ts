@@ -42,14 +42,19 @@ export async function folderStatus(
 			config(root, 'epicenter.root'),
 			config(root, 'remote.origin.url'),
 			registeredFolders(),
-			git(root, [
-				'status',
-				'--porcelain=v1',
-				'-z',
-				'--untracked-files=all',
-				'--',
-				relative(root, folder) || '.',
-			]),
+			git(
+				root,
+				[
+					'status',
+					'--porcelain=v1',
+					'-z',
+					'--untracked-files=all',
+					'--',
+					relative(root, folder) || '.',
+				],
+				// The folder's path names only itself, whatever characters it holds.
+				{ env: { GIT_LITERAL_PATHSPECS: '1' } },
+			),
 			git(root, [
 				'rev-list',
 				'--left-right',
