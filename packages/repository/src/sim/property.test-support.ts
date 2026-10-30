@@ -56,6 +56,7 @@ import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { MAIN } from '../server/git-store.js';
 import { type Committed, LIMITS, type PushAnswer, REASONS } from '../server/server.js';
+import { UPLOADING } from '../client/replica.js';
 
 /**
  * What the property test needs of a world: the memory harness's surface,
@@ -744,15 +745,15 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				hear(d, bytes);
 			}
 		if (!(await world.settle())) throw new Error(`seed ${seed}: never went idle\n${log.join('\n')}`);
-		// Held alone: with everyone online and every upload done or refused, what a device has not sent is held, each file with a reason of its own; nothing waits on another file.
+		// Held alone: with everyone online and every upload done or refused, what a device has not sent waits or is refused, each file with a reason of its own (none still uploading); nothing waits on another file.
 		for (const d of everyone) {
-			const held = new Map(d.replica.held().map((h) => [h.path, h.reason]));
+			const held = new Map(d.replica.notSent().filter((h) => h.reason !== UPLOADING).map((h) => [h.path, h.reason]));
 			for (const [path, reason] of held) if (reason.trim() === '') violations.push(`quiet: ${d.name} holds ${path} with no reason`);
 			for (const path of d.replica.unsent()) if (!held.has(path)) violations.push(`quiet: ${d.name}'s ${path} is not sent and not held (${JSON.stringify(d.replica.state(path))})`);
 		}
 		let saved = false;
 		for (const d of everyone) {
-			const held = new Map(d.replica.held().map((h) => [h.path, h.reason]));
+			const held = new Map(d.replica.notSent().map((h) => [h.path, h.reason]));
 			for (const path of new Set([...d.replica.paths(), ...held.keys()])) {
 				const text = d.replica.read(path);
 				const reason = held.get(path);

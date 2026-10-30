@@ -35,6 +35,7 @@ function sessionOver(page: PageServer, bytes: Bytes, alive: () => boolean): Sess
 		row: (path) => answer(() => page.read(path)),
 		files: () => answer(() => page.files()),
 		waiting: () => answer(() => page.waiting()),
+		outcomes: () => answer(() => page.outcomes()),
 		query: (sql, params) => answer(() => page.query(sql, params)),
 		change(changes, token) {
 			if (!alive()) return ended();

@@ -69,7 +69,7 @@ test('sync --join makes the identity, and a save in one folder reaches another t
 	expect(await running).toBe(0);
 }, 30_000);
 
-test('sync --once sends now: what can go lands; a file the repository cannot take is held alone, exit 2, until fixed', async () => {
+test('sync --once sends now: what can go lands, each file saying how; a file only a person can fix is refused alone, exit 2, until fixed', async () => {
 	const { server, served, folder, print, base, lines } = setup();
 	const dir = folder('agent');
 	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
@@ -78,13 +78,14 @@ test('sync --once sends now: what can go lands; a file the repository cannot tak
 	expect(await sync({ ...base, dir, once: true }, print)).toBe(0);
 	expect(server.read('a.md')).toBe(note('a\n'));
 	expect(server.read('c.png')).toContain('oid sha256:');
-	// A note whose frontmatter does not parse lands as it is; one that is not UTF-8 is held alone, and the rest lands.
+	// A note whose frontmatter does not parse lands as it is; one that is not UTF-8 is refused alone (only a person can fix it), and the rest lands, each file saying how.
 	writeFileSync(join(dir, 'a.md'), note('a\nmore\n'));
 	writeFileSync(join(dir, 'bad.md'), '---\ntitle: [\n---\n');
 	writeFileSync(join(dir, 'binary.md'), new Uint8Array([0xff, 0xfe, 0x41]));
 	lines.length = 0;
 	expect(await sync({ ...base, dir, once: true }, print)).toBe(2);
-	expect(lines).toContainEqual({ held: [{ path: 'binary.md', reason: 'not UTF-8 text' }] });
+	expect(lines).toContainEqual({ refused: [{ path: 'binary.md', reason: 'not UTF-8 text' }] });
+	expect(lines).toContainEqual({ landed: expect.arrayContaining([{ path: 'a.md', outcome: { kind: 'landed' } }, { path: 'bad.md', outcome: { kind: 'landed' } }]) });
 	expect(server.read('a.md')).toBe(note('a\nmore\n'));
 	expect(server.read('bad.md')).toBe('---\ntitle: [\n---\n');
 	writeFileSync(join(dir, 'bad.md'), note('fixed\n'));

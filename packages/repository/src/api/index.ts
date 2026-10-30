@@ -11,7 +11,7 @@ export { BlobError } from '../client/bytes.js';
 export { TemplateError } from '../core/templates.js';
 export { BlobStoreError } from '../client/blobs.js';
 export { extensionOf, mediaType } from '../core/media.js';
-export { ChangeError, type FileStatus } from '../client/replica.js';
+export { ChangeError, type FileStatus, type Outcome } from '../client/replica.js';
 export { openLocalRepository } from './local.js';
 export { type Editor, type EditorChange, EditorError, type EditorState, type Unsaved } from './editor.js';
 export { bodyChanges, type TextChange } from '../core/diff.js';

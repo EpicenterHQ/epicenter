@@ -51,6 +51,7 @@ import { createWorld, type Device } from './harness.js';
 import { createRandom, type Random } from './net.js';
 import { createFolderDevice, type FolderDevice, type Lfs, oidOf, runFor, until, uploadBlob } from './folder.test-support.js';
 import { versionsOf } from './property.test-support.js';
+import { UPLOADING } from '../client/replica.js';
 
 const env = (name: string) => process.env[`F_${name}`];
 const SEED = env('SEED');
@@ -502,7 +503,7 @@ async function run(seed: number, steps: number) {
 				// A stopped folder sends now (`epicenter sync --once`): one scan, online for a while, then stopped again.
 				await folder.crash({ watch: false });
 				await until(world, folder.engine.scan());
-				if (process.env.F_TRACE) log.push(`   (sent now at ${world.net.now()}: held ${JSON.stringify(folder.replica.held())}; unsent ${folder.replica.unsent().join(', ')})`);
+				if (process.env.F_TRACE) log.push(`   (sent now at ${world.net.now()}: held ${JSON.stringify(folder.replica.notSent())}; unsent ${folder.replica.unsent().join(', ')})`);
 				folder.device.setOnline(true);
 				await runFor(world, random.int(0, 3_000));
 				folder.engine.kill();
@@ -610,7 +611,7 @@ async function run(seed: number, steps: number) {
 		for (const owedBytes of bo.replica.owed()) bo.replica.present(owedBytes.oid, owedBytes.size);
 		// Repairs: what a person holds back they fix and save again (a note), or save again (a blob kept).
 		const found = refusedWhereFound();
-		for (const { path: p, reason } of folder.replica.held()) {
+		for (const { path: p, reason } of folder.replica.notSent()) {
 			// A file whose name another's folds to: the person renames it. A file the repository could not take as found: the person writes it again.
 			if (reason === TWIN) folder.disk.rename(p, p.replace(/(\.[a-z]+)$/, ` ${token()}$1`));
 			else if (found.has(p)) put(p, note([token()]));
@@ -635,12 +636,13 @@ async function run(seed: number, steps: number) {
 	// Convergence.
 	const server = world.server.snapshot();
 	// Held: a text the door refused, whose text is the replica's, or a save refused where it was found (the repository cannot take the file), whose text is the folder's.
-	const held = new Set(folder.replica.held().map((h) => h.path));
+	const held = new Set(folder.replica.notSent().map((h) => h.path));
 	const found = refusedWhereFound();
 	const heldText = (p: string) => (found.has(p) ? folder.disk.text(p) : folder.replica.read(p));
 	// Held alone: what a replica has not sent is held, each file with a reason of its own; nothing waits on another file.
 	for (const [who, replica] of [['ada', folder.replica], ['bo', bo.replica]] as const) {
-		const heldHere = new Map(replica.held().map((h) => [h.path, h.reason]));
+		// Every upload is done or refused by now: none still uploading.
+		const heldHere = new Map(replica.notSent().filter((h) => h.reason !== UPLOADING).map((h) => [h.path, h.reason]));
 		for (const [p, reason] of heldHere) if (reason.trim() === '') violations.push(`${who} holds ${p} with no reason`);
 		for (const p of replica.unsent()) if (!heldHere.has(p)) violations.push(`${who}'s ${p} is not sent and not held (${JSON.stringify(replica.state(p))})`);
 	}

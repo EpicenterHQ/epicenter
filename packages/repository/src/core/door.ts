@@ -27,6 +27,7 @@
 import { CST, Lexer } from 'yaml';
 import { findConflicts } from './conflict.js';
 import { parsePointer, splitMarkdown } from './markdown.js';
+import { COLLISIONS } from './tree.js';
 
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
@@ -53,6 +54,26 @@ const ILLEGAL = /[<>:"\\|?*\u0000-\u001f]/;
 const DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
 const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 
+/** A path past the server's bound on path bytes. */
+export const PATH_TOO_LONG = 'the path is too long';
+/** A file whose name folds (NFC, case) to another file's: the repository holds one path for both. */
+export const TWIN = 'another file has this name in different letters';
+/** A note whose bytes are not UTF-8 text. */
+export const NOT_UTF8 = 'not UTF-8 text';
+const NOT_TEXT = ['the text is not valid UTF-8', 'binary files go through Git LFS'];
+
+/**
+ * RULE: what is not sent is either waiting (the system clears it: bytes to
+ * upload, a size or bound) or refused: what only a person can fix, because
+ * the repository cannot represent it. That is an unportable name (any path
+ * refusal, or one past the path bound), a name another file has in other
+ * letters, a note that is not text, or a file where a folder is, or the
+ * reverse.
+ */
+export function onlyAPersonFixes(path: string, reason: string) {
+	return pathRefusal(path) !== null || reason === PATH_TOO_LONG || reason === TWIN || reason === NOT_UTF8 || NOT_TEXT.includes(reason) || Object.values<string>(COLLISIONS).includes(reason);
+}
+
 /** Why a path is not portable, or null. */
 export function pathRefusal(path: string): string | null {
 	if (path === '' || path.startsWith('/') || path.includes('\\')) return 'bad path';
@@ -77,8 +98,8 @@ export function pathRefusal(path: string): string | null {
 export function admissible(path: string, text: string | null): string | null {
 	const refusal = pathRefusal(path);
 	if (refusal !== null || text === null) return refusal;
-	if (text.includes('\0')) return 'binary files go through Git LFS';
-	if (LONE_SURROGATE.test(text)) return 'the text is not valid UTF-8';
+	if (text.includes('\0')) return NOT_TEXT[1] as string;
+	if (LONE_SURROGATE.test(text)) return NOT_TEXT[0] as string;
 	const pointer = parsePointer(text);
 	if (isNote(path)) {
 		if (pointer !== null) return 'a note may not be an LFS pointer';

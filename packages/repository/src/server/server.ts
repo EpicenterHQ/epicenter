@@ -41,7 +41,7 @@ import { defineErrors } from 'wellcrafted/error';
 import type { Logger } from 'wellcrafted/logger';
 import { type Author, type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
-import { admissible, fold, isNote, MAX_BLOB_BYTES, MAX_FILE_BYTES } from '../core/door.js';
+import { admissible, fold, isNote, MAX_BLOB_BYTES, MAX_FILE_BYTES, PATH_TOO_LONG } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import { formatMarkdown, parsePointer } from '../core/markdown.js';
 import { BLOCK_CAP, conflictSibling, settle, settlePointer } from '../core/settle.js';
@@ -150,7 +150,7 @@ export type RequestCode =
 
 /** What each code says to a person; code branches on the code, never on this. */
 export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, string> = {
-	'path-too-long': 'the path is too long',
+	'path-too-long': PATH_TOO_LONG,
 	'blob-missing': "the file's bytes are not on the server",
 	'merge-too-large': 'the merge would grow the note past 1 MB',
 	'too-many-blocks': 'this note has unresolved conflicts; resolve some first',

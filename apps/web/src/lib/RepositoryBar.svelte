@@ -1,8 +1,8 @@
 <!--
 	The bar above every app: the repository it shows (its page is one click
 	away), and where its files stand. A repository kept only on this device
-	says so; one that syncs counts the files not yet sent and those held
-	here with a reason, across every file, whichever app wrote it. Where
+	says so; one that syncs counts the files not yet sent (sending, or
+	waiting) and those refused here with a reason only a person can fix, across every file, whichever app wrote it. Where
 	this browser holds work that exists nowhere else and its storage is not
 	persistent, the bar says the browser may delete it (`storageLine`).
 -->
@@ -28,12 +28,12 @@
 	const line = $derived.by(() => {
 		if (manifest.url === null) return { label: 'On this device', tone: 'neutral' as const, detail: undefined };
 		let sending = 0;
-		let held = 0;
+		let refused = 0;
 		for (const { state } of waiting) {
-			if (state.status === 'sending') sending++;
-			else if (state.status === 'held') held++;
+			if (state.status === 'refused') refused++;
+			else if (state.status !== 'synced') sending++;
 		}
-		return syncLine({ sending, held });
+		return syncLine({ sending, refused });
 	});
 	const address = $derived(addressOf(manifest));
 

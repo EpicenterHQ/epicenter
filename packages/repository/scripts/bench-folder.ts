@@ -84,11 +84,11 @@ try {
 	const link = joined.data.connect();
 	const sent = await time(async () => {
 		for (let i = 0; i < 600; i++) {
-			if (!joined.data.replica.busy() || joined.data.replica.held().length > 0) break;
+			if (!joined.data.replica.busy() || joined.data.replica.notSent().length > 0) break;
 			await Bun.sleep(50);
 		}
 	});
-	const held = joined.data.replica.held();
+	const held = joined.data.replica.notSent();
 	const landed = Array.from({ length: CHANGED }, (_, i) => server.read(`c${i}.md`)).filter((text) => text !== null).length;
 	const pushes = joined.data.replica.stats().pushes - pushesBefore;
 	link?.close();

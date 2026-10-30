@@ -94,13 +94,13 @@ test('a rename to a name the repository cannot take: the delete lands alone, and
 	folder.disk.rename('notes/a.md', 'notes/Todo.md');
 	await runFor(world, 2_000);
 	expect(world.server.read('notes/a.md')).toBeNull();
-	expect(folder.replica.held()).toEqual([{ path: 'notes/Todo.md', reason: TWIN }]);
+	expect(folder.replica.notSent()).toEqual([{ path: 'notes/Todo.md', status: 'refused', reason: TWIN }]);
 	expect(folder.disk.text('notes/Todo.md')).toBe(note('one\n'));
 	// Renamed again, it lands.
 	folder.disk.rename('notes/Todo.md', 'notes/b.md');
 	await runFor(world, 2_000);
 	expect(world.server.read('notes/b.md')).toBe(note('one\n'));
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 });
 
 test('a directory moved is every file under it moved', async () => {
@@ -237,7 +237,7 @@ test('a note read with CRLF endings or a byte order mark lands normalized, and t
 	folder.disk.write('notes/w.md', windows);
 	await runFor(world, 2_000);
 	expect(world.server.read('notes/w.md')).toBe(note('one\ntwo\n'));
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 	expect(folder.replica.state('notes/w.md')).toEqual({ status: 'synced' });
 	// Recorded as read: a scan finds nothing to send, and the file keeps its bytes.
 	const before = folder.replica.stats().pushes;
@@ -260,14 +260,14 @@ test('a .md file that is not UTF-8 is held: never sent, never overwritten; dot p
 	folder.disk.write('4913', encoder.encode(''));
 	folder.disk.write('.DS_Store', encoder.encode('x'));
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([{ path: 'notes/bad.md', reason: 'not UTF-8 text' }]);
+	expect(folder.replica.notSent()).toEqual([{ path: 'notes/bad.md', status: 'refused', reason: 'not UTF-8 text' }]);
 	expect([...world.server.snapshot().keys()]).toEqual([]);
 	other.replica.write('notes/bad.md', note('remote\n'));
 	await runFor(world, 2_000);
 	expect(folder.disk.bytes('notes/bad.md')).toEqual(new Uint8Array([0xff, 0xfe, 0x41]));
 	folder.disk.write('notes/bad.md', encoder.encode(note('readable\n')));
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 	const merged = world.server.read('notes/bad.md') ?? '';
 	expect(merged).toContain('readable');
 	expect(findConflicts(merged).length > 0 || merged.includes('remote')).toBe(true);
@@ -285,10 +285,10 @@ test('files the repository cannot take are held alone, wherever the refusal is f
 	folder.store.seal = async () => BlobStoreError.QuotaExceeded({ cause: 'full' });
 	folder.disk.write('media/a.png', encoder.encode('png'));
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([
-		{ path: 'media/a.png', reason: 'This device has no room left for these bytes' },
-		{ path: 'notes/Todo.md', reason: TWIN },
-		{ path: 'notes/bad.md', reason: 'not UTF-8 text' },
+	expect(folder.replica.notSent()).toEqual([
+		{ path: 'media/a.png', status: 'waiting', reason: 'This device has no room left for these bytes' },
+		{ path: 'notes/Todo.md', status: 'refused', reason: TWIN },
+		{ path: 'notes/bad.md', status: 'refused', reason: 'not UTF-8 text' },
 	]);
 	// What can go went: nothing waits on a held file.
 	expect(world.server.read('notes/a.md')).toBe(note('a\n'));
@@ -305,7 +305,7 @@ test('files the repository cannot take are held alone, wherever the refusal is f
 	await runFor(world, 2_000);
 	expect(world.server.read('notes/bad.md')).toBe(note('bad, fixed\n'));
 	expect(world.server.read('notes/todo 2.md')).toBe(note('twin\n'));
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 });
 
 test('a symlink is left alone like a dot path: never read, held, sent or written over', async () => {
@@ -313,7 +313,7 @@ test('a symlink is left alone like a dot path: never read, held, sent or written
 	folder.disk.write('notes/a.md', encoder.encode(note('a\n')));
 	folder.disk.symlink('notes/link.md', 'notes/a.md');
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 	expect([...world.server.snapshot().keys()]).toEqual(['notes/a.md']);
 	// A scan goes without it, and a remote file at its path never replaces it.
 	folder.disk.write('notes/a.md', encoder.encode(note('a\nmore\n')));
@@ -325,7 +325,7 @@ test('a symlink is left alone like a dot path: never read, held, sent or written
 	await runFor(world, 2_000);
 	// Still the symlink: the memory disk reads a link as its target.
 	expect(folder.disk.text('notes/link.md')).toBe('notes/a.md');
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 });
 
 test('two files whose names differ only in letters are held: the repository takes neither, and both go once one is renamed', async () => {
@@ -334,20 +334,20 @@ test('two files whose names differ only in letters are held: the repository take
 	await runFor(world, 2_000);
 	folder.disk.write('notes/Todo.md', encoder.encode(note('twin\n')));
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([{ path: 'notes/Todo.md', reason: TWIN }]);
+	expect(folder.replica.notSent()).toEqual([{ path: 'notes/Todo.md', status: 'refused', reason: TWIN }]);
 	// A save to either is held while both are there: the repository has one file for the name.
 	folder.disk.write('notes/todo.md', encoder.encode(note('one\nedited\n')));
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([
-		{ path: 'notes/Todo.md', reason: TWIN },
-		{ path: 'notes/todo.md', reason: TWIN },
+	expect(folder.replica.notSent()).toEqual([
+		{ path: 'notes/Todo.md', status: 'refused', reason: TWIN },
+		{ path: 'notes/todo.md', status: 'refused', reason: TWIN },
 	]);
 	expect(world.server.snapshot()).toEqual(new Map([['notes/todo.md', note('one\n')]]));
 	expect([...folder.replica.files().keys()]).toEqual(['notes/todo.md']);
 	// The person renames one.
 	folder.disk.rename('notes/Todo.md', 'notes/todo 2.md');
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 	expect(world.server.snapshot()).toEqual(
 		new Map([
 			['notes/todo.md', note('one\nedited\n')],
@@ -378,7 +378,7 @@ test('the engine never writes a file beside one whose name differs only in lette
 	expect(text).toContain('bo');
 	expect(folder.disk.paths()).toEqual(['notes/todo.md']);
 	expect(folder.disk.text('notes/todo.md')).toBe(text);
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 });
 
 test("a blob saved in the folder is sealed, uploaded and lands; one from elsewhere is fetched before its file is written", async () => {
@@ -386,7 +386,7 @@ test("a blob saved in the folder is sealed, uploaded and lands; one from elsewhe
 	const bytes = encoder.encode('png bytes');
 	folder.disk.write('media/a.png', bytes);
 	await runFor(world, 2_000);
-	expect(folder.replica.state('media/a.png')).toEqual({ status: 'sending', reason: 'its bytes are uploading' });
+	expect(folder.replica.state('media/a.png')).toEqual({ status: 'waiting', reason: 'its bytes are uploading' });
 	await until(world, folder.upload());
 	await runFor(world, 2_000);
 	expect(world.server.read('media/a.png')).toContain('oid sha256:');
@@ -408,7 +408,7 @@ test('a file replaced by a folder of its name between two looks is a delete and 
 	folder.disk.unlink('album');
 	folder.disk.write('album/a.md', encoder.encode(note('a\n')));
 	await runFor(world, 2_000);
-	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.notSent()).toEqual([]);
 	expect(world.server.read('album')).toBeNull();
 	expect(world.server.read('album/a.md')).toBe(note('a\n'));
 });
@@ -427,7 +427,7 @@ test('a file made offline where another device made a folder is held with why: t
 	expect(world.server.read('album/a.md')).toBe(note('a\n'));
 	cy.device.setOnline(true);
 	await runFor(world, 5_000);
-	expect(cy.replica.held()).toEqual([{ path: 'album', reason: 'a folder already has this name' }]);
+	expect(cy.replica.notSent()).toEqual([{ path: 'album', status: 'refused', reason: 'a folder already has this name' }]);
 	expect(world.server.read('album/a.md')).toBe(note('a\n'));
 	expect(world.server.read('album')).toBeNull();
 	expect(folder.disk.text('album/a.md')).toBe(note('a\n'));
@@ -435,7 +435,7 @@ test('a file made offline where another device made a folder is held with why: t
 	// The person renames their file: it lands, and the folder's file reaches their disk.
 	cy.disk.rename('album', 'album.png');
 	await runFor(world, 5_000);
-	expect(cy.replica.held()).toEqual([]);
+	expect(cy.replica.notSent()).toEqual([]);
 	expect(world.server.read('album.png')).toContain('oid sha256:');
 	expect(cy.disk.text('album/a.md')).toBe(note('a\n'));
 	expect(folder.disk.text('album.png')).toBe('cover bytes');
@@ -489,7 +489,7 @@ async function deciding({ invalid }: { invalid: boolean }) {
 
 test('the deciding scenario: an invalid note is held alone; the other note lands merged with the typing, the blob once uploaded, and the fixed note once', async () => {
 	const { world, agent } = await deciding({ invalid: true });
-	expect(agent.replica.held()).toEqual([{ path: 'notes/summary.md', reason: 'not UTF-8 text' }]);
+	expect(agent.replica.notSent()).toEqual([{ path: 'notes/summary.md', status: 'refused', reason: 'not UTF-8 text' }]);
 	expect(world.server.read('notes/summary.md')).toBeNull();
 	expect(world.server.read('media/chart.png')).not.toBeNull();
 	const plan = world.server.read('notes/plan.md') ?? '';
@@ -501,7 +501,7 @@ test('the deciding scenario: an invalid note is held alone; the other note lands
 	await runFor(world, 10_000);
 	expect(world.server.read('notes/summary.md')).toBe(note('summary\n'));
 	expect((world.server.read('notes/plan.md') ?? '').split('TWO by the agent').length - 1).toBe(1);
-	expect(agent.replica.held()).toEqual([]);
+	expect(agent.replica.notSent()).toEqual([]);
 });
 
 test('the deciding scenario without the invalid note: everything lands, the agent\'s line once, its conflict block with the person in the text', async () => {

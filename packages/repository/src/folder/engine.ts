@@ -54,7 +54,7 @@ import type { Logger } from 'wellcrafted/logger';
 import { UPLOAD_REFUSALS } from '../client/uploads.js';
 import { createHasher, type BlobStore, type Sealed } from '../client/blobs.js';
 import type { Replica } from '../client/replica.js';
-import { fold, isNote } from '../core/door.js';
+import { fold, isNote, NOT_UTF8, TWIN } from '../core/door.js';
 import { parsePointer, writePointer } from '../core/markdown.js';
 import type { SqlDriver } from '../sql.js';
 import { first } from '../sql.js';
@@ -181,7 +181,7 @@ type FolderEngineOptions = {
 export const QUIET = 150;
 
 /** Why a file whose path folds to another file's is held. */
-export const TWIN = 'another file has this name in different letters';
+export { TWIN } from '../core/door.js';
 
 export function createFolderEngine({ fs, replica, driver, store, fetch, after, now, quiet = QUIET, scanEvery = null, log }: FolderEngineOptions) {
 	driver.exec(SCHEMA);
@@ -322,7 +322,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			try {
 				text = readNote(buffer);
 			} catch {
-				return { path, kind: 'unreadable', reason: 'not UTF-8 text' };
+				return { path, kind: 'unreadable', reason: NOT_UTF8 };
 			}
 			const hasher = createHasher();
 			hasher.update(buffer);
@@ -591,7 +591,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			try {
 				text = readNote(new Uint8Array(await bytes.arrayBuffer()));
 			} catch {
-				return setAside('not UTF-8 text');
+				return setAside(NOT_UTF8);
 			}
 		} else {
 			const sealed = await store.seal(bytes.stream() as ReadableStream<Uint8Array>);

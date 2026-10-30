@@ -27,14 +27,15 @@ const files = (n: number) => `${n} ${n === 1 ? 'file' : 'files'}`;
 
 /**
  * Where a repository's files stand with its server, from how many are
- * sending and how many are held (a note's `state` in `@epicenter/repository`).
- * A held file wins: it is never sent until the person fixes it, so the
- * header must not say Synced.
+ * sending, waiting (the system clears it) and refused (only a person can
+ * fix it), by a note's `state` in `@epicenter/repository`. A refused file
+ * wins: it is never sent until the person fixes it, so the header must not
+ * say Synced; a waiting file is on its way, like a sending one.
  */
-export function syncLine({ sending, held }: { sending: number; held: number }): StatusLine {
-	if (held > 0) {
-		const waits = `${files(held)} ${held === 1 ? 'is' : 'are'} saved on this device and ${held === 1 ? 'waits' : 'wait'} for a fix`;
-		return { label: 'Not sent', detail: sending > 0 ? `${waits}; ${files(sending)} ${sending === 1 ? "isn't" : "aren't"} sent yet` : waits, tone: 'warning' };
+export function syncLine({ sending, refused }: { sending: number; refused: number }): StatusLine {
+	if (refused > 0) {
+		const fix = `${files(refused)} ${refused === 1 ? 'is' : 'are'} saved on this device and ${refused === 1 ? 'needs' : 'need'} a fix`;
+		return { label: 'Not sent', detail: sending > 0 ? `${fix}; ${files(sending)} ${sending === 1 ? "isn't" : "aren't"} sent yet` : fix, tone: 'warning' };
 	}
 	if (sending > 0) return { label: 'Sending…', detail: `${files(sending)} not sent yet`, tone: 'busy' };
 	return { label: 'Synced', tone: 'good' };

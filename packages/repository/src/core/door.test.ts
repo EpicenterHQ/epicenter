@@ -31,7 +31,11 @@ import {
 	lint,
 	MAX_BLOB_BYTES,
 	MAX_FILE_BYTES,
+	NOT_UTF8,
+	onlyAPersonFixes,
+	PATH_TOO_LONG,
 	pathRefusal,
+	TWIN,
 	slug,
 } from './door.js';
 
@@ -149,4 +153,22 @@ test('slug yields a segment the door admits', () => {
 	expect(slug('Fix the Login, Now!')).toBe('fix-the-login,-now!');
 	for (const title of ['', '...', 'CON', 'git', 'a/b\\c', ' Trip: Day 1? ', 'x'.repeat(400), 'Café'])
 		expect(pathRefusal(`notes/${slug(title)}.md`)).toBeNull();
+});
+
+describe('what only a person can fix', () => {
+	test('an unportable name, a case twin, a note that is not text, and a file/folder collision; everything else waits', () => {
+		for (const [path, reason] of [
+			['notes/con.md', 'a name may not be a reserved device name'],
+			['notes/a.md', PATH_TOO_LONG],
+			['notes/Todo.md', TWIN],
+			['notes/bad.md', NOT_UTF8],
+			['notes/bad.md', 'the text is not valid UTF-8'],
+			['notes/bad.md', 'binary files go through Git LFS'],
+			['album', 'a folder already has this name'],
+			['album/x.md', 'a file already has this name'],
+		] as const)
+			expect([path, onlyAPersonFixes(path, reason)]).toEqual([path, true]);
+		for (const reason of ['its bytes are uploading', 'a note may be at most 1 MB', 'request too large', 'this note has unresolved conflicts; resolve some first', 'a note must use LF line endings'])
+			expect([reason, onlyAPersonFixes('notes/a.md', reason)]).toEqual([reason, false]);
+	});
 });

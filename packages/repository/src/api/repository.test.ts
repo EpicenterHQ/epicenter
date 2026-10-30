@@ -72,7 +72,7 @@ test('a collection kept in memory lists every note whole, invalid ones with thei
 	expect(titles).toHaveLength(3);
 	// Its frontmatter does not parse: a note all the same, with no fields, its whole text the body, its fields missing.
 	expect(broken).toMatchObject({ valid: false, fields: {}, body: '---\ntitle: A\ntitle: B\n---\n', issues: ['/ must have required properties title, done'] });
-	expect(broken?.state.status).not.toBe('held');
+	expect(broken?.state.status).not.toBe('waiting');
 	expect(repo.todos.get({ stem: 'milk' })).toBe(milk);
 	// The same array until a note changes.
 	expect(repo.todos.all()).toBe(repo.todos.all());
@@ -318,7 +318,8 @@ test('a blob collection creates, replaces, opens and deletes bytes at named path
 	})).name).toBe('NotPointer');
 	expect(replica.read('photos/note.png')).toBeNull();
 	expect(replica.read('photos/moved.png')).toBe(beach?.text ?? 'none');
-	expect(replica.held()).toEqual([]);
+	// Nothing refused or held: the two pointers wait only for their bytes.
+	expect(replica.notSent()).toEqual(['photos/beach.png', 'photos/moved.png'].map((path) => ({ path, status: 'waiting', reason: 'its bytes are uploading' })));
 });
 
 test('a batch of two notes and a new blob is stored at once; the notes go, and the blob alone waits for its upload; a refused upload holds only the blob', async () => {
@@ -368,7 +369,7 @@ test('a batch of two notes and a new blob is stored at once; the notes go, and t
 	if (three === null) throw new Error('no pointer stored');
 	alice.replica.refused(three.oid, 'over the quota');
 	alice.sync();
-	expect(alice.replica.state('recordings/r3.webm')).toEqual({ status: 'held', reason: 'over the quota' });
+	expect(alice.replica.state('recordings/r3.webm')).toEqual({ status: 'waiting', reason: 'over the quota' });
 	expect(alice.replica.state('recordings/r1.md')).toEqual({ status: 'synced' });
 	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One, again\n---\n');
 	const failed = await repo.commit((batch) => {
@@ -377,4 +378,13 @@ test('a batch of two notes and a new blob is stored at once; the notes go, and t
 	});
 	expect(expectErr(failed).name).toBe('NotFound');
 	expect(alice.replica.read('recordings/r4.webm')).toBeNull();
+});
+
+test('repo.files.outcomes says how each file this device sent landed', async () => {
+	const { alice, repo } = twoDevices(defineApp({ notes: { path: 'notes/{stem}.md', schema: Type.Object({ title: Type.String() }) } }));
+	await settled();
+	expectOk(await repo.files.write('notes/x.md', '---\ntitle: X\n---\nx\n'));
+	await settled();
+	alice.sync();
+	expect(expectOk(await repo.files.outcomes())).toEqual([{ path: 'notes/x.md', outcome: { kind: 'landed' } }]);
 });

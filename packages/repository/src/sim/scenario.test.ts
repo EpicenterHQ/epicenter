@@ -108,7 +108,7 @@ test('a note whose frontmatter does not parse is a note: it syncs like any text,
 	alice.replica.write(PATH, broken('one\n'));
 	settle();
 	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	expect(world.server.read(PATH)).toBe(broken('one\n'));
 	expect(bob.replica.read(PATH)).toBe(broken('one\n'));
 });
@@ -139,7 +139,7 @@ test('held text survives a change from elsewhere and a restart, and a repair com
 	settle();
 	expect(alice.replica.read(PATH)).toBe(note('ONE\n.\n.\nBOB\n'));
 	expect(world.server.read(PATH)).toBe(note('one\n.\n.\nBOB\n'));
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: LF });
+	expect(alice.replica.state(PATH)).toEqual({ status: 'waiting', reason: LF });
 	const before = pushes.length;
 	alice.replica.edit(PATH, () => note('ONE\n.\n.\nBOB\n', 'B'));
 	settle();
@@ -158,7 +158,7 @@ test('held text over a remote delete stays held until its person saves it', () =
 	alice.setOnline(true);
 	settle();
 	expect(world.server.read(PATH)).toBeNull();
-	expect(alice.replica.held()).toEqual([{ path: PATH, reason: LF }]);
+	expect(alice.replica.notSent()).toEqual([{ path: PATH, status: 'waiting', reason: LF }]);
 	alice.replica.edit(PATH, () => note('one\nkept\n'));
 	settle();
 	expect(world.server.read(PATH)).toBe(note('one\nkept\n'));
@@ -277,7 +277,7 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 	);
 	expect(alice.replica.read(PATH)).toBe(note('one\nbob\n'));
 	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 });
 
 // ============================================================================
@@ -402,7 +402,7 @@ test("a person's merge past the block cap, caused by other people's blocks, is h
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'this note has unresolved conflicts; resolve some first' });
+	expect(alice.replica.state(PATH)).toEqual({ status: 'waiting', reason: 'this note has unresolved conflicts; resolve some first' });
 	// Her text is kept, and goes once she resolves blocks and saves.
 	expect(alice.replica.read(PATH)).toContain('ONE\n');
 	expect(findConflicts(world.server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
@@ -420,7 +420,7 @@ test('a file saved offline where someone made a folder is held with why; the fol
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(alice.replica.state('album')).toEqual({ status: 'held', reason: 'a folder already has this name' });
+	expect(alice.replica.state('album')).toEqual({ status: 'refused', reason: 'a folder already has this name' });
 	expect(world.server.read('album/a.md')).toBe(note('a\n'));
 	expect(world.server.read('album')).toBeNull();
 	expect(alice.replica.read('album/a.md')).toBe(note('a\n'));
@@ -428,7 +428,7 @@ test('a file saved offline where someone made a folder is held with why; the fol
 	// She renames her file: it goes, and nothing stays held.
 	alice.replica.writeAll({ album: null, 'album.png': writePointer(cover) });
 	settle();
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	expect(world.server.read('album.png')).toBe(writePointer(cover));
 	expect(world.server.read('album/a.md')).toBe(note('a\n'));
 });
@@ -447,10 +447,10 @@ test('a refusal arriving after its path was saved again holds nothing: the newer
 	alice.replica.writeAll({ [PATH]: null, 'notes/b.md': alice.replica.read(PATH) });
 	while (alice.replica.stats().refused === 0) world.net.runFor(1);
 	// The refused text was replaced: nothing is held, and the rename goes as it is.
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'sending' });
 	settle();
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	expect(alice.replica.busy()).toBe(false);
 	expect(alice.replica.position()).toBe(world.server.main());
 	expect(world.server.read('notes/b.md')).toContain('ONE\n');
@@ -492,7 +492,7 @@ test('a later save the door refuses holds only that file: the unsent commit belo
 	settle();
 	expect(world.server.read(PATH)).toBe(note('one\n'));
 	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
-	expect(alice.replica.held()).toEqual([{ path: PATH, reason: LF }]);
+	expect(alice.replica.notSent()).toEqual([{ path: PATH, status: 'waiting', reason: LF }]);
 	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'synced' });
 });
 
@@ -505,7 +505,7 @@ test("a rename whose new file is held: the delete goes alone, an older re-creati
 	alice.replica.write(PATH, note('two\n'));
 	alice.replica.writeAll({ [PATH]: null, 'notes/b?.md': note('two\n') });
 	settle();
-	expect(alice.replica.held()).toEqual([{ path: 'notes/b?.md', reason: 'a name may not hold < > : " \\ | ? * or control characters' }]);
+	expect(alice.replica.notSent()).toEqual([{ path: 'notes/b?.md', status: 'refused', reason: 'a name may not hold < > : " \\ | ? * or control characters' }]);
 	// The person renames the held file again: it goes, and the older re-creation never does.
 	alice.replica.writeAll({ 'notes/b?.md': null, 'notes/b.md': note('two\n') });
 	settle();
@@ -540,4 +540,56 @@ test('a notification arriving while a catch-up is out waits for it: the catch-up
 	caughtUp(requests.at(-1)?.rid ?? 0, 'A', false);
 	replica.notify({ commit: 'C', parents: ['B'], files: [{ path: PATH, hash: null }] });
 	expect(replica.position()).toBe('C');
+});
+
+// ============================================================================
+// Per-file outcomes
+// ============================================================================
+
+test('each file this device sent says how it landed: landed, with conflict blocks, at a sibling, or a delete that did not take', () => {
+	const { world, alice, bob, settle } = setup();
+	const pointer = (c: string) => writePointer({ oid: c.repeat(64), size: 3 });
+	for (const c of ['a', 'b']) {
+		world.server.upload(c.repeat(64), 3);
+		for (const device of [alice, bob]) device.replica.present(c.repeat(64), 3);
+	}
+	alice.replica.writeAll({ 'notes/x.md': note('one\n'), 'notes/y.md': note('y\n') });
+	settle();
+	expect(alice.replica.outcomes()).toEqual([
+		{ path: 'notes/x.md', outcome: { kind: 'landed' } },
+		{ path: 'notes/y.md', outcome: { kind: 'landed' } },
+	]);
+	alice.setOnline(false);
+	alice.replica.writeAll({ 'notes/x.md': note('mine\n'), 'notes/y.md': null, 'img/z.png': pointer('a') });
+	bob.replica.writeAll({ 'notes/x.md': note('theirs\n'), 'notes/y.md': note('y\nkept\n'), 'img/z.png': pointer('b') });
+	settle();
+	alice.setOnline(true);
+	settle();
+	expect(alice.replica.outcomes()).toEqual([
+		{ path: 'img/z.png', outcome: { kind: 'sibling', at: `img/z (conflict ${'a'.repeat(7)}).png` } },
+		{ path: 'notes/x.md', outcome: { kind: 'blocks' } },
+		{ path: 'notes/y.md', outcome: { kind: 'delete-did-not-take' } },
+	]);
+	// A new save of a path forgets how its last one landed.
+	alice.replica.write('notes/x.md', null);
+	expect(alice.replica.outcomes().map((o) => o.path)).toEqual(['img/z.png', 'notes/y.md']);
+});
+
+test('what is not sent waits (the system clears it) or is refused (only a person can fix it)', () => {
+	const { alice, settle } = setup();
+	alice.replica.write('notes/con.md', note('x\n'));
+	alice.replica.write('img/new.png', writePointer({ oid: 'e'.repeat(64), size: 3 }));
+	alice.replica.write(PATH, crlf('x\n'));
+	alice.replica.writeAll({}, { refused: { 'notes/Twin.md': 'another file has this name in different letters' } });
+	settle();
+	expect(alice.replica.state('notes/con.md')).toEqual({ status: 'refused', reason: 'a name may not be a reserved device name' });
+	expect(alice.replica.state('notes/Twin.md')).toEqual({ status: 'refused', reason: 'another file has this name in different letters' });
+	expect(alice.replica.state('img/new.png')).toEqual({ status: 'waiting', reason: 'its bytes are uploading' });
+	expect(alice.replica.state(PATH)).toEqual({ status: 'waiting', reason: LF });
+	expect(alice.replica.notSent()).toEqual([
+		{ path: 'img/new.png', status: 'waiting', reason: 'its bytes are uploading' },
+		{ path: 'notes/Twin.md', status: 'refused', reason: 'another file has this name in different letters' },
+		{ path: 'notes/a.md', status: 'waiting', reason: LF },
+		{ path: 'notes/con.md', status: 'refused', reason: 'a name may not be a reserved device name' },
+	]);
 });

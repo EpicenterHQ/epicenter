@@ -12,6 +12,7 @@ function sessionOf(replica: OpenReplica): Session {
 		row: (path) => replica.row(path),
 		files: () => replica.files(),
 		waiting: () => replica.waiting(),
+		outcomes: () => replica.outcomes(),
 		query: (sql, params) => replica.query(sql, params),
 		change: (changes, token) => replica.change(changes, token),
 		watch: (listener) => replica.watch(listener),

@@ -81,7 +81,8 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { commitId, type LiveCommit } from '../core/commit.js';
-import { admissible, fold, isNote, MAX_BLOB_BYTES } from '../core/door.js';
+import { findConflicts } from '../core/conflict.js';
+import { admissible, fold, isNote, MAX_BLOB_BYTES, onlyAPersonFixes } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import type { Lens } from '../core/lens.js';
 import { BODY_SQL, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
@@ -153,7 +154,19 @@ export const ReplicaError = defineErrors({
 export type ReplicaError = InferErrors<typeof ReplicaError>;
 
 /** One file's state, as a person sees it: `reason` says why it is held, or why it is not sending (the server rejected the request). */
-export type FileStatus = { status: 'synced' | 'sending' | 'held'; reason?: string };
+/**
+ * One file's state on this device: synced; sending; waiting, with why (the
+ * system clears it: bytes to upload, a size or bound); or refused, with why
+ * (only a person can fix it: core/door's `onlyAPersonFixes`).
+ */
+export type FileStatus = { status: 'synced' } | { status: 'sending'; reason?: string } | { status: 'waiting' | 'refused'; reason: string };
+
+/**
+ * How a file this device sent landed: as sent (`landed`), with conflict
+ * blocks, beside it at a sibling the server named, or a delete that did not
+ * take (the file was changed elsewhere, and stays).
+ */
+export type Outcome = { kind: 'landed' } | { kind: 'blocks' } | { kind: 'sibling'; at: string } | { kind: 'delete-did-not-take' };
 
 /** The last refusal or rejection of this device's commit, until one lands. */
 export type Verdict = { code: TextCode | RequestCode; reason: string };
@@ -191,6 +204,7 @@ CREATE INDEX IF NOT EXISTS "epicenter/files/unknown" ON "epicenter/files" (path)
 CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) WHERE text IS NOT base;
 CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
 CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/landed" (path TEXT PRIMARY KEY, outcome TEXT NOT NULL) STRICT;
 `;
 
 /**
@@ -764,6 +778,8 @@ function createReplica({
 			for (const [given, text] of Object.entries(changes)) {
 				const path = spelled(given);
 				if (quiet > 0) savedAt.set(path, now());
+				// A new save of a path forgets how its last one landed.
+				driver.run('DELETE FROM "epicenter/landed" WHERE path = ?', [path]);
 				const { held: _, ...f } = record(path);
 				const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
 				if (!isNote(path)) {
@@ -937,7 +953,8 @@ function createReplica({
 				return;
 			}
 			if (!isNote(path)) {
-				set(path, { base: text, mine: work, saved: true, over: f.base });
+				// A hold on it (its upload refused) stands: only its person's save clears it.
+				set(path, { base: text, mine: work, over: f.base, ...(f.held === undefined ? { saved: true as const } : { held: f.held }) });
 				return;
 			}
 			const mine = text === null ? work : appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } });
@@ -1033,6 +1050,23 @@ function createReplica({
 		setInflight(null);
 	}
 
+	/** Record how each file of the commit in flight landed, from `main`'s texts at its paths and the siblings the server named. */
+	function recordOutcomes(files: { path: string; text: string | null }[], siblings: { path: string; at: string }[] = []) {
+		for (const sent of inflight?.files ?? []) {
+			const there = files.find((file) => fold(file.path) === fold(sent.path));
+			const sibling = siblings.find((s) => fold(s.path) === fold(sent.path));
+			const outcome: Outcome =
+				sibling !== undefined
+					? { kind: 'sibling', at: sibling.at }
+					: sent.text === null && there !== undefined && there.text !== null
+						? { kind: 'delete-did-not-take' }
+						: isNote(sent.path) && there?.text != null && findConflicts(there.text).length > findConflicts(sent.text ?? '').length
+							? { kind: 'blocks' }
+							: { kind: 'landed' };
+			driver.run('INSERT OR REPLACE INTO "epicenter/landed" (path, outcome) VALUES (?, ?)', [there?.path ?? sent.path, JSON.stringify(outcome)]);
+		}
+	}
+
 	function onLanded(answer: Extract<PushAnswer, { kind: 'applied' | 'merged' }>) {
 		if (answer.kind === 'applied') stats.applied++;
 		else stats.merged++;
@@ -1040,6 +1074,7 @@ function createReplica({
 		cap = null;
 		for (const id of answer.commits) pass(id);
 		prune();
+		recordOutcomes(answer.files, answer.siblings);
 		landed(answer.files);
 		setPosition(answer.main);
 		pass(answer.main);
@@ -1123,6 +1158,7 @@ function createReplica({
 	 */
 	function onFlushed(answer: Extract<PushAnswer, { kind: 'flushed' }>) {
 		stats.flushed++;
+		recordOutcomes(answer.files);
 		landed(answer.files);
 		setPosition(null);
 		needCatchUp = true;
@@ -1378,14 +1414,17 @@ function createReplica({
 	if (first(driver, 'SELECT 1 FROM "epicenter/files" WHERE saved = 1') !== undefined) atomically(cut);
 
 	/** One file's state: synced, sending, or held with why. */
+	/** Paths whose text has not reached the server: unsent, in flight, waiting or refused. */
+	const unsentPaths = () =>
+		[...new Set([...pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT base'), ...pathsOf('SELECT path FROM "epicenter/unsent"'), ...sentWork.keys()])].sort();
+
 	function stateOf(path: string): FileStatus {
 		const refused = first<{ reason: string }>(driver, 'SELECT reason FROM "epicenter/refused" WHERE path = ?', [path]);
-		if (refused !== undefined) return { status: 'held', reason: refused.reason };
 		const f = record(path);
-		const reason = heldReason(f);
-		if (reason !== null) return { status: 'held', reason };
+		const reason = refused?.reason ?? heldReason(f);
+		if (reason !== null) return { status: onlyAPersonFixes(path, reason) ? 'refused' : 'waiting', reason };
 		// The text this device shows, or the one in its unsent commit, waits for its bytes.
-		if (owes(path, f) || (f.committed !== undefined && owedText(path, f.committed.text, f.base))) return { status: 'sending', reason: UPLOADING };
+		if (owes(path, f) || (f.committed !== undefined && owedText(path, f.committed.text, f.base))) return { status: 'waiting', reason: UPLOADING };
 		if (f.sent === undefined && f.committed === undefined && f.saved === undefined) return { status: 'synced' };
 		return stalled === null ? { status: 'sending' } : { status: 'sending', reason: stalled.reason };
 	}
@@ -1403,13 +1442,21 @@ function createReplica({
 		read: (path: string) => first<{ text: string | null }>(driver, 'SELECT text FROM "epicenter/files" WHERE path = ?', [path])?.text ?? null,
 		/** Every path this device shows. */
 		paths: () => pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT NULL').sort(),
-		/** One file's state: synced, sending, or held with why. */
+		/** One file's state: synced, sending, waiting with why, or refused with why. */
 		state: stateOf,
-		/** Saves held back, with why: held files, and saves refused where they were found (by their path as found), by path. */
-		held: () => driver.all<{ path: string; reason: string }>(`SELECT path, reason FROM ${HELD} ORDER BY path`),
+		/** Files not sent, each waiting or refused, with why: held files, owed pointers, and saves refused where they were found (by their path as found), by path. */
+		notSent: (): { path: string; status: 'waiting' | 'refused'; reason: string }[] =>
+			[...new Set([...pathsOf(`SELECT path FROM ${HELD}`), ...unsentPaths()])]
+				.sort()
+				.flatMap((path) => {
+					const state = stateOf(path);
+					return state.status === 'waiting' || state.status === 'refused' ? [{ path, status: state.status, reason: state.reason }] : [];
+				}),
+		/** How each file this device sent last landed, until it is saved again. */
+		outcomes: (): { path: string; outcome: Outcome }[] =>
+			driver.all<{ path: string; outcome: string }>('SELECT path, outcome FROM "epicenter/landed" ORDER BY path').map(({ path, outcome }) => ({ path, outcome: JSON.parse(outcome) as Outcome })),
 		/** Paths whose text has not reached the server: unsent, in flight, or held. */
-		unsent: () =>
-			[...new Set([...pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT base'), ...pathsOf('SELECT path FROM "epicenter/unsent"'), ...sentWork.keys()])].sort(),
+		unsent: unsentPaths,
 		/**
 		 * One read-only SQL statement over what this device shows: the
 		 * app's views (one per name), or `"epicenter/files"` itself, whose

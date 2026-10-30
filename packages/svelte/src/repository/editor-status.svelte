@@ -56,8 +56,10 @@
 	{:else if status?.matches === true}
 		<p><Badge variant="secondary">Matches the schema</Badge></p>
 	{/if}
-	{#if noteState?.status === 'held'}
-		<p class="text-muted-foreground" data-testid="editor-held">Saved on this device, not sent: {noteState.reason ?? 'held'}.</p>
+	{#if noteState?.status === 'refused'}
+		<p class="text-muted-foreground" data-testid="editor-refused">Saved on this device, not sent until it is fixed: {noteState.reason}.</p>
+	{:else if noteState?.status === 'waiting'}
+		<p class="text-muted-foreground" data-testid="editor-waiting">Saved on this device, waiting to send: {noteState.reason}.</p>
 	{/if}
 	{#if saving.status === 'failed'}
 		<p class="flex flex-wrap items-center gap-2 text-destructive">

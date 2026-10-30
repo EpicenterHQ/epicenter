@@ -141,7 +141,7 @@ test('P6: a note whose frontmatter does not parse is a note: it lands, and two r
 	expect(world.server.push({ id: commitId(body), ...body }, writer('alice'))).toMatchObject({ kind: 'applied' });
 	settle();
 	expect(alice.replica.read('notes/x.md')).toBe('---\ntitle: "open\n---\nbody\n');
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	// Both repair it at once: the two repairs merge by line, as text does.
 	alice.setOnline(false);
 	alice.replica.edit('notes/x.md', (text) => (text ?? '').replace('"open', '"open"'));
@@ -213,12 +213,12 @@ test('P10: a refusal of a person\'s own text leaves it held with the reason, and
 	alice.replica.write('notes/essay.md', big, { over: null });
 	settle();
 	expect(alice.replica.read('notes/essay.md')).toBe(big);
-	expect(alice.replica.held()).toEqual([{ path: 'notes/essay.md', reason: 'a note may be at most 1 MB' }]);
+	expect(alice.replica.notSent()).toEqual([{ path: 'notes/essay.md', status: 'waiting', reason: 'a note may be at most 1 MB' }]);
 	expect(world.server.read('notes/essay.md')).toBeNull();
 	alice.replica.edit('notes/essay.md', () => note('three hours of writing\n', 'title: Essay'));
 	settle();
 	expect(world.server.read('notes/essay.md')).toBe(note('three hours of writing\n', 'title: Essay'));
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 });
 
 test('P11: an editor saving over a stale buffer merges with what changed under it', () => {
@@ -256,7 +256,7 @@ test('P12: a blob write lands only over the blob its writer saw; one that lost l
 		expect(reader.read(path)).toBe(writePointer(b));
 		expect(reader.read(beside(a))).toBe(writePointer(a));
 	}
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	// A stale replace: bob replaces while alice, offline, replaces what she saw.
 	alice.setOnline(false);
 	alice.replica.write(path, writePointer(c));
@@ -273,7 +273,7 @@ test('P12: a blob write lands only over the blob its writer saw; one that lost l
 	expect(world.server.read(path)).toBe(writePointer(d));
 	expect(world.server.read(beside(e))).toBe(writePointer(e));
 	expect(alice.replica.read(path)).toBe(writePointer(d));
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	// A stale delete: the file stays, with no notice.
 	bob.setOnline(false);
 	bob.replica.write(beside(a), null);
@@ -389,7 +389,7 @@ test('the door refuses what would break a clone, the same on the device and the 
 		expect([path, admissible(path, text)]).toEqual([path, reason]);
 	const { world, alice } = setup();
 	alice.replica.write('notes/con.md', '---\n---\n', { over: null });
-	expect(alice.replica.state('notes/con.md')).toEqual({ status: 'held', reason: 'a name may not be a reserved device name' });
+	expect(alice.replica.state('notes/con.md')).toEqual({ status: 'refused', reason: 'a name may not be a reserved device name' });
 	expect(world.server.read('notes/con.md')).toBeNull();
 });
 
@@ -463,7 +463,7 @@ test('a merge that would grow a note past 1 MB is the one named exception: held 
 	bob.setOnline(true);
 	settle();
 	expect(world.server.read(path)).toBe(note(`start\n${half}a\n`));
-	expect(bob.replica.state(path)).toEqual({ status: 'held', reason: 'the merge would grow the note past 1 MB' });
+	expect(bob.replica.state(path)).toEqual({ status: 'waiting', reason: 'the merge would grow the note past 1 MB' });
 	expect(bob.replica.read(path)).toContain(`${half}b`);
 });
 

@@ -480,7 +480,7 @@ test('an editor that cannot open while the repository is not open says so with t
 	expect(error).toEqual(RepositoryError.Unavailable({ status: 'opening' }).error);
 });
 
-test('a list shows a note held or failed as held with why, never as sending', async () => {
+test('a list shows a note waiting or failed as waiting with why, never as sending', async () => {
 	const { alice, repo } = twoDevices(app);
 	alice.replica.write(PATH, note('one'));
 	await settled();
@@ -490,16 +490,16 @@ test('a list shows a note held or failed as held with why, never as sending', as
 	await settled();
 	await settled();
 	expect(editor.state().status).toBe('failed');
-	expect(repo.notes.get({ stem: 'plan' })?.state).toEqual({ status: 'held', reason: 'The save was not stored: disk I/O error' });
+	expect(repo.notes.get({ stem: 'plan' })?.state).toEqual({ status: 'waiting', reason: 'The save was not stored: disk I/O error' });
 	alice.fail(false);
 	editor.retry();
 	await settled();
 	await settled();
-	// Text the door refuses (CRLF endings) is held by the replica; typing more keeps it held, not sending.
+	// Text the door refuses (CRLF endings) waits in the replica; typing more keeps it waiting, not sending.
 	editor.update('---\r\ntitle: Plan\r\n---\r\none');
 	await settled();
 	await settled();
-	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('held');
+	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('waiting');
 	editor.update('---\r\ntitle: Plan\r\n---\r\none more');
-	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('held');
+	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('waiting');
 });

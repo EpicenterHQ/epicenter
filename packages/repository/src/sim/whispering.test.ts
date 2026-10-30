@@ -173,7 +173,7 @@ test('a recording made offline is here after a reload, lands online with its aud
 	await alice.reload();
 	expect(alice.repo.recordings.get({ stem })?.fields).toMatchObject({ title: 'Standup', durationMs: 61_000 });
 	expect(expectOk(await alice.repo.audio.open({ stem })).size).toBe(3 * MB);
-	expect(alice.replica.state(`recordings/${stem}.webm`)).toEqual({ status: 'sending', reason: UPLOADING });
+	expect(alice.replica.state(`recordings/${stem}.webm`)).toEqual({ status: 'waiting', reason: UPLOADING });
 
 	alice.setOnline(true);
 	await until(() => server.read(`recordings/${stem}.webm`) !== null, 'the audio lands');
@@ -221,10 +221,10 @@ test('a pointer to bytes nobody has is held, and its delete clears it; past the 
 	const alice = device('alice');
 	await until(() => alice.repo.status().status === 'open' && alice.replica.blobLimit() === 2 * MB);
 	expectOk(await alice.repo.files.write('recordings/ghost.webm', writePointer({ oid: 'f'.repeat(64), size: 10 })));
-	await until(() => alice.replica.state('recordings/ghost.webm').status === 'held');
-	expect(alice.replica.state('recordings/ghost.webm')).toEqual({ status: 'held', reason: UPLOAD_REFUSALS.missing });
+	await until(() => JSON.stringify(alice.replica.state('recordings/ghost.webm')).includes(UPLOAD_REFUSALS.missing));
+	expect(alice.replica.state('recordings/ghost.webm')).toEqual({ status: 'waiting', reason: UPLOAD_REFUSALS.missing });
 	expectOk(await alice.repo.files.delete('recordings/ghost.webm'));
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 
 	expect(expectErr(await alice.repo.audio.create({ stem: 'long' }, webm(3, 3 * MB)))).toMatchObject({ name: 'TooLarge', limit: 2 * MB });
 	expect(await alice.store.has(await oidOf(bytesOf(3 * MB, 3)))).toBe(false);
@@ -232,7 +232,7 @@ test('a pointer to bytes nobody has is held, and its delete clears it; past the 
 	expectOk(await alice.repo.audio.create({ stem: 'one' }, webm(4, 2 * MB)));
 	expectOk(await alice.repo.audio.create({ stem: 'two' }, webm(5, 2 * MB)));
 	await until(() => alice.replica.owed().length === 0, 'both uploads are answered');
-	expect([alice.replica.state('recordings/one.webm'), alice.replica.state('recordings/two.webm')]).toContainEqual({ status: 'held', reason: UPLOAD_REFUSALS[507] });
+	expect([alice.replica.state('recordings/one.webm'), alice.replica.state('recordings/two.webm')]).toContainEqual({ status: 'waiting', reason: UPLOAD_REFUSALS[507] });
 });
 
 test('two devices recording at one path: one lands, the other lands beside it at a sibling; a stale replace too; nothing is held', async () => {
@@ -251,7 +251,7 @@ test('two devices recording at one path: one lands, the other lands beside it at
 	expect(server.read(beside)).toBe(writePointer(alices));
 	for (const d of [alice, bob]) {
 		expect(d.replica.read('recordings/r1.webm')).toBe(writePointer(bobs));
-		expect(d.replica.held()).toEqual([]);
+		expect(d.replica.notSent()).toEqual([]);
 	}
 
 	// A stale replace.
@@ -263,7 +263,7 @@ test('two devices recording at one path: one lands, the other lands beside it at
 	const again = `recordings/r1 (conflict ${stale.oid.slice(0, 7)}).webm`;
 	await until(() => server.read(again) !== null && alice.replica.read('recordings/r1.webm') === writePointer(newer), 'the stale replace is beside it');
 	expect(server.read(again)).toBe(writePointer(stale));
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 });
 
 test('a git push that replaces a binary passes; one whose bytes are missing is refused', async () => {

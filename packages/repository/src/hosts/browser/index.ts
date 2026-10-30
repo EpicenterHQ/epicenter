@@ -31,7 +31,7 @@ import { createLogger, type Logger } from 'wellcrafted/logger';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { BlobPut, Put, PutError } from '../../client/bytes.js';
 import type { BlobError } from '../../client/bytes.js';
-import type { Change, Changed, ChangeError, FileStatus } from '../../client/replica.js';
+import type { Change, Changed, ChangeError, FileStatus, Outcome } from '../../client/replica.js';
 import type { SqlValue } from '../../sql.js';
 import { listReplicas, type Manifest, REPLICA_ID, removeReplicaFiles, replicaLock, type Syncing } from './layout.js';
 import type { Collection, Delta, FileEntry, Row, Snapshot } from '../../client/page.js';
@@ -205,10 +205,12 @@ function createOpenReplica({
 		files: (): Promise<FileEntry[]> => call('files'),
 		/** Every file not yet synced, with its state. */
 		waiting: (): Promise<FileEntry[]> => call('waiting'),
+		/** How each file this device sent last landed. */
+		outcomes: (): Promise<{ path: string; outcome: Outcome }[]> => call('outcomes'),
 		/** One file's state: synced, sending, or held with why. */
 		state: (path: string): Promise<FileStatus> => call('state', path),
 		/** Files whose text is held back, with why. */
-		held: () => call('held'),
+		notSent: () => call('notSent'),
 		/** One read-only SQL statement over the app's views, or `"epicenter/files"`. */
 		query: <TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]) => call('query', sql, params) as Promise<TRow[]>,
 		/** Whether anything is waiting to send, for an answer, or to be caught up. */

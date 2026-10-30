@@ -121,14 +121,14 @@ test('bytes on neither this device nor the server, or past the limit or the quot
 	const alice = device('alice');
 	const nowhere = { oid: 'f'.repeat(64), size: 10 };
 	alice.replica.write('recordings/nowhere.webm', writePointer(nowhere));
-	await until(() => alice.replica.state('recordings/nowhere.webm').status === 'held');
-	expect(alice.replica.state('recordings/nowhere.webm')).toEqual({ status: 'held', reason: UPLOAD_REFUSALS.missing });
+	await until(() => JSON.stringify(alice.replica.state('recordings/nowhere.webm')).includes(UPLOAD_REFUSALS.missing));
+	expect(alice.replica.state('recordings/nowhere.webm')).toEqual({ status: 'waiting', reason: UPLOAD_REFUSALS.missing });
 	unwrap(await alice.bytes().put([{ path: 'recordings/a.webm', blob: blobOf(3), replace: false }]));
 	unwrap(await alice.bytes().put([{ path: 'recordings/b.webm', blob: blobOf(4), replace: false }]));
 	await until(() => alice.replica.state('recordings/b.webm').status !== 'sending' || alice.replica.state('recordings/a.webm').status !== 'sending');
 	await until(() => alice.replica.owed().length === 0);
 	const states = ['recordings/a.webm', 'recordings/b.webm'].map((path) => alice.replica.state(path));
-	expect(states).toContainEqual({ status: 'held', reason: UPLOAD_REFUSALS[507] });
+	expect(states).toContainEqual({ status: 'waiting', reason: UPLOAD_REFUSALS[507] });
 	expect(states).toContainEqual({ status: 'synced' });
 });
 

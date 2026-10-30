@@ -133,7 +133,7 @@
 								<FileTextIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
 								<span class="min-w-0 flex-1 truncate">{nameOf(entry.path)}</span>
 								{#if entry.state.status !== 'synced'}
-									<span class="text-xs text-muted-foreground">{entry.state.status === 'held' ? 'Held' : 'Not sent'}</span>
+									<span class="text-xs text-muted-foreground">{entry.state.status === 'refused' ? 'Needs a fix' : entry.state.status === 'waiting' ? 'Waiting' : 'Not sent'}</span>
 								{/if}
 							</button>
 						</li>

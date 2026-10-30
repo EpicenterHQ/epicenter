@@ -88,7 +88,7 @@ export function servePage(
 	}
 
 	/** The paths with work, whose state is read; every other path is synced. */
-	const withWork = () => new Set([...replica.unsent(), ...replica.held().map((held) => held.path)]);
+	const withWork = () => new Set([...replica.unsent(), ...replica.notSent().map((held) => held.path)]);
 
 	return {
 		/** Every note of the collections kept in memory, as of one revision. */
@@ -109,10 +109,12 @@ export function servePage(
 			const unsent = withWork();
 			return replica.paths().map((path) => ({ path, state: unsent.has(path) ? replica.state(path) : { status: 'synced' } }));
 		},
-		/** Every file not yet synced (sending, or held with why), deletes included, ordered by path: indexed, so a count of them costs what they number, not the repository. */
+		/** Every file not yet synced (sending, waiting or refused with why), deletes included, ordered by path: indexed, so a count of them costs what they number, not the repository. */
 		waiting(): FileEntry[] {
 			return [...withWork()].sort().map((path) => ({ path, state: replica.state(path) }));
 		},
+		/** How each file this device sent last landed, until it is saved again. */
+		outcomes: () => replica.outcomes(),
 		/** One note, for a collection not kept in memory. */
 		read,
 		query: replica.query,

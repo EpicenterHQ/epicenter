@@ -27,7 +27,7 @@ import type { Delta, FileEntry, Row, SaveError, Snapshot } from '../client/page.
 import { SaveError as SaveErrors } from '../client/page.js';
 import type { BlobStoreError, Sealed } from '../client/blobs.js';
 import { BlobError, type BlobPut, type Put, type PutError } from '../client/bytes.js';
-import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
+import type { Change, Changed, ChangeError, FileStatus, Outcome } from '../client/replica.js';
 import { type App, type BlobName, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
 import { bodyOf, headerOf, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
 import { fold, isNote } from '../core/door.js';
@@ -50,6 +50,8 @@ export type Session = {
 	files(): Promise<FileEntry[]>;
 	/** Every file not yet synced, with its state. */
 	waiting(): Promise<FileEntry[]>;
+	/** How each file this device sent last landed. */
+	outcomes(): Promise<{ path: string; outcome: Outcome }[]>;
 	query<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): Promise<TRow[]>;
 	/** Apply `changes` in one transaction; the change it makes is heard with `token`. */
 	change(changes: Change[], token: number): Promise<Result<Changed, ChangeError | SaveError>>;
@@ -203,8 +205,10 @@ export type FileText = { path: string; text: string; state: FileStatus };
 export type Files = {
 	/** Every file this device shows, ordered by path, with its state. */
 	list(): Promise<Result<FileEntry[], RepositoryError>>;
-	/** Every file not yet synced (sending, or held with why), deletes included: as many as wait, never the whole repository, so a status can count them on every change. */
+	/** Every file not yet synced (sending, waiting or refused with why), deletes included: as many as wait, never the whole repository, so a status can count them on every change. */
 	waiting(): Promise<Result<FileEntry[], RepositoryError>>;
+	/** How each file this device sent last landed (as sent, with conflict blocks, at a sibling with its path, or a delete that did not take), until it is saved again. */
+	outcomes(): Promise<Result<{ path: string; outcome: Outcome }[], RepositoryError>>;
 	/** One file's exact text, found by any spelling of its path, or null for none. */
 	read(path: string): Promise<Result<FileText | null, RepositoryError>>;
 	/**
@@ -277,7 +281,8 @@ function indexOf(list: Note[], path: string) {
 	return list[lo]?.path === path ? lo : -1;
 }
 const SENDING: FileStatus = { status: 'sending' };
-const sameState = (a: FileStatus, b: FileStatus) => a.status === b.status && a.reason === b.reason;
+const reasonOf = (state: FileStatus) => ('reason' in state ? state.reason : undefined);
+const sameState = (a: FileStatus, b: FileStatus) => a.status === b.status && reasonOf(a) === reasonOf(b);
 
 /** A change as it shows before its answer, over a note's text, applied as the worker will apply it. */
 function project(text: string | null, change: Change): string | null {
@@ -399,10 +404,16 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		const writes = pending.get(path) ?? [];
 		for (const { change } of writes) text = project(text, change);
 		text = editors.draftOver(path, text);
-		// Held wins: typing an editor is not saving now, or text the replica holds back, is never shown as on its way.
+		// Not sent wins: typing an editor is not saving now (it waits, and is tried again), or text the replica has not sent and says why, is never shown as on its way.
 		const stuck = editors.stuck(path);
 		const state: FileStatus =
-			stuck !== null ? { status: 'held', reason: stuck } : row?.state.status === 'held' ? row.state : writes.length > 0 || editors.unsaved(path) || row === undefined ? SENDING : row.state;
+			stuck !== null
+				? { status: 'waiting', reason: stuck }
+				: row?.state.status === 'waiting' || row?.state.status === 'refused'
+					? row.state
+					: writes.length > 0 || editors.unsaved(path) || row === undefined
+						? SENDING
+						: row.state;
 		for (const { lens, params } of kept) {
 			const notes = notesOf.get(lens.name);
 			if (notes === undefined) continue;
@@ -671,6 +682,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 	const files: Files = {
 		list: () => asked((current) => current.files()),
 		waiting: () => asked((current) => current.waiting()),
+		outcomes: () => asked((current) => current.outcomes()),
 		read: (path) => asked(async (current) => {
 			const row = await current.row(path);
 			return row === null ? null : { path: row.path, text: row.text, state: row.state };

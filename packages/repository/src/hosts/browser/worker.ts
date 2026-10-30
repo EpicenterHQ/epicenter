@@ -44,8 +44,9 @@ function replicaMethods(replica: Replica, page: PageServer, bytes: Bytes) {
 		files: () => page.files(),
 		/** Every file not yet synced, with its state. */
 		waiting: () => page.waiting(),
+		outcomes: () => page.outcomes(),
 		state: (path: string) => replica.state(path),
-		held: () => replica.held(),
+		notSent: () => replica.notSent(),
 		query: (sql: string, params?: SqlValue[]) => replica.query(sql, params),
 		busy: () => replica.busy(),
 		/** Paths whose text has not reached the server: unsent, in flight, or held. */

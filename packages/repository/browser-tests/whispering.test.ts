@@ -145,37 +145,39 @@ for (const [engine, browser] of [
 
 					// A pointer to bytes nobody has, then the blob limit and the quota.
 					await a.evaluate((text) => replicas.write('recordings/ghost.webm', text), writePointer({ oid: 'f'.repeat(64), size: 10 }));
-					await a.evaluate(() => replicas.untilState('recordings/ghost.webm', 'held'));
-					expect(await a.evaluate(() => replicas.state('recordings/ghost.webm'))).toEqual({ status: 'held', reason: 'these bytes are not on this device or the server' });
+					await a.evaluate(() => replicas.untilState('recordings/ghost.webm', 'waiting'));
+					expect(await a.evaluate(() => replicas.state('recordings/ghost.webm'))).toEqual({ status: 'waiting', reason: 'these bytes are not on this device or the server' });
 					await a.evaluate(() => replicas.write('recordings/ghost.webm', null));
 					expect(await a.evaluate(() => replicas.state('recordings/ghost.webm'))).toEqual({ status: 'synced' });
 					expect((await a.evaluate(() => replicas.put('recordings/long.webm', 5 * 1024 * 1024, 3))).result).toMatchObject({ error: { name: 'TooLarge' } });
 					await a.evaluate(() => replicas.put('recordings/r3.webm', Math.floor(3.5 * 1024 * 1024), 4));
-					await a.evaluate(() => replicas.untilState('recordings/r3.webm', 'held'));
-					expect(await a.evaluate(() => replicas.state('recordings/r3.webm'))).toEqual({ status: 'held', reason: 'the repository has no room left for files' });
+					await a.evaluate(() => replicas.untilState('recordings/r3.webm', 'waiting'));
+					expect(await a.evaluate(() => replicas.state('recordings/r3.webm'))).toEqual({ status: 'waiting', reason: 'the repository has no room left for files' });
 					// Its person resolves it by deleting it.
 					await a.evaluate(() => replicas.write('recordings/r3.webm', null));
 					expect(await a.evaluate(() => replicas.unsent())).toEqual([]);
 
-					// Two profiles recording at one path, then a stale replace.
+					// Two profiles recording at one path, then a stale replace: each loser lands beside, and both profiles see both.
+					const beside = (bytes: { oid: string } | null | undefined) => `recordings/r4 (conflict ${(bytes?.oid ?? '').slice(0, 7)}).webm`;
 					gates.alice.setOpen(false);
-					await a.evaluate(() => replicas.put('recordings/r4.webm', 100_000, 5));
+					const alices = await a.evaluate(() => replicas.put('recordings/r4.webm', 100_000, 5));
 					const bobs = await b.evaluate(() => replicas.put('recordings/r4.webm', 100_000, 6));
 					await b.evaluate(() => replicas.untilSynced());
 					gates.alice.setOpen(true);
-					await a.evaluate(() => replicas.untilState('recordings/r4.webm', 'held'));
-					expect(await a.evaluate(() => replicas.state('recordings/r4.webm'))).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
-					expect(server.read('recordings/r4.webm')).toBe(writePointer(bobs.expected ?? { oid: '', size: 0 }));
-					// Alice discards hers: the server's stays.
-					await a.evaluate((text) => replicas.write('recordings/r4.webm', text), writePointer(bobs.expected ?? { oid: '', size: 0 }));
+					await a.evaluate(([path, text]) => replicas.untilText(path, text), [beside(alices.expected), writePointer(alices.expected ?? { oid: '', size: 0 })] as const);
 					await a.evaluate(() => replicas.untilSynced());
+					expect(server.read('recordings/r4.webm')).toBe(writePointer(bobs.expected ?? { oid: '', size: 0 }));
+					expect(server.read(beside(alices.expected))).toBe(writePointer(alices.expected ?? { oid: '', size: 0 }));
+					await b.evaluate(([path, text]) => replicas.untilText(path, text), [beside(alices.expected), writePointer(alices.expected ?? { oid: '', size: 0 })] as const);
 					gates.alice.setOpen(false);
-					await a.evaluate(() => replicas.put('recordings/r4.webm', 100_000, 7, true));
+					const stale = await a.evaluate(() => replicas.put('recordings/r4.webm', 100_000, 7, true));
 					await b.evaluate(() => replicas.put('recordings/r4.webm', 100_000, 8, true));
 					await b.evaluate(() => replicas.untilSynced());
 					gates.alice.setOpen(true);
-					await a.evaluate(() => replicas.untilState('recordings/r4.webm', 'held'));
-					expect(await a.evaluate(() => replicas.state('recordings/r4.webm'))).toEqual({ status: 'held', reason: 'this file changed on another device' });
+					await a.evaluate(([path, text]) => replicas.untilText(path, text), [beside(stale.expected), writePointer(stale.expected ?? { oid: '', size: 0 })] as const);
+					await a.evaluate(() => replicas.untilSynced());
+					expect(server.read(beside(stale.expected))).toBe(writePointer(stale.expected ?? { oid: '', size: 0 }));
+					expect(await a.evaluate(() => replicas.unsent())).toEqual([]);
 					expect(landed.every((file) => file.bytesHere)).toBe(true);
 				} finally {
 					await alice.cleanup();

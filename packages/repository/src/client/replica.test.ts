@@ -86,7 +86,7 @@ test("commits fit the server's bounds from the hello: saves split into several",
 	link.deliver();
 	expect(link.pushes.length).toBeGreaterThan(2);
 	for (const commit of link.pushes) expect(bytes(commit)).toBeLessThanOrEqual(3_000);
-	expect(replica.held()).toEqual([]);
+	expect(replica.notSent()).toEqual([]);
 	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
 	expect(replica.busy()).toBe(false);
 });
@@ -100,20 +100,20 @@ test('a commit rejected as too large is split in half; one file too large alone 
 	for (const name of ['a', 'b', 'c', 'd']) replica.write(`notes/${name}.md`, note(`${name.repeat(900)}\n`));
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
-	expect(replica.held()).toEqual([]);
+	expect(replica.notSent()).toEqual([]);
 	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
 	// Saved together: x is too large to go even alone, y is not.
 	const big = note(`${'x'.repeat(3_200)}\n`);
 	replica.writeAll({ 'notes/x.md': big, 'notes/y.md': note('y\n') });
 	link.deliver();
-	expect(replica.held()).toEqual([{ path: 'notes/x.md', reason: 'request too large' }]);
+	expect(replica.notSent()).toEqual([{ path: 'notes/x.md', status: 'waiting', reason: 'request too large' }]);
 	expect(replica.read('notes/x.md')).toBe(big);
 	expect(server.read('notes/y.md')).toBe(note('y\n'));
 	// Saved smaller, x goes.
 	replica.write('notes/x.md', note('x\n'));
 	link.deliver();
 	expect(server.read('notes/x.md')).toBe(note('x\n'));
-	expect(replica.held()).toEqual([]);
+	expect(replica.notSent()).toEqual([]);
 });
 
 test('a request rejection holds no text: the work stays committed, the files say why, and the next connection sends it', () => {
@@ -123,7 +123,7 @@ test('a request rejection holds no text: the work stays committed, the files say
 	link.deliver();
 	replica.write(PATH, note('one\n'));
 	link.deliver({ user: 'alice', role: 'reader' });
-	expect(replica.held()).toEqual([]);
+	expect(replica.notSent()).toEqual([]);
 	expect(replica.state(PATH)).toEqual({ status: 'sending', reason: 'a reader may not write' });
 	expect(replica.rejection()).toEqual({ code: 'reader', reason: 'a reader may not write' });
 	// Nothing more goes on this connection, even a new save.
@@ -335,7 +335,7 @@ test("the app's views read what the person sees, held text included, and a watch
 	// Text the door refuses is held, and still what the person sees.
 	const crlf = note('two\n').replaceAll('\n', '\r\n');
 	replica.write(PATH, crlf);
-	expect(replica.state(PATH).status).toBe('held');
+	expect(replica.state(PATH).status).toBe('waiting');
 	expect(replica.query<{ body: string }>('SELECT body FROM notes')).toEqual([{ body: crlf }]);
 	expect(replica.query('SELECT path, held IS NOT NULL AS held FROM "epicenter/files"')).toEqual([{ path: PATH, held: 1 }]);
 	expect(() => replica.query('DELETE FROM "epicenter/files"')).toThrow();
@@ -403,7 +403,7 @@ test('a held file holds only itself: what was saved with it goes', () => {
 	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\nmore\n') });
 	// A later save of a alone that the door refuses holds a, and only a.
 	replica.write('notes/a.md', 'a\r\n');
-	expect(replica.state('notes/a.md').status).toBe('held');
+	expect(replica.state('notes/a.md').status).toBe('waiting');
 	expect(replica.state('notes/b.md')).toEqual({ status: 'sending' });
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
@@ -437,7 +437,7 @@ test('work whose outcome is unknown goes as a labelled conflict block over what 
 	other([{ path: PATH, text: note('one\ntheirs\n') }, { path: 'media/x.png', text: pointer('c') }]);
 	replica.reply({ type: 'answer', rid: resend.rid, answer: { kind: 'outcome-unknown', main: server.main() } });
 	link.deliver();
-	expect(replica.held()).toEqual([]);
+	expect(replica.notSent()).toEqual([]);
 	const text = server.read(PATH) ?? '';
 	expect(text.startsWith(note('one\ntheirs\n'))).toBe(true);
 	expect(findConflicts(text)).toHaveLength(1);

@@ -7,17 +7,17 @@ test('saveLine shows busy for writes and a neutral device line otherwise', () =>
 	expect(saveLine(false)).toEqual({ label: 'On this device', tone: 'neutral' });
 });
 
-test('syncLine says synced only when nothing is sending or held, and a held file wins', () => {
-	expect(syncLine({ sending: 0, held: 0 })).toEqual({ label: 'Synced', tone: 'good' });
-	expect(syncLine({ sending: 2, held: 0 })).toEqual({ label: 'Sending…', detail: '2 files not sent yet', tone: 'busy' });
-	expect(syncLine({ sending: 1, held: 1 })).toEqual({
+test('syncLine says synced only when nothing is sending, waiting or refused, and a refused file wins', () => {
+	expect(syncLine({ sending: 0, refused: 0 })).toEqual({ label: 'Synced', tone: 'good' });
+	expect(syncLine({ sending: 2, refused: 0 })).toEqual({ label: 'Sending…', detail: '2 files not sent yet', tone: 'busy' });
+	expect(syncLine({ sending: 1, refused: 1 })).toEqual({
 		label: 'Not sent',
-		detail: "1 file is saved on this device and waits for a fix; 1 file isn't sent yet",
+		detail: "1 file is saved on this device and needs a fix; 1 file isn't sent yet",
 		tone: 'warning',
 	});
-	expect(syncLine({ sending: 0, held: 2 })).toEqual({
+	expect(syncLine({ sending: 0, refused: 2 })).toEqual({
 		label: 'Not sent',
-		detail: '2 files are saved on this device and wait for a fix',
+		detail: '2 files are saved on this device and need a fix',
 		tone: 'warning',
 	});
 });

@@ -39,7 +39,7 @@ const NOTE = 'recordings/r1.md';
 const beside = (bytes: { oid: string }) => `recordings/r1 (conflict ${bytes.oid.slice(0, 7)}).webm`;
 const a = { oid: 'a'.repeat(64), size: 3_145_728 };
 const b = { oid: 'b'.repeat(64), size: 1_000 };
-const UPLOADING: FileStatus = { status: 'sending', reason: 'its bytes are uploading' };
+const UPLOADING: FileStatus = { status: 'waiting', reason: 'its bytes are uploading' };
 
 function setup(names = ['alice', 'bob']) {
 	const world = createWorld({ latency: { min: 20, max: 20 }, quiet: 0 });
@@ -105,14 +105,14 @@ test('a refused upload holds only its pointer, with why; the note saved with it 
 	alice.replica.writeAll({ [NOTE]: note('', `title: R1\naudio: ${AUDIO}`), [AUDIO]: writePointer(a) });
 	alice.replica.refused(a.oid, 'over the quota');
 	settle();
-	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'over the quota' });
+	expect(alice.replica.state(AUDIO)).toEqual({ status: 'waiting', reason: 'over the quota' });
 	expect(alice.replica.state(NOTE)).toEqual({ status: 'synced' });
 	expect(world.server.read(NOTE)).not.toBeNull();
 	expect(sent(AUDIO)).toBe(false);
 	// Its person drops the recording.
 	alice.replica.write(AUDIO, null);
 	settle();
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	expect(world.server.read(AUDIO)).toBeNull();
 	expect(alice.replica.busy()).toBe(false);
 });
@@ -133,7 +133,7 @@ test('a blob write that lost on the server lands beside its file; the note saved
 	expect(world.server.read(beside(a))).toBe(writePointer(a));
 	expect(alice.replica.read(beside(a))).toBe(writePointer(a));
 	expect(alice.replica.state(AUDIO)).toEqual({ status: 'synced' });
-	expect(alice.replica.held()).toEqual([]);
+	expect(alice.replica.notSent()).toEqual([]);
 	expect(world.server.read(NOTE)).not.toBeNull();
 });
 
@@ -179,7 +179,7 @@ test('a refused upload holds every pointer naming those bytes; a save of the pat
 	const { world, alice, settle, sent } = setup();
 	alice.replica.writeAll({ [AUDIO]: writePointer(a), 'recordings/copy.webm': writePointer(a) });
 	alice.replica.refused(a.oid, 'the file is larger than this repository allows');
-	const held: FileStatus = { status: 'held', reason: 'the file is larger than this repository allows' };
+	const held: FileStatus = { status: 'waiting', reason: 'the file is larger than this repository allows' };
 	expect(alice.replica.state(AUDIO)).toEqual(held);
 	expect(alice.replica.state('recordings/copy.webm')).toEqual(held);
 	expect(alice.replica.owed()).toEqual([]);

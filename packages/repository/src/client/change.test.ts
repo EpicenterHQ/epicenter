@@ -76,7 +76,7 @@ test('a patch on a note whose frontmatter does not parse gives it a header befor
 	replica.write('notes/broken.md', broken);
 	expectOk(replica.change([{ kind: 'patch', path: 'notes/broken.md', fields: { title: 'Z' } }]));
 	expect(replica.read('notes/broken.md')).toBe(`---\ntitle: Z\n---\n${broken}`);
-	expect(replica.held()).toEqual([]);
+	expect(replica.notSent()).toEqual([]);
 });
 
 test('later changes in a batch apply over earlier ones, and the batch is one revision its watchers hear', () => {
