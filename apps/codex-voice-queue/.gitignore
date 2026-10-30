@@ -1,0 +1,7 @@
+node_modules
+.svelte-kit
+build
+.codex-schema
+.codex-schema-experimental
+
+.tmp

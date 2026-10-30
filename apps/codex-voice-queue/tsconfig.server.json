@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": { "types": ["bun"] },
+	"include": [
+		"server/**/*.ts",
+		"scripts/**/*.ts",
+		"src/lib/protocol.ts",
+		"src/lib/api-types.ts"
+	]
+}

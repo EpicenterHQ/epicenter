@@ -83,6 +83,26 @@
         "vite": "catalog:",
       },
     },
+    "apps/codex-voice-queue": {
+      "name": "@epicenter/codex-voice-queue",
+      "version": "0.0.1",
+      "dependencies": {
+        "@epicenter/ui": "workspace:*",
+        "@lucide/svelte": "catalog:",
+      },
+      "devDependencies": {
+        "@sveltejs/adapter-static": "catalog:",
+        "@sveltejs/kit": "catalog:",
+        "@sveltejs/vite-plugin-svelte": "catalog:",
+        "@tailwindcss/vite": "catalog:",
+        "@types/bun": "catalog:",
+        "svelte": "catalog:",
+        "svelte-check": "catalog:",
+        "tailwindcss": "catalog:",
+        "typescript": "catalog:",
+        "vite": "catalog:",
+      },
+    },
     "apps/epicenter": {
       "name": "@epicenter/epicenter",
       "version": "0.0.1",
@@ -1223,6 +1243,8 @@
     "@epicenter/chat": ["@epicenter/chat@workspace:packages/chat"],
 
     "@epicenter/client": ["@epicenter/client@workspace:packages/client"],
+
+    "@epicenter/codex-voice-queue": ["@epicenter/codex-voice-queue@workspace:apps/codex-voice-queue"],
 
     "@epicenter/constants": ["@epicenter/constants@workspace:packages/constants"],
 

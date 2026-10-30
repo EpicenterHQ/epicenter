@@ -1,0 +1,3 @@
+@import "@epicenter/ui/app.css";
+
+@source "./**/*.{svelte,ts}";

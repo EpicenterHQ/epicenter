@@ -1,0 +1,37 @@
+{
+	"name": "@epicenter/codex-voice-queue",
+	"description": "Voice review queue for local Codex conversations",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"license": "AGPL-3.0-or-later",
+	"scripts": {
+		"build": "vite build",
+		"prepare": "svelte-kit sync || echo ''",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc --noEmit -p tsconfig.server.json",
+		"test": "bun test --conditions browser server src scripts",
+		"schema": "codex app-server generate-ts --out .codex-schema",
+		"dev": "vite build && bun run server/main.ts",
+		"dev:ui": "vite dev",
+		"serve": "bun run server/main.ts",
+		"smoke": "bun run scripts/smoke.ts",
+		"service:update": "bun run scripts/service.ts update",
+		"service:rollback": "bun run scripts/service.ts rollback"
+	},
+	"dependencies": {
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:"
+	},
+	"devDependencies": {
+		"@sveltejs/adapter-static": "catalog:",
+		"@sveltejs/kit": "catalog:",
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@tailwindcss/vite": "catalog:",
+		"@types/bun": "catalog:",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"tailwindcss": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	}
+}

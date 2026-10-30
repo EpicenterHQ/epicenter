@@ -132,6 +132,7 @@
 		"dev:api": "bun run --cwd apps/api dev",
 		"dev:api-dashboard": "bun run --filter @epicenter/api --filter @epicenter/api-ui dev",
 		"dev:api-dashboard:ui": "bun run --cwd apps/api/ui dev",
+		"dev:codex-voice-queue": "bun run --cwd apps/codex-voice-queue dev",
 		"dev:epicenter": "bun run --cwd apps/epicenter dev",
 		"install:vocab": "bun run --cwd apps/vocab build:epicenter && bun run --cwd apps/epicenter catalog:publish \"$PWD/apps/vocab/dist-epicenter\"",
 		"dev:honeycrisp": "bun run --filter @epicenter/api --filter @epicenter/honeycrisp dev",

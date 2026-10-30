@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" class="style-vega dark" style="color-scheme: dark">
+	<head>
+		<meta charset="utf-8">
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1, viewport-fit=cover"
+		>
+		<title>Codex Voice Queue</title>
+		<script>
+			// The fragment carries the access token. Strip it before the router starts
+			// so it never enters router state or history, and startup never calls shallow routing.
+			var path = location.pathname + location.search;
+			if (location.hash.length > 1) {
+				window.__codexVoiceQueueFragment = location.hash.slice(1);
+				history.replaceState(history.state, '', path);
+			}
+		</script>
+		%sveltekit.head%
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
