@@ -25,7 +25,6 @@ import {
 	FLUSH,
 	type GitHost,
 	pktLine,
-	RECEIVE_LIMITS,
 	type ReceiveLimits,
 	readCommandLines,
 } from '@epicenter/server';
@@ -45,13 +44,17 @@ const RENEW_BEFORE_MS = 60 * 60 * 1000;
 const MAX_CACHED_TOKENS = 512;
 
 /**
- * What one push may cost the Worker. Placing a push's stored commits reads
- * `main`'s history from Artifacts, one subrequest per commit, and a Paid
- * invocation may make 10,000: half is left for everything else the push
- * reads.
+ * What one push may cost the Worker, whose isolate has 128 MB shared by
+ * every request it serves. Reading a body holds up to twice `pushBytes`
+ * while its chunks are joined; then the body and at most `heldBytes` of
+ * inflated objects; then the body and the copy sent to Artifacts. One push
+ * so peaks near 48 MiB. Placing a push's stored commits reads `main`'s
+ * history from Artifacts, one subrequest per commit, and a Paid invocation
+ * may make 10,000: half is left for everything else the push reads.
  */
 export const WORKER_RECEIVE_LIMITS: ReceiveLimits = {
-	...RECEIVE_LIMITS,
+	pushBytes: 24 * 1024 * 1024,
+	heldBytes: 24 * 1024 * 1024,
 	mainCommits: 5_000,
 };
 

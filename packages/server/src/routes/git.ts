@@ -58,7 +58,7 @@
  *                                is not a member, or its role may not do this;
  *   - 404 `not_found`            a missing repository's advertisement, for a
  *                                role that may not push, or its upload-pack;
- *   - 413 `too_large`            a push over 64 MiB;
+ *   - 413 `too_large`            a push over the store's `pushBytes` (64 MiB on disk);
  *   - 502 `store_failed`         storage failed or refused this server;
  *   - 503 `git_unavailable`      this deployment has no store, or its database
  *                                could not decide.
@@ -111,7 +111,7 @@ import {
 	verifyObject,
 } from './lfs.js';
 import {
-	MAX_PUSH_BYTES,
+	RECEIVE_LIMITS,
 	type ReceiveLimits,
 	receiveAdvertisement,
 	receivePush,
@@ -445,7 +445,7 @@ function operationOf(
 
 /**
  * A request body, read whole: gunzipped when sent so, and null as soon as
- * it passes `maxBytes` (`MAX_PUSH_BYTES` for a push, `MAX_WRITE_BYTES` for
+ * it passes `maxBytes` (`ReceiveLimits.pushBytes` for a push, `MAX_WRITE_BYTES` for
  * a web write), so an oversized body is never held in memory.
  */
 async function readBody(
@@ -755,16 +755,22 @@ export function mountGitHost(
 				case 'git': {
 					if (endpoint.advertisement)
 						return await receiveAdvertisement(objects);
-					const body = await readBody(c.req.raw, MAX_PUSH_BYTES);
+					const limits = host.receiveLimits ?? RECEIVE_LIMITS;
+					const body = await readBody(c.req.raw, limits.pushBytes);
 					if (body === null)
-						return refuse(c, 413, 'too_large', 'A push may be at most 64 MiB.');
+						return refuse(
+							c,
+							413,
+							'too_large',
+							`A push may be at most ${limits.pushBytes / (1024 * 1024)} MiB; push fewer changes at once.`,
+						);
 					return await receivePush({
 						objects,
 						lfs,
 						repositoryId,
 						body,
 						mayRewrite: roleAllows(role, 'rewrite'),
-						limits: host.receiveLimits,
+						limits,
 					});
 				}
 				case 'files':

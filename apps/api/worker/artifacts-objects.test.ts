@@ -5,6 +5,7 @@
  * the real ones (spike-scratch/deployed-spike-8).
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import {
 	type CloudEnv,
@@ -14,6 +15,7 @@ import {
 	mountGitHost,
 	parseCommit,
 	pktLine,
+	type ReceiveLimits,
 	readCommandLines,
 	treeObject,
 	writePack,
@@ -116,7 +118,11 @@ const commitObject = (tree: string, parents: string[]) =>
  * stubbed with `main` at `main`. `push` sends a pack over `main` and answers
  * the report; `applied` collects the commands that reached Artifacts.
  */
-function receiverOver(reader: ArtifactsReader, main: string) {
+function receiverOver(
+	reader: ArtifactsReader,
+	main: string,
+	receiveLimits?: ReceiveLimits,
+) {
 	const applied: string[] = [];
 	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
 		if (String(input).endsWith('/info/refs?service=git-receive-pack'))
@@ -164,6 +170,7 @@ function receiverOver(reader: ArtifactsReader, main: string) {
 			create: async () => {},
 			delete: async () => {},
 			objects: () => objectsOver(reader),
+			receiveLimits,
 		}),
 	});
 	const push = async (next: Packed, ...more: Packed[]) => {
@@ -182,7 +189,7 @@ function receiverOver(reader: ArtifactsReader, main: string) {
 				body,
 			},
 		);
-		return response.text();
+		return `${response.status} ${await response.text()}`;
 	};
 	return { push, applied };
 }
@@ -461,6 +468,41 @@ describe('Artifacts GitObjects', () => {
 		expect(commitReads.length).toBeGreaterThan(600);
 		expect(commitReads.length).toBeLessThan(700);
 		expect(reads).not.toContain(`blob ${audio.oid}`);
+	});
+	test("a push past the Worker's allowance is refused with a reason, before or while it is read", async () => {
+		const { reader } = handle();
+		const MiB = 1024 * 1024;
+		const limits = (pushBytes: number, heldBytes: number): ReceiveLimits => ({
+			pushBytes,
+			heldBytes,
+			mainCommits: 5_000,
+		});
+		const noise = (bytes: number) => makeObject('blob', randomBytes(bytes));
+		const tree = (blob: Packed) =>
+			treeObject([{ mode: '100644', name: 'a.md', oid: blob.oid }]);
+
+		// A body over `pushBytes` is not read.
+		const big = noise(2 * MiB);
+		const tooLong = receiverOver(reader, A, limits(1 * MiB, 24 * MiB));
+		const refused = await tooLong.push(
+			commitObject(tree(big).oid, [A]),
+			tree(big),
+			big,
+		);
+		expect(refused).toStartWith('413 ');
+		expect(refused).toContain('A push may be at most 1 MiB');
+		expect(tooLong.applied).toEqual([]);
+
+		// A pack that needs more than `heldBytes` at once is refused as it is read.
+		const wide = noise(1.5 * MiB);
+		const tooWide = receiverOver(reader, A, limits(8 * MiB, 1 * MiB));
+		const held = await tooWide.push(
+			commitObject(tree(wide).oid, [A]),
+			tree(wide),
+			wide,
+		);
+		expect(held).toContain('refused (pack: its objects need more than 1 MiB');
+		expect(tooWide.applied).toEqual([]);
 	});
 });
 

@@ -292,7 +292,11 @@ that presigns transfers; `worker/lfs-store.ts`), and only then does the
 receiver come on (`resolveArtifactsGitHost`): clone and fetch are forwarded
 over protocol v0, with receipt refs filtered out of the advertisement; every
 push goes through the receiver and every web write through the translator,
-over `worker/artifacts-objects.ts`. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
+over `worker/artifacts-objects.ts`. The Worker's receiver takes a push body of
+at most 24 MiB, holds at most 24 MiB of its inflated objects, and reads at
+most 5,000 of `main`'s commits to place it (`WORKER_RECEIVE_LIMITS`), so one
+push peaks near 48 MiB of a 128 MB isolate and stays within a Paid
+invocation's 10,000 subrequests. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
 (`<root>/<id>.git`; clone and fetch through `git http-backend`, every push
 through the forward-only receiver, web writes through the translator at
 `<repo>.git/epicenter/writes`) and Git LFS objects under `LFS_STORE_ROOT`

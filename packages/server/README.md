@@ -77,6 +77,11 @@ or a hidden path (any segment starting with `.`) to be a Git LFS pointer whose
 object is stored, whatever `.gitattributes` says (`storedWithLfs` in
 `@epicenter/definition/contract`). Only the owner may
 replace `main`; the replaced commit is kept as `refs/epicenter/replaced/<time>`.
+What a push may cost is the store's `ReceiveLimits` (`RECEIVE_LIMITS` on disk:
+a 64 MiB body, 256 MiB of inflated objects held at once, and 100,000 of
+`main`'s commits read, once per push, to place the push's stored commits); the
+receiver keeps commits, trees and pointer-sized blobs, and lets larger blobs
+go once hashed.
 Web writes go to the translator (`src/routes/files.ts`): one commit per
 request, notes merged with `@epicenter/definition/merge`'s `settle`, a losing
 binary written beside its target as a conflict copy, the standard
@@ -108,7 +113,7 @@ is refused, unless the owner forces it.
 Refusals answer `{ error, error_description }`: 401 `invalid_token` with
 `WWW-Authenticate` naming `resource_metadata` (and a Basic challenge for
 terminal Git), 403 `insufficient_scope` or `forbidden`, 404 `not_found`,
-413 `too_large` for a push over 64 MiB, 502 `store_failed`, 503
+413 `too_large` for a push over the store's `pushBytes`, 502 `store_failed`, 503
 `git_unavailable` when the deployment has no store (or, for the LFS routes, no
 LFS store). A store without `objects` answers only Git's smart HTTP under a
 named namespace, as hosted Git did before the receiver; the files, LFS and `~`
@@ -126,6 +131,8 @@ type GitHost = {
   delete(id: string): Promise<void>;
   /** The receiver's and translator's port (`GitObjects`, `src/git/objects.ts`). */
   objects?(id: string): GitObjects;
+  /** What one push may cost this store; `RECEIVE_LIMITS` when absent. */
+  receiveLimits?: ReceiveLimits;
 };
 ```
 

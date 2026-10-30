@@ -36,24 +36,28 @@ import {
 	type GitObjects,
 	MAIN,
 	type ObjectKind,
-	type PackObject,
 	parseCommit,
 	parseTree,
 	TREE_MODE,
 	type TreeEntry,
 	ZERO_OID,
 } from '../git/objects.js';
-import { readPack } from '../git/pack.js';
+import { type PackedObject, readPack } from '../git/pack.js';
 import { FLUSH, pktLine, readCommandLines } from '../git/pkt.js';
 import { LFS_OID, type LfsStore } from '../lfs/lfs-store.js';
 
 const CAPABILITIES =
 	'report-status side-band-64k ofs-delta no-thin agent=epicenter';
-/** The largest push body read; Artifacts caps a push at 64 MiB too. */
-export const MAX_PUSH_BYTES = 64 * 1024 * 1024;
-
 /** What one push may cost the deployment that receives it. */
 export type ReceiveLimits = {
+	/** The largest push body read, after any gzip; Artifacts caps a push at 64 MiB. */
+	pushBytes: number;
+	/**
+	 * The most of the pack's inflated objects held at once. The receiver
+	 * keeps commits, trees and blobs up to a pointer's size, and lets other
+	 * blobs go once read, so this bounds what a push of many notes holds.
+	 */
+	heldBytes: number;
 	/**
 	 * The most of `main`'s commits read to place a push's stored commits,
 	 * one store read each (a subrequest on the Worker). A push whose stored
@@ -64,6 +68,8 @@ export type ReceiveLimits = {
 
 /** The disk server's limits; a host with tighter ones names its own (`GitHost.receiveLimits`). */
 export const RECEIVE_LIMITS: ReceiveLimits = {
+	pushBytes: 64 * 1024 * 1024,
+	heldBytes: 256 * 1024 * 1024,
 	mainCommits: 100_000,
 };
 
@@ -117,16 +123,17 @@ function report(ref: string, outcome: string, sideBand: boolean): Response {
 }
 
 /** Reads an object from the pushed pack first, then from the store. */
-function objectSource(objects: GitObjects, pushed: Map<string, PackObject>) {
+function objectSource(objects: GitObjects, pushed: Map<string, PackedObject>) {
 	return async (oid: string, kind: ObjectKind, maxBytes?: number) => {
 		const inPack = pushed.get(oid);
+		// A blob the pack let go is larger than any `maxBytes` the receiver asks.
 		if (inPack)
 			return inPack.kind !== kind
 				? null
 				: {
-						size: inPack.bytes.length,
+						size: inPack.size,
 						bytes:
-							maxBytes !== undefined && inPack.bytes.length > maxBytes
+							maxBytes !== undefined && inPack.size > maxBytes
 								? null
 								: inPack.bytes,
 					};
@@ -143,7 +150,7 @@ function objectSource(objects: GitObjects, pushed: Map<string, PackObject>) {
  * `next` to `current`.
  */
 export function extendsMain(
-	pushed: Map<string, PackObject>,
+	pushed: Map<string, PackedObject>,
 	current: string,
 	next: string,
 ): boolean {
@@ -156,7 +163,7 @@ export function extendsMain(
 		if (seen.has(oid)) continue;
 		seen.add(oid);
 		const object = pushed.get(oid);
-		if (object?.kind === 'commit')
+		if (object?.kind === 'commit' && object.bytes)
 			queue.push(...parseCommit(object.bytes).parents);
 	}
 	return false;
@@ -213,7 +220,7 @@ function mainReach(
  */
 export async function checkPushedTrees(
 	objects: GitObjects,
-	pushed: Map<string, PackObject>,
+	pushed: Map<string, PackedObject>,
 	next: string,
 	current: string,
 	{ mainCommits }: Pick<ReceiveLimits, 'mainCommits'> = RECEIVE_LIMITS,
@@ -389,9 +396,12 @@ export async function receivePush({
 	const current = (await objects.refs()).get(MAIN) ?? ZERO_OID;
 	if (old !== current) return reply(MAIN, 'stale (main moved; fetch first)');
 
-	let pushed: Map<string, PackObject>;
+	let pushed: Map<string, PackedObject>;
 	try {
-		pushed = readPack(parsed.rest);
+		pushed = readPack(parsed.rest, {
+			maxHeldBytes: limits.heldBytes,
+			keepBlobBytes: MAX_POINTER_BYTES,
+		});
 	} catch (cause) {
 		return reply(
 			MAIN,
@@ -431,6 +441,8 @@ export async function receivePush({
 			);
 	}
 
+	// What the pack inflated to is no longer needed; only its bytes go on.
+	pushed.clear();
 	const updates = [{ ref: MAIN, old: current, next }];
 	if (!fastForward && current !== ZERO_OID)
 		updates.push({ ref: replacedRef(now()), old: ZERO_OID, next: current });

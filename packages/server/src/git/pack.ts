@@ -9,10 +9,16 @@
  * a `ref-delta` whose base is in the same pack. A thin pack (a delta against
  * an object the server holds) is refused: the receiver advertises `no-thin`.
  *
- * What a pack inflates to is capped (`MAX_INFLATED_BYTES`): every entry's
- * inflated bytes and every delta's result count against one budget, each
+ * Two budgets bound a read. Work: every entry's inflated bytes and every
+ * delta's result count against `maxBytes` (`MAX_INFLATED_BYTES`), each
  * checked before it is inflated or allocated, so a small pack that declares
- * gigabytes of zeros is refused rather than read.
+ * gigabytes of zeros is refused rather than read. Memory: `maxHeldBytes`
+ * caps the bytes held at once. A first pass finds each entry and which
+ * entries deltas build on; the second resolves them in order, and keeps an
+ * object's bytes only while a later delta needs them, or when the caller
+ * reads them (anything but a blob larger than `keepBlobBytes`). A blob let
+ * go keeps its id and size. The receiver reads only commits, trees and LFS
+ * pointers, so a push of large notes holds little more than its trees.
  */
 import { createHash } from 'node:crypto';
 import { deflateSync, inflateSync } from 'node:zlib';
@@ -127,24 +133,48 @@ function applyDelta(
 	return out;
 }
 
+/** An object read from a pack. `bytes` is null for a blob `readPack` let go. */
+export type PackedObject = {
+	oid: string;
+	kind: ObjectKind;
+	size: number;
+	bytes: Uint8Array | null;
+};
+
+/** Where one entry sits in the pack, from the first pass. */
 type Entry = {
 	offset: number;
 	code: number;
-	data: Uint8Array;
+	/** Its inflated size, from its header. */
+	size: number;
+	/** Where its deflated data starts, and how long it runs. */
+	start: number;
+	length: number;
 	baseOffset?: number;
 	baseOid?: string;
-	resolved?: PackObject;
 };
 
 /**
  * Every object in `pack`, by id. An empty input is an empty pack. Throws
- * when the pack is malformed, or inflates past `maxBytes`.
+ * when the pack is malformed, inflates past `maxBytes`, or needs more than
+ * `maxHeldBytes` at once.
  */
 export function readPack(
 	pack: Uint8Array,
-	{ maxBytes = MAX_INFLATED_BYTES }: { maxBytes?: number } = {},
-): Map<string, PackObject> {
-	const objects = new Map<string, PackObject>();
+	{
+		maxBytes = MAX_INFLATED_BYTES,
+		maxHeldBytes = Number.POSITIVE_INFINITY,
+		keepBlobBytes = Number.POSITIVE_INFINITY,
+	}: {
+		/** The most a pack may inflate to, entries and delta results together. */
+		maxBytes?: number;
+		/** The most bytes held at once. */
+		maxHeldBytes?: number;
+		/** The largest blob whose bytes are kept; larger ones keep their id and size. */
+		keepBlobBytes?: number;
+	} = {},
+): Map<string, PackedObject> {
+	const objects = new Map<string, PackedObject>();
 	if (pack.length === 0) return objects;
 	let left = maxBytes;
 	const tooLarge = () =>
@@ -154,6 +184,14 @@ export function readPack(
 	const spend = (bytes: number) => {
 		if (bytes > left) throw tooLarge();
 		left -= bytes;
+	};
+	let held = 0;
+	const hold = (bytes: number) => {
+		if (held + bytes > maxHeldBytes)
+			throw new Error(
+				`its objects need more than ${mib(maxHeldBytes)} in memory at once; push fewer or smaller files at once`,
+			);
+		held += bytes;
 	};
 	const buf = Buffer.from(pack.buffer, pack.byteOffset, pack.byteLength);
 	if (buf.length < 32 || buf.toString('ascii', 0, 4) !== 'PACK')
@@ -171,8 +209,11 @@ export function readPack(
 		throw new Error('pack checksum mismatch');
 	const count = buf.readUInt32BE(8);
 	const end = buf.length - 20;
+
+	// First pass: where each entry is, and how many deltas build on it.
 	const entries: Entry[] = [];
-	const byOffset = new Map<number, Entry>();
+	const usesOfOffset = new Map<number, number>();
+	const usesOfOid = new Map<string, number>();
 	let at = 12;
 	for (let i = 0; i < count; i++) {
 		if (at >= end) throw new Error('pack ends early');
@@ -186,7 +227,7 @@ export function readPack(
 			size += (byte & 127) * shift;
 			shift *= 128;
 		}
-		const entry: Entry = { offset, code, data: new Uint8Array() };
+		const entry: Entry = { offset, code, size, start: 0, length: 0 };
 		if (code === OFS_DELTA) {
 			byte = buf[at++] as number;
 			let back = byte & 127;
@@ -195,67 +236,118 @@ export function readPack(
 				back = (back + 1) * 128 + (byte & 127);
 			}
 			entry.baseOffset = offset - back;
+			usesOfOffset.set(
+				entry.baseOffset,
+				(usesOfOffset.get(entry.baseOffset) ?? 0) + 1,
+			);
 		} else if (code === REF_DELTA) {
 			entry.baseOid = buf.toString('hex', at, at + 20);
 			at += 20;
+			usesOfOid.set(entry.baseOid, (usesOfOid.get(entry.baseOid) ?? 0) + 1);
 		} else if (CODE_KIND[code] === undefined)
 			throw new Error(`unknown pack entry type ${code}`);
 		// The declared size is checked first; the inflation is capped too, in case the header understates it.
 		if (size > left) throw tooLarge();
-		let inflated: { buffer: Buffer; engine: { bytesWritten: number } };
+		hold(size);
+		const inflated = inflate(at, Math.max(1, Math.min(left, maxHeldBytes)));
+		held -= size;
+		if (inflated.buffer.length !== size)
+			throw new Error('pack entry size mismatch');
+		spend(size);
+		entry.start = at;
+		entry.length = inflated.engine.bytesWritten;
+		at += entry.length;
+		entries.push(entry);
+	}
+	if (at !== end) throw new Error('pack has trailing bytes');
+
+	function inflate(from: number, maxOutputLength: number) {
 		try {
-			inflated = inflateSync(buf.subarray(at, end), {
+			return inflateSync(buf.subarray(from, end), {
 				info: true,
-				maxOutputLength: Math.max(1, left),
-			}) as unknown as typeof inflated;
+				maxOutputLength,
+			}) as unknown as { buffer: Buffer; engine: { bytesWritten: number } };
 		} catch (cause) {
 			if (cause instanceof RangeError) throw tooLarge();
 			throw cause;
 		}
-		if (inflated.buffer.length !== size)
-			throw new Error('pack entry size mismatch');
-		spend(size);
-		entry.data = inflated.buffer;
-		at += inflated.engine.bytesWritten;
-		entries.push(entry);
-		byOffset.set(offset, entry);
 	}
-	if (at !== end) throw new Error('pack has trailing bytes');
 
-	const resolve = (entry: Entry, depth = 0): PackObject | null => {
-		if (entry.resolved) return entry.resolved;
-		if (depth > 5000) throw new Error('delta chain too deep');
-		let kind = CODE_KIND[entry.code];
-		let data = entry.data;
-		if (entry.code === OFS_DELTA || entry.code === REF_DELTA) {
-			const baseEntry =
-				entry.code === OFS_DELTA
-					? byOffset.get(entry.baseOffset as number)
-					: undefined;
-			const base = baseEntry
-				? resolve(baseEntry, depth + 1)
-				: (objects.get(entry.baseOid as string) ?? null);
-			if (base === null) return null;
-			kind = base.kind;
-			data = applyDelta(base.bytes, entry.data, spend);
-		}
-		const object = {
-			oid: objectId(kind as ObjectKind, data),
-			kind: kind as ObjectKind,
+	// Second pass: resolve in order, keeping bytes only while they are needed.
+	const byOffset = new Map<number, PackedObject>();
+	/** How many deltas still need each object's bytes. */
+	const uses = new Map<PackedObject, number>();
+	const keeps = (object: PackedObject) =>
+		object.kind !== 'blob' || object.size <= keepBlobBytes;
+	const release = (object: PackedObject) => {
+		const remaining = (uses.get(object) ?? 0) - 1;
+		uses.set(object, remaining);
+		if (remaining > 0 || keeps(object) || object.bytes === null) return;
+		held -= object.size;
+		object.bytes = null;
+	};
+	const settle = (entry: Entry, kind: ObjectKind, data: Uint8Array) => {
+		const object: PackedObject = {
+			oid: objectId(kind, data),
+			kind,
+			size: data.length,
 			bytes: data,
 		};
-		entry.resolved = object;
+		const needed =
+			(usesOfOffset.get(entry.offset) ?? 0) + (usesOfOid.get(object.oid) ?? 0);
+		uses.set(object, needed);
+		if (needed === 0 && !keeps(object)) {
+			held -= data.length;
+			object.bytes = null;
+		}
+		byOffset.set(entry.offset, object);
 		objects.set(object.oid, object);
-		return object;
 	};
-	let pending = entries;
-	while (pending.length > 0) {
-		const next = pending.filter((entry) => resolve(entry) === null);
-		if (next.length === pending.length)
+	/** Resolve `entry`, or return false when its base is not read yet. */
+	const resolve = (entry: Entry, data: Uint8Array | null): boolean => {
+		const delta = entry.code === OFS_DELTA || entry.code === REF_DELTA;
+		const base = !delta
+			? null
+			: entry.code === OFS_DELTA
+				? byOffset.get(entry.baseOffset as number)
+				: objects.get(entry.baseOid as string);
+		if (delta && !base) return false;
+		let own = data;
+		if (own === null) {
+			hold(entry.size);
+			own = inflate(entry.start, Math.max(1, entry.size)).buffer;
+		}
+		if (!delta || !base) {
+			settle(entry, CODE_KIND[entry.code] as ObjectKind, own);
+			return true;
+		}
+		if (base.bytes === null) throw new Error('delta base let go too early');
+		const result = applyDelta(base.bytes, own, (bytes) => {
+			spend(bytes);
+			hold(bytes);
+		});
+		held -= own.length;
+		release(base);
+		settle(entry, base.kind, result);
+		return true;
+	};
+	let waiting: { entry: Entry; data: Uint8Array }[] = [];
+	for (const entry of entries)
+		if (!resolve(entry, null)) {
+			// A ref-delta whose base comes later in the pack: keep its data.
+			hold(entry.size);
+			waiting.push({
+				entry,
+				data: inflate(entry.start, Math.max(1, entry.size)).buffer,
+			});
+		}
+	while (waiting.length > 0) {
+		const next = waiting.filter(({ entry, data }) => !resolve(entry, data));
+		if (next.length === waiting.length)
 			throw new Error(
-				`${pending.length} deltas name a base outside the pack (a thin pack)`,
+				`${waiting.length} deltas name a base outside the pack (a thin pack)`,
 			);
-		pending = next;
+		waiting = next;
 	}
 	return objects;
 }
