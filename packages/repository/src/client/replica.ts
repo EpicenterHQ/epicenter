@@ -29,12 +29,14 @@
  * conflict blocks say what contested, and each file's state (synced,
  * sending, held with a reason). What is held is always a save of the
  * person's own that cannot go, and it holds only itself: a text the door
- * refuses, a text the server refused, work whose outcome is unknown, and a
- * save a front end found that the repository cannot take at all (a folder's
+ * refuses, a text the server refused, and a save a front end found that the repository cannot take at all (a folder's
  * note that is not UTF-8, a name that folds to another file's, bytes the
  * device could not store), named by its path as found. A delete or field
  * removal that loses to an edit is not held: it is an intent, not typed
- * text, and the edited file (or field) just stays, visibly.
+ * text, and the edited file (or field) just stays, visibly. Nor is work
+ * whose outcome is unknown: it goes as a labelled conflict block after what
+ * is there (a blob, saying what it was made over), and a blob write that
+ * lost lands beside its file, at a sibling the server names.
  *
  * The database, every table named with a `/` so an app's views cannot
  * collide with one:
@@ -916,22 +918,30 @@ function createReplica({
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
 		if (f.sent !== undefined && !own) return;
 		if (f.unknown) {
-			// RULE: work whose outcome is unknown is put beside what is there, held for its person, never merged blindly. `mine` is the newest of it: held text typed over the commit is in it too.
+			/**
+			 * RULE: work whose outcome is unknown is never merged blindly, and
+			 * never held: a note's goes as one labelled conflict block after what
+			 * is there (bounded as any note: 1 MB, and the block cap), a blob's
+			 * goes saying what it was made over (it lands where that is still
+			 * there, beside it, or as nothing if it landed). `mine` is the newest
+			 * of it: text typed over the commit is in it too.
+			 */
 			const work = f.mine;
 			// A delete is an intent, not typed text: where the path is as this device last had it, nothing landed there and the delete goes again; where it changed, the text stays, as a delete that lost to an edit does.
 			if (work === null && text !== null && text === f.base) {
 				set(path, { base: text, mine: null, committed: { text: null } });
 				return;
 			}
-			const mine =
-				work === text || work === null
-					? text
-					: text === null
-						? work
-						: isNote(path)
-							? appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } })
-							: work;
-			set(path, { base: text, mine, ...(mine === text ? {} : { held: { reason: 'outcome unknown' } }) });
+			if (work === text || work === null) {
+				set(path, { base: text, mine: text });
+				return;
+			}
+			if (!isNote(path)) {
+				set(path, { base: text, mine: work, saved: true, over: f.base });
+				return;
+			}
+			const mine = text === null ? work : appendBlock(text, work, { current: { author: 'main', time: '-' }, incoming: { author: `${user}/${device}/outcome-unknown`, time: new Date(now()).toISOString() } });
+			set(path, { base: text, mine, saved: true });
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
@@ -1094,7 +1104,7 @@ function createReplica({
 	 * outcome left the window). RULE: sent once, it was refused, never landed,
 	 * so its work goes back as unsent and merges normally after a full
 	 * catch-up; sent more than once, an earlier send may have landed, so its
-	 * work is put beside what is there, held.
+	 * work goes as a labelled conflict block after what is there (`integrate`).
 	 */
 	function onUnknown() {
 		stats.unknown++;
@@ -1211,6 +1221,8 @@ function createReplica({
 
 	/** Apply the staged catch-up, a page of files at a time. */
 	function applyCatchUp(reply: Pick<CatchUp, 'main' | 'full' | 'commits'>) {
+		/** Work whose outcome was unknown, which this catch-up puts after what is there. */
+		const settling = first(driver, 'SELECT 1 FROM "epicenter/files" WHERE unknown = 1') !== undefined;
 		// RULE (kept by reasoning, no seed reaches it): a text that cannot be found is never taken as a delete, or a later save would write over a text this device never saw.
 		if (first(driver, `SELECT 1 ${LACKING_SQL} LIMIT 1`) !== undefined) {
 			unstage();
@@ -1237,6 +1249,8 @@ function createReplica({
 		setPosition(reply.main);
 		pass(reply.main);
 		prune();
+		// Work whose outcome was unknown, now put after what is there, goes like any save.
+		if (settling) cut();
 	}
 
 	function applyEvent(event: Event, texts: Map<string, string>) {

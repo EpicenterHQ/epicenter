@@ -25,7 +25,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { createTestServer, STAMP, writer } from '../sim/harness.js';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { findConflicts } from '../core/conflict.js';
-import { BODY_SQL } from '../core/markdown.js';
+import { BODY_SQL, writePointer } from '../core/markdown.js';
 import { defineApp } from '../core/lens.js';
 import type { LiveCommit } from '../core/commit.js';
 import { commitId } from '../core/commit.js';
@@ -408,4 +408,44 @@ test('a held file holds only itself: what was saved with it goes', () => {
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
 	expect(server.read('notes/b.md')).toBe(note('b\nmore\n'));
+});
+
+test('work whose outcome is unknown goes as a labelled conflict block over what is there, never held; a blob of it goes saying what it was made over', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	const link = connect(replica, server);
+	link.deliver();
+	const pointer = (c: string) => writePointer({ oid: c.repeat(64), size: 3 });
+	for (const c of ['a', 'b', 'c']) {
+		server.upload(c.repeat(64), 3);
+		replica.present(c.repeat(64), 3);
+	}
+	replica.writeAll({ [PATH]: note('one\n'), 'media/x.png': pointer('a') });
+	link.deliver();
+	// Her edit goes out and is lost on the way, twice sent; meanwhile someone else edits both files.
+	replica.writeAll({ [PATH]: note('one\nmine\n'), 'media/x.png': pointer('b') });
+	link.sent.length = 0;
+	replica.attach(null);
+	replica.attach(link.sent.push.bind(link.sent));
+	const resend = link.sent.shift();
+	if (resend?.type !== 'push') throw new Error('a resend');
+	link.sent.length = 0;
+	const other = (files: { path: string; text: string }[]) => {
+		const body = { parent: server.main(), author: { user: 'bob', device: 'phone' }, time: STAMP, files };
+		return server.push({ id: commitId(body), ...body }, writer('bob'));
+	};
+	other([{ path: PATH, text: note('one\ntheirs\n') }, { path: 'media/x.png', text: pointer('c') }]);
+	replica.reply({ type: 'answer', rid: resend.rid, answer: { kind: 'outcome-unknown', main: server.main() } });
+	link.deliver();
+	expect(replica.held()).toEqual([]);
+	const text = server.read(PATH) ?? '';
+	expect(text.startsWith(note('one\ntheirs\n'))).toBe(true);
+	expect(findConflicts(text)).toHaveLength(1);
+	expect(text).toContain('laptop/outcome-unknown');
+	expect(findConflicts(text)[0]?.incoming).toBe(note('one\nmine\n'));
+	expect(replica.read(PATH)).toBe(text);
+	// The blob was made over `a`, which moved: it lands beside.
+	expect(server.read('media/x.png')).toBe(pointer('c'));
+	expect(server.read(`media/x (conflict ${'b'.repeat(7)}).png`)).toBe(pointer('b'));
+	expect(replica.busy()).toBe(false);
 });
