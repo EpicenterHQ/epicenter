@@ -39,7 +39,7 @@ beforeAll(async () => {
 afterAll(() => site.stop());
 
 const MB = 1024 * 1024;
-const UPLOADING: FileStatus = { status: 'sending', reason: 'its bytes are uploading' };
+const UPLOADING: FileStatus = { status: 'waiting', reason: 'its bytes are uploading' };
 const note = (title: string) => `---\ntitle: ${title}\nrecordedAt: 2026-10-28T12:00:00Z\n---\n`;
 
 /** A byte store that reads at `rate` bytes a second, so an upload takes long enough to cut off. */
@@ -70,7 +70,7 @@ for (const [engine, browser] of [
 ] as const) {
 	describe(engine, () => {
 		test(
-			'recordings made offline sync with their audio after its bytes, open on the other profile, and every refusal is held with why',
+			'recordings made offline sync with their audio after its bytes, open on the other profile, and every refusal waits or lands beside, with why',
 			async () => {
 				const dir = await mkdtemp(join(tmpdir(), 'whispering-'));
 				const blobs = join(dir, 'repo.git', 'epicenter', 'blobs');
@@ -145,13 +145,13 @@ for (const [engine, browser] of [
 
 					// A pointer to bytes nobody has, then the blob limit and the quota.
 					await a.evaluate((text) => replicas.write('recordings/ghost.webm', text), writePointer({ oid: 'f'.repeat(64), size: 10 }));
-					await a.evaluate(() => replicas.untilState('recordings/ghost.webm', 'waiting'));
+					for (let tries = 0; tries < 400 && JSON.stringify(await a.evaluate(() => replicas.state('recordings/ghost.webm'))) !== JSON.stringify({ status: 'waiting', reason: 'these bytes are not on this device or the server' }); tries++) await Bun.sleep(50);
 					expect(await a.evaluate(() => replicas.state('recordings/ghost.webm'))).toEqual({ status: 'waiting', reason: 'these bytes are not on this device or the server' });
 					await a.evaluate(() => replicas.write('recordings/ghost.webm', null));
 					expect(await a.evaluate(() => replicas.state('recordings/ghost.webm'))).toEqual({ status: 'synced' });
 					expect((await a.evaluate(() => replicas.put('recordings/long.webm', 5 * 1024 * 1024, 3))).result).toMatchObject({ error: { name: 'TooLarge' } });
 					await a.evaluate(() => replicas.put('recordings/r3.webm', Math.floor(3.5 * 1024 * 1024), 4));
-					await a.evaluate(() => replicas.untilState('recordings/r3.webm', 'waiting'));
+					for (let tries = 0; tries < 400 && JSON.stringify(await a.evaluate(() => replicas.state('recordings/r3.webm'))) !== JSON.stringify({ status: 'waiting', reason: 'the repository has no room left for files' }); tries++) await Bun.sleep(50);
 					expect(await a.evaluate(() => replicas.state('recordings/r3.webm'))).toEqual({ status: 'waiting', reason: 'the repository has no room left for files' });
 					// Its person resolves it by deleting it.
 					await a.evaluate(() => replicas.write('recordings/r3.webm', null));
