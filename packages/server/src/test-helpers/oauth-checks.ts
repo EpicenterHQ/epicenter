@@ -682,11 +682,12 @@ export async function checkSilentReauthorization(h: OAuthHarness) {
 	expect(silent.status).toBe(302);
 	expect(silent.location.startsWith(h.browser.redirectUri)).toBe(true);
 	const code = new URL(silent.location).searchParams.get('code')!;
+	// One audience per token request: a token naming both is refused at each.
 	const issued = await client.exchange({
 		...h.browser,
 		code,
 		verifier,
-		resource,
+		resource: [h.audiences.git],
 	});
 	expect(issued.refresh_token).toBeUndefined();
 	expect(
@@ -725,11 +726,12 @@ export async function checkSilentReauthorization(h: OAuthHarness) {
 		'consent_required',
 	);
 
+	// The untrusted client's ceiling holds no `ai`.
 	const wider = await client.authorize({
-		...h.browser,
+		...h.untrusted,
 		cookie: person.cookie,
 		challenge,
-		scope: 'folders:read offline_access',
+		scope: 'folders:read ai',
 		prompt: 'none',
 	});
 	expect(new URL(wider.location).searchParams.get('error')).toBe(

@@ -137,8 +137,16 @@ beforeAll(async () => {
 				clientId: browser.clientId,
 				name: 'Todos',
 				redirectUris: [browser.redirectUri],
-				grantTypes: ['authorization_code'],
-				scopes: ['openid', 'profile', 'ai', 'folders:read', 'folders:write'],
+				grantTypes: ['authorization_code', 'refresh_token'],
+				scopes: [
+					'openid',
+					'offline_access',
+					'profile',
+					'email',
+					'ai',
+					'folders:read',
+					'folders:write',
+				],
 				resources: [audiences.api, audiences.git],
 				skipConsent: true,
 				applicationType: 'web',
@@ -578,5 +586,173 @@ describe('the protected routes', () => {
 		const answer = new URL(signedOut.location);
 		expect(`${answer.origin}${answer.pathname}`).toBe(browser.redirectUri);
 		expect(answer.searchParams.get('error')).toBe('login_required');
+	}, 60_000);
+});
+
+describe('one browser sign-in for the API and Git (decision 65)', () => {
+	const everyScope = 'openid profile ai folders:read folders:write';
+	/** What `createBrowserOAuth` asks for with two resources. */
+	const signInScope = `${everyScope} offline_access`;
+	const at = async (
+		token: string,
+		audience: string,
+		scope: OAuthScope,
+		namespace: string,
+	) => (await harness.resource(token, { audience, scope, namespace })).status;
+
+	/** One redirect for both audiences; its code, unredeemed. */
+	async function authorizeBoth(label: string) {
+		const person = await harness.client.person(label);
+		const { verifier, challenge } = await pkce();
+		const authorized = await harness.client.authorize({
+			...browser,
+			cookie: person.cookie,
+			challenge,
+			resource: [audiences.api, audiences.git],
+			scope: signInScope,
+		});
+		const code = new URL(authorized.location).searchParams.get('code');
+		if (!code) throw new Error(`no code: ${authorized.location}`);
+		return { person, code, verifier };
+	}
+
+	const redeem = (
+		{ code, verifier }: { code: string; verifier: string },
+		resource?: string,
+	) =>
+		harness.client.token({
+			grant_type: 'authorization_code',
+			client_id: browser.clientId,
+			code,
+			code_verifier: verifier,
+			redirect_uri: browser.redirectUri,
+			...(resource && { resource }),
+		});
+
+	/** The browser callback: exchange for the API, then refresh once for Git. */
+	async function signInBoth(label: string) {
+		const authorized = await authorizeBoth(label);
+		const api = await redeem(authorized, audiences.api);
+		expect(api.status).toBe(200);
+		const git = await harness.client.token({
+			grant_type: 'refresh_token',
+			client_id: browser.clientId,
+			refresh_token: api.body.refresh_token!,
+			resource: audiences.git,
+		});
+		expect(git.status).toBe(200);
+		return { person: authorized.person, api: api.body, git: git.body };
+	}
+
+	test('a code for both audiences and one refresh give one token per audience', async () => {
+		const { person, api, git } = await signInBoth('both-audiences');
+		const ns = person.personal;
+		expect(await at(api.access_token, audiences.api, 'ai', ns)).toBe(200);
+		expect(await at(api.access_token, audiences.git, 'folders:read', ns)).toBe(
+			401,
+		);
+		expect(await at(git.access_token, audiences.git, 'folders:write', ns)).toBe(
+			200,
+		);
+		expect(await at(git.access_token, audiences.api, 'ai', ns)).toBe(401);
+		// The refresh never narrows the grant: both answers carry all of it.
+		const sorted = (scope?: string) => scope?.split(' ').sort().join(' ');
+		expect(sorted(api.scope)).toBe(sorted(signInScope));
+		expect(sorted(git.scope)).toBe(sorted(signInScope));
+	}, 60_000);
+
+	test('a replayed code is refused and revokes what it issued', async () => {
+		const authorized = await authorizeBoth('replay');
+		const first = await redeem(authorized, audiences.api);
+		expect(first.status).toBe(200);
+		const replay = await redeem(authorized, audiences.git);
+		expect(replay.status).toBe(400);
+		expect(replay.body).toMatchObject({ error: 'invalid_grant' });
+		expect(
+			await at(
+				first.body.access_token,
+				audiences.api,
+				'ai',
+				authorized.person.personal,
+			),
+		).toBe(401);
+	}, 60_000);
+
+	test('a token for both audiences is refused at each', async () => {
+		const authorized = await authorizeBoth('two-audiences');
+		// Without `resource`, the library issues one token for every bound audience.
+		const both = await redeem(authorized);
+		expect(both.status).toBe(200);
+		const ns = authorized.person.personal;
+		expect(await at(both.body.access_token, audiences.api, 'ai', ns)).toBe(401);
+		expect(
+			await at(both.body.access_token, audiences.git, 'folders:read', ns),
+		).toBe(401);
+	}, 60_000);
+
+	test('the browser grant stays bound to its session, and ends at sign-out', async () => {
+		const { person, api, git } = await signInBoth('session-bound');
+		const desktopGrant = await harness.client.codeGrant({
+			...desktop,
+			cookie: person.cookie,
+			resource: [audiences.git],
+		});
+		const sessionOf = async (table: string, column: string, token: string) =>
+			(
+				await sqlClient.query<{ session_id: string | null }>(
+					`select session_id from ${table} where ${column} = $1`,
+					[token],
+				)
+			).rows[0]?.session_id;
+		const accessHash = async (token: string) =>
+			(await hashPrefixedToken(token, TOKEN_PREFIX.access))!;
+		const refreshHash = async (token: string) =>
+			(await hashPrefixedToken(token, TOKEN_PREFIX.refresh))!;
+		for (const token of [api.access_token, git.access_token])
+			expect(
+				await sessionOf('oauth_access_token', 'token', await accessHash(token)),
+			).toBe(person.sessionId);
+		expect(
+			await sessionOf(
+				'oauth_refresh_token',
+				'token',
+				await refreshHash(git.refresh_token!),
+			),
+		).toBe(person.sessionId);
+		// The desktop app's offline grant is still detached from the session.
+		expect(
+			await sessionOf(
+				'oauth_refresh_token',
+				'token',
+				await refreshHash(desktopGrant.refresh_token!),
+			),
+		).toBeNull();
+
+		const signedOut = await harness.client.request('/auth/sign-out', {
+			cookie: person.cookie,
+			json: {},
+		});
+		expect(signedOut.status).toBe(200);
+		const ns = person.personal;
+		expect(await at(api.access_token, audiences.api, 'ai', ns)).toBe(401);
+		expect(await at(git.access_token, audiences.git, 'folders:read', ns)).toBe(
+			401,
+		);
+		const refreshed = await harness.client.token({
+			grant_type: 'refresh_token',
+			client_id: browser.clientId,
+			refresh_token: git.refresh_token!,
+			resource: audiences.api,
+		});
+		expect(refreshed.status).toBe(400);
+		expect(refreshed.body).toMatchObject({ error: 'invalid_grant' });
+		expect(
+			(
+				await harness.client.refresh(
+					desktop.clientId,
+					desktopGrant.refresh_token!,
+				)
+			).status,
+		).toBe(200);
 	}, 60_000);
 });

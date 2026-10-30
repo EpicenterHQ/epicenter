@@ -244,7 +244,10 @@ names what is deployment-specific:
   `<origin>/git` (ADR-0326). No client registers itself or identifies itself
   by a metadata document: every client is one of these first-party rows.
 - **First-party clients**, in `worker/oauth-registrations.ts`. Each browser build is its app id, a public PKCE
-  client with its exact `/auth/callback`, consent skipped, target `*`. The
+  client with its exact `/auth/callback`, consent skipped, target `*`. It may
+  ask for `offline_access` only to mint one access token per audience in one
+  sign-in, keeps no refresh token, and its grant stays bound to the session
+  (`offlineDetach` skips web clients). The
   desktop app is `so.epicenter`, with a loopback redirect on any port and
   `offline_access`. The CLI is `so.epicenter.cli`, with the device grant only
   and `openid`, so `epicenter auth login` can read who approved it from

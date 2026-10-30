@@ -1,9 +1,16 @@
 /**
- * An `offline_access` grant (the desktop app, the CLI) outlives
- * the browser session that approved it (ADR-0549). The provider copies the
- * approving session's id onto the refresh token, every rotation copies it
- * forward, and a token whose session has expired is inactive. Clearing
- * `sessionId` at issuance detaches the grant; the device grant never has one.
+ * An `offline_access` grant to a native client (the desktop app, the CLI)
+ * outlives the browser session that approved it (ADR-0549). The provider
+ * copies the approving session's id onto the refresh token, every rotation
+ * copies it forward, and a token whose session has expired is inactive.
+ * Clearing `sessionId` at issuance detaches the grant; the device grant never
+ * has one.
+ *
+ * A web client's grant stays bound. A browser app asks for `offline_access`
+ * only to mint one access token per audience in its sign-in callback and
+ * keeps no refresh token, so its grant ends with the session: signing out
+ * deletes the session, and the foreign keys delete its refresh and access
+ * tokens with it.
  */
 import type { BetterAuthPlugin } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
@@ -29,11 +36,21 @@ export function offlineDetach() {
 							TOKEN_PREFIX.refresh,
 						);
 						if (!refreshHash) return;
-						const refresh = await ctx.context.adapter.findOne<{ id: string }>({
+						const refresh = await ctx.context.adapter.findOne<{
+							id: string;
+							clientId: string;
+						}>({
 							model: 'oauthRefreshToken',
 							where: [{ field: 'token', value: refreshHash }],
 						});
 						if (!refresh) return;
+						const client = await ctx.context.adapter.findOne<{
+							applicationType: string | null;
+						}>({
+							model: 'oauthClient',
+							where: [{ field: 'clientId', value: refresh.clientId }],
+						});
+						if (client?.applicationType === 'web') return;
 						await ctx.context.adapter.update({
 							model: 'oauthRefreshToken',
 							where: [{ field: 'id', value: refresh.id }],
