@@ -219,7 +219,7 @@ function splitBlocks(text: string) {
 
 function bodyParts(base: string, current: string, incoming: string): Part[] {
 	const parts: Part[] = [];
-	for (const part of mergeSequence(lines(base), lines(current), lines(incoming))) {
+	for (const part of mergeSequence(lines(base), lines(current), lines(incoming), { lines: true })) {
 		if ('text' in part) {
 			parts.push(part);
 			continue;
@@ -239,7 +239,8 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 export type Hunk = { start: number; end: number; sideStart: number; sideEnd: number };
 type SourcedHunk = Hunk & { source: 'current' | 'incoming' };
 
-function mergeSequence(base: string[], current: string[], incoming: string[]): Part[] {
+/** Merge two edits of `base`, as lines (each with its terminator) or as words. */
+function mergeSequence(base: string[], current: string[], incoming: string[], { lines = false } = {}): Part[] {
 	const edits: SourcedHunk[] = [
 		...diff(base, current).map((h) => ({ ...h, source: 'current' as const })),
 		...diff(base, incoming).map((h) => ({ ...h, source: 'incoming' as const })),
@@ -277,9 +278,12 @@ function mergeSequence(base: string[], current: string[], incoming: string[]): P
 		const i = sideFor(group, 'incoming', incoming);
 		const sources = new Set(group.edits.map((h) => h.source));
 		if (sources.size === 1 || same(c, i)) parts.push({ text: (sources.has('current') ? c : i).join('') });
-		else if (b.length === 0 && group.edits.every((h) => h.start === h.end))
-			// Both inserted at one point (identical insertions were deduplicated above).
-			parts.push({ text: [...c, ...i].join('') });
+		else if (b.length === 0 && group.edits.every((h) => h.start === h.end)) {
+			// Both inserted at one point (identical insertions were deduplicated above). RULE: as lines, current's last line ends before incoming's begins: one unterminated (only at the end of a file) is terminated, so two lines never become one.
+			const last = c.at(-1);
+			const ended = lines && last !== undefined && !last.endsWith('\n') ? [...c.slice(0, -1), `${last}\n`] : c;
+			parts.push({ text: [...ended, ...i].join('') });
+		}
 		else parts.push({ overlap: { base: b.join(''), current: c.join(''), incoming: i.join('') } });
 		at = group.end;
 	}

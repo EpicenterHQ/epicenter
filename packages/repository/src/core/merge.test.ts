@@ -63,6 +63,16 @@ describe('examples', () => {
 		expect(r.overlaps).toHaveLength(0);
 	});
 
+	test('same-point additions where current ends unterminated stay on their own lines', () => {
+		expect(merge('', 'b', 'c\n').text).toBe('b\nc\n');
+		// An existing block current did not have lands on a line of its own, so it still reads as a block (property seed W 29).
+		const head = '---\ntitle: a\n---\n';
+		const block = '<<<<<<< current c - -\n||||||| base -\n=======\nold\n>>>>>>> incoming b - -\n';
+		const r = merge(head, `${head}t57z`, `${head}${block}`);
+		expect(r.text).toBe(`${head}t57z\n${block}`);
+		expect(findConflicts(r.text ?? '')).toHaveLength(1);
+	});
+
 	test('cat/cart/coat reports a whole-word overlap without coart', () => {
 		const r = merge('cat\n', 'cart\n', 'coat\n');
 		expect(r.overlaps).toHaveLength(1);
