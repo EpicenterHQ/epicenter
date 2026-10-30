@@ -3,7 +3,7 @@
 - **Status:** Proposed (awaiting the owner's review; flip to Accepted when approved)
 - **Date:** 2026-10-31
 - **Supersedes:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (one merge where the change wins and no conflict marker is written), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (a Git clone per web origin), [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) (browser sync), and [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) (the hosts' incoming-update engine).
-- **Amends:** the 23 records in [Records this changes](#records-this-changes), each at the scope named there.
+- **Amends:** the 24 records in [Records this changes](#records-this-changes), each at the scope named there.
 - **Unbuilt:** per-repository grants and the consent page choosing a repository (`openRemote` reaches `<account>/<contract name>` until then); `@epicenter/secrets`; `openDevice` from `@epicenter/folder/tauri`; the notify Durable Object that broadcasts "main moved" per repository; the `epicenter://init?path=…` deep link; Whispering's migration to a contract; `epicenter init --contract`; an R2 bucket bound to the production `api` Worker.
 
 ## Context
@@ -67,6 +67,18 @@ once signed in and online: the LFS object, then one write carrying its
 `captureId`. The local copy is deleted only at the version the receipt shows
 landed; a later edit is queued as an update. Edits and deletes of repository
 files are online only.
+
+**One browser sign-in covers both audiences.** `account.fetch` carries the Git
+token to `openRemote` and the API token to everything else, so a web app that
+syncs a folder and calls the API (Whispering) names both `resources` in
+`createBrowserOAuth`. The client sends one redirect for both, with
+`offline_access`, exchanges the code for the API, and refreshes once for Git,
+then drops the refresh token: none is kept at rest. `Account.fetch` picks the
+token of the longest matching resource, origin then path, because local and
+self-hosted deployments serve Git at `/git` under the API's origin. A failed
+token request fails the sign-in and revokes what was issued. The server keeps a
+web client's grant bound to its session (`offlineDetach` skips web clients),
+so signing out ends it, and refuses any token naming more than one audience.
 
 **The server translates writes and receives pushes; it holds no data of its
 own.** Both live in `mountGitHost` (`packages/server/src/routes/git.ts`):
@@ -186,6 +198,7 @@ the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
 | [ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | the history column and `epicenter generate`: no host runs Git for a page. |
 | [ADR-0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | `epicenter generate` writing the declaration: generation is deleted. |
 | [ADR-0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | refusing every non-fast-forward and a browser's token in isomorphic-git: the owner may force-push, and the browser runs no Git. |
+| [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | the browser row's "no `offline_access`" and the resource check's "this resource's audience": a browser asks for `offline_access` only to mint one access token per audience in one sign-in and keeps no refresh token, and a token must name exactly one audience. |
 | [ADR-0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | "sync settles with the same merge": sync settles with `settle` and the merge driver. |
 | [ADR-0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | root `epicenter.json` for CLI `check`: `check` takes a contract; `query` still reads it. |
 | [ADR-0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | "Epicenter registers no plain-Git merge driver": `merge=epicenter` runs `epicenter merge-driver`. |
