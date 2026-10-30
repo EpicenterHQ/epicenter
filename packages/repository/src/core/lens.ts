@@ -9,7 +9,7 @@
 import type { TSchema } from 'typebox';
 import { Check, Errors } from 'typebox/value';
 import { isNote } from './door.js';
-import { parseMarkdown } from './markdown.js';
+import { parseMarkdown, readNote } from './markdown.js';
 import {
 	compileTemplate,
 	IDENTIFIER,
@@ -172,13 +172,13 @@ function appOver<const TDefs extends Definitions>(definitions: TDefs, lenses: Le
 		},
 		/**
 		 * `as` a note name, whether `text`'s fields match that name's schema
-		 * (a text with no parseable frontmatter has none). Pure: it reads no repository, so an
+		 * (a key that does not parse is an issue of its own). Pure: it reads no repository, so an
 		 * editor or a CLI can check a text before it is written.
 		 */
 		check(text: string, { as }: { as?: NoteName<TDefs> } = {}): TextStatus {
 			const lens = as === undefined ? undefined : lenses.find((candidate) => candidate.name === as);
 			if (lens?.kind !== 'note') return { matches: null };
-			const issues = schemaIssues(lens.schema, parseMarkdown(text).fields);
+			const issues = noteIssues(lens.schema, text);
 			return issues.length === 0 ? { matches: true } : { matches: false, issues };
 		},
 	};
@@ -245,6 +245,18 @@ export type TextStatus = { matches: null } | { matches: true } | { matches: fals
 export function schemaIssues(schema: TSchema, fields: Record<string, unknown>): string[] {
 	if (Check(schema, fields)) return [];
 	return Errors(schema, fields).map((error) => `${error.instancePath || '/'} ${error.message}`);
+}
+
+/**
+ * How a note's `text` fails `schema`, given the fields read from it: a key
+ * whose value does not parse is an issue on that key, and costs only that
+ * key (the header's keys, found by position, that `fields` lacks), then
+ * the schema's issues.
+ */
+export function noteIssues(schema: TSchema, text: string, fields: Record<string, unknown> = parseMarkdown(text).fields): string[] {
+	const keys = new Set(readNote(text).header?.blocks.map((block) => block.key) ?? []);
+	const broken = [...keys].filter((key) => !Object.hasOwn(fields, key)).map((key) => `/${key} does not parse`);
+	return [...broken, ...schemaIssues(schema, fields)];
 }
 
 // ============================================================================

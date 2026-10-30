@@ -5,26 +5,22 @@
  * whether it wrote a conflict block (a merge that did is its own Git commit
  * at the next flush).
  *
- * Every conflict is text (D2): body overlaps are conflict blocks, and a
- * field both sides set keeps `current`'s value in the frontmatter and writes
- * `incoming`'s as a labelled block in the body. A path that was deleted since
- * `base`, or that two writers created, holds another note (D3): `current`
- * stays and `incoming` is appended whole as one block. A block identical to
- * one already in the note is not written again, and one clash is one block
- * however many writes follow it: an edit of what a block already offers as
- * a side continues that side (`merge`'s rule, applied to a field's block
- * here). A blob never merges: `settlePointer` is its rule, compare-and-swap.
+ * Every conflict is text: overlaps are conflict blocks. A header key
+ * both sides set takes the later write's value, `incoming`'s (the write
+ * arriving now) over `current`'s (`main`'s), with no block: the value that
+ * lost stays in history. A path that was deleted since `base`, or that two
+ * writers created, holds another note (D3): `current` stays and `incoming`
+ * is appended whole as one block. A block identical to one already in the
+ * note is not written again, and one clash is one block however many
+ * writes follow it (`merge`'s `continuedBlock`). A blob never merges:
+ * `settlePointer` is its rule, compare-and-swap.
  *
- * A merge never breaks a note: where base, current and incoming each open
- * with frontmatter that parses (or none), `merge` writes the frontmatter
- * from current's YAML plus the chosen fields (read back, or rewritten with
- * `stringify`), keeps a body after an empty header from reading as
- * frontmatter, and puts markers and D2 blocks only in the body (a seeded
- * property in `merge.test.ts`). A side whose fences hold no frontmatter is
- * a note with no fields, merged as whole text.
+ * A merge never breaks a key: the header merges key by key, each key's
+ * block whole, and a body after no header is kept from reading as one (a
+ * seeded property in `merge.test.ts`). Only typed text breaks a key, and a
+ * broken key costs only that key.
  */
-import { stringify } from 'yaml';
-import { block, findConflicts, type Labels, type Party, sideOffering, unlabelled, versionOf, withBlock, withSide } from './conflict.js';
+import { block, type Labels, type Party, versionOf, withBlock } from './conflict.js';
 import { merge, withBlocks } from './merge.js';
 
 export type Settled = {
@@ -35,8 +31,6 @@ export type Settled = {
 
 /** Who wrote each side, and when; settle adds each side's version. */
 export type Parties = { current: Party; incoming: Party };
-
-const stringifyField = (key: string, value: unknown) => stringify({ [key]: value });
 
 /** Labels for a block between these texts: each side's party and the version of the note it had. */
 const labelled = (parties: Parties, base: string | null, current: string | null, incoming: string | null): Labels => ({
@@ -115,26 +109,5 @@ export function settle(
 	if (base === null || deletedSince) return { text: withBlock(current, block({ current: '', incoming }, labels)), blocks: true };
 
 	const result = merge(base, current, incoming);
-	let text = withBlocks(result, labels) ?? current;
-	let conflict = result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block');
-	for (const overlap of result.overlaps) {
-		if (overlap.unit !== 'field' || overlap.incoming === undefined || overlap.current === undefined) continue;
-		// D2: the value that lost is a block in the body.
-		const values = {
-			current: stringifyField(overlap.key, overlap.current),
-			base: overlap.base === undefined ? '' : stringifyField(overlap.key, overlap.base),
-			incoming: stringifyField(overlap.key, overlap.incoming),
-		};
-		// One clash is one block: a field's block that offers this edit's base value as a side is continued, not joined by another.
-		// Only a block the edit's base did not hold: one the writer had seen is not this clash, and their edit of the field is a change of its own.
-		const seen = new Set(findConflicts(base).map((existing) => unlabelled(existing.raw)));
-		const continued = values.base === '' ? undefined : findConflicts(text).find((existing) => !seen.has(unlabelled(existing.raw)) && sideOffering(existing, values.base) !== null);
-		const side = continued === undefined ? null : sideOffering(continued, values.base);
-		text =
-			continued === undefined || side === null
-				? withBlock(text, block(values, labels))
-				: `${text.slice(0, continued.from)}${withSide(continued, side, values.incoming, labels.incoming)}${text.slice(continued.to)}`;
-		conflict = true;
-	}
-	return { text, blocks: conflict };
+	return { text: withBlocks(result, labels) ?? current, blocks: result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block') };
 }

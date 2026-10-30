@@ -26,7 +26,9 @@
  * commit holding it was answered applied or merged. It stops being owed when
  * a person removes a copy of it from what their editor showed and saved
  * (deleting the word, the file, or overwriting the field; a rename moves it):
- * a deliberate removal, whoever typed it. Notices hold no values: a value
+ * a deliberate removal, whoever typed it. A header value, once on main, is
+ * held to history only: the header merges by key, the later arrival
+ * winning, so a later write of its key replaces it in the text. Notices hold no values: a value
  * counts only where the server or a device keeps it as text.
  *
  * Key behaviors:
@@ -106,8 +108,8 @@ const TOKEN = /t\d+z/g;
 const FILLER = `big ${'x'.repeat(1_100_000)}`;
 /** `hasFiller(text)` is pathologically slow in JavaScriptCore on a long text of x's, so look for it this way. */
 const hasFiller = (text: string) => /x{1000}/.test(text);
-/** Whether a text's fences, if any, hold parseable frontmatter. A text where they do not is a note all the same, with no fields. */
-const opensParsed = (text: string) => splitMarkdown(text).yaml === null || parseMarkdown(text).hasFrontmatter;
+/** Whether every key of a text's header, if any, parses. A note with a broken key is a note all the same: that key is missing. */
+const opensParsed = (text: string) => parseMarkdown(text).broken.length === 0;
 /** Pushes a member makes in one burst; the server's admission limit must hold a flood below the bound. */
 const FLOOD = 60;
 const FLOOD_BOUND = 30;
@@ -205,9 +207,17 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	/** Who wrote each commit on the chain, and the paths it changed. */
 	const writers: { user: string; paths: Set<string> }[] = [{ user: '', paths: new Set() }];
 	let lastMerge: Committed | null = null;
+	/**
+	 * Tokens that were header values on main. The header merges by key, each
+	 * value whole, the later arrival winning (a device's rebase of its unsent
+	 * write included), so a header value's durability is history, not the
+	 * text: once on main it may leave the text.
+	 */
+	const superseded = new Set<string>();
 	world.onCommit((committed) => {
 		const state = new Map(states.get(committed.parents[0] ?? '') ?? []);
 		for (const file of committed.files) {
+			if (file.after !== null) for (const t of tokensIn(JSON.stringify(parseMarkdown(file.after).fields))) superseded.add(t);
 			if (file.after !== null && file.after.length > 1024 * 1024) violations.push(`server: ${file.path} is ${file.after.length} bytes`);
 			// A removal is done once its path is absent on the server after it, whoever's commit did it.
 			if (file.after === null) for (const r of removals) if (r.path === file.path && !r.cancelled) r.landed = true;
@@ -327,9 +337,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		const unsent = quiet ? '' : unsentText();
 		// RULE: each file goes on its own, so a person's rename whose new file cannot go yet (held: it does not parse, say) deletes the old one from the server while the text waits in the new file, on their device; once it can go, it is sent.
 		for (const t of acknowledged)
-			if (!removed.has(t) && !forgotten.has(t) && owed.has(t) && !server.includes(t) && !unsent.includes(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text and no unsent file`);
+			if (!removed.has(t) && !forgotten.has(t) && owed.has(t) && !server.includes(t) && !unsent.includes(t) && !superseded.has(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text and no unsent file`);
 		for (const [t, who] of owed)
-			if (!removed.has(t) && !forgotten.has(t) && !server.includes(t) && (quiet || !devices.includes(t))) violations.push(`${step}: lost ${t} (${who})`);
+			if (!removed.has(t) && !forgotten.has(t) && !server.includes(t) && (quiet || !devices.includes(t)) && !superseded.has(t)) violations.push(`${step}: lost ${t} (${who})`);
 		if (violations.length > 0) throw new Error(`seed ${seed}\n${[...new Set(violations)].join('\n')}\n--- steps\n${log.join('\n')}${tracing ? `\n--- devices\n${dump()}` : ''}`);
 	};
 

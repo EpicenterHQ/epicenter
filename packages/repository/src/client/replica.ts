@@ -245,7 +245,7 @@ function migrate(driver: SqlDriver) {
 		// A blob write's `over` (phase 9g), on the saved and the unsent level.
 		for (const table of ['files', 'unsent'])
 			if (columnsOf(`epicenter/${table}`).length > 0 && !columnsOf(`epicenter/${table}`).includes('over')) driver.run(`ALTER TABLE "epicenter/${table}" ADD COLUMN over TEXT`);
-		// The body a view reads is the whole text of a note with no frontmatter (phase 9g): the generated column is made again.
+		// The body a view reads is what follows the header, by position, whether or not it parses (phase 9g, then merge by kind): the generated column is made again.
 		const made = first<{ sql: string }>(driver, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'epicenter/files'`)?.sql;
 		if (made !== undefined && !made.includes(BODY_SQL)) {
 			driver.run('ALTER TABLE "epicenter/files" DROP COLUMN body');
@@ -316,7 +316,7 @@ const APPLY_PAGE = 512;
 /** Texts whose hash is remembered, so a level is hashed once, not at every notification. */
 const HASHED = 4_096;
 
-/** What a view reads of a text: a note's frontmatter (null with none, so `BODY_SQL` reads the whole text), or a pointer's oid and size, as JSON. */
+/** What a view reads of a text: a note's fields (null where its header is missing or does not parse), or a pointer's oid and size, as JSON. */
 function fieldsOf(text: string | null): string | null {
 	if (text === null) return null;
 	const pointer = parsePointer(text);

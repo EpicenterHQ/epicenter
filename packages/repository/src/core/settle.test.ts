@@ -7,13 +7,13 @@
  * Key behaviors:
  * - a change against an unchanged base lands as is; a repeat lands as nothing
  * - a delete loses to an edit it had not seen; an edit brings a deleted note back
- * - a field both sides set keeps current's value and writes incoming's as a block (D2);  a later edit of that field continues the block, unless the writer had seen it
+ * - a field both sides set takes the later write's value (incoming, arriving now, over main's), with no block
  * - a path created twice, or deleted since base, keeps current and appends incoming whole (D3)
  * - an identical block is never written twice
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts } from './conflict.js';
-import { parseMarkdown } from './markdown.js';
+import { writeMarkdown } from './markdown.js';
 import { conflictSibling, settle, settlePointer } from './settle.js';
 
 const parties = { current: { author: 'main', time: 't1' }, incoming: { author: 'alice/laptop', time: 't2' } };
@@ -31,30 +31,20 @@ describe('settle', () => {
 		expect(settle('a\n', null, 'edited\n', { parties })).toEqual({ text: 'edited\n', blocks: false });
 	});
 
-	test('a field both sides set keeps current and writes incoming as a block (D2)', () => {
-		const settled = settle(note('Base'), note('Mine'), note('Theirs'), { parties });
-		expect(settled.blocks).toBe(true);
-		expect(parseMarkdown(settled.text ?? '').fields).toEqual({ title: 'Mine' });
-		expect(settled.text).toContain('title: Theirs');
-		expect(findConflicts(settled.text ?? '')).toHaveLength(1);
+	test("a field both sides set takes the later write's value, incoming's over main's, with no block", () => {
+		expect(settle(note('Base'), note('Mine'), note('Theirs'), { parties })).toEqual({ text: note('Theirs'), blocks: false });
 	});
 
-	test("a later edit of a field a block already offers continues that block's side", () => {
-		const first = settle(note('Base'), note('Mine'), note('Theirs'), { parties }).text ?? '';
-		const second = settle(note('Theirs'), first, note('Theirs again'), { parties: { ...parties, incoming: { author: 'alice/laptop', time: 't3' } } });
-		expect(second.blocks).toBe(true);
-		expect(parseMarkdown(second.text ?? '').fields).toEqual({ title: 'Mine' });
-		expect(findConflicts(second.text ?? '')).toMatchObject([{ current: 'title: Mine\n', base: 'title: Base\n', incoming: 'title: Theirs again\n', sides: { incoming: { time: 't3' } } }]);
-	});
-
-	test("a field's block the writer had already seen is not continued: their edit of the field is a clash of its own, and the block stays as they left it", () => {
-		// Minimized from wire seed 17014: the writer's base already held a block offering mood: A, with text typed on its opening line.
+	test("a block in the body is body: a field's later write leaves it as it was", () => {
 		const held = '<<<<<<< current main - 44bb5a0 typed\nmood: A\n||||||| base ea98c42\n=======\nmood: B\n>>>>>>> incoming alice/laptop t0 8bb3865\n';
 		const fields = (mood: string) => `---\nmood: ${mood}\n---\n${held}`;
-		const settled = settle(fields('A'), fields('Mine'), fields('Theirs'), { parties }).text ?? '';
-		expect(settled).toContain(held);
-		expect(settled).toContain('mood: Theirs');
-		expect(findConflicts(settled)).toHaveLength(2);
+		expect(settle(fields('A'), fields('Mine'), fields('Theirs'), { parties })).toEqual({ text: fields('Theirs'), blocks: false });
+	});
+
+	test("two patches of one key at once on a note whose header does not parse: the later write's value, no block, never a duplicate key", () => {
+		const broken = '---\na: [\n---\nbody\n';
+		const settled = settle(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { done: false } }), { parties });
+		expect(settled).toEqual({ text: '---\na: [\ndone: false\n---\nbody\n', blocks: false });
 	});
 
 	test('a path created twice or deleted since base holds another note (D3)', () => {

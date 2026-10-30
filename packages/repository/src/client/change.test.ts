@@ -70,12 +70,12 @@ test('a batch is one transaction: a change that cannot apply stores none of it',
 	expect(replica.revision()).toBe(before);
 });
 
-test('a patch on a note whose frontmatter does not parse gives it a header before its whole text', () => {
+test('a patch on a key the header holds twice writes it once, in the header', () => {
 	const replica = open();
 	const broken = '---\ntitle: A\ntitle: B\n---\nbody\n';
 	replica.write('notes/broken.md', broken);
 	expectOk(replica.change([{ kind: 'patch', path: 'notes/broken.md', fields: { title: 'Z' } }]));
-	expect(replica.read('notes/broken.md')).toBe(`---\ntitle: Z\n---\n${broken}`);
+	expect(replica.read('notes/broken.md')).toBe('---\ntitle: Z\n---\nbody\n');
 	expect(replica.notSent()).toEqual([]);
 });
 

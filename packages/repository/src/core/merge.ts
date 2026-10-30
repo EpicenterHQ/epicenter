@@ -2,9 +2,18 @@
  * The Epicenter merge: one pure function that merges a write against its base.
  * The server, devices replaying unsent edits, and the CLI all use it.
  *
- * - Frontmatter merges by key. On a clash the current value wins, except that
- *   a key one side deleted keeps the other side's change, as a file does; no
- *   markers ever go into frontmatter.
+ * A note is a header and a body, by position: the header is the text between
+ * a `---` first line and the next `---` line, whether or not it parses; with
+ * no closing fence there is none. Header merges with header and body with
+ * body, so a header's lines never move into the body.
+ *
+ * - The header merges by key (core/markdown's `keyBlocks`), never as lines.
+ *   Each key's block is compared as text, whether or not it parses. A key
+ *   both sides changed takes the later write's block: `incoming` (the write
+ *   arriving now, in the server's order) over `current` (what `main`
+ *   holds). A key one side deleted keeps the other side's change, as a file
+ *   does. Blocks are written as their side typed them, comments included;
+ *   the server's house style formats the ones that parse.
  * - The body merges by line, so edits on neighboring lines do not conflict;
  *   lines both sides changed merge again by word, so letters never blend.
  *   Two insertions at one point are both kept, current first.
@@ -13,16 +22,17 @@
  *
  * The text is already settled the people's way, except that body overlaps hold
  * `current`. Every clash is reported in `overlaps`, and `settle` decides what
- * they mean: `withBlocks` writes the body ones as conflict blocks.
+ * they mean: `withBlocks` writes them as conflict blocks. A header key is
+ * never a clash.
  *
  * One clash is one conflict block, however many writes follow it: an edit of
  * lines that a block already offers as one of its sides continues that side,
- * and adds no block (`continuedBlock`; `settle` does the same for a field's
- * block). The server merging a commit onto a moved main, a device replaying
- * unsent work over what arrived, and an editor's write all reach it here.
+ * and adds no block (`continuedBlock`). The server merging a commit onto a
+ * moved main, a device replaying unsent work over what arrived, and an
+ * editor's write all reach it here.
  */
 import { block, findConflicts, type Labels, sideOffering, withSide } from './conflict.js';
-import { headerOf, parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
+import { emptyHeaderFor, readNote } from './markdown.js';
 
 /** Something both sides changed, as the merge found it. */
 export type ContentOverlap =
@@ -33,8 +43,6 @@ export type ContentOverlap =
 	| { unit: 'body'; base: string; current: string; incoming: string; start: number; end: number }
 	/** The same, where a side's span holds an existing conflict block. */
 	| { unit: 'block'; base: string; current: string; incoming: string; start: number; end: number }
-	/** A frontmatter key both sides changed. A missing value means the key was absent. */
-	| { unit: 'field'; key: string; base?: unknown; current?: unknown; incoming?: unknown }
 	/** One side deleted the file and the other edited it. */
 	| { unit: 'file'; clash: 'deleted'; side: 'current' | 'incoming' }
 	/** Both sides created the file. */
@@ -99,68 +107,50 @@ export function merge(
 	};
 }
 
-/** A text that opens with `---` fences whose span is not a YAML mapping: a note with no fields, whose fences are body. */
-const fencedBody = (text: string) => splitMarkdown(text).yaml !== null && !parseMarkdown(text).hasFrontmatter;
-
 function markdown(base: string | null, current: string, incoming: string): MergeResult {
 	const created: ContentOverlap[] = base === null && current !== incoming ? [{ unit: 'file', clash: 'created' }] : [];
-	// Fences that hold no frontmatter on any side (a person halfway through typing it, say): merge the whole text as body, so its lines merge as lines.
-	if (fencedBody(current) || fencedBody(incoming) || (base !== null && fencedBody(base))) {
-		return finish(bodyParts(base ?? '', current, incoming), created);
-	}
-	const b = base === null ? null : parseMarkdown(base);
-	const c = parseMarkdown(current);
-	const i = parseMarkdown(incoming);
-	const { chosen, clashes } = chooseFields(b?.fields ?? {}, c.fields, i.fields);
+	const b = base === null ? null : readNote(base);
+	const c = readNote(current);
+	const i = readNote(incoming);
 	const parts: Part[] = b === null ? [{ text: joinCreates(c.body, i.body) }] : bodyParts(b.body, c.body, i.body);
-	const mergedBody = parts.map((part) => ('text' in part ? part.text : part.overlap.current)).join('');
-	const changed: Record<string, unknown> = {};
-	for (const key of new Set([...Object.keys(c.fields), ...Object.keys(chosen)]))
-		if (!sameValue(c.fields[key], chosen[key])) changed[key] = chosen[key];
-	const header = headerOf(writeMarkdown(current, { fields: changed, body: mergedBody }));
-	const result = finish(parts, [...created, ...clashes], header);
-	return header === '' ? guarded(result) : result;
+	const body = parts.map((part) => ('text' in part ? part.text : part.overlap.current)).join('');
+	const header = mergeHeader(b?.header ?? null, c.header, i.header);
+	// Whether there is a header at all merges as a value does: a side that dropped its header drops it.
+	const [had, has, sent] = [b !== null && b.header !== null, c.header !== null, i.header !== null];
+	const kept = header !== '' || (has === had ? sent : has);
+	return finish(parts, created, kept ? `---\n${header}---\n` : emptyHeaderFor(body));
 }
 
-/** An empty header before the body: a merged body that opens with fences (two bodies joined, say) is kept as body behind an empty frontmatter, so no body line becomes a field or a fence. */
-const EMPTY_HEADER = '---\n---\n';
-function guarded(result: MergeResult): MergeResult {
-	if (result.text === null || splitMarkdown(result.text).yaml === null) return result;
-	const shift = EMPTY_HEADER.length;
-	return {
-		text: EMPTY_HEADER + result.text,
-		overlaps: result.overlaps.map((overlap) => (isSpan(overlap) ? { ...overlap, start: overlap.start + shift, end: overlap.end + shift } : overlap)),
+// ============================================================================
+// Header: by key, each key's text whole, the later write winning a key
+// ============================================================================
+
+type Header = ReturnType<typeof readNote>['header'];
+
+/**
+ * RULE: header merges with header and body with body; a header's lines
+ * never move into the body, and it never merges as lines. It merges by
+ * key (`keyBlocks`), each key's block whole, compared as text whether or
+ * not it parses, so a broken key merges like any other. A key one side
+ * changed takes that side's block. A key both sides changed takes the
+ * later write's: `incoming`, the write arriving now in the server's order,
+ * over `current`, what `main` holds (never a device clock); a delete loses
+ * to an edit it had not seen. No clash is reported and no block is
+ * written: the value that lost stays in history. Keys keep current's order,
+ * keys new from incoming after them; the preamble merges as one value.
+ */
+function mergeHeader(base: Header, current: Header, incoming: Header): string {
+	const textOf = (header: Header) => {
+		const texts = new Map<string, string>();
+		for (const block of header?.blocks ?? []) texts.set(block.key, (texts.get(block.key) ?? '') + block.text);
+		return texts;
 	};
-}
-
-function chooseFields(
-	base: Record<string, unknown>,
-	current: Record<string, unknown>,
-	incoming: Record<string, unknown>,
-) {
-	const chosen: Record<string, unknown> = {};
-	const clashes: ContentOverlap[] = [];
-	for (const key of new Set([...Object.keys(current), ...Object.keys(incoming), ...Object.keys(base)])) {
-		const b = base[key];
-		const c = current[key];
-		const i = incoming[key];
-		let value: unknown;
-		if (sameValue(c, i) || sameValue(i, b)) value = c;
-		else if (sameValue(c, b)) value = i;
-		else {
-			// Both changed it: current wins, but a delete loses to an edit it had not seen.
-			value = c === undefined ? i : c;
-			clashes.push({
-				unit: 'field',
-				key,
-				...(b === undefined ? {} : { base: b }),
-				...(c === undefined ? {} : { current: c }),
-				...(i === undefined ? {} : { incoming: i }),
-			});
-		}
-		if (value !== undefined) chosen[key] = value;
-	}
-	return { chosen, clashes };
+	const [b, c, i] = [textOf(base), textOf(current), textOf(incoming)];
+	const pick = <T>(was: T, mine: T, theirs: T) => (mine === theirs || theirs === was ? mine : mine === was || theirs !== undefined ? theirs : mine);
+	const preamble = pick(base?.preamble ?? '', current?.preamble ?? '', incoming?.preamble ?? '');
+	let out = preamble;
+	for (const key of new Set([...c.keys(), ...i.keys()])) out += pick(b.get(key), c.get(key), i.get(key)) ?? '';
+	return out;
 }
 
 /** Two creates at one path keep both bodies, current first, a blank line apart. */
@@ -173,9 +163,9 @@ function joinCreates(current: string, incoming: string) {
 /** A merged run, or a clash; `whole`: a clash of lines both sides moved there, never merged again by word. */
 type Part = { text: string } | { overlap: { base: string; current: string; incoming: string }; whole?: true };
 
-function finish(parts: Part[], fields: ContentOverlap[], header = ''): MergeResult {
+function finish(parts: Part[], reported: ContentOverlap[], header = ''): MergeResult {
 	let text = header;
-	const overlaps: ContentOverlap[] = [...fields];
+	const overlaps: ContentOverlap[] = [...reported];
 	for (const part of parts) {
 		if ('text' in part) {
 			text += part.text;
