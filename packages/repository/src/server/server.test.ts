@@ -531,6 +531,90 @@ describe('catch-up and the change feed', () => {
 	});
 });
 
+describe('a file is one name', () => {
+	const bob: Session = { user: 'bob', role: 'writer' };
+
+	test('a write to any spelling of a file merges into it, under the spelling main has', () => {
+		const { server } = setup();
+		const base = server.main();
+		server.push(
+			make(server, [{ path: 'n/todo.md', text: note('a\n') }]),
+			alice,
+		);
+		const answer = server.push(
+			make(server, [{ path: 'N/TODO.md', text: note('a\nb\n') }]),
+			alice,
+		);
+		expect([...server.snapshot().keys()]).toEqual(['n/todo.md']);
+		expect(server.read('n/todo.md')).toBe(note('a\nb\n'));
+		// The answer, and a catch-up, name the file once, as main spells it.
+		if (answer.kind !== 'applied') throw new Error(answer.kind);
+		expect(answer.files.map((f) => f.path)).toEqual(['n/todo.md']);
+		expect(server.catchUp({ from: base }).files.map((f) => f.path)).toEqual([
+			'n/todo.md',
+		]);
+	});
+
+	test('a rename to another spelling keeps the file: its text merges, and it takes the new spelling', () => {
+		const { server } = setup();
+		const events: Event[] = [];
+		server.push(
+			make(server, [{ path: 'n/todo.md', text: note('a\n') }]),
+			alice,
+		);
+		const before = server.main();
+		// Bob edits the file under its old spelling; alice renames it from the same parent.
+		server.push(
+			make(server, [{ path: 'n/todo.md', text: note('a\nbob\n') }], {
+				user: 'bob',
+			}),
+			bob,
+		);
+		const edited = server.main();
+		server.subscribe((event) => events.push(event));
+		const renamed = server.push(
+			make(
+				server,
+				[{ path: 'n/Todo.md', text: note('alice\na\n'), rename: true }],
+				{ parent: before },
+			),
+			alice,
+		);
+		expect([...server.snapshot().keys()]).toEqual(['n/Todo.md']);
+		const text = server.read('n/Todo.md') ?? '';
+		expect(findConflicts(text)).toEqual([]);
+		expect(text).toBe(note('alice\na\nbob\n'));
+		// Every listing names the file once, as main now spells it.
+		if (renamed.kind !== 'merged') throw new Error(renamed.kind);
+		expect(renamed.files.map((f) => f.path)).toEqual(['n/Todo.md']);
+		expect(events.at(-1)?.files.map((f) => f.path)).toEqual(['n/Todo.md']);
+		expect(server.catchUp({ from: before }).files).toEqual([
+			{ path: 'n/Todo.md', hash: gitBlobHash(text) },
+		]);
+		// A write under the old spelling, made before the rename, merges into the renamed file.
+		server.push(
+			make(server, [{ path: 'n/todo.md', text: note('a\nbob\nlate\n') }], {
+				user: 'bob',
+				parent: edited,
+			}),
+			bob,
+		);
+		expect([...server.snapshot().keys()]).toEqual(['n/Todo.md']);
+		expect(server.read('n/Todo.md')).toBe(note('alice\na\nbob\nlate\n'));
+	});
+
+	test('a delete and a create of two spellings of one path list once: the spelling main has', () => {
+		const { server } = setup();
+		server.push(make(server, [{ path: 'n/a.md', text: note('a\n') }]), alice);
+		const before = server.main();
+		server.push(make(server, [{ path: 'n/a.md', text: null }]), alice);
+		server.push(make(server, [{ path: 'n/A.md', text: note('b\n') }]), alice);
+		expect(server.catchUp({ from: before }).files.map((f) => f.path)).toEqual([
+			'n/A.md',
+		]);
+	});
+});
+
 describe('flush scheduling', () => {
 	/** An alarm that records what the server asks of it, as a Durable Object's one alarm would hold it. */
 	function recordingAlarm() {

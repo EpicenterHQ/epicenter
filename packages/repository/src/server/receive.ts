@@ -321,6 +321,20 @@ export function createReceiver({
 			});
 		}
 		files.sort((a, b) => (a.path < b.path ? -1 : 1));
+		// RULE: a push that removes one spelling of a path and adds another renames that file (`check` refused a tree holding two).
+		const written = new Set(
+			files.filter((f) => f.text !== null).map((f) => fold(f.path)),
+		);
+		const renamed = new Set(
+			files.filter((f) => f.text === null).map((f) => fold(f.path)),
+		);
+		const given: CommitFile[] = files.flatMap((f) =>
+			!written.has(fold(f.path)) || !renamed.has(fold(f.path))
+				? [f]
+				: f.text === null
+					? []
+					: [{ ...f, rename: true as const }],
+		);
 		const tree = chain.at(-1)?.tree as string;
 		const staging = `refs/heads/epicenter-receive-${next}`;
 		if (
@@ -344,7 +358,7 @@ export function createReceiver({
 			parent,
 			author: { user: session.user, device: 'git' },
 			time: new Date(at).toISOString(),
-			files,
+			files: given,
 		};
 		const id = commitId(body);
 		// One transaction: the live commit, the journal row that moves Git's main to the pushed commit, and the record that the push was taken. Git moves only after all three are kept.

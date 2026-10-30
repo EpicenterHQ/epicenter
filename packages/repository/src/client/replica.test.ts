@@ -581,6 +581,63 @@ test('a database made before the fold column opens, the column filled from each 
 	]);
 });
 
+test('a database kept by spelling, from before one row per name, opens and converges: two spellings of one path become one file, with every save', () => {
+	const server = createTestServer();
+	// What main holds: a and c, synced to this device before it was upgraded.
+	const seed = unwrap(open(openBunSqlite(), { device: 'seed' }));
+	const seeding = connect(seed, server);
+	seeding.deliver();
+	seed.writeAll({ 'notes/a.md': note('a\n'), 'notes/c.md': note('c\n') });
+	seeding.deliver();
+	const driver = openBunSqlite();
+	// The tables as they were: one row per spelling, keyed by path.
+	driver.exec(`
+CREATE TABLE "epicenter/files" (path TEXT PRIMARY KEY, fold TEXT NOT NULL, text TEXT, fields TEXT, body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL, base TEXT, hash TEXT, saved INTEGER NOT NULL DEFAULT 0, held TEXT, unknown INTEGER NOT NULL DEFAULT 0, over TEXT) STRICT;
+CREATE TABLE "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT, over TEXT) STRICT;
+CREATE TABLE "epicenter/landed" (path TEXT PRIMARY KEY, outcome TEXT NOT NULL) STRICT;
+CREATE TABLE "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
+CREATE INDEX "epicenter/files/fold" ON "epicenter/files" (fold);
+`);
+	const row = (path: string, text: string, base: string | null) =>
+		driver.run(
+			'INSERT INTO "epicenter/files" (path, fold, text, base) VALUES (?, ?, ?, ?)',
+			[path, path.toLowerCase(), text, base],
+		);
+	row('notes/a.md', note('a\nmine\n'), note('a\n'));
+	driver.run('INSERT INTO "epicenter/unsent" (path, text) VALUES (?, ?)', [
+		'notes/a.md',
+		note('a\nmine\n'),
+	]);
+	driver.run('INSERT INTO "epicenter/landed" (path, outcome) VALUES (?, ?)', [
+		'notes/a.md',
+		JSON.stringify({ kind: 'landed' }),
+	]);
+	// Two rows of one path, each with work: what the bug left.
+	row('notes/c.md', note('c\nlower\n'), note('c\n'));
+	driver.run('INSERT INTO "epicenter/unsent" (path, text) VALUES (?, ?)', [
+		'notes/c.md',
+		note('c\nlower\n'),
+	]);
+	row('notes/C.md', note('upper\n'), null);
+	driver.run('INSERT INTO "epicenter/unsent" (path, text) VALUES (?, ?)', [
+		'notes/C.md',
+		note('upper\n'),
+	]);
+	const replica = unwrap(open(driver));
+	expect(replica.paths()).toEqual(['notes/a.md', 'notes/c.md']);
+	expect(replica.outcomes()).toEqual([
+		{ path: 'notes/a.md', outcome: { kind: 'landed' } },
+	]);
+	const link = connect(replica, server);
+	link.deliver();
+	expect(server.read('notes/a.md')).toBe(note('a\nmine\n'));
+	const c = server.read('notes/c.md') ?? '';
+	for (const line of ['lower', 'upper']) expect(c).toContain(line);
+	expect([...server.snapshot().keys()]).toEqual(['notes/a.md', 'notes/c.md']);
+	expect(replica.read('notes/C.md')).toBe(c);
+	expect(replica.unsent()).toEqual([]);
+});
+
 test('a held file holds only itself: what was saved with it goes', () => {
 	const server = createTestServer();
 	const replica = unwrap(open(openBunSqlite()));

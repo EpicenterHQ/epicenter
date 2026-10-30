@@ -316,7 +316,11 @@ export function openHistory(store: SqlDriver) {
 						'INSERT OR IGNORE INTO deletes (path, place) VALUES (?, ?)',
 						[path, place],
 					);
-					store.run('DELETE FROM spellings WHERE folded = ?', [fold(path)]);
+					// Only this spelling's row: a rename writes the file's new spelling in the same commit.
+					store.run('DELETE FROM spellings WHERE folded = ? AND path = ?', [
+						fold(path),
+						path,
+					]);
 				} else
 					store.run(
 						'INSERT OR REPLACE INTO spellings (folded, path) VALUES (?, ?)',

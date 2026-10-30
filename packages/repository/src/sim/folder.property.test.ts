@@ -708,7 +708,7 @@ async function run(seed: number, steps: number) {
 		if (process.env.F_WATCH !== undefined) {
 			const w = process.env.F_WATCH;
 			log.push(
-				`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.path IS NOT NULL AS committed FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?', [w]))}}`,
+				`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.fold IS NOT NULL AS committed FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.fold = f.fold WHERE f.path = ?', [w]))}}`,
 			);
 		}
 		await runFor(world, random.int(0, 600));

@@ -425,6 +425,42 @@ export function createServer({
 		};
 	};
 
+	/**
+	 * RULE: a file is one name: paths equal after NFC and case folding are
+	 * one path. Its spelling in `tree`: `main`'s spelling of it, or the one
+	 * given, whichever `tree` holds (a writer's parent may spell it as `main`
+	 * did before a rename); for a file `tree` lacks, `main`'s or the one given.
+	 */
+	function spellingIn(tree: string, path: string) {
+		const named = history.spelling(path);
+		return (
+			[named, path].find((p) => p !== null && trees.read(tree, p) !== null) ??
+			named ??
+			path
+		);
+	}
+	/** `files` as they land in `tree`: each at its file's spelling there, a rename's file then taking the rename's spelling. */
+	const landIn = (tree: string, files: CommitFile[]): CommitFile[] =>
+		files.flatMap(({ rename, ...file }) => {
+			const at = spellingIn(tree, file.path);
+			return rename === true && file.text !== null && at !== file.path
+				? [{ path: at, text: null }, file]
+				: [{ ...file, path: at }];
+		});
+	/** RULE: a listing names each file once, by one spelling of its path: the one `tree` holds (it holds at most one), else the first given. */
+	function byName(paths: Iterable<string>, tree: string): string[] {
+		const named = new Map<string, string>();
+		for (const path of paths) {
+			const other = named.get(fold(path));
+			if (
+				other === undefined ||
+				(trees.read(tree, other) === null && trees.read(tree, path) !== null)
+			)
+				named.set(fold(path), path);
+		}
+		return [...named.values()];
+	}
+
 	/** RULE: a name is a file or a folder, never both: the file `files` would put over a folder, or beneath a file, in `tree` is refused. */
 	/**
 	 * RULE: where a blob write that lost lands: beside its file, at the first
@@ -520,10 +556,10 @@ export function createServer({
 		const event: Event = {
 			commit: stored.id,
 			parents: stored.parents,
-			files: changed.map(({ path }) => ({
-				path,
-				hash: trees.read(tree, path),
-			})),
+			files: byName(
+				changed.map(({ path }) => path),
+				tree,
+			).map((path) => ({ path, hash: trees.read(tree, path) })),
 		};
 		pending.push(event);
 	}
@@ -604,22 +640,21 @@ export function createServer({
 		kind: 'applied' | 'merged',
 		mainId: string,
 		{ from, tree }: { from: number; tree: string },
-		spelled: string[],
 		siblings: { path: string; at: string }[] = [],
 	): PushAnswer {
 		const touched = [
 			...new Set([
 				...commit.files.map((f) => f.path),
-				...spelled,
 				...siblings.map((s) => s.at),
 			]),
 		];
-		const paths = new Set([...trees.diff(tree, main().tree), ...touched]);
 		const answer: PushAnswer = {
 			kind,
 			main: mainId,
 			commits: history.idsAfter(from),
-			files: [...paths].sort().map((path) => state(path, from)),
+			files: byName([...trees.diff(tree, main().tree), ...touched], main().tree)
+				.sort()
+				.map((path) => state(path, from)),
 			...(siblings.length === 0 ? {} : { siblings }),
 		};
 		const now = clock();
@@ -664,15 +699,19 @@ export function createServer({
 				(answer.kind !== 'applied' && answer.kind !== 'merged')
 			)
 				return answer;
-			const paths = new Set([
-				...trees.diff(base.tree, main().tree),
-				...(JSON.parse(recorded.paths) as string[]),
-			]);
 			return {
 				...answer,
 				main: main().id,
 				commits: history.idsAfter(base.from),
-				files: [...paths].sort().map((path) => state(path, base.from)),
+				files: byName(
+					[
+						...trees.diff(base.tree, main().tree),
+						...(JSON.parse(recorded.paths) as string[]),
+					],
+					main().tree,
+				)
+					.sort()
+					.map((path) => state(path, base.from)),
 			};
 		}
 		const seen = first<{ paths: string }>(
@@ -684,17 +723,10 @@ export function createServer({
 			return {
 				kind: 'flushed',
 				main: main().id,
-				files: (JSON.parse(seen.paths) as string[]).map((path) => state(path)),
+				files: byName(JSON.parse(seen.paths) as string[], main().tree).map(
+					(path) => state(path),
+				),
 			};
-		// RULE: paths equal after NFC and case folding are one path: a write goes to the spelling `main` has.
-		const spelled = commit.files.map((f) => f.path);
-		commit = {
-			...commit,
-			files: commit.files.map((f) => ({
-				...f,
-				path: history.spelling(f.path) ?? f.path,
-			})),
-		};
 		const head = main();
 		// A commit's parent is a commit on `main`, or one a merge took in (a `git push` on the commit Git's `main` is, before its export).
 		const base = history.baseOf(commit.parent);
@@ -716,13 +748,16 @@ export function createServer({
 			device: commit.author.device,
 		};
 		// The commit must be one tree over what its writer stood on (on `main`, that is the check), and its merge one tree over `main`, below.
-		const clash = collides(base.tree, commit.files, head.id);
+		const clash = collides(base.tree, landIn(base.tree, commit.files), head.id);
 		if (clash !== null) return clash;
+		/** A file's text in `tree`, in any spelling of its path. */
+		const textOf = (tree: string, path: string) =>
+			history.textIn(tree, spellingIn(tree, path));
 		/** What a file was written over: a blob's `over` when its writer said, else what the commit's parent holds there. */
 		const over = (file: CommitFile) =>
 			file.over !== undefined && !isNote(file.path)
 				? file.over
-				: history.textIn(base.tree, file.path);
+				: textOf(base.tree, file.path);
 		/** RULE: every note lands in house style (core/markdown's `formatMarkdown`); a commit whose notes are not in it is merged, so the commit kept is the one its writer sent. */
 		const styled = (path: string, text: string | null) =>
 			text === null || !isNote(path) ? text : formatMarkdown(text);
@@ -730,7 +765,7 @@ export function createServer({
 			commit.parent === head.id &&
 			commit.files.every(
 				(file) =>
-					over(file) === history.textIn(head.tree, file.path) &&
+					over(file) === textOf(head.tree, file.path) &&
 					styled(file.path, file.text) === file.text,
 			)
 		) {
@@ -742,9 +777,9 @@ export function createServer({
 					time: commit.time,
 					blocks: false,
 				},
-				commit.files,
+				landIn(head.tree, commit.files),
 			);
-			return record(commit, 'applied', commit.id, base, spelled);
+			return record(commit, 'applied', commit.id, base);
 		}
 
 		// Merge where the commit's history and main's meet, path by path.
@@ -752,12 +787,23 @@ export function createServer({
 		const out: CommitFile[] = [];
 		const siblings: { path: string; at: string }[] = [];
 		let blocks = false;
-		for (const file of commit.files) {
+		for (const sent of commit.files) {
+			// The file this write names, under the spelling `main` has for it.
+			const file = { ...sent, path: spellingIn(head.tree, sent.path) };
+			/** The write as it lands: at the file, which a rename then respells. */
+			const land = (text: string | null) =>
+				landIn(head.tree, [
+					{
+						path: sent.path,
+						text,
+						...(sent.rename === true ? { rename: true as const } : {}),
+					},
+				]);
 			const ours = history.textIn(head.tree, file.path);
-			const base = history.textIn(parentTree, file.path);
+			const base = textOf(parentTree, sent.path);
 			if (!isNote(file.path)) {
 				// A blob lands only over the blob its writer saw: compare-and-swap, never a merge. One that lost lands beside it.
-				const swapped = settlePointer(over(file), ours, file.text);
+				const swapped = settlePointer(over(sent), ours, file.text);
 				if ('lost' in swapped) {
 					const placed = besideIt(
 						file.path,
@@ -771,7 +817,7 @@ export function createServer({
 					if (placed.write) out.push({ path: placed.at, text: file.text });
 					continue;
 				}
-				out.push({ path: file.path, text: swapped.text });
+				out.push(...land(swapped.text));
 				continue;
 			}
 			const who = history.lastAuthor(file.path) ?? SERVER;
@@ -801,7 +847,7 @@ export function createServer({
 			const reason = admissible(file.path, settled.text);
 			if (reason !== null)
 				return refusal('inadmissible', file.path, head.id, reason);
-			out.push({ path: file.path, text: settled.text });
+			out.push(...land(settled.text));
 			if (settled.blocks) blocks = true;
 		}
 		const merged = collides(head.tree, out, head.id);
@@ -821,7 +867,10 @@ export function createServer({
 				author,
 				time: commit.time,
 				at: clock(),
-				tree: trees.update(parentTree, changes(commit.files, gitBlobHash)),
+				tree: trees.update(
+					parentTree,
+					changes(landIn(parentTree, commit.files), gitBlobHash),
+				),
 				blocks: false,
 			},
 			id,
@@ -831,7 +880,7 @@ export function createServer({
 			{ id, parents: [head.id, commit.id], author, time: mergeTime, blocks },
 			out,
 		);
-		return record(commit, 'merged', id, base, spelled, siblings);
+		return record(commit, 'merged', id, base, siblings);
 	}
 
 	/**
@@ -854,7 +903,7 @@ export function createServer({
 				: trees.diff(history.at(index).tree, target.tree),
 		);
 		for (const path of paths) all.add(path);
-		const listing = [...all].sort();
+		const listing = byName(all, target.tree).sort();
 		listings.set(key, listing);
 		for (const old of listings.keys()) {
 			if (listings.size <= 8) break;

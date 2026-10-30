@@ -124,14 +124,14 @@ export function servePage(
 		}>('SELECT text, fields FROM "epicenter/files" WHERE path = ?', [path]);
 		return found === undefined ? null : rowOf(path, found.text, found.fields);
 	}
-	/** One note found by any spelling of its path (paths equal after NFC and case folding are one path), under the spelling this device has. */
+	/** One note found by any spelling of its path (paths equal after NFC and case folding are one file, one row), under the spelling it has. */
 	function read(path: string): Row | null {
 		const [found] = replica.query<{
 			path: string;
 			text: string | null;
 			fields: string | null;
 		}>(
-			'SELECT path, text, fields FROM "epicenter/files" WHERE fold = ? AND text IS NOT NULL ORDER BY rowid LIMIT 1',
+			'SELECT path, text, fields FROM "epicenter/files" WHERE fold = ? AND text IS NOT NULL',
 			[fold(path)],
 		);
 		return found === undefined
@@ -167,12 +167,10 @@ export function servePage(
 		/** Every file this device shows, in any collection or none, ordered by path, with its state. */
 		files(): FileEntry[] {
 			const unsent = withWork();
-			return replica
-				.paths()
-				.map((path) => ({
-					path,
-					state: unsent.has(path) ? replica.state(path) : { status: 'synced' },
-				}));
+			return replica.paths().map((path) => ({
+				path,
+				state: unsent.has(path) ? replica.state(path) : { status: 'synced' },
+			}));
 		},
 		/** Every file not yet synced (sending, waiting or refused with why), deletes included, ordered by path: indexed, so a count of them costs what they number, not the repository. */
 		waiting(): FileEntry[] {

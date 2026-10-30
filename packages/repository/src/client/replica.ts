@@ -44,20 +44,31 @@
  *   "epicenter/replica"   key and value: the binding (repository, server,
  *                         account), the device's id, the position, the
  *                         next request id
- *   "epicenter/files"     per path: `text` (mine, what the person sees),
- *                         its `fields` and `body` for the app's views, `base`
- *                         and its `hash`, `saved`, `held` (the reason),
- *                         `unknown`, and `fold` (the path after NFC and case
- *                         folding, so one spelling finds the other)
- *   "epicenter/unsent"    the unsent commit: per path, its text (null deletes)
+ *   "epicenter/files"     per file, one row: `path` (as written, the one
+ *                         fact of its name) and `fold`, an index derived
+ *                         from it (the path after NFC and case folding:
+ *                         paths equal after them are one file), `text` (mine, what the person sees), its `fields`
+ *                         and `body` for the app's views, `base` and its
+ *                         `hash`, `saved`, `held` (the reason), `unknown`,
+ *                         and `renamed` (its spelling is a person's rename
+ *                         not yet sent)
+ *   "epicenter/unsent"    the unsent commit: per file (by `fold`), its text
+ *                         (null deletes)
  *   "epicenter/inflight"  the commit sent and not yet answered, and how many
  *                         times it was sent; its files are the `sent` level
  *   "epicenter/refused"   saves a front end found that the repository cannot
  *                         take: per path as found (and folded), and why
  *   "epicenter/passed"    recent positions, so a late notification is old
- *   "epicenter/staged"    the pages of a catch-up being gathered: path, hash
+ *   "epicenter/staged"    the pages of a catch-up being gathered: path (and
+ *                         fold), hash
  *   "epicenter/fetched"   texts read by hash for that catch-up
  *   "epicenter/objects"   blob bytes the server holds, by oid, at a size
+ *   "epicenter/landed"    how each file this device sent last landed
+ *
+ * A file has the spelling `main` has for it, or the one it was made under
+ * when `main` has none. A save through any spelling of its path is a save
+ * of it, and leaves its spelling; only a rename changes it (a delete, then a
+ * create under the new spelling), and goes to the server as one.
  *
  * A pointer this device made whose bytes the server does not hold is owed:
  * it stays in the unsent commit, out of every commit sent, `sending` with
@@ -230,11 +241,12 @@ export type Verdict = { code: TextCode | RequestCode; reason: string };
 // The database
 // ============================================================================
 
+/** `fold` columns are indexes over a path, written only as `fold(path)` (`putFile`, `putUnsent`, `putLanded`, `stage`). */
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS "epicenter/replica" (key TEXT PRIMARY KEY, value TEXT NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/files" (
-	path TEXT PRIMARY KEY,
-	fold TEXT NOT NULL,
+	fold TEXT PRIMARY KEY,
+	path TEXT NOT NULL,
 	text TEXT,
 	fields TEXT,
 	body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL,
@@ -243,23 +255,24 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	saved INTEGER NOT NULL DEFAULT 0,
 	held TEXT,
 	unknown INTEGER NOT NULL DEFAULT 0,
-	over TEXT
+	over TEXT,
+	renamed INTEGER NOT NULL DEFAULT 0
 ) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT, over TEXT) STRICT;
+CREATE UNIQUE INDEX IF NOT EXISTS "epicenter/files/path" ON "epicenter/files" (path);
+CREATE TABLE IF NOT EXISTS "epicenter/unsent" (fold TEXT PRIMARY KEY, text TEXT, over TEXT) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/refused" (path TEXT PRIMARY KEY, fold TEXT NOT NULL, reason TEXT NOT NULL) STRICT;
 CREATE INDEX IF NOT EXISTS "epicenter/refused/fold" ON "epicenter/refused" (fold);
 CREATE TABLE IF NOT EXISTS "epicenter/passed" (id TEXT PRIMARY KEY, n INTEGER NOT NULL UNIQUE) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/staged" (n INTEGER PRIMARY KEY, path TEXT NOT NULL, fold TEXT NOT NULL, hash TEXT, deleted INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/fetched" (hash TEXT PRIMARY KEY, text TEXT NOT NULL) STRICT;
-CREATE INDEX IF NOT EXISTS "epicenter/files/fold" ON "epicenter/files" (fold);
 CREATE INDEX IF NOT EXISTS "epicenter/files/saved" ON "epicenter/files" (path) WHERE saved = 1;
 CREATE INDEX IF NOT EXISTS "epicenter/files/held" ON "epicenter/files" (path) WHERE held IS NOT NULL;
 CREATE INDEX IF NOT EXISTS "epicenter/files/unknown" ON "epicenter/files" (path) WHERE unknown = 1;
 CREATE INDEX IF NOT EXISTS "epicenter/files/unsent" ON "epicenter/files" (path) WHERE text IS NOT base;
-CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
+CREATE INDEX IF NOT EXISTS "epicenter/staged/fold" ON "epicenter/staged" (fold);
 CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEGER NOT NULL) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/landed" (path TEXT PRIMARY KEY, outcome TEXT NOT NULL) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/landed" (fold TEXT PRIMARY KEY, path TEXT NOT NULL, outcome TEXT NOT NULL) STRICT;
 `;
 
 /**
@@ -282,8 +295,10 @@ export const UPLOADING = 'its bytes are uploading';
 
 /**
  * A database made before the schema it opens with gets it, before the
- * schema indexes it: `fold` (phase 5) filled from each path; the call
- * columns and tables (phase 9c) dropped, since a file is no call's.
+ * schema indexes it: the call columns and tables (phase 9c) dropped, since
+ * a file is no call's; files kept per spelling kept by name (`byName`); a
+ * catch-up's scratch made again; the body a view reads made again where
+ * its rule changed.
  */
 function migrate(driver: SqlDriver) {
 	const columnsOf = (table: string) =>
@@ -291,24 +306,8 @@ function migrate(driver: SqlDriver) {
 			.all<{ name: string }>(`PRAGMA table_info("${table}")`)
 			.map((column) => column.name);
 	driver.transaction(() => {
-		const files = columnsOf('epicenter/files');
-		if (files.length > 0 && !files.includes('fold')) {
-			driver.run(
-				`ALTER TABLE "epicenter/files" ADD COLUMN fold TEXT NOT NULL DEFAULT ''`,
-			);
-			for (const { path } of driver.all<{ path: string }>(
-				'SELECT path FROM "epicenter/files"',
-			))
-				driver.run('UPDATE "epicenter/files" SET fold = ? WHERE path = ?', [
-					fold(path),
-					path,
-				]);
-		}
-		for (const index of ['files/call', 'unsent/call', 'refused/call'])
-			driver.run(`DROP INDEX IF EXISTS "epicenter/${index}"`);
+		driver.run('DROP INDEX IF EXISTS "epicenter/refused/call"');
 		for (const [table, column] of [
-			['files', 'call'],
-			['unsent', 'call'],
 			['refused', 'call'],
 			['inflight', 'calls'],
 		] as const)
@@ -316,13 +315,11 @@ function migrate(driver: SqlDriver) {
 				driver.run(`ALTER TABLE "epicenter/${table}" DROP COLUMN ${column}`);
 		for (const table of ['calls', 'groups', 'messages'])
 			driver.run(`DROP TABLE IF EXISTS "epicenter/${table}"`);
-		// A blob write's `over` (phase 9g), on the saved and the unsent level.
-		for (const table of ['files', 'unsent'])
-			if (
-				columnsOf(`epicenter/${table}`).length > 0 &&
-				!columnsOf(`epicenter/${table}`).includes('over')
-			)
-				driver.run(`ALTER TABLE "epicenter/${table}" ADD COLUMN over TEXT`);
+		// A catch-up staged before is gathered again at open: its table is made again with the fold.
+		if (!columnsOf('epicenter/staged').includes('fold'))
+			driver.run('DROP TABLE IF EXISTS "epicenter/staged"');
+		const files = columnsOf('epicenter/files');
+		if (files.length > 0 && !files.includes('renamed')) byName(driver);
 		// The body a view reads is what follows the header, by position, whether or not it parses (phase 9g, then merge by kind): the generated column is made again.
 		const made = first<{ sql: string }>(
 			driver,
@@ -337,6 +334,147 @@ function migrate(driver: SqlDriver) {
 	});
 }
 
+/** A file's row but its path and the index over it. `fields` undefined: as stored. */
+type FileColumns = {
+	text: string | null;
+	fields?: string | null;
+	base: string | null;
+	hash: string | null;
+	saved: number;
+	held: string | null;
+	unknown: number;
+	over: string | null;
+	renamed: number;
+};
+const FILE_COLUMNS = [
+	'text',
+	'base',
+	'hash',
+	'saved',
+	'held',
+	'unknown',
+	'over',
+	'renamed',
+] as const;
+
+/**
+ * Store one file's row. RULE: a file's one stored fact is its path, as
+ * written; `fold` is an index over it (paths equal after NFC and case
+ * folding are one file), written only by these three functions and always
+ * as `fold(path)`, so no path and key can disagree. A column, not an
+ * expression index: NFC is no SQLite function, and an app-defined one
+ * would make the schema unreadable on a host without it.
+ */
+function putFile(driver: SqlDriver, path: string, row: FileColumns) {
+	const columns = [
+		...FILE_COLUMNS,
+		...(row.fields === undefined ? [] : (['fields'] as const)),
+	];
+	driver.run(
+		`INSERT INTO "epicenter/files" (fold, path, ${columns.join(', ')}) VALUES (?, ?, ${columns.map(() => '?').join(', ')}) ON CONFLICT (fold) DO UPDATE SET path = excluded.path, ${columns.map((c) => `${c} = excluded.${c}`).join(', ')}`,
+		[fold(path), path, ...columns.map((c) => row[c] ?? null)],
+	);
+}
+/** Store a file's unsent level, or none, under the index over its path. */
+function putUnsent(
+	driver: SqlDriver,
+	path: string,
+	level: { text: string | null; over: string | null } | undefined,
+) {
+	if (level === undefined)
+		driver.run('DELETE FROM "epicenter/unsent" WHERE fold = ?', [fold(path)]);
+	else
+		driver.run(
+			'INSERT OR REPLACE INTO "epicenter/unsent" (fold, text, over) VALUES (?, ?, ?)',
+			[fold(path), level.text, level.over],
+		);
+}
+/** Store how a file this device sent landed, under the index over its path. */
+function putLanded(driver: SqlDriver, path: string, outcome: string) {
+	driver.run(
+		'INSERT OR REPLACE INTO "epicenter/landed" (fold, path, outcome) VALUES (?, ?, ?)',
+		[fold(path), path, outcome],
+	);
+}
+
+/**
+ * Files kept one row per spelling (before one row per name) become one row
+ * per name: the files, their unsent level and how each landed, in the order
+ * first stored. RULE: of several rows of one name, the first stored stays
+ * (every save went to it); another's work (a note's text that is not its
+ * base) goes after its text as one labelled conflict block, saved, so it is
+ * sent, never merged blindly.
+ */
+function byName(driver: SqlDriver) {
+	type Row = {
+		path: string;
+		text: string | null;
+		fields: string | null;
+		base: string | null;
+		hash: string | null;
+		saved: number;
+		held: string | null;
+		unknown: number;
+		over?: string | null;
+		blocked?: true;
+	};
+	const kept = new Map<string, Row>();
+	for (const row of driver.all<Row>(
+		'SELECT * FROM "epicenter/files" ORDER BY rowid',
+	)) {
+		const key = fold(row.path);
+		const one = kept.get(key);
+		if (one === undefined) kept.set(key, row);
+		else if (
+			row.text !== null &&
+			row.text !== row.base &&
+			row.text !== one.text &&
+			isNote(one.path)
+		) {
+			one.text =
+				one.text === null
+					? row.text
+					: appendBlock(one.text, row.text, {
+							current: { author: 'main', time: '-' },
+							incoming: { author: `${row.path} as kept`, time: '-' },
+						});
+			one.saved = 1;
+			one.blocked = true;
+		}
+	}
+	const all = <T>(table: string) =>
+		first(driver, 'SELECT 1 FROM sqlite_schema WHERE name = ?', [
+			`epicenter/${table}`,
+		]) === undefined
+			? []
+			: driver.all<T>(`SELECT * FROM "epicenter/${table}"`);
+	const unsent = all<{
+		path: string;
+		text: string | null;
+		over?: string | null;
+	}>('unsent');
+	const landed = all<{ path: string; outcome: string }>('landed');
+	for (const table of ['files', 'unsent', 'landed'])
+		driver.run(`DROP TABLE IF EXISTS "epicenter/${table}"`);
+	driver.exec(SCHEMA);
+	for (const row of kept.values())
+		putFile(driver, row.path, {
+			text: row.text,
+			fields: row.blocked ? fieldsOf(row.text) : (row.fields ?? null),
+			base: row.base,
+			hash: row.hash ?? null,
+			saved: row.saved ?? 0,
+			held: row.held ?? null,
+			unknown: row.unknown ?? 0,
+			over: row.over ?? null,
+			renamed: 0,
+		});
+	for (const u of unsent)
+		if (kept.get(fold(u.path))?.path === u.path)
+			putUnsent(driver, u.path, { text: u.text, over: u.over ?? null });
+	for (const { path, outcome } of landed) putLanded(driver, path, outcome);
+}
+
 /**
  * A level of a file: its text, null for no file. `over`: a blob write
  * made over a text that is no longer what it would land on (it lost, as its
@@ -345,7 +483,18 @@ function migrate(driver: SqlDriver) {
  */
 type Level = { text: string | null; over?: string | null };
 
+/** Each file's `sent` level in a commit, by fold. */
+const levelsOf = (commit: LiveCommit | null) =>
+	new Map<string, Level>(
+		commit?.files.map((f) => [
+			fold(f.path),
+			{ text: f.text, ...(f.over === undefined ? {} : { over: f.over }) },
+		]),
+	);
+
 type FileRecord = {
+	/** The spelling of its path the file has (absent: no row yet, so the one it is given). */
+	spelling?: string;
 	base: string | null;
 	mine: string | null;
 	/** In the unsent commit. */
@@ -358,18 +507,21 @@ type FileRecord = {
 	unknown?: true;
 	/** `mine`, a blob, was saved over this text, which moved since: the next cut sends it with this `over`. */
 	over?: string | null;
+	/** RULE: `spelling` is a person's rename `main` has not had: it goes with the file's next commit, as a rename, and `main`'s spelling does not replace it until that commit is answered. */
+	renamed?: true;
 };
 
 /** A file as the logic reads it: the stored record and, while its commit is in flight, the text it sent. */
 type FileView = FileRecord & { sent?: Level };
 
-/** A file as stored, with its base's hash. */
-type Stored = FileRecord & { hash: string | null };
+/** A file as stored, with its spelling and its base's hash. */
+type Stored = FileRecord & { spelling: string; hash: string | null };
 
 /** One file's row and its unsent work, in one read. */
-const FILE_SQL = `SELECT f.text, f.base, f.hash, f.saved, f.held, f.unknown, f.over, u.path IS NOT NULL AS committed, u.text AS committed_text, u.over AS committed_over
-	FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?`;
+const FILE_SQL = `SELECT f.path, f.text, f.base, f.hash, f.saved, f.held, f.unknown, f.over, f.renamed, u.fold IS NOT NULL AS committed, u.text AS committed_text, u.over AS committed_over
+	FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.fold = f.fold WHERE f.fold = ?`;
 type FileRow = {
+	path: string;
 	text: string | null;
 	base: string | null;
 	hash: string | null;
@@ -377,6 +529,7 @@ type FileRow = {
 	held: string | null;
 	unknown: number;
 	over: string | null;
+	renamed: number;
 	committed: number;
 	committed_text: string | null;
 	committed_over: string | null;
@@ -389,7 +542,7 @@ const storedOver = (level: { over?: string | null } | undefined) =>
 	level?.over === undefined ? null : JSON.stringify(level.over);
 
 /** Texts a catch-up's pages name that this device lacks: not its base at that path, nor read already. RULE: only the paths a catch-up names, so its cost follows what it names, not the repository; a text held at another path is read. */
-const LACKING_SQL = `FROM "epicenter/staged" s LEFT JOIN "epicenter/files" f ON f.path = s.path
+const LACKING_SQL = `FROM "epicenter/staged" s LEFT JOIN "epicenter/files" f ON f.fold = s.fold
 	WHERE s.hash IS NOT NULL AND f.hash IS NOT s.hash AND NOT EXISTS (SELECT 1 FROM "epicenter/fetched" x WHERE x.hash = s.hash)`;
 
 /** Recent positions kept, so a late notification is recognized as old. */
@@ -546,7 +699,7 @@ function createReplica({
 	let inflight: LiveCommit | null = null;
 	/** How many times the commit in flight has been sent: once means an `outcome-unknown` answer was a refusal, not a lost landing. */
 	let attempts = 0;
-	/** The work of the commit in flight, by path: each file's `sent` level. */
+	/** The work of the commit in flight, by fold: each file's `sent` level. */
 	let sentWork = new Map<string, Level>();
 	let passedN = 0;
 	/** Counts changes stored: each transaction that changes a file's text or state makes the next one. */
@@ -563,12 +716,7 @@ function createReplica({
 				? null
 				: (JSON.parse(flight.commit_json) as LiveCommit);
 		attempts = flight?.attempts ?? 0;
-		sentWork = new Map(
-			inflight?.files.map((f) => [
-				f.path,
-				{ text: f.text, ...(f.over === undefined ? {} : { over: f.over }) },
-			]),
-		);
+		sentWork = levelsOf(inflight);
 		position = meta.get('position');
 		next = Number(meta.get('next') ?? 1);
 		passedN =
@@ -591,17 +739,12 @@ function createReplica({
 	};
 	/** The commit in flight is `commit` now, or none. */
 	const setInflight = (commit: LiveCommit | null) => {
-		const before = [...sentWork.keys()];
+		const before = inflight?.files.map((f) => f.path) ?? [];
 		for (const path of [...before, ...(commit?.files.map((f) => f.path) ?? [])])
-			changed.add(path);
+			changed.add(stored(path)?.spelling ?? path);
 		inflight = commit;
 		attempts = commit === null ? 0 : 1;
-		sentWork = new Map(
-			commit?.files.map((f) => [
-				f.path,
-				{ text: f.text, ...(f.over === undefined ? {} : { over: f.over }) },
-			]),
-		);
+		sentWork = levelsOf(commit);
 		driver.run('DELETE FROM "epicenter/inflight"');
 		if (commit !== null)
 			driver.run(
@@ -635,19 +778,25 @@ function createReplica({
 
 	/** One file as stored, or undefined when the database has no row for it. */
 	function stored(path: string): Stored | undefined {
-		const row = first<FileRow>(driver, FILE_SQL, [path]);
+		const row = first<FileRow>(driver, FILE_SQL, [fold(path)]);
 		if (row === undefined) return undefined;
-		const f: Stored = { base: row.base, mine: row.text, hash: row.hash };
+		const f: Stored = {
+			spelling: row.path,
+			base: row.base,
+			mine: row.text,
+			hash: row.hash,
+		};
 		if (row.saved === 1) f.saved = true;
 		if (row.held !== null) f.held = { reason: row.held };
 		if (row.unknown === 1) f.unknown = true;
+		if (row.renamed === 1) f.renamed = true;
 		if (row.over !== null)
 			f.over = (overOf(row.over) as { over: string | null }).over;
 		if (row.committed === 1)
 			f.committed = { text: row.committed_text, ...overOf(row.committed_over) };
 		return f;
 	}
-	const sentOf = (path: string): Level | undefined => sentWork.get(path);
+	const sentOf = (path: string): Level | undefined => sentWork.get(fold(path));
 	const record = (path: string): FileView => {
 		const { hash: _, ...f } = stored(path) ?? {
 			base: null,
@@ -678,12 +827,17 @@ function createReplica({
 	/** Files with an unsent commit, in order of their first store. */
 	const committedFiles = (): [string, FileView][] =>
 		pathsOf(
-			'SELECT u.path FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path ORDER BY f.rowid',
+			'SELECT f.path FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.fold = u.fold ORDER BY f.rowid',
 		).map((path) => [path, record(path)]);
 
-	/** Store a file's record (its `sent` level lives in the commit in flight). */
+	/**
+	 * Store a file's record (its `sent` level lives in the commit in flight),
+	 * keyed by its fold. It keeps the spelling it has unless `next` names one.
+	 */
 	function set(path: string, { sent: _, ...next }: FileView) {
+		const key = fold(path);
 		const before = stored(path);
+		const spelling = next.spelling ?? before?.spelling ?? path.normalize('NFC');
 		const empty =
 			next.base === null &&
 			next.mine === null &&
@@ -691,24 +845,28 @@ function createReplica({
 			next.held === undefined &&
 			next.saved === undefined &&
 			next.over === undefined &&
-			!sentWork.has(path);
+			!sentWork.has(key);
 		if (empty) {
 			if (before === undefined) return;
-			changed.add(path);
-			driver.run('DELETE FROM "epicenter/files" WHERE path = ?', [path]);
-			driver.run('DELETE FROM "epicenter/unsent" WHERE path = ?', [path]);
+			changed.add(before.spelling);
+			driver.run('DELETE FROM "epicenter/files" WHERE fold = ?', [key]);
+			putUnsent(driver, before.spelling, undefined);
 			return;
 		}
+		if (before !== undefined && before.spelling !== spelling)
+			changed.add(before.spelling);
 		const row =
 			before === undefined ||
+			before.spelling !== spelling ||
 			before.base !== next.base ||
 			before.mine !== next.mine ||
 			before.saved !== next.saved ||
 			before.held?.reason !== next.held?.reason ||
 			before.unknown !== next.unknown ||
+			before.renamed !== next.renamed ||
 			storedOver(before) !== storedOver(next);
 		if (row) {
-			changed.add(path);
+			changed.add(spelling);
 			const hash =
 				before !== undefined && before.base === next.base
 					? before.hash
@@ -719,41 +877,31 @@ function createReplica({
 				before !== undefined && before.mine === next.mine
 					? undefined
 					: fieldsOf(next.mine);
-			const values: SqlValue[] = [
-				path,
-				fold(path),
-				next.mine,
-				next.base,
+			putFile(driver, spelling, {
+				text: next.mine,
+				...(fields === undefined ? {} : { fields }),
+				base: next.base,
 				hash,
-				next.saved ? 1 : 0,
-				next.held?.reason ?? null,
-				next.unknown ? 1 : 0,
-				storedOver(next),
-			];
-			if (fields === undefined)
-				driver.run(
-					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, over) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, over = excluded.over',
-					values,
-				);
-			else
-				driver.run(
-					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, over, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, over = excluded.over, fields = excluded.fields',
-					[...values, fields],
-				);
+				saved: next.saved ? 1 : 0,
+				held: next.held?.reason ?? null,
+				unknown: next.unknown ? 1 : 0,
+				over: storedOver(next),
+				renamed: next.renamed ? 1 : 0,
+			});
 		}
 		if (
 			before?.committed?.text !== next.committed?.text ||
 			(before?.committed === undefined) !== (next.committed === undefined) ||
 			storedOver(before?.committed) !== storedOver(next.committed)
 		) {
-			changed.add(path);
-			if (next.committed === undefined)
-				driver.run('DELETE FROM "epicenter/unsent" WHERE path = ?', [path]);
-			else
-				driver.run(
-					'INSERT OR REPLACE INTO "epicenter/unsent" (path, text, over) VALUES (?, ?, ?)',
-					[path, next.committed.text, storedOver(next.committed)],
-				);
+			changed.add(spelling);
+			putUnsent(
+				driver,
+				spelling,
+				next.committed === undefined
+					? undefined
+					: { text: next.committed.text, over: storedOver(next.committed) },
+			);
 		}
 	}
 
@@ -890,7 +1038,7 @@ function createReplica({
 	const owes = (path: string, f: FileRecord) =>
 		f.held === undefined && owedText(path, f.mine, f.base);
 
-	/** When this device last saved each path, in this process: a file goes once its text has been quiet for `SEND_QUIET`. */
+	/** When this device last saved each file (by fold), in this process: a file goes once its text has been quiet for `SEND_QUIET`. */
 	const savedAt = new Map<string, number>();
 	/** When the pump runs again for a file still within its pause, if it is armed. */
 	let quietUntil: number | null = null;
@@ -905,12 +1053,12 @@ function createReplica({
 		const at = now();
 		let next: number | null = null;
 		const going = committedFiles().filter(([path, f]) => {
-			const due = (savedAt.get(path) ?? Number.NEGATIVE_INFINITY) + quiet;
+			const due = (savedAt.get(fold(path)) ?? Number.NEGATIVE_INFINITY) + quiet;
 			if (due > at) {
 				next = Math.min(next ?? due, due);
 				return false;
 			}
-			savedAt.delete(path);
+			savedAt.delete(fold(path));
 			return !owedText(path, f.committed?.text ?? null, f.base);
 		});
 		if (next !== null && (quietUntil === null || next < quietUntil)) {
@@ -988,7 +1136,8 @@ function createReplica({
 					: f.committed?.over !== undefined
 						? { over: f.committed.over }
 						: {};
-			if (f.mine === under) {
+			// A rename goes even where the text is as it was.
+			if (f.mine === under && f.renamed === undefined) {
 				const { committed: ___, ...clean } = unmarked;
 				set(path, clean);
 			} else set(path, { ...unmarked, committed: { text: f.mine, ...lost } });
@@ -997,24 +1146,60 @@ function createReplica({
 		pump();
 	}
 
-	/** Paths equal after NFC and case folding are one path: a save goes to the spelling this device has. */
-	function spelled(path: string) {
-		const nfc = path.normalize('NFC');
-		return (
-			first<{ path: string }>(
-				driver,
-				'SELECT path FROM "epicenter/files" WHERE fold = ? ORDER BY rowid LIMIT 1',
-				[fold(nfc)],
-			)?.path ?? nfc
-		);
+	/**
+	 * Save one text, merged with `mine` where `mine` moved since `from`, the
+	 * text the caller started from (undefined: what this device shows).
+	 * RULE: a file is one name: a save through any spelling of its path is a
+	 * save of it, and leaves its spelling. A file saved where this device
+	 * shows none takes the spelling it is saved under; where that changes the
+	 * spelling of a file this device has (a delete, then a create), it is a
+	 * rename, and goes as one.
+	 */
+	function save(given: string, text: string | null, from?: string | null) {
+		const { held: _, renamed: was, ...f } = record(given);
+		const named = given.normalize('NFC');
+		const spelling =
+			f.mine === null && text !== null ? named : (f.spelling ?? named);
+		const renamed =
+			text !== null &&
+			(was === true || (f.spelling !== undefined && spelling !== f.spelling));
+		const as = { spelling, ...(renamed ? { renamed: true as const } : {}) };
+		if (quiet > 0) savedAt.set(fold(given), now());
+		// A new save of a path forgets how its last one landed.
+		driver.run('DELETE FROM "epicenter/landed" WHERE fold = ?', [fold(given)]);
+		const over = from === undefined ? f.mine : from;
+		if (!isNote(spelling)) {
+			// A blob never merges: a write over a blob that moved since `over` lost, and goes with what it was made over, so the server puts it beside the other.
+			const swapped =
+				over === f.mine ? { text } : settlePointer(over, f.mine, text);
+			set(
+				given,
+				'lost' in swapped
+					? { ...f, ...as, mine: text, saved: true, over }
+					: { ...f, ...as, mine: swapped.text, saved: true },
+			);
+			return;
+		}
+		const next =
+			over === f.mine
+				? text
+				: settle(over, f.mine, text, { parties: parties() }).text;
+		set(given, { ...f, ...as, mine: next, saved: true });
 	}
 
+	/** Each path's text as the caller spelled it, and the revision the transaction running makes once it commits, if it changed anything. */
+	const answered = (given: string[]): Changed => ({
+		texts: Object.fromEntries(given.map((path) => [path, record(path).mine])),
+		revision: revision + (changed.size > 0 ? 1 : 0),
+	});
+
 	/**
-	 * Save texts, in one transaction: each merged here with `mine` if `mine`
-	 * moved since the text the caller started from. Each file goes on its
-	 * own. `refused` names saves the caller found at a path (as found) that
-	 * the repository cannot take, with why, held there alone; null: the path
-	 * holds one it can take again (or none).
+	 * Save texts, in one transaction and in order (a rename is a delete of
+	 * the old path, then a write of the new one): each merged here with
+	 * `mine` if `mine` moved since the text the caller started from. Each
+	 * file goes on its own. `refused` names saves the caller found at a path
+	 * (as found) that the repository cannot take, with why, held there
+	 * alone; null: the path holds one it can take again (or none).
 	 */
 	function writeAll(
 		changes: Record<string, string | null>,
@@ -1047,94 +1232,64 @@ function createReplica({
 						[path, fold(path.normalize('NFC')), reason],
 					);
 			}
-			for (const [given, text] of Object.entries(changes)) {
-				const path = spelled(given);
-				if (quiet > 0) savedAt.set(path, now());
-				// A new save of a path forgets how its last one landed.
-				driver.run('DELETE FROM "epicenter/landed" WHERE path = ?', [path]);
-				const { held: _, ...f } = record(path);
-				const from =
+			for (const [given, text] of Object.entries(changes))
+				save(
+					given,
+					text,
 					over === undefined || !(given in over)
-						? f.mine
-						: (over[given] ?? null);
-				if (!isNote(path)) {
-					// A blob never merges: a write over a blob that moved since `over` lost, and goes with what it was made over, so the server puts it beside the other.
-					const swapped =
-						from === f.mine ? { text } : settlePointer(from, f.mine, text);
-					set(
-						path,
-						'lost' in swapped
-							? { ...f, mine: text, saved: true, over: from }
-							: { ...f, mine: swapped.text, saved: true },
-					);
-					continue;
-				}
-				const next =
-					from === f.mine
-						? text
-						: settle(from, f.mine, text, { parties: parties() }).text;
-				set(path, { ...f, mine: next, saved: true });
-			}
+						? undefined
+						: (over[given] ?? null),
+				);
 			cut();
-			// Each text under the path as the caller spelled it; the revision this transaction makes once it commits, if it changed anything.
-			return {
-				texts: Object.fromEntries(
-					Object.keys(changes).map((given) => [
-						given,
-						record(spelled(given)).mine,
-					]),
-				),
-				revision: revision + (changed.size > 0 ? 1 : 0),
-			};
+			return answered(Object.keys(changes));
 		});
 	}
 
-	/** Apply changes over what this device shows now, in one transaction and one save. */
+	/** Apply changes over what this device shows now, in order, in one transaction and one save. */
 	function change(changes: Change[]): Result<Changed, ChangeError> {
 		return atomically(() => {
-			const texts: Record<string, string | null> = {};
-			const over: Record<string, string | null> = {};
-			/** Each path as the caller spelled it, and as this device stores it. */
-			const spellings = new Map<string, string>();
+			// A patch names a file this device shows, or one an earlier change here makes.
+			const shown = new Map<string, boolean>();
 			for (const c of changes) {
-				const path = spelled(c.path);
-				spellings.set(c.path, path);
-				const current =
-					path in texts ? (texts[path] ?? null) : record(path).mine;
+				const key = fold(c.path);
+				const showing = shown.get(key) ?? record(c.path).mine !== null;
+				if (c.kind === 'patch' && !showing)
+					return ChangeError.NotFound({ path: c.path });
+				shown.set(
+					key,
+					c.kind === 'patch' ||
+						(c.kind === 'create'
+							? true
+							: c.kind === 'delete'
+								? false
+								: c.text !== null),
+				);
+			}
+			for (const c of changes) {
+				const current = record(c.path).mine;
 				switch (c.kind) {
 					case 'create':
-						texts[path] = c.text;
-						if (!(path in over)) over[path] = null;
+						save(c.path, c.text, null);
 						break;
-					case 'patch': {
-						if (current === null) return ChangeError.NotFound({ path });
-						texts[path] = writeMarkdown(current, { fields: c.fields });
-						if (!(path in over)) over[path] = current;
+					case 'patch':
+						save(
+							c.path,
+							writeMarkdown(current as string, { fields: c.fields }),
+							current,
+						);
 						break;
-					}
 					case 'delete':
-						texts[path] = null;
-						if (!(path in over)) over[path] = current;
+						save(c.path, null, current);
 						break;
 					case 'write':
-						texts[path] = c.text;
-						if (!(path in over))
-							over[path] = c.over === undefined ? current : c.over;
+						save(c.path, c.text, c.over === undefined ? current : c.over);
 						break;
 					default:
 						c satisfies never;
 				}
 			}
-			const written = writeAll(texts, { over });
-			return Ok({
-				...written,
-				texts: Object.fromEntries(
-					[...spellings].map(([given, path]) => [
-						given,
-						written.texts[path] ?? null,
-					]),
-				),
-			});
+			cut();
+			return Ok(answered(changes.map((c) => c.path)));
 		});
 	}
 
@@ -1192,6 +1347,9 @@ function createReplica({
 				path,
 				text: f.committed?.text ?? null,
 				...(f.committed?.over === undefined ? {} : { over: f.committed.over }),
+				...(f.renamed === true && f.committed?.text != null
+					? { rename: true as const }
+					: {}),
 			})),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
@@ -1209,31 +1367,6 @@ function createReplica({
 	// ==========================================================================
 
 	/**
-	 * RULE: paths equal after NFC and case folding are one row, spelled as
-	 * `main` spells it. Where `main` has `path` and this device keeps a row of
-	 * another spelling for it (its own create, crossing one there), that row
-	 * and its work move to `path`, so the work is rebased onto `main`'s text
-	 * and never sent over it unseen. A row in the commit awaiting its answer
-	 * moves with its sent text, so what was saved over the sent text is
-	 * rebased as this device's own: only an answer that lands that commit
-	 * reaches such a row, since nothing else is applied while one is in flight.
-	 */
-	function respell(path: string) {
-		if (stored(path) !== undefined) return;
-		const other = first<{ path: string }>(
-			driver,
-			'SELECT path FROM "epicenter/files" WHERE fold = ? AND path != ? ORDER BY rowid LIMIT 1',
-			[fold(path), path],
-		)?.path;
-		if (other === undefined) return;
-		const f = record(other);
-		sentWork.delete(other);
-		set(other, { base: null, mine: null });
-		if (f.sent !== undefined) sentWork.set(path, f.sent);
-		set(path, f);
-	}
-
-	/**
 	 * A path's text on `main` is now `text`. `landed` when that holds this
 	 * device's sent commit, whose text the local work above it was made on.
 	 * `deleted` when the path was deleted at some point since this device's base.
@@ -1244,11 +1377,23 @@ function createReplica({
 		landed: boolean,
 		deleted = false,
 	) {
-		if (text !== null) respell(path);
 		const f = record(path);
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
 		if (f.sent !== undefined && !own) return;
+		/**
+		 * RULE: the file takes the spelling `main` has for it (`path`), unless
+		 * its person renamed it since: that rename stands until the commit that
+		 * carried it is answered, taken or not.
+		 */
+		const sentAs = own
+			? inflight?.files.find((sent) => fold(sent.path) === fold(path))?.path
+			: path;
+		const renamed = f.renamed === true && f.spelling !== sentAs;
+		const as: Pick<FileRecord, 'spelling' | 'renamed'> = {
+			spelling: renamed || text === null ? (f.spelling ?? path) : path,
+			...(renamed ? { renamed: true } : {}),
+		};
 		if (f.unknown) {
 			/**
 			 * RULE: work whose outcome is unknown is never merged blindly, and
@@ -1261,16 +1406,17 @@ function createReplica({
 			const work = f.mine;
 			// A delete is an intent, not typed text: where the path is as this device last had it, nothing landed there and the delete goes again; where it changed, the text stays, as a delete that lost to an edit does.
 			if (work === null && text !== null && text === f.base) {
-				set(path, { base: text, mine: null, committed: { text: null } });
+				set(path, { ...as, base: text, mine: null, committed: { text: null } });
 				return;
 			}
 			if (work === text || work === null) {
-				set(path, { base: text, mine: text });
+				set(path, { ...as, base: text, mine: text });
 				return;
 			}
 			if (!isNote(path)) {
 				// A hold on it (its upload refused) stands: only its person's save clears it.
 				set(path, {
+					...as,
 					base: text,
 					mine: work,
 					over: f.base,
@@ -1290,11 +1436,11 @@ function createReplica({
 								time: new Date(now()).toISOString(),
 							},
 						});
-			set(path, { base: text, mine, saved: true });
+			set(path, { ...as, base: text, mine, saved: true });
 			return;
 		}
 		const below = own ? (f.sent?.text ?? null) : f.base;
-		if (!isNote(path)) return integratePointer(path, f, text, below);
+		if (!isNote(path)) return integratePointer(path, f, text, below, as);
 		const gone = deleted && !own;
 		// Committed work is rebased onto the new text; a delete or removal that loses to an edit leaves the edit.
 		let committed: string | null | undefined;
@@ -1314,7 +1460,7 @@ function createReplica({
 			{ deletedSince: gone && f.committed === undefined, parties: parties() },
 		);
 		const mine = rebased.text;
-		const next: FileRecord = { base: text, mine };
+		const next: FileRecord = { ...as, base: text, mine };
 		// `mine` is the newest save: once it is `main`'s text, an older commit below it has nothing left to say.
 		if (
 			f.committed !== undefined &&
@@ -1327,8 +1473,17 @@ function createReplica({
 			if (f.held !== undefined) next.held = f.held;
 			if (f.saved !== undefined) next.saved = true;
 		}
-		set(path, next);
+		set(path, goes(next));
 	}
+
+	/** A rename still to go goes with the file's next commit, even where its text is `main`'s. */
+	const goes = (next: FileRecord): FileRecord =>
+		next.renamed === true &&
+		next.committed === undefined &&
+		next.held === undefined &&
+		next.mine !== null
+			? { ...next, saved: true }
+			: next;
 
 	/**
 	 * A blob path's text on `main` is now `text`, and this device's work on it
@@ -1344,6 +1499,7 @@ function createReplica({
 		f: FileView,
 		text: string | null,
 		below: string | null,
+		as: Pick<FileRecord, 'spelling' | 'renamed'>,
 	) {
 		let committed: Level | undefined;
 		/** What `mine` now sits on: the committed work if it still lands, else `main`. */
@@ -1385,7 +1541,7 @@ function createReplica({
 				over = {};
 			}
 		}
-		const next: FileRecord = { base: text, mine };
+		const next: FileRecord = { ...as, base: text, mine };
 		if (mine !== text) {
 			if (committed !== undefined) next.committed = committed;
 			if (f.held !== undefined) next.held = f.held;
@@ -1393,20 +1549,18 @@ function createReplica({
 			if (over.over !== undefined && next.committed?.over === undefined)
 				next.over = over.over;
 		}
-		set(path, next);
+		set(path, goes(next));
 	}
 
 	/**
 	 * This device's commit is in `main`, which holds `files` at the paths it
-	 * touched (`applied`, `merged`, and `flushed` long after). A file sent
-	 * under another spelling of a path `main` has is that path's, sent text
-	 * and all, before any is taken; then each path takes its own sent text as
-	 * landed, so the commit in flight is cleared after.
+	 * touched (`applied`, `merged`, and `flushed` long after), one entry per
+	 * file in `main`'s spelling: each takes its own sent text as landed, so
+	 * the commit in flight is cleared after.
 	 */
 	function landed(
 		files: { path: string; text: string | null; deleted?: boolean }[],
 	) {
-		for (const file of files) if (file.text !== null) respell(file.path);
 		for (const file of files)
 			integrate(file.path, file.text, true, file.deleted === true);
 		setInflight(null);
@@ -1431,10 +1585,7 @@ function createReplica({
 									findConflicts(sent.text ?? '').length
 							? { kind: 'blocks' }
 							: { kind: 'landed' };
-			driver.run(
-				'INSERT OR REPLACE INTO "epicenter/landed" (path, outcome) VALUES (?, ?)',
-				[there?.path ?? sent.path, JSON.stringify(outcome)],
-			);
+			putLanded(driver, there?.path ?? sent.path, JSON.stringify(outcome));
 		}
 	}
 
@@ -1464,7 +1615,9 @@ function createReplica({
 		for (const file of inflight?.files ?? [])
 			takeBack(
 				file,
-				file.path === answer.path ? { reason: answer.reason } : null,
+				fold(file.path) === fold(answer.path)
+					? { reason: answer.reason }
+					: null,
 			);
 		setInflight(null);
 	}
@@ -1627,8 +1780,8 @@ function createReplica({
 	function stage(page: CatchUp) {
 		for (const file of page.files)
 			driver.run(
-				'INSERT INTO "epicenter/staged" (path, hash, deleted) VALUES (?, ?, ?)',
-				[file.path, file.hash, file.deleted === true ? 1 : 0],
+				'INSERT INTO "epicenter/staged" (path, fold, hash, deleted) VALUES (?, ?, ?, ?)',
+				[file.path, fold(file.path), file.hash, file.deleted === true ? 1 : 0],
 			);
 	}
 	/** Forget a staged catch-up and the texts read for it. */
@@ -1647,14 +1800,16 @@ function createReplica({
 	function lacking(limit: number) {
 		const working = new Set([
 			...pathsOf(
-				'SELECT path FROM "epicenter/staged" WHERE path IN (SELECT path FROM "epicenter/unsent") OR path IN (SELECT path FROM "epicenter/files" WHERE text IS NOT base)',
+				'SELECT path FROM "epicenter/staged" WHERE fold IN (SELECT fold FROM "epicenter/unsent") OR fold IN (SELECT fold FROM "epicenter/files" WHERE text IS NOT base)',
 			),
-			...[...sentWork.keys()].filter(
-				(path) =>
-					first(driver, 'SELECT 1 FROM "epicenter/staged" WHERE path = ?', [
-						path,
-					]) !== undefined,
-			),
+			...(inflight?.files ?? [])
+				.map((sent) => sent.path)
+				.filter(
+					(path) =>
+						first(driver, 'SELECT 1 FROM "epicenter/staged" WHERE fold = ?', [
+							fold(path),
+						]) !== undefined,
+				),
 		]);
 		for (const [hash, text] of known(working))
 			driver.run(
@@ -1674,8 +1829,8 @@ function createReplica({
 		if (hash === null) return null;
 		const base = first<{ base: string | null }>(
 			driver,
-			'SELECT base FROM "epicenter/files" WHERE path = ? AND hash = ?',
-			[path, hash],
+			'SELECT base FROM "epicenter/files" WHERE fold = ? AND hash = ?',
+			[fold(path), hash],
 		)?.base;
 		return (
 			base ??
@@ -1725,7 +1880,7 @@ function createReplica({
 		if (reply.full)
 			// Paths only: each record, its texts with it, is read inside `integrate`, one file at a time.
 			for (const path of pathsWhere(
-				'(base IS NOT NULL OR unknown = 1) AND path NOT IN (SELECT path FROM "epicenter/staged")',
+				'(base IS NOT NULL OR unknown = 1) AND fold NOT IN (SELECT fold FROM "epicenter/staged")',
 			))
 				integrate(path, null, false);
 		for (const [path, f] of filesWhere('unknown = 1')) {
@@ -1919,8 +2074,12 @@ function createReplica({
 		[
 			...new Set([
 				...pathsOf('SELECT path FROM "epicenter/files" WHERE text IS NOT base'),
-				...pathsOf('SELECT path FROM "epicenter/unsent"'),
-				...sentWork.keys(),
+				...pathsOf(
+					'SELECT f.path FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.fold = u.fold',
+				),
+				...(inflight?.files ?? []).map(
+					(sent) => stored(sent.path)?.spelling ?? sent.path,
+				),
 			]),
 		].sort();
 
@@ -1963,12 +2122,12 @@ function createReplica({
 		// The read side: what the person sees
 		// ------------------------------------------------------------------------
 
-		/** What this device shows for a path, or null for no file. */
+		/** What this device shows for a path, in any spelling of it, or null for no file. */
 		read: (path: string) =>
 			first<{ text: string | null }>(
 				driver,
-				'SELECT text FROM "epicenter/files" WHERE path = ?',
-				[path],
+				'SELECT text FROM "epicenter/files" WHERE fold = ?',
+				[fold(path)],
 			)?.text ?? null,
 		/** Every path this device shows. */
 		paths: () =>

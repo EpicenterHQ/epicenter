@@ -603,8 +603,9 @@ test('paths equal after NFC and case folding are one path: concurrent creates of
 	const text = world.server.read('notes/Todo.md') ?? '';
 	expect(text).toContain('alice');
 	expect(text).toContain('bob');
-	expect(bob.replica.read('notes/todo.md')).toBeNull();
-	expect(bob.replica.read('notes/Todo.md')).toBe(text);
+	// One file, spelled as main spells it; any spelling reads it.
+	expect(bob.replica.paths()).toEqual(['notes/Todo.md']);
+	expect(bob.replica.read('notes/todo.md')).toBe(text);
 });
 
 test("paths equal after NFC and case folding are one path: a create waiting to go meets main's spelling when it arrives, and merges", () => {
@@ -631,7 +632,9 @@ test("paths equal after NFC and case folding are one path: a create waiting to g
 	const text = world.server.read('notes/Todo.md') ?? '';
 	expect(text).toContain('alice');
 	expect(text).toContain('bob');
-	expect(bob.replica.read('notes/todo.md')).toBeNull();
+	expect(bob.replica.paths().filter((path) => path.endsWith('.md'))).toEqual([
+		'notes/Todo.md',
+	]);
 	expect(bob.replica.read('notes/Todo.md')).toBe(text);
 	expect(alice.replica.read('notes/Todo.md')).toBe(text);
 });
@@ -661,6 +664,79 @@ test("paths equal after NFC and case folding are one path: work saved while a cr
 	expect(text.split('\n').filter((line) => line === 'bob')).toHaveLength(1);
 	expect([...bob.replica.files().keys()]).toEqual(['notes/Todo.md']);
 	expect(bob.replica.read('notes/Todo.md')).toBe(text);
+});
+
+test('a file is one name: a write to any spelling of it merges into it, and it keeps its spelling', () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
+	settle();
+	bob.setOnline(false);
+	alice.replica.edit('notes/todo.md', (text) => `${text ?? ''}alice\n`);
+	bob.replica.write('Notes/TODO.md', note('one\nbob\n', 'title: Todo'), {
+		over: note('one\n', 'title: Todo'),
+	});
+	settle();
+	bob.setOnline(true);
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/todo.md']);
+	const text = world.server.read('notes/todo.md') ?? '';
+	expect(findConflicts(text)).toEqual([]);
+	for (const line of ['alice', 'bob']) expect(text).toContain(line);
+	for (const d of [alice, bob]) {
+		expect(d.replica.paths()).toEqual(['notes/todo.md']);
+		expect(d.replica.read('NOTES/todo.MD')).toBe(text);
+	}
+});
+
+test('a case-only rename is a delete and a create in one save: the file keeps its text and takes the new spelling everywhere', () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
+	settle();
+	const text = alice.replica.read('notes/todo.md');
+	alice.replica.writeAll({ 'notes/todo.md': null, 'notes/Todo.md': text });
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
+	expect(world.server.read('notes/Todo.md')).toBe(text);
+	for (const d of [alice, bob]) {
+		expect(d.replica.paths()).toEqual(['notes/Todo.md']);
+		expect(d.replica.state('notes/Todo.md')).toEqual({ status: 'synced' });
+	}
+});
+
+test('a case-only rename made as two saves offline, the delete first, goes as one rename', () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
+	settle();
+	alice.setOnline(false);
+	const text = alice.replica.read('notes/todo.md');
+	alice.replica.write('notes/todo.md', null);
+	alice.replica.write('notes/Todo.md', text, { over: null });
+	expect(alice.replica.paths()).toEqual(['notes/Todo.md']);
+	alice.setOnline(true);
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
+	expect(world.server.read('notes/Todo.md')).toBe(text);
+	expect(bob.replica.paths()).toEqual(['notes/Todo.md']);
+});
+
+test('a case-only rename and an edit made at once both land: the edit merges into the renamed file', () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
+	settle();
+	bob.setOnline(false);
+	bob.replica.edit('notes/todo.md', (text) => `${text ?? ''}bob\n`);
+	const text = alice.replica.read('notes/todo.md');
+	alice.replica.writeAll({ 'notes/todo.md': null, 'notes/Todo.md': text });
+	settle();
+	bob.setOnline(true);
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
+	const merged = world.server.read('notes/Todo.md') ?? '';
+	expect(merged).toBe(note('one\nbob\n', 'title: Todo'));
+	for (const d of [alice, bob]) {
+		expect(d.replica.paths()).toEqual(['notes/Todo.md']);
+		expect(d.replica.read('notes/Todo.md')).toBe(merged);
+	}
 });
 
 test('a merge that would grow a note past 1 MB is the one named exception: held with that reason', () => {
