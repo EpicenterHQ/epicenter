@@ -1,7 +1,9 @@
 /**
  * A contract: the layout of an app's files, as plain data (decisions 1 to 5).
  *
- * A contract has a `name` and `collections`. A collection has a `path`
+ * A contract has a `name` and `collections`. The name is the app's
+ * (`whispering`), a lowercase slug, not a repository address: a repository
+ * is `<account>/<name>` (decision 46). A collection has a `path`
  * template; one whose path ends in `.md` holds notes, whose front matter
  * `fields` are JSON Schema properties, and any other holds files (decision
  * 3). Placeholders in the path (`{id}`, `{date}`) are what a writer passes to
@@ -47,11 +49,28 @@ export type Collection = {
 	readonly required?: readonly string[];
 };
 
-/** An app's contract: its name and its collections, by the name the client uses. */
+/**
+ * An app's contract: its name and its collections, by the name the client
+ * uses. `$schema` and `description` are there for the published JSON, so an
+ * editor can validate it and a person can read what it is for.
+ */
 export type Contract = {
+	readonly $schema?: string;
+	/** The app's name: a lowercase slug (`whispering`, `quick-capture`). */
 	readonly name: string;
+	readonly description?: string;
 	readonly collections: { readonly [collection: string]: Collection };
 };
+
+/** An app's name: lowercase letters, digits and `-`, starting with a letter or digit. */
+const APP_NAME = /^[a-z0-9][a-z0-9-]*$/;
+/** The keys a contract may hold. */
+const CONTRACT_KEYS = new Set([
+	'$schema',
+	'name',
+	'description',
+	'collections',
+]);
 
 /**
  * Write a contract with its literal types kept: the identity function, so
@@ -60,7 +79,7 @@ export type Contract = {
  * @example
  * ```ts
  * const recorder = defineContract({
- *   name: 'wong/whispering',
+ *   name: 'whispering',
  *   collections: {
  *     recordings: {
  *       path: 'recordings/{id}.md',
@@ -106,15 +125,23 @@ export function compileContract(
 	const malformed = (reason: string) => ContractError.Malformed({ reason });
 	if (!isPlainObject(contract)) return malformed('it is not a plain object');
 	const unknown = Object.keys(contract).filter(
-		(key) => key !== 'name' && key !== 'collections',
+		(key) => !CONTRACT_KEYS.has(key),
 	);
 	if (unknown.length > 0)
 		return malformed(
-			`it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a contract declares name and collections`,
+			`it declares ${unknown.map((key) => `'${key}'`).join(', ')}; a contract declares $schema, name, description and collections`,
 		);
-	const { name, collections } = contract;
-	if (typeof name !== 'string' || name.trim() === '')
-		return malformed('its name must say something');
+	const { $schema, name, description, collections } = contract;
+	if (typeof name !== 'string' || !APP_NAME.test(name))
+		return malformed(
+			`its name ${JSON.stringify(name)} is not an app name: lowercase letters, digits and '-', such as 'whispering'`,
+		);
+	for (const [key, value] of [
+		['$schema', $schema],
+		['description', description],
+	] as const)
+		if (value !== undefined && typeof value !== 'string')
+			return malformed(`its ${key} is not a string`);
 	if (!isPlainObject(collections) || Object.keys(collections).length === 0)
 		return malformed('it declares no collections');
 	const compiled: CompiledCollection[] = [];

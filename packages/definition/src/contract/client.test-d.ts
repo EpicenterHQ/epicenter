@@ -27,7 +27,7 @@ type Equal<X, Y> =
 type Expect<T extends true> = T;
 
 const recorder = defineContract({
-	name: 'wong/whispering',
+	name: 'whispering',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',

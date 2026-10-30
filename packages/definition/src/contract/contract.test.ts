@@ -9,6 +9,7 @@
  * Key behaviors:
  * - A note path is claimed only by a note collection, any other path only by a file collection
  * - Collections of one kind that could name the same file are refused
+ * - A contract's name is a lowercase slug; `$schema` and `description` are allowed beside it
  * - Names a value reserves, placeholder and field collisions, and unknown keys are refused
  * - Field schemas follow the same portability rules as table fields
  * - `checkFields` reads `required` as JSON Schema does; `pathOf` never lets a file collection name a note
@@ -18,7 +19,7 @@ import { expectErr, expectOk } from 'wellcrafted/testing';
 import { compileContract, defineContract } from './contract.js';
 
 const recorder = defineContract({
-	name: 'wong/whispering',
+	name: 'whispering',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
@@ -57,6 +58,18 @@ test('a published contract compiles as the code one does', () => {
 	]);
 });
 
+test('a name is a lowercase slug, and $schema and description may sit beside it', () => {
+	for (const name of ['whispering', 'quick-capture', '2do', 'x'])
+		expectOk(compileContract({ name, collections: { a: { path: 'a.md' } } }));
+	const described = defineContract({
+		$schema: 'https://epicenter.so/schemas/contract.json',
+		name: 'whispering',
+		description: 'Recordings and their transcripts.',
+		collections: { recordings: { path: 'recordings/{id}.md' } },
+	});
+	expect(expectOk(compileContract(described)).name).toBe('whispering');
+});
+
 test('two collections of one kind that can name the same file are refused', () => {
 	const error = expectErr(
 		compileContract({
@@ -79,6 +92,12 @@ test('malformed contracts are refused with a reason', () => {
 		{ name: '', collections: { a: { path: 'a.md' } } },
 		{ name: 'x', collections: {} },
 		{ name: 'x', collections: { a: { path: 'a.md' } }, kind: 'note' },
+		{ name: 'wong/whispering', collections: { a: { path: 'a.md' } } },
+		{ name: 'Whispering', collections: { a: { path: 'a.md' } } },
+		{ name: '-whispering', collections: { a: { path: 'a.md' } } },
+		{ name: 'quick capture', collections: { a: { path: 'a.md' } } },
+		{ name: 'x', $schema: 1, collections: { a: { path: 'a.md' } } },
+		{ name: 'x', description: ['x'], collections: { a: { path: 'a.md' } } },
 		{ name: 'x', collections: { 'bad-name': { path: 'a.md' } } },
 		{ name: 'x', collections: { a: { path: 'a.md', id: 'id' } } },
 		{ name: 'x', collections: { a: { path: '../a.md' } } },

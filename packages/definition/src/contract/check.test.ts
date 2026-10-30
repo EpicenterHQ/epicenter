@@ -17,7 +17,7 @@ import { checkContract } from './check.js';
 import { defineContract } from './contract.js';
 
 const recorder = defineContract({
-	name: 'wong/whispering',
+	name: 'whispering',
 	collections: {
 		recordings: {
 			path: 'recordings/{id}.md',
