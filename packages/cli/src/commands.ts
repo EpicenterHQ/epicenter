@@ -116,7 +116,8 @@ export const COMMANDS: readonly CommandSpec[] = [
 		args: '[<dir>]',
 		minArgs: 0,
 		maxArgs: 1,
-		summary: 'changed files, ahead and behind, and the remote',
+		summary:
+			'changed files, ahead and behind, and the remote; every registered folder without <dir>',
 	},
 	{
 		path: ['clone'],
