@@ -27,7 +27,7 @@ import {
 	storedText,
 } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
-import { fold } from '../core/door.js';
+import { fold, MAX_FILE_BYTES } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import { writePointer } from '../core/markdown.js';
 import { type GitObjects, MAIN } from './git-store.js';
@@ -224,7 +224,7 @@ describe('admission', () => {
 		).toMatchObject({ kind: 'applied' });
 	});
 
-	test('a merge result passes the door too', () => {
+	test('a merge result passes the door too, and one that would pass the size limit lands beside the note instead', () => {
 		const { server } = setup();
 		const base = server.main();
 		expect(
@@ -233,29 +233,29 @@ describe('admission', () => {
 				alice,
 			).kind,
 		).toBe('applied');
-		// A stale create of the same note is another note at the path (D3); a block that would pass 1 MB is refused.
-		const big = note(`${'b'.repeat(600_000)}\n`);
+		// A stale create of the same note is another note at the path (D3): its block merges in while it fits.
+		const big = note(`${'b'.repeat(Math.floor(MAX_FILE_BYTES / 2))}\n`);
 		expect(
 			server.push(
 				make(server, [{ path: 'n/a.md', text: big }], { at: base }),
 				alice,
 			).kind,
 		).toBe('merged');
+		const before = server.read('n/a.md');
+		// The next would pass the limit: main keeps its note, and the arriving text lands beside it.
+		const late = note(`${'c'.repeat(Math.floor(MAX_FILE_BYTES / 2))}\n`);
+		const beside = `n/a (conflict ${gitBlobHash(late).slice(0, 7)}).md`;
 		expect(
 			server.push(
-				make(
-					server,
-					[{ path: 'n/a.md', text: note(`${'c'.repeat(600_000)}\n`) }],
-					{ at: base },
-				),
+				make(server, [{ path: 'n/a.md', text: late }], { at: base }),
 				alice,
 			),
 		).toMatchObject({
-			kind: 'refused',
-			code: 'merge-too-large',
-			reason: 'the merge would grow the note past 1 MB',
-			path: 'n/a.md',
+			kind: 'merged',
+			siblings: [{ path: 'n/a.md', at: beside }],
 		});
+		expect(server.read('n/a.md')).toBe(before);
+		expect(server.read(beside)).toBe(late);
 	});
 
 	test("a push from a stale position with its file's current base is applied, whoever wrote it, never refused because main moved", () => {

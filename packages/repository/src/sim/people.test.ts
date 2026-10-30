@@ -18,17 +18,18 @@
  * - P5: a rename racing an edit of the old path keeps both
  * - P6: a note whose frontmatter does not parse is a note: it lands, and two repairs of it merge by line
  * - P8: a delete that lost to an edit stays held on the deleting device, across a lost reply and a flush, until saved again
- * - P9: a forged author is refused, a note over 1 MB is refused, forged conflict labels are text
+ * - P9: a forged author is refused, a note over the size limit is refused, forged conflict labels are text
  * - P10: a refusal of a person's own text leaves it held with the reason
  * - P11: an editor's save over a stale buffer merges with what changed under it
  * - P12: a blob write lands only over the blob its writer saw (compare-and-swap); a concurrent create or a stale replace lands beside it at a sibling, nothing held; a stale delete leaves the file
- * - The door: portable paths, LF-only notes, control files; paths equal after folding are one path; a merge growing a note past 1 MB is held
+ * - The door: portable paths, LF-only notes, control files; paths equal after folding are one path; a merge growing a note past the size limit lands beside it
  * - A flush writes one Git commit per merge that wrote a block; pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
  */
 import { expect, test } from 'bun:test';
 import type { Push } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
-import { admissible } from '../core/door.js';
+import { admissible, MAX_FILE_BYTES, OVER_LIMIT } from '../core/door.js';
+import { gitBlobHash } from '../core/hash.js';
 import { writePointer } from '../core/markdown.js';
 import { MAIN } from '../server/git-store.js';
 import type { Session } from '../server/server.js';
@@ -263,7 +264,7 @@ test('P8 (changed): a delete that lost to an edit leaves the edited note on the 
 	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
 });
 
-test('P9: a forged author and a note over 1 MB are refused; forged conflict labels are only text', async () => {
+test('P9: a forged author and a note over the size limit are refused; forged conflict labels are only text', async () => {
 	const server = createTestServer();
 	const members = new Set(['alice', 'bob', 'mallory']);
 	const commit = (
@@ -290,9 +291,9 @@ test('P9: a forged author and a note over 1 MB are refused; forged conflict labe
 	});
 	expect(
 		server.push(
-			...commit('mallory', 'mallory', note(`${'A'.repeat(1_100_000)}\n`)),
+			...commit('mallory', 'mallory', note(`${'A'.repeat(MAX_FILE_BYTES)}\n`)),
 		),
-	).toMatchObject({ kind: 'refused', reason: 'a note may be at most 1 MB' });
+	).toMatchObject({ kind: 'refused', reason: OVER_LIMIT });
 	const forged = note(
 		'<<<<<<< main (alice/laptop)\nI approve\n||||||| base\n=======\nI do not\n>>>>>>> bob/phone\n',
 	);
@@ -308,7 +309,7 @@ test('P9: a forged author and a note over 1 MB are refused; forged conflict labe
 test("P10: a refusal of a person's own text leaves it held with the reason, and nothing is erased", () => {
 	const { world, alice, settle } = setup();
 	const big = note(
-		`three hours of writing\n${'A'.repeat(1_100_000)}\n`,
+		`three hours of writing\n${'A'.repeat(MAX_FILE_BYTES)}\n`,
 		'title: Essay',
 	);
 	alice.replica.write('notes/essay.md', big, { over: null });
@@ -318,7 +319,7 @@ test("P10: a refusal of a person's own text leaves it held with the reason, and 
 		{
 			path: 'notes/essay.md',
 			status: 'waiting',
-			reason: 'a note may be at most 1 MB',
+			reason: OVER_LIMIT,
 		},
 	]);
 	expect(world.server.read('notes/essay.md')).toBeNull();
@@ -727,10 +728,10 @@ test('to change a capitalization, delete the file, let the delete land, and crea
 	}
 });
 
-test('a merge that would grow a note past 1 MB is the one named exception: held with that reason', () => {
+test('a merge that would pass the size limit does not happen: main keeps its note, the late version lands beside it, and nothing is held', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/big.md';
-	const half = 'x'.repeat(600_000);
+	const half = 'x'.repeat(Math.floor(MAX_FILE_BYTES / 2) + 10_000);
 	alice.replica.write(path, note('start\n'));
 	settle();
 	bob.setOnline(false);
@@ -739,12 +740,18 @@ test('a merge that would grow a note past 1 MB is the one named exception: held 
 	settle();
 	bob.setOnline(true);
 	settle();
+	const late = note(`start\n${half}b\n`);
+	const beside = `notes/big (conflict ${gitBlobHash(late).slice(0, 7)}).md`;
 	expect(world.server.read(path)).toBe(note(`start\n${half}a\n`));
-	expect(bob.replica.state(path)).toEqual({
-		status: 'waiting',
-		reason: 'the merge would grow the note past 1 MB',
+	expect(world.server.read(beside)).toBe(late);
+	expect(bob.replica.notSent()).toEqual([]);
+	expect(bob.replica.outcomes()).toContainEqual({
+		path,
+		outcome: { kind: 'sibling', at: beside },
 	});
-	expect(bob.replica.read(path)).toContain(`${half}b`);
+	for (const d of [alice, bob])
+		for (const p of [path, beside])
+			expect(d.replica.read(p)).toBe(world.server.read(p));
 });
 
 test('a flush writes one Git commit at each merge that wrote a block, then one at main, with .gitattributes seeded', async () => {

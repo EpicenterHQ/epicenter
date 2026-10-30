@@ -105,6 +105,7 @@ import {
 	fold,
 	isNote,
 	MAX_BLOB_BYTES,
+	MAX_FILE_BYTES,
 	onlyAPersonFixes,
 } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
@@ -1215,7 +1216,11 @@ function createReplica({
 		pump();
 	}
 
-	/** The version `mine` was made over: its writer's, kept for a blob; a note's is its base's, as its work is rebased. */
+	/** A note past the one size limit on what is stored. */
+	const overLimit = (text: string | null) =>
+		text !== null && encoder.encode(text).length > MAX_FILE_BYTES;
+
+	/** The version `mine` was made over: its writer's, kept for a blob; a note's is its base's, as its work is rebased (unless left over the limit). */
 	const madeOver = (f: FileRecord) =>
 		f.made === undefined ? versionOf(f.base) : f.made;
 
@@ -1254,7 +1259,7 @@ function createReplica({
 			over === f.mine
 				? text
 				: settle(over, f.mine, text, { parties: parties() }).text;
-		set(given, { ...f, ...as, mine: next, made: undefined, saved: true });
+		set(given, { ...f, ...as, mine: next, made: madeOver(f), saved: true });
 	}
 
 	/** Each path's text as the caller spelled it, and the revision the transaction running makes once it commits, if it changed anything. */
@@ -1467,6 +1472,31 @@ function createReplica({
 			f.mine,
 			{ parties: parties() },
 		).text;
+		/**
+		 * RULE: work whose rebase would pass the size limit is not rebased:
+		 * it stays as made, over the version it was made on, and goes so,
+		 * for the server to land beside the note (as it would merge it). So
+		 * does work left so before, made over a version other than this
+		 * device's base or what it sent. Held text past the limit is rebased
+		 * as ever: it goes nowhere until its person shortens it.
+		 */
+		const made = f.committed?.base ?? madeOver(f);
+		const left =
+			(f.committed !== undefined || f.mine !== below) &&
+			made !== versionOf(f.base) &&
+			made !== versionOf(below);
+		if (
+			left ||
+			overLimit(committed ?? null) ||
+			(f.held === undefined && overLimit(mine))
+		) {
+			const kept: FileRecord = { ...as, base: text, mine: f.mine, made };
+			if (f.committed !== undefined) kept.committed = f.committed;
+			if (f.held !== undefined) kept.held = f.held;
+			if (f.saved !== undefined) kept.saved = true;
+			set(path, kept);
+			return;
+		}
 		const next: FileRecord = { ...as, base: text, mine };
 		// `mine` is the newest save: once it is `main`'s text, an older commit below it has nothing left to say.
 		if (

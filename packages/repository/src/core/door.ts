@@ -5,7 +5,8 @@
  * sent.
  *
  * Enforced: every note (`.md`, in any case) is LF-only with no byte order
- * mark, is at most 1 MB and is never an LFS pointer, and its
+ * mark, is at most `MAX_FILE_BYTES` (the one size limit) and is never an
+ * LFS pointer, and its
  * frontmatter is cheap to parse (at most `FRONTMATTER_KEYS` keys and
  * `FRONTMATTER_VALUES` scalars, nested at most `FRONTMATTER_NESTING` deep); every text is
  * valid UTF-8 with no NUL; every other file is a blob, kept as a canonical
@@ -22,8 +23,10 @@
  * folding are one path, a name is a file or a folder, never both
  * (core/tree's `collision`), a pointer's bytes are present at its size, a blob
  * write lands only over the blob its writer saw (core/settle,
- * `settlePointer`), and a merge may not grow a note past 1 MB or past `BLOCK_CAP` conflict
- * blocks (core/settle, which also never writes an identical block twice).
+ * `settlePointer`), a merge whose note would pass `MAX_FILE_BYTES` lands
+ * beside it instead, and a merge may not leave a note past `BLOCK_CAP`
+ * conflict blocks (core/settle, which also never writes an identical block
+ * twice).
  */
 import { CST, Lexer } from 'yaml';
 import { findConflicts } from './conflict.js';
@@ -32,8 +35,15 @@ import { COLLISIONS } from './tree.js';
 
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
-/** The most bytes a note may hold. */
-export const MAX_FILE_BYTES = 1024 * 1024;
+/**
+ * RULE: the one limit on what is stored: the most bytes a note may hold.
+ * A Cloudflare Durable Object's SQLite holds a row, string or BLOB of at
+ * most 2 MB, read here as 2,000,000 bytes (the smaller reading); 16 KiB of
+ * that stay free for the other columns of the row that holds a note.
+ */
+export const MAX_FILE_BYTES = 2_000_000 - 16 * 1024;
+/** What a note past `MAX_FILE_BYTES` says: it waits on its writer's device until it is shortened. */
+export const OVER_LIMIT = 'over the size limit';
 /** The most bytes a blob may hold (2 GiB), on every device and by default on the server. */
 export const MAX_BLOB_BYTES = 2 * 1024 ** 3;
 
@@ -129,7 +139,7 @@ export function admissible(path: string, text: string | null): string | null {
 		if (text.startsWith('\uFEFF'))
 			return 'a note may not start with a byte order mark';
 		if (text.includes('\r')) return 'a note must use LF line endings';
-		if (bytes(text) > MAX_FILE_BYTES) return 'a note may be at most 1 MB';
+		if (bytes(text) > MAX_FILE_BYTES) return OVER_LIMIT;
 		return frontmatterRefusal(text);
 	}
 	if (pointer === null) return 'a file other than a note goes through Git LFS';

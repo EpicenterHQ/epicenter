@@ -1,4 +1,4 @@
-# 0692. Every write is a live commit on its parent, taken through the repository's server
+# 0692. Every write carries its base, and the repository's server takes it
 
 - **Status:** Proposed
 - **Date:** 2026-10-29
@@ -33,55 +33,94 @@ extra rules, half of them because a hash can neither order writes nor tell
 two notes at one path apart. Naming the state a write was made on, as Git
 does, removed those rules.
 
+Naming that state, the parent, then made correctness depend on time: the
+server kept parents for ten minutes, a write whose parent had left was
+answered `outcome-unknown` and resent as a labelled block, and a resend was
+recognized for a day. The review that followed (two worlds, Oct 30) returned
+to a base per file, now in one hash space and read from the store or from
+Git, so a write merges against what it saw however old that is, and to a
+numbered push, so a resend is answered exactly. The rules that sank the
+first draft stay out: a write's outcome is a merge, never a refusal for a
+moved hash, and the owner accepted that nothing tells a note made again at
+a path from the one before it.
+
 ## Decision
 
-**Every write is a live commit on the state it was made on, and the server
-for the repository takes it.** A live commit (`LiveCommit`,
-`packages/repository/src/core/commit.ts`) is a snapshot of the files it
-changes on top of a parent:
+**Every write is one file saying what it saw, and the server for the
+repository takes it.** A write (`FileWrite`, `packages/repository/src/core/commit.ts`)
+names a path, its `base` (the Git blob hash of the version its writer last
+saw there; null: none) and what the file is now. A device sends its writes
+in a numbered push:
 
 ```txt
-{ id, parent, author: { user, device }, time, files: [{ path, text | null }] }
+{ user, device, epoch, seq, time, from,
+  files: [{ path, base, next: { text } | { blob: { oid, size } } | { deleted: true } }] }
 ```
 
-`id` is `commitId`, the Git blob id of the commit's canonical form, so it
-hashes the parent and the content, never repeats, and makes a resend
-recognizable. `text: null` deletes the file. There is no move and no append:
-a rename is a delete of the old path and a write of the new one, each going
-on its own ([ADR-0698](0698-the-file-is-the-unit.md): the file is the unit).
-A blob's file may carry `over`, the text its writer made it over, when that
-is not what the commit's parent holds there (a write the device knows has
-lost); the id hashes it. `time` is the device's claim, any ISO instant: a
-label people read in conflict blocks and Git's author date, never an order.
-What is time-based (the retention window, the flush schedule) runs on the
-server's clock, when a commit arrives; no commit is refused for a clock.
+One hash space names every version: a note's is the Git blob hash of its
+text, a blob's the Git blob hash of its canonical LFS pointer. Pointer text
+exists only at the Git edges (the server's store and Git, and the replica's
+own rows); apps and the wire carry a blob as `{ oid, size }`. The kind comes
+from the path (`.md` is a note) and must agree with `next`, checked once at
+the door (`kindRefusal`); no code after it asks a write what it is. `time`
+is the device's claim, any ISO instant: a label people read in conflict
+blocks and Git's author date, never an order. `from` is the device's
+position, so the answer brings what changed since. A rename is a delete of
+the old path and a write of the new one, each going on its own
+([ADR-0698](0698-the-file-is-the-unit.md): the file is the unit).
 
-**`main` only moves forward, and every writer's commit meets a `main` that
-moved the same way** ([ADR-0697](0697-all-text-merges-from-everyone.md)).
-If the parent is `main`, `main` becomes the commit. Otherwise the commit is
-merged path by path, a note with `settle` (`core/settle.ts`) and a blob by
-compare-and-swap (`settlePointer`), and lands as a merge commit whose
-second parent is the writer's commit. A commit carries no mode: who wrote
-it changes its label, never how it settles. A one-file HTTP write (`PUT`
-with `If-Match`, `If-None-Match: *` to create, `DELETE` with `If-Match`)
-is a commit on `main` with that precondition, checked inside the server's
+**Each device's pushes are numbered, so a resend is answered exactly.** A
+device's database chooses an `epoch`, and stores each push's `seq` with the
+push before sending it. The server keeps one row per writer's epoch (user,
+device, epoch): the last seq, that push's hash, and its answer (without
+file contents, which a resend reads again by hash). That push sent again,
+seq and hash equal, gets that answer. An earlier seq, or that seq with other
+writes, answers `behind`: this device is behind itself, as a database
+restored from a copy is. The device then takes a new epoch, catches up, and
+every file with work it has not had answered forgets its base: it cannot
+know what its last writes left, so that work merges as a write over no file
+(a note's goes after what is there as one block, unless it is already there;
+a blob's lands beside a different one; a delete does not take). That is the
+only way a write over an existing file has a null base; the server never
+drops a writer's claim. A request the server rejects (rate, size, its form)
+is not a push the writer made: it is not recorded, and goes again under its
+seq. A one-file HTTP write is its own push, a fresh epoch at seq 1. The
+number names a push, not a file: a push of many files whose answer was lost
+must be recognized whole.
+
+**`main` only moves forward, and each write meets `main` against its own
+base** ([ADR-0697](0697-all-text-merges-from-everyone.md)). A note whose
+base is `main`'s version lands as written; any other merges with `settle`
+(`core/settle.ts`) against its base's text, and a base of null where a note
+is is a second create. A blob lands by compare-and-swap of versions
+(`settlePointer`). Each push lands as one live commit on `main` (its parent
+the `main` before it), authored by its writer; it is `applied` when every
+write landed as sent, else `merged`. A commit carries no mode: who wrote it
+changes its label, never how it settles. The server reads a base's text from
+its store or from Git, checked against the hash. RULE: a text stays in the
+store until Git has it (a flush or a push put it there), whatever names it,
+and is then read from Git; while one is read, the push is answered
+`reading` and the device sends it again. A base Git does not have either is
+refused (`unknown-base`): no honest writer can name one. No time decides
+what a write does. A one-file HTTP write (`PUT` with `If-Match`,
+`If-None-Match: *` to create, `DELETE` with `If-Match`) is a write over
+`main`'s version with that precondition, checked inside the server's
 transaction: HTTP's conditional write, the one text write refused
-(`file-moved`) because of someone else's write. A one-shot client that
-wants merging reads a file (`GET /files/<path>` names the commit it read
-as `Epicenter-Commit`) and posts a commit on that parent to
-`POST /commits`.
+(`file-moved`) because of someone else's write. A one-shot client that wants
+merging reads a file (`GET /files/<path>`, whose ETag is its version) and
+posts a write over that version to `POST /writes`.
 
 **A blob never merges, and a blob write that lost lands beside it.** A blob
-write lands only where the path still holds the blob its writer saw (the
-commit's parent, or its `over`). A create or replace that does not lands at
-a sibling the server names, `<stem> (conflict <hash7>).<ext>`, from the
-original stem and the losing bytes' hash: allocated idempotently (equal
-bytes are one file) against the whole resulting tree, taking more of the
-hash where a name is held by other bytes, a folder or another spelling. A
-race at a sibling makes another sibling of the original stem. The answer
-names each sibling (`siblings`), and so does a `git push`'s. References to
-the original file are not repaired; the outcome tells the writer. A delete
-that does not land leaves the file.
+write lands only where the path still holds the version its writer saw (its
+base). A create or replace that does not lands at a sibling the server
+names, `<stem> (conflict <hash7>).<ext>`, from the original stem and the
+losing bytes' hash: allocated idempotently (equal bytes are one file)
+against the whole resulting tree, taking more of the hash where a name is
+held by other bytes, a folder or another spelling. A race at a sibling
+makes another sibling of the original stem. The answer names each sibling
+(`siblings`), and so does a `git push`'s. References to the original file
+are not repaired; the outcome tells the writer. A delete that does not land
+leaves the file.
 
 **Every conflict is text.** `settle` runs the Epicenter merge (`core/merge.ts`):
 
@@ -114,9 +153,11 @@ that does not land leaves the file.
   conflict block.
 - A delete against an edit it had not seen keeps the edit, and an edit
   brings a deleted note back.
-- Two creates at one path, or a stale edit to a path deleted since its base
-  (`deletedSince`), keep the note that is there and append the incoming
-  text whole as one block.
+- Two creates at one path keep the note that is there and append the
+  incoming text whole as one block. A note deleted and created again since
+  a write's base merges by its content, as an edit of the note the base
+  names: nothing tells the two apart (there are no generations), a visible
+  and repairable result the owner accepted.
 - One clash is one block, however many writes follow it: an edit of lines
   that a block already offers as a side continues that side
   (`continuedBlock`, `withSide`), and a block identical to one in the note
@@ -137,23 +178,27 @@ delimiter is escaped. People resolve a block by editing the text; nothing
 waits for a person to choose, and the server never removes a block.
 
 **The server is the repository's only door, and every file it takes passes
-the door's rules.** `admit` (`server/server.ts`) checks, in order:
+the door's rules.** `admit` and `admitFiles` (`server/server.ts`) check, in
+order:
 
 | Check | Refused as |
 | --- | --- |
 | A session, a member, not a `reader` | `no-session`, `not-member`, `reader` |
 | Pushes per member, a bucket of 30 refilled at 10 a second | `rate` |
-| `id` is the hash of the commit; `author.user` is the session's user | `bad-id`, `not-author` |
+| `user` is the session's user | `not-author` |
 | `time` is an ISO instant | `bad-time` |
 | At most 4 MB as JSON, 1,000 files, one entry per folded path | `too-large`, `too-many-files`, `path-twice` |
+| Its place in its writer's numbered pushes (above) | the recorded answer, or `behind` |
 | A path at most 512 bytes | `path-too-long` |
+| `next` is the kind its path names (`kindRefusal`) | `inadmissible`, with why |
 | `admissible(path, text)` (`core/door.ts`), below | `inadmissible`, with the door's reason |
 | A pointer's bytes present at its size | `blob-missing` |
-| A name is a file or a folder, never both, over the commit's parent and over what `main` becomes (`collision`, `core/tree.ts`) | `is-a-folder`, `under-a-file` |
+| A base's text, where a note merges against it | `reading` while Git is read; `unknown-base` |
+| A name is a file or a folder, never both, over what `main` becomes (`collision`, `core/tree.ts`) | `is-a-folder`, `under-a-file` |
 
 `admissible` is one pure predicate the device, the server and a GitHub
 Action share. A note (`.md` in any case) uses LF with no byte order
-mark, is at most 1 MB, is never an LFS pointer, and its frontmatter holds at
+mark, is at most `MAX_FILE_BYTES` (just under 2 MB, below), is never an LFS pointer, and its frontmatter holds at
 most `FRONTMATTER_KEYS` (1,000) keys and `FRONTMATTER_VALUES` (10,000)
 scalars, nested at most `FRONTMATTER_NESTING` (64) deep. Every text is valid
 UTF-8 with no NUL, and every file that is not a note is a canonical LFS
@@ -165,37 +210,46 @@ folder takes one of those names. `lint`
 only warns: unresolved or malformed conflict blocks, a path over 260 bytes. A name is a file or a folder, never both: a file written where a
 folder still holds files is refused at that file as `is-a-folder` ("a folder
 already has this name"), and one written beneath a file as `under-a-file` ("a
-file already has this name"), checked over the commit's parent and over what
-`main` would become, so a stale writer is refused too. A delete names only a
+file already has this name"), checked over what `main` would become. A delete names only a
 file. Only a person renaming one can fix such a refusal, so the device marks
 the file `refused`, and a tree update that meets a collision
-throws rather than drop either side. A merge result passes `admissible` too, and two named
-exceptions refuse a text writer because of someone else: a merge that would grow
-a note past 1 MB (`merge-too-large`), and one that would leave more than
-`BLOCK_CAP` (20) conflict blocks in a note (`too-many-blocks`, "this note
-has unresolved conflicts; resolve some first"). The server reads no schema.
+throws rather than drop either side. A merge result passes `admissible` too,
+and one named exception refuses a text writer because of someone else: a
+merge that would leave more than `BLOCK_CAP` (20) conflict blocks in a note
+(`too-many-blocks`, "this note has unresolved conflicts; resolve some
+first"). The server reads no schema.
 
-**A file is one name.** Paths equal after NFC and case folding (`fold`)
-are one file, stored once under its folded path: on the server as `main`'s
-spelling of it, on a device as one replica row with its spelling as a
-column. On disk and in Git a path stays as written. A write to any
-spelling of a file is a write to that file: its text merges like any
-other write, and the file keeps its spelling. Only a rename changes a
-spelling: a commit file marked `rename` lands as a write to the file its
-path names, which then takes that spelling, and a `git push` that removes
-one spelling and adds another is such a rename. A device sends one when
-its person deletes a file and creates it under another spelling before the
-delete has landed (in one save, or offline); once it has, the create is a
-new file. A write made before a rename,
-under the old spelling, merges into the renamed file. Every listing (an
+**One size limit, on what is stored.** A note is at most `MAX_FILE_BYTES`
+(`core/door.ts`): a Cloudflare Durable Object's SQLite holds a row, string
+or BLOB of at most 2 MB, read as 2,000,000 bytes, and the limit leaves
+16 KiB of that for the row's other columns. A note a person writes past it
+waits on their device ("over the size limit") until it is shortened. A
+merge whose result would pass it does not happen: `main`'s note stays, and
+the arriving version lands beside it as `<stem> (conflict <hash7>).md`,
+from the note's Git blob hash, allocated as a blob's sibling is (against
+the whole tree, idempotent: equal texts are one file). What is on `main`
+stays and the arriving write moves beside it, as for blobs; fields still
+let the later arrival win. A device whose own rebase of its work would pass
+the limit leaves that work over the version it was made on, for the server
+to judge the same way. A writer's last answer is kept without file
+contents, so its row stays small whatever the push carried.
+
+**A file is one name, and its spelling is fixed when it is created.**
+Paths equal after NFC and case folding (`fold`) are one file, stored once
+under its folded path: on the server as `main`'s spelling of it, on a
+device as one replica row with its spelling as a column. On disk and in Git
+a path stays as written. A write through any capitalization of an existing
+file is a write to that file: its text merges like any other write, and the
+file keeps its spelling. So is a delete and a create of one folded name
+before the delete lands, in one save or offline. To change a file's case,
+delete it, let the delete land, and create it again. A `git push` that
+changes only a file's capitalization (removes one spelling of a path and
+adds another) is refused: "a file's capitalization can't change; delete it
+and create it again", one more name that cannot exist. Every listing (an
 answer, a notification, a catch-up) names a file once, in `main`'s
-spelling, so a device takes `main`'s spelling as it takes its text,
-unless its own rename has not been answered yet. A folder keeps its
-records per spelling on its disk, where a case-sensitive file system can
-hold two; it refuses the second until a person renames one. Nothing tells
-a note deleted and made again under another spelling from the same note:
-a stale write under the old spelling merges into the new one, a visible
-and repairable result.
+spelling, so a device takes `main`'s spelling as it takes its text. A
+folder keeps its records per spelling on its disk, where a case-sensitive
+file system can hold two; it refuses the second until a person renames one.
 
 **A note is always valid.** A broken key costs only that key: the note
 keeps every other field, its body is what follows the header, and an app's
@@ -214,9 +268,13 @@ formatted text back once, by its ordinary projection.
 
 **A device repairs what the repository can represent, and refuses only what
 it cannot.** The replica (`openReplica`, `client/replica.ts`) keeps four
-levels per file: `base` (the text at its position), `sent` (in the commit
+levels per file: `base` (the text at its position), `sent` (in the push
 awaiting an answer), `committed` (in the unsent commit) and `mine` (what it
-shows). Each file goes on its own. One that cannot go now stays in `mine`
+shows). Each level of work carries the version it was made over, which its
+write sends as its base: a note's work is rebased as `main` moves, so its
+version is the base's (unless its rebase would pass the size limit, when it
+is left for the server); a blob's keeps the version its writer saw until the
+server judges it. Each file goes on its own. One that cannot go now stays in `mine`
 with its reason, alone, as one of two states (`FileStatus`): `waiting`, which
 the system clears (bytes uploading or refused by size or quota, a request,
 merge or block bound, a text the door's other rules refuse), or `refused`,
@@ -225,10 +283,7 @@ other letters, a note that is not text, or a file where a folder is or the
 reverse (`onlyAPersonFixes`, `core/door.ts`). Only its writer's next save of
 that file clears it. A pointer whose bytes the server does not hold yet is
 owed: it waits, "its bytes are uploading", until the upload track
-(`client/uploads.ts`) finds them present. Work whose outcome the server
-cannot know goes as one labelled conflict block after what is there
-(`<user>/<device>/outcome-unknown`), bounded as any note is; a blob of it
-goes with `over`. A delete or field removal that lost to an edit is not
+(`client/uploads.ts`) finds them present. A delete or field removal that lost to an edit is not
 held: it is an intent, not typed text, and the edited note stays, visibly.
 There are no stored notices: a person reads the text, whose blocks say what
 was contested, each file's state (`synced`, `sending`, `waiting` or
@@ -237,27 +292,25 @@ conflict blocks, at a sibling with its path, or a delete that did not take).
 A request the server rejects (rate, size, form) holds no text; the work
 stays committed and goes again, a request too large in halves.
 
-**A device sends one commit at a time, on top of its position.** A save is
+**A device sends one push at a time, from its position.** A save is
 stored at once; a file is sent once its text has been quiet for
 `SEND_QUIET` (1.5 s), a pause and never a hold, so a burst of keystrokes
-lands as one text. While a commit is in flight or the device is offline,
-the unsent commit is amended. A ready commit goes before
-notifications are read. Each answer (`PushAnswer`) is `applied`, `merged`,
-`flushed`, `refused`, `rejected` or `outcome-unknown`, and an applied or
-merged answer carries `main`'s texts for every path changed since the
-commit's parent, so the device stands on `main` at once. A resend gets its
-recorded answer, brought up to now.
+lands as one text. While a push is in flight or the device is offline,
+the unsent commit is amended. A ready push goes before notifications are
+read. Each answer (`PushAnswer`) is `applied`, `merged`, `refused`,
+`rejected` or `behind`, and an applied or merged answer carries `main`'s
+files for every path changed since the push's `from` and every path it
+touched, so the device stands on `main` at once; where `from` has left
+history it carries only what the push touched (`stale`), and the device
+catches up in full. A resend gets its recorded answer.
 
 **A device catches up by tree diff from its position.** Each commit on
 `main` keeps the Git tree it left. `catchUp` answers the paths changed
 between the device's position and `main`, with their hashes, in pages of
-1,000, marking a path that was deleted since; the device reads the texts it
-lacks by hash (`GET /blobs/<hash>`, immutable). Positions, commits and
-answers are kept for `LIMITS.window` (10 minutes), and a landed commit's id
-is recognized for `LIMITS.seen` (24 hours). A position older than the
-window gets every file (`full`); a commit whose parent has left the window
-is answered `outcome-unknown`; one recognized only by `seen` is answered
-`flushed`.
+1,000; the device reads the versions it lacks by hash (`GET /blobs/<hash>`,
+immutable). Positions are kept for `LIMITS.window` (10 minutes), and a
+position older than the window gets every file (`full`). The window bounds
+only how a device learns what changed: no write's outcome depends on it.
 
 **The server flushes live history into Git.** `createFlusher`
 (`server/flush.ts`) writes one Git commit at `main`, plus one at each merge
@@ -279,22 +332,22 @@ merge's second parent stays in live history. If Git's `main` moved from
 outside, the flush stops as `diverged`, and recovery is an operator's;
 Epicenter never rewinds or merges a `main` it did not write.
 
-**A `git push` keeps Git's ref rule, and merges like any commit.**
+**A `git push` keeps Git's ref rule, and merges like any write.**
 `receive` (`server/receive.ts`) checks Git's own rule exactly: the push's
 old value must be Git's `main` (otherwise `main-moved`: fetch and rebase).
 Every pushed commit must have one parent and pass the door, and a pointer's
 bytes must be on the server. Live edits Git does not hold yet are no reason
-to refuse. The pushed change becomes one live commit on the live commit
-Git's `main` stands for: the flushed place, or, while an earlier push waits
-to be joined, the live commit that push became. It merges into live `main`
-like any commit: every note merges, and a blob by compare-and-swap, so a
-stale replace refuses the whole push with its path and Git does not move.
+to refuse. Each file the push changes becomes a write whose base is its
+version in the push's old value, which Git has, so every base is readable.
+They land on live `main` as one commit, like any writer's: every note
+merges, and a blob by compare-and-swap, landing beside a live write it
+lost to.
 The transaction that lands it journals the move of Git's `main` from the
 old value to exactly the pushed commit, and records the push in the
 `received` table. Git's `main` moves only after that, by compare-and-swap,
 so a published `main` is never rewound. The journal claims only what Git
-holds: a push with nothing live ahead of it moves the flushed place to
-`main`; a push merged over live edits leaves the flushed place where it
+holds: a push applied with nothing live ahead of it moves the flushed place
+to `main`; a push merged over live edits leaves the flushed place where it
 was and leaves a join. The answer is `accepted`, with the pushed commit
 (`main`), Git's head, whether it was `merged`, and `published` (false only
 while a flush is diverged). A push sent again, its answer lost or the server
@@ -311,14 +364,8 @@ whose second is the side chain's tip, with the live merge's tree. `git log
 push has a tree made without it. A join is authored by
 `Epicenter <noreply@epicenter.so>`, with every writer it merges in as a
 `Co-authored-by`; its pusher authored the pushed commit. A second push from
-the first pushed commit before the flush is taken under the same ref rule
-and merged against the first push's live commit. The commit a merge took in
-(a device's commit, or a push's live commit) may be the parent of any
-writer's commit, which merges against its tree from that merge's place.
-Restricting this to the receiver would thread a receiver-only flag through
-the live commit path (`push`, `pushInside`, and a resend's answer), and the
-merge it gives every writer is the correct three-way merge, where the
-answer before was `outcome-unknown`.
+the first pushed commit before the flush is taken under the same ref rule,
+its bases read from the first pushed commit.
 
 **A waiting join is kept by the window, like all live history.** Once the
 window drops a join's place, its pushed commit stands as the state, and the
@@ -326,9 +373,7 @@ next commit on it carries the live edits it was merged over, coarser, as
 any history the window dropped reaches Git. In practice a join waits for
 one scheduled flush (at most 5 minutes while pushes go on), well inside the
 10-minute window; only a stopped flush (`diverged`, or Git unreachable)
-lets the window pass. A push whose base the window dropped (the live commit
-Git's `main` stands for) flushes live history first, so Git's `main` moves
-and the push is answered `main-moved`.
+lets the window pass.
 
 **A device keeps one WebSocket, and HTTP serves one-shot clients.**
 `createWire` (`wire/wire.ts`) serves one repository:
@@ -336,12 +381,12 @@ and the push is answered `main-moved`.
 ```txt
 GET    /socket          the device's WebSocket: push and catch-up up; head, commit events and replies down, in one order
 POST   /tickets         a one-use ticket for the socket, for a browser that cannot set its headers
-POST   /commits         a live commit, answered with its PushAnswer
-GET    /files/<path>    main's text, its hash as the ETag, the commit it was read at as Epicenter-Commit
-PUT    /files/<path>    If-Match: "<hash>", or If-None-Match: * to create
+POST   /writes          a push of writes, answered with its PushAnswer
+GET    /files/<path>    main's note text, or a blob's { oid, size } as JSON; its version as the ETag
+PUT    /files/<path>    If-Match: "<hash>", or If-None-Match: * to create (a blob's body is { oid, size })
 DELETE /files/<path>    If-Match: "<hash>"
 GET    /catch-up        ?from=<commit>&to=&after=&path=...: one page
-GET    /blobs/<hash>    a text by its Git blob hash, cached for good
+GET    /blobs/<hash>    a version by its Git blob hash, as JSON content, cached for good
 POST   /info/lfs/objects/batch   Git LFS basic-transfer actions, and per-object errors
 PUT    /lfs/objects/<oid>        a blob's bytes, streamed, verified and recorded once durable
 GET    /lfs/objects/<oid>        a blob's bytes, streamed to a member
@@ -351,8 +396,10 @@ A request body has the wire's timeout plus its declared length at a
 minimum rate to arrive, or gets 408. Uploads are bounded by the blob limit
 (2 GiB) and the repository's quota (10 GB).
 
-A commit's answer reaches its device before the commit's event reaches
-anyone. A `commit` event names the commit, its parents and the changed
+A push's answer reaches its device before its commit's event reaches
+anyone. A write's answer is 200 applied or merged, 409 behind, 422 a refused
+write, and for a rejected request 412, 413, 422, 428, 429 rate, 503 while a
+base is read from Git, or 401 and 403. A `commit` event names the commit, its parents and the changed
 paths with hashes, never texts. A ticket opens one socket within 30 s, as
 the session that asked for it, and is gone once presented.
 
@@ -372,20 +419,28 @@ another repository, server or account is refused (`BoundElsewhere`).
   9 ms and 0.2 MB of heap in Bun; a full catch-up of 100,000 notes took
   2.3 s.
 - No text writer, person or agent, is refused because of someone else,
-  except at 1 MB, at 20 blocks, in HTTP's conditional file write, and
-  where someone made a file or a folder of the same name; a blob write
-  that lost lands beside the one that won. Two people
+  except at 20 blocks, in HTTP's conditional file write, and where someone
+  made a file or a folder of the same name; a blob write that lost, and a
+  note merge that would pass the size limit, land beside the file. Two people
   typing in the same words at once produce one block, which stays in the
   note and in Git until someone edits it away.
 - Every line someone saved is in the shared text and in Git history. A
   field value that lost to a later write of its key is in Git history.
-- A stale edit to a path that was deleted and reused lands in the new note
-  as a block. Nothing is lost; it is visible and repairable, as in Git,
-  which has no notion of a different note at one path.
-- A device offline past the 10-minute window catches up with every file,
-  and work whose outcome is unknown goes as a labelled block after the
-  text, never merged blindly; if it had landed, the block repeats it,
-  visibly.
+- A stale edit to a note that was deleted and created again merges into
+  the new note by its content, as an edit of the one it saw. Nothing is
+  lost; it is visible and repairable, as in Git, which has no notion of a
+  different note at one path.
+- A device offline for any time merges each write against the version it
+  saw, read from the store or from Git; it catches up with every file once
+  its position has left the 10-minute window. A lost answer is answered
+  exactly, so nothing lands twice. A database restored from a copy is told
+  it is behind itself, and its unanswered work goes as a write over no
+  file: where that work had landed, nothing repeats; where it had not, a
+  note's goes after what is there as one block.
+- Every version a writer may have seen stays in the server's store until
+  Git has it. Versions `main` held between two flushes never reach Git, so
+  they stay: correct for every base, at a storage cost that grows with
+  edits between flushes.
 - A clone reads the last flush, so it lags live history by up to a minute
   at rest and five minutes on a busy repository, unless the flush is asked
   for.
@@ -399,24 +454,41 @@ another repository, server or account is refused (`BoundElsewhere`).
   merges** (the first shape of design B): a busy note starved its writers,
   and a hash could neither order writes nor tell a replacement note from
   the original.
-- **Batches `{ device, n, changes }` with a per-device number:** the commit
-  id makes a resend recognizable without a counter per device.
+- **Every write a live commit on its parent, the state it was made on (this
+  record's rule until each write carried its base):** the server merged
+  against the parent's tree, which it kept for a 10-minute window, so a
+  write whose parent had left it could only be answered `outcome-unknown`,
+  and the device sent its work again as a labelled block; a resend was
+  recognized by commit id for a day, then answered `flushed`. Correctness
+  depended on time. A base per file, read from the store or Git, and a
+  numbered push remove the window from every write's outcome.
+- **A seq per file write:** a push of many files whose answer was lost would
+  read as a device behind itself; the number names the push.
+- **Taking a base the server cannot find as null:** it would drop a writer's
+  claim and turn its edit into a block; the server reads Git instead, and
+  refuses only a base no history holds.
+- **A rename mark that let a write change a file's spelling (one row per
+  name, piece 1):** it needed its own landing rule and a push-as-rename
+  rule; a spelling fixed at creation needs neither.
+- **Refusing a merge that would grow a note past 1 MB (`merge-too-large`),
+  holding it on its writer's device:** the text lived on one device; it now
+  lands beside the note, and the one limit is on what is stored.
 - **`move(from, to)`, refused if the destination is taken, with a week of
   each path's history so an edit follows a move:** path history was the
   largest cluster of rules; a rename is a delete and a write, and a stale
   edit to the old path keeps that note (a delete loses to an edit).
-- **`append(path, text)` with no base:** every write names its parent, so
-  the server always holds the base; a streamed reply is ordinary writes.
+- **`append(path, text)` with no base:** every write names its base, which
+  the server always holds or reads from Git; a streamed reply is ordinary writes.
 - **A `need-base` answer, with the device keeping and sending base texts:**
-  the server keeps each commit's tree for the window.
+  the server keeps every version until Git has it, and reads Git after.
 - **An `expired` answer after a week offline, applying an edit only if its
-  file was unchanged:** a 10-minute window with `outcome-unknown` and a
-  full catch-up costs a download, not a rule about offline time, and puts
-  the work after the text as a labelled block.
+  file was unchanged:** a write merges against its base however old.
 - **Never merging a stale edit into a different note recreated at its path**
-  (identity by creating commit, siblings saved beside it): dropped for the
-  one `deletedSince` check, which appends the edit as a block. Siblings are
-  kept for blobs, which never merge.
+  (identity by creating commit, siblings saved beside it), or the
+  `deletedSince` check that appended it as a block: a base names a version,
+  not a time, so the server cannot know of a delete since it; the owner
+  accepted the merge by content. Siblings are kept for blobs, which never
+  merge.
 - **Stored notices for overlaps, dropped field values and edits kept over a
   delete:** every conflict is text, and the only device states are
   `waiting` and `refused`.
@@ -436,7 +508,7 @@ another repository, server or account is refused (`BoundElsewhere`).
   arrived:** a catch-up of another spelling made a second row, and work
   saved over a create in flight under another spelling went over `main`
   unseen; with one row per name neither can happen, and the moving rule
-  (`respell`) is gone. A case-only rename could not be expressed.
+  (`respell`) is gone.
 - **A generation per path, bumped at each delete and create, so a note made
   again at a path is another note:** the owner accepted a stale write
   merging into a note made again at its path as a visible, repairable
@@ -473,8 +545,14 @@ The property test (`packages/repository/src/sim/property.test.ts`, and
 every step that nothing typed and acknowledged is lost, every device
 converges with the server, no token appears twice outside conflict blocks,
 what a device has not sent waits or is refused alone with a reason, and
-hostile writes are refused or bounded; phase 9g's runs passed 2,000 fresh
-seeds at 200 steps in memory and 300 over the wire. `server/receive.test.ts` runs a `git push` against a
+hostile writes are refused or bounded (a forged author, a write of the wrong
+kind, a push replayed under its seq with other writes, a flood of writes
+over no base); piece 2's runs are in its report. `sim/base.test.ts` checks a
+device away for a week merging against a base kept live and one read from
+Git, a lost answer resolving exactly, a restored database neither applying
+an old change twice nor losing unsent work (notes, blobs and deletes), a
+note deleted and created again merging by content, and notes and blobs in
+one push. `server/receive.test.ts` runs a `git push` against a
 real bare repository through every hazard (a push behind live edits, a save
 during its checks, a stale blob, conflict cuts and labelled commits before
 it, a second push from the first, a join outliving the window, a crash at

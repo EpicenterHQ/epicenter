@@ -1,39 +1,40 @@
 /**
  * The repository's server: live history behind one door, as a state machine over
  * ports. It holds no host imports: the `Store` (SQLite) keeps every live
- * commit, text, outcome and the flush journal; `GitObjects` is where
- * flushed history goes; the `Clock` and the host's one `Alarm` schedule
- * flushes.
+ * commit, every version a writer may name as its base until Git has it, each
+ * writer's last push, and the flush journal; `GitObjects` is where flushed
+ * history goes (and where an old base is read); the `Clock` and the host's
+ * one `Alarm` schedule flushes.
  *
- * Every applied write is a live commit whose id hashes its parent and
- * content (core/commit). `main` only moves forward: a commit on `main`
- * becomes `main`; any other is merged where its history and `main`'s meet,
- * path by path, whoever wrote it: a note with `settle`, a blob by
- * compare-and-swap (`settlePointer`).
+ * Every write is one file saying what it saw: its base, a version (Git blob
+ * hash). `main` only moves forward: each push lands as one live commit on
+ * `main`, each write judged against its own base, whoever wrote it: a note
+ * merges with `settle` against its base's text, a blob lands by
+ * compare-and-swap (`settlePointer`) or beside its file.
  *
- * The door (`admit`): the caller passes a verified session (the user and
- * their role in this repository); the commit's author must be that user and
- * the id must hash the commit; request bytes, files, path length and pushes
- * per member are bounded; every file written, and every merge result, is
- * `admissible` (the predicate the device runs too); and the tree rules hold:
- * paths equal after NFC and case folding are one path, a name is a file or
- * a folder, never both (core/tree's `collision`, against the commit's own
- * parent and against what `main` would become), a pointer's bytes
- * are present at its size (`uploads`, written only once the bytes are
- * durable), a blob write lands only over the blob its writer saw (the
- * commit's parent: `settlePointer`, compare-and-swap, never a merge), and
- * a merge may not grow a note past
- * 1 MB or past `BLOCK_CAP` conflict blocks (the two named exceptions to
- * "a person is never refused because of someone else").
+ * The door (`admit`, `admitFiles`): the caller passes a verified session
+ * (the user and their role in this repository); the push's user must be
+ * that user; request bytes, files, path length and pushes per member are
+ * bounded; each write is of the kind its path names; every file written,
+ * and every merge result, is `admissible` (the predicate the device runs
+ * too); and the tree rules hold: paths equal after NFC and case folding are
+ * one path, spelled as it was created, a name is a file or a folder, never
+ * both (core/tree's `collision`, against what `main` would become), a
+ * blob's bytes are present at its size (`uploads`, written only once the
+ * bytes are durable), a merge whose note would pass the size limit lands
+ * beside it, and a merge may not leave a note past `BLOCK_CAP` conflict
+ * blocks (the named exception to "a person is never refused because of
+ * someone else").
  *
- * Idempotency is the commit id: a resend inside the retention window gets
- * its recorded answer, brought up to now; a resend after its answer left
- * the window, but within `seen`, is answered `flushed`. Positions are trees
- * kept for the window, so a catch-up is a tree diff, in pages.
+ * Idempotency is each writer's numbered pushes: one row per (user, device,
+ * epoch) keeps the last seq, its hash and its answer, so a resend gets that
+ * answer exactly and a device behind itself is told so. Positions are trees
+ * kept for the window, so a catch-up is a tree diff, in pages; no write's
+ * outcome depends on time.
  *
  * Flushing (flush.ts) turns live history into Git commits; a `git push`
- * comes in through `receive` (receive.ts), on Git's `main`, and merges into
- * live `main` like any commit.
+ * comes in through `receive` (receive.ts), on Git's `main`, and lands like
+ * any push.
  *
  * Rules the design does not state are marked `RULE:`.
  */
@@ -179,7 +180,6 @@ export type TextCode =
 	| 'inadmissible'
 	| 'blob-missing'
 	| 'unknown-base'
-	| 'merge-too-large'
 	| 'too-many-blocks'
 	| keyof typeof COLLISIONS;
 
@@ -206,7 +206,6 @@ export const REASONS: Record<
 	'path-too-long': PATH_TOO_LONG,
 	'blob-missing': "the file's bytes are not on the server",
 	'unknown-base': 'the version this write was made on is not in the history',
-	'merge-too-large': 'the merge would grow the note past 1 MB',
 	'too-many-blocks': 'this note has unresolved conflicts; resolve some first',
 	...COLLISIONS,
 	'no-session': 'no session',
@@ -725,11 +724,18 @@ export function createServer({
 			}
 			const text = styled(path, settled.text);
 			if (text !== incoming) asSent = false;
+			// RULE: a merge whose note would pass the size limit does not happen: `main`'s note stays, and the arriving version lands beside it, as a blob write that lost does (equal texts are one file).
+			if (text !== null && bytes(text) > MAX_FILE_BYTES) {
+				asSent = false;
+				const arriving = styled(path, incoming) as string;
+				const placed = besideIt(path, arriving, out, head.tree);
+				if (placed === null) return refusal('path-too-long', path, head.id);
+				siblings.push({ path, at: placed.at });
+				if (placed.write) out.push({ path: placed.at, text: arriving });
+				continue;
+			}
 			if (text !== null) {
-				// RULE, the first named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
-				if (bytes(text) > MAX_FILE_BYTES)
-					return refusal('merge-too-large', path, head.id);
-				// RULE, the second named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-base flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: its writer holds it with the reason until blocks are resolved.
+				// RULE, the named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-base flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: its writer holds it with the reason until blocks are resolved.
 				if (
 					findConflicts(text).length >
 					Math.max(
@@ -803,8 +809,14 @@ export function createServer({
 			[push.user, push.device, push.epoch],
 		);
 		if (last !== undefined) {
-			if (push.seq === last.seq && hash === last.hash)
-				return JSON.parse(last.answer) as PushAnswer;
+			if (push.seq === last.seq && hash === last.hash) {
+				const recorded = JSON.parse(last.answer) as PushAnswer;
+				const missing = unheld(recorded);
+				if (missing.length === 0) return rehydrated(recorded);
+				// Only Git has a version it names now: read it, and the writer sends again.
+				void read(missing);
+				return rejection('reading', main().id);
+			}
 			if (push.seq <= last.seq) return { kind: 'behind', main: main().id };
 		}
 		const answer =
@@ -824,11 +836,46 @@ export function createServer({
 					push.epoch,
 					push.seq,
 					hash,
-					JSON.stringify(answer),
+					JSON.stringify(
+						answer.kind === 'applied' || answer.kind === 'merged'
+							? {
+									...answer,
+									files: answer.files.map(({ content: _, ...file }) => file),
+								}
+							: answer,
+					),
 				],
 			);
 		return answer;
 	}
+
+	/**
+	 * RULE: a writer's last answer is kept without file contents, so its row
+	 * stays small whatever the push carried; sent again, each file's content
+	 * is read again by its version, which never changes (from Git, once only
+	 * Git has it).
+	 */
+	function rehydrated(answer: PushAnswer): PushAnswer {
+		if (answer.kind !== 'applied' && answer.kind !== 'merged') return answer;
+		return {
+			...answer,
+			files: answer.files.map(({ path, hash }) => {
+				const text = hash === null ? null : history.blob(hash);
+				return {
+					path,
+					hash,
+					content: text === null ? null : contentOf(text),
+				};
+			}),
+		};
+	}
+	/** The versions a recorded answer names that the store no longer holds. */
+	const unheld = (answer: PushAnswer) =>
+		answer.kind !== 'applied' && answer.kind !== 'merged'
+			? []
+			: answer.files.flatMap(({ hash }) =>
+					hash !== null && history.blob(hash) === null ? [hash] : [],
+				);
 
 	/**
 	 * RULE: the sorted paths of one catch-up (from a place, or everything,
@@ -1051,8 +1098,22 @@ export function createServer({
 			session?: Session,
 			{ expect }: { expect?: Expect } = {},
 		) => transact(() => pushInside(push, session, true, expect)),
-		/** Read from Git the bases `push` merges against that only Git has, so `push` then finds them. */
-		prepare: (push: Push) => read(unread(push.files)),
+		/** Read from Git what `push` needs that only Git has (the bases it merges against, or the versions its recorded answer names), so `push` then finds them. */
+		prepare: (push: Push) => {
+			const last = first<{ seq: number; hash: string; answer: string }>(
+				store,
+				'SELECT seq, hash, answer FROM writers WHERE user = ? AND device = ? AND epoch = ?',
+				[push.user, push.device, push.epoch],
+			);
+			return read([
+				...unread(push.files),
+				...(last !== undefined &&
+				last.seq === push.seq &&
+				last.hash === pushHash(push)
+					? unheld(JSON.parse(last.answer) as PushAnswer)
+					: []),
+			]);
+		},
 		/**
 		 * What changed on `main` since `from`, as a tree diff, plus `paths` the
 		 * device names, one page at a time: a later page names `to` (the commit
