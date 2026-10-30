@@ -24,10 +24,9 @@ Epicenter's data workspace has a purpose even without a personal-tool runner:
 Today `apps/epicenter` packages a Tauri core and Bun sidecar. Its
 `src/applications.ts` combines compiled applications and an admitted catalog.
 The local installer accepts built releases. Product windows share native
-capabilities. Todos and Capture already register separate native folder owners;
-the registry lets each scope authorize several windows and each window attach
-to several scopes. General folder registration for installed tools remains
-unbuilt.
+capabilities. Todos and Capture register separate desktop folders, each
+granted to one window, whose pages run the folder engine over them
+([ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)). Installed tools are parked.
 
 The shared native core reduces distribution work, but couples product releases
 and native failures. A useful personal tool need not become a native product

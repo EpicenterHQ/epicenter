@@ -1,7 +1,8 @@
 # 0476. Whispering's desktop folder uses one Rust library in both Tauri shells
 
-- **Status:** Proposed
+- **Status:** Superseded
 - **Date:** 2026-10-01
+- **Superseded by:** [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md): Whispering's page runs the TypeScript folder engine over a directory its shell grants, and the Rust folder library is deleted.
 - **Unbuilt:** Whispering folder and service integration in Epicenter and completion of the shared close protocol. Complete sidecar removal also needs Rust terminal, transcription, credential, reveal, and debug services, bundled frontend loading, and removal of sidecar packaging.
 
 ## Context
@@ -23,8 +24,8 @@ Applications migrate only after the native owner preserves their publication,
 terminal, history, and shutdown guarantees. The older
 [desktop packaging decision](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md)
 also excludes a standalone Whispering shell, contrary to the current README.
-The proposed [three deployment forms](0493-whispering-runs-as-one-application-in-three-deployment-forms.md)
-resolve that packaging discrepancy separately from the folder transport.
+[ADR-0493](0493-whisperings-only-desktop-shell-is-epicenter.md) resolves that
+packaging discrepancy separately from the folder transport.
 
 ## Desired outcome
 
@@ -324,7 +325,7 @@ Tests for drafts, conflicts, partial saves, history, and shutdown remain.
 The cost is a second implementation of publication and history behavior.
 Shared `Folder` conformance scenarios must cover browser, existing Bun native,
 and Rust implementations, including partial outcomes, fast-forward refusals,
-automatic history, cancellation, and page detachment. Formatter
+automatic and manual history, cancellation, and page detachment. Formatter
 fixtures alone cannot establish parity. Generated bindings check command types;
 the conformance scenarios check their behavior.
 

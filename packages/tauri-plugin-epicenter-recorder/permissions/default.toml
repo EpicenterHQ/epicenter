@@ -1,0 +1,14 @@
+"$schema" = "schemas/schema.json"
+
+# Granting this to a window lets it record into the folder the shell bound
+# to its label. It does not choose a folder: the page names none.
+[default]
+description = "List the microphones and read one's level, record from a microphone into the folder bound to this window, stop that recording, and repair recordings a quit cut off."
+permissions = [
+  "allow-inputs",
+  "allow-open-meter",
+  "allow-close-meter",
+  "allow-start",
+  "allow-stop",
+  "allow-recover",
+]

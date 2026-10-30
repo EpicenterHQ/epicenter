@@ -1,26 +1,32 @@
-import { type CreateRowOf, defineTable, field } from '@epicenter/definition';
-import { defineFolder } from '@epicenter/folder';
+import type { Row } from '@epicenter/folder';
+import { type Static, Type } from 'typebox';
 
 /**
- * Each capture is `captures/<stem>.md`: `capturedAt` in frontmatter, and a
- * Markdown body holding the capture text and its thoughts. The stem is the
- * file's identity. Thoughts are not rows; `document.ts` reads them from the
- * body.
+ * The tables Capture reads from its local folder,
+ * `openFolder({ tables: captureTables })`. Each capture is
+ * `captures/<stem>.md`: `capturedAt` in frontmatter, and a Markdown body
+ * holding the capture text and its thoughts. A `draft: true` file, which an
+ * earlier version saved before Add, instead holds raw composition text until
+ * it is finished. The stem remains its identity.
+ * Thoughts are not rows; `document.ts` reads them from completed bodies.
  *
  * `capturedAt` is an RFC 3339 datetime, so a file written by hand with an
  * offset (`2026-10-01T10:30:00+08:00`) is as valid as the UTC form the app
- * writes.
+ * writes. The schema only interprets: other frontmatter keys survive an
+ * update in canonical form, and a file that does not fit is listed with issues.
  */
-export const captureDefinition = defineFolder({
-	title: 'Capture',
-	kv: {},
-	tables: {
-		captures: defineTable({ fields: { capturedAt: field.datetime() } }),
-	},
-});
+export const captureTables = {
+	captures: Type.Object({
+		capturedAt: Type.String({ format: 'date-time' }),
+		/** A saved composition holds raw writing until finishing it appends its Thoughts section. */
+		draft: Type.Optional(Type.Boolean()),
+	}),
+};
 
 export const CAPTURES_TABLE = 'captures';
 
-export type CaptureFields = CreateRowOf<
-	typeof captureDefinition.tables.captures
->;
+/** The frontmatter of a capture that reads as one. */
+export type CaptureFields = Static<(typeof captureTables)['captures']>;
+
+/** A file of the captures table: a capture, or its source and why it is not one. */
+export type CaptureRow = Row<(typeof captureTables)['captures']>;

@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-pin-folder"
+description = "Enables the pin_folder command without any pre-configured scope."
+commands.allow = ["pin_folder"]
+
+[[permission]]
+identifier = "deny-pin-folder"
+description = "Denies the pin_folder command without any pre-configured scope."
+commands.deny = ["pin_folder"]

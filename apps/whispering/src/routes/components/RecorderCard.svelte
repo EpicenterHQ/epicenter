@@ -1,9 +1,9 @@
 <script lang="ts">
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { Button } from '@epicenter/ui/button';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import { cn } from '@epicenter/ui/utils';
 	import SquareIcon from '@lucide/svelte/icons/square';
-	import type { Library } from '$lib/library.svelte.js';
 	import MicrophoneControl from './MicrophoneControl.svelte';
 	import PostProcessingControl from './PostProcessingControl.svelte';
 	import RecorderClock from './RecorderClock.svelte';
@@ -15,12 +15,12 @@
 	 * sit at its lower right on wide windows and below the hint on narrow ones.
 	 * Fixture mode adds its warning under them.
 	 */
-	let { library }: { library: Library } = $props();
+	const whispering = getWhispering();
 
-	const active = $derived(library.recorder.phase === 'recording');
-	const pending = $derived(library.recorder.phase === 'starting' || library.recorder.phase === 'stopping');
+	const active = $derived(whispering.recorder.phase === 'recording');
+	const pending = $derived(whispering.recorder.phase === 'starting' || whispering.recorder.phase === 'stopping');
 	const label = $derived(
-		{ idle: 'Start recording', starting: 'Starting…', recording: 'Stop recording', stopping: 'Finishing…' }[library.recorder.phase],
+		{ idle: 'Start recording', starting: 'Starting…', recording: 'Stop recording', stopping: 'Finishing…' }[whispering.recorder.phase],
 	);
 
 	/**
@@ -42,7 +42,7 @@
 	function toggle() {
 		openOption = undefined;
 		returnFocus = document.activeElement === mic;
-		void (active ? library.stopRecording() : library.startRecording());
+		void (active ? whispering.stopRecording() : whispering.startRecording());
 	}
 	$effect(() => {
 		if (pending || !returnFocus) return;
@@ -88,12 +88,12 @@
 	</Button>
 
 	<p class="flex h-8 items-center gap-2 text-sm text-muted-foreground @md/recorder:col-span-full @md/recorder:row-start-2">
-		{#if library.recorder.phase === 'recording'}
+		{#if whispering.recorder.phase === 'recording'}
 			<span class="size-2 rounded-full bg-destructive" aria-hidden="true"></span>
-			<span class="text-2xl font-semibold text-foreground"><RecorderClock startedAt={library.recorder.startedAt} /></span>
-		{:else if library.recorder.phase === 'starting'}
+			<span class="text-2xl font-semibold text-foreground"><RecorderClock startedAt={whispering.recorder.startedAt} /></span>
+		{:else if whispering.recorder.phase === 'starting'}
 			Starting…
-		{:else if library.recorder.phase === 'stopping'}
+		{:else if whispering.recorder.phase === 'stopping'}
 			Saving the audio…
 		{:else}
 			Click to record. Click again to save.
@@ -118,15 +118,15 @@
 <!-- Always mounted so the start of a recording is announced. The clock stays outside it: it changes every second. -->
 <span class="sr-only" role="status">{active ? 'Recording' : ''}</span>
 
-{#if library.workspace.capture.source === 'fixture'}
+{#if whispering.services.capture.source === 'fixture'}
 	<p class="text-center text-xs text-balance text-warning" data-testid="fixture-notice">
-		Fixture mode: recordings use {library.workspace.capture.label}. The microphone is not used.
+		Fixture mode: recordings use {whispering.services.capture.label}. The microphone is not used.
 	</p>
 {/if}
 
-{#if library.workspace.captureNotice}
-	<p class="text-center text-sm text-warning" role="status" data-testid="capture-notice">{library.workspace.captureNotice}</p>
+{#if whispering.captureNotice}
+	<p class="text-center text-sm text-warning" role="status" data-testid="capture-notice">{whispering.captureNotice}</p>
 {/if}
-{#if library.recorderError}
-	<p class="text-center text-sm text-destructive" role="alert" data-testid="recorder-error">{library.recorderError}</p>
+{#if whispering.recorderError}
+	<p class="text-center text-sm text-destructive" role="alert" data-testid="recorder-error">{whispering.recorderError}</p>
 {/if}

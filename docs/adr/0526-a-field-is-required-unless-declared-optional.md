@@ -3,7 +3,9 @@
 - **Status:** Accepted
 - **Date:** 2026-10-11
 - **Amends:** [ADR-0491](0491-field-helpers-build-native-typebox-schemas-with-ui-metadata.md) at its three reads: `accepts`, `conformance`, and `inputIssues` are replaced by `check`, and a missing declared field is an issue only when the field is required. Its JSON-safety check and per-field diagnostics stand.
-- **Relates:** [ADR-0525](0525-a-field-is-plain-json-schema.md) (fields are plain JSON Schema), [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (`required` in `epicenter.json`), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (row issues), [ADR-0522](0522-settings-are-independent-keys-set-one-at-a-time.md) (settings)
+- **Amended by:** [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) at `field.optional` as the declaration of optionality: a field is optional when its table's `required` list omits it.
+- **Amended:** 2026-10-17: the `patch` mode is deleted, since its caller, `table.update`, is gone ([ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md)). `check` has `read` and `input`, and whether a field admits `null` is `check({ f: schema }, { f: null }, 'input')`.
+- **Relates:** [ADR-0525](0525-a-field-is-plain-json-schema.md) (fields are plain JSON Schema), [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (`required` in `epicenter.json`), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) (row issues), ADR-0522 (settings, since deleted: settings are a table, [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md))
 
 ## Context
 

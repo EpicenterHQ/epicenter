@@ -4,6 +4,9 @@
 - **Date:** 2026-10-06
 - **Relates:** [ADR-0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md), the row edit session Capture edits through, and [ADR-0432](0432-captures-hold-ordered-thoughts-beneath-a-dated-timeline.md), Capture's text and ordered thoughts.
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 Capture switched between Source and interpreted controls for one open file.
@@ -46,7 +49,7 @@ session.edit((row) => {
 ```
 
 `session` is the open capture's row edit session (`RowSession` from
-`@epicenter/svelte/edit-session`), and `apps/capture/src/lib/capture-form.svelte.ts`
+`@epicenter/svelte/edit-session`), and `306962b70694:apps/capture/src/lib/capture-form.svelte.ts`
 is the form over it. Editing the draft in place leaves its other fields
 unchanged, and each edit saves at once. Folder owns frontmatter, validation,
 and the guarded save ([ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md), [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md)). A change the

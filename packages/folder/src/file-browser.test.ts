@@ -2,60 +2,36 @@
  * Shared file-browser tests.
  *
  * Tree ordering, expanded directories, and text classification belong to the
- * folder package. Apps supply their editing limit; failed reads keep their
- * refusal, and editable text keeps its captured bytes and hash.
+ * folder package. Apps supply their editing limit, and editable text is the
+ * exact text of the file's bytes.
  *
  * Key behaviors:
  * - Folders precede files, only expanded descendants appear, and Git is hidden
  * - The byte limit includes its boundary, and BOM and CRLF survive decoding
  * - NUL bytes and invalid UTF-8 open as binary details
- * - Failed reads preserve their refusal
  */
 import { expect, test } from 'bun:test';
-import { Err, Ok } from 'wellcrafted/result';
-import { expectOk } from 'wellcrafted/testing';
-import { submittedText } from './capture.js';
-import { FileError } from './errors.js';
-import { readTextFile, visibleRows } from './file-browser.js';
+import { openedFile, visibleRows } from './file-browser.js';
 
-test('the caller owns the exact byte limit, and editable text keeps BOM and CRLF', async () => {
+test('the caller owns the exact byte limit, and editable text keeps BOM and CRLF', () => {
 	const bytes = new TextEncoder().encode('\ufeffhi\r\n');
-	const files = {
-		read: async (path: string) => Ok({ path, bytes, sha256: 'captured' }),
-	};
-	expect(
-		expectOk(await readTextFile(files, 'note.txt', bytes.byteLength - 1)),
-	).toEqual({
+	expect(openedFile(bytes, bytes.byteLength - 1)).toEqual({
 		kind: 'tooLarge',
 		size: bytes.byteLength,
 	});
-	expect(
-		expectOk(await readTextFile(files, 'note.txt', bytes.byteLength)),
-	).toEqual({
+	expect(openedFile(bytes, bytes.byteLength)).toEqual({
 		kind: 'text',
-		file: { path: 'note.txt', text: '\ufeffhi\r\n', sha256: 'captured' },
+		text: '\ufeffhi\r\n',
 	});
-});
-
-test('a failed read preserves its refusal instead of classifying an absent file', async () => {
-	const { error } = FileError.NotFound({ path: 'missing.txt' });
-	const files = { read: async () => Err(error) };
-	expect(await readTextFile(files, 'missing.txt', 10)).toEqual(Err(error));
-});
-
-test('submitted bytes preserve BOM and CRLF and replace an unpaired surrogate', () => {
-	const { bytes, text } = submittedText('\ufeffnote\ud800\r\n');
-	expect(text).toBe('\ufeffnote\ufffd\r\n');
-	expect(bytes).toEqual(new TextEncoder().encode(text));
 });
 
 const listing = {
 	files: [
-		{ path: 'todos/b.md', size: 20 },
-		{ path: 'todos/a.md', size: 10 },
-		{ path: 'notes/deep/x.txt', size: 3 },
-		{ path: 'readme.txt', size: 5 },
-		{ path: '.git/HEAD', size: 23 },
+		{ path: 'todos/b.md', size: 20, stamp: 'b' },
+		{ path: 'todos/a.md', size: 10, stamp: 'a' },
+		{ path: 'notes/deep/x.txt', size: 3, stamp: 'x' },
+		{ path: 'readme.txt', size: 5, stamp: 'readme' },
+		{ path: '.git/HEAD', size: 23, stamp: 'git' },
 	],
 	directories: ['empty', 'notes', 'notes/deep', 'todos', '.git'],
 };
@@ -83,15 +59,12 @@ test('folders list before files, and only expanded folders show children', () =>
 	expect(nested.find((row) => row.path === 'notes/deep/x.txt')?.depth).toBe(2);
 });
 
-test('NUL bytes and invalid UTF-8 open as binary details', async () => {
+test('NUL bytes and invalid UTF-8 open as binary details', () => {
 	for (const bytes of [
 		new Uint8Array([0x68, 0, 0x69]),
 		new Uint8Array([0xff, 0xfe, 0x41]),
 	]) {
-		const files = {
-			read: async (path: string) => Ok({ path, bytes, sha256: 'captured' }),
-		};
-		expect(expectOk(await readTextFile(files, 'a.bin', 10))).toEqual({
+		expect(openedFile(bytes, 10)).toEqual({
 			kind: 'binary',
 			size: bytes.byteLength,
 		});

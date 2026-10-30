@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-whispering-connection-read"
+description = "Enables the whispering_connection_read command without any pre-configured scope."
+commands.allow = ["whispering_connection_read"]
+
+[[permission]]
+identifier = "deny-whispering-connection-read"
+description = "Denies the whispering_connection_read command without any pre-configured scope."
+commands.deny = ["whispering_connection_read"]

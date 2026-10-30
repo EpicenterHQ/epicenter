@@ -1,39 +1,39 @@
 /**
- * `epicenter.json`: a data folder's declaration as JSON Schema (ADR-0517).
+ * `epicenter.json`: a folder's definition as JSON Schema (ADR-0517).
  *
- * Each table is one object schema, `{ type: 'object', properties, required }`,
- * whose properties are the table's fields exactly as a prepared definition
- * holds them. `kv` is the same without `required`, since every setting may be
- * unset. Each field is ordinary JSON Schema plus an `x-field` editor hint, so
- * a tool can check a row's values field by field without knowing Epicenter,
- * as Epicenter itself does.
+ * The CLI's `check` and `query` read the root file's tables (ADR-0632). A
+ * person or a schema distribution installs it; opening a `Folder` neither
+ * reads nor writes it. The older `epicenter generate` still writes it from a
+ * folder's `epicenter.ts` (ADR-0527) until its callers migrate. The portable file has independently optional `tables` and `views`; the CLI
+ * checking commands still require declared tables.
  *
- * ```json
- * {
- *   "title": "Vault",
- *   "kv": { "type": "object", "properties": { "theme": { "enum": ["light", "dark"] } } },
- *   "tables": {
- *     "pages": {
- *       "type": "object",
- *       "properties": { "title": { "type": "string" }, "queuedAt": { "type": "string", "format": "date" } },
- *       "required": ["title"]
- *     }
- *   }
- * }
- * ```
+ * Each table is a complete object schema. Readers retain its root `$defs`,
+ * annotations, and constraints and validate each record against that root.
+ * `required` is the portable optionality marker. Applications supply their
+ * own runtime schemas; reading this file never admits or refuses an app.
  *
- * `required` is the one optionality marker in the file; in memory it is
- * `field.optional`. The two convert here and nowhere else. A top-level
- * `$schema` lets an editor offer completion and is not interpreted. Anything
- * else is refused, so a misspelled key never reads as an empty declaration.
+ * A top-level `$schema` lets an editor offer completion and is not
+ * interpreted. Unknown envelope keys are refused, so a misspelled key never reads as
+ * an empty definition.
  */
 
-import { type FieldMap, field, isOptional } from '@epicenter/definition';
+import { isOptional, isTableName } from '@epicenter/definition';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FolderDefinition } from './definition.js';
+import type { FolderStorage } from './boundary.js';
+import {
+	DECLARATION_KEYS,
+	type Declaration,
+	declarationProblem,
+	prepareTableSchemas,
+	type SavedView,
+	savedViewProblem,
+} from './declaration-schema.js';
+import type { Definition } from './definition.js';
+import { parseJsonObject } from './json-object.js';
+import { DEFINITION_PATH } from './paths.js';
 
-/** The text an opener publishes for a prepared definition. */
-export function formatDeclaration(definition: FolderDefinition): string {
+/** The `epicenter.json` text of a prepared definition. */
+export function formatDefinition(definition: Definition): string {
 	const tables: Record<string, unknown> = {};
 	for (const [name, table] of Object.entries(definition.tables))
 		tables[name] = {
@@ -42,11 +42,13 @@ export function formatDeclaration(definition: FolderDefinition): string {
 			required: Object.keys(table.fields).filter(
 				(key) => !isOptional(table.fields[key]!),
 			),
+			...(table.additionalProperties === false
+				? { additionalProperties: false }
+				: {}),
 		};
 	return `${JSON.stringify(
 		{
 			...(definition.title === undefined ? {} : { title: definition.title }),
-			kv: { type: 'object', properties: definition.kv },
 			tables,
 		},
 		null,
@@ -54,111 +56,155 @@ export function formatDeclaration(definition: FolderDefinition): string {
 	)}\n`;
 }
 
-/**
- * Read declaration text into a definition for `prepareFolderDefinition`, or
- * say why the text is not one. Field schemas are checked when the result is
- * prepared, not here.
- */
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+
+const TOP_LEVEL_KEYS = DECLARATION_KEYS;
+
+/** Read known envelope keys without interpreting another section's contents. */
+export function parseDeclarationObject(
+	text: string,
+): Result<Record<string, unknown>, { reason: string }> {
+	const { data: value, error } = parseJsonObject(text);
+	if (error !== null) return Err(error);
+	return checkEnvelope(value);
+}
+
+function checkEnvelope(
+	value: Record<string, unknown>,
+): Result<Record<string, unknown>, { reason: string }> {
+	const unknown = Object.keys(value).filter(
+		(key) => !TOP_LEVEL_KEYS.includes(key),
+	);
+	if (unknown.length > 0)
+		return Err({
+			reason: `unknown top-level key ${unknown.map((key) => `'${key}'`).join(', ')}; expected ${TOP_LEVEL_KEYS.join(', ')}`,
+		});
+	return Ok(value);
+}
+
+/** Read a portable document without changing or flattening its table schemas. */
 export function parseDeclaration(
 	text: string,
-): Result<FolderDefinition, { readonly reason: string }> {
-	const refuse = (reason: string) => Err({ reason });
-	let declared: unknown;
-	try {
-		declared = JSON.parse(text);
-	} catch (cause) {
-		return refuse(
-			`it is not JSON (${cause instanceof Error ? cause.message : String(cause)})`,
-		);
-	}
-	if (!isPlainObject(declared)) return refuse('it is not a JSON object');
-	const unknown = unknownKeys(declared, ['$schema', 'title', 'kv', 'tables']);
-	if (unknown !== undefined)
-		return refuse(
-			`unknown top-level key ${unknown}; expected title, kv, tables, or $schema`,
-		);
-
-	const kv = objectSchema(declared.kv, 'kv', false);
-	if (kv.error !== null) return kv;
-	if (!isPlainObject(declared.tables))
-		return refuse("'tables' must map table names to object schemas");
-	// Without a prototype, so a table named `__proto__` is an entry that
-	// preparation refuses by name.
-	const tables: Record<string, { fields: FieldMap }> = Object.create(null);
-	for (const [name, table] of Object.entries(declared.tables)) {
-		const fields = objectSchema(table, `tables.${name}`, true);
-		if (fields.error !== null) return fields;
-		tables[name] = { fields: fields.data };
-	}
+): Result<Declaration, { reason: string }> {
+	const { data: value, error } = parseDeclarationObject(text);
+	if (error !== null) return Err(error);
+	const { tables: rawTables, ...metadata } = value;
+	const problem = declarationProblem(metadata);
+	if (problem !== undefined) return Err({ reason: problem });
+	const tables = readTableSchemas(rawTables);
+	if (tables.error !== null) return tables;
 	return Ok({
-		...(declared.title === undefined
-			? {}
-			: { title: declared.title as string }),
-		kv: kv.data,
-		tables,
-	} as FolderDefinition);
+		...metadata,
+		...(tables.data === undefined ? {} : { tables: tables.data }),
+	} as Declaration);
 }
 
-/**
- * The fields an object schema declares: each property, made optional unless
- * `required` names it. KV has no `required`: every setting is optional.
- */
-function objectSchema(
-	value: unknown,
-	at: string,
-	table: boolean,
-): Result<FieldMap, { readonly reason: string }> {
-	const refuse = (reason: string) => Err({ reason: `'${at}' ${reason}` });
-	if (!isPlainObject(value)) return refuse('must be an object schema');
-	const unknown = unknownKeys(
-		value,
-		table ? ['type', 'properties', 'required'] : ['type', 'properties'],
-	);
-	if (unknown !== undefined)
-		return refuse(
-			`has unknown key ${unknown}; expected type, properties${table ? ', or required' : ''}`,
-		);
-	if (value.type !== 'object') return refuse('must say "type": "object"');
-	const { properties } = value;
-	if (!isPlainObject(properties))
-		return refuse('must map field names to schemas in "properties"');
-	const required = value.required ?? [];
-	if (
-		!Array.isArray(required) ||
-		required.some((name) => typeof name !== 'string') ||
-		new Set(required).size !== required.length
-	)
-		return refuse('"required" must list field names once each');
-	for (const name of required as string[])
-		if (!Object.hasOwn(properties, name))
-			return refuse(`requires '${name}', which "properties" does not declare`);
-	const fields: Record<string, FieldMap[string]> = Object.create(null);
-	for (const [name, schema] of Object.entries(properties)) {
-		if (!isPlainObject(schema))
-			return refuse(`declares '${name}' as something other than a schema`);
-		// `~` keys are TypeBox's, never JSON Schema; optionality is `required`.
-		const marker = Object.keys(schema).find((key) => key.startsWith('~'));
-		if (marker !== undefined)
-			return refuse(
-				`declares '${name}' with '${marker}', which is not JSON Schema; list required fields in "required"`,
-			);
-		fields[name] =
-			!table || required.includes(name) ? schema : field.optional(schema);
+/** Read valid siblings and retain a visible diagnosis for every unsupported or invalid entry. */
+export function readSavedViews(text: string): Result<
+	{
+		views: Record<string, SavedView>;
+		diagnostics: {
+			key: string;
+			kind: 'invalid' | 'unsupported';
+			reason: string;
+		}[];
+	},
+	{ reason: string }
+> {
+	const parsed = parseJsonObject(text);
+	if (parsed.error !== null) return parsed;
+	const section = parsed.data.views;
+	if (section !== undefined && !isObject(section))
+		return Err({
+			reason: "The 'views' section is not an object; repair it in Files",
+		});
+	const views: Record<string, SavedView> = Object.create(null);
+	const diagnostics: {
+		key: string;
+		kind: 'invalid' | 'unsupported';
+		reason: string;
+	}[] = [];
+	for (const [key, value] of Object.entries(section ?? {})) {
+		if (
+			isObject(value) &&
+			typeof value.type === 'string' &&
+			!['grid', 'board', 'sql'].includes(value.type)
+		) {
+			diagnostics.push({
+				key,
+				kind: 'unsupported',
+				reason: `View type '${value.type}' is not supported by this version`,
+			});
+			continue;
+		}
+		const problem =
+			key === '' ? 'A saved view needs a name' : savedViewProblem(value);
+		if (problem !== undefined)
+			diagnostics.push({ key, kind: 'invalid', reason: problem });
+		else views[key] = value as SavedView;
 	}
-	return Ok(fields);
+	return Ok({ views, diagnostics });
 }
 
-/** The first key outside `allowed`, quoted, or `undefined`. */
-function unknownKeys(
-	value: Record<string, unknown>,
-	allowed: readonly string[],
-): string | undefined {
-	const extra = Object.keys(value).filter((key) => !allowed.includes(key));
-	return extra.length === 0
-		? undefined
-		: extra.map((key) => `'${key}'`).join(', ');
+/** Read only table declarations; unrelated view problems stay with their readers. */
+export function readDeclaredTables(
+	text: string,
+): Result<Declaration['tables'], { reason: string }> {
+	const { data: value, error } = parseDeclarationObject(text);
+	if (error !== null) return Err(error);
+	return readTableSchemas(value.tables);
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
+/** Prepare only an already-read table section, without serializing or parsing it again. */
+export function readTableSchemas(
+	value: unknown,
+): Result<Declaration['tables'], { reason: string }> {
+	if (value === undefined) return Ok(undefined);
+	const prepared = prepareTableSchemas(value);
+	if (prepared.error !== null) return prepared;
+	const folded = new Set<string>();
+	for (const name of Object.keys(prepared.data)) {
+		if (!isTableName(name))
+			return Err({ reason: `table name '${name}' is not usable` });
+		if (folded.has(name.toLowerCase()))
+			return Err({
+				reason: `table names collide case-insensitively: '${name}'`,
+			});
+		folded.add(name.toLowerCase());
+	}
+	return prepared;
+}
+
+/** CLI checking requires declared tables; optional views never change that requirement. */
+export async function readDefinition(
+	storage: Pick<FolderStorage, 'read'>,
+): Promise<
+	Result<
+		{ tables: NonNullable<Declaration['tables']> } | undefined,
+		{ reason: string }
+	>
+> {
+	const { data: read, error } = await storage.read(DEFINITION_PATH);
+	if (error !== null)
+		return error.name === 'NotFound'
+			? Ok(undefined)
+			: Err({ reason: error.message });
+	let text: string;
+	try {
+		text = utf8.decode(read.bytes);
+	} catch {
+		return Err({ reason: 'it is not UTF-8 text' });
+	}
+	const parsed = readDeclaredTables(text);
+	if (parsed.error !== null) return parsed;
+	if (parsed.data === undefined)
+		return Err({
+			reason:
+				"it has no 'tables'; check and query require declared table schemas",
+		});
+	return Ok({ tables: parsed.data });
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

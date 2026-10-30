@@ -5,7 +5,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./legacy": "./src/legacy/index.ts"
+		"./definition": "./src/definition.ts"
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
@@ -13,16 +13,14 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@epicenter/app": "workspace:*",
-		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"markdown-it": "^14.0.0",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
 		"@types/markdown-it": "^14.0.0",
-		"@y/y": "14.0.0-rc.26",
 		"typescript": "catalog:"
 	}
 }

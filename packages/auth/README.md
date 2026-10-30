@@ -3,179 +3,181 @@
 Auth selects an account; every application session keeps the Account it opened with.
 
 ```ts
-const auth = createBrowserRedirectAuth({
- appId: 'so.epicenter.example',
- server: epicenterCloud('https://api.epicenter.so'),
+const auth = createBrowserOAuth({
+	server: epicenterCloud('https://api.epicenter.so'),
+	clientId: 'so.epicenter.vocab',
+	resource: 'https://api.epicenter.so',
+	scope: 'openid profile email ai',
+	accountManagement: true,
 });
 const state = auth.getState();
 if (state.status !== 'signed-out') {
- const account = state.account;
- // Keep this Account for the lifetime of the opened application.
- const response = await account.fetch('/api/session');
+	const account = state.account;
+	// Keep this Account for the lifetime of the opened application.
+	const response = await account.fetch('/auth/oauth2/userinfo');
 }
 ```
 
-`Account` holds a fixed `principalId` and `baseURL`, authenticated `fetch`,
-`openWebSocket`, and `getProfile`. Its object identity lasts through temporary
-disconnection and uninterrupted same-person reauthentication. Browser
-navigation or desktop host relaunch creates a new runtime and application session.
+`Account` holds a fixed `principalId`, `authorityId`, and `baseURL`, an
+authenticated `fetch`, and `getProfile`. Its object identity lasts through
+token renewal and reauthentication by the same person. A browser navigation,
+including the silent renewal's, creates a new runtime and application session.
 
 Sign-out or account replacement permanently retires its network access.
 Signing back in creates a new Account, even for the same person on the same
-server. Retirement aborts HTTP requests and response streams, closes sockets,
-and prevents pending authorization or retries from borrowing a successor
-credential. It cannot undo an operation the server already processed.
+server. Retirement aborts HTTP requests and response streams. It cannot undo
+an operation the server already processed.
 
-Hosted sign-out clears persistence and waits up to five seconds for a best-effort
-server revocation attempt. Failure or timeout is logged, not returned as proof
-of remote logout. Success confirms local cleanup, not remote revocation.
-Replacing a credential also awaits bounded cleanup of its predecessor before
-sign-in completes, without delaying local retirement or blocking storage writes.
+`AuthClient` always exposes sign-in. `CallbackAuthClient` adds
+`completeSignIn` for a client whose sign-in returns to a callback page.
 
-## One session lifetime
-
-Better Auth owns Cloud sessions and social-provider sign-in. The self-hosted
-credential owner stores admitted people, passkeys, and opaque sessions.
-Epicenter does not issue OAuth access/refresh grants. `createSessionAuth`
-owns one persisted `{ token, principalId }` cell, verification, ordered writes,
-sign-in cancellation, and Account retirement. Its constructor requires the
-`authorityId` selected by trusted installation composition. Matching principal
-IDs on two servers must receive different authorities.
-
-`AuthClient` always exposes sign-in. `SessionAuthClient` adds cancellation
-that waits for credential writes; `CallbackAuthClient` adds callback completion.
-These capabilities do not imply Cloud identity or dashboard support. Cloud browser
-and desktop composition pass the existing `epicenter-api` authority and attach
-`createAccountManagementUrl` themselves. The session owner does not assign
-Cloud policy to another issuer. Self-hosted composition derives its authority
-from the configured server origin and exposes passkey sign-in without Cloud
-management links.
-
-The cached principal permits local boot without a network call. Before the
-first resource request, the runtime verifies that the credential belongs to
-that principal through `/api/session`. A rejected credential preserves the
-Account and publishes `reauth-required`; an unavailable server refuses network
-traffic without discarding local identity.
-
-Requests use an explicit session bearer with `credentials: 'omit'`.
-The Account rejects foreign origins and does not follow redirects. A 401
-pauses that credential. A request retries once only if same-Account
-reauthentication installed a different credential while it was in flight.
-There is no refresh-token exchange.
-
-## Browser and dashboard
+## Server and authority
 
 Each build has one configured `AuthServer`. `epicenterCloud(baseURL)` supplies
-Cloud identity; `selfHostedServer(origin)` supplies the origin-derived authority.
-Both return only `{ baseURL, authorityId }`. Applications construct one
-`createBrowserRedirectAuth({ appId, server, accountManagement })` client directly. No selection
-wrapper or nullable auth client sits between the app and its session.
+Cloud identity (`epicenter-api`); `selfHostedServer(origin)` derives the
+authority from the configured origin. Both return only `{ baseURL,
+authorityId }`. Matching principal IDs on two servers receive different
+authorities, so their local data never mixes.
 
 Browser app builds use `VITE_EPICENTER_SERVER` for a self-hosted origin. Without
 it, they use the configured Cloud URL. Changing the destination requires a new
-build and deployment. Saved credentials are keyed by origin; old server
-preferences cannot redirect a build or send a credential to another server.
+build and deployment.
 
-`createBrowserRedirectAuth` owns browser storage, callback validation, and
-navigation for both issuers. `createHostedBrowserRedirectAuth` adds Cloud's
-identity, management links, and exact ceremony-cookie policy. The dashboard
-uses that Cloud composition with `/session/callback`; app callbacks default
-to `/auth/callback`.
+## Browser apps
 
-`startSignIn` opens the configured issuer’s sign-in page. The hosted page explicitly continues
-with its cookie session, or completes a social/passkey sign-in. The callback
-carries only a short-lived code and state. The client redeems it with its PKCE
-verifier for an independent session. Cancelled, superseded, and replayed
-completions cannot install a credential; orphaned results are revoked where possible.
-A passive handoff inherits the source session's authentication age.
+A first-party browser app signs in with `createBrowserOAuth` as an OAuth 2.1
+public client of the deployment's authorization server (ADR-0549). Its
+`clientId` is the app id, its redirect URI is exactly
+`<app origin>/auth/callback`, and both must match the app's registration in
+`apps/api/worker/oauth-registrations.ts`. It asks for one `resource` (the token
+audience, from `resolveOAuthAudiences` in `@epicenter/constants/apps`) and the
+scopes that audience allows. It never asks for `offline_access`.
 
-`SessionAuthClient.cancelSignIn()` aborts the pending attempt and waits for
-credential persistence to settle. It preserves an unchanged Account. The desktop
-authority owns its own next-boot attempt; cancelling before acceptance leaves
-working windows open.
+`startSignIn` saves one PKCE attempt (verifier, state, and the current path) in
+`sessionStorage` and navigates top level to `/auth/oauth2/authorize` with an
+S256 challenge. The callback page calls `completeSignIn`, which checks the
+state against the attempt (single use, ten minutes at most), exchanges the code
+at `/auth/oauth2/token`, reads the principal from `/auth/oauth2/userinfo`, and
+stores the token. It returns `returnTo`, the path the attempt started from,
+and the page leaves with `location.replace(returnTo)`.
 
-Only callback-capable clients expose `completeSignIn`. Success means the
-credential was verified, persisted, and published. The callback route then uses
-`window.location.replace` to leave the callback document.
-`startSignIn({ reauthenticate: true })` requests a new sign-in instead of
-reusing the hosted cookie through the Continue button.
+The access token lives in `localStorage` with its expiry, principal ID, and a
+nonsecret attachment generation, one cell per app and server, shared by the
+origin's tabs. Every
+request reads the cell, so a tab uses another tab's renewal, and the `storage`
+event publishes another tab's sign-in or sign-out. A missing or unreadable cell
+is signed out. The generation also retires an old Account when a tab misses a
+sign-out event and the same person signs in again. There is no refresh token.
 
-The dashboard captures an Account for its requests and query cache. Its
-Better Auth management client also uses that Account and sends the expected
-principal. Ambient cookies belong to hosted sign-in, not dashboard resources.
+By default, when the stored token is within ten minutes of expiry, the client navigates top
+level to the authorize endpoint with `prompt=none`: at construction, and from a
+timer while the page is open. The timer rereads storage first and waits again
+if another tab already renewed. An app with work that must survive a page
+navigation can set `automaticRenewal: false`; it then asks the person to sign
+in again after a refused token. While the authorization server's session cookie
+lasts, the renewal returns a code without a page; otherwise it answers
+`login_required`, and `completeSignIn` clears the token and returns to the
+page signed out. There is no hidden iframe. A person who never signed in is
+never redirected.
 
-The browser adapter permits challenge/state cookies only on same-origin
-`/auth/link-social`, `/auth/passkey/generate-register-options`, and
-`/auth/passkey/verify-registration` requests carrying the captured bearer and
-expected principal. Their server guard resolves that bearer before reading
-ambient cookies. This preserves browser ceremonies without cookie fallback.
+`Account.fetch` sends only to the server's origin, with
+`Authorization: Bearer <token>`, no cookies, `credentials: 'omit'`, and
+`redirect: 'manual'`. A 401 publishes `reauth-required` on the same Account,
+which refuses requests until a new token for the same person arrives.
+`getProfile` reads the authorization server's `/auth/oauth2/userinfo`, which
+answers `sub` for a token with `openid` and the email only for one with
+`email`, so an app that shows the email asks for both.
+
+`signOut` clears the token at once, then revokes it at `/auth/oauth2/revoke`,
+waiting at most five seconds. A failed revocation is logged; the person is
+signed out locally either way.
+
+The dashboard is not an OAuth client: it is the authorization server's own
+page and uses its session cookie.
 
 ## Desktop
 
-Rust selects the server once for the desktop build and sends its descriptor in
-the private boot message to Bun. Compile with `EPICENTER_SERVER_ORIGIN` for a
-self-hosted build; the default is Cloud. Rust validates native sign-in URLs
-against this same destination. Home Settings offers sign-in and sign-out,
-without a server address form. An unreadable or foreign-server saved credential
-starts signed out and can be replaced through explicit sign-in.
+The desktop app's sign-in is the `epicenter` CLI's desktop grant
+(ADR-0556, ADR-0558). Settings signs in with `epicenter auth login --desktop`
+and signs out with `epicenter auth logout`; the CLI keeps the refresh token in
+the keychain and mints access tokens per resource. No WebView holds a token
+(ADR-0549's desktop row). Compile the shell with `EPICENTER_SERVER_ORIGIN` for
+a self-hosted build; the default is Cloud.
 
-Desktop WebViews use `createDesktopBrokerAuth`; they receive identity and
-loopback access, never the remote credential. Bun owns the same session runtime
-and completes the configured issuer’s handoff through the native deep link.
+A bundled app's desktop leaf can use `createDesktopAccountAuth` from
+`@epicenter/auth/desktop` over three shell commands its desktop leaf binds:
+`auth_status` for who the desktop grant belongs to, `account_send` for each
+account request, and `open_home` to send the person to Settings to sign in.
+The grant's account id is the Account's `principalId` and the deployment
+`auth_status` names is its `baseURL`; the build names no deployment of its
+own, and any origin but the hosted one is a self-hosted server. The Account is
+bound to one resource. Whispering's hosted route uses an API-bound Account for
+`POST /v1/audio/transcriptions` and `POST /v1/chat/completions`; `getProfile`
+uses that resource for `GET /auth/oauth2/userinfo`. The host grants only these
+paths to its window. Its user-supplied provider route still uses its connection
+sender. A Git-bound Account would use the Git resource for its own operations.
 
-The host forwards HTTP and live sync through its captured boot Account. Every
-successful explicit sign-in, including same-person reauthentication, prepares
-credentials for the next process and restarts. The authority disposes its boot
-auth owner before writing the successor behind any queued old-owner writes.
-It never publishes the successor in the running process. Sign-out clears the
-credential cell and restarts after bounded revocation.
-
-One warning authorizes interruption of all active recordings and unsaved drafts,
-including work started while sign-in is pending. Cancellation before acceptance
-leaves working windows open. Once accepted, a failed credential write or restart
-leaves the old Account fenced. A failed write may have changed storage; no
-rollback or resumed session is promised. New pages in a retired process show
-restart-required UI instead of receiving its stale bootstrap identity.
-
-Apps own their local stores and sync engines; the host relays bytes and owns no
-application replica or reconnect loop.
+The desktop grant has a random, nonsecret generation that status returns and
+every account send carries. The CLI checks it on the same read that selects a
+cached token and again after taking a refresh lock. Replacing a grant,
+including a new sign-in by the same person, retires the old Account. Its
+requests and response streams are canceled on retirement. A 401 publishes
+`reauth-required` on the same Account and stops later sends from it until
+Settings installs a new grant. The client reads status when the window
+regains focus by default. Whispering disables that watcher and awaits a fresh
+read before capturing the Account for each hosted request. `signOut` is refused:
+the app signs out from Settings. An explicit `refresh()` reports a status-read
+failure to its caller and leaves the last Account in place; the CLI still
+checks the grant generation before sending.
 
 ## Lifetime and policy
 
 `AuthState` is signed-out, signed-in with an Account, or reauth-required with
-that same Account. Store apps capture the Account from the plain client in
-their mounted working owner and keep one App per working page. Svelte adapts
-auth with `fromAuth` for UI tracking through its reactive `.state` getter.
-The raw client exposes the explicit snapshot method `getState()`. Ordinary
-persistence runs during use. Browser departures remove working UI and replace
-the document without awaiting application drains. Whispering signs out in a
-resource-free route so credential clearing can finish after the working UI
-unmounts. Unexpected retirement enters its resource-free recovery route;
-reopening requires an explicit action. Honeycrisp still uses `AppBoot` and its
-`?stopped` marker. Failed navigation and browser history restoration cannot
-reactivate the retired working UI. Resource disposal and acquisition rollback
-remain independent of navigation.
+that same Account. Store apps capture the Account once in their mounted working
+owner and keep one App per working page. A Svelte app can export one
+`fromAuth(client)` facade and read `auth.state` in both places: component setup
+gets a snapshot, while a template, derived value, or effect tracks changes.
+The plain client keeps its explicit `getState()` method; the Svelte facade
+exposes `state` instead and carries through the other methods. A component with
+imperative work on auth changes can subscribe directly with `onStateChange`.
+Both expose `refresh()`: the browser rereads its saved OAuth cell, while the
+desktop client rereads the host's grant status. A focus check can await the
+same method in either build.
 
-The hosted server checks live session rows on HTTP requests and socket admission.
-Sessions last 30 days and renew after one day of use. Renewal does not reset
-authentication age. Sensitive account changes require a matching principal and
-a session younger than 600 seconds. A completed social sign-in can satisfy that
-window through provider SSO; it is not proof of fresh human interaction.
+Use the plain client in framework-independent packages and CLIs with no Svelte
+app owner, or when testing the core client. Its `getState()` call makes each
+snapshot read explicit. In a Svelte app, keep that client private in the app's
+auth module and export only the facade:
 
-Admitted store sockets have a server-enforced 600-second authorization deadline,
-including idle and hibernating connections. Revocation rejects subsequent
-admission; it does not immediately close every existing socket.
+```ts
+const client = createBrowserOAuth(options);
+export const auth = fromAuth(client);
+```
 
-Carry forward `src/account-lifetime.test.ts`,
-`src/desktop-broker-auth.test.ts`,
-`../../apps/epicenter/src/account-transport.test.ts`, and
-`../../apps/whispering/src/lib/services/blobs/account-blob-remote.test.ts`
-when changing the credential owner. The opt-in
-`bun packages/auth/smoke/session-handoff.browser.mjs` exercises Chromium with
-disposable hosted-login fixtures, not real provider credentials or packaged Tauri.
-After building the API UI, `bun packages/auth/smoke/dashboard.browser.mjs`
-exercises the built sign-in/callback/dashboard routes and a virtual WebAuthn
-authenticator while a different principal owns the ambient browser cookie.
+The callback route, components, and app-owned services can share that facade.
+Read `auth.state` in component setup or an event handler for a snapshot; read
+it in a template, derived value, or effect to track changes. The callback
+capability guard `isCallbackAuthClient(auth)` also accepts the facade. Vocab's
+[`auth.svelte.ts`](../../apps/vocab/src/lib/auth.svelte.ts) and Whispering's
+[`#platform/auth` leaves](../../apps/whispering/src/lib/platform/) show the
+single-export pattern for one browser build and for browser and desktop builds.
+
+Ordinary persistence runs during use. Browser departures remove working UI and
+replace the document without awaiting application drains. Honeycrisp still uses
+`AppBoot` and its `?stopped` marker. Failed navigation and browser history
+restoration cannot reactivate the retired working UI. Resource disposal and
+acquisition rollback remain independent of navigation.
+
+Access tokens last eight hours and are checked against the database on every
+request, so a revocation takes effect on the next one (ADR-0549). The
+authorization server's own session cookie works only on its own pages, where
+sign-in, consent, and account changes happen.
+
+Carry forward `src/browser-oauth.test.ts` and
+`src/desktop-account-auth.test.ts` when changing a credential owner. After building the API UI,
+`bun packages/auth/smoke/dashboard.browser.mjs` exercises the built
+sign-in/callback/dashboard routes and a virtual WebAuthn authenticator while a
+different principal owns the ambient browser cookie.
 
 ## Historical instance identity
 

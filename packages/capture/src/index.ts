@@ -1,7 +1,8 @@
 export {
 	CAPTURES_TABLE,
 	type CaptureFields,
-	captureDefinition,
+	type CaptureRow,
+	captureTables,
 } from './definition.js';
 export {
 	type CaptureBody,
@@ -9,10 +10,8 @@ export {
 	captureBody,
 	composeBody,
 	excerpt,
-	fromTextarea,
-	type Newline,
 	normalizeThought,
 	type Refusal,
 	type RefusalCode,
-	toTextarea,
+	type Span,
 } from './document.js';

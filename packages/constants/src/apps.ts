@@ -1,10 +1,9 @@
 /**
  * Single source of truth for all Epicenter app URLs and ports.
  *
- * Each app declares its dev `port` and canonical production `url`. Apps
- * reachable at more than one domain add `aliases`. The canonical `url` is
- * used by Vite prod builds; `url` plus `aliases` together are included in
- * CORS and trusted origins (see {@link appOrigins}).
+ * Each app declares its dev `port` and its one production `url`. Vite prod
+ * builds, trusted origins, and sign-in callbacks all read `url`; the dev
+ * origin is derived from `port` by {@link localUrl}.
  *
  * To add an app: add an entry here. TypeScript enforces that every
  * consumer picks it up automatically.
@@ -23,7 +22,6 @@
  * `apps/api/ui/vite.config.ts`.
  */
 export const PRODUCTION_API_URL = 'https://api.epicenter.so';
-export const DASHBOARD_APP_ID = 'so.epicenter.dashboard';
 
 export const APPS = {
 	API: { port: 8787, url: PRODUCTION_API_URL },
@@ -36,7 +34,6 @@ export const APPS = {
 	HONEYCRISP: {
 		port: 5175,
 		url: 'https://honeycrisp.epicenter.so',
-		id: 'so.epicenter.honeycrisp',
 	},
 	VOCAB: {
 		port: 8888,
@@ -46,7 +43,10 @@ export const APPS = {
 	CAPTURE: {
 		port: 5179,
 		url: 'https://capture.epicenter.so',
-		id: 'so.epicenter.capture',
+	},
+	TODOS: {
+		port: 5186,
+		url: 'https://todos.epicenter.so',
 	},
 	ZHONGWEN: {
 		port: 5207,
@@ -63,24 +63,26 @@ export const APPS = {
  * not applications with an id at all: `API` is the hosted server and `SH` is the
  * marketing site, so neither carries `id`. An app id is the
  * reverse-domain string an application stores under (`so.epicenter.vocab`),
- * validated by `isAppId` in `#app-id` and spent by `defineStore` and
- * `createHostedBrowserRedirectAuth`. A reader who met `AppId` here and grepped
- * for it found the wrong concept.
+ * validated by `isAppId` in `@epicenter/constants/app-id` and spent by
+ * `appDataDir` as the app's data directory and by `createBrowserOAuth` as the
+ * app's OAuth client id. A reader who met `AppId` here and grepped for it
+ * found the wrong concept.
  *
- * The three application rows carry an id, so one row is everything a build needs
- * to name itself. `apps/local-mail` is deliberately absent: it has no hosted
- * origin, so it keeps its id beside its storage.
+ * A row carries an id only for an app that names itself from it. Todos,
+ * Capture, and Honeycrisp carry none here: each browser build's
+ * id is its OAuth client in `apps/api/worker/oauth-registrations.ts`, and the
+ * Epicenter desktop app names the same id for each app it bundles
+ * (`BundledApp` in `apps/epicenter/src-tauri/src/bundled_apps.rs`).
  */
 export type AppKey = keyof typeof APPS;
 
 /**
  * Dev listen port for the apps/api Bun runtime (`apps/api/server.ts`,
  * ADR-0066): the off-Cloudflare twin of the wrangler dev server on
- * {@link APPS.API.port} (8787). The two are deliberately one apart so the
- * runtime-parity smoke can run both backends at once (`apps/api/scripts/smoke.ts`
- * targets :8788 and :8787). An operator overrides it with `PORT`; this is only
- * the unset-`PORT` default. It is not an app origin (never a CORS or sign-in
- * target), so it lives beside {@link APPS} rather than as a field inside it.
+ * {@link APPS.API.port} (8787), one apart so both can run at once. An
+ * operator overrides it with `PORT`; this is only the unset-`PORT` default.
+ * It is not an app origin (never a CORS or sign-in target), so it lives
+ * beside {@link APPS} rather than as a field inside it.
  */
 export const API_BUN_DEV_PORT = 8788;
 
@@ -99,31 +101,6 @@ export const localUrl = <Port extends number>(app: { port: Port }) =>
 	`http://localhost:${app.port}` as const;
 
 /**
- * Every origin an app answers on: its dev origin ({@link localUrl}) plus the
- * canonical `url` and any `aliases`. Single owner for the every-origin list
- * both CORS trusted origins and sign-in callbacks want. Only apps reachable
- * at more than one domain declare `aliases`; for everyone else this is the dev
- * origin plus the one canonical url. No app declares `aliases` today.
- */
-export const appOrigins = (app: {
-	port: number;
-	url: string;
-	aliases?: readonly string[];
-}): readonly string[] => [localUrl(app), app.url, ...(app.aliases ?? [])];
-
-/**
- * An app's production origins: its canonical `url` plus any `aliases`, without
- * the localhost dev origin. The typed parameter (with optional `aliases`) is
- * what lets `trusted-origins.ts` read `aliases` off `Object.values(APPS)`
- * without an `as` cast: the union members carry it as `readonly string[] |
- * undefined` here.
- */
-export const prodOrigins = (app: {
-	url: string;
-	aliases?: readonly string[];
-}): readonly string[] => [app.url, ...(app.aliases ?? [])];
-
-/**
  * Default API base URL for Node consumers (CLI, daemon, tests). The constant
  * resolves to `process.env.EPICENTER_API_URL` when set, else
  * {@link PRODUCTION_API_URL}. Browsers and Workers lack `process.env`, so
@@ -132,3 +109,27 @@ export const prodOrigins = (app: {
 export const EPICENTER_API_URL =
 	(typeof process !== 'undefined' && process.env?.EPICENTER_API_URL) ||
 	PRODUCTION_API_URL;
+
+/**
+ * The token audiences of the deployment at `apiOrigin` (ADR-0549): the
+ * resource identifiers its authorization server issues access tokens for.
+ * The deployment names the authority (ADR-0326). The hosted cloud's are
+ * `api` and `git.epicenter.so`; any other deployment (local dev, self-host)
+ * serves both from its own origin, Git at `/git`. The API seeds and checks
+ * these; the `epicenter` CLI requests and presents them, and its Git
+ * credential helper answers for the `git` one.
+ */
+export function resolveOAuthAudiences(apiOrigin: string): {
+	/** Inference and transcription. */
+	api: string;
+	/** Git smart HTTP and LFS. */
+	git: string;
+} {
+	const base = new URL(apiOrigin).origin;
+	if (base === PRODUCTION_API_URL)
+		return {
+			api: PRODUCTION_API_URL,
+			git: 'https://git.epicenter.so',
+		};
+	return { api: base, git: `${base}/git` };
+}

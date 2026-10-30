@@ -9,16 +9,13 @@
 		"build": "NODE_ENV=production vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test src/lib && bun run test:svelte",
+		"test": "bun test --conditions=browser --conditions=svelte src/lib && bun run test:svelte",
 		"test:svelte": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --conditions=browser --conditions=svelte src/routes",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
-		"openai": "^7.12.1",
 		"@epicenter/agent": "workspace:*",
-		"@epicenter/app": "workspace:*",
-		"@epicenter/app-shell": "workspace:*",
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/client": "workspace:*",
 		"@epicenter/constants": "workspace:*",
@@ -29,8 +26,12 @@
 		"@lucide/svelte": "catalog:",
 		"buffer": "^6.0.3",
 		"mode-watcher": "^1.1.0",
+		"openai": "^7.12.1",
+		"runed": "catalog:",
 		"typebox": "catalog:",
-		"wellcrafted": "catalog:"
+		"wellcrafted": "catalog:",
+		"@epicenter/ai": "workspace:*",
+		"@epicenter/definition": "workspace:*"
 	},
 	"devDependencies": {
 		"@epicenter/vite-config": "workspace:*",
@@ -39,14 +40,14 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@types/bun": "catalog:",
+		"@types/jsdom": "21.1.7",
+		"jsdom": "26.1.0",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",
 		"typescript": "catalog:",
 		"vite": "catalog:",
-		"vite-plugin-static-copy": "^4.1.1",
-		"jsdom": "26.1.0",
-		"@types/jsdom": "21.1.7"
+		"vite-plugin-static-copy": "^4.1.1"
 	},
 	"license": "AGPL-3.0-or-later"
 }

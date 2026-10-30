@@ -7,7 +7,7 @@
 
 ## Context
 
-Independent inference constructors exist in `packages/app/src/ai.ts`. Saved
+Independent inference constructors exist in `packages/ai/src/ai.ts`. Saved
 catalog reads in `connection-catalog.ts` still materialize cached SDK clients.
 A settings snapshot therefore carries live execution access, and page startup
 still couples catalog acquisition to unrelated resources.
@@ -29,7 +29,7 @@ import {
   openEpicenterInference,
   openRuntimeTranscriber,
   openEndpointInference,
-} from '@epicenter/app/ai';
+} from '@epicenter/ai';
 
 const epicenter = await openEpicenterInference({ account });
 const runtime = await openRuntimeTranscriber();
@@ -145,13 +145,9 @@ document replacement. Temporary previews and operation-owned access still close.
 **Saved connection catalogs open separately from inference destinations.**
 
 ```ts
-import {
-  openLocalConnectionCatalog,
-  openAccountConnectionCatalog,
-} from '@epicenter/app/ai-connections';
+import { openLocalConnectionCatalog } from '@epicenter/ai/connections';
 
-const localCatalog = await openLocalConnectionCatalog();
-const accountCatalog = await openAccountConnectionCatalog({ account });
+const catalog = await openLocalConnectionCatalog();
 ```
 
 Saved catalogs retain their existing optional bearer API key contract. They do
@@ -160,12 +156,14 @@ Adding those would require a separate stored-secret format, host broker, editing
 semantics, and access-version contract; the endpoint constructor does not expand
 the catalog promise.
 
-Both catalogs persist on this device. Local uses the no-account partition.
-Account requires a captured Account and uses its authority/principal partition.
-Neither takes an app ID or synchronizes through Personal data. Desktop apps
-share their account's catalog within the host profile; browser apps share it
-within the origin/profile. Sign-in does not adopt Local entries, and account
-replacement does not merge keys or retarget an existing catalog.
+The catalog persists in this browser's storage under
+`epicenter/ai/no-account`, and an app's choices under `<appId>/no-account`.
+`no-account` is left from an account split that no app used; the keys keep it
+because browsers hold data under them. The catalog takes no app ID and does not
+synchronize. Browser apps share it within the origin and profile, and sign-in
+neither adopts nor partitions it. Inside Epicenter, connections are rows of
+`so.epicenter` instead
+([ADR-0557](0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)).
 
 Catalogs retain `add`, `update`, `remove`, `reorder`, `get`, `getAll`, and
 `subscribe`. Reads and subscriptions expose saved descriptions, without creating
@@ -236,9 +234,9 @@ The public owner union and `app.device.connections`/`app.account.connection`
 access paths disappear. Distinct constructors make authentication requirements
 visible while preserving runtime absence and ordinary request failures.
 
-Catalog ownership remains explicit because saved keys need isolation even when
-their storage is local. The local/account constructor pair costs two names and
-avoids a tagged public option. Page roots retain acquired access for their
+Catalog ownership remains explicit because saved keys need an owner even when
+their storage is local. One browser constructor, `openLocalConnectionCatalog`,
+takes no account. Page roots retain acquired access for their
 document. Temporary form and workflow owners release their access. Catalog snapshots remain inert; listing
 settings cannot allocate request owners.
 
@@ -270,7 +268,7 @@ implemented signatures; target examples do not claim completion.
 Check independent client closure through response-body completion and delayed
 authentication resolution, caller-header override refusal, redirected credential
 refusal, account retirement, endpoint credential isolation, runtime absence
-without fallback, and explicit model selection. Verify account-separated catalog reopen, signed-out
+without fallback, and explicit model selection. Verify catalog reopen after reload, signed-out
 custom access, desktop broker requests without exported keys, access retirement
 on URL/key changes, and preview leaving persistence untouched. Verify unsaved
 native inference beyond model discovery without logging or persisting ephemeral

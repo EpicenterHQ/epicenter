@@ -1,6 +1,7 @@
 # 0352. An account's data and a device's files are two packages, because only one of them is removed
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store; `@epicenter/device` is deleted, and secrets stay with the desktop host's credential store.
 - **Date:** 2026-09-06
 - **Amends:** [ADR-0339](0339-an-application-creates-one-epicenter-and-an-account-is-what-adds-a-store.md) at its mechanism. "An application creates one epicenter" stands and is what this record extends; `EpicenterBinding`, `EpicenterBindingFactory`, the `binding` option on `createEpicenter`, and the sentence calling the factory "the contract every seam leaf annotates against" are withdrawn. The `Epicenter<never>` overload this mechanism produced, which let Local Mail hold files and secrets without a store, is withdrawn with them: that type is now `Device`.
 - **Relates:** [ADR-0321](0321-app-owned-storage-is-named-sqlite-files-an-application-opens-and-deletes-and-nothing-else.md) (what an app-owned file is), [ADR-0310](0310-an-applications-provider-credential-is-a-labeled-secret-and-the-browser-keeps-none.md) (a secret is a labelled credential), [ADR-0348](0348-the-local-address-carries-the-principal-and-a-database-needs-no-binding-to-know-whose-it-is.md) (the replica address carries the principal), [ADR-0351](0351-local-data-removal-is-an-explicit-sign-out-choice.md) (what removal takes), [ADR-0226](0226-a-host-serves-bundles-and-brokers-credentials-it-owns-no-application-data.md), [ADR-0227](0227-one-runtime-a-desktop-spa-in-a-webview-over-a-client-owned-store.md)

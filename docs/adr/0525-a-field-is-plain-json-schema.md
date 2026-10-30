@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-10-11
 - **Amends:** [ADR-0491](0491-field-helpers-build-native-typebox-schemas-with-ui-metadata.md) at native callbacks in fields: `Type.Refine`, `~guard`, and codecs are refused, the frozen-copy protection for callbacks is removed, and a prepared field is a JSON copy rather than a `Memory.Clone` snapshot. Its editor hints, helpers, prepared shape, and JSON-safety check stand.
-- **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (`epicenter.json` holds these fields), [ADR-0508](0508-folder-opening-overwrites-root-definition-json.md) (opening publishes them), [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) (optionality)
+- **Relates:** [ADR-0517](0517-a-data-folder-can-live-inside-any-repository.md) (`epicenter.json` holds these fields), [ADR-0526](0526-a-field-is-required-unless-declared-optional.md) (optionality)
 
 ## Context
 

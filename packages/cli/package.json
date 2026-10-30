@@ -1,0 +1,34 @@
+{
+	"name": "@epicenter/cli",
+	"version": "0.0.1",
+	"private": true,
+	"description": "The epicenter command: thin wrappers over shared packages, compiled into the binary the desktop app ships.",
+	"type": "module",
+	"bin": {
+		"epicenter": "./src/bin.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"dependencies": {
+		"@beeper/desktop-api": "^6.0.0",
+		"@epicenter/ai": "workspace:*",
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/folder": "workspace:*",
+		"wellcrafted": "catalog:",
+		"typebox": "catalog:"
+	},
+	"devDependencies": {
+		"@epicenter/server": "workspace:*",
+		"@types/bun": "catalog:",
+		"@types/pg": "^8.18.0",
+		"drizzle-orm": "catalog:",
+		"pg": "^8.20.0",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later",
+	"exports": {
+		"./messages-protocol": "./src/messages-protocol.ts"
+	}
+}

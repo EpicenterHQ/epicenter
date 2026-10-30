@@ -1,5 +1,4 @@
 import type { AccountIdentity } from '@epicenter/principal';
-import type { SocketTransport } from '@epicenter/sync/transport';
 import type { Result } from 'wellcrafted/result';
 import type { createAccountManagementUrl } from './account-management.js';
 import type { AuthError } from './auth-errors.js';
@@ -14,13 +13,12 @@ export type AuthFetch = (
  *
  * Capture this value when opening a data session. Refresh and reauthentication
  * preserve it. Sign-out or account replacement permanently retires its network
- * access, including in-flight requests and sockets. A later sign-in creates a
+ * access, including in-flight requests. A later sign-in creates a
  * new Account even for the same person. Retirement does not erase local data.
  */
 export type Account = AccountIdentity & {
 	readonly baseURL: string;
 	fetch: AuthFetch;
-	openWebSocket: SocketTransport['openWebSocket'];
 	getProfile(): Promise<Result<Principal, AuthError>>;
 };
 
@@ -31,6 +29,8 @@ export type AuthState =
 /** Auth selects accounts; applications hold the Account they opened. */
 export type AuthClient = {
 	getState(): AuthState;
+	/** Reconcile this client's state with its credential owner. */
+	refresh(): Promise<void>;
 	baseURL: string;
 	accountManagementUrl?: typeof createAccountManagementUrl;
 	onStateChange(fn: (state: AuthState) => void): () => void;
@@ -45,21 +45,26 @@ export type AuthClient = {
 	[Symbol.dispose](): void;
 };
 
-/** Session owners can cancel sign-in and settle their credential writes. */
-export type SessionAuthClient = AuthClient & {
-	/** Stop the pending sign-in and settle persistence without signing out. */
-	cancelSignIn(): Promise<void>;
+/** A client whose sign-in returns to a callback page it must complete. */
+export type CallbackAuthClient = AuthClient & {
+	/**
+	 * Finish the sign-in this page's URL answers. Success carries the path the
+	 * attempt started from, which the callback page replaces itself with; it is
+	 * undefined when that path cannot be used.
+	 */
+	completeSignIn(): Promise<
+		Result<{ returnTo: string | undefined }, AuthError>
+	>;
 };
 
-/** Only a redirect launcher can consume a sign-in callback. */
-export type CallbackAuthClient = SessionAuthClient & {
-	completeSignIn(): Promise<Result<undefined, AuthError>>;
-};
-
-export function isCallbackAuthClient(
-	client: AuthClient,
-): client is CallbackAuthClient {
+/** Narrow the callback capability on either a plain client or a UI facade. */
+export function isCallbackAuthClient<
+	TClient extends Pick<AuthClient, 'startSignIn'>,
+>(
+	client: TClient,
+): client is TClient & Pick<CallbackAuthClient, 'completeSignIn'> {
 	return (
-		typeof (client as Partial<CallbackAuthClient>).completeSignIn === 'function'
+		typeof (client as { completeSignIn?: unknown }).completeSignIn ===
+		'function'
 	);
 }

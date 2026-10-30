@@ -14,19 +14,18 @@
  *   reports `indexWarning`; a later explicit commit-and-push repairs the index
  *
  * See also:
- * - `native.test.ts` for automatic commits and the browser/native exchange
+ * - `directory-history.test.ts` for whole-folder commits over native Git
  * - `source-scope.test.ts` for which files a checkpoint includes
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { defineFolder, defineTable, field } from './contract.js';
-import { formatDeclaration } from './declaration.js';
-import { openNativeFolder } from './directory.test-support.js';
+import { defineFolder, defineTable, field } from './bun.js';
+import { formatDefinition } from './declaration.js';
+import { openDirectoryHistory } from './directory-history.test-support.js';
 import { GIT_ENV, git, scratch } from './git-http.test-support.js';
 
 const definition = defineFolder({
-	kv: {},
 	tables: {
 		todos: defineTable({
 			fields: { title: field.string(), done: field.boolean() },
@@ -49,7 +48,7 @@ async function repository() {
 	await git(root, 'init', '--quiet', '--initial-branch=main');
 	await writeFile(join(root, 'a.md'), 'A\n');
 	await writeFile(join(root, 'kept.md'), 'kept\n');
-	await writeFile(join(root, 'epicenter.json'), formatDeclaration(definition));
+	await writeFile(join(root, 'epicenter.json'), formatDefinition(definition));
 	await git(root, 'add', '--all');
 	await git(root, 'commit', '--quiet', '-m', 'Start');
 	return root;
@@ -62,12 +61,11 @@ test('an unchanged checkpoint repairs HEAD B, files B, index A (MM)', async () =
 	await git(root, 'reset', '--quiet', 'HEAD~1', '--', 'a.md');
 	expect(await git(root, 'status', '--porcelain')).toBe('MM a.md');
 
-	const folder = await openNativeFolder({
+	const folder = await openDirectoryHistory({
 		root,
-		definition,
 		git: { author },
 	});
-	const outcome = await folder.git.commit();
+	const outcome = (await folder.request({ op: 'saveVersion' })).result;
 	expect(outcome).toMatchObject({
 		status: 'unchanged',
 		indexWarning: undefined,
@@ -89,12 +87,11 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 	expect(staged).toContain('A  debug.log');
 	expect(staged).toContain('D  kept.md');
 
-	const folder = await openNativeFolder({
+	const folder = await openDirectoryHistory({
 		root,
-		definition,
 		git: { author },
 	});
-	const outcome = await folder.git.commit();
+	const outcome = (await folder.request({ op: 'saveVersion' })).result;
 	// The ignored file is not source, and kept.md is unchanged: no new commit.
 	expect(outcome.status).toBe('unchanged');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
@@ -106,16 +103,13 @@ test('staged-only additions and deletions do not survive a checkpoint', async ()
 
 test('an index lock after the branch moved keeps the commit and a later commit-and-push repairs the index', async () => {
 	const root = await repository();
-	const folder = await openNativeFolder({
+	const folder = await openDirectoryHistory({
 		root,
-		definition,
 		git: { author },
 	});
-	// Opening's own commit, answered first.
-	await folder.git.commit();
-	await writeFile(join(root, 'b.md'), 'new\n');
+	await folder.write('b.md', 'new\n');
 	await writeFile(join(root, '.git', 'index.lock'), '');
-	const locked = await folder.git.commit();
+	const locked = (await folder.request({ op: 'saveVersion' })).result;
 	expect(locked.status).toBe('committed');
 	if (locked.status !== 'committed') throw new Error('expected a commit');
 	expect(locked.indexWarning).toContain('index.lock');
@@ -124,12 +118,11 @@ test('an index lock after the branch moved keeps the commit and a later commit-a
 	await rm(join(root, '.git', 'index.lock'));
 	// The unrepaired index shows the committed file as a staged deletion.
 	expect(await git(root, 'status', '--porcelain')).toContain('D  b.md');
-	const repaired = await folder.git.commitAndPush();
-	expect(repaired.commit).toMatchObject({
+	const repaired = (await folder.request({ op: 'saveVersion' })).result;
+	expect(repaired).toMatchObject({
 		status: 'unchanged',
 		indexWarning: undefined,
 	});
-	expect(repaired.push.status).toBe('noRemote');
 	expect(await git(root, 'status', '--porcelain')).toBe('');
 	await folder.close();
 });

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-destroy-bound-window"
+description = "Enables the destroy_bound_window command without any pre-configured scope."
+commands.allow = ["destroy_bound_window"]
+
+[[permission]]
+identifier = "deny-destroy-bound-window"
+description = "Denies the destroy_bound_window command without any pre-configured scope."
+commands.deny = ["destroy_bound_window"]

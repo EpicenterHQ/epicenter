@@ -1,4 +1,7 @@
-// Tauri doesn't have a Node.js server to do proper SSR
-// so we will use adapter-static to prerender the app (SSG)
-// See: https://v2.tauri.app/start/frontend/sveltekit/ for more info
+// A client-only SPA: layout initialization starts the folder opening.
 export const ssr = false;
+// Epicenter's bundled build (ADR-0552) prerenders each page as an
+// empty shell, so its assets load relative to wherever the host serves it and
+// the router finds its base at run time. The browser build serves a fallback
+// page.
+export const prerender = import.meta.env.EPICENTER_HOST === '1';

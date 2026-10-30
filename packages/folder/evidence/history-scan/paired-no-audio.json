@@ -1,0 +1,429 @@
+{
+	"measuredAt": "2026-10-22T03:09:01.916Z",
+	"bun": "1.4.3",
+	"cpu": "Apple M4 Max",
+	"platform": "darwin",
+	"note": "Same 10k-note repository; reconstructed pre-optimization capture versus current implementation; one warmup and five measured requests per variant, alternating reference/optimized. Warm filesystem caches; logical byte counts. Other work on the machine was not isolated; status has substantial timing variance.",
+	"reports": [
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 0,
+			"milliseconds": 3735.2000829999997,
+			"scans": [
+				{
+					"listMs": 639.2668750000003,
+					"readMs": 2749.4174910000356,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 1,
+			"milliseconds": 4756.476333999999,
+			"scans": [
+				{
+					"listMs": 1173.5482499999998,
+					"readMs": 2914.8095440000216,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 2,
+			"milliseconds": 3352.8705419999987,
+			"scans": [
+				{
+					"listMs": 889.9656669999986,
+					"readMs": 2265.4162079999496,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 3,
+			"milliseconds": 2248.4379169999993,
+			"scans": [
+				{
+					"listMs": 422.5186670000003,
+					"readMs": 1639.0229049998961,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 4,
+			"milliseconds": 2577.1126670000012,
+			"scans": [
+				{
+					"listMs": 499.85199999999895,
+					"readMs": 1835.6968500001385,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 5,
+			"milliseconds": 2181.3357910000013,
+			"scans": [
+				{
+					"listMs": 450.88275000000067,
+					"readMs": 1577.62022899992,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 6,
+			"milliseconds": 1990.005874999999,
+			"scans": [
+				{
+					"listMs": 353.2489170000008,
+					"readMs": 1475.2262230003253,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 7,
+			"milliseconds": 2014.1075409999976,
+			"scans": [
+				{
+					"listMs": 408.9520420000008,
+					"readMs": 1435.7130379999217,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 8,
+			"milliseconds": 2098.844083,
+			"scans": [
+				{
+					"listMs": 427.22841699999844,
+					"readMs": 1514.755162999867,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "status",
+			"pass": 9,
+			"milliseconds": 2033.5655420000003,
+			"scans": [
+				{
+					"listMs": 377.0432919999985,
+					"readMs": 1499.615012999886,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 0,
+			"milliseconds": 4833.792625000002,
+			"scans": [
+				{
+					"listMs": 405.08266600000206,
+					"readMs": 1655.0044600000256,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 426.17570899999555,
+					"readMs": 1467.4146590002201,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 1,
+			"milliseconds": 4546.001375,
+			"scans": [
+				{
+					"listMs": 453.1805830000012,
+					"readMs": 1472.7630989998506,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 408.3075420000023,
+					"readMs": 1440.81479100023,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 2,
+			"milliseconds": 4739.369832999997,
+			"scans": [
+				{
+					"listMs": 405.7065419999999,
+					"readMs": 1513.8844109997517,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 424.5094170000011,
+					"readMs": 1542.2095719997524,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 3,
+			"milliseconds": 4514.765290999996,
+			"scans": [
+				{
+					"listMs": 417.9192919999987,
+					"readMs": 1421.1484340000243,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 414.10629199999676,
+					"readMs": 1395.2145659998132,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 4,
+			"milliseconds": 4518.780000000006,
+			"scans": [
+				{
+					"listMs": 415.22870800000237,
+					"readMs": 1447.47322500062,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 401.2267079999947,
+					"readMs": 1465.246299000799,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 5,
+			"milliseconds": 4728.781833000001,
+			"scans": [
+				{
+					"listMs": 438.3575419999979,
+					"readMs": 1574.7668300003716,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 415.6022079999966,
+					"readMs": 1422.80336300013,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 6,
+			"milliseconds": 4599.513082999998,
+			"scans": [
+				{
+					"listMs": 432.8825829999987,
+					"readMs": 1438.6606970004505,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 455.1494160000002,
+					"readMs": 1492.4517079998477,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 7,
+			"milliseconds": 4562.001000000004,
+			"scans": [
+				{
+					"listMs": 408.0120420000021,
+					"readMs": 1437.9399949999352,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 422.4915000000037,
+					"readMs": 1454.5723180000787,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "reference",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 8,
+			"milliseconds": 4483.100791000004,
+			"scans": [
+				{
+					"listMs": 417.3009580000071,
+					"readMs": 1438.624053999767,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 424.0014999999985,
+					"readMs": 1447.1882289998612,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		},
+		{
+			"variant": "optimized",
+			"fixture": "10k-notes",
+			"op": "saveVersion",
+			"pass": 9,
+			"milliseconds": 4350.7456660000025,
+			"scans": [
+				{
+					"listMs": 391.1750420000026,
+					"readMs": 1419.4036810002435,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				},
+				{
+					"listMs": 415.56583300000057,
+					"readMs": 1310.3245940003399,
+					"reads": 10001,
+					"bytes": 21600006,
+					"audioReads": 0,
+					"audioBytes": 0
+				}
+			]
+		}
+	]
+}

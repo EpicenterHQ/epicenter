@@ -2,7 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-01
-- **Unbuilt:** all of it. Epicenter adds itself to no login items, has no Pause, and opens Home when it starts. The tray and both autostart verbs already exist.
+- **Unbuilt:** all of it. Epicenter adds itself to no login items, has no Pause, and opens Home when it starts. The tray exists; the autostart plugin is not registered, so enabling it once on first run is unbuilt too.
 - **Amends:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md) at one clause, which is withdrawn: "turning it off belongs to the application, in the application's own words", and the per-application "Pause syncing" it described. That clause was written to justify deleting a permission, and once the permission was gone nothing was left needing it. What a person wants is a machine want, not a mail want.
 - **Relates:** [ADR-0327](0327-undelivered-work-is-an-outbox-and-that-is-where-a-failure-appears.md) (why the menu bar carries no counts, and what a person looks at instead), [ADR-0320](0320-removing-an-account-settles-what-it-owes-before-anything-is-deleted.md) (the verb for an account a person is finished with), and [ADR-0209](0209-epicenter-is-the-raw-view-beside-its-applications-not-a-shell-above-them.md) (Epicenter is beside its applications, which is why its menu is not a dashboard over them)
 

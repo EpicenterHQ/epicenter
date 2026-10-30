@@ -7,12 +7,8 @@ node_modules
 .wrangler
 /.svelte-kit
 /build
-/build-desktop
+/dist
 /package
-
-# Desktop shell
-/src-tauri/target
-/src-tauri/gen/schemas
 
 # OS
 .DS_Store

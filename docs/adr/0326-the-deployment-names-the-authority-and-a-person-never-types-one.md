@@ -6,6 +6,7 @@
 - **Amends:** [ADR-0071](0071-oauth-is-hosted-only-a-custom-instance-requires-a-token.md) at its delivery mechanism. OAuth stays hosted-only and a custom instance still requires a token; the token stops arriving through a settings modal a person pastes into.
 - **Amended by:** [ADR-0334](0334-a-deployed-app-is-a-trusted-app-because-deploying-it-was-the-consent.md) at this record's two third-party clauses, both withdrawn: that a self-claimed app id is "not sufficient for third-party code," and that admitting such code needs an isolation boundary. No boundary is coming; deploying is the consent. Everything else here stands.
 - **Amended by:** [ADR-0335](0335-a-person-is-an-origin-and-an-app-is-a-path-under-it.md) at this record's web line: "the origin the bundle was served from IS the deployment" becomes "the bundle, at its origin and its path, is the deployment," because one person's origin carries several apps. That record also re-derives this one's "desktop self-host is refused until the install plane ships," whose plane was ADR-0305's and is now the deploy verb ADR-0335 describes.
+- **Amended by:** [ADR-0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) at the ADR-0071 clause that OAuth stays hosted-only and a custom instance still requires a token. A self-hosted build names its own origin as the authorization server it signs in to; everything else here stands.
 - **Relates:** [ADR-0075](0075-self-host-is-a-single-partition-instance-behind-one-operator-supplied-bearer.md), [ADR-0118](0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) (the one origin this leaves in place, for first-party apps only), [ADR-0305](0305-the-third-party-app-catalog-is-a-future-epicenter-deployment-plane.md) (the plane this presumes), [ADR-0314](0314-an-app-is-one-directory-and-installation-is-a-rename.md) (an app is a directory)
 - **Unbuilt:** all of it, and one part is gated. The derived connection set and the deletions below are reachable now. App-id-as-deployment presumes the install plane ADR-0305 defers, and presumes desktop stores having moved to `apps/<app-id>/data/` per ADR-0324; until both, it names an end state rather than a shipping shape.
 - **Supersedes:** [ADR-0263](0263-a-connection-is-one-server-at-a-time-and-a-replica-is-derived-from-it.md), which restated the connection contract this record replaces. Selecting a server at runtime, switching without export, and the server URL as storage identity are all withdrawn.
@@ -18,6 +19,7 @@ the authority's URL come from in the first place?
 
 Today it is a runtime setting. The auth package's instance-setting module (since deleted by this record) keeps a
 `{ baseURL, token }` override in `localStorage`, and
+<!-- doc-path-check: ignore-next-line -->
 `apps/self-host/README.md` documents pasting one as *the* self-host flow. A
 setting is the wrong shape for a fact that, after ADR-0325, can never change.
 

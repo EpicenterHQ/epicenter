@@ -1,49 +1,45 @@
 <!--
 	Test fixture: the recordings page's and the transformations page's detail
 	views, rendered as those pages render them, each keyed by its path.
-	`shown` unmounts the views, as closing the details does, while the library
-	and its drafts stay.
+	`shown` unmounts the views, as closing the details does, while Whispering
+	and the folder stay.
 -->
 <script lang="ts">
 	import * as Tooltip from '@epicenter/ui/tooltip';
-	import type { Library } from '$lib/library.svelte.js';
-	import FileDraftView from '../FileDraftView.svelte';
+	import { setWhispering, type Whispering } from '$lib/whispering.svelte.js';
+	import { setFolder, type WhisperingFolder } from '$lib/folder.js';
+	import FileView from '../FileView.svelte';
 	import RecordingDetail from '../RecordingDetail.svelte';
 	import TransformationDetail from '../TransformationDetail.svelte';
 
-	let { library, page }: { library: Library; page: { shown: boolean; tab: 'recordings' | 'transformations' } } =
+	let { whispering, folder, page }: { whispering: Whispering; folder: WhisperingFolder; page: { shown: boolean; tab: 'recordings' | 'transformations' } } =
 		$props();
-	let applyTo = $state<string | undefined>();
-	let applySource = $state<'transcript' | 'pasted'>('transcript');
-	let pastedText = $state('');
-	let tryItFor = $state<string | undefined>();
+	// svelte-ignore state_referenced_locally
+	setWhispering(whispering);
+	// The test mounts the same opened folder as the product root.
+	// svelte-ignore state_referenced_locally
+	setFolder(folder);
 </script>
 
 <Tooltip.Provider>
 	{#if page.shown && page.tab === 'recordings'}
-		{@const selection = library.selection}
+		{@const selection = whispering.selection}
 		{#if selection?.kind === 'recording'}
 			{#key selection.path}
-				<RecordingDetail {library} path={selection.path} draft={selection.draft} entry={selection.entry} />
+				<RecordingDetail path={selection.path} entry={selection.entry} />
 			{/key}
 		{:else if selection?.kind === 'file'}
 			{#key selection.path}
-				<FileDraftView {library} path={selection.path} draft={selection.draft} />
+				<FileView path={selection.path} />
 			{/key}
 		{/if}
 	{:else if page.shown && page.tab === 'transformations'}
-		{@const selected = library.selectedTransformation}
+		{@const selected = whispering.selectedTransformation}
 		{#if selected}
 			{#key selected.path}
 				<TransformationDetail
-					{library}
 					path={selected.path}
-					draft={selected.draft}
 					entry={selected.entry}
-					bind:applyTo
-					bind:applySource
-					bind:pastedText
-					bind:tryItFor
 					onOpenFile={() => {}}
 				/>
 			{/key}

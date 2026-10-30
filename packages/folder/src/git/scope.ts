@@ -1,14 +1,3 @@
-/**
- * Which captured files are history source.
- *
- * Status, automatic commits, and incoming fast-forwards share one rule: a file
- * tracked in the committed tree stays source; an untracked file is source
- * unless `.gitignore` excludes it. Private Git state and operating-system
- * scratch files are excluded earlier by `isPortablePath`. The browser evaluates
- * `.gitignore` files from the captured bytes; the native backend asks
- * `git check-ignore`, which also
- * honors `.git/info/exclude` and the user's excludes file.
- */
 import ignore, { type Ignore } from 'ignore';
 
 const decoder = new TextDecoder();
@@ -48,24 +37,4 @@ export function gitignoreMatcher(
 		}
 		return false;
 	};
-}
-
-/** Keep tracked files and untracked files that are not ignored. */
-export async function sourceFiles(
-	current: ReadonlyMap<string, Uint8Array>,
-	tracked: ReadonlyMap<string, unknown>,
-	ignoredPaths: (
-		candidates: readonly string[],
-		current: ReadonlyMap<string, Uint8Array>,
-	) => Promise<ReadonlySet<string>>,
-): Promise<Map<string, Uint8Array>> {
-	const candidates = [...current.keys()].filter((path) => !tracked.has(path));
-	const ignored =
-		candidates.length === 0
-			? new Set<string>()
-			: await ignoredPaths(candidates, current);
-	const source = new Map<string, Uint8Array>();
-	for (const [path, bytes] of current)
-		if (!ignored.has(path)) source.set(path, bytes);
-	return source;
 }

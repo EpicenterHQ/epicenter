@@ -1,38 +1,24 @@
-//! One native owner per Epicenter folder.
+//! The desktop shell's side of a folder the page opens with its own engine.
 //!
-//! `FolderOwner` holds a canonical root: it publishes files, observes and
-//! commits Git history, and tells every listener what changed. `Registry`
-//! maps the scopes a shell configured to owners and decides which window may
-//! use which scope. Nothing here depends on Tauri.
+//! `Directory` retains an existing canonical root for admitted file operations.
+//! The Tauri plugin owns window bindings and their lifetime.
+//! Each publication holds the folder's save lock (`lock`) across its check
+//! and change, shared by native windows and other participating processes. `page_files` checks a path the shell changes
+//! on disk, and `paths` is the path rule the folder engine shares. Nothing
+//! here depends on Tauri. `library` computes and admits the fixed native app
+//! defaults, and `navigation` is the machine's remembered folder list. The
+//! folder's Git runs in the `epicenter` CLI, never here (ADR-0559).
 
-pub mod download;
-pub mod files;
-pub mod git;
-pub mod history;
-pub mod incoming;
-pub mod kv_merge;
+pub mod directory;
+pub mod library;
 pub mod lock;
-pub mod merge;
-pub mod messages;
-pub mod owner;
+pub mod navigation;
+pub mod page_files;
 pub mod paths;
-pub mod registry;
-mod runner;
-pub mod transport;
+pub mod root;
+pub mod storage;
 
 #[cfg(test)]
-mod admission_tests;
-#[cfg(test)]
-mod history_tests;
-#[cfg(test)]
-mod incoming_tests;
-#[cfg(test)]
-mod merge_tests;
-#[cfg(test)]
-mod publication_tests;
-#[cfg(test)]
-mod registry_tests;
+mod directory_tests;
 #[cfg(test)]
 mod testing;
-#[cfg(test)]
-mod transport_tests;

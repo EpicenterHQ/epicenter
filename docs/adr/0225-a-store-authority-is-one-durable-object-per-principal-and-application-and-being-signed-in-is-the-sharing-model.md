@@ -20,6 +20,7 @@
   (**Proposed**) at lifecycle only. An open hosted ecosystem needs an account's
   complete authority address book for hard account deletion; Postgres records
   `(principal, namespace)` metadata and never workspace contents.
+<!-- doc-path-check: ignore-next-line -->
 - Evidence: `packages/server/workers/e2e.test.ts`.
 
 ## Context

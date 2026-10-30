@@ -7,44 +7,49 @@
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { audioPathIn } from '$lib/definition.js';
-	import { resolvePostProcessing, transformationName } from '$lib/post-processing.js';
-	import { getSession } from '$lib/session.svelte.js';
+	import { transformationName } from '$lib/post-processing.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
+	import AudioAbsent from './components/AudioAbsent.svelte';
 	import AudioPlayer from './components/AudioPlayer.svelte';
-	import { copyText, formatTime, openItem, recordingTitle } from './components/file-actions.js';
+	import { confirmDelete, copyText, formatTime, recordingTitle } from './components/file-actions.js';
 	import RecorderCard from './components/RecorderCard.svelte';
+	import ResultStatus from './components/ResultStatus.svelte';
 	import TransformationOutput from './components/TransformationOutput.svelte';
 
-	const { library, view } = getSession();
+	const whispering = getWhispering();
+	const { view } = whispering;
 
 	/** The newest saved recording. A capture still being saved is in the notice under the header. */
-	const latest = $derived(library.entries[0]);
-	/** The audio the newest row names. Nothing is guessed from another file's name. */
-	const audioPath = $derived(latest ? audioPathIn(latest.row.fields) : undefined);
-	const transcript = $derived(latest ? library.resultsFor(latest.stem)[0] : undefined);
-	const run = $derived(latest ? library.transcriptionRun(latest.stem) : undefined);
-	const model = $derived(library.connections?.transcription?.model);
+	const latest = $derived(whispering.entries[0]);
+	/** Playback and transcription use the same sibling resolution as recording details. */
+	const audio = $derived(latest ? whispering.audioOf(latest) : undefined);
+	const audioPath = $derived(audio?.kind === 'here' ? audio.path : undefined);
+	/** Whether the audio the newest recording names is missing from this device's folder. */
+	const absent = $derived(audio?.kind === 'absent');
+	const transcript = $derived(latest ? whispering.resultsFor(latest.stem)[0] : undefined);
+	const run = $derived(latest ? whispering.transcriptionRun(latest.stem) : undefined);
+	/** Whether the newest transcript has its answer, or what is happening to it. */
+	const progress = $derived(transcript && whispering.resultState(transcript.path, transcript.row.body));
+	const model = $derived(whispering.connections?.transcription?.model);
 
 	/** The transformation chosen beside the recorder, as the folder and the text connection have it now. */
-	const postProcessing = $derived(resolvePostProcessing(view.postProcessing, library.transformations, library.resolve));
-	/** A run on this transcript that is not a saved result yet: the one under way, else the newest. */
-	const postRun = $derived.by(() => {
-		if (transcript === undefined) return undefined;
-		const runs = library.transformationRuns.filter((item) => item.fields.transcriptionId === transcript.stem);
-		return runs.find((item) => item.state.kind === 'running') ?? runs.at(-1);
-	});
-	const outputs = $derived(transcript ? library.outputsFor(transcript.stem) : []);
+	const postProcessing = $derived(whispering.postProcessing);
+	/** Whether a transformation of the newest transcript is under way. Its result shows below once its file is written. */
+	const postRunning = $derived(
+		transcript !== undefined && whispering.recipeRuns.some((item) => item.transcriptionId === transcript.stem),
+	);
+	const outputs = $derived(transcript ? whispering.outputsFor(transcript.stem) : []);
 
 	/** Run the chosen transformation on the latest transcript. This press is the only thing that sends it. */
 	async function runPostProcessing() {
 		if (transcript === undefined || postProcessing.kind !== 'ready') return;
-		const problem = await library.transform(transcript.path, postProcessing.entry.path);
+		const problem = await whispering.transform(transcript.path, postProcessing.entry.path);
 		if (problem) toast.error('Post-processing did not run', { description: problem });
 	}
 
 	/** Show the recording, or one of its results, on the Recordings page. */
 	async function openFile(path: string) {
-		if (!(await openItem(library, path))) return;
+		if (!whispering.open(path)) return;
 		view.showingDetail = true;
 		await goto(resolve('/recordings'));
 	}
@@ -61,7 +66,7 @@
 			<SectionHeader.Description class="text-base">Record audio. Transcribe it when you’re ready.</SectionHeader.Description>
 		</SectionHeader.Root>
 
-		<RecorderCard {library} />
+		<RecorderCard />
 	</div>
 
 	<div class="w-full flex-3">
@@ -73,7 +78,14 @@
 					<span class="shrink-0 text-xs text-muted-foreground max-sm:hidden">{formatTime(latest.row.fields.recordedAt, 'short')}</span>
 				</div>
 
-				{#if transcript}
+				{#if transcript && progress && progress.kind !== 'answered'}
+					<ResultStatus
+						path={transcript.path}
+						result={progress}
+						audioAbsent={absent}
+						onDelete={() => void confirmDelete(whispering, transcript.path)}
+					/>
+				{:else if transcript}
 					<div class="flex items-start gap-2 rounded-md border p-3 text-sm">
 						<p class="max-h-40 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap" data-testid="latest-transcript">
 							{transcript.row.body.trim() || '(empty transcript)'}
@@ -84,50 +96,21 @@
 					</div>
 
 					<!-- Post-processing never starts by itself. The transcript above is not changed by it: a result is its own file. -->
-					{#if postRun?.state.kind === 'running'}
-						<p class="flex items-center gap-2 text-sm text-muted-foreground" role="status" data-testid="post-processing-running">
-							<Spinner class="size-3.5 shrink-0" />
-							<span class="min-w-0 break-words">Running “{postRun.fields.transformationTitle}”…</span>
-						</p>
-					{:else if postRun?.state.kind === 'failed'}
-						<div class="flex flex-wrap items-center gap-2 text-sm" data-testid="post-processing-failed">
-							<p class="min-w-0 flex-1 basis-full break-words text-destructive sm:basis-0" role="alert">
-								“{postRun.fields.transformationTitle}” did not run: {postRun.state.message}
-							</p>
-							<Button size="sm" onclick={() => void library.retryTransformation(postRun.id)} data-testid="post-processing-retry">Try again</Button>
-							<Button size="sm" variant="ghost" onclick={() => library.discardTransformationRun(postRun.id)}>Dismiss</Button>
-						</div>
-					{:else if postRun?.state.kind === 'unsaved'}
-						{@const text = postRun.state.text}
-						<div class="flex flex-wrap items-center gap-2 text-sm" data-testid="post-processing-unsaved">
-							<p class="min-w-0 flex-1 basis-full break-words text-destructive sm:basis-0" role="alert">
-								The result of “{postRun.fields.transformationTitle}” arrived, but its file was not saved: {postRun.state.message}
-							</p>
-							<Button
-								size="sm"
-								tooltip="Writes the file. The endpoint is not called again."
-								onclick={() => void library.retryTransformation(postRun.id)}
-								data-testid="post-processing-save"
-							>
-								Save it again
-							</Button>
-							<Button size="sm" variant="outline" onclick={() => void copyText(text, 'the result')}>Copy</Button>
-						</div>
-					{:else if postProcessing.kind === 'ready'}
-						{@const chosen = library.resolve(postProcessing.entry.row)}
+					{#if postProcessing.kind === 'ready'}
+						{@const chosen = whispering.resolve(postProcessing.entry.row)}
 						{@const name = transformationName(postProcessing.entry)}
 						<div class="flex flex-wrap items-center gap-2 text-sm">
 							<!-- The visible label stays short: a title can be longer than a narrow window. The name is in the accessible label and the tooltip. -->
 							<Button
 								size="sm"
 								variant="outline"
-								disabled={!transcript.row.body.trim()}
+								disabled={!transcript.row.body.trim() || postRunning}
 								aria-label="Run post-processing: {name}"
 								tooltip={chosen.kind === 'ready' ? `Runs “${name}”: sends this transcript to ${chosen.model} at ${chosen.endpoint}` : undefined}
 								onclick={() => void runPostProcessing()}
 								data-testid="run-post-processing"
 							>
-								<WandSparklesIcon />
+								{#if postRunning}<Spinner class="size-3.5" />{:else}<WandSparklesIcon />{/if}
 								Run post-processing
 							</Button>
 							<span class="text-xs text-muted-foreground">Nothing is sent until you press it.</span>
@@ -141,7 +124,6 @@
 					{/if}
 					{#if outputs[0]}
 						<TransformationOutput
-							{library}
 							output={{ source: 'transcript', entry: outputs[0] }}
 							naming="transformation"
 							onOpenFile={(path) => void openFile(path)}
@@ -154,7 +136,7 @@
 					{/if}
 				{:else if run?.kind === 'failed'}
 					<p class="text-sm text-destructive" role="alert" data-testid="transcription-error">{run.message}</p>
-				{:else if audioPath && run?.kind !== 'unsaved'}
+				{:else if audioPath}
 					<p class="text-sm text-muted-foreground">
 						{#if run?.kind === 'running'}
 							Transcribing…
@@ -168,22 +150,26 @@
 
 				<!-- On a narrow window the player takes its own line, so its scrubber and duration stay visible. -->
 				<div class="flex flex-wrap items-center gap-2">
-					{#if audioPath}
+					{#if absent}
+						<div class="flex-1 basis-full sm:basis-0"><AudioAbsent /></div>
+					{:else if audio?.kind === 'ambiguous'}
+						<p class="flex-1 text-sm text-destructive" role="alert">More than one audio file matches this recording. Open it to keep one matching file.</p>
+					{:else if audioPath}
 						<div class="min-w-0 flex-1 basis-full sm:basis-0">
 							<AudioPlayer
-								source={{ kind: 'file', files: library.folder.files, path: audioPath, generation: library.generation }}
+								path={audioPath}
 								label="Audio of {recordingTitle(latest)}"
 							/>
 						</div>
 					{:else}
-						<p class="flex-1 basis-full text-sm text-muted-foreground sm:basis-0">This recording’s file names no audio, so it cannot be played or transcribed. Open it to add the path.</p>
+						<p class="flex-1 basis-full text-sm text-muted-foreground sm:basis-0">Checking this recording’s audio beside its Markdown file.</p>
 					{/if}
-					{#if !transcript && run?.kind !== 'unsaved'}
+					{#if !transcript}
 						<Button
 							size="sm"
 							tooltip={model ? `Transcribes with ${model}` : undefined}
-							disabled={audioPath === undefined || run?.kind === 'running'}
-							onclick={() => void library.transcribe(latest)}
+							disabled={audioPath === undefined || whispering.capturePhase(audioPath) !== undefined || run?.kind === 'running'}
+							onclick={() => void whispering.transcribe(latest)}
 							data-testid="transcribe-latest"
 						>
 							{#if run?.kind === 'running'}<Spinner class="size-3.5" />{/if}

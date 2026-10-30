@@ -1,0 +1,55 @@
+{
+	"recordedAt": "2026-10-27T07:50:45.447Z",
+	"rows": [
+		{
+			"engine": "bun",
+			"rows": 5000,
+			"seedMs": 71,
+			"bytes": 14689600,
+			"sha256": "411a1144b8ab9d6b63c1be65c56cf359514bd5affc92dba774f6d3ad4052950c"
+		},
+		{
+			"engine": "bun",
+			"rows": 50000,
+			"seedMs": 443,
+			"bytes": 146935601,
+			"sha256": "8c7d10bd237aef5611a4b1473b523b1f587461277ded5ed44d6047ac5c0be061"
+		},
+		{
+			"engine": "chromium",
+			"rows": 5000,
+			"seedMs": 82,
+			"bytes": 14689600,
+			"sha256": "411a1144b8ab9d6b63c1be65c56cf359514bd5affc92dba774f6d3ad4052950c",
+			"openMs": [42, 41, 40],
+			"split": [[7, 30, 5], [7, 29, 5], [6, 30, 5]]
+		},
+		{
+			"engine": "chromium",
+			"rows": 50000,
+			"seedMs": 745,
+			"bytes": 146935601,
+			"sha256": "8c7d10bd237aef5611a4b1473b523b1f587461277ded5ed44d6047ac5c0be061",
+			"openMs": [324, 287, 301],
+			"split": [[30, 270, 24], [27, 236, 23], [26, 250, 26]]
+		},
+		{
+			"engine": "webkit",
+			"rows": 5000,
+			"seedMs": 75,
+			"bytes": 14689600,
+			"sha256": "411a1144b8ab9d6b63c1be65c56cf359514bd5affc92dba774f6d3ad4052950c",
+			"openMs": [49, 55, 48],
+			"split": [[14, 30, 5], [16, 33, 6], [13, 29, 6]]
+		},
+		{
+			"engine": "webkit",
+			"rows": 50000,
+			"seedMs": 638,
+			"bytes": 146935601,
+			"sha256": "8c7d10bd237aef5611a4b1473b523b1f587461277ded5ed44d6047ac5c0be061",
+			"openMs": [382, 378, 345],
+			"split": [[100, 242, 40], [89, 247, 42], [77, 227, 41]]
+		}
+	]
+}

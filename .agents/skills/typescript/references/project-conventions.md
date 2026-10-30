@@ -324,6 +324,6 @@ Detailed examples for the baseline TypeScript rules used across Epicenter.
   }
   ```
 
-  Use `ReturnType<ReturnType<typeof createThing>>` for curried factories. If the concrete object stores writable internals but the public API should be readonly, expose getters or narrowed methods in the returned object before deriving the type.
+  Use `ReturnType<ReturnType<typeof createThing>>` for curried factories. If the concrete object stores writable internals but the public API should be readonly, keep those internals private and expose read methods before deriving the type. Tracked getters belong in Svelte reactive adapters, following the [read API convention](../SKILL.md#core-rules).
 
   Keep explicit contract types when several implementations share the same surface, when the type is protocol vocabulary, or when you intentionally want to hide the concrete return shape. Use `satisfies` when the implementation should be checked against an external contract but the returned value should keep its own inferred shape.

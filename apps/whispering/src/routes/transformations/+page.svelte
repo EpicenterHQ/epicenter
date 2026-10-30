@@ -8,18 +8,18 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { basename } from '@epicenter/folder/file-browser';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import TransformationDetail from '../components/TransformationDetail.svelte';
 	import TransformationList from '../components/TransformationList.svelte';
-	import { openItem } from '../components/file-actions.js';
 
-	const { library, view } = getSession();
+	const whispering = getWhispering();
+	const { view } = whispering;
 
 	/** Below this width, the list and the editor take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
 
 	async function back() {
-		const path = library.selectedTransformationPath;
+		const path = whispering.selectedTransformationPath;
 		view.showingTransformation = false;
 		await tick();
 		if (path !== undefined)
@@ -28,7 +28,7 @@
 
 	/** A result is an ordinary file: its source opens beside the recordings, like any other file. */
 	async function openFile(path: string) {
-		if (!(await openItem(library, path))) return;
+		if (!whispering.open(path)) return;
 		view.showingDetail = true;
 		await goto(resolve('/recordings'));
 	}
@@ -37,25 +37,20 @@
 <svelte:head><title>Transformations · Whispering</title></svelte:head>
 
 {#snippet detail(onBack: (() => void) | undefined)}
-	{@const selected = library.selectedTransformation}
+	{@const selected = whispering.selectedTransformation}
 	{#if selected}
 		{#key selected.path}
 			<TransformationDetail
-				{library}
 				path={selected.path}
-				draft={selected.draft}
 				entry={selected.entry}
-				bind:applyTo={view.applyTo}
-				bind:applySource={view.applySource}
-				bind:pastedText={view.pastedText}
 				{onBack}
 				onOpenFile={(path) => void openFile(path)}
 			/>
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">
-			{#if library.selectedTransformationPath !== undefined}
-				<Empty.Title>{basename(library.selectedTransformationPath)} is no longer in the folder</Empty.Title>
+			{#if whispering.selectedTransformationPath !== undefined}
+				<Empty.Title>{basename(whispering.selectedTransformationPath)} is no longer in the folder</Empty.Title>
 				<Empty.Description>It was renamed or deleted outside this window. Results it produced are still saved.</Empty.Description>
 			{:else}
 				<Empty.Title>Select a transformation</Empty.Title>
@@ -71,7 +66,7 @@
 {#if wide.current}
 	<Resizable.PaneGroup direction="horizontal" class="min-h-0 flex-1">
 		<Resizable.Pane id="transformations" order={1} defaultSize={34} minSize={20}>
-			<TransformationList {library} />
+			<TransformationList />
 		</Resizable.Pane>
 		<Resizable.Handle />
 		<Resizable.Pane id="transformation" order={2} defaultSize={66} minSize={30}>
@@ -81,5 +76,5 @@
 {:else if view.showingTransformation}
 	{@render detail(back)}
 {:else}
-	<TransformationList {library} onOpen={() => (view.showingTransformation = true)} />
+	<TransformationList onOpen={() => (view.showingTransformation = true)} />
 {/if}

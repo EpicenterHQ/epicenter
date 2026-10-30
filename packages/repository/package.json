@@ -1,0 +1,36 @@
+{
+	"name": "@epicenter/repository",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/api/index.ts",
+		"./browser": "./src/api/browser.ts",
+		"./bun": "./src/bun/index.ts",
+		"./client": "./src/client/index.ts",
+		"./conflict": "./src/core/conflict.ts",
+		"./server": "./src/server/index.ts",
+		"./wire": "./src/wire/index.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test --path-ignore-patterns='browser-tests/**'",
+		"test:browser": "bun test browser-tests/",
+		"serve": "bun scripts/serve.ts",
+		"epicenter": "bun scripts/epicenter.ts"
+	},
+	"dependencies": {
+		"@noble/hashes": "^2.4.0",
+		"@sqlite.org/sqlite-wasm": "^3.54.1-build1",
+		"typebox": "catalog:",
+		"wellcrafted": "catalog:",
+		"yaml": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"playwright": "^1.61.1",
+		"svelte": "catalog:",
+		"typescript": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

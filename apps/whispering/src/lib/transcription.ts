@@ -1,9 +1,10 @@
 /**
  * One transcription request to an OpenAI-compatible endpoint.
  *
- * Plain `fetch` and nothing else, so the page (browser folder) and the Bun
- * host (desktop) run the same request. The desktop host makes the call so the
- * key stays out of the page and the endpoint needs no CORS headers.
+ * Plain `fetch` and nothing else. A browser tab sends it itself; inside
+ * Epicenter the `fetch` goes through the `epicenter` command, which adds the
+ * key from the keychain, so the key stays out of the page and the endpoint
+ * needs no CORS headers.
  *
  * The base URL and key are the transcription connection's (see
  * `connections.ts`). A redirect is refused, not followed, so the key is never
@@ -11,20 +12,13 @@
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
-import {
-	canonicalBaseUrl,
-	connectionTargets,
-	type StoredConnection,
-} from './connections.js';
+import { connectionTargets, type StoredConnection } from './connections.js';
+import { refusedBeforeSend } from './request-refusal.js';
 
 export const TranscriptionError = defineErrors({
 	NotConfigured: ({ missing }: { missing: string }) => ({
 		message: `Transcription is not set up: ${missing} is missing`,
 		missing,
-	}),
-	InvalidEndpoint: ({ reason }: { reason: string }) => ({
-		message: `Transcription cannot run: ${reason}`,
-		reason,
 	}),
 	/** The transcription connection is not set up, or could not be read. Nothing was sent. */
 	ConnectionUnavailable: ({ reason }: { reason: string }) => ({
@@ -47,13 +41,13 @@ export const TranscriptionError = defineErrors({
 		configured,
 	}),
 	/**
-	 * The host did not answer, or its answer never arrived. That says nothing
-	 * about what the host did: it may never have been reached, or it may have
-	 * sent the request and had its answer lost on the way back. The outcome is
+	 * Epicenter did not answer, or its answer never arrived. That says nothing
+	 * about what it did: it may never have been reached, or it may have sent
+	 * the request and had its answer lost on the way back. The outcome is
 	 * unknown, and nothing is sent again without the person asking.
 	 */
 	HostUnavailable: ({ reason }: { reason: string }) => ({
-		message: `Whispering’s host did not answer, so it is not known whether the request was sent or what came back: ${reason}. Nothing is sent again unless you try again.`,
+		message: `Epicenter did not answer, so it is not known whether the request was sent or what came back: ${reason}. Nothing is sent again unless you try again.`,
 		reason,
 	}),
 	/** The audio was not read, so no request was made. This one is certain. */
@@ -85,57 +79,93 @@ export const TranscriptionError = defineErrors({
 		message: `The transcription endpoint at ${url} did not answer with transcript text`,
 		url,
 	}),
+	/** Epicenter's local model ran and failed: it did not load, or inference failed. */
+	LocalFailed: ({ reason }: { reason: string }) => ({
+		message: `Transcription on this computer failed: ${reason}`,
+		reason,
+	}),
 });
 export type TranscriptionError = InferErrors<typeof TranscriptionError>;
 
+/** What a transcription sends besides its connection: the audio, and the fetch it goes through. */
 export type TranscriptionRequest = {
-	readonly baseUrl: string;
-	readonly model: string;
-	/** Sent as a bearer credential when nonempty. A local endpoint may need none. */
-	readonly apiKey: string;
 	readonly audio: {
 		readonly bytes: Uint8Array;
 		readonly filename: string;
 		readonly mimeType: string;
 	};
-	readonly signal?: AbortSignal;
 	readonly fetch?: (input: string, init?: RequestInit) => Promise<Response>;
 };
 
 const describe = (cause: unknown) =>
 	cause instanceof Error ? cause.message : String(cause);
 
-export function transcriptionUrl(baseUrl: string): string {
-	return `${baseUrl.trim().replace(/\/+$/, '')}/audio/transcriptions`;
-}
+/**
+ * What the page asks for. It names the transcription connection's base URL it
+ * was prepared for, and never a URL to send to: the request goes to the
+ * connection's own base URL, with its key, only while that is still
+ * `expectedBaseUrl`.
+ */
+export type PreparedTranscription = {
+	readonly audioPath: string;
+	readonly expectedBaseUrl: string;
+	readonly model: string;
+};
 
-export async function requestTranscription({
-	baseUrl,
-	model,
-	apiKey,
-	audio,
-	signal,
-	fetch: send = (input, init) => fetch(input, init),
-}: TranscriptionRequest): Promise<
-	Result<{ text: string }, TranscriptionError>
-> {
-	if (baseUrl.trim() === '')
-		return TranscriptionError.NotConfigured({ missing: 'the endpoint URL' });
-	const { data: base, error: urlError } = canonicalBaseUrl(baseUrl);
-	if (urlError !== null)
-		return TranscriptionError.InvalidEndpoint({ reason: urlError });
-	if (model.trim() === '')
+/**
+ * Send a recording's audio over the transcription connection. The connection
+ * is read once, here, before the audio, and that reading is what the request
+ * uses to the end. `connection` rejects when it cannot be read and resolves
+ * to undefined when none is set up; audio that cannot be read is the same
+ * certain case. Either way nothing is sent.
+ */
+export async function transcribeOverConnection(
+	connection: () => Promise<StoredConnection | undefined>,
+	request: PreparedTranscription,
+	audio: () => Promise<Result<TranscriptionRequest['audio'], string>>,
+	send: NonNullable<TranscriptionRequest['fetch']> = (input, init) =>
+		fetch(input, init),
+): Promise<Result<{ text: string }, TranscriptionError>> {
+	let stored: StoredConnection | undefined;
+	try {
+		stored = await connection();
+	} catch (cause) {
+		return TranscriptionError.ConnectionUnavailable({
+			reason: describe(cause),
+		});
+	}
+	if (stored === undefined)
+		return TranscriptionError.ConnectionUnavailable({
+			reason: 'no transcription connection is set up. Set one up in Settings.',
+		});
+	// Past this check the stored base URL is canonical: absolute HTTP(S), with
+	// no trailing slash.
+	if (!connectionTargets(stored, request.expectedBaseUrl))
+		return TranscriptionError.ConnectionChanged({
+			expected: request.expectedBaseUrl,
+			configured: stored.baseUrl,
+		});
+	const { data: upload, error: readError } = await audio();
+	if (readError !== null)
+		return TranscriptionError.AudioUnreadable({
+			path: request.audioPath,
+			reason: readError,
+		});
+	const model = request.model.trim();
+	if (model === '')
 		return TranscriptionError.NotConfigured({ missing: 'the model' });
-	const url = transcriptionUrl(base);
+
+	const url = `${stored.baseUrl}/audio/transcriptions`;
+	const apiKey = stored.apiKey ?? '';
 	const form = new FormData();
 	form.append(
 		'file',
-		new Blob([audio.bytes as Uint8Array<ArrayBuffer>], {
-			type: audio.mimeType,
+		new Blob([upload.bytes as Uint8Array<ArrayBuffer>], {
+			type: upload.mimeType,
 		}),
-		audio.filename,
+		upload.filename,
 	);
-	form.append('model', model.trim());
+	form.append('model', model);
 	form.append('response_format', 'json');
 
 	// An endpoint that echoes the key in a refusal must not carry it to the page.
@@ -151,9 +181,12 @@ export async function requestTranscription({
 			// A redirect could carry the key to a URL the connection does not name.
 			redirect: 'error',
 			credentials: 'omit',
-			signal,
 		});
 	} catch (cause) {
+		if (refusedBeforeSend(cause))
+			return TranscriptionError.ConnectionUnavailable({
+				reason: redact(cause.message),
+			});
 		return TranscriptionError.Unreachable({
 			url,
 			reason: redact(describe(cause)),
@@ -181,59 +214,20 @@ export async function requestTranscription({
 	return TranscriptionError.Malformed({ url });
 }
 
-/**
- * What the page asks for. It names the transcription connection's base URL it
- * was prepared for, and never a URL to send to: the request goes to the
- * connection's own base URL, with its key, only while that is still
- * `expectedBaseUrl`.
- */
-export type PreparedTranscription = {
-	readonly audioPath: string;
-	readonly expectedBaseUrl: string;
-	readonly model: string;
-};
+export type LocalTranscriptionReadiness =
+	| { readonly ready: true }
+	| { readonly ready: false; readonly message: string };
 
-/**
- * Send a recording's audio over the transcription connection. The connection
- * is read once, here, before the audio, and that reading is what the request
- * uses to the end. `connection` rejects when it cannot be read and resolves
- * to undefined when none is set up; audio that cannot be read is the same
- * certain case. Either way nothing is sent.
- */
-export async function transcribeOverConnection(
-	connection: () => Promise<StoredConnection | undefined>,
-	request: PreparedTranscription,
-	audio: () => Promise<Result<TranscriptionRequest['audio'], string>>,
-	send?: TranscriptionRequest['fetch'],
-): Promise<Result<{ text: string }, TranscriptionError>> {
-	let stored: StoredConnection | undefined;
-	try {
-		stored = await connection();
-	} catch (cause) {
-		return TranscriptionError.ConnectionUnavailable({
-			reason: describe(cause),
-		});
-	}
-	if (stored === undefined)
-		return TranscriptionError.ConnectionUnavailable({
-			reason: 'no transcription connection is set up. Set one up in Settings.',
-		});
-	if (!connectionTargets(stored, request.expectedBaseUrl))
-		return TranscriptionError.ConnectionChanged({
-			expected: request.expectedBaseUrl,
-			configured: stored.baseUrl,
-		});
-	const { data: upload, error: readError } = await audio();
-	if (readError !== null)
-		return TranscriptionError.AudioUnreadable({
-			path: request.audioPath,
-			reason: readError,
-		});
-	return requestTranscription({
-		baseUrl: stored.baseUrl,
-		apiKey: stored.apiKey ?? '',
-		model: request.model,
-		audio: upload,
-		fetch: send,
-	});
-}
+export type LocalTranscription = {
+	/** Whether the active model can run now. Advisory: transcribing checks again. */
+	readiness(): Promise<LocalTranscriptionReadiness>;
+	/**
+	 * Transcribe the audio at `audioPath` with the active model. The answer
+	 * names the model that produced it. Nothing is written by this.
+	 */
+	transcribe(
+		audioPath: string,
+	): Promise<Result<{ text: string; model: string }, TranscriptionError>>;
+	/** Open Epicenter's Settings where the local model is chosen. */
+	openSettings(): Promise<void>;
+};

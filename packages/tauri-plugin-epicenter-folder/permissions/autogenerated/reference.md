@@ -1,30 +1,19 @@
 ## Default Permission
 
-Attach to the folders the shell registered for this window, then read, publish, and record history through them.
+Open the folder the shell bound to this window, then read and change its files through the shell.
 
 #### This default permission set includes the following:
 
-- `allow-attach`
-- `allow-detach`
-- `allow-list`
-- `allow-children`
-- `allow-read`
-- `allow-read-many`
-- `allow-apply`
-- `allow-mkdir`
-- `allow-rmdir`
-- `allow-status`
-- `allow-commit`
-- `allow-open-request`
-- `allow-withdraw-request`
-- `allow-push`
-- `allow-fetch`
-- `allow-pull-fast-forward`
-- `allow-merge-incoming`
-- `allow-recover-incoming`
-- `allow-paths`
-- `allow-diff`
-- `allow-log`
+- `allow-open-folder`
+- `allow-subscribe-close`
+- `allow-unsubscribe-close`
+- `allow-destroy-bound-window`
+- `allow-list-folder`
+- `allow-read-folder-children`
+- `allow-read-folder-file`
+- `allow-put-folder-file`
+- `allow-make-folder-directory`
+- `allow-remove-folder-directory`
 
 ## Permission Table
 
@@ -38,25 +27,12 @@ Attach to the folders the shell registered for this window, then read, publish, 
 <tr>
 <td>
 
-`epicenter-folder:allow-apply`
+`epicenter-folder:allow-destroy-bound-window`
 
 </td>
 <td>
 
-Enables the apply command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-apply`
-
-</td>
-<td>
-
-Denies the apply command without any pre-configured scope.
+Enables the destroy_bound_window command without any pre-configured scope.
 
 </td>
 </tr>
@@ -64,25 +40,12 @@ Denies the apply command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-attach`
+`epicenter-folder:deny-destroy-bound-window`
 
 </td>
 <td>
 
-Enables the attach command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-attach`
-
-</td>
-<td>
-
-Denies the attach command without any pre-configured scope.
+Denies the destroy_bound_window command without any pre-configured scope.
 
 </td>
 </tr>
@@ -90,25 +53,12 @@ Denies the attach command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-children`
+`epicenter-folder:allow-list-folder`
 
 </td>
 <td>
 
-Enables the children command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-children`
-
-</td>
-<td>
-
-Denies the children command without any pre-configured scope.
+Enables the list_folder command without any pre-configured scope.
 
 </td>
 </tr>
@@ -116,25 +66,12 @@ Denies the children command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-commit`
+`epicenter-folder:deny-list-folder`
 
 </td>
 <td>
 
-Enables the commit command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-commit`
-
-</td>
-<td>
-
-Denies the commit command without any pre-configured scope.
+Denies the list_folder command without any pre-configured scope.
 
 </td>
 </tr>
@@ -142,25 +79,12 @@ Denies the commit command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-detach`
+`epicenter-folder:allow-make-folder-directory`
 
 </td>
 <td>
 
-Enables the detach command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-detach`
-
-</td>
-<td>
-
-Denies the detach command without any pre-configured scope.
+Enables the make_folder_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -168,25 +92,12 @@ Denies the detach command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-diff`
+`epicenter-folder:deny-make-folder-directory`
 
 </td>
 <td>
 
-Enables the diff command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-diff`
-
-</td>
-<td>
-
-Denies the diff command without any pre-configured scope.
+Denies the make_folder_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -194,25 +105,12 @@ Denies the diff command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-fetch`
+`epicenter-folder:allow-open-folder`
 
 </td>
 <td>
 
-Enables the fetch command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-fetch`
-
-</td>
-<td>
-
-Denies the fetch command without any pre-configured scope.
+Enables the open_folder command without any pre-configured scope.
 
 </td>
 </tr>
@@ -220,25 +118,12 @@ Denies the fetch command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-list`
+`epicenter-folder:deny-open-folder`
 
 </td>
 <td>
 
-Enables the list command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-list`
-
-</td>
-<td>
-
-Denies the list command without any pre-configured scope.
+Denies the open_folder command without any pre-configured scope.
 
 </td>
 </tr>
@@ -246,25 +131,12 @@ Denies the list command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-log`
+`epicenter-folder:allow-put-folder-file`
 
 </td>
 <td>
 
-Enables the log command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-log`
-
-</td>
-<td>
-
-Denies the log command without any pre-configured scope.
+Enables the put_folder_file command without any pre-configured scope.
 
 </td>
 </tr>
@@ -272,25 +144,12 @@ Denies the log command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-merge-incoming`
+`epicenter-folder:deny-put-folder-file`
 
 </td>
 <td>
 
-Enables the merge_incoming command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-merge-incoming`
-
-</td>
-<td>
-
-Denies the merge_incoming command without any pre-configured scope.
+Denies the put_folder_file command without any pre-configured scope.
 
 </td>
 </tr>
@@ -298,25 +157,12 @@ Denies the merge_incoming command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-mkdir`
+`epicenter-folder:allow-read-folder-children`
 
 </td>
 <td>
 
-Enables the mkdir command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-mkdir`
-
-</td>
-<td>
-
-Denies the mkdir command without any pre-configured scope.
+Enables the read_folder_children command without any pre-configured scope.
 
 </td>
 </tr>
@@ -324,25 +170,12 @@ Denies the mkdir command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-open-request`
+`epicenter-folder:deny-read-folder-children`
 
 </td>
 <td>
 
-Enables the open_request command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-open-request`
-
-</td>
-<td>
-
-Denies the open_request command without any pre-configured scope.
+Denies the read_folder_children command without any pre-configured scope.
 
 </td>
 </tr>
@@ -350,25 +183,12 @@ Denies the open_request command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-paths`
+`epicenter-folder:allow-read-folder-file`
 
 </td>
 <td>
 
-Enables the paths command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-paths`
-
-</td>
-<td>
-
-Denies the paths command without any pre-configured scope.
+Enables the read_folder_file command without any pre-configured scope.
 
 </td>
 </tr>
@@ -376,25 +196,12 @@ Denies the paths command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-pull-fast-forward`
+`epicenter-folder:deny-read-folder-file`
 
 </td>
 <td>
 
-Enables the pull_fast_forward command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-pull-fast-forward`
-
-</td>
-<td>
-
-Denies the pull_fast_forward command without any pre-configured scope.
+Denies the read_folder_file command without any pre-configured scope.
 
 </td>
 </tr>
@@ -402,25 +209,12 @@ Denies the pull_fast_forward command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-push`
+`epicenter-folder:allow-remove-folder-directory`
 
 </td>
 <td>
 
-Enables the push command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-push`
-
-</td>
-<td>
-
-Denies the push command without any pre-configured scope.
+Enables the remove_folder_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -428,25 +222,12 @@ Denies the push command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-read`
+`epicenter-folder:deny-remove-folder-directory`
 
 </td>
 <td>
 
-Enables the read command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-read`
-
-</td>
-<td>
-
-Denies the read command without any pre-configured scope.
+Denies the remove_folder_directory command without any pre-configured scope.
 
 </td>
 </tr>
@@ -454,25 +235,12 @@ Denies the read command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-read-many`
+`epicenter-folder:allow-subscribe-close`
 
 </td>
 <td>
 
-Enables the read_many command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-read-many`
-
-</td>
-<td>
-
-Denies the read_many command without any pre-configured scope.
+Enables the subscribe_close command without any pre-configured scope.
 
 </td>
 </tr>
@@ -480,25 +248,12 @@ Denies the read_many command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-recover-incoming`
+`epicenter-folder:deny-subscribe-close`
 
 </td>
 <td>
 
-Enables the recover_incoming command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-recover-incoming`
-
-</td>
-<td>
-
-Denies the recover_incoming command without any pre-configured scope.
+Denies the subscribe_close command without any pre-configured scope.
 
 </td>
 </tr>
@@ -506,25 +261,12 @@ Denies the recover_incoming command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-rmdir`
+`epicenter-folder:allow-unsubscribe-close`
 
 </td>
 <td>
 
-Enables the rmdir command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-rmdir`
-
-</td>
-<td>
-
-Denies the rmdir command without any pre-configured scope.
+Enables the unsubscribe_close command without any pre-configured scope.
 
 </td>
 </tr>
@@ -532,51 +274,12 @@ Denies the rmdir command without any pre-configured scope.
 <tr>
 <td>
 
-`epicenter-folder:allow-status`
+`epicenter-folder:deny-unsubscribe-close`
 
 </td>
 <td>
 
-Enables the status command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-status`
-
-</td>
-<td>
-
-Denies the status command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:allow-withdraw-request`
-
-</td>
-<td>
-
-Enables the withdraw_request command without any pre-configured scope.
-
-</td>
-</tr>
-
-<tr>
-<td>
-
-`epicenter-folder:deny-withdraw-request`
-
-</td>
-<td>
-
-Denies the withdraw_request command without any pre-configured scope.
+Denies the unsubscribe_close command without any pre-configured scope.
 
 </td>
 </tr>

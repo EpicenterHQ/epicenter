@@ -33,11 +33,10 @@ pub enum DictationCapability {
     Broken,
 }
 
-/// Pushed whenever the dictation capability changes. The frontend seeds from
-/// `get_dictation_capability` on attach, then tracks this event for transitions;
-/// it never probes the OS itself. A `tauri_specta::Event`, emitted with
-/// `emit_to(app, MAIN_WINDOW)` (the Whispering webview, not the overlay) and listened
-/// through the generated `events.dictationCapabilityEvent`.
+/// A dictation capability change, for the generated
+/// `events.dictationCapabilityEvent`. Nothing emits it yet: ADR-0555 sends it
+/// to every window of an app that called `get_dictation_capability`, and until
+/// then a page reads the capability with that command.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type, tauri_specta::Event,
 )]

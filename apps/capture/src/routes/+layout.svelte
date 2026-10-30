@@ -8,5 +8,5 @@
 
 <svelte:head><title>Capture</title></svelte:head>
 <Tooltip.Provider>{@render children?.()}</Tooltip.Provider>
-<Toaster />
+<Toaster closeButton />
 <ConfirmationDialog />

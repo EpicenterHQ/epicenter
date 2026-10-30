@@ -1,56 +1,40 @@
 {
 	"name": "@epicenter/todos",
-	"description": "File-first todos: Markdown rows, browser Git history, and a folder terminal",
+	"description": "Todos: Markdown todos in a repository, as an app (ADR-0694): its manifest and a bundle the web shell mounts",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
-	"imports": {
-		"#platform/folder": {
-			"epicenter-host": "./src/lib/platform/folder.epicenter-host.ts",
-			"default": "./src/lib/platform/folder.browser.ts"
-		},
-		"#platform/departure": {
-			"epicenter-host": "./src/lib/platform/departure.epicenter-host.ts",
-			"default": "./src/lib/platform/departure.browser.ts"
-		}
+	"exports": {
+		".": "./src/definition.ts",
+		"./bundle": "./src/bundle.ts"
 	},
 	"scripts": {
-		"dev": "bun scripts/dev.ts",
-		"dev:ui": "vite dev",
-		"dev:git": "bun server/git-server.ts",
-		"native": "bun run --cwd ../../packages/folder build:addon && bun scripts/native.ts",
-		"build": "NODE_ENV=production vite build",
-		"build:epicenter": "EPICENTER_HOST=1 bun run build",
-		"preview": "vite preview",
-		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun run --cwd ../../packages/folder build:addon && bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",
+		"schema:export": "bun scripts/export-schema.ts",
+		"native": "bun scripts/native.ts",
+		"test": "bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte mounted.test",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json && tsc -p tsconfig.scripts.json"
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
-		"@epicenter/ui": "workspace:*",
-		"@epicenter/vite-config": "workspace:*",
-		"@lucide/svelte": "catalog:",
-		"@sveltejs/adapter-static": "catalog:",
-		"@sveltejs/kit": "catalog:",
-		"@sveltejs/vite-plugin-svelte": "catalog:",
-		"@tailwindcss/vite": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
-		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
-		"svelte-sonner": "catalog:",
-		"tailwindcss": "catalog:",
-		"typescript": "catalog:",
-		"vite": "catalog:"
+		"typescript": "catalog:"
 	},
 	"dependencies": {
-		"@epicenter/epicenter": "workspace:*",
+		"@epicenter/app": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/repository": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
+		"@epicenter/ui": "workspace:*",
+		"@lucide/svelte": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"buffer": "^6.0.3",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
-	"license": "AGPL-3.0-or-later"
+	"license": "AGPL-3.0-or-later",
+	"peerDependencies": {
+		"svelte": "catalog:"
+	}
 }

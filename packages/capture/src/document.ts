@@ -25,7 +25,8 @@ type Edit =
 	| { readonly ok: true; readonly source: string }
 	| { readonly ok: false; readonly refusal: Refusal };
 
-type Span = { readonly start: number; readonly end: number };
+/** Offsets into a body: `start` inclusive, `end` exclusive. */
+export type Span = { readonly start: number; readonly end: number };
 
 /** Offsets into `source`. Meaningful only with the document that holds them. */
 type Layout = {
@@ -370,13 +371,19 @@ const refuse = (code: RefusalCode, message: string): Edit => ({
 	refusal: { code, message },
 });
 
-/** A thought's text as it is stored: LF lines, no blank edges, no whitespace-only lines. */
+/**
+ * A thought's text as it is stored: LF lines, no blank edges, and no
+ * whitespace-only lines. Markdown reads up to three spaces or a tab after a
+ * list marker as part of the marker, so that leading whitespace is dropped;
+ * four spaces start indented code, which reads back and stays.
+ */
 export function normalizeThought(text: string): string {
 	return toTextarea(text)
 		.split('\n')
 		.map((line) => (line.trim() === '' ? '' : line))
 		.join('\n')
-		.replace(/^\n+|\n+$/g, '');
+		.replace(/^\n+|\n+$/g, '')
+		.replace(/^(?! {4})[ \t]+/, '');
 }
 
 function renderItem(
@@ -499,7 +506,6 @@ export type CaptureBody = {
 
 /** Information a view needs in addition to the complete structured value. */
 export type CaptureBodyReading = CaptureBody & {
-	newline: Newline;
 	hasSection: boolean;
 	hasOtherContent: boolean;
 };
@@ -512,10 +518,18 @@ export const captureBody = {
 		return Ok({
 			text: document.text as string,
 			thoughts: document.thoughts,
-			newline: document.newline,
 			hasSection: document.hasSection,
 			hasOtherContent: document.hasOtherContent,
 		});
+	},
+	/**
+	 * Where each thought sits in `body`, in order: from its bullet marker to
+	 * the end of its last line with content, without the line ending.
+	 */
+	locate(body: string): Result<{ thoughts: readonly Span[] }, Refusal> {
+		const document = parseBody(body);
+		if (document.refusal !== undefined) return Err(document.refusal);
+		return Ok({ thoughts: (document.layout as Layout).items });
 	},
 	encode(value: CaptureBody, body: string): Result<string, Refusal> {
 		const document = parseBody(body);

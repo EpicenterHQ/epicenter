@@ -3,7 +3,7 @@
 	import * as Popover from '@epicenter/ui/popover';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import AudioLinesIcon from '@lucide/svelte/icons/audio-lines';
-	import { getSession } from '$lib/session.svelte.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 	import SettingsForm from './SettingsForm.svelte';
 
@@ -17,8 +17,8 @@
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const { library } = getSession();
-	const connection = $derived(library.connections?.transcription);
+	const whispering = getWhispering();
+	const connection = $derived(whispering.connections?.transcription);
 	const summary = $derived(
 		connection
 			? `Transcription model: ${connection.model}, at ${connection.baseUrl}`

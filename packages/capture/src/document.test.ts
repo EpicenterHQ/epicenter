@@ -18,13 +18,13 @@
  * - List edits format positional thought strings as consistent bullet items
  */
 import { expect, test } from 'bun:test';
-import { frameRowText } from '@epicenter/folder';
+import { expectErr, expectOk } from 'wellcrafted/testing';
+import { fromTextarea } from './document.js';
 import {
 	type CaptureBody,
 	type CaptureBodyReading,
 	captureBody,
 	composeBody,
-	fromTextarea,
 	normalizeThought,
 	type Refusal,
 } from './index.js';
@@ -42,11 +42,15 @@ type CaptureDocument = Omit<CaptureBodyReading, 'text'> & {
 
 // Golden file expectations retain their original headers. Only the body goes
 // through the codec; Folder's own tests cover frontmatter serialization.
-function parseCapture(source: string): CaptureDocument {
-	const frame = frameRowText(source);
-	if (frame.kind !== 'frontmatter')
+function bodyStart(source: string): number {
+	const header = /^\uFEFF?---\r?\n(?:[^\r\n]*\r?\n)*?---\r?\n/.exec(source);
+	if (header === null)
 		throw new Error('fixture: a capture file has frontmatter');
-	const result = captureBody.decode(source.slice(frame.bodyStart));
+	return header[0].length;
+}
+
+function parseCapture(source: string): CaptureDocument {
+	const result = captureBody.decode(source.slice(bodyStart(source)));
 	return result.error === null
 		? { ...result.data, source, refusal: undefined }
 		: {
@@ -54,23 +58,18 @@ function parseCapture(source: string): CaptureDocument {
 				refusal: result.error,
 				text: undefined,
 				thoughts: [],
-				newline: frame.newline,
 				hasSection: false,
 				hasOtherContent: false,
 			};
 }
 function write(document: CaptureDocument, value: CaptureBody): Edit {
 	if (document.refusal) return { ok: false, refusal: document.refusal };
-	const frame = frameRowText(document.source);
-	if (frame.kind !== 'frontmatter') throw new Error('fixture');
-	const result = captureBody.encode(
-		value,
-		document.source.slice(frame.bodyStart),
-	);
+	const start = bodyStart(document.source);
+	const result = captureBody.encode(value, document.source.slice(start));
 	return result.error === null
 		? {
 				ok: true,
-				source: document.source.slice(0, frame.bodyStart) + result.data,
+				source: document.source.slice(0, start) + result.data,
 			}
 		: { ok: false, refusal: result.error };
 }
@@ -263,21 +262,24 @@ test.each([
 	],
 	['two marker styles', 'a\n\n## Thoughts\n\n- x\n* y\n', 'section-shape'],
 	['an ordered list', 'a\n\n## Thoughts\n\n1. x\n', 'section-shape'],
-] as const)('%s refuses structured reading and every operation', (_name, body, code) => {
-	const document = parseCapture(`${HEAD}${body}`);
-	expect(document.refusal?.code).toBe(code);
-	expect(document.text).toBeUndefined();
-	expect(document.thoughts).toEqual([]);
-	const seen = 0;
-	for (const edit of [
-		setText(document, 'new'),
-		addThought(document, 'new'),
-		editThought(document, seen, 'new'),
-		deleteThought(document, seen),
-		swapThoughts(document, seen, 1),
-	])
-		expect(refusalOf(edit).code).toBe(code);
-});
+] as const)(
+	'%s refuses structured reading and every operation',
+	(_name, body, code) => {
+		const document = parseCapture(`${HEAD}${body}`);
+		expect(document.refusal?.code).toBe(code);
+		expect(document.text).toBeUndefined();
+		expect(document.thoughts).toEqual([]);
+		const seen = 0;
+		for (const edit of [
+			setText(document, 'new'),
+			addThought(document, 'new'),
+			editThought(document, seen, 'new'),
+			deleteThought(document, seen),
+			swapThoughts(document, seen, 1),
+		])
+			expect(refusalOf(edit).code).toBe(code);
+	},
+);
 
 // ============================================================================
 // Preservation
@@ -292,6 +294,27 @@ test('reading reports the text with its own whitespace and LF lines', () => {
 		text: '  Original text  \nsecond line',
 		thoughts: ['one', 'two\nmore'],
 	});
+});
+
+test('locating thoughts answers each item from its marker to its last line, in CRLF source', () => {
+	const body = PRESERVED.slice(bodyStart(PRESERVED));
+	const { thoughts } = expectOk(captureBody.locate(body));
+	expect(thoughts.map(({ start, end }) => body.slice(start, end))).toEqual([
+		'- one',
+		'- two\r\n  more',
+	]);
+	// An item's blank lines and nested Markdown are its own; what follows the list is not.
+	const nested =
+		'\nText\n\n## Thoughts\n\n- a\n\n  more\n  - nested\n- b\n\nAfter.\n';
+	expect(
+		expectOk(captureBody.locate(nested)).thoughts.map(({ start, end }) =>
+			nested.slice(start, end),
+		),
+	).toEqual(['- a\n\n  more\n  - nested', '- b']);
+	expect(expectOk(captureBody.locate('No section\n')).thoughts).toEqual([]);
+	expect(
+		expectErr(captureBody.locate('## Thoughts\n\n## Thoughts\n')).code,
+	).toBe('duplicate-heading');
 });
 
 test('adding a thought inserts one CRLF item and changes nothing else', () => {
@@ -454,14 +477,15 @@ test('a heading typed inside a thought stays inside that thought', () => {
 	]);
 });
 
-test('thought normalization removes blank edges and preserves interior lines and text whitespace', () => {
+test('thought normalization removes blank edges and marker whitespace, and keeps code indentation and interior lines', () => {
 	expect(
 		normalizeThought(
 			'\r\n \t\r\n  first  \r\n \t\r\n  continuation  \r\n\t\r\n',
 		),
-	).toBe('  first  \n\n  continuation  ');
+	).toBe('first  \n\n  continuation  ');
 	expect(normalizeThought(' \t\r\n \n\t')).toBe('');
-	expect(normalizeThought('  only  ')).toBe('  only  ');
+	expect(normalizeThought('  only  ')).toBe('only  ');
+	expect(normalizeThought('    code()')).toBe('    code()');
 });
 
 // ============================================================================

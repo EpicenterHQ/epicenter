@@ -1,61 +1,31 @@
 /**
- * Moving between captures and deleting one, with the confirmation each may
- * need. Leaving a capture whose save failed or conflicted, or that holds a
- * thought typed and not added, asks once whether to discard it; the discard
- * is bound to the session the store answered, not one read before asking.
+ * Deleting a capture, with the confirmation it needs. There is no history on
+ * this path, so a deleted capture cannot be brought back.
  */
+
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
-import type { Captures, Mode } from './captures.svelte.js';
+import type { Captures } from './captures.svelte.js';
 
-type Opening = Awaited<ReturnType<Captures['open']>>;
-type Session = Extract<Opening, { kind: 'unsaved' }>['session'];
-
-/** When `opening` answered `unsaved`, ask, and on Discard go on letting that session go. */
-function askToDiscard(
-	opening: Opening,
-	proceed: (discard: Session) => Promise<unknown>,
-) {
-	if (opening.kind !== 'unsaved') return;
-	const { session } = opening;
+/** Ask before deleting the capture at `stem`; the delete acts on the file as stored when it runs. */
+export function confirmDelete(captures: Captures, stem: string) {
+	const deletion = captures.deletionFor(stem);
+	const named = deletion.title ? `“${deletion.title}” ` : 'This capture ';
 	confirmationDialog.open({
-		title: 'Discard unsaved changes?',
-		description:
-			'This capture has text that is not saved. Discard it to go on, or cancel to keep working on it.',
-		confirm: { text: 'Discard', variant: 'destructive' },
-		async onConfirm() {
-			await proceed(session);
+		title: deletion.draft ? 'Discard this draft?' : 'Delete this capture?',
+		description: deletion.draft
+			? `${named}will be deleted from this device. A discarded draft cannot be brought back.`
+			: `${named}and its thoughts are deleted from this device. A deleted capture cannot be brought back.`,
+		confirm: {
+			text: deletion.draft ? 'Discard draft' : 'Delete',
+			variant: 'destructive',
 		},
-	});
-}
-
-/** Open `stem` as `mode`, asking first when the open capture holds unsaved text. */
-export async function openItem(captures: Captures, stem: string, mode: Mode) {
-	askToDiscard(await captures.open(stem, mode), (discard) =>
-		captures.open(stem, mode, { discard }),
-	);
-}
-
-/** Go back to the timeline, asking first when the open capture holds unsaved text. */
-export async function backToTimeline(captures: Captures) {
-	askToDiscard(await captures.leave(), (discard) =>
-		captures.leave({ discard }),
-	);
-}
-
-/** Ask before deleting the open capture; the delete acts on what this window saved last. */
-export function confirmDelete(captures: Captures, title: string) {
-	const item = captures.opened;
-	if (item?.kind !== 'capture' && item?.kind !== 'text') return;
-	const { session } = item;
-	confirmationDialog.open({
-		title: 'Delete this capture?',
-		description: `${title ? `“${title}” ` : ''}and its thoughts are deleted from the folder. Text here that is not saved is discarded too. Committed versions stay in Git history.`,
-		confirm: { text: 'Delete', variant: 'destructive' },
-		async onConfirm() {
-			const problem = await captures.remove(session);
-			if (problem)
-				toast.error('The capture was not deleted', { description: problem });
+		onConfirm: async () => {
+			const deleted = await captures.delete(deletion);
+			if (deleted.error !== null)
+				toast.error('Could not delete this capture', {
+					description: deleted.error.message,
+				});
 		},
 	});
 }

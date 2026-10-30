@@ -14,8 +14,7 @@
 /* App-shell components are styled through this shared CSS entrypoint, so Tailwind
    must scan app-shell sources or app-shell-only utilities will not be generated. */
 @source "../../app-shell/src/**/*.{svelte,ts}";
-/* Likewise for the shared Svelte components in @epicenter/svelte: SaveBar,
-   SyncReview, and the folder UI. */
+/* The same holds for the shared components in @epicenter/svelte. */
 @source "../../svelte/src/**/*.{svelte,ts}";
 
 /*

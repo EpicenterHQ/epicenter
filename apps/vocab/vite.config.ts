@@ -37,13 +37,6 @@ export default defineConfig(
 		},
 		resolve: {
 			alias: [
-				// Vocab is a browser app: its folder is this browser's storage. The
-				// exact bare specifier follows the browser entry the opener imports,
-				// so no desktop adapter is emitted. Subpaths are untouched.
-				{
-					find: /^@epicenter\/folder$/,
-					replacement: '@epicenter/folder/browser',
-				},
 				// isomorphic-git and its SHA-1 dependency expect Node's Buffer.
 				{
 					find: /^buffer$/,

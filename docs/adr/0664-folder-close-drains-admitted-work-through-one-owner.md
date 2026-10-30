@@ -1,0 +1,243 @@
+# 0664. Folder close drains admitted work through one owner
+
+- **Status:** Superseded
+- **Date:** 2026-10-21
+- **Superseded by:** [ADR-0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md).
+- **Lifecycle history:** The [synchronous release amendment](#amendment-2026-10-22-close-releases-without-draining) supersedes the drain contract: close releases without submitting input or waiting for writes. [ADR-0669](0669-folder-actions-track-lifetime-without-reserving-paths.md) records the intermediate removal of path reservations and save-before-action behavior. The [write-only closure amendment](#amendment-2026-10-22-folder-tracks-writes-not-app-workflows) removes workflow admission entirely. The original decision and earlier amendments below preserve the preceding lifecycle models.
+- **Amends:** ADR-0574, ADR-0656, and ADR-0657 at action admission and orderly teardown. ADR-0662's FileEdit and MarkdownContent contract remains.
+
+## Context
+
+The Svelte context admitted app actions through `context.run`, stopped editor
+input through `folder.stopEditing`, waited for those actions, and only then
+called `folder.close`. Folder separately tracked storage saves and protected
+file actions. One-path and multi-path actions had two exclusive APIs and a
+special bound-file map to survive storage closure. The context could report
+closing while Folder reported open.
+
+## Decision
+
+Folder owns action admission as well as edits and storage. Its one `run(paths,
+action)` entry admits a whole action. Empty paths admit lifetime only; nonempty
+paths also reserve local input and competing reservations, await already-queued
+saves, and attempt held input before running the callback. Failed input prevents
+the callback and remains recoverable. Reservations are not storage transactions
+or locks on other programs or raw storage calls.
+
+The callback receives FolderWork: ordinary file and typed-table storage
+operations plus child `run`, without editors, listeners, settle, or close. It is
+branded so a root Folder cannot accidentally stand in for admitted work. Its
+access expires when the callback returns or throws. Calls and children already
+started finish before the action releases its reservations or reports completion.
+Child actions may be admitted during close; overlapping reservations refuse
+rather than queue, including overlaps with an ancestor.
+
+Close synchronously refuses fresh input, new root actions and root storage
+calls. Already-admitted storage access survives. Available held input is sent
+without waiting for unrelated network work; newly released paths are attempted
+after actions drain. A failed revision is not retried twice by the same settle.
+FileEdit.save attempts or joins only its own path during close, avoiding a cycle
+with an action that called it. After close completes it does nothing. Failed
+input remains readable. Repeated close calls share one completion.
+
+All saves and admitted actions use the handle's single lifetime registry.
+Svelte owns query and window cleanup, and its closing state reads Folder status.
+Remove stopEditing, context.run and its action registry, both public exclusive
+methods, ExclusiveFile and the bound-file map. Ordinary editing remains FileEdit;
+MarkdownContent remains a snapshot without independent identity or lifecycle.
+
+## Consequences
+
+Actions must use the storage capability received by their callback for
+continuations. Captured root storage calls refuse during close. Captured root
+settle or close must not be awaited inside an admitted action because they wait
+for it; the work capability intentionally omits both. Callbacks that never finish
+can still hold close open, as app actions could before.
+
+Workflow updates use witnessed storage changes, rather than a second editor
+lifecycle. Honeycrisp's logical-folder deletion keeps its partial-progress and
+final-membership checks; Whispering keeps confirmed-file deletion and rename
+witnesses; Capture promotes a draft once; Messages keeps the durable sending
+marker and uncertain-send recovery across its request.
+
+## Alternatives
+
+Leaving all root storage open while any action drains would let unrelated late
+callers enter after close. Scoped access preserves one truthful admission
+boundary. General raw-write locking would add mutation checks and new refusal
+semantics beyond the existing local edit fence; it is not required here.
+
+## Built
+
+<!-- doc-path-check: ignore-next-line -->
+`packages/folder/src/handle.ts`, `edit-owner.ts` and `folder.ts`, with migrations
+in the Svelte context, Honeycrisp, Whispering, Capture, Messages and saved views.
+Regression coverage includes late child admission, expiry, early return and
+throw while calls drain, reentrant close, failed-input recovery, and close during
+real multi-step app actions.
+
+## Amendment, 2026-10-21: one action reserves one upfront set
+
+`FolderWork.run` is removed. The child-action clauses above (FolderWork's child
+`run`, children finishing before release, child admission during close, and
+overlaps with an ancestor) and the late-child regression test are history.
+`folder.run(paths, action)` is admission only: an action's reservation is
+declared before it starts and cannot grow. `[]` still admits lifetime only, as
+Messages' draft opening uses it. Reservations still protect local input and
+competing reservations; they do not limit which paths the callback's storage
+calls reach, do not cover raw storage calls or outside programs, and are not
+storage transactions. Root storage still refuses as soon as close starts; an
+admitted callback's storage access still survives close until the action ends,
+calls already started still finish before release, and close still drains late
+scoped storage calls.
+
+Child scopes were correct: Honeycrisp's folder deletion reserved each member
+in its own child, then read it fresh and checked its folder before writing from
+that witness. The single scope keeps that protection with less machinery: one
+fixed set and one lifetime per attempt. Deletion reserves the notes the page
+lists in the folder, every note with unsaved typing, and the folder's file;
+still rechecks each member fresh before writing; and, because the set cannot
+grow, refuses before any move when its fresh read finds a member it did not
+reserve. Writing such a member from that unreserved read could undo a
+concurrent move, so a workflow that depends on reserved input refuses rather
+than writes it. The page then holds that read, so the next attempt includes
+it. Messages reserves its durable draft path when a send is
+called, with its Web Lock inside that action. Capture, Whispering and Epicenter
+already used one level.
+
+## Amendment, 2026-10-21: one Folder, no FolderWork
+
+`FolderWork` is removed: its brand, the scoped copies of `files` and `tables`,
+the per-callback expiry and the per-action set of started calls. The callback
+of `folder.run(paths, action)` takes no argument and uses the same
+`folder.files` and `folder.tables` as everything else. `run` keeps its
+contract: one admission per action, the same `Result<T, ActionError>`, held
+input flushed and every path reserved before the callback, overlaps refused,
+`[]` for lifetime only, and new actions refused synchronously once close is
+called. `saving` stays truthful.
+
+This reverses two clauses above. Root storage no longer refuses when close
+starts; `files` and `tables` stay usable while close drains and throw only
+after close releases storage. New input, new actions, new listeners, `settle`
+and `FileEdit.read` still refuse from the moment close is called, and held
+input stays readable and recoverable after release. The alternative rejected
+above, leaving root storage open while actions drain, is the one now taken,
+with its cost stated: any write started during the drain, from an admitted
+action or an unrelated late caller, is waited for and prolongs close. Nothing
+is told apart by caller.
+
+Every save, from an action or not, registers in the one lifetime registry
+when it is called. Close finds that registry empty and releases storage in
+the same synchronous turn, before it publishes its final status, so a write
+called in an earlier turn is drained and one called later throws; the engine
+is never released under a write it accepted. A reservation ends only after
+the saves queued on its paths when the callback returned or threw have
+settled, so an unawaited write on a reserved path still lands before new
+input there is taken; a failed save does not replace the callback's outcome.
+A continuation the callback leaves running has no special capability: it is
+drained if it writes before release and refused after. Callers await the work
+whose outcome matters.
+
+Reservations remain local-input protection, not write permission. Code that
+must not write once the folder is closing asks for admission at that write.
+Whispering admits each received answer, and each retry, with
+`folder.run([], ...)` and treats `NotStarted` as closing, so an answer that
+arrives after disposal never starts saving even while other work, on its row
+or elsewhere, keeps the folder open. Provider requests stay outside Folder
+work and are neither drained nor replayed. A Stop admits its row-length write
+the same way once its initial row has saved.
+
+Departure policy is unchanged. `FolderApp` starts close when it unmounts and
+does not wait for it; a native window close or Quit, or a browser unload, does
+not wait for the drain, and `run` keeps no destroyed page alive.
+
+## Amendment, 2026-10-22: Folder tracks writes, not app workflows
+
+Remove `Folder.run` and its app wrappers. Current app navigation retains its
+Folder: Whispering owns it above routes; the single-page apps keep it while
+switching views; Settings stays mounted when hidden. Vocab sign-in replaces the
+document. Window destruction and document unload do not wait for page promises.
+The surviving-runtime closes are startup failures and cleanup of a late opener,
+with no admitted user workflow to protect. Workflow lifetime admission therefore
+has no demonstrated product departure flow.
+
+Close still refuses new editor input, submits held input, drains submitted writes,
+and releases storage. It does not wait for future writes across workflow awaits.
+Apps keep their own closing checks for new work and late answers. Messages keeps
+its durable uncertain-send record when departure prevents saving a receipt.
+
+This supersedes the action-admission and workflow-draining clauses above; the
+per-path publication order and unsaved-input recovery remain.
+
+## Amendment, 2026-10-22: the write lanes own draining
+
+After removing `run`, every remaining tracked operation already belongs to an
+edit-owner lane. Remove the handle's second promise registry and the `track` and
+`drainWork` callbacks passed into the owner. Both settle and close drain the
+existing lane tails, including commands submitted while earlier ones settle.
+A lane stays registered through input acknowledgement and observer notification,
+so a close called from a publication notice waits for that acknowledgement.
+
+The edit owner finishes closure in the same turn that it finds its lanes empty,
+retains recovery text, and exposes its closed state to the handle. Remove the
+separate `release` call and handle-level released flag. The handle retains its
+cached close completion for reentrant callers and releases engine resources
+after the owner closes. Input refusal during the drain, storage refusal after it,
+explicit saves during the drain, and failed-input recovery retain their roles.
+
+## Amendment, 2026-10-22: close refuses new work immediately
+
+No app caller needs new storage calls or explicit retries after close starts.
+UI retries happen after cancelling departure, before Folder close. Refuse new
+file and table storage calls, editor saves and refreshes, and input at the call
+to close. Snapshot access and copying or discarding retained input remain usable.
+Submit held input once, then wait for the fixed set of queued writes. If a direct
+command fails during close, return its original input for recovery without
+resuming autosave. A reopened handle can save that recovered source.
+
+Collapse the edit owner's open/closing/closed phase into one closed boolean,
+set at the start. Remove the second handle guard and the owner's `isClosed`
+query. Close needs one wait on lane tails, without a loop for later submissions.
+The cached close promise still identifies completion and joins reentrant calls.
+A rename interrupted after its submitted copy keeps the original, rather than
+starting a new deletion during close.
+
+## Amendment, 2026-10-22: settle waits for one captured set
+
+The production callers of `settle` flush on page hide and before Messages
+switches between demo and Beeper. Those callers keep the Folder open and need
+the existing input submitted, without waiting for later commands or retries.
+Submit held input once, capture the current lane tails, and wait for those
+promises once. Remove the loop that followed work arriving during the wait,
+including new commands appended to an existing lane.
+
+Editing and autosave remain open. A failed command can resume its interrupted
+autosave after the captured set was taken; that publication proceeds independently
+and does not extend this settle. The returned recoveries still describe current
+held input when the wait finishes, including newer or still-publishing input.
+A caller needing subsequent work completed awaits that work or calls settle again.
+
+## Amendment, 2026-10-22: close releases without draining
+
+`close(): void` releases listeners and storage synchronously and idempotently.
+It submits no held input, drains no commands, returns no recoveries, and stops
+autosave. Admitted commands may finish or fail with their own Results. Callers
+needing durable bytes await the write or save they started. Confirmed departure
+accepts losing unfinished work.
+
+`settle()` is removed. `flush(): void` replaces page-hide submission: it submits
+held input no admitted command owns, including failed input, without waiting.
+This supersedes the drain and settle clauses above, including the drain parts
+of the earlier 2026-10-22 amendments. Per-path lanes, intent acknowledgement,
+and in-session failure retention remain. Messages guards its own send
+preparation after queue admission and before contacting the backend; a durable
+attempt remains available for review if close interrupts preparation.
+
+## Amendment, 2026-10-22: app admission follows context closing
+
+The synchronous Folder close above is also the app admission boundary. Native
+destruction and FolderApp unmount close the Svelte context immediately. Apps
+test that context's `closing` state before new work and before applying late
+provider, recording, or read answers. Product disposal has a separate
+idempotence flag so it still releases product-owned observers and devices when
+the context was closed first. This adds no Folder workflow drain.

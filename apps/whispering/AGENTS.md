@@ -1,107 +1,120 @@
 # Whispering App
 
-Shared UI and workflows for standalone desktop, Epicenter desktop, and browser
-deployments. Recordings, transcripts, and settings are files in one
-Git-versioned folder; those files are the data. Read `README.md` for current
+Shared UI and workflows for Whispering bundled in Epicenter (ADR-0493,
+ADR-0552) and for the browser build. Recordings, transcripts, and transformations
+are files in one folder; those files are the data. Read `README.md` for current
 behavior and delivery status, and `ARCHITECTURE.md` for structure.
 
 ## Constraints
 
-- **The workspace owns native acquisition.** Nothing under `src/`
-  imports a Node or Bun module or `@epicenter/folder/bun`. The page names the
-  folder contract through `@epicenter/folder` and reaches a folder only
-  through `src/lib/workspace/`: `@epicenter/folder/browser` is imported by the
-  browser workspace alone, and `@epicenter/folder/tauri` by the desktop
-  workspace alone. Other native services use shared typed invoke bindings
-  imported only by the desktop workspace. The only direct Tauri import is
-  `isTauri` in the workspace opener. `src/lib/page-boundary.test.ts` enforces
+- **Platform adapters own native capabilities.** Nothing under `src/`
+  imports a Node or Bun module or `@epicenter/folder/bun`. The page names
+  the folder contract through `@epicenter/folder`. The layout gives
+  `<OpenFolder>` its sole inline opener. The build aliases
+  `@epicenter/folder` to the browser or Tauri entry. Platform capabilities
+  live in `src/lib/platform/` and never open another folder. Other native
+  services use Epicenter's generated bindings
+  (`src/lib/tauri/bindings.gen.ts`), imported only by the desktop adapter. The build
+  picks platform capabilities through `#platform/services` (ADR-0391); no page code
+  asks where it runs. `src/lib/page-boundary.test.ts` enforces
   these boundaries; keep it passing without granting native reach to components.
-- **One folder, one owner.** On the desktop the data folder is owned by the
-  shell's `tauri-plugin-epicenter-folder` and by nothing else. The page
-  attaches to it and names only the folder's ID. Do not open the folder from
-  the Bun host, do not add a second path by which the page reads or writes
-  folder files, and do not copy the plugin's bindings into this app.
+- **One folder, one opener.** Inside Epicenter the shell binds one folder to
+  each Whispering window before it exists, `Whispering` by default, a listed
+  folder opened with "Open with…", or one chosen in the native picker, and the
+  page's folder mirror (`@epicenter/folder/tauri`) is the only thing that
+  opens it. The page names no folder. Do not add a second path by which the
+  page reads or writes folder files, and do not copy the plugins' bindings
+  into this app.
+- **Close waits for writes; it never asks.** A desktop window's close waits
+  for the folder's writes in flight, which answer in milliseconds, then
+  closes. A recording alone closes without a warning. Epicenter always
+  confirms application Quit and mentions active capture. Cancel keeps the
+  windows, edits, and recording; confirmation leaves without draining page
+  workflows. Rust finalizes and keeps captured audio on departure (ADR-0663).
+  A browser recording adds no unload warning; `<OpenFolder>` asks on unload
+  only while a write is out. A run writes its result row before the request
+  goes out.
 - **A folder that cannot be opened is reported, not replaced.** Opening
-  returns a `Result`. Inside a desktop app, a missing or unreachable native
-  service and an owner that refuses are each shown as that refusal; browser
-  storage is never opened there. Whether the page is inside a desktop app is
-  asked of the runtime, never inferred from the host's token.
-- **One session per mounted layout.** `src/routes/+layout.svelte` holds the
-  one opening (`mountSession`) and `AppShell` puts its session in context. A page or component takes it with
-  `getSession()`; it never opens a workspace, builds a library, or keeps
-  product state in a module-level variable. State that must survive a page
-  change belongs to the session. Only leaving the app is guarded, never a
-  navigation between routes. `src/lib/page-boundary.test.ts` enforces the
-  ownership.
-- **Native services are shared by both desktop shells.** New native services
-  use reusable Rust implementations compiled by standalone Whispering and
-  Epicenter, exposed through the workspace with a browser implementation or
-  an explicit `undefined`. Migrate existing `native/` operations as their
-  replacements become usable, and remove the replaced routes and consumers.
-  Neither those services nor the remaining Bun host may open the folder, take
-  its lock, initialize Git, or become a second implementation of folder writes.
-  The terminal runs explicit user commands as an outside program.
-- **Only the shell decides where the folder is and who reaches it.** Neither
-  the page nor the host supplies or chooses a path. Load the `tauri` skill
-  before changing commands, capabilities, or `src-tauri/`. Grant only the
-  named service commands to the intended window and served origin. Validate
-  inputs and protocol compatibility in Rust; a failed desktop acquisition is
-  visible and never selects browser storage. `ARCHITECTURE.md` describes the
-  current startup order; ADR-0493 records the shared-service migration.
-- **The shell never closes on its own judgement.** Every window close and exit
-  request goes through the close handshake (`ARCHITECTURE.md`, "Closing"). Do
-  not add a path that exits without the page's answer, a timeout that approves,
-  or a reliance on the browser's leave warning in the desktop app. A close is
-  answered without looking only after an opening has failed and everything it
-  opened is closed; never while an opening is under way or a session exists.
-  The close guard is created only after the session's first read and credential
-  check have settled: do not make it listen earlier. On macOS a system quit
-  reaches the handshake only through `src-tauri/src/quit.rs`, which always
-  cancels AppKit's quit and asks for an ordinary exit: do not answer
-  `NSTerminateNow` or `NSTerminateLater` from it, or mirror the handshake's
-  state there.
-- **A lost reply is not a refusal.** When a native service does not answer, the page
+  returns a `Result`, and `<OpenFolder>` shows a refusal as that refusal.
+  Inside a desktop app, a shell that refuses the folder is shown as that
+  refusal; browser storage is never opened there. The build Epicenter serves
+  carries no browser storage (`src/lib/platform-selection.test.ts`).
+- **One mounted app lifetime.** Route changes preserve the opened folder,
+  recording, inference work, selections, and forms. Pages consume existing
+  resources; they never open a folder or create product state. Keep that
+  state out of module-level variables. Product teardown synchronously refuses
+  new work and late replies and releases listeners; it never drains workflows
+  or calls Stop. `<OpenFolder>` owns the folder's lifetime: it closes the
+  folder when it unmounts, sending what waits, and owns unload protection.
+  Internal navigation keeps the app. `src/lib/page-boundary.test.ts` enforces
+  this ownership; the composition is documented in `ARCHITECTURE.md`.
+- **Native services are Epicenter's.** Whispering has no desktop shell or
+  host process of its own (ADR-0493). A native service it needs is an
+  Epicenter command, granted to Whispering's windows in
+  `apps/epicenter/src-tauri/capabilities/whispering.json` (ADR-0570), and
+  exposed through platform adapters with a browser
+  implementation or an explicit `undefined`. Load the `tauri` skill before
+  changing a grant. No other native service opens the folder or initializes
+  Git for the page; a failed desktop acquisition is visible and
+  never selects browser storage.
+- **A lost reply is not a refusal.** When Epicenter does not answer, the page
   does not know whether the endpoint was called. Report it as unknown, never
   as "not sent", and never send a provider request again without the person
-  asking. A stopped Bun host does not stop saving: do not tell the person it does.
-- **Files are authoritative.** Do not add a cache, mirror, or second store of
-  recordings. Do not add Yjs, the `@epicenter/app` store, accounts, or sync to
-  this workflow.
-- **A recording's audio is the file its row names.** `audioPath` is the only
-  link. Do not infer audio from a file that shares the row's stem, do not
-  fill in a missing `audioPath`, and do not delete audio because its row was
-  deleted: a table owns one Markdown file per row.
-- **A save is never reported by its commit.** Keep saved-file state and history
-  state separate in code and in copy.
-- **Recovery writes only what is missing.** A recording is published as two
-  saves: `files.create` the audio, then the row's `create`. There is no batch
-  and no transaction between them. To finish one whose audio landed without
-  its row, read the audio, confirm it is exactly the pending bytes, and create
-  the row. Do not rewrite matching audio to manufacture a condition. Never use
-  `overwrite`, never replace audio or a row that is not this capture's, never
-  serialize a row by hand, and never describe the two saves as one.
-- **A receipt proves publication; it is not an observation.** A confirmed row
-  creation, with the audio confirmed by its own creation or read as exactly
-  the pending bytes, means the recording was saved. Never report that as
-  unsaved, and never build an entry or draft from it: opening the recording
-  afterward is its own read. Do not publish again, recreate, or repair after a
-  confirmed receipt. A failed or `Unconfirmed` save and a refusal before
-  publication are not confirmed: they stay unsaved and keep the close guard.
-- **Fixture audio and failure injection are debug-only.** They are enabled by
-  the shell's build, never by an environment variable alone, and the UI says so
-  while they are active. An injected publication failure obstructs the real
-  save so the folder fails it; it never answers for the folder, and the
-  folder's own saves stay the only thing that publishes.
+  asking. A stopped Epicenter host does not stop saving: do not tell the
+  person it does.
+- **Files are authoritative.** The folder mirror shows what landed on disk,
+  and edits (`edit` from `@epicenter/svelte/folder`) are the only state
+  ahead of it: every typed value enters the folder queue immediately, so a
+  later file action runs after it. Switching between writable views of the
+  same file is immediate. Whole-file edits replace the file at their turn;
+  earlier field changes survive only if the editor includes them.
+  Every text input bound to folder data uses one edit, one per editor
+  component. Derive lists from the mirror's rows and files; do not add
+  another save queue, cache, mirror, or second store of recordings, and keep
+  no typed text in product state. Do not add Yjs, the `@epicenter/app` store,
+  or accounts to this workflow.
+- **Recording audio is a supported same-stem sibling of its Markdown file.**
+  Store no audio path in recording metadata. Refuse ambiguous matches. Do not
+  add alternate path readers or migrations. Deleting a row keeps its audio.
+- **The header reports folder activity.** It says Saving… from
+  `folder.saving` and On this device while idle, beside the count of answers
+  not written. The caller holding a command's `Saved` presents its failure
+  once. A failed edit keeps the typed value and shows Save again,
+  Discard, and Copy beside its input. The app has no per-file save line.
+- **A recording is in the folder from its start, and its row holds facts
+  only** (ADR-0543). The row is created when recording starts; explicit Stop
+  writes its length while the page lives. Native departure preserves the WAV
+  without promising length metadata. Never add a status, pending, or interrupted
+  field, and never hold desktop audio in the page to save later: Rust writes it
+  as it captures. Recorder commands never delete captured audio. Start
+  creates the row with `folder.tables.recordings.create(id, { fields, body: '' })`;
+  Stop awaits that create, then sets the length with
+  `folder.tables.recordings.update(id, { fields: { durationMs } })`, which
+  sets only what it names over the file as it is then. Never serialize row
+  text by hand in the app.
+- **Fixture audio is debug-only, and failure injection is test-only.** Fixture
+  audio is a development browser build's, and the UI says so while it is
+  active. No build offers failure injection; a test that fails a recording
+  write makes storage refuse it below the folder (the memory host's control
+  in `@epicenter/folder/testing`), so the folder fails it.
 - **A transformation never writes its transcript.** A result has its own file
   with a stem fixed before the request is sent. Saving a received result again
   must not call the endpoint or create a second file. A result on pasted text
   names no recording and must never participate in recording deletion.
-- **The desktop API key stays in native code.** It is never returned over IPC,
-  logged, or written to the folder, including inside an error message.
-- **Nothing is sent or seeded on its own.** No request leaves at launch or
-  after a recording without the person asking, and no file is created in the
-  folder that they did not create. Missing settings stay in memory until an
-  explicit settings save.
+- **Inside Epicenter, a key stays in the keychain.** The connections are rows
+  of Epicenter's selected records folder, which the page reads and saves only
+  through `whispering_connection_read` and `whispering_connection_set`, by
+  operation; it never opens the records directory as a second folder. Endpoints and
+  keys are in this computer's keychain; requests go through the `epicenter` CLI (`ai_send`),
+  which adds the key. A key is never returned to
+  the page, logged, or written to the folder, including inside an error
+  message.
+- **Provider requests and settings saves are explicit.** No provider request
+  leaves at launch or after a recording without the person asking. Missing
+  settings stay in memory until an explicit settings save. App-maintained
+  exclusions use the folder's ordinary read and write, preserving unrelated source; they
+  do not initialize Git or send files. Create other folder files only for
+  the person's actions.
 - Do not rename a recording's or a transformation's files from the app: other
   rows refer to the stem.
 - Use wellcrafted `Result` types instead of try-catch for expected failures.
@@ -109,15 +122,16 @@ behavior and delivery status, and `ARCHITECTURE.md` for structure.
 ## Checks
 
 From `apps/whispering`: `bun run typecheck`, `bun run test` (which runs the
-mounted views under the browser runtime after the rest), `bun run build`. For
-shell changes also
-`cargo test --manifest-path src-tauri/Cargo.toml`. After a change to the shell's
-exit handling, or an upgrade of macOS, Tauri, or Tao, also run the probe and
-the three `bun run test:quit` scenarios in `evidence/native-quit/README.md`.
-Tests establish logic and
-what reaches disk. The TypeScript tests script the shell's replies or open the
-directory with the Bun opener; they never run the Rust owner. Only running
-`bun dev:whispering` establishes that the desktop app works.
+mounted views under the browser runtime after the rest), `bun run build`, and
+`bun run build:host`. For a change to what Epicenter grants Whispering,
+also `cargo test --manifest-path ../epicenter/src-tauri/Cargo.toml`. Tests
+establish logic and what reaches disk. The TypeScript tests grant a real
+directory through a scripted shell
+(`packages/folder/src/granted-shell.test-support.ts`), open it with the Bun
+opener (`@epicenter/folder/bun`), or open a folder over memory
+(`@epicenter/folder/testing`) to hold or refuse a save; they never run
+the Rust shell. Only opening Whispering in
+`bun dev:epicenter` and using it establishes that the desktop app works.
 
-`src/lib/tauri/bindings.gen.ts` is written by the Epicenter host's build and
-read by its Rust tests. Do not edit, import, or delete it from here.
+`src/lib/tauri/bindings.gen.ts` is written by Epicenter's Rust tests. Do not
+edit it here; the desktop adapter alone imports it.

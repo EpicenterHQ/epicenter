@@ -6,15 +6,16 @@
  * not assumed from tree shaking.
  *
  * Key behaviors:
- * - The automatic entry puts neither adapter in the code that loads first.
- *   Both adapters are separate chunks, loaded only when a folder is opened
- * - Aliasing the exact bare specifier to `/browser` emits no desktop adapter
- *   and no IndexedDB access anywhere; aliasing it to `/tauri` emits no
- *   browser storage and no Git implementation anywhere. The application
- *   source is the same file
+ * - The automatic entry puts neither engine in the code that loads first.
+ *   Both engines are separate chunks, loaded only when a folder is opened
+ * - Aliasing the exact bare specifier to `/browser` emits no desktop engine
+ *   and includes the local IndexedDB engine; aliasing it to `/tauri` emits
+ *   the desktop engine, which reads and saves through the folder plugin's
+ *   commands, holds no IndexedDB, and no build carries the fs plugin. The
+ *   application source is the same file
  * - Importing an explicit entry directly gives the same output as the alias
- * - The desktop adapter's own chunks never include isomorphic-git
- * - The shell is a separate chunk in every build
+ * - Opening a folder loads no Git: no build's engine carries isomorphic-git
+ * - No build carries a shell
  *
  * The alias here is the one the package documents, and the specifiers are
  * resolved through the package's own `exports`.
@@ -25,13 +26,17 @@ import { build, type Rollup } from 'vite';
 
 const APP = join(import.meta.dir, 'app');
 
-/** Text only the desktop adapter contains: the plugin's command names. */
-const DESKTOP = 'plugin:epicenter-folder|attach';
-/** Text only the browser adapter contains: its lock names. */
-const BROWSER = 'epicenter-folder-opfs-git:';
+/** Text only the desktop engine contains: the plugin's command names. */
+const DESKTOP = 'plugin:epicenter-folder|open_folder';
+/** Text only the desktop engine's reads contain: the file read by name. */
+const READS = 'plugin:epicenter-folder|read_folder_file';
+/** Text only the browser engine contains: its storage failure. */
+const BROWSER = 'IndexedDB could not be opened';
 /** Text only isomorphic-git contains: its Git protocol client. */
 const GIT = 'git-upload-pack';
-/** Text only the shell contains: a command the terminal offers. */
+/** Text only Tauri's fs plugin client contains. No build carries it. */
+const TAURI_FS = 'plugin:fs|';
+/** Text only just-bash contains: a command its shell offers. No build carries it. */
 const SHELL = 'sha256sum';
 
 type Built = {
@@ -40,8 +45,6 @@ type Built = {
 	readonly initial: string;
 	/** Every emitted chunk, as one text. */
 	readonly everything: string;
-	/** A chunk and everything it imports statically. */
-	closure(chunk: Rollup.OutputChunk): string;
 	/** Chunks reached only through `import()`, with their static closure. */
 	readonly lazy: readonly string[];
 };
@@ -97,12 +100,10 @@ async function bundle(
 		[...names].map((name) => byName.get(name)?.code ?? '').join('\n');
 	const entryChunk = chunks.find((chunk) => chunk.isEntry);
 	if (entryChunk === undefined) throw new Error('the build emitted no entry');
-	const initialNames = staticClosure(entryChunk);
 	return {
 		chunks,
-		initial: text(initialNames),
+		initial: text(staticClosure(entryChunk)),
 		everything: text(byName.keys()),
-		closure: (chunk) => text(staticClosure(chunk)),
 		lazy: chunks
 			.filter((chunk) => chunk.isDynamicEntry)
 			.map((chunk) => text(staticClosure(chunk))),
@@ -110,67 +111,51 @@ async function bundle(
 }
 
 describe('what a Vite build of the same application emits', () => {
-	test('automatic entry: both adapters are emitted, each lazy, and neither loads with the page', async () => {
+	test('automatic entry: both engines are emitted, each lazy, and neither loads with the page', async () => {
 		const built = await bundle('main');
 
 		// The code that loads first holds the contract and the choice, only.
 		expect(built.initial).toContain('so.epicenter.bundlefixture');
 		expect(built.initial).not.toContain(DESKTOP);
 		expect(built.initial).not.toContain(BROWSER);
-		expect(built.initial).not.toContain(GIT);
-		expect(built.initial).not.toContain(SHELL);
+		expect(built.everything).not.toContain(GIT);
+		expect(built.everything).not.toContain(SHELL);
 
-		// One artifact carries both adapters, each behind its own `import()`.
+		// One artifact carries both engines, each behind its own `import()`.
 		const desktop = built.lazy.filter((code) => code.includes(DESKTOP));
 		const browser = built.lazy.filter((code) => code.includes(BROWSER));
 		expect(desktop).toHaveLength(1);
 		expect(browser).toHaveLength(1);
-		// Loading the desktop adapter loads no Git and no browser storage.
-		expect(desktop[0]).not.toContain(GIT);
+		// Loading the desktop engine loads no browser storage.
+		expect(desktop[0]).toContain(READS);
 		expect(desktop[0]).not.toContain(BROWSER);
-		// Loading the browser adapter loads no desktop commands.
-		expect(browser[0]).toContain(GIT);
+		expect(desktop[0]).not.toContain('IDBKeyRange');
+		// Loading the browser engine loads no desktop commands.
 		expect(browser[0]).not.toContain(DESKTOP);
-		// The shell is its own chunk, loaded when a command first runs. A
-		// desktop page that runs one loads no Git and no browser storage with it.
-		const shell = built.lazy.filter((code) => code.includes(SHELL));
-		expect(shell).toHaveLength(1);
-		expect(shell[0]).not.toContain(GIT);
-		expect(shell[0]).not.toContain(BROWSER);
-		expect(shell[0]).not.toContain(DESKTOP);
-		expect(desktop[0]).not.toContain(SHELL);
-		expect(browser[0]).not.toContain(SHELL);
 	}, 120_000);
 
-	test('exact alias to the browser entry: no desktop adapter is emitted at all', async () => {
+	test('exact alias to the browser entry: no desktop engine is emitted at all', async () => {
 		const built = await bundle('main', '@epicenter/folder/browser');
 		expect(built.everything).toContain('so.epicenter.bundlefixture');
 		expect(built.everything).toContain(BROWSER);
-		expect(built.everything).toContain(GIT);
-		expect(built.everything).not.toContain(DESKTOP);
 		expect(built.everything).not.toContain('plugin:epicenter-folder|');
-		// Browser folders are OPFS only: nothing emitted reaches IndexedDB.
-		expect(built.everything).not.toContain('indexedDB');
-		expect(built.everything).not.toContain('IDBKeyRange');
-		// With one adapter there is nothing to choose, so it loads with the page.
+		expect(built.everything).not.toContain(GIT);
+		// With one engine there is nothing to choose, so it loads with the page.
 		expect(built.initial).toContain(BROWSER);
-		expect(built.lazy.some((code) => code.includes(SHELL))).toBe(true);
-		expect(built.initial).not.toContain(SHELL);
+		expect(built.everything).not.toContain(SHELL);
 	}, 120_000);
 
-	test('exact alias to the desktop entry: no browser storage and no Git implementation is emitted at all', async () => {
+	test('exact alias to the desktop entry: the desktop engine with the page, and no browser storage', async () => {
 		const built = await bundle('main', '@epicenter/folder/tauri');
 		expect(built.everything).toContain('so.epicenter.bundlefixture');
-		expect(built.everything).toContain(DESKTOP);
+		expect(built.initial).toContain(DESKTOP);
+		expect(built.initial).toContain(READS);
 		expect(built.everything).not.toContain(BROWSER);
-		expect(built.everything).not.toContain(GIT);
-		expect(built.everything).not.toContain('isomorphic-git');
-		expect(built.everything).not.toContain('epicenter-folder-opfs-files:');
 		expect(built.everything).not.toContain('indexedDB');
 		expect(built.everything).not.toContain('IDBKeyRange');
-		expect(built.initial).toContain(DESKTOP);
-		expect(built.lazy.some((code) => code.includes(SHELL))).toBe(true);
-		expect(built.initial).not.toContain(SHELL);
+		expect(built.everything).not.toContain(TAURI_FS);
+		expect(built.everything).not.toContain(GIT);
+		expect(built.everything).not.toContain(SHELL);
 	}, 120_000);
 
 	test('importing an explicit entry gives what the alias gives', async () => {
@@ -181,8 +166,6 @@ describe('what a Vite build of the same application emits', () => {
 		const desktop = await bundle('tauri');
 		expect(desktop.everything).toContain(DESKTOP);
 		expect(desktop.everything).not.toContain(BROWSER);
-		expect(desktop.everything).not.toContain(GIT);
-		expect(desktop.everything).not.toContain('isomorphic-git');
 	}, 120_000);
 
 	test('the alias matches the bare specifier only: a subpath import is not rewritten', async () => {

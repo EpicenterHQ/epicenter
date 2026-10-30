@@ -7,13 +7,12 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
 	import { type Entry, type FocusItem, STAGE_LABELS, STAGES, type Stage } from '$lib/data.js';
-	import type { EntriesState } from '$lib/entries.svelte.js';
+	import type { Entries } from '$lib/entries.svelte.js';
 	import { reviewImport, STARTER_LIST } from '$lib/import.js';
 	import EntryCard from './EntryCard.svelte';
 	import RepairCard from './RepairCard.svelte';
-	import { openWord } from './word-actions.js';
 	let { entries, starting, onStart }: {
-		entries: EntriesState;
+		entries: Entries;
 		/** A chat is being saved; another cannot be started yet. */
 		starting: boolean;
 		/** Answers whether the chat started; the selection is kept when it did not. */
@@ -28,28 +27,31 @@
 	let review = $state<ReturnType<typeof reviewImport> | null>(null);
 	let selected = $state<string[]>([]);
 	let focusIds = $state<string[]>([]);
-	const selectedFocus = $derived(focusIds.map((id) => entries.entries.find((entry) => entry.id === id)).filter((entry): entry is Entry => !!entry));
-	const shown = $derived(entries.entries.filter((entry) =>
+	const words = $derived(entries.words);
+	const repairs = $derived(entries.repairs);
+
+	const selectedFocus = $derived(focusIds.map((id) => words.find((entry) => entry.id === id)).filter((entry): entry is Entry => !!entry));
+	const shown = $derived(words.filter((entry) =>
 		(stage === 'all' || entry.stage === stage) && `${entry.text} ${entry.note}`.toLowerCase().includes(search.trim().toLowerCase()),
 	));
 	function openReview(raw: string) {
-		review = reviewImport(raw, new Set(entries.entries.map((entry) => entry.text)));
+		review = reviewImport(raw, new Set(words.map((entry) => entry.text)));
 		selected = [...review.eligible];
 	}
 	/** Save each addition, and clear the field or the review only for what the folder took. */
 	async function add(texts: string[]): Promise<string[]> {
 		adding = true;
 		const failed: string[] = [];
-		let reason = '';
+		let failure = '';
 		for (const text of texts) {
 			const { error } = await entries.add(text);
 			if (error !== null && error.name !== 'Empty') {
 				failed.push(text);
-				reason = error.message;
+				failure ||= error.message;
 			}
 		}
 		adding = false;
-		if (failed.length) toast.error(failed.length === 1 ? 'An expression was not saved' : `${failed.length} expressions were not saved`, { description: reason });
+		if (failure) toast.error('An expression was not added', { description: failure });
 		return failed;
 	}
 	async function addSingle() {
@@ -111,30 +113,26 @@
 				<Button size="sm" variant={stage === option ? 'default' : 'outline'} aria-pressed={stage === option} onclick={() => stage = option}>{option === 'all' ? 'All' : STAGE_LABELS[option]}</Button>
 			{/each}
 		</div>
-		{#if entries.opened?.kind === 'failed' && !entries.entries.some((entry) => entry.id === entries.opened?.id)}
-			<!-- A repair that could not open: its file is gone or no longer text. A word's card shows its own. -->
-			<p role="alert" class="text-sm text-destructive">{entries.opened.message}</p>
+		{#if entries.repair.open !== undefined}
+			{#key entries.repair.open}<RepairCard {entries} id={entries.repair.open} />{/key}
 		{/if}
-		{#if entries.opened?.kind === 'text'}
-			{#key entries.opened}<RepairCard {entries} id={entries.opened.id} session={entries.opened.session} />{/key}
-		{/if}
-		{#if entries.repairs.length > 0}
+		{#if repairs.length > 0}
 			<section class="space-y-2 rounded-lg border p-3 text-xs" aria-label="Words that need repair">
-				<p class="text-destructive">{entries.repairs.length} saved {entries.repairs.length === 1 ? 'file is' : 'files are'} not shown as words because Vocab cannot read {entries.repairs.length === 1 ? 'it' : 'them'}. Nothing was changed or removed.</p>
+				<p class="text-destructive">{repairs.length} saved {repairs.length === 1 ? 'file is' : 'files are'} not shown as words because Vocab cannot read {repairs.length === 1 ? 'it' : 'them'}. Nothing was changed or removed.</p>
 				<ul class="space-y-1">
-					{#each entries.repairs as repair (repair.path)}
+					{#each repairs as repair (repair.path)}
 						<li class="flex flex-wrap items-center gap-2 break-words">
 							<span class="min-w-0 flex-1"><code>{repair.path}</code>: {repair.reason}</span>
-							{#if repair.stem !== undefined && entries.opened?.id !== repair.stem}
-								{@const stem = repair.stem}
-								<Button size="xs" variant="outline" onclick={() => void openWord(entries, stem)}>Repair as text</Button>
+							{#if repair.id !== undefined && entries.repair.open !== repair.id}
+								{@const id = repair.id}
+								<Button size="xs" variant="outline" onclick={() => entries.repair.start(id)}>Repair as text</Button>
 							{/if}
 						</li>
 					{/each}
 				</ul>
 			</section>
 		{/if}
-		{#if entries.entries.length === 0}
+		{#if words.length === 0}
 			<p class="py-8 text-center text-muted-foreground">Your words will appear here. Add one above or browse the starter list.</p>
 		{:else if shown.length === 0}
 			<p class="py-8 text-center text-muted-foreground">No expressions match this search and stage.</p>

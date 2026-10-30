@@ -4,14 +4,13 @@
 	import { Label } from '@epicenter/ui/label';
 	import * as Popover from '@epicenter/ui/popover';
 	import * as RadioGroup from '@epicenter/ui/radio-group';
-	import { Spinner } from '@epicenter/ui/spinner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import SparklesIcon from '@lucide/svelte/icons/sparkles';
 	import TriangleAlertIcon from '@lucide/svelte/icons/triangle-alert';
 	import WandIcon from '@lucide/svelte/icons/wand';
 	import { resolve } from '$app/paths';
-	import { resolvePostProcessing, transformationName } from '$lib/post-processing.js';
-	import { getSession } from '$lib/session.svelte.js';
+	import { transformationName } from '$lib/post-processing.js';
+	import { getWhispering } from '$lib/whispering.svelte.js';
 	import { returnFocusToTrigger } from './option-popover-focus.js';
 
 	/**
@@ -25,9 +24,10 @@
 	let trigger = $state<HTMLElement | null>(null);
 	let content = $state<HTMLElement | null>(null);
 
-	const { library, view } = getSession();
+	const whispering = getWhispering();
+	const { view } = whispering;
 
-	const choice = $derived(resolvePostProcessing(view.postProcessing, library.transformations, library.resolve));
+	const choice = $derived(whispering.postProcessing);
 	const name = $derived(
 		choice.kind === 'none' ? 'None' : choice.kind === 'missing' ? 'Not in the folder' : transformationName(choice.entry),
 	);
@@ -86,10 +86,7 @@
 		class="max-h-(--bits-popover-content-available-height) w-72 max-w-[calc(100vw-1rem)] gap-3 overflow-y-auto"
 		data-testid="post-processing-popover"
 	>
-		<div class="flex items-center gap-2">
-			<p class="flex-1 font-medium" id="post-processing-heading">Post-processing</p>
-			{#if library.refreshing}<Spinner class="size-3.5" aria-label="Reading the folder" />{/if}
-		</div>
+		<p class="font-medium" id="post-processing-heading">Post-processing</p>
 		<p class="text-xs text-muted-foreground">
 			Choosing sends nothing. It runs only when you press Run on a transcript.
 		</p>
@@ -104,8 +101,8 @@
 				<RadioGroup.Item value={NONE} id="post-processing-none" />
 				<Label for="post-processing-none" class="font-normal">None</Label>
 			</div>
-			{#each library.transformations as item, index (item.path)}
-				{@const resolved = library.resolve(item.row)}
+			{#each whispering.transformations as item, index (item.path)}
+				{@const resolved = whispering.resolve(item.row)}
 				{@const runnable = resolved.kind === 'ready'}
 				<!-- The group is a grid, so a row shrinks to the popover only with min-w-0; the label then takes what the radio leaves and the title truncates in it. -->
 				<div class="flex min-w-0 items-center gap-2">
@@ -132,20 +129,16 @@
 			{/if}
 		</RadioGroup.Root>
 
-		{#if library.transformationsError}
-			<p class="text-xs text-destructive" role="alert" data-testid="post-processing-error">
-				The transformations could not be read, so this is the last list that was: {library.transformationsError}
-			</p>
-		{:else if library.transformations.length === 0}
+		{#if whispering.transformations.length === 0}
 			<p class="text-xs text-muted-foreground" data-testid="post-processing-empty">
 				This folder has no transformations yet. Create one to choose it here.
 			</p>
 		{/if}
-		{#if library.transformationRepairs.length > 0}
+		{#if whispering.transformationRepairs.length > 0}
 			<p class="text-xs text-warning" role="status">
-				{library.transformationRepairs.length === 1
+				{whispering.transformationRepairs.length === 1
 					? '1 file in transformations/ needs repair and is not listed.'
-					: `${library.transformationRepairs.length} files in transformations/ need repair and are not listed.`}
+					: `${whispering.transformationRepairs.length} files in transformations/ need repair and are not listed.`}
 			</p>
 		{/if}
 		{#if choice.kind === 'repair'}

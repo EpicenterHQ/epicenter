@@ -1,10 +1,160 @@
 # Standalone desktop verification
 
-This file has four dated parts. The first records moving the desktop folder to
-the shell's Rust owner, which has TypeScript checks only and an uncompiled
-shell. The second records the adoption of the shared folder package, which has
-automated checks only. The third records the restored pages and
-transformations. The fourth retains the earlier single-window acceptance.
+> **Historical record.** The dated sections below describe earlier desktop
+> architectures. The current page owns its Folder engine over a directory granted
+> by the shell ([ADR-0531](../../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
+> Current departure evidence is separated here from those older checks.
+
+## Closing and quitting inside Epicenter (October 21, 2026)
+
+### Current policy
+
+Window Close warns only for unfinished Folder saves. A recording-only window
+closes silently and native cleanup keeps its audio. Application Quit always
+confirms and mentions active capture. It uses a standalone native alert with no
+window parent. No page reports save status or reads native recording status for
+departure. See [ADR-0663](../../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md).
+
+The user inspected and accepted the standalone alert's appearance. Computer use
+cannot capture or control its macOS UserNotificationCenter surface, so the user
+clicked its buttons and computer use independently checked the resulting app
+state. The final standalone-alert build was verified on macOS:
+
+- Cancel left both the saved Todos window and the Folders launcher open. Computer
+  use opened the saved todo's details, confirmed both windows in the Window menu,
+  and switched back to the launcher, establishing that the app remained usable.
+- Cmd-Q after Cancel opened a fresh Quit alert. The user selected Quit Anyway;
+  an anchored process check confirmed the isolated executable exited without
+  relaunching it.
+
+This run used saved windows with no active capture. It establishes standalone
+Quit Cancel, retry, and confirmed exit; the recording evidence below comes from
+the preceding attached-sheet build. The isolated native suite passed 143 tests
+with one ignored.
+
+### October 22 source reconciliation (historical drain contract)
+
+The folder-owned-source change in `bd78bfb52b` keeps the Close and Quit policy
+above. Folder now tracks submitted writes without a workflow `run` API.
+Folder close refuses new file and table calls and editor saves immediately,
+submits held input once, and waits for submitted writes. Failed commands return
+original input for recovery without starting another autosave. Waiting
+application workflows add no departure warning.
+Native destruction and browser unload do not wait for
+that drain.
+
+The page's Stop/finalization flow can write recording length, including after
+an interruption, while its write is admitted. Native departure keeps audio
+without promising length metadata. This reconciliation checks source and
+automated coverage; it repeats no macOS UI or microphone acceptance. The
+143-test result and manual standalone Quit checks above belong to October 21.
+
+### Verified before the standalone-alert change
+
+These isolated packaged macOS checks exercised the same local Close and native
+audio rules, with the previous application Quit sheet:
+
+- Saved application Quit showed a confirmation; repeated Cmd-Q kept one prompt,
+  and Cancel returned to a usable launcher.
+- Closing a saved recording window showed no warning and finalized readable
+  16 kHz PCM16 audio: 183,979 frames, 11.499 seconds.
+- A permission-denied title save triggered the local Close warning. Cancel
+  retained the complete title and running capture.
+- Application Quit added the recording warning. Cancel kept input and capture;
+  Quit Anyway exited and finalized readable audio: 911,019 frames, 56.939 seconds.
+  The failed title stayed unwritten. Fixture permissions were restored.
+- Standalone Todos' Cmd-Q and app-menu Quit used its ordinary window close.
+  Pending and failed saves warned, Cancel retained exact input, and a saved
+  window left silently. A real SQLite save lock exercised pending work.
+- A native group of two dirty Todos tabs prompted independently. Cancel retained
+  both complete titles and each tab could prompt again. Selecting the native
+  tab through the Window menu restored usable focus after computer use selected
+  an inactive alert surface.
+
+An earlier attached-Quit-sheet run reproduced a stuck Quit after its parent
+window closed. Parent/attempt tracking repaired it. That lifecycle and its test
+are superseded by the standalone alert, which has no parent dependency.
+Recording-only Close warnings, cross-window status collection, and silent saved
+application Quit also belong to earlier policies and are not current behavior.
+
+### Automated coverage and remaining limits
+
+Shared close tests cover duplicate requests, Cancel/retry, registration and
+destruction failures, and old callbacks or cleanup acting on a replacement guard.
+Folder and mounted app tests cover accepted input, failed saves, submitted writes
+through close, retained capture paths through held Stop, repeated Stop joining
+metadata, and route changes preserving the app. Confirmed native departure does
+not wait for page workflows and does not promise recording length metadata.
+
+The newer current-policy capture checks used an isolated app, disposable copied
+data, and a silent virtual input. The older-policy record below also includes
+real microphone runs. No user recordings moved or provider requests were sent.
+Windows/Linux presentation, physical microphone unplugging, and abrupt process
+termination remain unverified. The browser still warns for unsaved Folder input
+and can lose an in-memory recording on departure.
+
+The historical sections retain their original evidence and architecture claims.
+They do not establish current behavior.
+
+### Historical policy: recording-aware Close and status-based Quit
+
+The checks below record the preceding policy. Silent saved application Quit and
+recording-only Close warnings are superseded by the current policy above.
+
+The page awaits one native confirmation for its pending or failed Folder saves
+and its native recording. Cancel keeps both. Confirmed destruction finalizes
+captured audio without waiting for pending metadata saves. Each window answers
+independently; application Quit separately checks all folder pages and the
+recorder. Standalone Todos' macOS Quit uses its one window's ordinary close.
+See [ADR-0663](../../../docs/adr/0663-one-native-question-before-a-window-or-epicenter-leaves.md).
+
+**Verified live on macOS with isolated packaged debug apps and disposable
+folders:**
+
+- Standalone Todos' Cmd-Q and app-menu Quit use the page's native Close
+  confirmation. Saved windows leave silently. Pending and failed saves warn;
+  repeated requests show one sheet. Cancel retains the exact complete title,
+  including from a minimized window. Confirmed close does not write a failed
+  title. A real SQLite save lock exercised a pending save separately from a
+  permission-denied failure.
+- Epicenter Quit detects failed input in another folder window. Repeated Cmd-Q
+  shows one Quit sheet; Cancel keeps the folder windows and unfinished input.
+  With a real recording in Whispering and failed input in Todos, the one Quit
+  warning includes both. Cancel keeps recording; Quit Anyway exits and finalizes
+  a second readable WAV (16 kHz, 1,229,483 frames, 76.843 seconds). Both failed
+  todo titles remained unchanged on disk. After retrying all saves in a later
+  run, multiwindow application Quit exited silently.
+- Close while recording shows the native recording warning. Cancel keeps the
+  real microphone recording. Close Anyway finalized a readable mono PCM16 WAV
+  at 16 kHz, 1,245,013 frames (77.813 seconds), with no `durationMs` in its row.
+  Reopening displayed its native audio controls and duration. No transcription
+  was configured or sent.
+- Combined recording and failed metadata input in the same window shows one
+  native Close sheet mentioning both. Repeated Cmd-W adds no sheet. Cancel
+  retains the complete unfinished title and keeps recording. Close Anyway
+  finalized a readable 16 kHz PCM16 WAV with 1,044,309 frames (65.269 seconds),
+  while the failed title remained unwritten and the row had no `durationMs`.
+  This used the single-snapshot close flow and a permission-denied save in a
+  disposable folder. The folder's permissions were restored afterward.
+- Close on dirty window A, Cmd-Q while its sheet is open, then Close Anyway on
+  A reproduced a stuck Quit. The repaired build releases the parent-owned Quit
+  attempt; a fresh Cmd-Q on dirty window B showed its warning and Cancel worked.
+  Late answers are rejected by attempt ID in native regression coverage.
+- Closing a native group of two dirty Todos tabs prompts for both. Cancel
+  retains both complete titles, and each tab can prompt again. The computer-use
+  surface briefly selected an inactive alert after the second Cancel; selecting
+  the native tab through the Window menu returned to usable input.
+
+Automated checks in the working checkout: 55 shared and mounted close/Quit tests passed; the
+shared Svelte typecheck had zero diagnostics; Epicenter's native suite passed
+145 tests with one ignored; standalone Todos' seven native tests passed. Both
+isolated macOS packages built successfully. Dialog and destruction rejection
+recovery has automated coverage, without a live permission fault injection.
+
+Windows and Linux presentation remain unverified. Quit samples status without
+freezing input across windows. macOS Dock Quit and logout are outside the custom
+menu/tray route. Dialog/destroy failure recovery has automated coverage without
+live permission fault injection. No check moved user data.
 
 ## Desktop folder moved to the shell's owner (October 2, 2026)
 
@@ -60,8 +210,7 @@ What the TypeScript tests establish, and with what:
   provider requests for each, and bytes that survive the file changing during
   the request.
 - **The debug failures**, against a real repository: the row and audio
-  obstacles make the folder fail its own step, retry completes one recording,
-  an occupied path is left alone, and the branch lock is taken only after Git
+  obstacles make the folder fail its own step, an occupied path is left alone, and the branch lock is taken only after Git
   exists and never from another holder. The folder publishing in these tests
   is the Bun directory opener, standing in for the Rust owner.
 - **The desktop workspace**, against scripted shell replies: it attaches by ID
@@ -73,10 +222,10 @@ What the TypeScript tests establish, and with what:
   while opening waits and one asked after is answered `proceed`, each only on
   request; a failed opening by itself approves nothing; with the host gone the
   shell's event is answered with the quit address; and with a session open
-  that holds a pending recording, only the session's guard answers and it
-  does not approve.
+  that holds a transcription still waiting for its answer, only the session's
+  guard answers and it does not approve.
 - **Closing while the session is starting**, over the Bun directory opener
-  with the first `kv.json` read
+  with the first file listing read
   held open: a close asked then gets no answer, not even `asking`, and no
   guard is listening; when the start finishes the kept request reaches the
   guard, which answers; when the start fails nothing answers until the
@@ -84,7 +233,7 @@ What the TypeScript tests establish, and with what:
   nothing listening, lets the admitted read settle, and answers nothing. A
   guard disposed mid-request approves nothing.
 - **A stopped host**, over the Bun directory opener: with the host gone, a
-  draft and a pending recording are still saved through the folder, the held
+  draft and a held transcript are still saved through the folder, the held
   list empties, and quitting is still the explicit choice.
 - **A lost host reply**, against the real host with a counted local stand-in
   for the endpoint: the endpoint is called once, the reply is dropped, the
@@ -99,14 +248,15 @@ Not done, and needed before this can be called accepted on the desktop:
   invoke the owner at all: that Tauri's IPC is reachable under the page's
   content security policy, and that the owner's events arrive.
 - Record, play, transcribe, transform, quit, and reopen against a disposable
-  folder. Confirm a recording's audio saves in acceptable time: file bytes
-  cross Tauri's IPC as JSON number arrays.
-- Exercise both debug publication failures and **Try again** in the window,
-  confirming an obstructed row ends as `rowNotSaved` with certainty `failed`,
-  the audio saved, and the Rust owner's own message for the row.
+  folder. Confirm the microphone permission prompt, that `audio/<id>.wav`
+  grows while recording, and that quitting mid-recording leaves a WAV that
+  plays to the cut once the folder reopens and `recoverRecordings` runs.
+- Exercise both debug recording-write failures in the window, confirming an
+  obstructed row leaves the recording running with its audio saved and no
+  row, with the folder's own message for the row.
 - Edit a file from the terminal while a draft of it is open, and confirm the
   conflict; confirm a terminal edit refreshes a clean view.
-- Close and quit with drafts, pending audio, and a running request; stop the
+- Close and quit with drafts, a running recording, and a running request; stop the
   host process, confirm a draft still saves, and confirm the explicit quit.
 - Make the folder unopenable (hold its lock from another process) and confirm
   the window showing the refusal closes on Command-W and Command-Q, and that a
@@ -314,3 +464,17 @@ Accounts, sync, hosted transport, LFS, migration, legacy readers, global shortcu
 The embedded terminal retains its directory, output, history, and typed command. Each command starts a new shell; it has no PTY or persistent shell variables, functions, or interactive full-screen programs.
 
 Unsaved audio, transcripts, and drafts live only in the window. Ordinary close and quit request explicit approval before discarding them. Force Quit, a crash, power loss, or external process termination can still lose that memory. A window that cannot respond requires Force Quit. See the [app README](../README.md) for operation and the full unsupported-feature list.
+
+### October 22 amendment: synchronous Folder release
+
+Folder.close() now releases synchronously, without submitting held input or
+waiting for writes. Page hide calls best-effort flush(). Confirmed departure
+accepts losing unfinished work; callers needing durability await their write.
+The historical drain description above no longer describes current source.
+This source change does not add a new packaged native verification claim.
+
+After a successful native window `destroy()` dispatch, the active page guard
+now closes its Folder context immediately; Cancel and failed destruction keep
+it live. FolderApp also closes synchronously on unmount and retires a late
+opening or native registration. These lifecycle claims have automated coverage
+only and add no packaged native verification claim.

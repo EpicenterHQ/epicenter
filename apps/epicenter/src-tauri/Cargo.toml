@@ -16,58 +16,96 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
 
+[features]
+# The runtime smoke embeds a built Todos page, which ordinary cargo tests
+# must not require on a fresh checkout.
+native-tabs-smoke = []
+# Experiment only (`evidence/offline-proxy/run-tauri.ts`): a hosted site through
+# a pinned local replay proxy in its own WebKit store. Not a product proxy.
+hosted-site-offline-gate = ["tauri/macos-proxy"]
+# Native dictation: paste at the cursor and its Accessibility-grant watch,
+# pausing other apps' media, the macOS recording overlay panel, and the
+# clipboard-manager and global-shortcut plugins. No page reaches any of it, and
+# the page API only grows once released, so the default build compiles none of
+# it until a native API decision grants it (ADR-0555).
+dictation = [
+    "dep:enigo",
+    "dep:tauri-plugin-clipboard-manager",
+    "dep:tauri-plugin-global-shortcut",
+    "dep:accessibility-sys",
+    "dep:core-foundation-sys",
+    "dep:core-foundation",
+    "dep:core-graphics",
+    "dep:objc2-foundation",
+    "dep:tauri-nspanel",
+    "dep:windows",
+    "dep:zbus",
+]
+
 [dev-dependencies]
 # The mock runtime verifies native path selection for both bundled identities.
 # Test builds only: these features do not enter the shipped binary.
-tauri = { version = "2.11", features = ["test"] }
+tauri = { version = "2.12", features = ["test"] }
+# The pattern type Tauri matches a capability's `windows` against window
+# labels, so a test can check which windows a capability selects.
+glob = "0.3"
+
+[[example]]
+name = "native_tabs"
+required-features = ["native-tabs-smoke"]
+
+[[example]]
+name = "hosted_site_offline"
+required-features = ["hosted-site-offline-gate"]
 
 [dependencies]
+dunce = "1"
+tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# Fixed library defaults and machine-local navigation shared with the CLI.
+# SQLite serializes navigation writers (`epicenter_folder_core::navigation`).
+epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
+tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 anyhow = "1"
 base64 = "0.22"
-cpal = "0.18.1"
-enigo = "0.5.0"
-getrandom = "0.3"
+enigo = { version = "0.5.0", optional = true }
 hf-hub = { version = "0.5", features = ["tokio"] }
 hound = "3.5"
-keyring = "4"
-lazy_static = "1.4"
-libc = "0.2"
 log = "0.4"
-ogg = "0.9"
-rayon = "1.10"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+notify = "8"
+notify-debouncer-full = "0.5"
+percent-encoding = "2"
 rubato = "0.15"
-rusqlite = { version = "=0.40.2", features = ["bundled", "hooks", "limits"] }
+same-file = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 specta = "=2.0.0-rc.26"
 specta-typescript = "=0.0.13"
 symphonia = { version = "0.5", features = ["mp3", "aac", "isomp4"] }
-tauri = { version = "2.11", features = ["macos-private-api", "image-png", "tray-icon"] }
+tauri = { version = "2.12", features = ["macos-private-api", "image-png", "tray-icon"] }
 tauri-specta = { git = "https://github.com/specta-rs/tauri-specta", rev = "0922b06408f9dc9ed443589639b067adcef62ba4", features = ["derive", "typescript"] }
-tauri-plugin-autostart = "2"
-tauri-plugin-clipboard-manager = "2"
+tauri-plugin-clipboard-manager = { version = "2", optional = true }
 tauri-plugin-deep-link = "2"
-tauri-plugin-dialog = "2.7"
-tauri-plugin-global-shortcut = "2"
-tauri-plugin-http = "2"
+tauri-plugin-global-shortcut = { version = "2", optional = true }
 tauri-plugin-log = "2"
+# Unregistered: ADR-0555 grants it to apps; register it with that grant.
 tauri-plugin-notification = "2"
 tauri-plugin-opener = "2.5"
-tauri-plugin-os = "2"
+tauri-plugin-updater = "=2.14.0"
 tempfile = "3.8"
 thiserror = "2.0.12"
 tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["io", "rt"] }
 tracing = "0.1.41"
 transcribe-cpp = { version = "0.1.0", default-features = false }
 audiopus = "0.3.0-rc.0"
 
+[target.'cfg(unix)'.dependencies]
+# Ends a window's `epicenter` children with their process groups (`history.rs`).
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
-winreg = "0.55"
+windows = { version = "0.62", optional = true, features = ["Media_Control", "Foundation", "Foundation_Collections", "Win32_System_Com"] }
 
 [target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
 # ggml-vulkan requires SPIRV-Headers' CMake package. The Vulkan SDK provides
@@ -79,21 +117,19 @@ transcribe-cpp = { version = "0.1.0", default-features = false, features = ["dyn
 transcribe-cpp = { version = "0.1.0", default-features = false }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-accessibility-sys = "0.1.3"
-block2 = "0.6.2"
-core-foundation-sys = "0.8.7"
-core-foundation = "0.9"
-core-graphics = "0.22"
-objc2 = "0.6"
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem"] }
-objc2-av-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "AVCaptureDevice", "AVMediaFormat"] }
-objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSString", "NSData", "NSArray"] }
-tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6" }
+accessibility-sys = { version = "0.1.3", optional = true }
+core-foundation-sys = { version = "0.8.7", optional = true }
+core-foundation = { version = "0.9", optional = true }
+core-graphics = { version = "0.22", optional = true }
+objc2 = { version = "0.6" }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSWindow", "NSWindowTabGroup", "NSPasteboard", "NSPasteboardItem"] }
+objc2-foundation = { version = "0.3", optional = true, default-features = false, features = ["std", "NSString", "NSData", "NSArray"] }
+tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", rev = "a3122e894383aa068ec5365a42994e3ac94ba1b6", optional = true }
 transcribe-cpp = { version = "0.1.0", default-features = false, features = ["metal"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 transcribe-cpp = { version = "0.1.0", default-features = false, features = ["dynamic-backends", "vulkan"] }
-zbus = { version = "5", default-features = false, features = ["tokio"] }
+zbus = { version = "5", optional = true, default-features = false, features = ["tokio"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = { version = "2.4", features = ["deep-link"] }
@@ -105,16 +141,9 @@ incremental = true
 panic = "abort"
 strip = true
 
-[features]
-runtime-evidence = ["tauri/test"]
-
 [patch.crates-io]
 specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-serde = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-typescript = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-util = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
-
-[[example]]
-name = "runtime_lifetime_evidence"
-required-features = ["runtime-evidence"]

@@ -12,8 +12,9 @@ invariant, or smaller promise that makes a family of complexity unnecessary.
 Success is a better product with a simpler supported design, not more waves.
 
 Codex owns continuity, decisions, acceptance, and integration. Prefer GPT 6.1
-for computer use and Claude Opus 5.5 for delegated implementation. Respect
-explicit model choices; report unavailable capabilities and any substitution.
+for computer use and Claude Opus 5.5 to direct delegated implementation, with
+a Codex helper writing substantial changes. Respect explicit model choices;
+report unavailable capabilities and any substitution.
 The responsibilities survive changes to model availability. This is a Codex
 coordination skill; Claude receives bounded assignments through the linked
 delegation skill.
@@ -50,7 +51,7 @@ replaces it, and any work transferred to a caller or person. A problem observed
 in the UI can justify changing the underlying model when the evidence supports
 that scope. Bring unresolved product tradeoffs to the user.
 
-When the user explicitly authorizes Claude execution, use
+Within the task's authorization, use
 [delegate-claude](../delegate-claude/SKILL.md) for a separable implementation
 with observable acceptance criteria. Give Opus the relevant baseline, raw
 evidence, affected consumers, allowed changes, and a bounded stop condition.
@@ -83,7 +84,7 @@ Use [adversarial-review](../adversarial-review/SKILL.md) at consequential design
 checkpoints, when evidence suggests a different owner, lifecycle, public
 contract, or smaller promise could remove substantial machinery, and whenever
 the user requests it. That skill owns independent reviewer setup and
-adjudication. Reflection happens every wave; a full reviewer pair does not.
+adjudication. Reflection happens every wave; a full reviewer group does not.
 Preserve reviewer independence from the implementation worker.
 
 Use [collapse-pass](../collapse-pass/SKILL.md) when accepted findings call for
@@ -96,9 +97,10 @@ product improved.
 Choose another wave while there is a grounded improvement worth executing
 within the authorized outcome. Stop when the intended journeys pass, accepted
 findings are resolved, and remaining candidates lack evidence or require a new
-product decision. Do not repeat reviews to obtain a deletion or unanimous
-approval. Carry unresolved checks forward explicitly when access or external
-conditions prevent completion.
+product decision. For an open adversarial review, follow
+[adversarial-review](../adversarial-review/SKILL.md)'s group discussion and
+agreement process. Carry unresolved checks forward explicitly when access or
+external conditions prevent completion.
 
 For work spanning waves, retain enough working evidence to resume: accepted
 outcome, source and app baseline, observed failures, accepted and rejected

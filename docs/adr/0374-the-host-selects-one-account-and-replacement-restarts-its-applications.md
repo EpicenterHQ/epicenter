@@ -11,9 +11,9 @@ must not let an old window borrow a new person's identity.
 
 ## Decision
 
-One host process holds one boot Account. Deliberate sign-in or sign-out waits
-for application producers and stores to close. The native close barrier blocks
-new windows during departure. A first sign-in or different-person replacement
+One host process holds one boot Account. Deliberate sign-in or sign-out restarts
+the host immediately; no window is asked or waited for
+([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)). A first sign-in or different-person replacement
 persists the credential for relaunch; it does not replace the boot Account.
 A failed relaunch leaves old windows unable to use the replacement identity.
 
@@ -33,7 +33,7 @@ or sends any request, including revocation. The host offers no server switch.
 
 ## Consequences
 
-Credential replacement and application replacement share one awaited departure.
+Credential replacement and application replacement share one immediate restart.
 Browser documents preserve the same captured-Account rule through full navigation.
 Authentication state remains observable; store sync owns connectivity and progress.
 The host owns credentials and relays traffic, but owns no application data.

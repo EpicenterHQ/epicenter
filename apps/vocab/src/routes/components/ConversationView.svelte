@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { agentMessageText } from '@epicenter/agent';
-	import { InferencePicker } from '@epicenter/app-shell/inference-picker';
+	import { InferencePicker } from '@epicenter/ai/picker';
 	import * as Chat from '@epicenter/ui/chat';
 	import { Button } from '@epicenter/ui/button';
 	import { CopyButton } from '@epicenter/ui/copy-button';
@@ -10,24 +10,22 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import { onDestroy, onMount } from 'svelte';
 	import type { AgentMessage } from '@epicenter/agent';
+	import type { Account } from '@epicenter/auth';
 	import { auth } from '$lib/auth.svelte.js';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
-	import type { Admissions } from '@epicenter/svelte/admissions';
 	import type { VocabFolder } from '$lib/data.js';
-	import type { EntriesState } from '$lib/entries.svelte.js';
-	import type { InferenceCatalog } from '@epicenter/app-shell/inference-picker';
-	import type { InferenceSelections } from '@epicenter/app-shell/inference-selections';
+	import type { Entries } from '$lib/entries.svelte.js';
+	import type { InferenceCatalog } from '@epicenter/ai/picker';
+	import type { InferenceSelections } from '@epicenter/ai/selections';
 	import DictationButton from './DictationButton.svelte';
 	import PhraseCapture from './PhraseCapture.svelte';
 
 	const accountManagementUrl = auth.accountManagementUrl;
-	// The account the shell opened the tutor's connections with.
-	const account = auth.getState().account;
 
 	let {
 		chatId,
+		account,
 		folder,
-		admit,
 		catalog,
 		selections,
 		entries,
@@ -37,11 +35,12 @@
 		onOpeningStarted = () => {},
 	}: {
 		chatId: string;
-		folder: Pick<VocabFolder, 'tables' | 'files'>;
-		admit: Admissions['admit'];
+		/** The account captured when the parent opened this tutor. */
+		account: Account | undefined;
+		folder: VocabFolder;
 		catalog: InferenceCatalog;
 		selections: InferenceSelections;
-		entries: EntriesState;
+		entries: Entries;
 		focus: readonly { text: string }[];
 		visible: boolean;
 		startOpening?: boolean;
@@ -51,15 +50,7 @@
 	// The parent keys this component by chat ID. Its loop and draft end when
 	// another chat is selected; dictation ends sooner when Chat hides.
 	/* svelte-ignore state_referenced_locally */
-	const chat = createVocabChat({ folder, admit, chatId, focus, catalog, selections });
-
-	/**
-	 * Whether leaving this chat would drop a message the folder has not
-	 * confirmed. The shell asks before it switches chats.
-	 */
-	export function hasUnsaved() {
-		return chat.unsaved.length > 0;
-	}
+	const chat = createVocabChat({ folder, chatId, focus, catalog, selections });
 
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
@@ -75,8 +66,6 @@
 	const lastMessage = $derived(chat.messages.at(-1));
 	const unsavedIds = $derived(new Set(chat.unsaved.map((unsaved) => unsaved.id)));
 </script>
-
-<svelte:window onbeforeunload={(event) => { if (hasUnsaved()) event.preventDefault(); }} />
 
 <PhraseCapture root={list} {entries} resetKey={`${chat.messages.length}:${chat.isGenerating}`} />
 
@@ -101,7 +90,7 @@
 	<div class="min-h-0 flex-1 overflow-hidden" bind:this={list}>
 		{#if chat.messages.length === 0 && !chat.streaming && !chat.isThinking}
 			<div class="flex h-full items-center justify-center px-4 text-center text-muted-foreground">
-				<p>{chat.isReading ? 'Reading this chat…' : 'The tutor is ready to open this conversation.'}</p>
+				<p>The tutor is ready to open this conversation.</p>
 			</div>
 		{:else}
 			<!-- vocab-check: ignore-next-line (Tailwind max-w-prose class) -->
@@ -133,13 +122,6 @@
 		<div class="flex justify-center border-t p-2"><Button variant="outline" disabled={!chat.canAsk} onclick={() => chat.retry()}><RotateCcwIcon class="size-3" />Retry opening</Button></div>
 	{/if}
 
-	{#if chat.readError}
-		<!-- The transcript is unknown, so nothing is sent to the tutor until it reads. -->
-		<div role="alert" class="flex items-center justify-between gap-2 border-t px-3 py-2 text-xs text-destructive">
-			<span>{chat.isReading ? 'Reading again...' : 'This chat could not be read from this browser, so the tutor has not been asked.'}</span>
-			<Button variant="ghost" size="sm" disabled={chat.isReading} onclick={() => chat.readAgain()}>Read again</Button>
-		</div>
-	{/if}
 	{#if chat.unreadable.length > 0}
 		<p role="alert" class="border-t px-3 py-2 text-xs text-destructive">
 			{chat.unreadable.length} saved {chat.unreadable.length === 1 ? 'message of this chat is' : 'messages of this chat are'} not shown because Vocab cannot read {chat.unreadable.length === 1 ? 'it' : 'them'}. The tutor does not see {chat.unreadable.length === 1 ? 'it' : 'them'} either. Nothing was removed.
@@ -153,9 +135,9 @@
 				{#if chat.isSaving}
 					Saving again...
 				{:else if chat.unsaved[0]?.role === 'user'}
-					Your message is not saved, so the tutor has not been asked. It can be lost if Vocab closes.
+					Your message is not saved, so the tutor has not been asked. Copy it or save again before you leave this chat.
 				{:else}
-					The tutor's answer is not saved. It can be lost if Vocab closes.
+					The tutor's answer is not saved. Copy it or save again before you leave this chat.
 				{/if}
 			</span>
 			<div class="flex gap-1">

@@ -10,11 +10,11 @@
 	import PlusIcon from '@lucide/svelte/icons/plus';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
 	import { STARTER_TRANSFORMATIONS } from '$lib/definition.js';
-	import type { Library, TransformationEntry } from '$lib/library.svelte.js';
+	import { getWhispering, type TransformationEntry } from '$lib/whispering.svelte.js';
 	import { recipeModel } from '$lib/recipe.js';
-	import { openItem } from './file-actions.js';
 
-	let { library, onOpen }: { library: Library; onOpen?: () => void } = $props();
+	let { onOpen }: { onOpen?: () => void } = $props();
+	const whispering = getWhispering();
 
 	let creating = $state(false);
 
@@ -22,9 +22,9 @@
 	async function create(starter: { title: string; prompt: string }) {
 		creating = true;
 		try {
-			const problem = await library.createTransformation(starter);
-			if (problem) toast.error('Could not create the transformation', { description: problem });
-			else onOpen?.();
+			const problem = await whispering.createTransformation(starter);
+			if (problem === undefined) onOpen?.();
+			else toast.error('Could not create the transformation', { description: problem });
 		} finally {
 			creating = false;
 		}
@@ -73,16 +73,10 @@
 		</DropdownMenu.Root>
 	</div>
 
-	{#if library.transformationsError}
-		<p class="border-b bg-destructive/10 px-3 py-2 text-xs text-destructive" role="status">
-			Could not read the transformations folder: {library.transformationsError}. Showing the last list that was read.
-		</p>
-	{/if}
-
 	<ul class="min-h-0 flex-1 overflow-y-auto" aria-label="Saved transformations" data-testid="transformation-list">
-		{#each library.transformations as entry (entry.path)}
-			{@const selected = library.selectedTransformationPath === entry.path}
-			{@const results = library.outputsOf(entry.stem).length + library.textOutputsOf(entry.stem).length}
+		{#each whispering.transformations as entry (entry.path)}
+			{@const selected = whispering.selectedTransformationPath === entry.path}
+			{@const results = whispering.outputsOf(entry.stem).length + whispering.textOutputsOf(entry.stem).length}
 			{@const model = recipeModel(entry.row.fields)}
 			<li class="border-b text-sm {selected ? 'bg-accent text-accent-foreground' : 'hover:bg-muted/50'}">
 				<button
@@ -90,8 +84,8 @@
 					class="flex w-full min-w-0 flex-col gap-0.5 px-3 py-2 text-left sm:px-4"
 					aria-current={selected ? 'true' : undefined}
 					data-transformation={entry.path}
-					onclick={async () => {
-						if (await openItem(library, entry.path)) onOpen?.();
+					onclick={() => {
+						if (whispering.open(entry.path)) onOpen?.();
 					}}
 				>
 					<span class="flex items-center gap-2">
@@ -124,15 +118,18 @@
 		{/each}
 	</ul>
 
-	{#if library.transformationRepairs.length > 0}
+	{#if whispering.transformationRepairs.length > 0}
 		<div class="border-t bg-warning/10 px-3 py-2 text-xs">
 			<p class="font-medium">Needs repair</p>
 			<ul class="mt-1 space-y-0.5">
-				{#each library.transformationRepairs as item (item.path)}
+				{#each whispering.transformationRepairs as item (item.path)}
 					<li>
-						<button type="button" class="font-mono underline" onclick={async () => {
-							if (await openItem(library, item.path)) onOpen?.();
+						<button type="button" class="font-mono underline" onclick={() => {
+							if (whispering.open(item.path)) onOpen?.();
 						}}>{item.path}</button>: {item.reason}
+						{#if item.unreadable}
+							<Button size="xs" variant="outline" class="ml-1" onclick={() => whispering.refresh()}>Try again</Button>
+						{/if}
 					</li>
 				{/each}
 			</ul>

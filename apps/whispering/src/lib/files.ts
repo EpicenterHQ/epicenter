@@ -1,16 +1,9 @@
-/** App-owned file messages and the maximum size of editable text. */
-import {
-	type FileError,
-	type FolderFiles,
-	type MoveError,
-	pathProblem,
-	type TableError,
-} from '@epicenter/folder';
-import {
-	basename,
-	joinPath,
-	readTextFile as readFolderTextFile,
-} from '@epicenter/folder/file-browser';
+/** App-owned file messages, and reading a file's bytes. */
+import type { ReadError, WriteError } from '@epicenter/folder';
+import { joinPath, pathProblem } from '@epicenter/folder/file-browser';
+import { extractErrorMessage } from 'wellcrafted/error';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import type { WhisperingFolder } from './folder.js';
 
 export function nameProblem(
 	directory: string,
@@ -24,43 +17,77 @@ export function nameProblem(
 		: `This name is not usable: ${problem}.`;
 }
 
-/** Text larger than this opens as file details instead of in the editor. */
-export const EDITABLE_TEXT_LIMIT = 1024 * 1024;
-
-/** Read editable text using this app's size limit. */
-export function readTextFile(files: Pick<FolderFiles, 'read'>, path: string) {
-	return readFolderTextFile(files, path, EDITABLE_TEXT_LIMIT);
-}
-
 /**
- * Library errors state failures precisely; these are the ones a person acts
- * on. A refusal changed nothing, a move that kept its source left both
- * files, and a lost reply leaves the outcome unknown.
+ * Whispering errors state failures precisely; these are the ones a person acts
+ * on. A storage failure can leave the outcome unconfirmed on a native host.
  */
 export function describeError(
 	error:
-		| FileError
-		| MoveError
-		| TableError
+		| WriteError
+		| ReadError
 		| { readonly name: string; readonly message: string },
 ): string {
-	const known = error as FileError | MoveError | TableError;
+	// SAFETY: an unnamed error falls through to its message.
+	const known = error as WriteError | ReadError;
 	switch (known.name) {
-		case 'Exists':
-			return `"${basename(known.path)}" already exists here.`;
-		case 'Conflict':
-			return known.actualSha256 === undefined
-				? 'The file is no longer here, so nothing was changed.'
-				: 'The file changed elsewhere, so nothing was changed. Check it and try again.';
-		case 'DirectoryNotEmpty':
-			return 'The folder is not empty, so nothing was deleted.';
-		case 'SourceNotRemoved':
-			return `"${basename(known.to)}" was written, but "${basename(known.from)}" could not be removed, so both are in the folder now.`;
-		case 'Unconfirmed':
-			return `The change was sent, but nothing confirmed it, so it may or may not have happened. ${known.message}`;
-		case 'InvalidValues':
-			return known.issues.map((issue) => issue.message).join(' ');
+		case 'StorageFailed':
+			return `The folder could not confirm this change: ${extractErrorMessage(known.cause)}`;
+		case 'Unparseable':
+			return `Its fields could not be changed, because its frontmatter does not read: ${known.reason}. Fix it in Source.`;
+		case 'NotText':
+			return 'It is not text, so it was not changed.';
+		case 'Occupied':
+			return `${known.existing} is a ${known.kind}, so nothing was saved at ${known.path}.`;
+		case 'CaseTwin':
+			return `${known.existing} differs only by case, so nothing was saved at ${known.path}.`;
 		default:
-			return known.message;
+			return error.message;
 	}
+}
+
+/**
+ * The folder's files as last listed: every file's path, and the directories
+ * those paths pass through. A folder keeps files, so a directory with no file
+ * in it is not listed.
+ */
+export type Listing = {
+	readonly files: readonly string[];
+	readonly paths: ReadonlySet<string>;
+	/** Same-stem siblings, indexed once per listing rather than scanned per recording. */
+	byStem: ReadonlyMap<string, readonly string[]>;
+	readonly directories: readonly string[];
+};
+
+export function listingOf(files: readonly string[]): Listing {
+	const directories = new Set<string>();
+	const byStem = new Map<string, string[]>();
+	for (const path of files) {
+		const dot = path.lastIndexOf('.');
+		if (dot > path.lastIndexOf('/') + 1) {
+			const stem = path.slice(0, dot);
+			const siblings = byStem.get(stem) ?? [];
+			siblings.push(path);
+			byStem.set(stem, siblings);
+		}
+		const parts = path.split('/');
+		for (let end = 1; end < parts.length; end++)
+			directories.add(parts.slice(0, end).join('/'));
+	}
+	return {
+		files,
+		paths: new Set(files),
+		byStem,
+		directories: [...directories].sort(),
+	};
+}
+
+/** The file at `path` as bytes, or why it could not be read. */
+export async function readBytes(
+	folder: Pick<WhisperingFolder, 'read'>,
+	path: string,
+): Promise<Result<Uint8Array, string>> {
+	const { data: bytes, error } = await folder.read(path);
+	if (error !== null) return Err(error.message);
+	if (bytes === null) return Err(`No file exists at '${path}'.`);
+	return Ok(bytes);
 }

@@ -1,102 +1,98 @@
 <script lang="ts">
+	import { edit } from '@epicenter/svelte/folder';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Spinner } from '@epicenter/ui/spinner';
 	import WandSparklesIcon from '@lucide/svelte/icons/wand-sparkles';
-	import { withFileNewlines } from '@epicenter/folder/file-browser';
-	import { wellFormed } from '@epicenter/folder';
-	import { untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
-	import { TRANSCRIPTIONS } from '$lib/definition.js';
-	import type { Library, TranscriptionEntry } from '$lib/library.svelte.js';
+	import { getFolder } from '$lib/folder.js';
+	import { getWhispering, type TranscriptionEntry } from '$lib/whispering.svelte.js';
 	import { transformationName } from '$lib/post-processing.js';
-	import { copyText, formatTime, lf, openItem } from './file-actions.js';
+	import { confirmDelete, copyText, formatTime } from './file-actions.js';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import SaveBar from '@epicenter/svelte/save-bar';
+	import ResultStatus from './ResultStatus.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
 
 	/**
-	 * One saved transcript of the recording that is open, edited where it is
-	 * read, beside the player. Its text is the body of the transcript's own
-	 * file, in a draft opened beside the recording and left with it. Nothing
-	 * here selects the transcript's file, so the recording stays open.
+	 * One transcript of the recording that is open, edited where it is read,
+	 * beside the player. Its text is the body of the transcript's own file,
+	 * saved as it is typed.
+	 * A transcript whose answer has not reached its file says why instead, and
+	 * is not edited while its answer is on its way. Nothing here selects the
+	 * transcript's file, so the recording stays open.
 	 */
-	let { library, result }: { library: Library; result: TranscriptionEntry } = $props();
+	let {
+		result,
+		audioAbsent = false,
+	}: { result: TranscriptionEntry; audioAbsent?: boolean } = $props();
+	const whispering = getWhispering();
+	const folder = getFolder();
+	// The list keys each card by its file; what is typed is sent to that one.
+	// svelte-ignore state_referenced_locally
+	const stem = result.stem;
 
-	// Open the file's draft once for this path, beside the recording.
-	$effect(() => {
-		const path = result.path;
-		untrack(() => void library.openTranscript(path));
-	});
-	const draft = $derived(library.draftAt(result.path));
-	const row = $derived(draft?.kind === 'row' && draft.table === TRANSCRIPTIONS ? draft.session : undefined);
-	/** The text now: the draft's, or the row as listed. */
-	const text = $derived(row?.draft.body ?? result.row.body);
-
-	const outputs = $derived(library.outputsFor(result.stem));
-	const transforming = $derived(
-		library.transformationRuns.some(
-			(item) => item.fields.transcriptionId === result.stem && item.state.kind === 'running',
-		),
+	/** Edited here unless the person opened its file as text in Files. */
+	const asText = $derived(whispering.showsText(result.path));
+	/** The text now: as typed until its save answers, else as the file holds it. */
+	const body = edit(
+		() => result.row.body,
+		(body) => folder.tables.transcriptions.update(stem, { body }),
 	);
+	const text = $derived(body.value);
+	const progress = $derived(whispering.resultState(result.path, text));
+
+	const outputs = $derived(whispering.outputsFor(result.stem));
+	const transforming = $derived(whispering.recipeRuns.some((item) => item.transcriptionId === result.stem));
 	/**
 	 * Every transformation, with whether it can run now by the one decision
 	 * the run itself makes. One that cannot is shown with why, and fixed on its
 	 * own page or in Settings first.
 	 */
-	const choices = $derived(library.transformations.map((item) => ({ item, resolved: library.resolve(item.row) })));
+	const choices = $derived(whispering.transformations.map((item) => ({ item, resolved: whispering.resolve(item.row) })));
 
-	/** Apply a transformation to this transcript. The result is a new file; the transcript is not changed by it. */
+	/**
+	 * Apply a transformation to this transcript as it is shown. The result is
+	 * a new file; the transcript is not changed by it.
+	 */
 	async function transform(path: string) {
-		const problem = await library.transform(result.path, path);
+		const problem = await whispering.transform(
+			result.path,
+			path,
+			asText ? {} : { input: text },
+		);
 		if (problem) toast.error('The transformation did not run', { description: problem });
 	}
 </script>
 
 <article class="flex flex-col gap-2 rounded border p-3 text-sm" data-testid="transcription-result">
-	{#if row}
+	{#if progress.kind !== 'answered'}
+		<ResultStatus
+			path={result.path}
+			result={progress}
+			{audioAbsent}
+			onDelete={() => void confirmDelete(whispering, result.path)}
+		/>
+	{/if}
+	{#if progress.kind === 'running' || progress.kind === 'writing'}
+		<!-- The answer is on its way into this file; editing resumes when its publication settles. -->
+	{:else if !asText}
 		<Textarea
 			class="min-h-32 resize-y font-sans"
-			bind:value={
-				() => lf(row?.draft.body ?? ''),
-				(value) =>
-					row?.edit((draft) => {
-						draft.body = withFileNewlines(wellFormed(value), draft.body);
-					})
-			}
-			disabled={row.locked}
+			bind:value={body.value}
 			placeholder="This transcript has no text."
 			aria-label="Transcript of {formatTime(result.row.fields.createdAt) || result.path}"
 			data-testid="transcript-text"
 		/>
-		<SaveBar
-			save={row.state}
-			hideWhenSaved
-			onRetry={() => row.retry()}
-			onReloadTheirs={() => library.reloadTheirs(row)}
-			gone={!library.canKeepMine(row)}
-			onKeepMine={library.canKeepMine(row) ? () => library.keepMine(row) : undefined}
-		/>
 	{:else}
 		<p class="max-h-64 overflow-y-auto rounded border p-2 whitespace-pre-wrap" data-testid="transcript-text-readonly">{text}</p>
 	{/if}
-	{#if draft?.kind === 'text'}
-		<p class="text-xs text-destructive" role="alert">
-			This transcript’s file is being edited as text, so its text cannot be edited here. Open it from Files.
-		</p>
-		<SaveBar
-			save={draft.session.state}
-			hideWhenSaved
-			onRetry={() => draft.session.retry()}
-			onReloadTheirs={() => library.reloadTheirs(draft.session)}
-			gone={!library.canKeepMine(draft.session)}
-			onKeepMine={library.canKeepMine(draft.session) ? () => library.keepMine(draft.session) : undefined}
-		/>
-	{:else if draft?.kind === 'failed'}
-		<p class="text-xs text-destructive" role="alert">
-			This transcript’s file could not be opened: {draft.message}
+	<UnsavedEdit edit={body} />
+	{#if asText}
+		<p class="text-xs text-muted-foreground" role="status">
+			This transcript’s file is open as text in Files, so its text is edited there.
 		</p>
 	{/if}
 	<footer class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
@@ -142,10 +138,9 @@
 	</footer>
 	{#each outputs as output (output.path)}
 		<TransformationOutput
-			{library}
 			output={{ source: 'transcript', entry: output }}
 			naming="transformation"
-			onOpenFile={(path) => void openItem(library, path)}
+			onOpenFile={(path) => whispering.open(path)}
 		/>
 	{/each}
 </article>

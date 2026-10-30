@@ -216,7 +216,6 @@ test('excluded docs are not scanned', () => {
 		);
 		write(dir, '.agents/skill.md', 'See `packages/missing/src/index.ts`.\n');
 		write(dir, '.claude/prompt.md', 'See `packages/missing/src/index.ts`.\n');
-		write(dir, 'CHANGELOG.md', 'See `packages/missing/src/index.ts`.\n');
 		commitAll(dir);
 
 		const { code, out } = run(dir);

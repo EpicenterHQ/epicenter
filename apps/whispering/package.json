@@ -2,23 +2,30 @@
 	"name": "@epicenter/whispering",
 	"private": true,
 	"version": "7.11.1",
-	"description": "Standalone desktop recorder: recordings, transcripts, and settings are files in a Git-versioned folder",
+	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in Epicenter or a browser tab",
 	"type": "module",
+	"imports": {
+		"#platform/auth": {
+			"epicenter-host": "./src/lib/platform/desktop/auth.ts",
+			"default": "./src/lib/platform/auth.ts"
+		},
+		"#platform/services": {
+			"epicenter-host": "./src/lib/platform/desktop/services.ts",
+			"default": "./src/lib/platform/browser.ts"
+		}
+	},
 	"scripts": {
-		"dev": "tauri dev",
+		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"test": "bun ../../packages/folder/scripts/build-addon.ts && bun test --isolate --path-ignore-patterns='src/routes/**' && bun run test:mounted",
+		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' --path-ignore-patterns='**/*.postgres.test.ts' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/routes",
-		"test:quit": "cargo run --locked --manifest-path src-tauri/Cargo.toml --example quit --",
+		"test:postgres": "bun test --isolate ./src/lib/platform/desktop/connections.postgres.test.ts",
 		"build": "NODE_ENV=production vite build",
-		"build:epicenter": "EPICENTER_HOST=1 bun run build",
-		"build:sidecar": "bun scripts/build-sidecar.ts",
-		"build:desktop": "tauri build",
-		"tauri": "tauri",
+		"build:host": "EPICENTER_HOST=1 bun run build",
 		"check": "bun run typecheck",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.native.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"
 	},
 	"license": "AGPL-3.0-or-later",
 	"devDependencies": {
@@ -30,9 +37,10 @@
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/api": "catalog:",
-		"@tauri-apps/cli": "catalog:",
+		"@tauri-apps/plugin-opener": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
+		"fake-indexeddb": "^6.2.6",
 		"jsdom": "26.1.0",
 		"mode-watcher": "catalog:",
 		"svelte": "catalog:",
@@ -44,11 +52,16 @@
 		"vite-plugin-devtools-json": "^1.0.0"
 	},
 	"dependencies": {
-		"@epicenter/svelte": "workspace:*",
+		"@epicenter/ai": "workspace:*",
+		"@epicenter/auth": "workspace:*",
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/recorder": "workspace:*",
+		"@epicenter/svelte": "workspace:*",
+		"typebox": "catalog:",
 		"nanoid": "catalog:",
+		"runed": "catalog:",
 		"wellcrafted": "catalog:"
 	}
 }

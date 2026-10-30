@@ -233,7 +233,7 @@ When the page is being hidden (tab close, Cmd+W, tab switch, window minimize, iO
 
 The guarantee is only as synchronous as the handler. A blur handler that defers its write (`requestAnimationFrame`, `setTimeout`, an `await` before the write) escapes the net: rAF callbacks never run while the document is hidden, and teardown outruns timers. If a handler needs a deferred path for a visible-page focus dance (the tree rename inputs wait one frame so a closing context menu does not cancel the edit), branch on `document.visibilityState === 'hidden'` and commit synchronously in that branch.
 
-Do not hand-roll the two listeners per app: `visibilitychange` is a document event and `pagehide` is a window event, and putting either on the wrong special element typechecks loosely and never fires. The component owns that split (see `packages/svelte/src/flush-edits-on-hide.svelte`).
+Do not hand-roll the two listeners per app: `visibilitychange` is a document event and `pagehide` is a window event, and putting either on the wrong special element typechecks loosely and never fires. The component owns that split.
 
 ## The default for new apps
 

@@ -31,12 +31,13 @@ version to display.
 
 **Only one transcription or cleanup operation may be active for one recording.**
 Another recording can process independently. A retry of saved audio starts a
-new attempt and appends a result only after successful transcription. A failed
-attempt leaves every successful result intact and needs no durable failure row.
-The active state and latest error can be shown during the page lifetime; the
-saved audio remains available for another retry after reload. If local
-persistence of a completed result is unconfirmed, retain that result and its ID
-for a save-only retry without another inference request.
+new attempt, whose result row is written when the request starts and whose body
+is filled when the answer arrives ([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)).
+A failed attempt leaves every successful result intact and writes no failure
+row; a result row without a body and without a live request is unfinished. The
+active state and latest error are shown during the page lifetime. If writing an
+answer fails, the page retries the write while it lives; after a reload, a
+person runs the attempt again.
 
 **Whispering does not let a person edit transcription text.** `rawText` is
 immutable; `cleanedText` holds at most one accepted machine output for that

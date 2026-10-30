@@ -7,29 +7,26 @@ import type { AuthClient, AuthState } from '../index.js';
  *
  * The brand marks the reads that track, and handing a raw core client to a
  * surface that needs them is a type error rather than a silently frozen
- * popover. Since the brand is a subtype, code that only reads once needs no
- * change.
+ * popover. The core client's `getState()` is replaced by the `state` getter;
+ * all other members carry through.
  *
- * Application bootstrap reads the plain client once. This adapter belongs to
- * UI consumers that display changing identity or credential refusal; it does not
- * own application lifetime or select a replacement store.
+ * Application bootstrap can read `state` during component setup to capture an
+ * Account once. The getter tracks only in a Svelte reactive context. This
+ * adapter does not own application lifetime or select a replacement store.
  *
- * The parameter carries the wrapped client's own type through, because a
- * `CallbackAuthClient` that came out of here as a bare `AuthClient` would lose
- * `completeSignIn` in the type while keeping it at runtime, and the callback
- * route reads that member. It defaults to `AuthClient`, so every existing
- * annotation still means what it meant.
+ * The parameter carries the wrapped client's own type through, so a
+ * `CallbackAuthClient` keeps `completeSignIn` for its callback route.
  */
-export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
-	TClient & { readonly state: AuthState } & Brand<'ReactiveAuthClient'>;
+export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> = Omit<
+	TClient,
+	'getState' | 'state'
+> & { readonly state: AuthState } & Brand<'ReactiveAuthClient'>;
 
 /**
  * Bridge an auth client's state into Svelte's graph.
  *
- * `from*` because that is what every Svelte adapter in this repository is
- * called: `fromData` wraps a store. It was
- * `reactive` while it was the only one, which read as a property of the thing
- * rather than as the verb that builds one.
+ * `from*` names the verb that builds the adapter. It was `reactive`, which read
+ * as a property of the thing rather than as the verb that builds one.
  *
  * The whole of what this module does, and the whole of what it should: a
  * client is composed somewhere that has no framework, and this adapts one.
@@ -41,16 +38,16 @@ export type ReactiveAuthClient<TClient extends AuthClient = AuthClient> =
  * wrap a client this module had not anticipated. One function takes any of
  * them.
  *
- * Core clients expose `getState()` for explicit reads. This adapter adds the
- * reactive `state` property and copies the client's methods and values.
+ * Core clients expose `getState()` for explicit reads. This adapter exposes a
+ * reactive `state` property in its place and copies the other property
+ * descriptors, so live values such as the desktop deployment keep their getters.
  *
  * `createSubscriber` rather than a `$state.raw` shadow, and the difference is
  * not style. It is lazy: the subscription starts only while something is
  * actively reading inside a tracking context, and stops when the last reader
- * is destroyed. That is what lets one wrapped client serve both contracts at
- * once, because a boot-time read outside any effect subscribes to nothing and
- * simply calls `getState()`. A shadow would subscribe eagerly,
- * once per component instance, for that component's whole life.
+ * is destroyed. A read of `state` outside tracking returns a snapshot without
+ * subscribing. A shadow would subscribe eagerly, once per component instance,
+ * for that component's whole life.
  *
  */
 export function fromAuth<TClient extends AuthClient>(
@@ -59,11 +56,19 @@ export function fromAuth<TClient extends AuthClient>(
 	const subscribeState = createSubscriber((update) =>
 		authClient.onStateChange(update),
 	);
-	return {
-		...authClient,
-		get state() {
-			subscribeState();
-			return authClient.getState();
+	const descriptors = Object.getOwnPropertyDescriptors(authClient);
+	Reflect.deleteProperty(descriptors, 'getState');
+	return Object.defineProperties(
+		{},
+		{
+			...descriptors,
+			state: {
+				enumerable: true,
+				get() {
+					subscribeState();
+					return authClient.getState();
+				},
+			},
 		},
-	} as ReactiveAuthClient<TClient>;
+	) as ReactiveAuthClient<TClient>;
 }

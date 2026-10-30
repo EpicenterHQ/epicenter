@@ -1,0 +1,44 @@
+# Deliberate publication stays separate while bundled apps are unfinished.
+name: Publish Epicenter release and update feed
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Completed Epicenter draft release to publish
+        required: true
+        type: string
+      first_release:
+        description: Bootstrap the feed when its domain has no deployment yet
+        required: true
+        type: boolean
+        default: false
+permissions:
+  contents: write
+concurrency:
+  group: epicenter-stable-release
+  cancel-in-progress: false
+  queue: max
+jobs:
+  publish:
+    environment: epicenter-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Publish the selected release and promote its feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          FIRST_RELEASE: ${{ inputs.first_release }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" --pattern stable.json --dir .artifacts/epicenter-publish
+          bun apps/epicenter/scripts/release.ts publish "$RELEASE_TAG" .artifacts/epicenter-publish

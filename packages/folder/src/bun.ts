@@ -1,116 +1,228 @@
 /**
- * `@epicenter/folder/bun`: open an ordinary directory as a folder, in Bun.
- *
- * For command-line tools, recovery scripts, and tests that are given a
- * directory. It is not the desktop adapter: a page in the desktop app opens
- * its folder through `@epicenter/folder/tauri`, where the shell's own process
- * holds the directory.
- *
- * The root is explicit, and the caller supplies the author and remote. Its
- * files are the live source, edited concurrently by people, agents, and Git.
- * Checks against the observed version are best effort: another program can
- * race them. Multi-file operations are ordered steps that report partial
- * progress rather than transactions. This process records history itself and
- * does not watch the directory: `onFilesChanged` reports this handle's own
- * saves and incoming updates, not edits made by other programs.
+ * `@epicenter/folder/bun`: open an existing directory as a folder and expose
+ * the CLI's independent declaration, query, and Git history tools.
+ * Folder writes take the directory save lock; Git is outside its lifetime.
  */
 
-import { Ok, type Result } from 'wellcrafted/result';
-import {
-	type FolderDefinition,
-	prepareFolderDefinition,
-} from './definition.js';
+import { lstat, realpath } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { sweepStaleScratch } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
 import {
-	assembleFolder,
-	createFileHints,
-	type Folder,
-	type FolderGitOptions,
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
 } from './folder.js';
-import { createHistory } from './git/history.js';
-import { createNativeGitBackend } from './git/native-backend.js';
+import type { GitCredentials } from './git/http.js';
+import { runNativeHistory } from './git/native-history.js';
 import {
-	createNativeFileBoundary,
-	resolveNativeRoot,
-	verifyNativeLayout,
-} from './native-store.js';
-import { publishDefinition } from './publish-definition.js';
-import { withPublication } from './storage.js';
+	createGitRunner,
+	gitLayoutProblem,
+	isNetworkUrl,
+	locateGit,
+} from './git/native-host.js';
+import type { Author } from './git/objects.js';
+import type { HistoryReply, HistoryRequest } from './history-wire.js';
+import { localRoot, scratchDirectory } from './native/directory.js';
+import { nativeStorage, savingPrimitives } from './native/storage.js';
+import { watchDirectory } from './native/watch.js';
+import { storageHost } from './storage.js';
 
+export { type CreateRowOf, defineTable, field } from '@epicenter/definition';
+export {
+	type CheckedTable,
+	checkFolder,
+	DEFINITION_SOURCE_PATH,
+	type Finding,
+	type FolderCheck,
+	hasDefinitionSource,
+} from './check-folder.js';
 export * from './contract.js';
 export {
-	createGitRunner,
-	GitCommandError,
-	type GitRun,
-} from './git/native-backend.js';
-export { verifyNativeLayout } from './native-store.js';
+	formatDefinition,
+	parseDeclaration,
+	parseDeclarationObject,
+} from './declaration.js';
 export {
-	type FolderReading,
-	ReadFolderError,
-	readFolder,
-} from './read-folder.js';
+	type Declaration,
+	DeclarationSchema,
+	type PortableTableSchema,
+	validateTableSchema,
+} from './declaration-schema.js';
+export { type Definition, defineFolder } from './definition.js';
+export { readDirectoryDocuments } from './directory-documents.js';
+export { nodeDirectoryPrimitives } from './directory-node.js';
+export {
+	GenerateDefinitionError,
+	generateDefinition,
+} from './generate-declaration.js';
+export { basicAuthorization, type GitCredentials } from './git/http.js';
+export { GitCommandError, type GitRun } from './git/native-backend.js';
+export {
+	createGitRunner,
+	endGitCommands,
+	GitMissingError,
+	locateGit,
+	runGit,
+} from './git/native-host.js';
+export {
+	NEUTRAL_ATTRIBUTES,
+	neutralizeAttributes,
+} from './git/neutral-attributes.js';
+export {
+	encodeHistory,
+	type GitMissingReply,
+	type HistoryReply,
+	type HistoryRequest,
+	type HistoryResults,
+	type HistoryState,
+} from './history-wire.js';
+export {
+	exportFolderSchemas,
+	importFolderSchemas,
+} from './native/declaration.js';
+export { holdingFileLock, holdingHistoryLock } from './native/directory.js';
+export { DEFINITION_PATH } from './paths.js';
+export { describeTables } from './projection.js';
+export { queryDocuments } from './query-documents.js';
+export {
+	type QueryAnswer,
+	QueryFolderError,
+	queryFolder,
+} from './query-folder.js';
+export { exportTables } from './schema-export.js';
 
-export type DirectoryFolderOptions<TDefinition extends FolderDefinition> = {
-	/** An existing directory. A Git repository is initialized there if absent. */
-	readonly root: string;
-	readonly definition: TDefinition;
-	readonly git: FolderGitOptions;
+export async function openFolder<const T extends Tables>({
+	directory,
+	...options
+}: OpenOptions<T> & { readonly directory: string }): Opened<T> {
+	const { data: root, error } = await localRoot(directory);
+	if (error !== null) return OpenFolderError.InvalidRoot(error);
+	await sweepStaleScratch(scratchDirectory(root), savingPrimitives(root));
+	return createFolder(
+		storageHost(nativeStorage(root), { watch: watchDirectory(root) }),
+		options,
+	);
+}
+
+export type HistoryOptions = {
+	/** Who commits where the folder's Git configuration names nobody. */
+	readonly author: Author;
+	/**
+	 * An application's own folder, which may get a repository of its own
+	 * inside another repository's working tree. A data folder may not: its
+	 * first commit is blocked, and its files are committed with that
+	 * repository's Git (ADR-0517).
+	 */
+	readonly application?: boolean;
+	/**
+	 * The credential for the remote a fetch or push names, asked for each
+	 * transfer with the URL the folder's history reads.
+	 */
+	readonly credentials?: GitCredentials;
 };
 
 /**
- * Open the directory at `root`. Refusals are returned, not thrown: a
- * definition a folder cannot keep, a root that is not a directory, or one
- * whose private Git state points somewhere else.
+ * Run one history operation, `request`, on the folder at `root` and answer
+ * its reply: what the `epicenter` CLI runs, one process over the system
+ * `git` per `status`, `history`, `save-version`, or `sync` (ADR-0559).
+ * Throws when the folder cannot be used: not a directory, Git state that
+ * would write elsewhere, a remote that is not a network URL, or no `git` on
+ * this computer (`GitMissingError`).
+ *
+ * This request owns all Git work and its final inspection. File writes stage
+ * in `.<name>.epicenter-scratch` beside the folder, as a Bun folder's do.
+ * Ordinary Git ignore and tracked-file rules select source; no schema
+ * declaration is required. Ordinary saves run independently.
  */
-export async function openFolder<const TDefinition extends FolderDefinition>({
-	root,
-	definition,
-	git,
-}: DirectoryFolderOptions<TDefinition>): Promise<
-	Result<Folder<TDefinition>, OpenFolderError>
-> {
-	const { data: prepared, error: definitionError } =
-		prepareFolderDefinition(definition);
-	if (definitionError !== null)
-		return OpenFolderError.InvalidDefinition(definitionError);
-	let resolved: string;
+export async function runHistory(
+	root: string,
+	request: HistoryRequest,
+	{ author, application = false, credentials }: HistoryOptions,
+): Promise<HistoryReply<unknown>> {
+	const { data: resolved, error } = await directoryRoot(root);
+	if (error !== null)
+		throw new Error(
+			`${root} cannot hold a folder: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`,
+		);
+	const layout = await gitLayoutProblem(resolved);
+	if (layout !== undefined)
+		throw new Error(`The folder at ${resolved} cannot be used: ${layout}.`);
+	if (
+		request.op === 'sync' &&
+		request.connect !== undefined &&
+		!isNetworkUrl(request.connect)
+	)
+		throw new Error(
+			`${request.connect} is not a remote a folder syncs with: use an https:// or ssh:// URL, or http:// only to this computer`,
+		);
+	locateGit();
+
+	const commits = request.op !== 'status' && request.op !== 'log';
+	const scratch = scratchDirectory(resolved);
+	const boundary = nativeStorage(resolved);
+	// What a stopped write staged an hour or more ago goes before anything
+	// is staged, as at a Bun folder's open.
+	if (commits) await sweepStaleScratch(scratch, savingPrimitives(resolved));
+	return runNativeHistory({
+		rootPath: resolved,
+		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
+		boundary,
+		author,
+		credentials,
+		initProblem: application ? undefined : () => enclosingRepository(resolved),
+		request,
+	});
+}
+
+/**
+ * The CLI's exit code for a reply (ADR-0558): 0 when the operation did what
+ * it says, 1 when its result is a refusal or a finding a person acts on,
+ * such as a sync that stopped.
+ */
+export function historyExitCode(reply: HistoryReply<unknown>): 0 | 1 {
+	const { result } = reply;
+	if (typeof result === 'object' && result !== null && 'error' in result)
+		return result.error === null ? 0 : 1;
+	const status =
+		typeof result === 'object' && result !== null && 'status' in result
+			? result.status
+			: undefined;
+	return status === 'committed' || status === 'unchanged' ? 0 : 1;
+}
+
+/**
+ * `root` with its links resolved, or why its history cannot be run: it is not
+ * a directory, or its `.git` is not a directory of its own.
+ */
+async function directoryRoot(
+	root: string,
+): Promise<Result<string, { root: string; cause: unknown }>> {
 	try {
-		resolved = await resolveNativeRoot(root);
-		await verifyNativeLayout(resolved);
+		const resolved = await realpath(root);
+		if (!(await lstat(resolved)).isDirectory())
+			throw new Error(`${root} is not a directory`);
+		const dotGit = await lstat(join(resolved, '.git')).catch(() => undefined);
+		if (dotGit !== undefined && !dotGit.isDirectory())
+			throw new Error(`${root}/.git is not a directory of its own`);
+		return Ok(resolved);
 	} catch (cause) {
-		return OpenFolderError.InvalidRoot({ root, cause });
+		return Err({ root, cause });
 	}
-	try {
-		const boundary = createNativeFileBoundary(resolved);
-		const backend = await createNativeGitBackend({
-			root: resolved,
-			branch: 'main',
-			remote: git.remote,
-			boundary,
-		});
-		const hints = createFileHints();
-		const history = createHistory({
-			backend,
-			boundary,
-			author: git.author,
-			definition: prepared,
-			landed: (paths) => hints.emit(paths),
-		});
-		const folder = assembleFolder<TDefinition>({
-			prepared,
-			storage: withPublication({
-				storage: boundary,
-				history,
-				landed: (paths) => hints.emit(paths),
-			}),
-			history,
-			location: { kind: 'directory', root: resolved },
-			hints,
-			release: async () => {},
-		});
-		await publishDefinition(prepared, folder.files);
-		return Ok(folder);
-	} catch (cause) {
-		return OpenFolderError.Unavailable({ cause });
+}
+
+/**
+ * Why `resolved` may not get a repository of its own: a directory above it
+ * holds `.git`, so it is inside that repository's working tree.
+ */
+async function enclosingRepository(
+	resolved: string,
+): Promise<string | undefined> {
+	for (let at = dirname(resolved); ; at = dirname(at)) {
+		if ((await lstat(join(at, '.git')).catch(() => undefined)) !== undefined)
+			return `${resolved} is inside the repository at ${at}; commit it with that repository's Git`;
+		if (dirname(at) === at) return undefined;
 	}
 }

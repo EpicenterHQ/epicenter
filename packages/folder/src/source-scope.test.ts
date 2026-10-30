@@ -1,43 +1,35 @@
 /**
  * History Source Scope Tests
  *
- * Status, automatic commits, and incoming fast-forwards share one inclusion
+ * Status, whole-folder commits, and incoming fast-forwards share one inclusion
  * rule: tracked files stay source, untracked files are source unless
  * `.gitignore` excludes them. SQLite filenames have no special source policy.
  *
  * Key behaviors:
  * - Root and nested `.gitignore` rules, negation, and ignored directories
  * - A tracked file stays tracked after a rule starts matching it
- * - Browser and native folders agree with `git status` about what is dirty
+ * - A directory's history agrees with `git status` about what is dirty
  * - A fast-forward preserves ignored files and refuses to overwrite one
  *
  * See also:
  * - `index-reconcile.test.ts` for staged-only intent after a checkpoint
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { expectOk } from 'wellcrafted/testing';
-import { openFolder as openBrowserFolder } from './browser.js';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
-	browserStorage,
-	createTestStorage,
-	rawBrowserFolder,
-} from './browser-storage.test-support.js';
-import { hashBytes } from './capture.js';
-import { defineFolder, defineTable, field } from './contract.js';
-import { openNativeFolder } from './directory.test-support.js';
+	type DirectoryHistory,
+	openDirectoryHistory,
+} from './directory-history.test-support.js';
 import { gitignoreMatcher } from './git/scope.js';
-import { GIT_ENV, git, scratch } from './git-http.test-support.js';
+import {
+	GIT_ENV,
+	git,
+	initWithOrigin,
+	scratch,
+} from './git-http.test-support.js';
+import { put } from './put.test-support.js';
 
-const definition = defineFolder({
-	kv: {},
-	tables: {
-		todos: defineTable({
-			fields: { title: field.string(), done: field.boolean() },
-		}),
-	},
-});
 const author = { name: 'App', email: 'app@example.test' };
 const originalGlobal = process.env.GIT_CONFIG_GLOBAL;
 
@@ -70,34 +62,9 @@ const SOURCE = [
 	'notes/plain.txt',
 ].sort();
 
-/**
- * Write `files` as another program or tab would: saved, and not committed
- * until a commit is asked for, so status sees them.
- */
-async function writeOutside(
-	write: (path: string, text: string) => Promise<void>,
-	files: Record<string, string>,
-) {
-	for (const [path, text] of Object.entries(files)) await write(path, text);
-}
-
-function inBrowser(id: string, storage: ReturnType<typeof createTestStorage>) {
-	return async (path: string, text: string) => {
-		const { boundary } = await rawBrowserFolder({ id, storage });
-		const bytes = encode(text);
-		expectOk(
-			await boundary.apply([
-				{ kind: 'overwrite', path, bytes, sha256: await hashBytes(bytes) },
-			]),
-		);
-	};
-}
-
-function onDisk(root: string) {
-	return async (path: string, text: string) => {
-		await mkdir(dirname(join(root, path)), { recursive: true });
-		await writeFile(join(root, path), text);
-	};
+async function writeLayout(folder: DirectoryHistory) {
+	for (const [path, text] of Object.entries(LAYOUT))
+		expect((await put(folder, path, text)).error).toBeNull();
 }
 
 describe('gitignoreMatcher', () => {
@@ -115,57 +82,28 @@ describe('gitignoreMatcher', () => {
 	});
 });
 
-describe('browser folder scope', () => {
-	test('status and commits exclude ignored files; tracked files stay tracked', async () => {
-		const storage = createTestStorage();
-		const folder = expectOk(
-			await openBrowserFolder({
-				id: 'scope',
-				definition,
-				browser: {
-					author,
-					...browserStorage(storage),
-				},
-			}),
-		);
-		const outside = inBrowser('scope', storage);
-		// Committed before any rule matches it.
-		await folder.files.create('tracked.log', 'v1\n');
-		await folder.git.commit();
-
-		await writeOutside(outside, LAYOUT);
-		const { data: status, error: statusError } = await folder.git.status();
-		expect(statusError).toBeNull();
-		expect(status?.changes.map((change) => change.path)).toEqual(SOURCE);
-
-		await outside('tracked.log', 'v2\n');
-		expect(
-			(await folder.git.status()).data?.changes.map((change) => change.path),
-		).toEqual([...SOURCE, 'tracked.log'].sort());
-		const outcome = await folder.git.commit();
-		expect(outcome.status).toBe('committed');
-		expect((await folder.git.status()).data?.changes).toEqual([]);
-		// Folder commits include the same authored SQLite path as ordinary Git.
-		expect((await folder.git.paths()).data).toEqual([]);
-		await folder.close();
-	});
-});
-
-describe('native folder scope', () => {
-	test('agrees with git status and never commits ignored files', async () => {
+describe('directory scope', () => {
+	test('agrees with git status and never commits ignored files; tracked files stay tracked', async () => {
 		const root = await scratch('scope-native-');
 		await git(root, 'init', '--quiet', '--initial-branch=main');
-		const folder = await openNativeFolder({
-			root,
-			definition,
-			git: { author },
-		});
-		await folder.files.create('tracked.log', 'v1\n');
-		await folder.git.commit();
-		await writeOutside(onDisk(root), { ...LAYOUT, 'tracked.log': 'v2\n' });
+		const folder = await openDirectoryHistory({ root, git: { author } });
+		// Committed before any rule matches it.
+		await folder.write('tracked.log', 'v1\n');
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
+		await writeLayout(folder);
+		const { data: status, error: statusError } = (
+			await folder.request({ op: 'status' })
+		).result;
+		expect(statusError).toBeNull();
+		expect(status?.changes.map((change) => change.path)).toEqual(SOURCE);
+		await put(folder, 'tracked.log', 'v2\n');
 
 		expect(
-			(await folder.git.status()).data?.changes.map((change) => change.path),
+			(await folder.request({ op: 'status' })).result.data?.changes.map(
+				(change) => change.path,
+			),
 		).toEqual([...SOURCE, 'tracked.log'].sort());
 		const porcelain = (
 			await git(root, 'status', '--porcelain', '--untracked-files=all')
@@ -175,9 +113,11 @@ describe('native folder scope', () => {
 			.sort();
 		expect(porcelain).toEqual([...SOURCE, 'tracked.log'].sort());
 
-		expect((await folder.git.commit()).status).toBe('committed');
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
 		expect((await git(root, 'ls-files')).split('\n').sort()).toEqual(
-			[...SOURCE, 'epicenter.json', 'tracked.log'].sort(),
+			[...SOURCE, 'tracked.log'].sort(),
 		);
 		expect(await git(root, 'status', '--porcelain')).toBe('');
 		await folder.close();
@@ -189,36 +129,34 @@ describe('native folder scope', () => {
 		await git(root, 'init', '--quiet', '--bare', '--initial-branch=main', bare);
 		const writerRoot = join(root, 'writer');
 		const readerRoot = join(root, 'reader');
-		await git(root, 'init', '--quiet', '--initial-branch=main', writerRoot);
-		const remote = { url: bare, branch: 'main' };
-		const writer = await openNativeFolder({
+		for (const path of [writerRoot, readerRoot])
+			await initWithOrigin(path, bare);
+		const writer = await openDirectoryHistory({
 			root: writerRoot,
-			definition,
-			git: { author, remote },
+			git: { author },
+		});
+		const reader = await openDirectoryHistory({
+			root: readerRoot,
+			git: { author },
 		});
 
-		await writer.files.create('.gitignore', '*.log\n');
-		expect((await writer.git.commitAndPush()).push.status).toBe('pushed');
-		// The reader starts from the writer's history.
-		await git(root, 'clone', '--quiet', bare, readerRoot);
-		const reader = await openNativeFolder({
-			root: readerRoot,
-			definition,
-			git: { author, remote },
-		});
-		await reader.git.commit();
-		expect(await git(readerRoot, 'rev-parse', 'HEAD')).toBe(
-			await git(writerRoot, 'rev-parse', 'HEAD'),
+		await writer.write('.gitignore', '*.log\n');
+		expect((await writer.request({ op: 'sync' })).result.data?.kind).toBe(
+			'synced',
+		);
+		expect((await reader.request({ op: 'sync' })).result.data?.kind).toBe(
+			'synced',
 		);
 
 		// Ignored local files do not make the reader dirty and survive updates.
 		await writeFile(join(readerRoot, 'local.log'), 'reader only\n');
 		await writeFile(join(readerRoot, 'shared.log'), 'reader copy\n');
-		await writer.files.create('readme.md', 'hello\n');
-		await writer.git.commitAndPush();
-		await reader.git.fetch();
-		expect((await reader.git.pullFastForward()).data?.status).toBe(
-			'fastForwarded',
+		await writer.write('readme.md', 'hello\n');
+		expect((await writer.request({ op: 'sync' })).result.data?.kind).toBe(
+			'synced',
+		);
+		expect((await reader.request({ op: 'sync' })).result.data?.kind).toBe(
+			'synced',
 		);
 		expect(await readFile(join(readerRoot, 'local.log'), 'utf8')).toBe(
 			'reader only\n',
@@ -228,10 +166,12 @@ describe('native folder scope', () => {
 		await writeFile(join(writerRoot, 'shared.log'), 'writer copy\n');
 		await git(writerRoot, 'add', '--force', 'shared.log');
 		await git(writerRoot, 'commit', '--quiet', '-m', 'Track shared.log');
-		expect((await writer.git.push()).status).toBe('pushed');
-		await reader.git.fetch();
-		const { error: collision } = await reader.git.pullFastForward();
-		expect(collision?.name).toBe('Collision');
+		expect((await writer.request({ op: 'sync' })).result.data?.kind).toBe(
+			'synced',
+		);
+		const { error: collision } = (await reader.request({ op: 'sync' })).result;
+		expect(collision?.name).toBe('Blocked');
+		expect(collision?.message).toContain("'shared.log'");
 		expect(await readFile(join(readerRoot, 'shared.log'), 'utf8')).toBe(
 			'reader copy\n',
 		);
@@ -241,4 +181,89 @@ describe('native folder scope', () => {
 		await writer.close();
 		await reader.close();
 	});
+});
+
+test('native source uses captured ignore bytes and preserves machine-specific exclusions', async () => {
+	const root = await scratch('scope-captured-');
+	await git(root, 'init', '--quiet', '--initial-branch=main');
+	await writeFile(join(root, '.git/info/exclude'), 'info-secret.txt\n');
+	await writeFile(join(root, '.git/global-ignore'), 'global-secret.txt\n');
+	await git(
+		root,
+		'config',
+		'core.excludesFile',
+		join(root, '.git/global-ignore'),
+	);
+	let ignoreChecks = 0;
+	const folder = await openDirectoryHistory({
+		root,
+		git: { author },
+		async beforeGit(args) {
+			if (args.includes('check-ignore') && ++ignoreChecks === 2) {
+				await writeFile(join(root, '.gitignore'), '');
+			}
+		},
+	});
+	try {
+		for (const [path, text] of Object.entries({
+			'.gitignore': '*.log\n',
+			'take.log': 'Ignored by captured rule',
+			'info-secret.txt': 'Ignored by Git info',
+			'global-secret.txt': 'Ignored by machine config',
+			'note.md': 'Shared',
+		}))
+			expect((await folder.write(path, text)).error).toBeNull();
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
+		expect((await git(root, 'ls-files')).split('\n')).toEqual([
+			'.gitignore',
+			'note.md',
+		]);
+		expect(await git(root, 'show', 'HEAD:.gitignore')).toBe('*.log');
+		expect(await readFile(join(root, '.gitignore'), 'utf8')).toBe('');
+	} finally {
+		await folder.close();
+	}
+});
+
+test('a relative core.excludesFile keeps its meaning during captured-rule evaluation', async () => {
+	const root = await scratch('scope-relative-excludes-');
+	await git(root, 'init', '--quiet', '--initial-branch=main');
+	await writeFile(join(root, '.git/machine-ignore'), '/audio/\n');
+	await git(root, 'config', 'core.excludesFile', '.git/machine-ignore');
+	const folder = await openDirectoryHistory({ root, git: { author } });
+	try {
+		expect(
+			(await folder.write('audio/take.wav', 'Private audio')).error,
+		).toBeNull();
+		expect((await folder.write('note.md', 'Shared')).error).toBeNull();
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
+		expect(await git(root, 'ls-files')).toBe('note.md');
+	} finally {
+		await folder.close();
+	}
+});
+
+test('Finder files use ordinary Git rules and tracked ones remain tracked', async () => {
+	const root = await scratch('scope-finder-');
+	const folder = await openDirectoryHistory({ root, git: { author } });
+	try {
+		expect((await folder.write('.DS_Store', 'Original')).error).toBeNull();
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
+		expect((await folder.write('.gitignore', '.DS_Store\n')).error).toBeNull();
+		expect((await folder.write('.DS_Store', 'Updated')).error).toBeNull();
+		expect((await folder.write('notes/.DS_Store', 'Ignored')).error).toBeNull();
+		expect((await folder.request({ op: 'saveVersion' })).result.status).toBe(
+			'committed',
+		);
+		expect(await git(root, 'ls-files')).toBe('.DS_Store\n.gitignore');
+		expect(await git(root, 'show', 'HEAD:.DS_Store')).toBe('Updated');
+	} finally {
+		await folder.close();
+	}
 });

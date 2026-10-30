@@ -16,15 +16,11 @@ import { makeSignature } from 'better-auth/crypto';
 import { BASE_AUTH_CONFIG } from '../../server/src/auth/base-config.js';
 import { authPlugins } from '../../server/src/auth/plugins.js';
 import { requireAccountSession } from '../../server/src/auth/session-policy.js';
-import {
-	requireBearerPrincipal,
-	resolveRequestSessionPrincipal,
-} from '../../server/src/middleware/require-auth.js';
+import { requireSessionCookie } from '../../server/src/middleware/require-auth.js';
 import { mountAuthRoutes } from '../../server/src/routes/auth.js';
-import { mountSessionApp } from '../../server/src/routes/session.js';
 
 const { chromium } = createRequire(
-	new URL('../../app/package.json', import.meta.url),
+	new URL('../../ui/package.json', import.meta.url),
 )('playwright');
 const { Hono } = createRequire(
 	new URL('../../server/package.json', import.meta.url),
@@ -50,7 +46,6 @@ let grantedCredits = 2_000;
 let previewUnavailable = false;
 const app = new Hono();
 let browser;
-let popoverFixture;
 const server = Bun.serve({
 	hostname: 'localhost',
 	port: 0,
@@ -79,7 +74,7 @@ try {
 				clientSecret: 'disposable-fixture',
 			},
 		},
-		plugins: authPlugins(origin, [`${origin}/session/callback`]),
+		plugins: authPlugins(origin),
 		hooks: {
 			before: requireAccountSession((headers) =>
 				auth.api.getSession({
@@ -90,16 +85,22 @@ try {
 		},
 	});
 	const context = await auth.$context;
-	const alice = await context.internalAdapter.createUser({
-		name: 'Alice proof',
-		email: 'alice@example.test',
-		emailVerified: true,
-	});
-	const bob = await context.internalAdapter.createUser({
-		name: 'Bob proof',
-		email: 'bob@example.test',
-		emailVerified: true,
-	});
+	const alice = await context.internalAdapter.createUser(
+		{
+			name: 'Alice proof',
+			email: 'alice@example.test',
+			emailVerified: true,
+		},
+		{ method: 'admin' },
+	);
+	const bob = await context.internalAdapter.createUser(
+		{
+			name: 'Bob proof',
+			email: 'bob@example.test',
+			emailVerified: true,
+		},
+		{ method: 'admin' },
+	);
 	const providerLabels = {
 		google: 'Google',
 		github: 'GitHub',
@@ -132,14 +133,16 @@ try {
 						? bob
 						: null;
 			assert(identity, 'Unknown disposable provider identity');
+			const subject = `${provider.id}-${identity.id}`;
 			return {
 				user: {
-					id: `${provider.id}-${identity.id}`,
+					id: subject,
 					name: identity.name,
 					email: identity.email,
 					emailVerified: true,
 				},
-				data: {},
+				// Each provider reads its account subject from its own claim.
+				data: { id: subject, sub: subject, oid: subject },
 			};
 		};
 	}
@@ -149,29 +152,6 @@ try {
 		new Response(Bun.file(`${build}fallback.html`), {
 			headers: { 'content-type': 'text/html' },
 		});
-	if (process.env.ACCOUNT_POPOVER_SMOKE === '1') {
-		const { createAccountPopoverFixture } = await import(
-			'../../../apps/honeycrisp/smoke/account-popover/fixture.mjs'
-		);
-		let popoverSession;
-		popoverFixture = await createAccountPopoverFixture(async () => {
-			popoverSession ??= await context.internalAdapter.createSession(
-				alice.id,
-				false,
-			);
-			return {
-				baseURL: origin,
-				session: {
-					token: `${popoverSession.token}.${await makeSignature(popoverSession.token, secret)}`,
-					principalId: alice.id,
-				},
-			};
-		});
-		const { cors } = createRequire(
-			new URL('../../server/package.json', import.meta.url),
-		)('hono/cors');
-		app.use('*', cors({ origin: popoverFixture.origin, credentials: true }));
-	}
 	app.use('*', async (c, next) => {
 		requests.push({
 			path: c.req.path,
@@ -181,6 +161,7 @@ try {
 			principal: c.req.raw.headers.get('x-epicenter-principal'),
 		});
 		c.set('auth', auth);
+		c.set('authBaseURL', origin);
 		await next();
 	});
 	app.get(
@@ -211,14 +192,8 @@ try {
 		setup: async (_c, next) => next(),
 		serveAuthUiShell: shell,
 	});
-	mountSessionApp(app, {
-		auth: requireBearerPrincipal(resolveRequestSessionPrincipal),
-	});
-	// Disposable DTOs exercise the built UI behind the real bearer gate.
-	app.use(
-		'/api/billing/*',
-		requireBearerPrincipal(resolveRequestSessionPrincipal),
-	);
+	// Disposable DTOs exercise the built UI behind the real cookie session gate.
+	app.use('/api/billing/*', requireSessionCookie());
 	app.get('/api/billing/overview', (c) => {
 		if (balanceUnavailable) return c.text('Balance fixture unavailable', 503);
 		return c.json({
@@ -346,10 +321,6 @@ try {
 	});
 	if (process.env.DASHBOARD_FIXTURE_ONLY === '1') {
 		console.log(`Disposable dashboard fixture: ${origin}/fixture/login`);
-		if (popoverFixture)
-			console.log(
-				`Shared account menu fixture: ${popoverFixture.origin}/?locked=1`,
-			);
 		await new Promise(() => {});
 	}
 
@@ -370,13 +341,18 @@ try {
 			automaticPresenceSimulation: true,
 		},
 	});
-	await page.goto(`${origin}/fixture/login`);
+	// Signed out, the dashboard sends sign-in to the authorization server's
+	// page with its exact destination, and that page returns there.
 	const continuation = `/dashboard/usage?expectedPrincipal=${encodeURIComponent(alice.id)}`;
 	await page.goto(`${origin}${continuation}`);
 	await page
 		.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
 		.click();
 	await page.waitForURL(`${origin}/sign-in?**`);
+	const signInPage = page.url();
+	assert.equal(new URL(signInPage).searchParams.get('return'), continuation);
+	await page.goto(`${origin}/fixture/login`);
+	await page.goto(signInPage);
 	await page
 		.getByRole('button', {
 			name: 'Continue as alice@example.test',
@@ -384,21 +360,18 @@ try {
 		})
 		.click();
 	await page.waitForURL(`${origin}${continuation}`);
-	assert.equal(db.session.length, 2);
-	const persisted = await page.evaluate(() =>
-		JSON.parse(
-			localStorage.getItem(
-				`so.epicenter.dashboard.auth.persisted:${location.origin}`,
+	await page
+		.getByRole('button', { name: 'Account menu', exact: true })
+		.waitFor();
+	// The dashboard uses the hosted cookie session; no second session is minted.
+	assert.equal(db.session.length, 1);
+	assert.deepEqual(
+		await page.evaluate(() =>
+			[...Object.keys(localStorage), ...Object.keys(sessionStorage)].filter(
+				(key) => /auth|session|token/i.test(key),
 			),
 		),
-	);
-	assert.equal(persisted.principalId, alice.id);
-	assert(persisted.token && persisted.token !== signed);
-	assert.equal(
-		await page.evaluate(() =>
-			sessionStorage.getItem('epicenter.dashboard.return-to'),
-		),
-		null,
+		[],
 	);
 
 	// A shared entry point must not show or fetch another account's billing.
@@ -417,19 +390,21 @@ try {
 			.length,
 		beforeMismatch,
 	);
-	// A failed sign-in handoff retains its guarded destination for retry.
-	await page.evaluate((path) => {
-		sessionStorage.setItem('epicenter.dashboard.return-to', path);
-	}, continuation);
-	await page.goto(`${origin}/session/callback`);
-	const callbackReturn = page.getByRole('link', {
-		name: 'Return to account',
-		exact: true,
-	});
-	await callbackReturn.waitFor();
-	assert.equal(await callbackReturn.getAttribute('href'), continuation);
-	await callbackReturn.click();
-	await page.waitForURL(`${origin}${continuation}`);
+	// Signing in again shows the account chooser instead of continuing as Alice.
+	await page
+		.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
+		.click();
+	await page.waitForURL(`${origin}/sign-in?**`);
+	assert.equal(new URL(page.url()).searchParams.get('reauth'), '1');
+	await page
+		.getByRole('heading', { name: 'Sign in again', exact: true })
+		.waitFor();
+	assert.equal(
+		await page
+			.getByRole('button', { name: 'Continue as alice@example.test' })
+			.count(),
+		0,
+	);
 
 	// An explicit retry recovers an unavailable balance without a reload.
 	balanceUnavailable = true;
@@ -664,18 +639,6 @@ try {
 	});
 	await page.setViewportSize({ width: 1280, height: 900 });
 
-	// An unrelated hosted cookie must not replace the dashboard's captured Alice.
-	const bobSession = await context.internalAdapter.createSession(bob.id, false);
-	const bobSigned = `${bobSession.token}.${await makeSignature(bobSession.token, secret)}`;
-	await page.context().addCookies([
-		{
-			name: context.authCookies.sessionToken.name,
-			value: encodeURIComponent(bobSigned),
-			url: origin,
-			httpOnly: true,
-			sameSite: 'Lax',
-		},
-	]);
 	await page.goto(`${origin}/dashboard/account`);
 	await page
 		.getByRole('main')
@@ -789,13 +752,9 @@ try {
 					await pending.evaluate((button) => button.click());
 					assert.equal(ceremonyRequests, 1);
 				}
-				assert.equal(
-					request.headers().authorization,
-					`Bearer ${persisted.token}`,
-				);
-				if (ceremony === 'provider')
-					assert.equal(request.headers()['x-epicenter-principal'], alice.id);
-				else
+				assert.equal(request.headers().authorization, undefined);
+				assert.equal(request.headers()['x-epicenter-principal'], alice.id);
+				if (ceremony === 'portal')
 					assert.equal(
 						new URL(request.url()).searchParams.get('returnUrl'),
 						ceremonyReturn,
@@ -876,44 +835,24 @@ try {
 		}
 	}
 
-	for (const request of requests.filter((request) =>
-		request.path.startsWith('/api/'),
+	for (const request of requests.filter(
+		(request) =>
+			request.path.startsWith('/api/') ||
+			request.path.startsWith('/auth/passkey/'),
 	)) {
-		assert(request.bearer, `Missing captured bearer: ${request.path}`);
-		assert.equal(
-			request.cookie,
-			false,
-			`Ambient resource cookie: ${request.path}`,
-		);
+		assert(request.cookie, `Missing session cookie: ${request.path}`);
+		assert.equal(request.bearer, false, `Bearer sent: ${request.path}`);
+		assert.equal(request.principal, alice.id, request.path);
 	}
-	for (const request of requests.filter((request) =>
-		request.path.startsWith('/auth/passkey/'),
-	)) {
-		assert(request.bearer, `Missing management bearer: ${request.path}`);
-		assert.equal(request.principal, alice.id);
-		assert.equal(
-			request.cookie,
-			[
-				'/auth/passkey/generate-register-options',
-				'/auth/passkey/verify-registration',
-			].includes(request.path),
-		);
-	}
-	const malformed = await page.evaluate(async (principal) => {
+	// Alice's cookie cannot change an account the request names as Bob's.
+	const mismatched = await page.evaluate(async (principal) => {
 		const response = await fetch('/auth/passkey/generate-register-options', {
 			credentials: 'include',
-			headers: {
-				authorization: 'Bearer malformed',
-				'x-epicenter-principal': principal,
-			},
+			headers: { 'x-epicenter-principal': principal },
 		});
 		return response.status;
 	}, bob.id);
-	assert.equal(
-		malformed,
-		401,
-		'Bob cookie must not rescue malformed explicit bearer',
-	);
+	assert.equal(mismatched, 403, 'Principal header must match the cookie');
 	assert.equal(db.passkey.length, 1);
 
 	// Account deletion is intentionally unavailable until hosted erasure is complete.
@@ -924,9 +863,44 @@ try {
 		true,
 	);
 	assert.equal(
-		requests.filter((request) => request.path === '/api/account').length,
+		requests.filter((request) => request.path === '/auth/delete-user').length,
 		0,
 	);
+	// Another tab signing in as Bob replaces the cookie; returning to this tab
+	// reads it again and retires Alice's dashboard instead of showing Bob's data.
+	const bobSession = await context.internalAdapter.createSession(bob.id, false);
+	const bobSigned = `${bobSession.token}.${await makeSignature(bobSession.token, secret)}`;
+	const billingBeforeSwap = requests.filter((request) =>
+		request.path.startsWith('/api/billing/'),
+	).length;
+	await page.goto(
+		`${origin}/dashboard?expectedPrincipal=${encodeURIComponent(alice.id)}`,
+	);
+	await page
+		.getByRole('button', { name: 'Manage billing', exact: true })
+		.waitFor();
+	await page.context().addCookies([
+		{
+			name: context.authCookies.sessionToken.name,
+			value: encodeURIComponent(bobSigned),
+			url: origin,
+			httpOnly: true,
+			sameSite: 'Lax',
+		},
+	]);
+	const billingAfterLoad = requests.filter((request) =>
+		request.path.startsWith('/api/billing/'),
+	).length;
+	assert(billingAfterLoad > billingBeforeSwap);
+	await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+	await page
+		.getByText('This link is for a different account', { exact: true })
+		.waitFor();
+	for (const request of requests
+		.slice(0)
+		.filter((request) => request.path.startsWith('/api/billing/'))
+		.slice(billingAfterLoad))
+		assert.notEqual(request.principal, bob.id);
 	assert.deepEqual(pageErrors, []);
 	// Actual provider buttons traverse Better Auth's state/callback/session flow.
 	// Only the upstream provider interaction is simulated on the local chooser.
@@ -1023,6 +997,22 @@ try {
 		await providerPage
 			.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
 			.click();
+		// Signing out ended the cookie session, so sign-in starts over.
+		assert.equal(
+			await providerPage
+				.getByRole('button', { name: 'Continue as alice@example.test' })
+				.count(),
+			0,
+		);
+		await providerPage
+			.getByRole('button', { name: `Continue with ${label}`, exact: true })
+			.click();
+		await providerPage
+			.getByRole('link', {
+				name: 'Continue as Alice (alice@example.test)',
+				exact: true,
+			})
+			.click();
 		await providerPage
 			.getByRole('button', {
 				name: 'Continue as alice@example.test',
@@ -1037,119 +1027,10 @@ try {
 		assert.deepEqual(providerErrors, []);
 		await providerContext.close();
 	}
-	if (popoverFixture) {
-		const menuContext = await browser.newContext();
-		const source = await menuContext.newPage();
-		source.setDefaultTimeout(10_000);
-		const menuErrors = [];
-		source.on('pageerror', (error) => menuErrors.push(error.message));
-		menuContext.on('page', (opened) =>
-			opened.on('pageerror', (error) => menuErrors.push(error.message)),
-		);
-		await source.goto(`${origin}/fixture/login`);
-		await source.goto(`${popoverFixture.origin}/?signedOut=1`);
-		await source.getByRole('button', { name: 'Account', exact: true }).click();
-		assert.equal(
-			await source.getByRole('link', { name: /^Manage account/ }).count(),
-			0,
-		);
-		await source.goto(`${popoverFixture.origin}/?locked=1`);
-		await source
-			.getByRole('textbox', { name: 'Work in progress' })
-			.fill('Keep this unfinished note while I manage my account.');
-		const documentMarker = await source.evaluate(
-			() => (window.accountMenuSmokeDocument = crypto.randomUUID()),
-		);
-		await source.getByRole('button', { name: 'Account', exact: true }).click();
-		assert.equal(
-			await source
-				.getByRole('button', { name: 'Sign out', exact: true })
-				.isDisabled(),
-			true,
-		);
-		await source.getByText('alice@example.test', { exact: true }).waitFor();
-		const manage = source.getByRole('link', { name: /^Manage account/ });
-		const destination = `${origin}/dashboard/account?expectedPrincipal=${encodeURIComponent(alice.id)}`;
-		assert.equal(await manage.getAttribute('href'), destination);
-		const opened = menuContext.waitForEvent('page');
-		await manage.click();
-		const accountPage = await opened;
-		accountPage.setDefaultTimeout(10_000);
-		await accountPage.waitForURL(destination);
-		assert.equal(await accountPage.evaluate(() => window.opener), null);
-		await accountPage
-			.getByRole('button', { name: 'Sign in with Epicenter', exact: true })
-			.click();
-		await accountPage
-			.getByRole('button', {
-				name: 'Continue as alice@example.test',
-				exact: true,
-			})
-			.click();
-		await accountPage.waitForURL(destination);
-		await accountPage
-			.getByRole('main')
-			.getByText('alice@example.test', { exact: true })
-			.waitFor();
-		await accountPage.screenshot({
-			path: '/tmp/epicenter-account-menu-destination.png',
-			fullPage: true,
-		});
-		assert.equal(
-			await source.evaluate(() => window.accountMenuSmokeDocument),
-			documentMarker,
-		);
-		assert.equal(
-			await source
-				.getByRole('textbox', { name: 'Work in progress' })
-				.inputValue(),
-			'Keep this unfinished note while I manage my account.',
-		);
-		assert.equal(source.url(), `${popoverFixture.origin}/?locked=1`);
-		await source.screenshot({
-			path: '/tmp/epicenter-account-menu-source.png',
-			fullPage: true,
-		});
-		const otherDashboardSession = await context.internalAdapter.createSession(
-			bob.id,
-			false,
-		);
-		await accountPage.evaluate(
-			(session) =>
-				localStorage.setItem(
-					`so.epicenter.dashboard.auth.persisted:${location.origin}`,
-					JSON.stringify(session),
-				),
-			{
-				token: `${otherDashboardSession.token}.${await makeSignature(otherDashboardSession.token, secret)}`,
-				principalId: bob.id,
-			},
-		);
-		await accountPage.reload();
-		await accountPage
-			.getByText('This link is for a different account', { exact: true })
-			.waitFor();
-		await accountPage.screenshot({
-			path: '/tmp/epicenter-account-menu-mismatch.png',
-			fullPage: true,
-		});
-		assert.equal(
-			await source
-				.getByRole('textbox', { name: 'Work in progress' })
-				.inputValue(),
-			'Keep this unfinished note while I manage my account.',
-		);
-		assert.deepEqual(menuErrors, []);
-		await menuContext.close();
-		console.log(
-			'PASS shared AccountPopover: signed-out absence, recording lock preserves Manage account, independent tab has no opener, real hosted sign-in returns to the captured account, mismatch refused, originating work survives.',
-		);
-	}
 	console.log(
-		`PASS Chromium ${browser.version()}: built hosted sign-in, dashboard continuation and identity guard, balance retry and focus refresh, failed preview blocks purchase, disposable checkout returns to credits; independent dashboard session, cookie-independent profile/resources, virtual passkey registration and rename bound to Alice despite Bob's cookie; disposed pages suppress portal/provider redirects, passkey feedback, stale dialogs; live pages retain redirects, and unavailable deletion issues no request.`,
+		`PASS Chromium ${browser.version()}: built hosted sign-in, dashboard continuation and identity guard, balance retry and focus refresh, failed preview blocks purchase, disposable checkout returns to credits; cookie session with principal-bound management, virtual passkey registration and rename for Alice, a swapped cookie retiring Alice's dashboard; disposed pages suppress portal/provider redirects, passkey feedback, stale dialogs; live pages retain redirects, and unavailable deletion issues no request.`,
 	);
 } finally {
 	await browser?.close();
-	await popoverFixture?.close();
 	await server.stop(true);
 }

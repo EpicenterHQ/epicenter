@@ -92,7 +92,7 @@ That is suppression, not positioning, and it stays. All of this is dev-only.
 These are tracked here as follow-ups.
 
 1. **Settings.** There is no `show recording overlay` toggle or top/bottom
-   position setting yet. Whispering settings are workspace KV entries with their
-   own schema evolution rules, which is heavier than this slice warranted, so the
+   position setting yet. Whispering keeps no folder settings; a toggle would be
+   a field of a `settings` table row, which this slice did not warrant, so the
    overlay is on by default in the Tauri build. Add the toggle when touching the
    settings schema is otherwise justified.

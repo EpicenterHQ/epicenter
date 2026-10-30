@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-09-21
-- **Unbuilt:** Product composition of independent capabilities, owner-routed working copies, executable config validation, checkout-aware Matter integration, and headless project provisioning. Host admission, initial record creation, and complete attachment transfer remain unresolved.
+- **Unbuilt:** Product composition of independent capabilities, owner-routed working copies, executable config validation, and headless project provisioning. Host admission, initial record creation, and complete attachment transfer remain unresolved.
 
 ## Context
 
@@ -13,6 +13,7 @@ inventing its own storage and schema interpretation.
 
 `openLocal` and `openPersonal` already own separate lifetimes.
 `@epicenter/app/open` exports the explicit store openers from
+<!-- doc-path-check: ignore-next-line -->
 `packages/app/src/open-store.ts`. Independent capability constructors and
 store-owned blobs are implemented. `defineStore` declares their data schema.
 Matter's `createVault` discovers table folders through `matter.json` and follows

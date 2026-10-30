@@ -1,303 +1,120 @@
 ---
 name: post-implementation-review
-description: Review cumulative implementation for structural collapse, invariant ownership, and correctness. Use for reviewing work after implementation, doing a second pass, or performing a final sweep. Independent structural verdicts belong to adversarial-review.
+description: Review the combined implementation for correctness, clear ownership, and unnecessary complexity. Use when finishing substantial code implementation or refactoring, reviewing changes across callers or public APIs, or asked for a second pass or final sweep. Small edits need proportionate checks; independent architectural review belongs to adversarial-review.
 metadata:
   author: epicenter
   version: '1.0'
 ---
 
-# Post Implementation Review
+# Post-implementation review
 
-Implementation reveals relationships that a plan could only predict. Review the
-whole affected system to find the owner or invariant that makes several local
-repairs unnecessary. Then check the resulting shape for correctness and clarity.
-A collection of individually reasonable helpers can still form the wrong design.
+Review the result of the whole task, including earlier implementation waves and
+the unchanged callers needed to understand it. Implementation can reveal an
+owner or invariant that makes several local repairs unnecessary. Check that
+combined shape before handing it back.
 
-Do not silently fix structural concerns. First name what is wrong and why it
-matters, then fix it when it clears the evidence bar below.
+The current agent performs this review. It does not launch another agent
+automatically. Use
+[adversarial-review](../adversarial-review/SKILL.md) when independent judgment is
+requested or a selected workflow calls for it. If you are already a delegated
+reviewer, apply these checks yourself and return findings without launching
+more reviewers.
 
-## Lane, Evidence, Limits
+## Scope the review
 
-The user's request sets the lane. Evidence can widen the lane. Explicit user
-limits close it.
+Start with the requested outcome, the task-start baseline, and the cumulative
+changes. Read the affected entrypoints, owners, callers, and relevant tests.
+Follow connected evidence beyond the edited code when it reveals a better
+shape for the combined result. Respect explicit user limits, and surface
+changes to product direction that exceed the authorized outcome.
 
-```txt
-Fix now:
-  grounded correctness, invariant, public API, verification,
-  and serious clarity issues on the touched path
-
-Report:
-  speculative cleanup, cosmetic cleanup, taste-only cleanup,
-  and issues with weak evidence
-
-Pause:
-  explicit user limits, product direction, destructive actions,
-  reshaping beyond the authorized outcome, or unresolved product ownership
-```
-
-Two things never move when the lane widens:
-
-- The lane never widens silently. Every expanded edit is still flagged first,
-  and stays easy to review, with a separate commit when commits are being made.
-- The evidence bar never drops. "Within reason" still means grounded in
-  caller counts, a real invariant, or a named smell, never a hunch. A user
-  signal widens what you may touch; it does not lower the bar for why.
-
-Authorship is not the gate. A smell the review uncovered can belong in the lane
-when it is clear, important, and grounded, even if an earlier commit introduced
-it. Explicit user limits still win.
-
-## Related Skills
-
-This skill is a hub for broad second reads. Focused requests can start from a
-focused skill first, then escalate here when the work needs a full final pass.
-
-Load only the skills that match the touched surface:
-
-```txt
-collapse-pass            continuous deletion of unearned indirection
-rethink                  public API, package boundary, config, lifecycle, naming, ownership, greenfield, or clean-break decision
-asymmetric-wins          refuse a feature to collapse a disproportionate code family
-code-audit               recurring repo smells and grep-based checks
-one-sentence-test        new abstraction, wrapper, option, endpoint, command, or module
-testing                  test files or changed behavior that needs coverage
-typescript               type organization, inference, runtime schema, type tests
-svelte                   Svelte components, stores, runes, query usage, UI state
-yjs                      CRDT documents, shared types, transactions, conflict behavior
-```
-
-Read the [refactoring methods](../collapse-pass/references/refactoring-methods.md)
-for caller evidence, inlining, and straggler cleanup without starting a hunt.
-
-## Independent review
-
-[adversarial-review](../adversarial-review/SKILL.md) owns the independent reviewer setup,
-evidence packet, structural verdict, and adjudication. Use it when an independent
-review is requested or an execution workflow calls for one. Ordinary final
-reviews do not launch another agent automatically.
-
-When called by a design reviewer, apply the inspection passes below in read-only
-mode and return findings to that reviewer; do not launch another agent.
-
-## Review Order
-
-1. Identify the cumulative changed behavior or API and trace its owners,
-   callers, lifecycle, and invariants across the affected system.
-2. Inventory the touched files and read them in that context, including relevant
-   unchanged consumers and tests.
-3. List every file read as an ASCII tree before analysis.
-4. Run the first-read pass.
-5. Run the mental inlining pass.
-6. Run the ownership and collapse check.
-7. Run the smell and invariant checks.
-8. Review API shape, naming, and file organization.
-9. Run diagnostics and tests appropriate to the changed lane. Compare failures
-   against the task-start baseline for cumulative reviews, or the agreed review
-   baseline otherwise, using a separate checkout when reproduction is needed.
-   Current HEAD may already contain earlier waves; reproducing there does not
-   establish that a failure predates the task. Report unverified attribution as
-   uncertain rather than calling it pre-existing.
-10. Report findings before making cleanup edits unless the issue is a direct
-    compile or test failure.
-
-The ASCII tree is not decoration. It forces the review to show its evidence.
-
-```txt
-Files read
-packages/foo/
-|-- src/
-|   |-- create-foo.ts
-|   |-- foo-options.ts
-|   `-- index.ts
-`-- package.json
-```
-
-## First-Read Pass
-
-Read the change as a smart but newly onboarded TypeScript developer would.
-Start from the entrypoint a caller reaches first and trace the minimum path
-needed to understand the behavior, rather than reading in the order the diff
-happens to present.
-
-Count the hops. A new developer's first read of a foreign symbol is
-Go-to-Definition, so pressing it from a call site should land on the real source
-of truth in as few jumps as possible. Each hop has to earn its keep: a layer
-that does not own an invariant, name non-obvious domain behavior, or isolate
-unsafe input costs a jump and returns nothing. What bloats the count, meaning
-re-export chains, destructure-re-exports, no-op adapters, and identity-obscuring
-annotations, is cataloged in [typescript](../typescript/SKILL.md)
-"Go-to-Definition Awareness".
-
-Mark each abstraction as one of: earns its keep, probably inlineable, wrong
-ownership boundary, misleading name, or type-system workaround. The mark decides
-the repair, because a misleading name wants a rename and a wrong owner wants a
-move; collapsing both into "delete it" loses the difference and usually picks
-the wrong one.
-
-Do not fix a real parse boundary at a JSON, file, or network edge, runtime
-validation over unsafe input, a contract that genuinely belongs in one place, or
-repetition that is cheaper than the abstraction replacing it. Those read as
-friction on a first pass and are load-bearing on the second.
-
-The pass is done when a new teammate could say which file owns a concept and
-which type is a real contract rather than library glue, without reverse
-engineering either from naming accidents.
-
-## Mental Inlining Pass
-
-Mentally inline every helper, wrapper, component, prop bundle, adapter, file,
-factory, compartment, and extracted function back into its call sites, then keep
-a layer only when it earns its place.
-
-For local bindings, apply
-[the source-and-action test](../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible).
-Inspect repeated shallow aliases and forwarding handlers as well as single-use
-helpers; caller count alone does not justify a boundary.
-
-For the inspection method and criteria for keeping a boundary, use
-[rethink's mental-inlining reference](../rethink/references/radical-options.md#mental-inlining).
-The ownership check below applies the same test to runtime, durable, and
-user-visible state.
-
-## Ownership And Collapse Check
+Scale the review to what changed. A small local correction needs caller and
+behavior checks, not a subsystem inventory. A structural refactor needs enough
+of the affected system to establish where its state and rules now belong.
+Identify the files that support a finding; no fixed report layout is required.
 
 Before accepting the final shape, replay the change as if designing it from
-scratch:
+scratch. For a structural review, use the
+[concept inventory](../collapse-pass/references/concept-inventory.md) to visibly
+list the methods and concepts someone must understand and ask whether a simpler
+model could do the same job.
 
-```txt
-What object owns the runtime lifetime?
-What object owns the durable state?
-What object owns the user-visible state?
-Which props exist only because of a stale file split?
-Which calls need `untrack`, and would moving ownership remove that need?
-```
+## Inspect the combined result
 
-Inspect callers for every new or changed helper, component, factory, wrapper,
-and export. Keep a boundary when it explains necessary work or owns one of these:
+Use the checks relevant to the change rather than treating each as a separate
+mandatory pass:
 
-```txt
-a lifecycle that must be isolated from parent rerenders
-an unsafe parse, network, storage, or external-library boundary
-a shared domain rule or non-obvious operation
-a public contract that downstream code imports
-a long imperative block whose helper name explains the phase
-```
+- Trace the behavior from an entrypoint through its actual callers. Look for
+  regressions, missing requirements, changed evaluation timing, receiver
+  binding, caching, and snapshot semantics.
+- Mentally inline helpers, wrappers, components, and aliases in the affected
+  system, including relevant unchanged boundaries. Keep a boundary when it
+  names non-obvious work, enforces a shared rule, owns a lifecycle, isolates
+  unsafe input, preserves a consumer contract, or explains a long phase.
+  Caller count and line count alone do not decide. See
+  [refactoring methods](../collapse-pass/references/refactoring-methods.md) for
+  caller evidence and safe inlining.
+- Establish who owns runtime lifetime, durable state, unfinished input, and
+  user-visible state. Look for mirrored state, repeated decisions, and rules
+  checked downstream that an earlier owner could guarantee once. Name who
+  preserves information before removing an owner or protection.
+- Check the resulting API and file layout from a caller's perspective. Does
+  each name describe current behavior? Is there one clear path? Did the change
+  leave an obsolete export, forwarding layer, comment, test, or documentation
+  claim? Distinguish a wrong name, wrong owner, and unnecessary boundary;
+  they call for different repairs.
 
-If a boundary only passes a stable handle, callback, or raw library object to
-another one-call wrapper, collapse it. In particular, treat `untrack` inside an
-imperative widget setup as a design prompt: sometimes it is the right tool for a
-stable callback, but it can also reveal that the prop should not be reactive or
-should not cross the component boundary at all.
+Do not remove necessary parsing or validation boundaries, real consumer
+contracts, or repetition that costs less than the abstraction replacing it.
+Retire an old API or compatibility path only after tracing its active callers
+and stored data and establishing that the authorized replacement preserves
+them or includes their migration.
 
-## Smell Check
+## Act on findings
 
-Look for:
+Explain consequential structural changes and their consequences before editing.
+Summarize routine corrections afterward. Fix grounded correctness, invariant,
+API, verification, and serious clarity issues within the authorized outcome.
+A concern can merit repair even if an earlier commit introduced it; authorship
+alone does not decide scope.
 
-```txt
-dead exports, dead methods, dead config hooks
-stale imports and stale JSDoc
-redundant work after ownership moved earlier
-identity wrappers and pass-through modules
-unnecessary casts or duck-typing inside typed code
-fallback parsers for old shapes
-callbacks that mirror internal implementation steps
-decision callbacks that could be caller-owned composition
-single-file directories and pointless barrels
-near-identical sibling files or types (judge: cheap independence or latent coupling)
-```
+Explain meaningful scope expansion and the caller evidence connecting it to the
+task before editing. Respect explicit file limits. Report speculative,
+cosmetic, or taste-only cleanup rather than widening the task for it. Surface
+changes to product direction, destructive actions, and unresolved ownership or
+contract decisions that exceed existing authorization.
 
-If a smell is repo-recurring, use `code-audit` for the relevant grep pattern. If
-the smell came from the refactor itself, use the [refactoring methods](../collapse-pass/references/refactoring-methods.md#post-refactor-straggler-sweep)
-for the straggler sweep.
+Preserve unrelated edits, stored data, and unfinished input. Fewer lines alone
+do not justify an edit.
 
-## Invariant Audit
+## Verify
 
-Name the layer that owns each important rule.
+Inspect actual callers and run checks appropriate to the changed behavior.
+Search for removed or renamed symbols and stale imports, exports, tests, and
+documentation.
 
-```txt
-Invariant                         Owner
-config shape is valid              config loader
-route names are unique             defineConfig validation
-document id is parsed once          document cache
-runtime socket opens once           daemon startup
-cleanup policy is app-owned         injected lifecycle callback
-```
+Use the task-start baseline or an agreed review baseline to investigate
+failures. Current HEAD may already include earlier task changes, so reproducing
+there does not establish that a failure predates the task. Use a separate
+checkout when needed to reproduce without disturbing the user's work. Report
+unverified attribution as uncertain.
 
-If an invariant is checked repeatedly downstream, move it earlier: construction,
-validation, or the type signature. If a later layer no longer needs a safety
-check because setup guarantees it, delete the redundant check and name the setup
-guarantee in the review.
+After repairs, reread the affected code and callers and verify what changed.
+Repeat checks when a new edit, failure, or unresolved concern warrants it; do
+not repeat completed checks merely to complete another named pass.
 
-## API Shape
+## Output shape
 
-Read the public surface as if designing it today.
+For findings, identify the file and line, observable consequence, and proposed
+repair. For completed repairs, explain what changed, why it helped, and what
+verified it. Include material limitations or unresolved decisions beside the
+claim they affect.
 
-Ask:
+Include a short scope statement describing what was reviewed and what remains
+unverified, even when no issues were found. Show an API example or
+before-and-after ownership or file layout when that helps the user judge a
+structural change. An exhaustive file tree and a fixed set of report sections
+are optional. If no grounded issues remain, say so without manufacturing
+cleanup.
 
-```txt
-Is there one obvious call site?
-Do option names describe domain policy instead of implementation steps?
-Did the change leave both old and new shapes alive?
-Can TypeScript prevent the common misuse?
-Does the lifecycle name match when side effects happen?
-```
-
-For clean breaks, compatibility is a feature only when explicitly requested.
-Otherwise, delete old public names and update all examples to the new shape.
-
-## Naming And Files
-
-Names should match what the code does now, not what it used to do.
-
-Check:
-
-```txt
-Does foo-manager.ts still manage anything?
-Does create* construct, define* return inert definitions, start* begin runtime work?
-Does a type name describe a real contract or a library workaround?
-Does each file have one reason to exist for a new reader?
-```
-
-When file organization is part of the finding, show both trees before editing.
-
-```txt
-Current
-packages/foo/src/
-|-- lifecycle.ts
-|-- lifecycle-options.ts
-|-- cleanup.ts
-`-- index.ts
-
-Proposed
-packages/foo/src/
-|-- lifecycle.ts
-`-- index.ts
-```
-
-## Output Shape
-
-For a review-only pass, report:
-
-```txt
-Files read
-[ASCII tree]
-
-Findings
-1. [severity] [file:line] What is wrong and why.
-
-Would change
-[Specific edits worth making]
-
-Would leave alone
-[Indirection or duplication that earns its keep]
-
-Verification
-[Commands run and result, or why not run. For any failure, note whether it
- reproduces at the review baseline, or whether attribution remains uncertain.]
-```
-
-For an implementation pass, make the cleanup edits after reporting the issue in
-the working notes. After edits, re-read every touched file and repeat the mental
-inlining, smell, invariant, and API checks. Report any new finding before fixing
-it. Keep the final answer short: what changed, what was left
-alone, and what verified it.
+A review-only request returns findings and proposed repairs without edits.

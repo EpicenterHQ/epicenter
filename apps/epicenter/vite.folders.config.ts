@@ -1,0 +1,27 @@
+/**
+ * Build the Folders window's page and each folder editor window's page, which
+ * the route selects (`src/folders/main.ts`). The shell serves both on the
+ * `epicenter-app` scheme below `/folders/` (ADR-0561), the editor at
+ * `/folders/editor/` through the scheme's document fallback, so this build
+ * emits ordinary assets under that base.
+ */
+
+import { fileURLToPath } from 'node:url';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
+import tailwindcss from '@tailwindcss/vite';
+import { defineConfig } from 'vite';
+
+export default defineConfig({
+	root: fileURLToPath(new URL('./src/folders', import.meta.url)),
+	base: '/folders/',
+	plugins: [
+		tailwindcss(),
+		svelte({
+			configFile: fileURLToPath(new URL('./svelte.config.js', import.meta.url)),
+		}),
+	],
+	build: {
+		outDir: fileURLToPath(new URL('./dist/folders', import.meta.url)),
+		emptyOutDir: true,
+	},
+});

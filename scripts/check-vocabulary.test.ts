@@ -71,14 +71,30 @@ test('the settled words pass', () => {
 	});
 });
 
-test('a retired word fails, with its file, line, and replacement', () => {
+test('a retired word fails, with its file, line, replacement, and the ADR that retired it', () => {
 	withRepo((dir) => {
 		write(dir, 'packages/app/src/data/row.ts', '// ok\n// a scalar field\n');
 		commitAll(dir);
 		const { code, out } = run(dir);
 		expect(code).toBe(1);
 		expect(out).toContain('packages/app/src/data/row.ts:2');
-		expect(out).toContain('use value');
+		expect(out).toContain('use value (ADR-0309)');
+	});
+});
+
+test('a retired identifier fails as a whole word, citing ADR-0584', () => {
+	withRepo((dir) => {
+		write(
+			dir,
+			'packages/folder/src/open.ts',
+			'// a FolderDefinition\n// prepareFolderDefinition is another word\n',
+		);
+		commitAll(dir);
+		const { code, out } = run(dir);
+		expect(code).toBe(1);
+		expect(out).toContain('packages/folder/src/open.ts:1');
+		expect(out).not.toContain('packages/folder/src/open.ts:2');
+		expect(out).toContain('use Definition (ADR-0584)');
 	});
 });
 
@@ -114,19 +130,6 @@ test('dated records keep their words', () => {
 	});
 });
 
-test('Matter is its own universe and keeps its own words', () => {
-	withRepo((dir) => {
-		write(
-			dir,
-			'packages/matter-core/src/field.ts',
-			'// the closed scalar metas\n',
-		);
-		write(dir, 'apps/matter/src/grid.svelte', '<!-- a scalar cell -->\n');
-		commitAll(dir);
-		expect(run(dir).code).toBe(0);
-	});
-});
-
 test('an app with its own SQLite mirror may lift scalar columns', () => {
 	withRepo((dir) => {
 		write(
@@ -141,7 +144,7 @@ test('an app with its own SQLite mirror may lift scalar columns', () => {
 
 test('prose is refused inside the store and allowed outside it', () => {
 	withRepo((dir) => {
-		write(dir, 'packages/app/src/data/row.ts', "// the row's prose\n");
+		write(dir, 'packages/svelte/src/row.ts', "// the row's prose\n");
 		commitAll(dir);
 		expect(run(dir).code).toBe(1);
 	});
@@ -205,10 +208,9 @@ test('a whole file can opt out', () => {
 	});
 });
 
-test('generated declarations and changelogs are skipped', () => {
+test('generated declarations are skipped', () => {
 	withRepo((dir) => {
 		write(dir, 'apps/api/worker-configuration.d.ts', '// prose explanation\n');
-		write(dir, 'packages/app/src/data/CHANGELOG.md', '- scalars removed\n');
 		commitAll(dir);
 		expect(run(dir).code).toBe(0);
 	});

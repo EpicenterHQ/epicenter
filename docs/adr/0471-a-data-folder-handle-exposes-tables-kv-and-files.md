@@ -2,8 +2,7 @@
 
 - **Status:** Accepted
 - **Date:** 2026-09-30
-- **Amended by:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) and [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md), replacing table snapshots with one read pipeline and the retained table editor with guarded edit sessions. Folder composition and ordinary table/file commands remain.
-- **Amended by:** [ADR-0528](0528-folder-history-commits-every-save-and-has-no-manual-mode.md), proposed: withdraws `browser.commitOnEdit`, `git.commitOnEdit`, the shell-supplied commit policy, the snapshot's `commitOnEdit`, and the Todos CLI's manual history. The handle's members and its status snapshot remain.
+- **Amended by:** [ADR-0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) and [ADR-0515](0515-snapshot-saves-serialize-writes-and-retain-only-the-latest-pending-text.md), replacing table snapshots with one read pipeline and the retained table editor with guarded edit sessions. Folder composition and ordinary table/file commands remain.; [ADR-0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md), which deletes the desktop folder owner: on the desktop, the handle is the TypeScript engine over a directory the shell grants, and its lifetime is the page's Also amended by [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md), withdrawing `git.recoverIncoming()` and `git.snapshot.pendingIncoming`. Also amended by [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) at "One opened data folder exposes `tables`, `kv`, `files`, and `git`": a repository exposes `tables` and `files`, `files` writes only text, and `kv` and `git` leave the app API.
 - **Relates:** [ADR-0450](0450-current-files-own-portable-document-data.md) defines authoritative current files; [ADR-0480](0480-file-tables-own-only-their-markdown-row-files.md) defines single-file rows; [ADR-0430](0430-define-store-declares-data-and-products-compose-resources.md) separates stores from product composition.
 
 ## Context
@@ -284,6 +283,6 @@ source remains accessible through a separate raw repair workflow.
 
 The [folder package](../../packages/folder/README.md) documents the exported
 surface and openers. [Contract exports](../../packages/folder/src/contract.ts),
-[table views](../../packages/folder/src/table.ts), and
-[KV views](../../packages/folder/src/kv.ts) expose the same API across browser,
-Bun, and Tauri storage. Application consumers use the flat snapshot shape.
+[table views](../../packages/folder/src/table.ts), and KV views (since
+deleted: settings are a table, [ADR-0576](0576-a-folder-has-one-write-a-merge-by-unit-where-the-writer-acting-wins.md))
+expose the same API across browser, Bun, and Tauri storage. Application consumers use the flat snapshot shape.

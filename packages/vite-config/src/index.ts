@@ -1,6 +1,14 @@
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { searchForWorkspaceRoot, type UserConfig } from 'vite';
+import {
+	defaultClientConditions,
+	mergeConfig,
+	searchForWorkspaceRoot,
+	type UserConfig,
+} from 'vite';
+import { isHostAppBuild } from './host-app.js';
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and
@@ -17,24 +25,8 @@ import { searchForWorkspaceRoot, type UserConfig } from 'vite';
  * `new URL('./x.worker.ts', import.meta.url)` resolves to a `/@fs/` URL under
  * the monorepo root, which SvelteKit's list answers 403 to.
  *
- * **The last three are what `@epicenter/device`'s browser leaf costs.**
- * Only `apps/local-mail/ui` composes it, so they belong in that app's config
- * rather than here; they stay until that move is made. Its SQLite owner is a
- * dedicated worker over `@sqlite.org/sqlite-wasm`, because OPFS synchronous
- * access handles exist only in a worker context, so:
- *
- * - `optimizeDeps.exclude` keeps the package unbundled. It resolves
- *   `sqlite3.wasm` relative to its own module URL, and pre-bundling rewrites
- *   that URL into `.vite/deps/`, where no `.wasm` was copied. The fetch then
- *   falls through to the SPA fallback and the module aborts on a `text/html`
- *   response.
- * - `worker.format` makes the worker chunk ES output, which it has to be to
- *   carry that package at all.
- * - `build.target` admits the syntax that chunk uses, top-level `await`
- *   included.
- *
- * An app that needs more exclusions adds them; `mergeConfig` concatenates the
- * arrays rather than replacing them.
+ * An app that needs more settings adds them with `mergeConfig`, which
+ * concatenates arrays rather than replacing them.
  */
 export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 	return {
@@ -42,6 +34,7 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 		// vs `+<hashB>`), which makes identical `Plugin` types compare unequal
 		// across app configs. Keep the cast here, the one place every workspace
 		// app's plugins come from, instead of leaking the workaround into each app.
+		// SAFETY: both values are Vite plugins; only their peer-variant types differ.
 		plugins: [sveltekit(), tailwindcss()] as UserConfig['plugins'],
 		// No `resolve.dedupe` here. It named `yjs` for a long time, which no
 		// workspace member depends on since the store moved to `@y/y`, so it was
@@ -55,8 +48,57 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 			strictPort: true,
 			fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
 		},
-		optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
-		worker: { format: 'es' },
-		build: { target: 'esnext' },
 	};
+}
+
+/**
+ * Base Vite config for a folder app Epicenter bundles: `workspaceAppViteConfig`
+ * plus the choice between its host build (`EPICENTER_HOST=1`, see
+ * `isHostAppBuild`) and its browser build. An app adds its own settings
+ * with `mergeConfig`.
+ *
+ * - The host build turns on the `epicenter-host` condition, which selects
+ *   the host leaf of each `#platform/*` seam in the app's package.json
+ *   "imports". The `...defaultClientConditions` spread is load-bearing:
+ *   custom conditions REPLACE Vite's defaults.
+ * - Shared code imports a folder contract from `@epicenter/folder`. The host
+ *   build selects its Tauri entry. The portable build keeps the runtime choice
+ *   so the same bytes can run in a browser or a hosted Epicenter window.
+ * - isomorphic-git and its SHA-1 dependency expect Node's Buffer.
+ *   `@epicenter/folder` owns that dependency, so `buffer` resolves from there.
+ *   The replacement is the package directory, so `buffer/` resolves too.
+ * - `import.meta.env.EPICENTER_HOST` is `'1'` in the host build, which
+ *   each app's `src/routes/+layout.ts` reads to prerender every page.
+ *
+ * The answer is read when this is called, so a process that sets
+ * `EPICENTER_HOST` before importing the app's `vite.config.ts` gets the build
+ * it asked for (`scripts/module-graph.ts` does).
+ */
+export function hostAppViteConfig(app: { port: number }): UserConfig {
+	const host = isHostAppBuild();
+	// SvelteKit already requires the app folder as the working directory.
+	const fromApp = createRequire(join(process.cwd(), 'package.json'));
+	const fromFolder = createRequire(fromApp.resolve('@epicenter/folder'));
+	return mergeConfig(workspaceAppViteConfig(app), {
+		resolve: {
+			...(host && {
+				conditions: ['epicenter-host', ...defaultClientConditions],
+			}),
+			alias: [
+				...(host
+					? [
+							{
+								find: /^@epicenter\/folder$/,
+								replacement: '@epicenter/folder/tauri',
+							},
+						]
+					: []),
+				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
+			],
+		},
+		define: {
+			'import.meta.env.EPICENTER_HOST': JSON.stringify(host ? '1' : ''),
+		},
+		optimizeDeps: { include: ['buffer'] },
+	} satisfies UserConfig);
 }

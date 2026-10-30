@@ -4,6 +4,7 @@
 - **Amended by:** [ADR-0273](0273-an-epicenter-app-is-an-spa-with-a-namespace-and-background-work-is-a-hidden-window.md) at what the host brokers: an application's own third-party secrets, several per application, and one OAuth callback route the host owns so no application registers one.
 - **Amended by:** [ADR-0271](0271-a-workspace-mirrors-continuously-to-the-epicenter-folder-one-way.md) at what a host may hold, on this record's own reasoning: the refusal is of a second convergent plane, and a one-way mirror cannot diverge, so the host may write rendered files exactly as it already holds blob bytes.
 - **Amended by:** [ADR-0393](0393-rows-refer-to-blobs-without-owning-their-lifetime.md) withdraws reliance on ADR-0205's unfinished-capture recovery promise. Progressive native file storage and avoiding whole-file WebView transfers still stand; the host does not become a second application-data authority.
+- **Amended by:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md) at what the host is: the Rust shell serves bundles ([ADR-0561](0561-rust-serves-every-app-from-one-epicenter-app-origin.md)), the `epicenter` CLI holds credentials, and no TypeScript host runs, while the refusal of application data in the host is unchanged.
 - **Date:** 2026-08-08
 - **Amended by:** [ADR-0323](0323-background-work-runs-in-the-host-and-a-window-is-for-looking-at.md) at what a host does. It serves bundles, brokers credentials, and now runs a declared slice of first-party application code, because a hidden window cannot stay awake and the host already owns the files and the credentials that work needs. The refusal this record was written for is untouched: nothing there opens a store or serves an authority.
   this branch. Reconcile at merge time (`docs/adr/README.md`).
@@ -22,6 +23,7 @@
   (which this narrows: a build no longer declares that at all),
   [ADR-0177](0177-a-browser-replica-is-owned-by-a-storage-partition-and-origin-pair.md).
 
+<!-- doc-path-check: ignore-next-line -->
 > **2026-09-05 note:** the quotation from `packages/blobs/src/blob-store.ts` below,
 > calling a blob content-addressed, is stale: ids are minted rather than hashed
 > ([ADR-0148](0148-blobs-use-opaque-identifiers-rather-than-content-hashes.md)).
@@ -68,6 +70,7 @@ they are not the same thing for blobs. Stating the difference, because the title
 alone would decide it the other way.
 
 **A blob is not CRDT-backed and cannot diverge.** It is content-addressed and
+<!-- doc-path-check: ignore-next-line -->
 write-once (`packages/blobs/src/blob-store.ts`: "The id already names immutable
 local bytes and cannot be overwritten"). There is no merge, no last-writer-wins,
 and no pair of copies that can disagree, so a blob on the host creates none of

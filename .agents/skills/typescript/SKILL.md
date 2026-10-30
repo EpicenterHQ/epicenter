@@ -28,7 +28,7 @@ Project-wide TypeScript conventions compose with narrower skills such as `arktyp
 - If an exported type is exactly the object returned by a `create*`, `attach*`, `open*`, or similar factory, derive it from the implementation with `ReturnType<typeof createThing>`. Put the exported output alias immediately after the factory. Keep input, config, data, protocol, and multi-implementation contract types above the factory.
 - Move consumer-facing JSDoc onto the returned object members. Add concrete member annotations inside the returned object when they preserve IntelliSense, narrow an implementation detail, or keep a public method/property surface stable.
 - For curried factories, derive from the inner return, such as `ReturnType<ReturnType<typeof createThing>>`. For generic factories, instantiate `typeof` when needed, such as `ReturnType<typeof openThing<TActions>>`.
-- Preserve intentional readonly public surfaces with getters when deriving from an object literal. Do not expose writable internal state just because the concrete implementation happens to store it that way.
+- Prefer explicit read methods for live or computed values in framework-neutral JavaScript and TypeScript, including React: `getValue()` or `isLocked()`. Ordinary data stays in properties. [Svelte reactive adapters](../svelte/SKILL.md) are the getter exception, regardless of file extension. Preserve required upstream contracts; do not add wrappers or duplicate spellings just for this convention.
 - Use a `Symbol` brand when identity means a specific factory output, not a coincidental shape probe.
 - Avoid `as any`. Use `unknown`, validation, brands, or narrower helpers instead.
 - Prefer optional chaining over `in` checks or truthiness when checking optional properties.

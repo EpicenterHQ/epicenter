@@ -1,171 +1,103 @@
 /**
- * Content-save accounting, the close fence over acquired storage, and the
- * one-change publication every ordinary domain method makes.
+ * The folder host lists cheap change stamps, reads file bytes, and lands
+ * puts with optional content expectations. Hints prompt another look.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { FileChange, FolderStorage } from './boundary.js';
-import { type FileCapture, fileCapture, hashBytes } from './capture.js';
-import { FileError, type FileStep, MoveError } from './errors.js';
-import type { History } from './git/history.js';
+import { Ok, type Result } from 'wellcrafted/result';
+import type { FolderStorage } from './boundary.js';
+import { hashBytes } from './hash.js';
+import type { FolderWatch } from './native/watch.js';
+import { ReadError, SaveError } from './shared/errors.js';
 
-const stepPaths = (step: FileStep | FileChange): string[] =>
-	step.kind === 'move' ? [step.from, step.to] : [step.path];
+export type Listed = { readonly stamp: string };
+
+/** A read: the file's bytes and listing stamp, or `null` when absent. */
+export type Fetched = {
+	readonly bytes: Uint8Array;
+	readonly stamp: string;
+} | null;
+
+/** What landed: the new file's listing stamp, or `null` for a removal. */
+export type Landed = {
+	readonly stamp: string;
+} | null;
+
+export type FolderHost = {
+	list(): Promise<Result<ReadonlyMap<string, Listed>, ReadError>>;
+	read(
+		paths: readonly string[],
+	): Promise<ReadonlyMap<string, Result<Fetched, ReadError>>>;
+	put(
+		path: string,
+		bytes: Uint8Array | null,
+		expect?: 'absent' | Uint8Array,
+	): Promise<Result<Landed, SaveError>>;
+	/** Paths that may have changed, or `null` when the scope is unknown. */
+	hints?(listener: (paths: readonly string[] | null) => void): () => void;
+	close?(): void;
+};
 
 /**
- * The paths an application may have changed: every path of a confirmed
- * batch, the landed steps of a partial one with its failed step when that
- * outcome is unknown, and every path of an unconfirmed one.
+ * Adapt directory storage. Native stamps describe the version each operation
+ * observed, while byte hashes remain the expectation for checked writes.
  */
-function mayHaveChanged(
-	changes: readonly FileChange[],
-	error: Awaited<ReturnType<FolderStorage['apply']>>['error'],
-): string[] {
-	if (error === null) return changes.flatMap(stepPaths);
-	if (error.name === 'Partial')
-		return [
-			...error.applied.flatMap(stepPaths),
-			...(error.error.name === 'Unconfirmed' ? stepPaths(error.failed) : []),
-		];
-	if (error.name === 'Unconfirmed') return changes.flatMap(stepPaths);
-	return [];
-}
-
-/** Browser and Bun record local saves here; the desktop owner records its own. */
-export function withPublication({
-	storage,
-	history,
-	landed,
-}: {
-	storage: FolderStorage;
-	history: Pick<History, 'noteEdit' | 'requestAutomaticCommit'>;
-	landed: (paths: readonly string[]) => void;
-}): FolderStorage {
-	return {
-		...storage,
-		async apply(changes) {
-			const result = await storage.apply(changes);
-			const touched = mayHaveChanged(changes, result.error);
-			if (touched.length > 0) {
-				history.noteEdit();
-				// A commit records the folder's files as they are, never a claim
-				// about which save put them there, so asking is safe even when
-				// nobody knows whether this change landed.
-				history.requestAutomaticCommit();
-				landed(touched);
-			}
-			return result;
-		},
-	};
-}
-
-/** Fence the next backend call. A begun call owns its complete result. */
-export function fenceStorage(
+export function storageHost(
 	storage: FolderStorage,
-	signal: AbortSignal,
-): FolderStorage {
+	{ watch, parallel = 8 }: { watch?: FolderWatch; parallel?: number } = {},
+): FolderHost {
 	return {
-		list: () =>
-			signal.aborted ? Promise.resolve(FileError.Closed()) : storage.list(),
-		children: (directory) =>
-			signal.aborted
-				? Promise.resolve(FileError.Closed())
-				: storage.children(directory),
-		read: (path) =>
-			signal.aborted ? Promise.resolve(FileError.Closed()) : storage.read(path),
-		readMany: (paths) =>
-			signal.aborted
-				? Promise.resolve(FileError.Closed())
-				: storage.readMany(paths),
-		open: (path) =>
-			signal.aborted ? Promise.resolve(FileError.Closed()) : storage.open(path),
-		apply: (changes) =>
-			signal.aborted
-				? Promise.resolve(FileError.Closed())
-				: storage.apply(changes),
-		mkdir: (path) =>
-			signal.aborted
-				? Promise.resolve(FileError.Closed())
-				: storage.mkdir(path),
-		rmdir: (path) =>
-			signal.aborted
-				? Promise.resolve(FileError.Closed())
-				: storage.rmdir(path),
+		async list() {
+			const { data, error } = await storage.list();
+			if (error !== null) return ReadError.StorageFailed({ cause: error });
+			return Ok(
+				new Map(data.files.map(({ path, stamp }) => [path, { stamp }])),
+			);
+		},
+		async read(paths) {
+			const results = new Map<string, Result<Fetched, ReadError>>();
+			let next = 0;
+			const worker = async () => {
+				for (;;) {
+					const path = paths[next++];
+					if (path === undefined) return;
+					const { data, error } = await storage.read(path);
+					if (error === null)
+						results.set(
+							path,
+							Ok({
+								bytes: data.bytes,
+								stamp: data.stamp,
+							}),
+						);
+					else if (error.name === 'NotFound') results.set(path, Ok(null));
+					else results.set(path, ReadError.StorageFailed({ cause: error }));
+				}
+			};
+			await Promise.all(
+				Array.from({ length: Math.min(parallel, paths.length) }, worker),
+			);
+			return results;
+		},
+		async put(path, bytes, expect) {
+			const expected =
+				expect === undefined
+					? 'any'
+					: expect === 'absent'
+						? expect
+						: { sha256: await hashBytes(expect) };
+			const { data, error } = await storage.put(path, bytes, expected);
+			if (error !== null) {
+				if (error.name === 'InvalidPath')
+					return SaveError.InvalidPath({ path });
+				return SaveError.StorageFailed({ cause: error });
+			}
+			if (data.kind === 'stale') return SaveError.Changed({ path });
+			if (bytes === null) return Ok(null);
+			if (data.stamp === null)
+				return SaveError.StorageFailed({
+					cause: new Error('A landed file has no stamp'),
+				});
+			return Ok({ stamp: data.stamp });
+		},
+		hints: watch,
 	};
-}
-
-type Move = Extract<FileChange, { kind: 'move' }>;
-
-/**
- * Publish one change and state its outcome as one file operation.
- *
- * Raw storage reports a move whose destination landed but whose source was
- * not removed as a partial application; that becomes
- * `MoveError.SourceNotRemoved`, which names the destination with the move's
- * guard hash, a baseline-conditioned receipt rather than a read of what the
- * destination holds now. Any other partial report contradicts a single
- * change, so its outcome is `Unconfirmed` and carries the report as its
- * cause. Accounting below this call has already seen the raw report and
- * announced the landed paths.
- */
-export function applyOne(
-	storage: Pick<FolderStorage, 'apply'>,
-	change: Exclude<FileChange, Move>,
-): Promise<Result<undefined, FileError>>;
-export function applyOne(
-	storage: Pick<FolderStorage, 'apply'>,
-	change: Move & { expectedSha256: string },
-): Promise<Result<undefined, FileError | MoveError>>;
-export async function applyOne(
-	storage: Pick<FolderStorage, 'apply'>,
-	change: Exclude<FileChange, Move> | (Move & { expectedSha256: string }),
-): Promise<Result<undefined, FileError | MoveError>> {
-	const { error } = await storage.apply([change]);
-	if (error === null) return Ok(undefined);
-	if (error.name !== 'Partial') return Err(error);
-	const [landed, ...rest] = error.applied;
-	if (
-		change.kind === 'move' &&
-		rest.length === 0 &&
-		landed?.kind === 'write' &&
-		landed.path === change.to
-	)
-		return MoveError.SourceNotRemoved({
-			from: change.from,
-			to: change.to,
-			moved: fileCapture(change.to, change.expectedSha256),
-			cause: error.error,
-		});
-	return FileError.Unconfirmed({
-		path: change.kind === 'move' ? change.from : change.path,
-		operation: 'publishing',
-		cause: error,
-	});
-}
-
-/**
- * Replace the captured file's bytes and return the capture of the new ones.
- * Refused as `Conflict` when the file no longer holds the captured bytes. A
- * reply that leaves the outcome `Unconfirmed` is checked with one read:
- * bytes that hash to what was sent are this save, confirmed after all, so a
- * session does not mistake its own landed save for someone else's change.
- */
-export async function replaceCaptured(
-	storage: Pick<FolderStorage, 'apply' | 'read'>,
-	file: FileCapture,
-	bytes: Uint8Array,
-): Promise<Result<FileCapture, FileError>> {
-	const sha256 = await hashBytes(bytes);
-	const applied = await applyOne(storage, {
-		kind: 'replace',
-		path: file.path,
-		bytes,
-		sha256,
-		expectedSha256: file.sha256,
-	});
-	if (applied.error === null) return Ok(fileCapture(file.path, sha256));
-	if (applied.error.name !== 'Unconfirmed') return Err(applied.error);
-	const read = await storage.read(file.path);
-	if (read.error === null && read.data.sha256 === sha256)
-		return Ok(fileCapture(file.path, sha256));
-	return Err(applied.error);
 }

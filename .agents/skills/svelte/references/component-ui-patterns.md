@@ -8,13 +8,13 @@ For general CSS and Tailwind guidelines, see the `styling` skill.
 
 # UI component boundary
 
-Apps use `@epicenter/ui` subpaths. Components and extras are vendored in
-`packages/ui/src`; this repo does not use shadcn-svelte's app-local
-`$lib/components/ui` layout or a `components.json` in the UI package. Read the
-[UI package guide](../../../../packages/ui/README.md) for imports, component
-selection, Vega styling, and the update workflow. Do not run an unpinned
-`shadcn-svelte add` or `jsrepo add` into the live package: generated files need
-review against the local overlay, imports, and component contracts.
+Apps use `@epicenter/ui` subpaths. Components and extras are vendored in the
+shared UI package; this repo does not use shadcn-svelte's app-local
+`$lib/components/ui` layout or a `components.json` in the UI package. Inspect
+the shared component's exports and source before importing or updating it. Do
+not run an unpinned `shadcn-svelte add` or `jsrepo add` into the live package:
+generated files need review against the local overlay, imports, and component
+contracts.
 
 For a changed component's current API or composition, check its local source
 and the [shadcn-svelte docs](https://shadcn-svelte.com/docs/components) or
@@ -42,8 +42,8 @@ that only exposes an action. If you need to pass an action through a component
 or compose it with other DOM behavior, check `fromAction` in `svelte/attachments`
 before writing adapter code yourself.
 
-This repo already uses `{@attach (node) => node.select()}` for focused edit
-fields in Matter. Follow that shape for small one-off element behavior; extract
+This repo already uses `{@attach (node) => node.focus()}` for focused fields
+in Todos and Honeycrisp. Follow that shape for small one-off element behavior; extract
 an attachment factory only when several call sites share the behavior or the
 setup owns cleanup.
 
@@ -102,13 +102,46 @@ bindable just so a child can edit their fields. Domain actions such as archive,
 delete, select, save, or rename should usually be callback props or mutations,
 not two-way bound booleans.
 
+## Render optional unions presence first
+
+When several branches render variants of an optional discriminated union,
+separate presence from variant selection. Use an outer
+[`{#if}`](https://svelte.dev/docs/svelte/if) for presence, then read the
+discriminant directly inside. Keep the owner visible instead of introducing a
+`$derived` alias solely to shorten these immediate reads.
+
+For illustration, a job's optional `progress` can distinguish queued, running,
+and failed work:
+
+```svelte
+{#if job.progress}
+	{#if job.progress.status === 'failed'}
+		<p>Failed: {job.progress.error.message}</p>
+	{:else if job.progress.status === 'running'}
+		<p><Spinner class="size-3.5" /> Running...</p>
+	{:else}
+		<p>Queued</p>
+	{/if}
+{:else}
+	<p>Idle</p>
+{/if}
+```
+
+This makes absence one explicit branch instead of repeating
+`job.progress?.status` in every condition. Optional chaining is still useful
+for an isolated optional read. A local still earns its place when a deferred
+callback needs narrowing or an operation must retain the exact value shown;
+see the binding guidance below.
+
 ## Function bindings for transformed values
 
 For a controlled input wrapper, expose a `$bindable` value and use Svelte's
 [`bind:value={get, set}`](https://svelte.dev/docs/svelte/bind#Function-bindings)
 when the caller must transform reads or writes. Paired `read`/`write` or
-`getValue`/`setValue` props recreate that protocol. Trace their callers and replace
-them when they only control the same value. Keep commands as callback props.
+`getValue`/`setValue` props and forwarding value-change props recreate that
+protocol. Trace their callers, transformations, and lifecycle guards before
+replacing them when they only control the same value. Keep commands as callback
+props and preserve real draft ownership.
 
 ```svelte
 <Textarea
@@ -119,14 +152,62 @@ them when they only control the same value. Keep commands as callback props.
 />
 ```
 
-Keep reads connected to the current owner: use `editor.row.body` and
-`editor.row.fields` directly in the getter and synchronous setter rather than
-introducing a forwarding `const row = editor.row`. Read at the event so a
-replacement preserves the other fields as they exist then. Keep a snapshot only
-when one consistent read is necessary, such as across `await`, or repeated reads
-have side effects; name that reason. A render-narrowed valid row can make a getter total; its setter still reads
-the current owner. A snapshot captured when the component mounts can overwrite
-later edits.
+A callback can run after the check that created it. TypeScript may therefore
+lose narrowing for a repeated optional property access inside the binding
+getter. This occurs with ordinary properties as well as JavaScript getters.
+In that case, capture the optional value with `{@const}` in the nearest
+template block containing the controls that need it, then narrow that local
+before creating the callbacks:
+
+```svelte
+{#each rowEdits as rowEdit (rowEdit.path)}
+	{@const row = rowEdit.content}
+	{#if row && row.issues === null}
+		<Input
+			bind:value={() => row.fields.title, title => rowEdit.patch({ fields: { title } })}
+		/>
+		<Textarea bind:value={() => row.body, body => rowEdit.patch({ body })} />
+	{/if}
+{/each}
+```
+
+`{@const}` stays reactive within its template block. Use `$derived(rowEdit.content)`
+when script code also needs the row or no existing template scope supports
+`{@const}` before the guard; a plain script `const row = rowEdit.content`
+captures only the initial value. Narrow absent or invalid rows outside the
+control instead of putting `?.` and an empty fallback into every binding.
+Use the source's actual sentinel (`undefined` or `null`); a Folder row is valid
+when present and `issues === null`.
+
+Share one local across the controls that use it instead of creating one per
+input. If only one control needs it, place the declaration beside that control
+in its enclosing block. `{@const}` must be an immediate child of a supported
+template block or component, not an arbitrary HTML element.
+For a control at the component root or directly inside ordinary HTML, capture
+the value with a script `$derived`, then narrow that local in the template.
+Do not add an artificial loop, key, or conditional just to host `{@const}`;
+those blocks introduce structure or lifetimes unrelated to the binding.
+
+For optional text whose binding getter needs narrowing, capture
+`{@const content = snapshot.current.content}` in the nearest supported scope, then gate
+the control with `content !== undefined`, then bind to `content.text`. An empty
+string is valid source. Use `?? ''` only when absence
+really means an empty editable value; it must not turn unread, missing, or
+non-text content into an editable blank control.
+
+Do not add this local mechanically. If an `{#each}` variable or a value already
+held in a `const` is narrowed for the callback, use it directly. A simple
+display can also read the property directly when its guard suffices. The local
+earns its place by preserving narrowing or sharing a useful computation, not
+by the mere presence of a getter or `bind:value`. Nested access alone, such as
+`() => editor.settings.title`, needs no alias when the accessed values are
+always available.
+
+The setter sends a field patch or body through `edit.change`; it does not mutate
+the snapshot or send the whole row back. If a command composes a replacement
+from existing content, read the current owner synchronously at the event so it
+preserves changes made since rendering. Retain a snapshot across `await` only
+when that particular operation requires it and checks whether it still applies.
 
 When the transformation has substantial format rules, keep its read and
 write-back operations together in the format's codec or module. Give the write
@@ -143,33 +224,27 @@ each other and which source information survives.
 
 ## File editor views
 
-Use [ADR-0523](../../../../docs/adr/0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md)
-for draft ownership and [the input patterns](input-ownership.md) for the
-choice between immediate editing and explicit submission.
+Use [the input patterns](input-ownership.md) for the choice between immediate
+editing and explicit submission.
 
-A product list opens structured controls. An invalid file shows its reason and
-opens as text, as below; repairing text does not switch a mounted editor's
-interpretation. Do not add per-record Source/Fields tabs, raw mode, or automatic
-Source fallback.
+Files opens full text; a product list opens structured controls. An invalid file
+shows its reason and opens as text, as below; repairing text does not switch a
+mounted editor's interpretation. Do not add per-record Source/Fields tabs, raw
+mode, or automatic Source fallback.
 
-The app owns each open file's draft in an edit session from
-`@epicenter/svelte/edit-session`: `createRowSession` for a valid row,
-`createTextSession` for text. Read `session.draft` and `session.state`; change
-the draft only through `session.edit((row) => { row.fields.title = input; })`
-or `session.input(text)`, which save at once. Do not mirror the draft, fields,
-validity, or save state into component runes, and preserve file newlines. Add a
-codec when controls represent the body differently, such as text and thoughts.
+`<OpenFolder>` passes the reactive folder mirror to the product root. Read
+`folder.files` and table `rows` for landed listings, and use `row(id)` or
+`file(path)` for one item. A row with issues retains its path and source for
+repair. Use `{@const row = folder.tables.notes.row(id)}` near controls that
+need a narrowed valid row.
 
-Keep the open item in `@epicenter/svelte/open-item` and key the detail by the
-item, so another item mounts another view. A row whose text is not valid opens
-as text with its issues, and opens as a row again once repaired. Disable
-inputs while `session.locked`. Leaving an item settles and releases its
-session; a failed save answers `unsaved` and the view asks before discarding
-that session. Show the save state and conflict prompt with
-`@epicenter/svelte/save-bar`. A rich widget keeps its document, selection, and
-history; saves never assign the draft, and only a read that replaces it
-(`session.generation`) remounts the widget. An unfinished Add, Send, or Save
-form owns a separate explicit-submission draft.
+Each text editor creates its own `draft(source, save)` from
+`@epicenter/svelte/folder`. Bind text inputs to `draft.value` and render
+`<UnsavedEdit draft={draft} />` for inline failure, retry, discard, and Copy.
+A checkbox, select, or button writes directly, computing toggles from the
+value shown. `update({ fields?, body? })` patches the file as it stands when
+its queued write runs; `write(path, text)` replaces its whole content. Keep
+unsubmitted Add, Send, or Save form input with the form.
 
 Tabs may select actual workspaces or workflows. Shared `Tabs.Content` owns panel
 mounting, so do not repeat `tab === value` inside each panel. A disabled trigger
@@ -182,11 +257,14 @@ controls and delayed commands retain their own lifetime and current-data checks.
 Inline components that only forward bindings; keep substantial UI, resources,
 format rules and real editing lifetimes.
 
-For a hunt, trace `createRowSession`, `createTextSession`, and `createOpenItem`
-callers. Classify state by its actual owner before removing it. Use the
+For a hunt, trace each app's write mutations and the queries they update. Hunt
+per-record Source tabs, raw-mode admission, and duplicated selection or
+selected-tab conditions inside shared `Tabs.Content`. Classify state by its
+actual owner before removing it. Keep path-operation facts and edit identities;
+name who preserves their information before removing an owner. Use the
 [search recipes](input-ownership.md#search-recipes), then verify repair
-navigation, the conflict prompt, failed-save discard, and that a released
-session changes nothing.
+navigation and that a failed save retains accepted input and shows a visible
+failure. Synchronous input refusals remain distinct from publication failures.
 
 ## Inline Simple Props Types
 
@@ -571,7 +649,7 @@ use. Keep extraction when it centralizes a shared rule, avoids substantial
 repetition, provides necessary caching, or gives non-obvious work a useful name.
 Two uses alone do not establish any of those benefits. See
 [refactoring methods](../../collapse-pass/references/refactoring-methods.md#keep-source-and-action-visible) for the
-general test, and [lifecycle and reactivity](lifecycle-and-reactivity.md#shallow-template-aliases-inline-direct-reads)
+general test, and [lifecycle and reactivity](lifecycle-and-reactivity.md#template-locals-narrow-reactive-values-before-use)
 for reactive reads and operation-local snapshots.
 
 # Referential Stability for Reactive Data Sources

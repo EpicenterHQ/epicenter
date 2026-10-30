@@ -1,5 +1,8 @@
 /**
- * Fail when a retired word reappears in the store's vocabulary (ADR-0309).
+ * Fail when a retired word reappears. Each rule names the ADR that retired its
+ * word, and a failure cites it. The first two rules guard the store's
+ * vocabulary (ADR-0309); a rename under ADR-0584 adds its retired identifier
+ * here once the code stops using it.
  *
  * A field holds a **value**, replaced whole, or a **node**, edited in place.
  * `scalar` and `prose` were the old names and both were wrong: `tags` is an
@@ -16,10 +19,9 @@
  * Two rules, scoped differently, because the two words are not alike.
  *
  * `scalar` has no ordinary meaning here, so it is checked almost everywhere. It
- * survives in three kinds of place, all excluded by subsystem: Matter keeps its
- * own copy of the field palette and its own words, `local-books` and
- * `local-mail` genuinely lift scalar columns into SQLite mirrors of their own,
- * and YAML calls a plain node a scalar.
+ * survives in two kinds of place, both excluded by subsystem: `local-books`
+ * genuinely lifts scalar columns into SQLite mirrors of its own, and YAML calls
+ * a plain node a scalar.
  *
  * `prose` is an ordinary English word, so checking it everywhere would flag the
  * writing skills on every line. It is checked only where the store's vocabulary
@@ -74,6 +76,8 @@ const FROZEN = [
 type Rule = {
 	readonly word: string;
 	readonly instead: string;
+	/** The record that retired `word`, such as `ADR-0309`, cited on failure. */
+	readonly adr: string;
 	/** Paths this rule does not reach. */
 	readonly excludes: readonly string[];
 	/** When present, the ONLY paths this rule reaches. */
@@ -84,41 +88,63 @@ const RULES: readonly Rule[] = [
 	{
 		word: 'scalar',
 		instead: 'value',
+		adr: 'ADR-0309',
 		excludes: [
-			// Matter's universe: its own palette copy, its own words (ADR-0309).
-			'apps/matter/',
-			'packages/matter-core/',
-			// Their own SQLite mirrors, with real extracted scalar columns.
+			// Its own SQLite mirrors, with real extracted scalar columns.
 			'apps/local-books/',
-			'apps/local-mail/',
 			// YAML's word for a plain node, not ours.
-			'.agents/skills/agent-instructions/',
+			'.agents/skills/skills-and-instructions/',
 		],
 	},
 	{
 		word: 'prose',
 		instead: 'node (the container) or text (the characters)',
+		adr: 'ADR-0309',
 		excludes: [],
 		scope: [
-			'packages/app/src/data/',
-			'packages/skills/',
 			'packages/svelte/',
 			'packages/server/workers/',
-			'packages/app-shell/',
 			'apps/honeycrisp/',
 			'apps/whispering/',
 			'apps/vocab/',
-			'apps/sync-lab/',
 			'apps/epicenter/',
 			'.agents/skills/yjs/',
 			'.agents/skills/svelte/',
 			'.agents/skills/collapse-pass/',
 			'docs/CONTEXT.md',
 			'docs/architecture.md',
-			'docs/the-store-and-what-it-replaced.md',
 			'README.md',
 		],
 	},
+	// ADR-0584 P1: one noun for what `epicenter.json` holds.
+	...(
+		[
+			['DataSchema', 'Definition'],
+			['FolderDefinition', 'Definition'],
+			['PreparedFolderDefinition', 'PreparedDefinition'],
+			['prepareSchema', 'prepareDefinition'],
+			['DataDefinitionParseError', 'DefinitionError'],
+			['formatDeclaration', 'formatDefinition'],
+			['parseDeclaration', 'parseDefinition'],
+			['readDeclaration', 'readDefinition'],
+			['DECLARATION_PATH', 'DEFINITION_PATH'],
+			['DECLARATION_SOURCE_PATH', 'DEFINITION_SOURCE_PATH'],
+			['hasDeclarationSource', 'hasDefinitionSource'],
+			['generateDeclaration', 'generateDefinition'],
+			['GenerateDeclarationError', 'GenerateDefinitionError'],
+			['InvalidDeclaration', "InvalidDefinition with path 'epicenter.json'"],
+			['ShapeMismatch', 'DefinitionMismatch'],
+			['ShapeProblem', 'Mismatch'],
+			['shapeProblems', 'mismatches'],
+			['schemaContainment', 'containment'],
+			['requiredOutsideShape', 'requiredOutside'],
+		] as const
+	).map(([word, instead]) => ({
+		word,
+		instead,
+		adr: 'ADR-0584',
+		excludes: [],
+	})),
 ];
 
 const IGNORE_FILE = /vocab-check:\s*ignore-file\b/;
@@ -128,8 +154,6 @@ const under = (file: string, prefix: string) =>
 	prefix.endsWith('/') ? file.startsWith(prefix) : file === prefix;
 
 const isFrozen = (file: string) =>
-	file === 'CHANGELOG.md' ||
-	file.endsWith('/CHANGELOG.md') ||
 	file.endsWith('.d.ts') ||
 	FROZEN.some((dir) => file.startsWith(dir) || file.includes(`/${dir}`));
 
@@ -153,6 +177,7 @@ const violations: {
 	line: number;
 	word: string;
 	instead: string;
+	adr: string;
 	text: string;
 }[] = [];
 
@@ -168,7 +193,7 @@ for (const file of files) {
 		const previous = lines[i - 1];
 		if (previous !== undefined && IGNORE_NEXT_LINE.test(previous)) return;
 		if (IGNORE_NEXT_LINE.test(line) || IGNORE_FILE.test(line)) return;
-		for (const { word, instead } of rules) {
+		for (const { word, instead, adr } of rules) {
 			// `\B` after the stem lets `scalars` and `Scalar` match while keeping
 			// `ProseMirror` and `prose-css` out: a following letter is fine, a
 			// following capital or hyphen is a different word.
@@ -182,6 +207,7 @@ for (const file of files) {
 				line: i + 1,
 				word,
 				instead,
+				adr,
 				text: line.trim().slice(0, 100),
 			});
 		}
@@ -196,14 +222,14 @@ if (violations.length === 0) {
 }
 
 console.error(`check:vocabulary: ${violations.length} retired word(s):\n`);
-for (const { file, line, word, instead, text } of violations) {
+for (const { file, line, word, instead, adr, text } of violations) {
 	console.error(
-		`::error file=${file},line=${line}::"${word}" is retired; use ${instead} (ADR-0309)`,
+		`::error file=${file},line=${line}::"${word}" is retired; use ${instead} (${adr})`,
 	);
 	console.error(`  ${file}:${line}  ${text}`);
 }
 console.error(
-	'\nA field holds a value, replaced whole, or a node, edited in place (ADR-0309).\n' +
+	'\nEach message names the ADR that retired the word.\n' +
 		'If a use is legitimate, mark the line above it with `vocab-check: ignore-next-line (reason)`.',
 );
 process.exit(1);

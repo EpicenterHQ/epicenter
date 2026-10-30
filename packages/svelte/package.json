@@ -3,7 +3,7 @@
 	"version": "0.3.0",
 	"private": true,
 	"type": "module",
-	"description": "Svelte 5 bindings for Epicenter: reactive workspace state, persisted state, folder edit sessions, and the shared folder UI.",
+	"description": "Svelte 5 bindings for the folder mirror, text editing, repository source editing, agent conversations, and status.",
 	"keywords": [
 		"svelte",
 		"local-first",
@@ -14,35 +14,45 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
-		"./edit-session": "./src/edit-session.svelte.ts",
-		"./folder-ui": "./src/folder-ui/index.ts",
-		"./terminal-session": "./src/folder-ui/terminal-session.svelte.ts",
-		"./open-item": "./src/open-item.svelte.ts",
-		"./admissions": "./src/admissions.svelte.ts",
-		"./save-bar": "./src/save-bar.svelte",
-		"./sync": "./src/sync.svelte.ts",
-		"./sync-line": "./src/sync-line.ts",
-		"./sync-review": "./src/sync-review.svelte"
+		"./app": "./src/app/mount.svelte.ts",
+		"./folder": "./src/folder.ts",
+		"./open-folder": "./src/open-folder.svelte",
+		"./unsaved-edit": "./src/unsaved-edit.svelte",
+		"./row-issues": "./src/row-issues.svelte",
+		"./status-line": "./src/status-line.ts",
+		"./status-popover": "./src/status-popover.svelte",
+		"./status-row": "./src/status-row.svelte",
+		"./repository": "./src/repository/index.ts",
+		"./repository/source-editor": "./src/repository/source-editor.svelte",
+		"./repository/editor-status": "./src/repository/editor-status.svelte",
+		"./repository/gate": "./src/repository/repository-gate.svelte"
 	},
 	"dependencies": {
+		"@codemirror/commands": "^6.11.1",
+		"@codemirror/lang-markdown": "^6.5.2",
+		"@codemirror/merge": "^6.12.3",
+		"@codemirror/state": "^6.7.6",
+		"@codemirror/view": "^6.43.15",
 		"@epicenter/agent": "workspace:*",
+		"@epicenter/app": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/repository": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"arktype": "catalog:",
+		"@tauri-apps/api": "catalog:",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
-		"@standard-schema/spec": "catalog:",
 		"@types/bun": "catalog:",
+		"jsdom": "26.1.0",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"typescript": "catalog:"
 	},
 	"scripts": {
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun test --isolate --conditions=browser --path-ignore-patterns='**/*.mounted.test.ts' && bun run test:mounted",
-		"test:mounted": "bun test --conditions=browser --conditions=svelte mounted.test"
+		"test": "bun test --isolate --conditions=browser --conditions=svelte"
 	},
 	"license": "AGPL-3.0-or-later"
 }

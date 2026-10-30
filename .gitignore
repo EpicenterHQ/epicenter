@@ -40,7 +40,6 @@ apps/local-books/.infisical.json
 
 # Epicenter
 .epicenter
-examples/**/matter.sqlite
 
 # WXT (browser extension framework)
 .wxt

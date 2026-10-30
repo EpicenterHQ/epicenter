@@ -4,18 +4,10 @@
  *
  * Every wire URL path lives in one place:
  * packages/constants/src/api-routes.ts. Consumers import patterns and
- * URL builders from there. See
- * specs/20260524T153612-centralize-route-paths.md.
+ * URL builders from there.
  *
- * Excluded (per spec § Decisions Log):
+ * Excluded:
  *   - The constants files themselves (they ARE the source of truth).
- *   - A domain package that owns its protocol and so owns its routes, as
- *     api-routes.ts itself prescribes: packages/blobs/src/hosted-url.ts
- *     declares the Personal blob addresses its server and clients share.
- *   - Vendored mirrors that intentionally re-declare these paths to avoid a
- *     runtime dependency on @epicenter/constants (apps/epicenter/src/routes.ts,
- *     whose /api/session is the shell's own loopback contract, not the cloud
- *     session endpoint).
  *   - *.test.ts / *.test.tsx (mock URL matchers may reference paths verbatim).
  *   - JSDoc/comment lines (descriptive prose, not constructions).
  *
@@ -44,12 +36,11 @@ const EXCLUDED_DIRS = new Set([
 
 // A quoted route literal for a path @epicenter/constants owns. `([^a-z]|$)`
 // keeps `/api/sessions-of-mine` style prefixes from matching.
-const HARDCODED_PATH = /['"`]\/api\/(session|rooms|blobs|ai)([^a-z]|$)/;
+const HARDCODED_PATH = /['"`]\/api\/(session|rooms|ai)([^a-z]|$)/;
 
 // The next two regexes test the full `path:line:content` record, exactly as
 // the workflow's `grep -v` filters did.
-const ALLOWED_RECORD =
-	/packages\/constants\/src\/api-routes\.ts|packages\/blobs\/src\/hosted-url\.ts|apps\/epicenter\/src\/routes\.ts/;
+const ALLOWED_RECORD = /packages\/constants\/src\/api-routes\.ts/;
 const COMMENT_RECORD = /^[^:]+:[0-9]+:[ \t\v\f\r]*(\*|\/\/|\/\*)/;
 
 const isScannedFile = (name: string): boolean =>

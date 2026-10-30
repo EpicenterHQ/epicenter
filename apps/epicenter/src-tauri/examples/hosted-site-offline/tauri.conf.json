@@ -1,0 +1,11 @@
+{
+	"productName": "Epicenter Hosted Site Offline Gate",
+	"version": "0.0.1",
+	"identifier": "so.epicenter.hosted-site-offline-gate",
+	"build": { "frontendDist": "page" },
+	"app": {
+		"windows": [],
+		"security": { "capabilities": ["folders"] }
+	},
+	"bundle": { "active": false, "icon": ["../../icons/icon.png"] }
+}

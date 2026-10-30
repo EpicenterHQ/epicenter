@@ -1,25 +1,23 @@
-# The folder owner without Tauri: path policy, file publication, Git history,
-# the cross-process lock, and window sessions. Its tests need only `git`, so
-# they run without building a webview runtime. The plugin crate one directory
-# up adds the IPC commands.
+# Folder file operations without Tauri: canonical directories, the save lock, the path
+# rule, and the checked file changes a page asks for. Its tests need only Bun,
+# so they run without building a webview runtime.
+# The plugin crate one directory up adds the IPC commands.
 [package]
 name = "epicenter-folder-core"
 version = "0.0.1"
-description = "One native owner per Epicenter folder: files, Git history, and window sessions"
+description = "Canonical directories, the shared save lock, and checked file changes"
 edition = "2021"
 license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
-log = "0.4"
-notify = "8"
+# Resolves a root to a plain drive path on Windows, not a `\\?\` one.
+dunce = "1"
 rusqlite = { version = "=0.40.2", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = { version = "1", features = ["raw_value"] }
+serde_json = "1"
+tempfile = "3.8"
+same-file = "1"
+# Hashes a publishing rename's destination against the page's expectation.
 sha2 = "0.10"
 specta = { version = "=2.0.0-rc.26", features = ["derive"] }
-unicode-normalization = "0.1"
-
-# Atomic replace-existing publication on Unix.
-[target.'cfg(unix)'.dependencies]
-libc = "0.2"

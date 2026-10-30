@@ -6,25 +6,26 @@
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { basename } from '@epicenter/folder/file-browser';
-	import { getSession } from '$lib/session.svelte.js';
-	import FileDraftView from '../components/FileDraftView.svelte';
+	import { getWhispering } from '$lib/whispering.svelte.js';
+	import FileView from '../components/FileView.svelte';
 	import RecordingDetail from '../components/RecordingDetail.svelte';
 	import RecordingList from '../components/RecordingList.svelte';
 
-	const { library, view } = getSession();
+	const whispering = getWhispering();
+	const { view } = whispering;
 
 	/**
 	 * The table is the page. Opening a recording shows its details: beside the
 	 * table on a wide window, where the table keeps its search, order, and
 	 * ticks in view, and in place of it below this width. Closing the details
 	 * gives the whole width back to the table and changes nothing else: the
-	 * recording stays selected, and what was typed in its drafts stays typed.
+	 * recording stays selected, and everything typed is already in its file.
 	 */
 	const wide = new MediaQuery('(min-width: 768px)');
 
 	/** Close the details and put focus back on the row they were opened from. */
 	async function close() {
-		const path = library.selectedPath;
+		const path = whispering.selectedPath;
 		view.showingDetail = false;
 		await tick();
 		if (path !== undefined)
@@ -35,19 +36,19 @@
 <svelte:head><title>Recordings · Whispering</title></svelte:head>
 
 {#snippet detail(onBack: (() => void) | undefined, onClose: (() => void) | undefined)}
-	{@const selection = library.selection}
+	{@const selection = whispering.selection}
 	{#if selection?.kind === 'recording'}
 		{#key selection.path}
-			<RecordingDetail {library} path={selection.path} draft={selection.draft} entry={selection.entry} {onBack} {onClose} />
+			<RecordingDetail path={selection.path} entry={selection.entry} {onBack} {onClose} />
 		{/key}
 	{:else if selection?.kind === 'file'}
 		{#key selection.path}
-			<FileDraftView {library} path={selection.path} draft={selection.draft} onBack={onBack ?? onClose} />
+			<FileView path={selection.path} onBack={onBack ?? onClose} />
 		{/key}
 	{:else}
 		<Empty.Root class="h-full">
-			{#if library.selectedPath !== undefined}
-				<Empty.Title>{basename(library.selectedPath)} is no longer in the folder</Empty.Title>
+			{#if whispering.selectedPath !== undefined}
+				<Empty.Title>{basename(whispering.selectedPath)} is no longer in the folder</Empty.Title>
 				<Empty.Description>It was renamed or deleted outside this window.</Empty.Description>
 			{:else}
 				<Empty.Title>Select a recording</Empty.Title>

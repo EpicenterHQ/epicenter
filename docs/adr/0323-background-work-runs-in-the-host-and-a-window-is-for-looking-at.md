@@ -1,7 +1,8 @@
 # 0323. Background work runs in the host, and a window is for looking at
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-09-01
+- **Superseded by:** [ADR-0556](0556-outside-a-webview-typescript-runs-only-as-the-epicenter-cli.md): background TypeScript is an `epicenter` command Rust starts and waits for, and no Bun host runs; the measurement that a hidden WebView's timers stop after about seven minutes stands, and [ADR-0563](0563-a-hidden-app-window-keeps-running-until-epicenter-quits.md) lets a hidden window answer operating-system events but run no periodic work.
 - **Unbuilt:** all of it. Local Mail reconciles from its own window today, and the host runs no application code beyond admitting a data definition.
 - **Supersedes:** [ADR-0322](0322-a-person-keeps-applications-current-and-a-hidden-window-is-the-same-window.md) entirely. That record decided a person keeps applications current by having the host start their windows hidden, and it named the one thing it could not settle: whether a hidden WebView keeps running. It does not. Its human half is not carried forward either, because what it rationed turned out to be free.
 - **Relates:** [ADR-0327](0327-undelivered-work-is-an-outbox-and-that-is-where-a-failure-appears.md), which decides where a pass outcome lands. It amended this record while it expected a host-side half to write those outcomes; Local Mail then chose to reconcile in the foreground only, so the amendment was withdrawn and this record stands unchanged. Nothing has built a background half, so the detection sentence below is still literally true.

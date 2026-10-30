@@ -1,23 +1,99 @@
 /**
- * `@epicenter/folder/browser`: a folder in this browser's own storage, and
- * nothing else.
- *
- * The same `openFolder` and the same contract as `@epicenter/folder`, with
- * the choice already made. A build that imports this entry, or aliases the
- * bare specifier to it, carries no desktop adapter. Inside the desktop app
- * this opener refuses: that page's folder is a directory the shell owns.
- *
- * `downloadFolder` is this entry's alone: it makes a browser folder in an
- * explicit Local or account scope from remote history before the first open.
- *
- * Importing this module opens nothing.
+ * `@epicenter/folder/browser`: this web origin's default local folder,
+ * kept in IndexedDB as a Git working tree. A blob's oid is its change stamp,
+ * and other tabs' saves arrive as hints.
  */
-export {
-	type DownloadError,
-	type DownloadFolderOptions,
-	downloadFolder,
-	type FolderDownload,
-	openFolder,
-} from './browser-adapter.js';
+import { isTauri } from '@tauri-apps/api/core';
+import { Ok, type Result } from 'wellcrafted/result';
+import { openRepository } from './browser/repository.js';
+import { snapshotContent } from './browser/storage.js';
+import { OpenFolderError } from './errors.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
+import { ReadError } from './shared/errors.js';
+import type { Fetched, FolderHost } from './storage.js';
+
 export * from './contract.js';
-export { DownloadFolderError } from './errors.js';
+
+/** The same fixed key as the browser's default folder, so its files carry over. */
+const DEFAULT_KEY = 'default';
+
+export async function openFolder<const T extends Tables>(
+	options: OpenOptions<T>,
+): Opened<T> {
+	// The desktop app opens its window's directory through the Tauri entry.
+	if (isTauri()) return OpenFolderError.InsideTauri();
+	if (typeof indexedDB === 'undefined')
+		return OpenFolderError.Unavailable({
+			cause: new Error('IndexedDB is not available in this page'),
+		});
+	let repository: Awaited<ReturnType<typeof openRepository>>;
+	try {
+		repository = await openRepository(DEFAULT_KEY);
+	} catch (cause) {
+		return OpenFolderError.Unavailable({ cause });
+	}
+	return createFolder(repositoryHost(repository), options);
+}
+
+function repositoryHost(
+	repository: Awaited<ReturnType<typeof openRepository>>,
+): FolderHost {
+	const { storage } = repository;
+	return {
+		async list() {
+			try {
+				// An empty scope walks every tree and loads no blob.
+				const snapshot = await storage.capture([]);
+				const listed = new Map<string, { stamp: string }>();
+				for (const [path, entry] of snapshot.files)
+					if (entry.mode !== '160000') listed.set(path, { stamp: entry.oid });
+				return Ok(listed);
+			} catch (cause) {
+				return ReadError.StorageFailed({ cause });
+			}
+		},
+		async read(paths) {
+			try {
+				const snapshot = await storage.capture(paths);
+				return new Map<string, Result<Fetched, ReadError>>(
+					paths.map((path) => {
+						const entry = snapshot.files.get(path);
+						if (snapshot.directories.has(path))
+							return [
+								path,
+								ReadError.StorageFailed({ cause: `${path} is a directory` }),
+							] as const;
+						const bytes = snapshotContent(snapshot, path);
+						const fetched: Fetched =
+							entry === undefined || bytes === null
+								? null
+								: {
+										bytes: bytes.slice(),
+										stamp: entry.oid,
+									};
+						return [path, Ok(fetched)];
+					}),
+				);
+			} catch (cause) {
+				const failed = ReadError.StorageFailed({ cause });
+				return new Map(paths.map((path) => [path, failed]));
+			}
+		},
+		async put(path, bytes, expect) {
+			const { data, error } = await repository.put(path, bytes, expect);
+			if (error !== null) return { data: null, error };
+			const { landed } = data;
+			return Ok(landed === null ? null : { stamp: landed.version });
+		},
+		hints: (listener) =>
+			repository.onChange(({ paths, origin }) => {
+				if (origin === 'other-handle') listener(paths);
+			}),
+		close: repository.close,
+	};
+}

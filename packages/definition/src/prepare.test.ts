@@ -1,25 +1,20 @@
 /**
  * Definition Preparation Tests
  *
- * `prepareData` checks a declaration and returns an owned definition of the
+ * `prepareDefinition` checks a declaration and returns an owned schema of the
  * same shape, without knowing which storage will use it. `check` reads values
- * through its fields, as a read, a whole-row input, or a patch. A storage with
- * live bodies declares a body conversion; preparation carries it through
- * unread, and a storage without one sees that it is there and decides what to
- * do.
+ * through its fields, as a read or a whole-row input.
  *
  * Key behaviors:
  * - A table goes through `defineTable`, which leaves its fields exact
- * - A declared body conversion needs both verbs and is carried through as
- *   declared; a table without one is prepared with none
- * - A prepared definition has the declared shape: records of native schemas,
+ * - A prepared schema has the declared shape: records of native schemas,
  *   named by their keys, frozen and without a prototype
- * - Preparation is memoized on the declaration and on the definition it
+ * - Preparation is memoized on the declaration and on the schema it
  *   returned
- * - `prepareSchema` prepares the same shape without an ID and refuses one;
- *   its memo never answers for `prepareData`'s
+ * - A declaration with a top-level key besides title, local, and tables is
+ *   malformed, an `id` included: a schema names no dataset
  * - A validator belongs to a prepared snapshot, never to the author's schema:
- *   a schema reused in two definitions is prepared twice, and a schema that
+ *   a schema reused in two declarations is prepared twice, and a schema that
  *   was never prepared is refused with an error
  * - A field is any native TypeBox schema that is plain JSON: raw,
  *   helper-built, or read back from JSON. A prepared field is a deeply frozen
@@ -38,19 +33,19 @@
  *   nothing
  * - Whether a field admits `null` is asked of its check when a reader needs it
  * - `check` checks every declared field on its own. `read` ignores an
- *   undeclared key; `input` and `patch` report one. An absent required field is
- *   missing except in a `patch`, an absent optional field never is, and a key
- *   holding `undefined` is absent
+ *   undeclared key; `input` reports one. An absent required field is missing,
+ *   an absent optional field never is, and a key holding `undefined` is
+ *   absent
  * - `field.optional` makes a field absentable; `field.nullable` over an
- *   optional schema throws. Every KV field is optional once prepared
+ *   optional schema throws
+ * - A `settings` table prepares like any other: a published declaration that
+ *   requires a setting is read as written (only `defineFolder` refuses one)
  * - A native `default` annotation is admitted and inert: it fills nothing, and
  *   a missing required field is still an issue
  * - A frozen declared schema is prepared with every check it had
  *
  * See also:
  * - `field/field.test.ts` for the helpers and the editor resolver on their own
- * - `packages/app/src/data/definition/prepare.test.ts` for the same
- *   preparation bound to a Yjs body codec
  */
 import { expect, test } from 'bun:test';
 import { type TSchema, Type } from 'typebox';
@@ -59,7 +54,7 @@ import { Settings } from 'typebox/system';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	check,
-	type DataDefinition,
+	type Definition,
 	defineTable,
 	FIELD_KEYWORD,
 	type FieldMap,
@@ -67,26 +62,16 @@ import {
 	fieldEditorOf,
 	isOptional,
 	jsonValue,
-	prepareData,
-	prepareSchema,
+	prepareDefinition,
 } from './index.js';
 
-/**
- * Prepare one bucket of fields as a definition's kv. Every KV field is
- * optional once prepared, so a test about absence uses {@link rowFields}.
- */
-const prepareKv = (kv: FieldMap) =>
-	prepareData({ id: 'so.epicenter.fields', kv, tables: {} });
+/** Prepare one table's fields, as the table `rows`. */
+const prepareRows = (fields: FieldMap) =>
+	prepareDefinition({ tables: { rows: defineTable({ fields }) } });
 
-/** Prepare one bucket of fields as a table's, where a field may be required. */
+/** The prepared fields of one table, where a field may be required. */
 const rowFields = (fields: FieldMap) =>
-	expectOk(
-		prepareData({
-			id: 'so.epicenter.rows',
-			kv: {},
-			tables: { rows: defineTable({ fields }) },
-		}),
-	).tables.rows.fields;
+	expectOk(prepareRows(fields)).tables.rows.fields;
 
 /**
  * A declared field of a prepared bucket. It throws for a name the bucket does
@@ -104,7 +89,7 @@ function fieldOf(fields: FieldMap, name: string) {
 const accepts = (schema: (TSchema & object) | undefined, value: unknown) =>
 	schema !== undefined &&
 	value !== undefined &&
-	check({ value: schema }, { value }, 'patch').issues.length === 0;
+	check({ value: schema }, { value }, 'input').issues.length === 0;
 
 /** Whether one prepared field of a bucket admits a present value. */
 const admits = (fields: FieldMap, name: string, value: unknown) =>
@@ -112,7 +97,7 @@ const admits = (fields: FieldMap, name: string, value: unknown) =>
 
 /** One prepared field's own diagnostics, as a write of that field reports them. */
 const issuesOf = (fields: FieldMap, name: string, value: unknown) =>
-	check({ [name]: fieldOf(fields, name) }, { [name]: value }, 'patch').issues;
+	check({ [name]: fieldOf(fields, name) }, { [name]: value }, 'input').issues;
 
 /**
  * What a reader shows for a prepared field: the editor read from its
@@ -128,13 +113,9 @@ const editorsOf = (fields: FieldMap) =>
 		Object.keys(fields).map((name) => [name, editorOf(fields, name)]),
 	);
 
-const body = { encode: () => 'text', decode: (text: string) => text };
-
-const definition: DataDefinition = {
-	id: 'so.epicenter.shared',
-	kv: { theme: field.string() },
+const declaration: Definition = {
 	tables: {
-		notes: defineTable({ fields: { title: field.string() }, body }),
+		notes: defineTable({ fields: { title: field.string() } }),
 		queries: defineTable({
 			fields: { name: field.string(), limit: field.nullable(field.integer()) },
 		}),
@@ -155,11 +136,8 @@ const Node = Type.Cyclic(
 // Declarations
 // ============================================================================
 
-test('a declared body conversion is carried through unread, and a table without one has none', () => {
-	const prepared = expectOk(prepareData(definition));
-	expect(prepared.tables.notes?.body).toBe(body);
-	expect(Object.isFrozen(body)).toBe(false);
-	expect(Object.hasOwn(prepared.tables.queries ?? {}, 'body')).toBe(false);
+test('a table is prepared as its fields', () => {
+	const prepared = expectOk(prepareDefinition(declaration));
 	const queries = prepared.tables.queries?.fields ?? {};
 	expect(Object.keys(queries)).toEqual(['name', 'limit']);
 	expect(editorOf(queries, 'limit')).toEqual({
@@ -170,92 +148,67 @@ test('a declared body conversion is carried through unread, and a table without 
 	expect(admits(queries, 'limit', '3')).toBe(false);
 });
 
-test('a prepared definition has the declared shape and nothing else', () => {
+test('a prepared schema has the declared shape', () => {
 	const prepared = expectOk(
-		prepareData({ ...definition, title: 'Shared', extra: true } as never),
-	) as DataDefinition;
-	expect(Object.keys(prepared)).toEqual(['id', 'title', 'kv', 'tables']);
-	expect(prepared.id).toBe('so.epicenter.shared');
+		prepareDefinition({ ...declaration, title: 'Shared' }),
+	) as Definition;
+	expect(Object.keys(prepared)).toEqual(['title', 'tables']);
 	expect(prepared.title).toBe('Shared');
-	expect(Object.keys(prepared.kv)).toEqual(['theme']);
 	expect(Object.keys(prepared.tables)).toEqual(['notes', 'queries']);
-	// A table is its fields and its optional body. Its key is its only name.
-	expect(Object.keys(prepared.tables.notes ?? {})).toEqual(['fields', 'body']);
+	// A table is its fields. Its key is its only name.
+	expect(Object.keys(prepared.tables.notes ?? {})).toEqual(['fields']);
 	expect(Object.keys(prepared.tables.queries ?? {})).toEqual(['fields']);
 	// A field is the native schema, hint and all, not a wrapper around one.
-	expect(prepared.kv.theme).toEqual(field.string());
+	expect(prepared.tables.notes?.fields.title).toEqual(field.string());
 	expect(prepared.tables.queries?.fields.limit).toEqual(
 		field.nullable(field.integer()),
 	);
-	expect(Object.keys(expectOk(prepareData(definition)))).toEqual([
-		'id',
-		'kv',
+	expect(Object.keys(expectOk(prepareDefinition(declaration)))).toEqual([
 		'tables',
 	]);
 });
 
-test('preparation is memoized on the declaration and on the definition it returned', () => {
-	const first = prepareData(definition);
-	expect(prepareData(definition)).toBe(first);
-	expect(prepareData({ ...definition })).not.toBe(first);
-	// Preparing a prepared definition returns it, and prepares nothing again.
+test('preparation is memoized on the declaration and on the schema it returned', () => {
+	const first = prepareDefinition(declaration);
+	expect(prepareDefinition(declaration)).toBe(first);
+	expect(prepareDefinition({ ...declaration })).not.toBe(first);
+	// Preparing a prepared schema returns it, and prepares nothing again.
 	const prepared = expectOk(first);
-	expect(prepared).not.toBe(definition);
-	expect(prepareData(prepared)).toBe(first);
-	expect(expectOk(prepareData(prepared))).toBe(prepared);
+	expect(prepared).not.toBe(declaration);
+	expect(prepareDefinition(prepared)).toBe(first);
+	expect(expectOk(prepareDefinition(prepared))).toBe(prepared);
 	// A refusal is memoized the same way.
-	const malformed = { ...definition, kv: { id: field.string() } };
-	expect(prepareData(malformed)).toBe(prepareData(malformed));
-	expectErr(prepareData(malformed));
+	const malformed = { ...declaration, title: '' };
+	expect(prepareDefinition(malformed)).toBe(prepareDefinition(malformed));
+	expectErr(prepareDefinition(malformed));
 });
 
-test('a schema names no dataset, and its preparation answers apart from a definition', () => {
-	const { id: _, ...declared } = definition;
-	const schema = expectOk(prepareSchema(declared));
-	expect(Object.keys(schema)).toEqual(['kv', 'tables']);
-	expect(Object.isFrozen(schema)).toBe(true);
-	expect(prepareSchema(schema)).toBe(prepareSchema(declared));
-	expect(admits(schema.kv, 'theme', 'dark')).toBe(true);
-	// An ID names the data, so a schema refuses one, even untyped.
-	// @ts-expect-error A Store definition names a dataset; a schema cannot.
-	const named = prepareSchema(definition);
-	expect(expectErr(named).message).toContain('declares an id');
+test('a top-level key besides title, local, and tables is malformed, an id included', () => {
+	const named = prepareDefinition({
+		...declaration,
+		id: 'so.epicenter.shared',
+	});
+	expect(expectErr(named).message).toContain("declares 'id'");
 	expect(
-		expectErr(prepareSchema({ ...declared, id: undefined } as never)).name,
+		expectErr(prepareDefinition({ ...declaration, id: undefined } as never))
+			.name,
 	).toBe('Malformed');
-	// Neither preparation answers for the other's result.
-	expect(expectErr(prepareData(schema as never)).message).toContain(
-		'invalid id',
-	);
 	expect(
-		expectErr(prepareSchema(expectOk(prepareData(definition)) as never)).name,
-	).toBe('Malformed');
+		expectErr(prepareDefinition({ ...declaration, kv: {} } as never)).message,
+	).toContain("declares 'kv'");
 });
 
 test('a declaration that is not an object is malformed', () => {
 	for (const value of [undefined, null, 7, 'definition', []])
-		expect(expectErr(prepareData(value as never)).name).toBe('Malformed');
+		expect(expectErr(prepareDefinition(value as never)).name).toBe('Malformed');
 });
 
-test('a body conversion missing a verb, and an unknown table option, are malformed', () => {
-	const half = expectErr(
-		prepareData({
-			...definition,
-			tables: {
-				notes: defineTable({
-					fields: {},
-					// @ts-expect-error A conversion declares both verbs.
-					body: { encode: body.encode },
-				}),
-			},
-		}),
-	);
-	expect(half.message).toContain('invalid body codec');
+test('an unknown table option is malformed', () => {
 	const extra = expectErr(
-		prepareData({
-			...definition,
+		prepareDefinition({
+			...declaration,
 			tables: {
-				// @ts-expect-error A table declares fields and a body only.
+				// @ts-expect-error A table declares fields and whether it is closed.
 				notes: defineTable({ fields: {}, attachments: true }),
 			},
 		}),
@@ -263,20 +216,44 @@ test('a body conversion missing a verb, and an unknown table option, are malform
 	expect(extra.message).toContain('unknown option');
 });
 
-test('field and table names keep their grammar for raw schemas', () => {
-	for (const name of ['id', 'ID', '1st', 'a-b', ''])
-		expect(expectErr(prepareKv({ [name]: Type.String() })).name).toBe(
-			'Malformed',
-		);
+test('a table closes with additionalProperties false', () => {
+	const closed = {
+		fields: { title: Type.String() },
+		additionalProperties: false,
+	} as const;
+	const prepared = expectOk(
+		prepareDefinition({ tables: { notes: defineTable(closed) } }),
+	);
+	expect(prepared.tables.notes.additionalProperties).toBe(false);
 	expect(
 		expectErr(
-			prepareData({
-				id: 'so.epicenter.names',
-				kv: {},
-				tables: { kv: defineTable({ fields: { a: Type.String() } }) },
+			prepareDefinition({
+				tables: {
+					notes: defineTable({
+						fields: {},
+						// @ts-expect-error Only false closes a table.
+						additionalProperties: true,
+					}),
+				},
 			}),
-		).name,
-	).toBe('Malformed');
+		).message,
+	).toContain('the only value is false');
+});
+
+test('field and table names keep their grammar for raw schemas', () => {
+	for (const name of ['id', 'ID', '1st', 'a-b', ''])
+		expect(expectErr(prepareRows({ [name]: Type.String() })).name).toBe(
+			'Malformed',
+		);
+	const table = defineTable({ fields: { a: Type.String() } });
+	for (const name of ['1st', 'a-b', 'order'])
+		expect(
+			expectErr(prepareDefinition({ tables: { [name]: table } })).name,
+		).toBe('Malformed');
+	// No table name is reserved: `kv` is an ordinary table.
+	expect(
+		Object.keys(expectOk(prepareDefinition({ tables: { kv: table } })).tables),
+	).toEqual(['kv']);
 });
 
 test('a name that is also an Object.prototype member is an ordinary name, and __proto__ is refused', () => {
@@ -284,21 +261,15 @@ test('a name that is also an Object.prototype member is an ordinary name, and __
 		fields: { constructor: field.string(), toString: field.integer() },
 	});
 	const prepared = expectOk(
-		prepareData({
-			id: 'so.epicenter.prototype',
-			kv: { constructor: field.boolean(), valueOf: field.string() },
-			tables: { constructor: row, toString: row },
-		}),
+		prepareDefinition({ tables: { constructor: row, toString: row } }),
 	);
 	// The records have no prototype, so a name reads as its own entry or not at all.
-	for (const record of [
-		prepared.kv,
-		prepared.tables,
-		prepared.tables.constructor.fields,
-	])
+	for (const record of [prepared.tables, prepared.tables.constructor.fields])
 		expect(Object.getPrototypeOf(record)).toBeNull();
 	expect(Object.keys(prepared.tables)).toEqual(['constructor', 'toString']);
-	expect((prepared.kv as FieldMap).hasOwnProperty).toBeUndefined();
+	expect(
+		(prepared.tables.constructor.fields as FieldMap).hasOwnProperty,
+	).toBeUndefined();
 	expect(
 		(prepared.tables as Record<string, unknown>).hasOwnProperty,
 	).toBeUndefined();
@@ -307,8 +278,8 @@ test('a name that is also an Object.prototype member is an ordinary name, and __
 	).toBeUndefined();
 
 	const { fields } = prepared.tables.constructor;
-	expect(admits(prepared.kv, 'constructor', true)).toBe(true);
-	expect(admits(prepared.kv, 'constructor', 'true')).toBe(false);
+	expect(admits(fields, 'constructor', 'made')).toBe(true);
+	expect(admits(fields, 'constructor', true)).toBe(false);
 	expect(
 		check(fields, { constructor: 'made', toString: 2, valueOf: 1 }, 'read'),
 	).toEqual({ conforming: { constructor: 'made', toString: 2 }, issues: [] });
@@ -328,18 +299,13 @@ test('a name that is also an Object.prototype member is an ordinary name, and __
 		],
 	);
 
-	// An own `__proto__` key, as JSON reads one, fails the name grammar.
-	for (const section of ['kv', 'tables'] as const)
-		expect(
-			expectErr(
-				prepareData({
-					id: 'so.epicenter.prototype',
-					kv: {},
-					tables: {},
-					[section]: JSON.parse('{"__proto__": {"type": "string"}}'),
-				}),
-			).name,
-		).toBe('Malformed');
+	// An own `__proto__` key, as JSON reads one, fails the name grammar, as a
+	// table name and as a field name.
+	const proto = JSON.parse('{"__proto__": {"type": "string"}}');
+	expect(expectErr(prepareDefinition({ tables: proto })).name).toBe(
+		'Malformed',
+	);
+	expect(expectErr(prepareRows(proto)).name).toBe('Malformed');
 });
 
 test('one declared table under two names is prepared once per name', () => {
@@ -347,9 +313,7 @@ test('one declared table under two names is prepared once per name', () => {
 		fields: { title: field.string(), status: field.select(['open', 'done']) },
 	});
 	const prepared = expectOk(
-		prepareData({
-			id: 'so.epicenter.reused',
-			kv: {},
+		prepareDefinition({
 			tables: { tasks: shared, archive: shared },
 		}),
 	);
@@ -373,21 +337,19 @@ test('one declared table under two names is prepared once per name', () => {
 // ============================================================================
 
 test('raw native schemas are prepared, validate, and get the JSON editor', () => {
-	const kv = expectOk(
-		prepareKv({
-			meta: Type.Object(
-				{ author: Type.String(), words: Type.Optional(Type.Integer()) },
-				{ additionalProperties: false },
-			),
-			size: Type.Enum(['small', 'large']),
-			anything: Type.Any(),
-			maybe: Type.Union([Type.Number(), Type.Null()]),
-			written: { type: 'string', minLength: 2 },
-			chain: Node,
-		}),
-	).kv;
+	const fields = rowFields({
+		meta: Type.Object(
+			{ author: Type.String(), words: Type.Optional(Type.Integer()) },
+			{ additionalProperties: false },
+		),
+		size: Type.Enum(['small', 'large']),
+		anything: Type.Any(),
+		maybe: Type.Union([Type.Number(), Type.Null()]),
+		written: { type: 'string', minLength: 2 },
+		chain: Node,
+	});
 	const verdicts = (name: string, values: unknown[]) =>
-		values.map((value) => admits(kv, name, value));
+		values.map((value) => admits(fields, name, value));
 
 	expect(
 		verdicts('meta', [
@@ -419,8 +381,8 @@ test('raw native schemas are prepared, validate, and get the JSON editor', () =>
 
 	// No hint, so no editor is guessed: not a select for the enum, not a
 	// string editor for the string.
-	for (const name of Object.keys(kv))
-		expect(editorOf(kv, name)).toEqual({
+	for (const name of Object.keys(fields))
+		expect(editorOf(fields, name)).toEqual({
 			kind: 'json',
 			nullable: ['anything', 'maybe'].includes(name),
 		});
@@ -429,10 +391,10 @@ test('raw native schemas are prepared, validate, and get the JSON editor', () =>
 test('a field that is not a schema object is refused', () => {
 	for (const bare of ['string', 7, true, null, undefined, [], new Map()]) {
 		// The type refuses these too; see `declaration.test-d.ts`.
-		const error = expectErr(prepareKv({ title: bare as never }));
+		const error = expectErr(prepareRows({ title: bare as never }));
 		expect(error).toMatchObject({
 			name: 'UnrecognizedField',
-			table: 'kv',
+			table: 'rows',
 			field: 'title',
 		});
 	}
@@ -452,10 +414,8 @@ test('a helper schema read back from JSON is prepared as the same field', () => 
 		tags: field.tags(),
 		extra: field.json(Type.Object({ by: Type.String() })),
 	};
-	const original = expectOk(prepareKv(declared)).kv;
-	const restored = expectOk(
-		prepareKv(JSON.parse(JSON.stringify(declared)) as FieldMap),
-	).kv;
+	const original = rowFields(declared);
+	const restored = rowFields(JSON.parse(JSON.stringify(declared)) as FieldMap);
 	const samples = [
 		null,
 		true,
@@ -494,20 +454,18 @@ test('a helper schema read back from JSON is prepared as the same field', () => 
 
 test('a spread or rebuilt helper schema is admitted with the keywords it has', () => {
 	const title = field.string({ minLength: 2 });
-	const kv = expectOk(
-		prepareKv({
-			spread: { ...title },
-			unsafe: Type.Unsafe(title),
-			optioned: Type.Options(title, {}),
-			handwritten: { type: 'string', [FIELD_KEYWORD]: { kind: 'string' } },
-		}),
-	).kv;
-	for (const name of Object.keys(kv)) {
-		expect(editorOf(kv, name)).toEqual({ kind: 'string', nullable: false });
-		expect(admits(kv, name, 'ab')).toBe(true);
-		expect(admits(kv, name, 2)).toBe(false);
+	const fields = rowFields({
+		spread: { ...title },
+		unsafe: Type.Unsafe(title),
+		optioned: Type.Options(title, {}),
+		handwritten: { type: 'string', [FIELD_KEYWORD]: { kind: 'string' } },
+	});
+	for (const name of Object.keys(fields)) {
+		expect(editorOf(fields, name)).toEqual({ kind: 'string', nullable: false });
+		expect(admits(fields, name, 'ab')).toBe(true);
+		expect(admits(fields, name, 2)).toBe(false);
 	}
-	expect(admits(kv, 'spread', 'a')).toBe(false);
+	expect(admits(fields, 'spread', 'a')).toBe(false);
 });
 
 // ============================================================================
@@ -515,43 +473,41 @@ test('a spread or rebuilt helper schema is admitted with the keywords it has', (
 // ============================================================================
 
 test('a prepared field resolves the editor its schema carries', () => {
-	const kv = expectOk(
-		prepareKv({
-			status: field.nullable(field.select(['draft', 'published'])),
-			page: field.nullable(field.reference('pages')),
-			rating: field.integer({ minimum: 1, maximum: 5 }),
-			score: field.number(),
-			labels: field.multiSelect(['a', 'b']),
-		}),
-	).kv;
-	expect(editorOf(kv, 'status')).toEqual({
+	const fields = rowFields({
+		status: field.nullable(field.select(['draft', 'published'])),
+		page: field.nullable(field.reference('pages')),
+		rating: field.integer({ minimum: 1, maximum: 5 }),
+		score: field.number(),
+		labels: field.multiSelect(['a', 'b']),
+	});
+	expect(editorOf(fields, 'status')).toEqual({
 		kind: 'select',
 		nullable: true,
 		options: ['draft', 'published'],
 	});
-	expect(admits(kv, 'status', null)).toBe(true);
-	expect(admits(kv, 'status', 'archived')).toBe(false);
-	expect(editorOf(kv, 'page')).toEqual({
+	expect(admits(fields, 'status', null)).toBe(true);
+	expect(admits(fields, 'status', 'archived')).toBe(false);
+	expect(editorOf(fields, 'page')).toEqual({
 		kind: 'reference',
 		nullable: true,
 		target: 'pages',
 	});
-	expect(admits(kv, 'page', '')).toBe(false);
-	expect(editorOf(kv, 'labels')).toEqual({
+	expect(admits(fields, 'page', '')).toBe(false);
+	expect(editorOf(fields, 'labels')).toEqual({
 		kind: 'multiSelect',
 		nullable: false,
 		options: ['a', 'b'],
 	});
-	expect(editorOf(kv, 'rating').kind).toBe('integer');
-	expect(editorOf(kv, 'score').kind).toBe('number');
-	expect(admits(kv, 'rating', 2.5)).toBe(false);
-	expect(admits(kv, 'score', 2.5)).toBe(true);
-	expect(admits(kv, 'score', Number.NaN)).toBe(false);
+	expect(editorOf(fields, 'rating').kind).toBe('integer');
+	expect(editorOf(fields, 'score').kind).toBe('number');
+	expect(admits(fields, 'rating', 2.5)).toBe(false);
+	expect(admits(fields, 'score', 2.5)).toBe(true);
+	expect(admits(fields, 'score', Number.NaN)).toBe(false);
 	// The hint is on the prepared schema itself, where it was declared.
-	expect(fieldOf(kv, 'labels')).toMatchObject({
+	expect(fieldOf(fields, 'labels')).toMatchObject({
 		[FIELD_KEYWORD]: { kind: 'multiSelect' },
 	});
-	expect(fieldOf(kv, 'status')).toMatchObject({
+	expect(fieldOf(fields, 'status')).toMatchObject({
 		anyOf: [{ [FIELD_KEYWORD]: { kind: 'select' } }, { type: 'null' }],
 	});
 });
@@ -589,12 +545,10 @@ test('a hint never changes checks, issues, or conformance', () => {
 		7,
 	];
 	for (const base of bases) {
-		const plain = expectOk(prepareKv({ value: base() })).kv;
+		const plain = rowFields({ value: base() });
 		expect(editorOf(plain, 'value').kind).toBe('json');
 		for (const hint of hints) {
-			const hinted = expectOk(
-				prepareKv({ value: { ...base(), [FIELD_KEYWORD]: hint } }),
-			).kv;
+			const hinted = rowFields({ value: { ...base(), [FIELD_KEYWORD]: hint } });
 			for (const value of samples) {
 				expect(admits(hinted, 'value', value)).toBe(
 					admits(plain, 'value', value),
@@ -618,55 +572,51 @@ test('a hint never changes checks, issues, or conformance', () => {
 });
 
 test('a hint the schema has no shape for falls back to the JSON editor and keeps the check', () => {
-	const kv = expectOk(
-		prepareKv({
-			count: Type.Integer({ [FIELD_KEYWORD]: { kind: 'select' } }),
-			text: Type.String({ [FIELD_KEYWORD]: { kind: 'tags' } }),
-			either: Type.Union([field.string(), field.integer()]),
-			unknown: Type.String({ [FIELD_KEYWORD]: { kind: 'blob' } }),
-		}),
-	).kv;
-	for (const name of Object.keys(kv))
-		expect(editorOf(kv, name)).toEqual({ kind: 'json', nullable: false });
-	expect(admits(kv, 'count', 1)).toBe(true);
-	expect(admits(kv, 'count', '1')).toBe(false);
-	expect(admits(kv, 'text', 'x')).toBe(true);
-	expect(admits(kv, 'text', ['x'])).toBe(false);
-	expect(admits(kv, 'either', 1.5)).toBe(false);
+	const fields = rowFields({
+		count: Type.Integer({ [FIELD_KEYWORD]: { kind: 'select' } }),
+		text: Type.String({ [FIELD_KEYWORD]: { kind: 'tags' } }),
+		either: Type.Union([field.string(), field.integer()]),
+		unknown: Type.String({ [FIELD_KEYWORD]: { kind: 'blob' } }),
+	});
+	for (const name of Object.keys(fields))
+		expect(editorOf(fields, name)).toEqual({ kind: 'json', nullable: false });
+	expect(admits(fields, 'count', 1)).toBe(true);
+	expect(admits(fields, 'count', '1')).toBe(false);
+	expect(admits(fields, 'text', 'x')).toBe(true);
+	expect(admits(fields, 'text', ['x'])).toBe(false);
+	expect(admits(fields, 'either', 1.5)).toBe(false);
 });
 
 test('a conflicting, composed, or unusable hint resolves to the JSON editor and validates as the schema says', () => {
 	const select = { [FIELD_KEYWORD]: { kind: 'select' } };
-	const kv = expectOk(
-		prepareKv({
-			// A malformed root hint is not replaced by the member's select.
-			rootNull: Type.Union([field.select(['a']), Type.Null()], {
-				[FIELD_KEYWORD]: null,
-			}),
-			// An enum of strings on a numeric schema admits nothing.
-			numericEnum: Type.Number({ enum: ['draft'], ...select }),
-			numericItems: Type.Array(Type.Number({ enum: ['draft'] }), {
-				[FIELD_KEYWORD]: { kind: 'multiSelect' },
-			}),
-			// A root `type` beside the union decides the field, so the member's
-			// hint is not inherited and the root's is not honored.
-			sibling: {
-				type: 'string',
-				anyOf: [Type.Number(), Type.Null()],
-				[FIELD_KEYWORD]: { kind: 'number' },
-			},
-			inherited: { type: 'string', anyOf: [field.number(), Type.Null()] },
-			badTarget: Type.String({
-				[FIELD_KEYWORD]: { kind: 'reference', target: 'a | `b`' },
-			}),
-			// The schema's format is not the one a date widget writes.
-			emailDate: Type.String({
-				format: 'email',
-				[FIELD_KEYWORD]: { kind: 'date' },
-			}),
+	const fields = rowFields({
+		// A malformed root hint is not replaced by the member's select.
+		rootNull: Type.Union([field.select(['a']), Type.Null()], {
+			[FIELD_KEYWORD]: null,
 		}),
-	).kv;
-	expect(editorsOf(kv)).toEqual({
+		// An enum of strings on a numeric schema admits nothing.
+		numericEnum: Type.Number({ enum: ['draft'], ...select }),
+		numericItems: Type.Array(Type.Number({ enum: ['draft'] }), {
+			[FIELD_KEYWORD]: { kind: 'multiSelect' },
+		}),
+		// A root `type` beside the union decides the field, so the member's
+		// hint is not inherited and the root's is not honored.
+		sibling: {
+			type: 'string',
+			anyOf: [Type.Number(), Type.Null()],
+			[FIELD_KEYWORD]: { kind: 'number' },
+		},
+		inherited: { type: 'string', anyOf: [field.number(), Type.Null()] },
+		badTarget: Type.String({
+			[FIELD_KEYWORD]: { kind: 'reference', target: 'a | `b`' },
+		}),
+		// The schema's format is not the one a date widget writes.
+		emailDate: Type.String({
+			format: 'email',
+			[FIELD_KEYWORD]: { kind: 'date' },
+		}),
+	});
+	expect(editorsOf(fields)).toEqual({
 		rootNull: { kind: 'json', nullable: true },
 		numericEnum: { kind: 'json', nullable: false },
 		numericItems: { kind: 'json', nullable: false },
@@ -675,18 +625,18 @@ test('a conflicting, composed, or unusable hint resolves to the JSON editor and 
 		badTarget: { kind: 'json', nullable: false },
 		emailDate: { kind: 'json', nullable: false },
 	});
-	expect(admits(kv, 'emailDate', 'a@epicenter.so')).toBe(true);
-	expect(admits(kv, 'emailDate', '2026-06-09')).toBe(false);
-	expect(admits(kv, 'rootNull', 'a')).toBe(true);
-	expect(admits(kv, 'rootNull', 'b')).toBe(false);
+	expect(admits(fields, 'emailDate', 'a@epicenter.so')).toBe(true);
+	expect(admits(fields, 'emailDate', '2026-06-09')).toBe(false);
+	expect(admits(fields, 'rootNull', 'a')).toBe(true);
+	expect(admits(fields, 'rootNull', 'b')).toBe(false);
 	for (const value of ['draft', 1])
-		expect(admits(kv, 'numericEnum', value)).toBe(false);
-	expect(admits(kv, 'numericItems', ['draft'])).toBe(false);
-	expect(admits(kv, 'numericItems', [])).toBe(true);
+		expect(admits(fields, 'numericEnum', value)).toBe(false);
+	expect(admits(fields, 'numericItems', ['draft'])).toBe(false);
+	expect(admits(fields, 'numericItems', [])).toBe(true);
 	for (const name of ['sibling', 'inherited'])
 		for (const value of ['x', 1, null])
-			expect(admits(kv, name, value)).toBe(false);
-	expect(admits(kv, 'badTarget', 'row')).toBe(true);
+			expect(admits(fields, name, value)).toBe(false);
+	expect(admits(fields, 'badTarget', 'row')).toBe(true);
 });
 
 test('an enum edited before preparation is what the check and the options follow', () => {
@@ -694,46 +644,44 @@ test('an enum edited before preparation is what the check and the options follow
 	(status.enum as string[]).splice(0, 1, 'archived');
 	const labels = field.nullable(field.multiSelect(['a', 'b']));
 	(labels.anyOf[0].items.enum as string[]).push('c');
-	const kv = expectOk(prepareKv({ status, labels })).kv;
+	const fields = rowFields({ status, labels });
 
-	expect(editorOf(kv, 'status')).toEqual({
+	expect(editorOf(fields, 'status')).toEqual({
 		kind: 'select',
 		nullable: false,
 		options: ['archived', 'published'],
 	});
-	expect(admits(kv, 'status', 'archived')).toBe(true);
-	expect(admits(kv, 'status', 'draft')).toBe(false);
-	expect(editorOf(kv, 'labels')).toEqual({
+	expect(admits(fields, 'status', 'archived')).toBe(true);
+	expect(admits(fields, 'status', 'draft')).toBe(false);
+	expect(editorOf(fields, 'labels')).toEqual({
 		kind: 'multiSelect',
 		nullable: true,
 		options: ['a', 'b', 'c'],
 	});
-	expect(admits(kv, 'labels', ['c'])).toBe(true);
+	expect(admits(fields, 'labels', ['c'])).toBe(true);
 });
 
 test('whether a field admits null is what its check says, not what its keywords or hint say', () => {
-	const kv = expectOk(
-		prepareKv({
-			helper: field.nullable(field.string()),
-			plain: field.nullable(Type.Object({ a: Type.Number() })),
-			native: Type.Union([Type.Null(), field.url()]),
-			typed: { type: ['string', 'null'] },
-			any: jsonValue,
-			// No keyword names null, and the check admits it.
-			anything: Type.Any(),
-			required: field.string(),
-			// A hint cannot make a field nullable.
-			claimed: Type.String({
-				[FIELD_KEYWORD]: { kind: 'string', nullable: true },
-			}),
-			// The union names null, and a `not` beside it refuses null.
-			refused: {
-				...field.nullable(field.string()),
-				not: { type: 'null' },
-			},
+	const fields = rowFields({
+		helper: field.nullable(field.string()),
+		plain: field.nullable(Type.Object({ a: Type.Number() })),
+		native: Type.Union([Type.Null(), field.url()]),
+		typed: { type: ['string', 'null'] },
+		any: jsonValue,
+		// No keyword names null, and the check admits it.
+		anything: Type.Any(),
+		required: field.string(),
+		// A hint cannot make a field nullable.
+		claimed: Type.String({
+			[FIELD_KEYWORD]: { kind: 'string', nullable: true },
 		}),
-	).kv;
-	expect(editorsOf(kv)).toEqual({
+		// The union names null, and a `not` beside it refuses null.
+		refused: {
+			...field.nullable(field.string()),
+			not: { type: 'null' },
+		},
+	});
+	expect(editorsOf(fields)).toEqual({
 		helper: { kind: 'string', nullable: true },
 		plain: { kind: 'json', nullable: true },
 		native: { kind: 'url', nullable: true },
@@ -745,11 +693,11 @@ test('whether a field admits null is what its check says, not what its keywords 
 		refused: { kind: 'json', nullable: false },
 	});
 	// The resolver itself carries no flag, for a nullable field or any other.
-	for (const name of Object.keys(kv))
-		expect(fieldEditorOf(fieldOf(kv, name))).not.toHaveProperty('nullable');
-	expect(admits(kv, 'plain', { a: 1 })).toBe(true);
-	expect(admits(kv, 'plain', { a: '1' })).toBe(false);
-	expect(admits(kv, 'refused', 'text')).toBe(true);
+	for (const name of Object.keys(fields))
+		expect(fieldEditorOf(fieldOf(fields, name))).not.toHaveProperty('nullable');
+	expect(admits(fields, 'plain', { a: 1 })).toBe(true);
+	expect(admits(fields, 'plain', { a: '1' })).toBe(false);
+	expect(admits(fields, 'refused', 'text')).toBe(true);
 });
 
 test('a hidden validation keyword is refused, at the root and nested, because a file would lose it', () => {
@@ -759,12 +707,12 @@ test('a hidden validation keyword is refused, at the root and nested, because a 
 	Object.defineProperty(member, 'enum', { value: [1] });
 	const union = Type.Union([field.select(['a']), member]);
 
-	expect(expectErr(prepareKv({ root }))).toMatchObject({
+	expect(expectErr(prepareRows({ root }))).toMatchObject({
 		name: 'UnrecognizedField',
 		field: 'root',
 		reason: '$.type is hidden',
 	});
-	expect(expectErr(prepareKv({ union }))).toMatchObject({
+	expect(expectErr(prepareRows({ union }))).toMatchObject({
 		name: 'UnrecognizedField',
 		field: 'union',
 		reason: '$.anyOf.1.enum is hidden',
@@ -781,13 +729,11 @@ test('nested errors keep their own messages and paths', () => {
 		by: Author,
 		tags: Type.Array(Type.String()),
 	});
-	const kv = expectOk(
-		prepareKv({
-			raw: shape,
-			wrapped: field.json(shape),
-			other: field.string(),
-		}),
-	).kv;
+	const fields = rowFields({
+		raw: shape,
+		wrapped: field.json(shape),
+		other: field.string(),
+	});
 	const value = { by: { name: 'x' }, tags: ['a', 2] };
 	const native = Compile(shape)
 		.Errors(value)
@@ -807,15 +753,16 @@ test('nested errors keep their own messages and paths', () => {
 			},
 		];
 		// A read and a write report the field's diagnostics the same way.
-		expect(issuesOf(kv, name, value)).toEqual(expected);
-		const issues = check(kv, { [name]: value, other: 'kept' }, 'read');
+		expect(issuesOf(fields, name, value)).toEqual(expected);
+		const issues = check(fields, { [name]: value, other: 'kept' }, 'read');
 		expect(issues.conforming).toEqual({ other: 'kept' });
 		expect(issues.issues.filter((issue) => issue.field === name)).toEqual(
 			expected,
 		);
-		expect(
-			check(kv, { [name]: value }, 'patch').issues.map((issue) => issue.path),
-		).toEqual(['/by/name', '/tags/1']);
+		expect(issuesOf(fields, name, value).map((issue) => issue.path)).toEqual([
+			'/by/name',
+			'/tags/1',
+		]);
 	}
 });
 
@@ -824,10 +771,10 @@ test('a schema TypeBox cannot compile names its table and field', () => {
 		field.json({ type: 'string', pattern: '[' }),
 		{ type: 'string', pattern: '[' },
 	]) {
-		const error = expectErr(prepareKv({ title: broken }));
+		const error = expectErr(prepareRows({ title: broken }));
 		expect(error).toMatchObject({
 			name: 'UnrecognizedField',
-			table: 'kv',
+			table: 'rows',
 			field: 'title',
 		});
 		expect(error.message).toContain('regular expression');
@@ -840,7 +787,7 @@ test('a schema TypeBox cannot compile names its table and field', () => {
 
 /** Why a single declared field is refused, as preparation reports it. */
 const refusalOf = (declared: unknown) =>
-	expectErr(prepareKv({ value: declared as TSchema })).reason;
+	expectErr(prepareRows({ value: declared as TSchema })).reason;
 
 test('a native refinement is refused, alone, over a helper, and nested, without being run', () => {
 	let calls = 0;
@@ -870,10 +817,10 @@ test('a native refinement is refused, alone, over a helper, and nested, without 
 		],
 	];
 	for (const [declared, reason] of cases) {
-		const error = expectErr(prepareKv({ value: declared }));
+		const error = expectErr(prepareRows({ value: declared }));
 		expect(error).toMatchObject({
 			name: 'UnrecognizedField',
-			table: 'kv',
+			table: 'rows',
 			field: 'value',
 			reason,
 		});
@@ -946,13 +893,11 @@ test('what JSON cannot write is refused: symbol keys, non-finite numbers, holes,
 	expect(refusalOf(recursive)).toBe('$.properties.self refers back to itself');
 	// A schema shared by two properties is not a cycle; JSON writes it twice.
 	const shared = { type: 'string' };
-	const kv = expectOk(
-		prepareKv({
-			pair: { type: 'object', properties: { a: shared, b: shared } },
-		}),
-	).kv;
-	expect(admits(kv, 'pair', { a: 'x', b: 'y' })).toBe(true);
-	expect(admits(kv, 'pair', { a: 'x', b: 1 })).toBe(false);
+	const fields = rowFields({
+		pair: { type: 'object', properties: { a: shared, b: shared } },
+	});
+	expect(admits(fields, 'pair', { a: 'x', b: 'y' })).toBe(true);
+	expect(admits(fields, 'pair', { a: 'x', b: 1 })).toBe(false);
 });
 
 test('a format outside the portable set is refused where it is a keyword, and is plain data anywhere else', () => {
@@ -968,25 +913,23 @@ test('a format outside the portable set is refused where it is a keyword, and is
 
 	// Inside a data keyword, `format` is a value, not a keyword.
 	// A property named `format` is a name, not a keyword.
-	const kv = expectOk(
-		prepareKv({
-			defaulted: JSON.parse('{"default":{"format":"nope"}}'),
-			data: {
-				const: { format: 'x' },
-				enum: [{ format: 'x' }],
-				examples: [{ format: 'y' }],
-			},
-			named: Type.Object({ format: Type.String() }),
-			portable: Type.String({ format: 'email' }),
-		}),
-	).kv;
-	expect(admits(kv, 'defaulted', 1)).toBe(true);
-	expect(admits(kv, 'data', { format: 'x' })).toBe(true);
-	expect(admits(kv, 'data', { format: 'y' })).toBe(false);
-	expect(admits(kv, 'named', { format: 'anything' })).toBe(true);
-	expect(admits(kv, 'named', { format: 1 })).toBe(false);
-	expect(admits(kv, 'portable', 'a@epicenter.so')).toBe(true);
-	expect(admits(kv, 'portable', 'not an email')).toBe(false);
+	const fields = rowFields({
+		defaulted: JSON.parse('{"default":{"format":"nope"}}'),
+		data: {
+			const: { format: 'x' },
+			enum: [{ format: 'x' }],
+			examples: [{ format: 'y' }],
+		},
+		named: Type.Object({ format: Type.String() }),
+		portable: Type.String({ format: 'email' }),
+	});
+	expect(admits(fields, 'defaulted', 1)).toBe(true);
+	expect(admits(fields, 'data', { format: 'x' })).toBe(true);
+	expect(admits(fields, 'data', { format: 'y' })).toBe(false);
+	expect(admits(fields, 'named', { format: 'anything' })).toBe(true);
+	expect(admits(fields, 'named', { format: 1 })).toBe(false);
+	expect(admits(fields, 'portable', 'a@epicenter.so')).toBe(true);
+	expect(admits(fields, 'portable', 'not an email')).toBe(false);
 });
 
 test('a reference to a definition the field does not hold is refused, naming the reference', () => {
@@ -1013,20 +956,18 @@ test('a reference to a definition the field does not hold is refused, naming the
 
 	// Resolved references stand, whether by `$id` or by pointer, and a `$ref`
 	// inside data is a value.
-	const kv = expectOk(
-		prepareKv({
-			chain: Node,
-			pointer: {
-				$defs: { text: { type: 'string', minLength: 2 } },
-				$ref: '#/$defs/text',
-			},
-			data: { const: { $ref: 'Missing' } },
-		}),
-	).kv;
-	expect(admits(kv, 'chain', { value: 1, next: null })).toBe(true);
-	expect(admits(kv, 'pointer', 'ab')).toBe(true);
-	expect(admits(kv, 'pointer', 'a')).toBe(false);
-	expect(admits(kv, 'data', { $ref: 'Missing' })).toBe(true);
+	const fields = rowFields({
+		chain: Node,
+		pointer: {
+			$defs: { text: { type: 'string', minLength: 2 } },
+			$ref: '#/$defs/text',
+		},
+		data: { const: { $ref: 'Missing' } },
+	});
+	expect(admits(fields, 'chain', { value: 1, next: null })).toBe(true);
+	expect(admits(fields, 'pointer', 'ab')).toBe(true);
+	expect(admits(fields, 'pointer', 'a')).toBe(false);
+	expect(admits(fields, 'data', { $ref: 'Missing' })).toBe(true);
 });
 
 test('a prepared field is the JSON of its declaration, so the field in memory is the field a file holds', () => {
@@ -1042,16 +983,12 @@ test('a prepared field is the JSON of its declaration, so the field in memory is
 		written: { type: 'string', maxLength: 4 },
 	};
 	const prepared = expectOk(
-		prepareData({
-			id: 'so.epicenter.file',
-			kv: declared,
+		prepareDefinition({
 			tables: { rows: defineTable({ fields: declared }) },
 		}),
 	);
 	const restored = expectOk(
-		prepareData({
-			id: 'so.epicenter.file',
-			kv: JSON.parse(JSON.stringify(declared)) as FieldMap,
+		prepareDefinition({
 			tables: {
 				rows: defineTable({
 					fields: JSON.parse(JSON.stringify(declared)) as FieldMap,
@@ -1060,9 +997,7 @@ test('a prepared field is the JSON of its declaration, so the field in memory is
 		}),
 	);
 	for (const fields of [
-		prepared.kv,
 		prepared.tables.rows.fields,
-		restored.kv,
 		restored.tables.rows.fields,
 	])
 		for (const [name, schema] of Object.entries(declared)) {
@@ -1087,11 +1022,9 @@ test('a prepared field is the JSON of its declaration, so the field in memory is
 			);
 	// Whether a row field may be absent is not in its JSON: the file that holds
 	// a table says it with `required`, and the storage that reads it applies
-	// `field.optional`. A KV field is optional wherever it came from.
+	// `field.optional`.
 	expect(isOptional(fieldOf(rows, 'note'))).toBe(true);
 	expect(isOptional(fieldOf(fromFile, 'note'))).toBe(false);
-	expect(isOptional(fieldOf(restored.kv, 'note'))).toBe(true);
-	expect(isOptional(fieldOf(restored.kv, 'title'))).toBe(true);
 });
 
 // ============================================================================
@@ -1110,18 +1043,16 @@ test('every field holds a value to JSON, whatever its schema admits', () => {
 	expect(Compile(Type.Any()).Check(new Date())).toBe(true);
 	expect(Compile(Type.Object({})).Check(new Point())).toBe(true);
 
-	const kv = expectOk(
-		prepareKv({
-			any: Type.Any(),
-			unknown: Type.Unknown(),
-			open: jsonValue,
-			wrapped: field.json(jsonValue),
-			object: Type.Object({}),
-			unsafe: Type.Unsafe<Date>({}),
-			optional: field.nullable(jsonValue),
-			list: Type.Array(Type.Any()),
-		}),
-	).kv;
+	const fields = rowFields({
+		any: Type.Any(),
+		unknown: Type.Unknown(),
+		open: jsonValue,
+		wrapped: field.json(jsonValue),
+		object: Type.Object({}),
+		unsafe: Type.Unsafe<Date>({}),
+		optional: field.nullable(jsonValue),
+		list: Type.Array(Type.Any()),
+	});
 	// `undefined` is absence, not a value; see the absence tests.
 	const unsafe = [
 		new Date(),
@@ -1138,35 +1069,29 @@ test('every field holds a value to JSON, whatever its schema admits', () => {
 		[undefined],
 		[new Date()],
 	];
-	for (const name of Object.keys(kv)) {
+	for (const name of Object.keys(fields)) {
 		for (const value of unsafe) {
-			expect(admits(kv, name, value)).toBe(false);
-			expect(issuesOf(kv, name, value)).toEqual([
+			expect(admits(fields, name, value)).toBe(false);
+			expect(issuesOf(fields, name, value)).toEqual([
 				{
 					field: name,
 					message: `${name} does not conform: must be a JSON value`,
 				},
 			]);
-			expect(check(kv, { [name]: value } as never, 'read')).toMatchObject({
+			expect(check(fields, { [name]: value } as never, 'read')).toMatchObject({
 				conforming: {},
 			});
-			expect(check(kv, { [name]: value }, 'patch').issues).toEqual([
-				{
-					field: name,
-					message: `${name} does not conform: must be a JSON value`,
-				},
-			]);
 		}
 	}
 	for (const name of ['any', 'unknown', 'open', 'wrapped', 'optional'])
 		for (const value of [1, 'x', true, null, { a: [1, null] }, [1, 2]]) {
-			expect(admits(kv, name, value)).toBe(true);
-			expect(issuesOf(kv, name, value)).toEqual([]);
+			expect(admits(fields, name, value)).toBe(true);
+			expect(issuesOf(fields, name, value)).toEqual([]);
 		}
 
 	// A storage hands conformance whatever it read; the cast stands in for that.
 	const stored = { open: new Date(), any: 1, optional: null } as never;
-	const result = check(kv, stored, 'read');
+	const result = check(fields, stored, 'read');
 	expect(result.conforming).toEqual({ any: 1, optional: null });
 	expect(result.issues).toContainEqual({
 		field: 'open',
@@ -1179,27 +1104,27 @@ test('a cyclic value stops at the JSON check and never reaches a recursive schem
 	expect(() => Compile(Node).Check(loop)).toThrow(RangeError);
 	expect(() => Compile(Node).Errors(loop)).toThrow(RangeError);
 
-	const kv = expectOk(
-		prepareKv({
-			raw: Node,
-			wrapped: field.json(Node),
-			optional: field.nullable(Node),
-		}),
-	).kv;
+	const fields = rowFields({
+		raw: Node,
+		wrapped: field.json(Node),
+		optional: field.nullable(Node),
+	});
 
-	for (const name of Object.keys(kv)) {
-		expect(admits(kv, name, loop)).toBe(false);
+	for (const name of Object.keys(fields)) {
+		expect(admits(fields, name, loop)).toBe(false);
 		const stored = { [name]: loop } as never;
-		expect(check(kv, stored, 'read').conforming).toEqual({});
+		expect(check(fields, stored, 'read').conforming).toEqual({});
 		expect(
-			check(kv, stored, 'read').issues.filter((issue) => issue.field === name),
+			check(fields, stored, 'read').issues.filter(
+				(issue) => issue.field === name,
+			),
 		).toEqual([
 			{
 				field: name,
 				message: `${name} does not conform: must be a JSON value`,
 			},
 		]);
-		expect(check(kv, { [name]: loop }, 'patch').issues).toEqual([
+		expect(issuesOf(fields, name, loop)).toEqual([
 			{
 				field: name,
 				message: `${name} does not conform: must be a JSON value`,
@@ -1209,11 +1134,11 @@ test('a cyclic value stops at the JSON check and never reaches a recursive schem
 
 	const chain = { value: 1, next: { value: 2, next: null } };
 	const wrong = { value: 1, next: { value: 'two', next: null } };
-	for (const name of Object.keys(kv)) {
-		expect(admits(kv, name, chain)).toBe(true);
-		expect(issuesOf(kv, name, chain)).toEqual([]);
-		expect(admits(kv, name, wrong)).toBe(false);
-		expect(issuesOf(kv, name, wrong)).not.toEqual([]);
+	for (const name of Object.keys(fields)) {
+		expect(admits(fields, name, chain)).toBe(true);
+		expect(issuesOf(fields, name, chain)).toEqual([]);
+		expect(admits(fields, name, wrong)).toBe(false);
+		expect(issuesOf(fields, name, wrong)).not.toEqual([]);
 	}
 });
 
@@ -1226,21 +1151,21 @@ test('a shared acyclic value passes; being JSON has no depth or width', () => {
 	let deep: unknown = 'bottom';
 	for (let level = 0; level < 100_000; level++) deep = [deep];
 
-	const kv = expectOk(
-		prepareKv({
-			open: jsonValue,
-			pair: Type.Object({ left: Node, right: Node, both: Type.Array(Node) }),
-			chain: Node,
-		}),
-	).kv;
+	const fields = rowFields({
+		open: jsonValue,
+		pair: Type.Object({ left: Node, right: Node, both: Type.Array(Node) }),
+		chain: Node,
+	});
 	for (const value of [dag, wide, deep]) {
-		expect(admits(kv, 'open', value)).toBe(true);
-		expect(issuesOf(kv, 'open', value)).toEqual([]);
+		expect(admits(fields, 'open', value)).toBe(true);
+		expect(issuesOf(fields, 'open', value)).toEqual([]);
 	}
-	expect(admits(kv, 'pair', dag)).toBe(true);
+	expect(admits(fields, 'pair', dag)).toBe(true);
 	// The same node at two depths of one chain is shared, not a cycle.
-	expect(admits(kv, 'chain', { value: 1, next: shared })).toBe(true);
-	expect(check(kv, { open: dag, pair: dag } as never, 'read')).toMatchObject({
+	expect(admits(fields, 'chain', { value: 1, next: shared })).toBe(true);
+	expect(
+		check(fields, { open: dag, pair: dag } as never, 'read'),
+	).toMatchObject({
 		conforming: { open: dag, pair: dag },
 	});
 });
@@ -1251,7 +1176,7 @@ test('a shared acyclic value passes; being JSON has no depth or width', () => {
 
 test('conformance checks every field on its own, however many fail', () => {
 	const names = Array.from({ length: 12 }, (_, index) => `field${index}`);
-	const kv = rowFields({
+	const fields = rowFields({
 		...Object.fromEntries(names.map((name) => [name, field.integer()])),
 		kept: field.string(),
 		payload: Type.Object({ a: Type.String() }),
@@ -1263,7 +1188,7 @@ test('conformance checks every field on its own, however many fail', () => {
 		payload: { a: 'x' },
 		undeclared: true,
 	};
-	const { conforming, issues } = check(kv, payload, 'read');
+	const { conforming, issues } = check(fields, payload, 'read');
 	expect(conforming).toEqual({ kept: 'still here', payload: { a: 'x' } });
 	expect(issues.map((issue) => issue.field)).toEqual([...names, 'absent']);
 	expect(issues[0]).toEqual({
@@ -1287,18 +1212,15 @@ test('a value the check refuses is an issue and not conforming when TypeBox repo
 		expect(native.Check('x')).toBe(false);
 		expect(native.Errors('x')).toEqual([]);
 
-		const kv = expectOk(
-			prepareKv({ count: field.integer(), kept: field.string() }),
-		).kv;
+		const fields = rowFields({ count: field.integer(), kept: field.string() });
 		const undiagnosed = [{ field: 'count', message: 'count does not conform' }];
-		expect(admits(kv, 'count', 'x')).toBe(false);
-		expect(issuesOf(kv, 'count', 'x')).toEqual(undiagnosed);
-		expect(check(kv, { count: 'x', kept: 'still here' }, 'read')).toEqual({
+		expect(admits(fields, 'count', 'x')).toBe(false);
+		expect(issuesOf(fields, 'count', 'x')).toEqual(undiagnosed);
+		expect(check(fields, { count: 'x', kept: 'still here' }, 'read')).toEqual({
 			conforming: { kept: 'still here' },
 			issues: undiagnosed,
 		});
-		expect(check(kv, { count: 'x' }, 'patch').issues).toEqual(undiagnosed);
-		expect(check(kv, { count: 1, kept: 'k' }, 'read').issues).toEqual([]);
+		expect(check(fields, { count: 1, kept: 'k' }, 'read').issues).toEqual([]);
 	} finally {
 		Settings.Set({ maxErrors });
 	}
@@ -1322,9 +1244,9 @@ test('a native default annotation is admitted and validates like the schema with
 			$ref: '#/$defs/text',
 		},
 	};
-	const kv = expectOk(prepareKv(declared)).kv;
+	const fields = rowFields(declared);
 	const verdicts = (name: string, values: unknown[]) =>
-		values.map((value) => admits(kv, name, value));
+		values.map((value) => admits(fields, name, value));
 
 	expect(verdicts('root', ['ab', 'a', 3])).toEqual([true, false, false]);
 	expect(verdicts('spread', ['ab', 'a'])).toEqual([true, false]);
@@ -1343,12 +1265,15 @@ test('a native default annotation is admitted and validates like the schema with
 	expect(verdicts('referenced', ['', 1])).toEqual([true, false]);
 
 	// The annotation is kept on the prepared schema and changes no editor.
-	expect(fieldOf(kv, 'root')).toMatchObject({ default: 'untitled' });
-	expect(editorOf(kv, 'spread')).toEqual({ kind: 'string', nullable: false });
+	expect(fieldOf(fields, 'root')).toMatchObject({ default: 'untitled' });
+	expect(editorOf(fields, 'spread')).toEqual({
+		kind: 'string',
+		nullable: false,
+	});
 });
 
 test('a default initializes and recovers nothing: missing values stay missing and no payload is changed', () => {
-	const kv = rowFields({
+	const fields = rowFields({
 		title: Type.String({ default: 'untitled' }),
 		settings: Type.Object({
 			theme: Type.String({ default: 'light' }),
@@ -1358,7 +1283,7 @@ test('a default initializes and recovers nothing: missing values stay missing an
 	});
 
 	// An absent required field is missing, default or not.
-	expect(check(kv, {}, 'read')).toEqual({
+	expect(check(fields, {}, 'read')).toEqual({
 		conforming: {},
 		issues: ['title', 'settings', 'count'].map((name) => ({
 			field: name,
@@ -1366,7 +1291,7 @@ test('a default initializes and recovers nothing: missing values stay missing an
 		})),
 	});
 	expect(
-		check(kv, { title: 'T' }, 'input').issues.map(({ field }) => field),
+		check(fields, { title: 'T' }, 'input').issues.map(({ field }) => field),
 	).toEqual(['settings', 'count']);
 
 	// A value that fails is reported, not replaced by the default.
@@ -1376,19 +1301,23 @@ test('a default initializes and recovers nothing: missing values stay missing an
 		count: null,
 	});
 	const before = JSON.stringify(stored);
-	const result = check(kv, stored, 'read');
+	const result = check(fields, stored, 'read');
 	expect(result.conforming).toEqual({ count: null });
 	expect([...new Set(result.issues.map(({ field }) => field))]).toEqual([
 		'title',
 		'settings',
 	]);
-	expect(admits(kv, 'title', undefined)).toBe(false);
-	expect(issuesOf(kv, 'settings', {})).not.toEqual([]);
-	check(kv, stored, 'input').issues;
+	expect(admits(fields, 'title', undefined)).toBe(false);
+	expect(issuesOf(fields, 'settings', {})).not.toEqual([]);
+	check(fields, stored, 'input').issues;
 
 	// A value that passes comes back as the same object, with nothing filled in.
 	const partial = Object.freeze({ theme: 'dark' });
-	const kept = check(kv, { title: 'T', settings: partial, count: 1 }, 'read');
+	const kept = check(
+		fields,
+		{ title: 'T', settings: partial, count: 1 },
+		'read',
+	);
 	expect(kept.issues).toEqual([]);
 	expect(kept.conforming.settings).toBe(partial);
 	expect(partial).toEqual({ theme: 'dark' });
@@ -1396,21 +1325,19 @@ test('a default initializes and recovers nothing: missing values stay missing an
 });
 
 test('a property, a literal, and an option named default are ordinary names', () => {
-	const kv = expectOk(
-		prepareKv({
-			settings: Type.Object({
-				default: Type.String(),
-				nested: Type.Object({ default: Type.Boolean() }),
-			}),
-			choice: Type.Literal('default'),
-			named: field.select(['default', 'custom']),
+	const fields = rowFields({
+		settings: Type.Object({
+			default: Type.String(),
+			nested: Type.Object({ default: Type.Boolean() }),
 		}),
-	).kv;
+		choice: Type.Literal('default'),
+		named: field.select(['default', 'custom']),
+	});
 	expect(
-		admits(kv, 'settings', { default: 'light', nested: { default: true } }),
+		admits(fields, 'settings', { default: 'light', nested: { default: true } }),
 	).toBe(true);
-	expect(admits(kv, 'settings', { default: 1 })).toBe(false);
-	expect(admits(kv, 'named', 'default')).toBe(true);
+	expect(admits(fields, 'settings', { default: 1 })).toBe(false);
+	expect(admits(fields, 'named', 'default')).toBe(true);
 });
 
 // ============================================================================
@@ -1430,15 +1357,17 @@ test('a frozen declared schema is prepared with every check it had', () => {
 		wrapped: Object.freeze(field.json(refined)),
 		optional: Object.freeze(field.nullable(refined)),
 	};
-	const kv = expectOk(prepareKv(declared)).kv;
+	const fields = rowFields(declared);
 	const verdicts = (name: string) =>
-		['draft', 'done', 'archived', null].map((value) => admits(kv, name, value));
+		['draft', 'done', 'archived', null].map((value) =>
+			admits(fields, name, value),
+		);
 
 	expect(verdicts('helper')).toEqual([true, true, false, false]);
 	expect(verdicts('refined')).toEqual([true, false, false, false]);
 	expect(verdicts('wrapped')).toEqual([true, false, false, false]);
 	expect(verdicts('optional')).toEqual([true, false, false, true]);
-	expect(editorsOf(kv)).toEqual({
+	expect(editorsOf(fields)).toEqual({
 		helper: { kind: 'select', nullable: false, options: ['draft', 'done'] },
 		// A composition keyword beside the hint gives the JSON editor.
 		refined: { kind: 'json', nullable: false },
@@ -1448,7 +1377,7 @@ test('a frozen declared schema is prepared with every check it had', () => {
 	// The declared schemas are as they were, and the prepared ones are copies.
 	expect(declared.helper['x-field']).toEqual({ kind: 'select' });
 	expect(refined['x-field']).toEqual({ kind: 'select' });
-	for (const [name, schema] of Object.entries(kv)) {
+	for (const [name, schema] of Object.entries(fields)) {
 		expect(schema).not.toBe(declared[name as keyof typeof declared]);
 		expect(Object.isFrozen(schema)).toBe(true);
 	}
@@ -1464,7 +1393,7 @@ test('a prepared field is a frozen snapshot, so later edits change nothing', () 
 		refined: field.string({ maxLength: 2 }),
 		optional: field.nullable(field.reference('pages')),
 	};
-	const kv = expectOk(prepareKv(declared)).kv;
+	const fields = rowFields(declared);
 
 	// Everything the author still holds is an ordinary mutable schema.
 	options.push('archived');
@@ -1477,30 +1406,30 @@ test('a prepared field is a frozen snapshot, so later edits change nothing', () 
 	declared.optional.anyOf.pop();
 	Object.assign(declared.refined, { maxLength: 1 });
 
-	expect(admits(kv, 'status', 'archived')).toBe(false);
-	expect(editorOf(kv, 'status')).toEqual({
+	expect(admits(fields, 'status', 'archived')).toBe(false);
+	expect(editorOf(fields, 'status')).toEqual({
 		kind: 'select',
 		nullable: false,
 		options: ['draft', 'published'],
 	});
-	expect(editorOf(kv, 'optional')).toEqual({
+	expect(editorOf(fields, 'optional')).toEqual({
 		kind: 'reference',
 		nullable: true,
 		target: 'pages',
 	});
-	expect(admits(kv, 'optional', null)).toBe(true);
+	expect(admits(fields, 'optional', null)).toBe(true);
 	for (const name of ['payload', 'wrapped']) {
-		expect(admits(kv, name, { a: 'x' })).toBe(true);
-		expect(admits(kv, name, { a: 1 })).toBe(false);
+		expect(admits(fields, name, { a: 'x' })).toBe(true);
+		expect(admits(fields, name, { a: 1 })).toBe(false);
 	}
 
 	// The check and its issues read the same snapshot, so they agree.
-	expect(admits(kv, 'refined', 'ab')).toBe(true);
-	expect(issuesOf(kv, 'refined', 'ab')).toEqual([]);
-	expect(admits(kv, 'refined', 'abc')).toBe(false);
-	expect(issuesOf(kv, 'refined', 'abc')).not.toEqual([]);
+	expect(admits(fields, 'refined', 'ab')).toBe(true);
+	expect(issuesOf(fields, 'refined', 'ab')).toEqual([]);
+	expect(admits(fields, 'refined', 'abc')).toBe(false);
+	expect(issuesOf(fields, 'refined', 'abc')).not.toEqual([]);
 
-	for (const [name, schema] of Object.entries(kv)) {
+	for (const [name, schema] of Object.entries(fields)) {
 		expect(schema).not.toBe(declared[name as keyof typeof declared]);
 		expect(Object.isFrozen(schema)).toBe(true);
 		expect(Object.isFrozen(fieldEditorOf(schema))).toBe(true);
@@ -1508,7 +1437,7 @@ test('a prepared field is a frozen snapshot, so later edits change nothing', () 
 			(schema as { maxLength?: number }).maxLength = 0;
 		}).toThrow();
 	}
-	const status = fieldOf(kv, 'status');
+	const status = fieldOf(fields, 'status');
 	expect(() =>
 		(fieldEditorOf(status) as unknown as { options: string[] }).options.push(
 			'x',
@@ -1518,7 +1447,7 @@ test('a prepared field is a frozen snapshot, so later edits change nothing', () 
 	expect(Object.isFrozen((status as unknown as { enum: string[] }).enum)).toBe(
 		true,
 	);
-	const optional = fieldOf(kv, 'optional') as unknown as {
+	const optional = fieldOf(fields, 'optional') as unknown as {
 		anyOf: Record<string, unknown>[];
 	};
 	expect(Object.isFrozen(optional.anyOf)).toBe(true);
@@ -1527,11 +1456,10 @@ test('a prepared field is a frozen snapshot, so later edits change nothing', () 
 });
 
 test('a prepared definition and its records cannot be changed', () => {
-	const prepared = expectOk(prepareData(definition));
+	const prepared = expectOk(prepareDefinition(declaration));
 	const notes = prepared.tables.notes;
 	for (const owned of [
 		prepared,
-		prepared.kv,
 		prepared.tables,
 		notes,
 		notes?.fields,
@@ -1540,34 +1468,31 @@ test('a prepared definition and its records cannot be changed', () => {
 		expect(Object.isFrozen(owned)).toBe(true);
 	const writes: (() => void)[] = [
 		() => Object.assign(prepared, { id: 'so.epicenter.other' }),
-		() => Object.assign(prepared.kv, { added: field.string() }),
-		() => Object.assign(prepared.kv, { theme: field.integer() }),
 		() => Object.assign(prepared.tables, { added: notes }),
-		() => Object.assign(notes ?? {}, { body: undefined }),
+		() => Object.assign(notes ?? {}, { additionalProperties: false }),
 		() => Object.assign(notes?.fields ?? {}, { title: field.integer() }),
 		() => Object.assign(notes?.fields.title ?? {}, { minLength: 9 }),
 		() => {
-			delete (prepared.kv as Record<string, unknown>).theme;
+			delete (notes?.fields as Record<string, unknown> | undefined)?.title;
 		},
 	];
 	for (const write of writes) expect(write).toThrow(TypeError);
-	expect(Object.keys(prepared.kv)).toEqual(['theme']);
-	expect(admits(prepared.kv, 'theme', 'dark')).toBe(true);
+	expect(Object.keys(notes?.fields ?? {})).toEqual(['title']);
 	expect(admits(notes?.fields ?? {}, 'title', 'short')).toBe(true);
 	// The declaration the author holds is theirs, and is not frozen.
-	expect(Object.isFrozen(definition.kv)).toBe(false);
-	expect(Object.isFrozen(definition.kv.theme)).toBe(false);
+	expect(Object.isFrozen(declaration.tables.notes?.fields)).toBe(false);
+	expect(Object.isFrozen(declaration.tables.notes?.fields.title)).toBe(false);
 });
 
 test('a schema reused in a second definition after an edit is prepared again, apart from the first', () => {
 	const status = field.select(['draft', 'published']);
 	const limit = field.integer({ maximum: 9 });
-	const first = expectOk(prepareKv({ status, limit })).kv;
+	const first = rowFields({ status, limit });
 
 	// The author edits the schemas they still hold, then declares them again.
 	(status.enum as string[]).push('archived');
 	Object.assign(limit, { minimum: 5 });
-	const second = expectOk(prepareKv({ status, limit })).kv;
+	const second = rowFields({ status, limit });
 
 	for (const name of ['status', 'limit']) {
 		expect(fieldOf(second, name)).not.toBe(fieldOf(first, name));
@@ -1593,7 +1518,7 @@ test('a schema reused in a second definition after an edit is prepared again, ap
 	).toEqual({ status: 'archived', limit: 7 });
 
 	// One schema under two names of one definition is two snapshots too.
-	const twice = expectOk(prepareKv({ a: status, b: status })).kv;
+	const twice = rowFields({ a: status, b: status });
 	expect(fieldOf(twice, 'a')).not.toBe(fieldOf(twice, 'b'));
 });
 
@@ -1605,10 +1530,10 @@ test('a schema that was never prepared is refused with an error, not validated a
 		refusal,
 	);
 	expect(
-		() => check({ title: raw }, { title: 'text' }, 'patch').issues,
+		() => check({ title: raw }, { title: 'text' }, 'input').issues,
 	).toThrow(refusal);
 	// Preparing it elsewhere prepares a copy: the author's object is still raw.
-	const prepared = expectOk(prepareKv({ title: raw })).kv;
+	const prepared = rowFields({ title: raw });
 	expect(admits(prepared, 'title', 'text')).toBe(true);
 	expect(() => accepts(raw, 'text')).toThrow(refusal);
 	// A structurally equal copy of a prepared schema is not that schema.
@@ -1631,8 +1556,8 @@ test('undefined annotations do not stop freezing a prepared snapshot', () => {
 		{ a: Type.String() },
 		{ description: undefined },
 	);
-	const kv = expectOk(prepareKv({ value: declared })).kv;
-	const schema = fieldOf(kv, 'value') as unknown as {
+	const fields = rowFields({ value: declared });
+	const schema = fieldOf(fields, 'value') as unknown as {
 		properties: { a: { minLength?: number } };
 	};
 	expect(Object.isFrozen(schema.properties)).toBe(true);
@@ -1640,8 +1565,8 @@ test('undefined annotations do not stop freezing a prepared snapshot', () => {
 	expect(() => {
 		schema.properties.a.minLength = 10;
 	}).toThrow();
-	expect(admits(kv, 'value', { a: 'x' })).toBe(true);
-	expect(issuesOf(kv, 'value', { a: 'x' })).toEqual([]);
+	expect(admits(fields, 'value', { a: 'x' })).toBe(true);
+	expect(issuesOf(fields, 'value', { a: 'x' })).toEqual([]);
 });
 
 // ============================================================================
@@ -1649,9 +1574,7 @@ test('undefined annotations do not stop freezing a prepared snapshot', () => {
 // ============================================================================
 
 const checked: FieldMap = expectOk(
-	prepareData({
-		id: 'so.epicenter.checked',
-		kv: {},
+	prepareDefinition({
 		tables: {
 			rows: defineTable({
 				fields: {
@@ -1757,9 +1680,8 @@ test('a nested pointer is reported only where it names a location in the value',
 });
 
 test('supplied values are refused when undeclared or nonconforming, and a complete row when a field is absent', () => {
-	expect(check(checked, { title: 'Milk' }, 'patch').issues).toEqual([]);
 	expect(
-		check(checked, { title: 3, other: 1 }, 'patch').issues.map(
+		check(checked, { ...conforming, title: 3, other: 1 }, 'input').issues.map(
 			(issue) => issue.field,
 		),
 	).toEqual(['title', 'other']);
@@ -1776,12 +1698,12 @@ test('supplied values are refused when undeclared or nonconforming, and a comple
 });
 
 // ============================================================================
-// Absence: required, optional, and the three check modes
+// Absence: required, optional, and the two check modes
 // ============================================================================
 
-const MODES = ['read', 'input', 'patch'] as const;
+const MODES = ['read', 'input'] as const;
 
-test('the three modes differ only in undeclared keys and absent required fields', () => {
+test('the two modes differ only in undeclared keys', () => {
 	const fields = rowFields({
 		title: field.string(),
 		note: field.optional(field.string()),
@@ -1797,17 +1719,15 @@ test('the three modes differ only in undeclared keys and absent required fields'
 	expect(verdict({ title: 't', other: 1 })).toEqual({
 		read: [],
 		input: [undeclared],
-		patch: [undeclared],
 	});
 	expect(check(fields, { title: 't', other: 1 }, 'read').conforming).toEqual({
 		title: 't',
 	});
-	// An absent required field: an issue except in a patch.
-	expect(verdict({})).toEqual({ read: [missing], input: [missing], patch: [] });
+	// An absent required field: an issue in both.
+	expect(verdict({})).toEqual({ read: [missing], input: [missing] });
 	expect(verdict({ other: 1 })).toEqual({
 		read: [missing],
 		input: [missing, undeclared],
-		patch: [undeclared],
 	});
 	// A present value is checked the same way in every mode.
 	for (const mode of MODES)
@@ -1832,10 +1752,6 @@ test('a key holding undefined is absent in every mode, declared or not', () => {
 	expect(check(fields, values, 'input')).toEqual({
 		conforming: {},
 		issues: [{ field: 'title', message: 'title is missing' }],
-	});
-	expect(check(fields, values, 'patch')).toEqual({
-		conforming: {},
-		issues: [],
 	});
 	// The same as leaving the keys out, in every mode.
 	for (const mode of MODES)
@@ -1918,34 +1834,34 @@ test('field.optional copies the schema it is given', () => {
 	expect(() => field.optional('string' as never)).toThrow('needs a schema');
 });
 
-test('every KV field is optional once prepared, and the declaration is left as written', () => {
-	const declared = {
-		theme: field.select(['light', 'dark']),
-		width: Type.Integer(),
-		note: field.optional(field.string()),
-	};
-	const kv = expectOk(prepareKv(declared)).kv;
-	for (const name of Object.keys(declared))
-		expect(isOptional(fieldOf(kv, name))).toBe(true);
-	expect(isOptional(declared.theme)).toBe(false);
-	// An unset key is the application's default, never an issue.
-	for (const mode of MODES)
-		expect(check(kv, {}, mode)).toEqual({ conforming: {}, issues: [] });
-	// A set key is still checked, and an undeclared one is still a write issue.
-	expect(check(kv, { theme: 'blue', other: 1 }, 'input').issues).toEqual([
-		expect.objectContaining({ field: 'theme' }),
-		{ field: 'other', message: 'other is not declared' },
-	]);
-	expect(check(kv, { width: 3 }, 'read').conforming).toEqual({ width: 3 });
-	// The same schema in a table stays required there.
-	const fields = rowFields(declared);
-	expect(isOptional(fieldOf(fields, 'theme'))).toBe(false);
-	expect(isOptional(fieldOf(fields, 'note'))).toBe(true);
+test('a settings table prepares like any table, so a published one that requires a setting still reads', () => {
+	const settings = defineTable({
+		fields: {
+			theme: field.optional(field.select(['light', 'dark'])),
+			width: field.optional(Type.Integer()),
+		},
+	});
+	const prepared = expectOk(prepareDefinition({ tables: { settings } }));
+	// An unset setting is the application's default, never an issue.
+	expect(check(prepared.tables.settings.fields, {}, 'read')).toEqual({
+		conforming: {},
+		issues: [],
+	});
+
+	const required = defineTable({
+		fields: { theme: field.optional(field.string()), width: Type.Integer() },
+	});
+	const published = expectOk(
+		prepareDefinition({ tables: { settings: required } }),
+	);
+	expect(isOptional(fieldOf(published.tables.settings.fields, 'width'))).toBe(
+		false,
+	);
 });
 
 test('a schema JSON would rewrite, data with ~ keys, and draft-7 dependencies are judged as a file holds them', () => {
 	const refusal = (schema: object) =>
-		expectErr(prepareKv({ value: schema as TSchema & object })).message;
+		expectErr(prepareRows({ value: schema as TSchema & object })).message;
 	expect(refusal({ enum: ['a', undefined] })).toContain(
 		'$.enum.1 is undefined',
 	);
@@ -1960,10 +1876,8 @@ test('a schema JSON would rewrite, data with ~ keys, and draft-7 dependencies ar
 	expect(refusal({ type: 'string', '~a': 1 })).toContain(
 		'is not a JSON Schema keyword',
 	);
-	const kv = expectOk(
-		prepareKv({
-			value: { type: 'object', default: { '~a': 1 }, const: { '~a': 1 } },
-		}),
-	).kv;
-	expect(accepts(kv.value, { '~a': 1 })).toBe(true);
+	const fields = rowFields({
+		value: { type: 'object', default: { '~a': 1 }, const: { '~a': 1 } },
+	});
+	expect(accepts(fields.value, { '~a': 1 })).toBe(true);
 });

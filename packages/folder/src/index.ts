@@ -1,30 +1,16 @@
 /**
- * `@epicenter/folder`: a file-authoritative folder, opened wherever the page
- * is running.
- *
- * A folder's current files are its saved data: Markdown rows, `kv.json`, and
- * any other file. In a browser tab they are files in the origin private file
- * system. In the desktop app they are files in a directory the shell owns.
- *
- * `openFolder` decides which when it is called, not when this module is
- * imported, and loads only the adapter it chose. Importing this module opens
- * nothing. To build for one environment, import `@epicenter/folder/browser`
- * or `@epicenter/folder/tauri`, or alias this exact specifier to one of them.
+ * `@epicenter/folder`: open the runtime's own folder. In a browser tab
+ * it is this origin's local folder; in the desktop app, the directory the
+ * shell bound to this window. Decided when called, loading only that engine.
  */
 import { isTauri } from '@tauri-apps/api/core';
-import type { OpenFolder } from './contract.js';
+import type { Opened, OpenOptions, Tables } from './folder.js';
 
 export * from './contract.js';
 
-/**
- * Open a folder in the desktop app when the page runs there, and in this
- * browser's storage otherwise. A desktop page whose folder cannot be opened
- * gets that refusal; it is never given browser storage instead.
- */
-export const openFolder: OpenFolder = async (options) =>
-	// The adapters are loaded by themselves, not through the explicit entries:
-	// those re-export the whole contract, which would tie each adapter's chunk
-	// to everything the other one shares with it.
-	isTauri()
-		? (await import('./tauri-adapter.js')).openFolder(options)
-		: (await import('./browser-adapter.js')).openFolder(options);
+export async function openFolder<const T extends Tables>(
+	options: OpenOptions<T>,
+): Opened<T> {
+	if (isTauri()) return (await import('./tauri.js')).openFolder(options);
+	return (await import('./browser.js')).openFolder(options);
+}

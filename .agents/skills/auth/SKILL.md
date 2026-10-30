@@ -9,7 +9,7 @@ metadata:
 # Epicenter auth
 
 Better Auth owns hosted sessions and social-provider login. Epicenter clients
-hold signed session bearers behind stable Accounts. Self-hosted instances issue named-user sessions after passkey sign-in.
+hold signed session bearers behind stable Accounts. A self-hosted server is `apps/api` on Bun with Postgres and issues the same sessions.
 
 Read `packages/auth/README.md` and `packages/auth/src/auth-contract.ts`
 before changing client API shape. The README owns the explanation; the contract
@@ -57,8 +57,6 @@ An application session keeps one person and one server for its entire lifetime.
 
 `AuthClient` selects `getState().account`; it exposes sign-in, sign-out, profile,
 and state. Application HTTP and sockets use the captured Account.
-`AuthIdentityState` is the serializable principal projection for desktop
-bootstrap, with no credential or transport functions.
 
 Preserve these guarantees:
 
@@ -90,7 +88,8 @@ Browser storage and preloaded native serialized storage adapt that port.
 Do not add old-format readers or suppress write failures.
 
 A cached principal can boot local data without network access. Before first
-resource use, `/api/session` must confirm that the credential belongs to it.
+resource use, the profile read (`/auth/oauth2/userinfo`) must confirm that
+the credential belongs to it.
 A rejection preserves local identity and publishes `reauth-required`.
 An unavailable server refuses traffic without deleting identity. A verified
 different principal retires and clears the old attachment.
@@ -166,15 +165,14 @@ implicit same-email linking separately; they have different policy gates.
 
 ## Resource validation and socket bounds
 
-Hosted resource routes use `requireBearerPrincipal` with
-`resolveRequestSessionPrincipal`. The resolver calls Better Auth with only
-the explicit bearer and live session lookup. No cookie fallback or JWT verifier
-remains. `/api/session` is the resource identity projection, not another session engine.
+Hosted resource routes take only an opaque OAuth access token for their
+audience and scope: `requireAccessToken` runs `authorizeAccountRequest`, and a
+namespace route runs `authorizeResourceRequest`. A Better Auth session never
+reaches a resource, and no JWT verifier remains. The profile is Better Auth's `/auth/oauth2/userinfo`; Epicenter
+serves no profile route of its own.
 
 Unknown, expired, or revoked credentials are 401. Database and infrastructure
-failures are retryable 503. The self-host deployment supplies its static-token
-resolver to the same resource guard and resolves valid tokens to
-`INSTANCE_PRINCIPAL_ID`.
+failures are retryable 503.
 
 Hosted sessions have a 30-day sliding expiry, updated after one day of use.
 Verify renewal through resource traffic, not only a direct helper call.
@@ -190,15 +188,17 @@ signature padding is illegal in raw WebSocket protocol names.
 
 ## Boot selection
 
-The mounted working owner reads the plain client's `getState()` once and
-passes the captured Account to product resource opening. Imports and preloads
-acquire no resources. Keep reactive `.state` reads in UI modules adapted with
-`fromAuth`. Callback and sign-out documents acquire no primary stores. Browser
+The mounted working owner captures the Account once and passes it to product
+resource opening. A plain client uses `getState()`; a `fromAuth` facade uses
+`.state` during component setup, where the read does not track. Templates and
+derived values read `.state` to track changes. Imports and preloads acquire no
+resources. Callback and sign-out documents acquire no primary stores. Browser
 sign-in may start from a working page because the callback installs the next
 Account in a fresh document.
 
-Honeycrisp supports signed-out local startup. Whispering has no accounts. Vocab requires an
-Account. Honeycrisp's Local and Personal routes select independently opened
+Honeycrisp supports signed-out local startup. Whispering uses an Account for
+hosted inference and supports a custom connection without one. Vocab requires
+an Account. Honeycrisp's Local and Personal routes select independently opened
 stores. One warning before explicit account changes authorizes interruption of
 active recordings and unsaved drafts, including work started while sign-in is
 pending. Desktop acceptance disposes the boot auth owner, serializes next-boot

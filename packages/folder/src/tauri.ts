@@ -1,16 +1,110 @@
 /**
- * `@epicenter/folder/tauri`: a folder owned by the desktop shell, and nothing
- * else.
- *
- * The same `openFolder` and the same contract as `@epicenter/folder`, with
- * the choice already made. A build that imports this entry, or aliases the
- * bare specifier to it, carries no browser storage and no Git
- * implementation. Outside the desktop app this opener refuses; it never
- * opens browser storage instead.
- *
- * The shell installs the `tauri-plugin-epicenter-folder` crate, registers
- * each folder's directory under an ID, and grants windows access. Importing
- * this module does none of that and opens nothing.
+ * `@epicenter/folder/tauri`: open the directory the desktop shell bound
+ * to this window. The shell answers each storage command, and its watcher
+ * sends the paths that changed.
  */
+import { Channel, isTauri } from '@tauri-apps/api/core';
+import { hostStorage } from './boundary.js';
+import { OpenFolderError } from './errors.js';
+import {
+	createFolder,
+	type Opened,
+	type OpenOptions,
+	type Tables,
+} from './folder.js';
+import { commands, type FolderChanged } from './native/bindings.gen.js';
+import { openRefusal } from './native/open-refusal.js';
+import { storageHost } from './storage.js';
+import { tauriHostFiles } from './tauri-files.js';
+
 export * from './contract.js';
-export { openFolder } from './tauri-adapter.js';
+
+const observers = new Set<(change: FolderChanged) => void>();
+let opening: ReturnType<typeof commands.openFolder> | undefined;
+let openHandles = 0;
+let pendingOpens = 0;
+
+function releaseRegistrationIfIdle() {
+	if (openHandles === 0 && pendingOpens === 0) opening = undefined;
+}
+
+function openBoundFolder() {
+	if (opening) return opening;
+	const channel = new Channel<FolderChanged>();
+	channel.onmessage = (change) => {
+		for (const observer of observers) observer(change);
+	};
+	opening = commands.openFolder(channel).then(
+		(opened) => {
+			if (opened.error !== null) opening = undefined;
+			return opened;
+		},
+		(cause) => {
+			opening = undefined;
+			throw cause;
+		},
+	);
+	return opening;
+}
+
+export async function openFolder<const T extends Tables>(
+	options: OpenOptions<T>,
+): Opened<T> {
+	if (!isTauri()) return OpenFolderError.NotTauri();
+	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
+	const listeners = new Set<(paths: readonly string[] | null) => void>();
+	const observer = ({ paths }: FolderChanged) => {
+		for (const listener of listeners) listener(paths);
+	};
+	observers.add(observer);
+	let retained = false;
+	const stop = () => {
+		observers.delete(observer);
+		if (retained) {
+			retained = false;
+			openHandles--;
+			releaseRegistrationIfIdle();
+		}
+	};
+	pendingOpens++;
+	try {
+		opened = await openBoundFolder();
+	} catch (cause) {
+		pendingOpens--;
+		stop();
+		releaseRegistrationIfIdle();
+		return OpenFolderError.Unavailable({ cause });
+	}
+	pendingOpens--;
+	if (opened.error !== null) {
+		stop();
+		releaseRegistrationIfIdle();
+		const { error } = opened;
+		// Tauri also rejects with strings for missing commands or permissions;
+		// only an object with a name is the shell's own refusal.
+		if (typeof error !== 'object' || error === null || !('name' in error))
+			return OpenFolderError.Unavailable({ cause: error });
+		return openRefusal(error);
+	}
+	try {
+		retained = true;
+		openHandles++;
+		const result = await createFolder(
+			storageHost(hostStorage(tauriHostFiles()), {
+				watch(listener) {
+					listeners.add(listener);
+					return () => {
+						listeners.delete(listener);
+						stop();
+					};
+				},
+			}),
+			options,
+		);
+		if (result.error !== null) stop();
+		return result;
+	} catch (cause) {
+		stop();
+		throw cause;
+	}
+}

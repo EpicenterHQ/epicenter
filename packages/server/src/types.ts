@@ -6,47 +6,10 @@
  */
 
 import type { Principal } from '@epicenter/auth';
-import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
-import type { Context } from 'hono';
-import type { Result } from 'wellcrafted/result';
 import type { createAuth } from './auth/create-auth.js';
-import type { OAuthError } from './auth/oauth-errors.js';
-import type * as schema from './db/schema/index.js';
+import type { OAuthAudiences } from './auth/oauth-policy.js';
+import type { Db } from './db/create-db.js';
 import type { ServerBindings } from './server-bindings.js';
-
-/**
- * How an explicit bearer token resolves to the calling principal: the one auth
- * seam.
- *
- * The `requireBearerPrincipal` wrapper extracts the `Authorization` header and hands the resolver
- * a bare token. The resolver only verifies; it never reads request headers, so
- * no route has to fake another route's header to authenticate.
- * The deployment builds each wrapper by closing it over its resolver
- * (`requireBearerPrincipal(resolveBearerPrincipal)`), so the resolver is held in
- * the wrapper's closure, not stamped on the context: there is no
- * `c.var.resolveBearerPrincipal`.
- *
- * The cloud closes over `resolveRequestSessionPrincipal`, which verifies a signed
- * bearer against its Better Auth session row; an instance closes over its env-token
- * resolver (`createEnvTokenResolver`). A dev-only entrypoint closes over a trivial
- * `dev:<principalId>` resolver so the runtime-parity smoke needs no interactive
- * login; that bypass lives in a dev entry production never imports, never an
- * env-gated branch in this library.
- *
- * Returns the same `Result<Principal, OAuthError>` every resolver returns, so a
- * different resolver slots in without touching the wrappers' error handling
- * (HTTP 401, the Bearer `WWW-Authenticate` challenge, or the relay's 4401 close).
- *
- * Generic over the context it reads: the instance's env-token resolver needs only
- * the portable {@link Env}; the cloud's `resolveRequestSessionPrincipal` reads
- * `c.var.auth`, so it is a `ResolveBearerPrincipal<CloudEnv>`. The
- * wrapper that closes over a resolver carries the same `E`, so a cloud resolver
- * only composes onto a cloud app.
- */
-export type ResolveBearerPrincipal<E extends Env = Env> = (
-	c: Context<E>,
-	bearer: string,
-) => Promise<Result<Principal, OAuthError>>;
 
 /**
  * The PORTABLE Hono context, shared by every library sub-app and BOTH
@@ -62,8 +25,8 @@ export type ResolveBearerPrincipal<E extends Env = Env> = (
  * superset assignable to this; a Workers resolver that reads a Cloudflare-only
  * binding casts `env` to its own `Cloudflare.Env` at the `apps/*` edge.
  *
- * `Variables` are populated by request-scoped middleware: the resolved origin and
- * trust set, and the resolved principal.
+ * `Variables` are populated by request-scoped middleware: the resolved origin,
+ * trust set, and token audiences, and the resolved principal.
  * The library does NOT carry `planId` (apps/api billing) or any Postgres /
  * Better Auth handle (cloud-only, {@link CloudEnv}).
  */
@@ -72,22 +35,25 @@ export type Env = {
 	Variables: {
 		authBaseURL: string;
 		/**
-		 * Origins this deployment trusts for CORS, cookie-mutation CSRF, and
-		 * Better Auth's redirect allow-list. Supplied by the deployment
+		 * Origins this deployment trusts for CORS and Better Auth's origin and
+		 * redirect allow-list. Supplied by the deployment
 		 * (`createServerApp`'s `resolveTrustedOrigins`), never hardcoded in the
-		 * library: a self-host trusts its own origins, not Epicenter cloud's.
+		 * library.
 		 */
 		trustedOrigins: string[];
+		/**
+		 * This deployment's OAuth token audiences, resolved from `authBaseURL`
+		 * by the deployment (`createServerApp`'s `resolveAudiences`).
+		 */
+		audiences: OAuthAudiences;
 		principal: Principal;
 	};
 };
 
 /**
  * The CLOUD context: the portable {@link Env} plus the relational-auth state only
- * the hosted cloud composes (Better Auth + Postgres). The single-partition
- * instance composes none of it, so these never appear on the instance's `Env`
- * (ADR-0076): the type makes "the instance reads no cloud secret" a compile fact,
- * not a JSDoc promise. The cloud's auth wrappers, `createCloudContextMiddleware`,
+ * apps/api composes on both runtimes (Better Auth + Postgres). The cloud's auth
+ * wrappers, `createCloudContextMiddleware`,
  * and the hosted auth routes type against this; the portable surfaces stay on `Env`.
  */
 export type CloudEnv = {
@@ -97,7 +63,7 @@ export type CloudEnv = {
 		 * The per-request Postgres handle. Populated by `createCloudContextMiddleware`. Read by
 		 * Better Auth and hosted account/billing operations.
 		 */
-		db: NodePgDatabase<typeof schema>;
+		db: Db;
 		/** The per-request Better Auth instance, set by createCloudContextMiddleware. */
 		auth: ReturnType<typeof createAuth>;
 		/**

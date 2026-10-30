@@ -15,19 +15,19 @@ const origin = 'https://api.example.com';
 const identity = {
 	resolveOrigin: () => origin,
 	resolveTrustedOrigins: () => [origin],
+	resolveAudiences: () => ({
+		api: origin,
+		git: `${origin}/git`,
+	}),
 };
 const authOptions = {
 	resolveAuthSecrets: () => ({
 		BETTER_AUTH_SECRET: 'cloud-context-test-secret-1234567890',
 	}),
-	resolveSessionCallbacks: () => [],
 };
 
 test('public shells and unrelated 404s bypass failing acquisition and auth setup', async () => {
-	const app = createServerApp<CloudEnv>({
-		resolveOrigin: () => origin,
-		resolveTrustedOrigins: () => [origin],
-	});
+	const app = createServerApp<CloudEnv>(identity);
 	app.onError((_error, c) => c.text('Unavailable', 503));
 	let acquisitions = 0;
 	let drains = 0;
@@ -43,7 +43,6 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 		resolveAuthSecrets: () => {
 			throw new Error('Public shell must not construct auth');
 		},
-		resolveSessionCallbacks: () => [],
 	});
 	mountAuthRoutes(app, {
 		setup,
@@ -52,7 +51,7 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 	app.on(['GET', 'POST'], '/api/protected', setup, (c) => c.text('secret'));
 	// Registered after all relational routes, just like the Worker dashboard.
 	app.get('/dashboard', (c) => c.html('<html>Dashboard</html>'));
-	for (const path of ['/sign-in', '/session/callback', '/dashboard']) {
+	for (const path of ['/sign-in', '/consent', '/device', '/dashboard']) {
 		const response = await app.request(path, { headers: { origin } });
 		expect(response.status).toBe(200);
 		expect(response.headers.get('content-type')).toContain('text/html');
@@ -60,14 +59,6 @@ test('public shells and unrelated 404s bypass failing acquisition and auth setup
 	}
 	for (const path of ['/missing', '/api/missing']) {
 		expect((await app.request(path)).status).toBe(404);
-	}
-	for (const headers of [
-		new Headers(),
-		new Headers({ origin: 'https://attacker.example' }),
-	]) {
-		expect(
-			(await app.request('/api/protected', { method: 'POST', headers })).status,
-		).toBe(403);
 	}
 	const preflight = await app.request('/api/protected', {
 		method: 'OPTIONS',

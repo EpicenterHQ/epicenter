@@ -4,10 +4,13 @@
 - **Date:** 2026-10-01
 - **Supersedes:** [ADR-0456](0456-a-markdown-row-owns-at-most-one-same-stem-attachment.md).
 
+Retired source files below use their last tracked Git snapshot (`commit:path`);
+inspect one with `git show commit:path`.
+
 ## Context
 
 ADR-0456 assigns zero or one same-stem sibling attachment to each Markdown row.
-`packages/folder/src/table.ts` discovers those files, reports attachment
+`9d13dd25854e:packages/folder/src/table.ts` discovers those files, reports attachment
 ambiguity, and composes row creation, rename, and deletion with media operations.
 Whispering reconstructs the same relationship again when recovering a partial
 recording publication.

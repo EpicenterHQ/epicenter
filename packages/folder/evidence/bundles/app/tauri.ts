@@ -1,10 +1,4 @@
 /** An application that names the desktop entry itself. */
-import { defineFolder, openFolder } from '@epicenter/folder/tauri';
+import { openFolder } from '@epicenter/folder/tauri';
 
-const definition = defineFolder({
-	kv: {},
-	tables: {},
-});
-
-export const start = () =>
-	openFolder({ id: 'so.epicenter.bundlefixture', definition });
+export const start = () => openFolder({ tables: {} });

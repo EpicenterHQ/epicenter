@@ -1,8 +1,8 @@
 # 0321. App-owned storage is named SQLite files an application opens and deletes, and nothing else
 
-- **Status:** Accepted
+- **Status:** Superseded
+- **Superseded by:** [ADR-0534](0534-data-folders-are-the-only-data-model.md), which removes the Yjs store; `@epicenter/device`, its named SQLite files, and the desktop host's SQLite worker are deleted.
 - **Date:** 2026-09-01
-- **Amended by:** [ADR-0381](0381-user-authored-sql-runs-through-a-bounded-read-only-operation.md) proposes adding restricted `query` beside the trusted SQL verbs; named file ownership and deletion remain.
 - **Built.** `deleteSqlite` exists in both leaves and the host owner, and Local
   Mail is its first caller. The refusal of an app-owned key-value surface is
   built by not existing, and `cache_meta` and `intent_meta` are already the shape
@@ -89,6 +89,7 @@ no meaning to enforce.
 
 - An application can delete a database it created, and only one it created,
   because the host resolves the path from the application id it already holds.
+<!-- doc-path-check: ignore-next-line -->
 - The handle registry in `apps/epicenter/src/device.ts` gains its only
   removal path for a live handle, and it is deletion, so the registry is still
   not a cache. It already forgets an open that failed, which holds no handle.

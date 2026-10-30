@@ -36,4 +36,5 @@ Reading auth still captures an Account; it does not subscribe or change ownershi
 
 ## Implementation
 
-See the [execution plan](../../specs/20260908T204224-explicit-core-reads-and-blob-capabilities.md).
+<!-- doc-path-check: ignore-next-line -->
+See the execution plan (`specs/20260908T204224-explicit-core-reads-and-blob-capabilities.md`, deleted; recover via `git log --all --full-history`).

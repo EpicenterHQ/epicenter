@@ -1,0 +1,11 @@
+{
+	"productName": "Epicenter Native Tabs Smoke",
+	"version": "0.0.1",
+	"identifier": "so.epicenter.native-tabs-smoke",
+	"build": { "frontendDist": "../../../../todos/dist" },
+	"app": {
+		"windows": [],
+		"security": { "capabilities": ["bundled-app"] }
+	},
+	"bundle": { "active": false, "icon": ["../../icons/icon.png"] }
+}

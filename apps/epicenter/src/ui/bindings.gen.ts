@@ -6,53 +6,6 @@ import * as __TAURI_EVENT from "@tauri-apps/api/event";
 /** Commands */
 export const commands = {
 	/**
-	 *  Delivers text to the cursor, falling back to the clipboard when it cannot.
-	 *
-	 *  With `keep_on_clipboard`, the transcript is the intended final clipboard
-	 *  state. Otherwise this command borrows the clipboard, pastes, then restores
-	 *  the exact previous macOS pasteboard or the previous text on other platforms.
-	 */
-	writeText: (text: string, keepOnClipboard: boolean) => typedError<WriteTextOutcome, string>(__TAURI_INVOKE("write_text", { text, keepOnClipboard })),
-	/**  Simulates pressing the Enter/Return key. */
-	simulateEnterKeystroke: () => typedError<null, string>(__TAURI_INVOKE("simulate_enter_keystroke")),
-	enumerateRecordingDevices: () => typedError<string[], RecorderError>(__TAURI_INVOKE("enumerate_recording_devices")),
-	startRecording: (deviceIdentifier: string | null, sessionId: string, requestId: string) => typedError<HostRecording, RecorderError>(__TAURI_INVOKE("start_recording", { deviceIdentifier, sessionId, requestId })),
-	stopRecording: (audioBlobId: string, sessionId: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("stop_recording", { audioBlobId, sessionId })),
-	cancelRecording: (audioBlobId: string, sessionId: string) => typedError<null, RecorderError>(__TAURI_INVOKE("cancel_recording", { audioBlobId, sessionId })),
-	recordingDocumentGeneration: () => typedError<number, RecorderError>(__TAURI_INVOKE("recording_document_generation")),
-	registerRecordingSession: (appId: string, account: {
-	authorityId: string,
-	principalId: string,
-} | null, sessionId: string, generation: number) => typedError<null, RecorderError>(__TAURI_INVOKE("register_recording_session", { appId, account, sessionId, generation })),
-	/**  Read only this document's live capture. No file or journal is recovered. */
-	currentRecording: (sessionId: string) => typedError<{
-	audioBlobId: string,
-	device: DeviceAcquisition,
-	/**
-	 *  `None` while capture is running. `Some` means capture is over and this
-	 *  recording is waiting to be stopped (finishing its temporary file) or
-	 *  cancelled (discarding it).
-	 */
-	endedReason: EndedReason | null,
-} | null, RecorderError>(__TAURI_INVOKE("current_recording", { sessionId })),
-	resolveRecordingStart: (sessionId: string, requestId: string) => typedError<{
-	audioBlobId: string,
-	device: DeviceAcquisition,
-	/**
-	 *  `None` while capture is running. `Some` means capture is over and this
-	 *  recording is waiting to be stopped (finishing its temporary file) or
-	 *  cancelled (discarding it).
-	 */
-	endedReason: EndedReason | null,
-} | null, RecorderError>(__TAURI_INVOKE("resolve_recording_start", { sessionId, requestId })),
-	closeRecordingSession: (sessionId: string) => typedError<null, RecorderError>(__TAURI_INVOKE("close_recording_session", { sessionId })),
-	/**
-	 *  Canonical transcribe-by-id path. Resolves the canonical local blob, decodes
-	 *  it, then runs inference on the **active** model with the caller's advisory
-	 *  hints. The caller names audio and hints; it does not name a model.
-	 */
-	transcribeRecording: (audioBlobId: string, hints: TranscriptionHints, destination: BlobDestination) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("transcribe_recording", { audioBlobId, hints, destination })),
-	/**
 	 *  Decode uploaded bytes in memory and run the exact requested catalog model.
 	 *  The blocking job owns its input until inference finishes, including after caller abort.
 	 */
@@ -60,70 +13,9 @@ export const commands = {
 	/**  Installed native models available to explicit file inference. No cache paths escape. */
 	listInferenceModels: () => __TAURI_INVOKE<InferenceModel[]>("list_inference_models"),
 	/**
-	 *  Prewarm the active local model so a following transcribe finds it warm. The
-	 *  frontend fires this fire-and-forget at capture start (manual record or VAD
-	 *  listen) for a local route, overlapping the ~1 s model load with the user's
-	 *  speech instead of paying it after they stop.
-	 *
-	 *  Idempotent and cheap: a no-op when the active model is already resident.
-	 *  Shares the one load path with `transcribe_recording` (`ModelCache::prewarm`
-	 *  and `transcribe` both resolve through `ensure_loaded`), so the model warmed
-	 *  here is exactly the one transcribe will use, because there is only one. A
-	 *  failure here is non-fatal: transcribe will load normally and surface any real
-	 *  error then.
-	 */
-	prewarmModel: () => typedError<null, TranscriptionError>(__TAURI_INVOKE("prewarm_model")),
-	/**
-	 *  Open macOS Accessibility settings.
-	 *
-	 *  This is intentionally a fixed command instead of a general command
-	 *  runner. The app only needs this one OS handoff, so the frontend should
-	 *  not receive shell or process execution privileges.
-	 */
-	openAccessibilitySettings: () => typedError<null, string>(__TAURI_INVOKE("open_accessibility_settings")),
-	/**
-	 *  Show the macOS Accessibility permission prompt.
-	 *
-	 *  macOS never lets an app grant itself Accessibility, so this only surfaces the
-	 *  system prompt (which also adds the app to the Accessibility list, toggled
-	 *  off); the live grant is observed by the Rust tap supervisor, not returned
-	 *  here. Off macOS there is no such prompt, so this does nothing. Pairs with
-	 *  `open_accessibility_settings` the way `request_microphone_permission` does
-	 *  with the microphone privacy page.
-	 */
-	requestAccessibilityPermission: () => __TAURI_INVOKE<void>("request_accessibility_permission"),
-	/**
-	 *  Read the microphone authorization the OS records up front.
-	 *
-	 *  One owner for every platform. macOS reads AVFoundation's
-	 *  `authorizationStatusForMediaType:` directly, so all four Apple states arrive
-	 *  intact and a not-yet-asked user is reported as `NotDetermined` instead of
-	 *  being flattened into a denial. Windows reads the CapabilityAccessManager
-	 *  ConsentStore. Every other platform (Linux) returns `Unknown`, where there is
-	 *  no such store and the stream-open fallback stays the sole classifier.
-	 */
-	getMicrophonePermission: () => __TAURI_INVOKE<MicrophonePermission>("get_microphone_permission"),
-	/**
-	 *  Elicit a microphone grant the way each platform allows, and answer with the
-	 *  authorization that holds once there is nothing left to elicit.
-	 *
-	 *  Returning the status is what lets the caller ask once. macOS is the only
-	 *  platform that can move the answer inside this call: when the status is
-	 *  `NotDetermined` it raises the system prompt and awaits the real completion
-	 *  handler, so the returned value is the user's decision, not a guess. Every
-	 *  other status is already final, so prompting is a documented no-op and the
-	 *  call short-circuits.
-	 *
-	 *  Windows has no programmatic grant for an unpackaged desktop app, so a
-	 *  `Denied` consent store deep-links the privacy page and reports `Denied`: the
-	 *  toggle happens in Settings, outside this call. Other platforms (Linux) have
-	 *  no such affordance and report `Unknown`.
-	 */
-	requestMicrophonePermission: () => typedError<MicrophonePermission, string>(__TAURI_INVOKE("request_microphone_permission")),
-	/**
 	 *  The active local model's identity and whether it can run right now, or
 	 *  `None` when nobody has chosen one.
-	 *
+	 * 
 	 *  **Administration only.** Home holds this grant because Home chooses the
 	 *  active model and must show which one that is. Applications are not granted
 	 *  this command. Their active-model route reads `get_local_transcription_readiness`;
@@ -158,7 +50,7 @@ export const commands = {
 	setActiveModel: (modelId: string | null) => typedError<null, SettingsError>(__TAURI_INVOKE("set_active_model", { modelId })),
 	/**
 	 *  Whether the local transcription route can run right now, and what it accepts.
-	 *
+	 * 
 	 *  Readiness for the active-model route lets an app warn the user before they
 	 *  speak, which matters because the surface that reports a
 	 *  failure afterwards (a dictation pill) has nowhere to put a recovery action.
@@ -169,30 +61,132 @@ export const commands = {
 	/**
 	 *  Take the user to the app that can fix an unavailable local transcription
 	 *  route.
-	 *
+	 * 
 	 *  The app shell owns this navigation. The host reports that the route is
 	 *  unavailable, an application decides how to present it, and getting the user
 	 *  to Home is neither of their jobs: an application asks the shell to show a
 	 *  section of Home, and the shell decides how.
-	 *
+	 * 
 	 *  The intent is recorded *before* any window work, which is what makes this
 	 *  safe against the state Home happens to be in. Home may be absent, still
 	 *  booting, hidden, or already open; in every case the intent is waiting when
 	 *  Home next asks for it, and the event below is only an optimization for the
 	 *  already-running case. Emitting the section directly would lose it whenever
 	 *  no listener existed yet, which is exactly the recovery path that matters.
-	 *
+	 * 
 	 *  It mutates no transcription state: it opens a window, and the user chooses.
+	 * 
+	 *  Without a section it only opens Settings: the Folders window's Settings
+	 *  button (ADR-0537, ADR-0552).
 	 */
-	openHome: (section: HomeSection) => __TAURI_INVOKE<void>("open_home", { section }),
+	openHome: (section: 
+/**  Account sign-in and sign-out. */
+"account" |
+/**  Local transcription model administration. */
+"transcription" | null) => __TAURI_INVOKE<void>("open_home", { section }),
 	/**
 	 *  Claim the pending section intent, if any. Home calls this on mount and
 	 *  whenever it is nudged; taking is destructive, so one intent opens one
 	 *  section exactly once however many nudges arrive.
 	 */
 	takePendingHomeSection: () => __TAURI_INVOKE<
+/**  Account sign-in and sign-out. */
+"account" |
 /**  Local transcription model administration. */
 "transcription" | null>("take_pending_home_section"),
+	listDataFolders: () => __TAURI_INVOKE<FolderListing>("list_data_folders"),
+	/**
+	 *  The directories apps asked Epicenter to open that the person has not
+	 *  accepted or dismissed, oldest first. Reads none of them.
+	 */
+	pendingFolderOpenings: () => __TAURI_INVOKE<string[]>("pending_folder_openings"),
+	/**  Accept a pending request and open its own editor, then record recency. */
+	acceptFolderOpening: (path: string) => typedError<OpenedFolder, string>(__TAURI_INVOKE("accept_folder_opening", { path })),
+	/**  Let go of an app's request to open `path` without reading it. */
+	dismissFolderOpening: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_opening", { path }),
+	pinFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("pin_folder", { id })),
+	unpinFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("unpin_folder", { id })),
+	removeRecentFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("remove_recent_folder", { id })),
+	openFolderEditor: (id: string) => typedError<OpenedFolder, string>(__TAURI_INVOKE("open_folder_editor", { id })),
+	folderQuery: (sql: string) => typedError<QueryAnswer, CliError>(__TAURI_INVOKE("folder_query", { sql })),
+	/**
+	 *  Send one request over an AI connection with the key saved on this
+	 *  computer, through `epicenter send` (ADR-0557). Each line of its NDJSON
+	 *  (the response's head, its body in base64 chunks, and `end`, or an
+	 *  `error`) goes to `on_event`; the page reads them back into a `Response`.
+	 *  One more line, `{"type":"exit","code","stderr"}`, follows the CLI's own
+	 *  on the same channel (`end_channel`).
+	 */
+	aiSend: (connection: AiTarget, request: AiRequest, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("ai_send", { connection, request, onEvent })),
+	/**
+	 *  Send one request to the deployment's `audience` resource with the app's
+	 *  grant, through `epicenter send` (ADR-0549, ADR-0683). The lines are
+	 *  `ai_send`'s: the response's head, its body in base64 chunks, and `end`,
+	 *  or an `error` such as `NoAccountToken` when the app is not signed in,
+	 *  then the shell's own `{"type":"exit","code","stderr"}`.
+	 */
+	accountSend: (audience: AccountAudience, generation: string, request: AiRequest, requestId: string, onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("account_send", { audience, generation, request, requestId, onEvent })),
+	/**  Stop this window's one account request, including its response stream. */
+	sendCancel: (requestId: string) => typedError<null, CliError>(__TAURI_INVOKE("send_cancel", { requestId })),
+	/**
+	 *  Save `endpoint` and `key` for `connection` in this computer's keychain,
+	 *  through `epicenter auth key set`, which reads both on stdin. An empty key
+	 *  confirms a keyless endpoint.
+	 */
+	aiKeySet: (connection: string, endpoint: string, key: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_set", { connection, endpoint, key })),
+	/**  Remove what this computer saved for `connection`; whether there was anything. */
+	aiKeyRemove: (connection: string) => typedError<boolean, CliError>(__TAURI_INVOKE("ai_key_remove", { connection })),
+	/**  Whether a key is saved for `connection`, and for which endpoint. Never the key. */
+	aiKeyState: (connection: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_state", { connection })),
+	/**
+	 *  Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
+	 *  opens the authorization page in the person's browser; each line the CLI
+	 *  prints (`{"open"}`, then `{"signedIn"}` or `{"error"}`) goes to
+	 *  `on_event`.
+	 */
+	authLogin: (onEvent: Channel<string>) => typedError<CliExit, CliError>(__TAURI_INVOKE("auth_login", { onEvent })),
+	/**  Who each of the CLI's grants on this computer belongs to. */
+	authStatus: () => typedError<AuthStatus, CliError>(__TAURI_INVOKE("auth_status")),
+	/**  Messages alone reaches Beeper through a fixed CLI command. Tokens cross on stdin. */
+	messagesBeeper: (request: string) => typedError<string, CliError>(__TAURI_INVOKE("messages_beeper", { request })),
+	/**
+	 *  Sign the app out: the CLI revokes its grant and deletes it from the
+	 *  keychain. A terminal's `epicenter auth login` is left signed in.
+	 */
+	authLogout: () => typedError<AuthSignOut, CliError>(__TAURI_INVOKE("auth_logout")),
+	/**
+	 *  Read one of Whispering's connection rows in the selected records directory, through
+	 *  `epicenter whispering-connection read`; `null` when there is none.
+	 *  Reading creates nothing.
+	 */
+	whisperingConnectionRead: (connection: WhisperingConnection) => typedError<{
+	text: string,
+	issues: ConnectionRowIssue_Serialize[] | null,
+	/**  `null` when the row does not read; any other field stays in `text`. */
+	fields: ConnectionRowFields | null,
+} | null, CliError>(__TAURI_INVOKE("whispering_connection_read", { connection })),
+	/**
+	 *  Assign `fields` to one of Whispering's current connection rows through
+	 *  `epicenter whispering-connection set`. Answers the row as sent. A refusal
+	 *  changed nothing; a run that failed may or may not have saved.
+	 */
+	whisperingConnectionSet: (connection: WhisperingConnection, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, fields })),
+	/**
+	 *  Open bundled app `app` on its fixed default, or with `folder`, on
+	 *  the folder identified by a current row in the grouped listing. A window
+	 *  already open on the folder is revealed.
+	 */
+	openBundledApp: (app: BundledApp, folder: string | null) => typedError<OpenedFolder, string>(__TAURI_INVOKE("open_bundled_app", { app, folder })),
+	/**
+	 *  Ask the person for a folder with the native picker and open bundled app
+	 *  `app` on it, or reveal the window already open on it. Answers whether a
+	 *  folder was chosen. The page passes no path: the picker answers Rust.
+	 */
+	chooseFolderForApp: (app: BundledApp) => typedError<{
+	/**  Why `navigation.sqlite` was not updated; the folder is open regardless. */
+	rememberProblem: string | null,
+} | null, string>(__TAURI_INVOKE("choose_folder_for_app", { app })),
+	openHostedSite: (url: string) => typedError<null, string>(__TAURI_INVOKE("open_hosted_site", { url })),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
 	/**
@@ -213,26 +207,20 @@ export const commands = {
 	 *  cumulative progress on `on_progress`. Registered under `download_id` so
 	 *  `cancel_download(download_id)` can abort the in-flight transfer (the aborted
 	 *  task drops mid-download; hf-hub leaves a temp file, never a corrupt final).
-	 *  A no-op-fast when the file is already cached (hf-hub reuses it).
+	 *  A no-op when the file is already cached, at any commit.
 	 */
 	downloadModel: (modelId: string, downloadId: string, onProgress: Channel<DownloadProgress>) => typedError<null, CatalogError>(__TAURI_INVOKE("download_model", { modelId, downloadId, onProgress })),
 	/**
-	 *  Remove a downloaded model's file from the shared HF cache, reclaiming its
-	 *  space, and stand down the active choice if this was it.
-	 *
-	 *  One host operation, not two invokes, because the host owns both halves: the
-	 *  file and the active-model setting live on the same side of the boundary, and
-	 *  splitting them would let a caller succeed at deleting and then fail (or
-	 *  forget) to clear, leaving an active model that cannot run and a UI that never
-	 *  learned. Clearing is deliberate rather than promoting another installed
-	 *  model: there is no substitution, so the next transcription fails with an
-	 *  actionable error until the user chooses again.
-	 *
-	 *  Best-effort on the file: removes the snapshot pointer and its backing blob. A
-	 *  no-op when the model is not downloaded. Other quantizations in the same repo
-	 *  are untouched (each is its own blob + pointer).
+	 *  Show a downloaded model's folder in the shared Hugging Face cache, such as
+	 *  `models--handy-computer--whisper-tiny-gguf`, so the user can see where it
+	 *  lives and remove it themselves. Epicenter itself never deletes a model.
+	 * 
+	 *  The folder, not the file: the file is a symlink into the repo's `blobs/`,
+	 *  and the file manager would select the 64-hex blob it resolves to. Deleting
+	 *  the folder frees the space, and the model then reads as not downloaded.
+	 *  Async so a slow file manager call never blocks the main thread.
 	 */
-	deleteModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("delete_model", { modelId })),
+	revealModel: (modelId: string) => typedError<null, CatalogError>(__TAURI_INVOKE("reveal_model", { modelId })),
 	/**
 	 *  Abort the in-flight download registered under `download_id`, if any. The
 	 *  matching `download_model` call then resolves with an `Err` (and the dropped
@@ -240,61 +228,25 @@ export const commands = {
 	 *  nothing is downloading under that id, so it is always safe to call.
 	 */
 	cancelDownload: (downloadId: string) => __TAURI_INVOKE<void>("cancel_download", { downloadId }),
-	/**
-	 *  Pause every system media session currently playing. Returns one opaque token
-	 *  per session paused, to hand back to `resume_playback`. Pausing is gated to
-	 *  never *start* playback: only sessions observed playing are touched, and the
-	 *  dedicated pause command (never a play/pause toggle) is sent.
-	 */
-	pausePlayback: () => __TAURI_INVOKE<string[]>("pause_playback"),
-	/**
-	 *  Resume the sessions named by `sessions`, which must be tokens returned by a
-	 *  prior `pause_playback`. A session that vanished, was already resumed by the
-	 *  user, or can't be resumed is silently skipped. Safety rule: we only ever send
-	 *  *play* to a session we personally paused.
-	 */
-	resumePlayback: (sessions: string[]) => __TAURI_INVOKE<void>("resume_playback", { sessions }),
-	/**
-	 *  Tell the keyboard supervisor whether auto-paste-at-cursor is enabled. Paste
-	 *  writes a synthetic Cmd/Ctrl+V through the macOS Accessibility grant the tap
-	 *  watches, so the supervisor holds the tap whenever paste is on to track that
-	 *  grant (and surface the notice when it is missing or stale). It is the only
-	 *  reason to hold the tap (ADR-0117). The FE pushes this on startup and whenever
-	 *  the output settings change. A no-op off macOS, where paste needs no grant.
-	 */
-	setAutoPasteEnabled: (enabled: boolean) => __TAURI_INVOKE<void>("set_auto_paste_enabled", { enabled }),
-	/**
-	 *  The current paste-at-cursor capability: whether a synthetic Cmd/Ctrl+V can
-	 *  land (on macOS, whether the Accessibility grant is live and the tap is
-	 *  healthy). The FE seeds from this on attach, then tracks
-	 *  `DictationCapabilityEvent` for changes; it never probes the OS itself. The
-	 *  Rust supervisor owns the value and the tap's lifecycle, so there is no `start`
-	 *  command for the FE to call.
-	 */
-	getDictationCapability: () => __TAURI_INVOKE<DictationCapability>("get_dictation_capability"),
-	replaceGlobalShortcuts: (registrations: GlobalShortcutRegistration[]) => typedError<null, string>(__TAURI_INVOKE("replace_global_shortcuts", { registrations })),
-	isAutostartEnabled: () => typedError<boolean, string>(__TAURI_INVOKE("is_autostart_enabled")),
-	setAutostartEnabled: (enabled: boolean) => typedError<null, string>(__TAURI_INVOKE("set_autostart_enabled", { enabled })),
 };
 
 /** Events */
 export const events = {
-	dictationCapabilityEvent: makeEvent<DictationCapabilityEvent, DictationCapabilityEvent>("dictation-capability-event"),
-	globalShortcutTriggered: makeEvent<GlobalShortcutTriggered, GlobalShortcutTriggered>("global-shortcut-triggered"),
 	homeSectionPending: makeEvent<HomeSectionPending, HomeSectionPending>("home-section-pending"),
-	recordingEndedEvent: makeEvent<RecordingEndedEvent, RecordingEndedEvent>("recording-ended-event"),
 };
 
 /* Types */
-export type AccountIdentity = {
-	authorityId: string,
-	principalId: string,
-};
+/**
+ *  The deployment's resources an account request may carry a token for, by
+ *  role: `api` for the profile read, `git` for Git and the folder connect
+ *  call. A closed set, so a page cannot name an audience of its own.
+ */
+export type AccountAudience = "api" | "git";
 
 /**
  *  The one active local model as **Home** sees it: its exact identity and
  *  whether its file is on this machine right now.
- *
+ * 
  *  Administration data, not application data (ADR-0180). Home chooses the active
  *  model, so Home is told which one it is; an ordinary application never learns
  *  model identity and reads `get_local_transcription_readiness` instead. Nothing
@@ -324,9 +276,35 @@ export type ActiveModel = {
 	supportsLanguage: boolean,
 };
 
+/**  What this computer's keychain holds for a connection. Never the key. */
+export type AiKeyState = { state: "missing" } | { state: "saved"; endpoint: string; hasKey: boolean };
+
+/**
+ *  One request `epicenter send` carries, relative to its target: below an AI
+ *  connection's endpoint, or below the deployment's origin for an account
+ *  request.
+ */
+export type AiRequest = {
+	method: string,
+	/**  Below the target, such as `audio/transcriptions` or `api/repos`. */
+	path: string,
+	headers: ([string, string])[],
+	/**  The body in base64, decoded here and written to the CLI as raw bytes. */
+	body: string | null,
+};
+
+/**
+ *  Where a request goes: a connection by its id, which is the stem of its row
+ *  in the selected Epicenter records folder's `connections/` directory. An
+ *  `openai-compatible` target names the endpoint the page prepared the request
+ *  for; the CLI sends only while the
+ *  keychain entry still holds it.
+ */
+export type AiTarget = { kind: "openai-compatible"; connection: string; endpoint: string } | { kind: "local"; connection: string };
+
 /**
  *  Which advisory hints the run actually applied.
- *
+ * 
  *  Built from the exact values handed to the runtime, never from what the caller
  *  asked for. A hint the active model cannot take is reported as not applied
  *  rather than dropped in silence, so a caller can tell its user that the prompt
@@ -348,80 +326,163 @@ export type AppliedHints = {
 	initialPrompt: boolean,
 };
 
-/**  The application captured before a native writer creates its temporary file. */
-export type BlobDestination = {
-	appId: string,
-	account: AccountIdentity | null,
+/**
+ *  The only kind a Whispering save assigns; an `epicenter` or `local` row
+ *  is Settings' to make.
+ */
+export type AssignedConnectionKind = "openai-compatible";
+
+/**  Who approved a grant, as the server's userinfo answered at sign-in. */
+export type AuthAccount = {
+	id: string,
+	name?: string | null,
 };
 
-export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "DeleteFailed"; message: string };
+/**
+ *  One of the CLI's grants: `device` (a terminal's `epicenter auth login`)
+ *  or `desktop` (this app's).
+ */
+export type AuthGrant = {
+	grant: string,
+	client: string,
+	signedIn: boolean,
+	account?: AuthAccount | null,
+	signedInAt?: string | null,
+	generation?: string | null,
+};
 
 /**
- *  Which microphone a recording actually opened, and whether that was the one
- *  asked for.
- *
- *  Serialized to match `DeviceAcquisitionOutcome` in `@epicenter/recorder`,
- *  which the browser recorder already produces, so both platforms report device
- *  acquisition in one shape.
+ *  What signing the app out did: whether it was signed in, and whether the
+ *  server heard the revocation.
  */
-export type DeviceAcquisition =
-/**  The requested device was found and opened. */
-{ outcome: "success"; deviceId: string } |
-/**
- *  A different device was opened. `device_id` is what actually recorded, so
- *  an application can say which microphone it is using and persist it.
- */
-{ outcome: "fallback"; reason: FallbackReason; deviceId: string };
+export type AuthSignOut = {
+	signedOut: boolean,
+	revoked: boolean,
+};
 
 /**
- *  The single source of truth for whether Epicenter can paste a transcript at
- *  the cursor: a synthetic Cmd/Ctrl+V that, on macOS, needs the Accessibility
- *  grant. macOS is the only platform that gates it, and the only process that
- *  can authoritatively know is the one holding the tap (this one), so Rust owns
- *  this value and the frontend is a pure view over it (ADR-0117).
- *
- *  It folds two facts the frontend used to infer separately: the macOS trust
- *  probe (`AXIsProcessTrusted`) and the tap's liveness. Crucially `Broken` is
- *  distinguishable from `Active` only here, because `AXIsProcessTrusted` reports
- *  a stale post-update grant as trusted: the tap dying under a held grant is the
- *  only signal that tells them apart.
+ *  `epicenter auth status --json`: the deployment and each grant on this
+ *  computer, read from the keychain alone.
  */
-export type DictationCapability =
+export type AuthStatus = {
+	origin: string,
+	grants: AuthGrant[],
+};
+
+/**  An app Epicenter bundles. The page API names it by its page. */
+export type BundledApp = "todos" | "capture" | "honeycrisp" | "whispering" | "messages";
+
+export type CatalogError = { name: "UnknownModel"; message: string } | { name: "DownloadFailed"; message: string } | { name: "RevealFailed"; message: string };
+
+/**  Why a command did not run the CLI, or the CLI did not finish. */
+export type CliError = 
 /**
- *  The supervisor has not determined the value yet. Rust resolves this
- *  synchronously at startup, so it exists only as the frontend's pre-seed
- *  initial value before the first probe lands.
+ *  The CLI refused the input with exit code 2 and said why on stdout:
+ *  an id, an endpoint, or a keychain it cannot use.
  */
-"unknown" |
+{ name: "Refused"; message: string } | 
 /**
- *  Auto-paste-at-cursor is off, so nothing needs the grant: the tap is
- *  deliberately not running and no Accessibility is touched. Global shortcuts
- *  are plugin chords and work regardless.
+ *  The binary could not be started or read, stopped without an exit
+ *  code, or the page stopped listening.
  */
-"inactive" |
-/**
- *  macOS Accessibility is not granted, so paste at cursor falls back to the
- *  clipboard. Turning Epicenter on in System Settings unlocks the paste.
- */
-"untrusted" |
-/**  The tap is running and the app is trusted: paste at cursor can land. */
-"active" |
-/**
- *  macOS reports the app trusted, but the tap keeps dying under the held
- *  grant: a stale post-update signature. Removing and re-adding Epicenter
- *  in Accessibility is the fix, which `Untrusted`'s "just toggle on" is not.
- */
-"broken";
+{ name: "Failed"; message: string };
 
 /**
- *  Pushed whenever the dictation capability changes. The frontend seeds from
- *  `get_dictation_capability` on attach, then tracks this event for transitions;
- *  it never probes the OS itself. A `tauri_specta::Event`, emitted with
- *  `emit_to(app, MAIN_WINDOW)` (the Whispering webview, not the overlay) and listened
- *  through the generated `events.dictationCapabilityEvent`.
+ *  How a run ended. `code` is the CLI's exit code (ADR-0520): 0 done, 1 a
+ *  finding a person acts on, 2 input it cannot use.
  */
-export type DictationCapabilityEvent = {
-	capability: DictationCapability,
+export type CliExit = {
+	code: number,
+	/**
+	 *  The last line the CLI printed on stdout: a command's one answer, or
+	 *  `{"error": ...}`.
+	 */
+	reply: string | null,
+	/**  The end of what the CLI wrote for people, at most 64 KiB. */
+	stderr: string,
+};
+
+/**  What a connection row's `kind` names. */
+export type ConnectionKind = "openai-compatible" | "epicenter" | "local";
+
+/**
+ *  One of Whispering's connection rows as the CLI read or sent it. `text`
+ *  is the file's exact source; `issues` describes its interpretation.
+ */
+export type ConnectionRow = ConnectionRow_Serialize | ConnectionRow_Deserialize;
+
+/**
+ *  The fields a Whispering save assigns. One left out keeps its value, and
+ *  every field another program added survives.
+ */
+export type ConnectionRowAssignment = ConnectionRowAssignment_Serialize | ConnectionRowAssignment_Deserialize;
+
+/**
+ *  The fields a Whispering save assigns. One left out keeps its value, and
+ *  every field another program added survives.
+ */
+export type ConnectionRowAssignment_Deserialize = {
+	kind?: AssignedConnectionKind | null,
+	title?: string | null,
+	model?: string | null,
+};
+
+/**
+ *  The fields a Whispering save assigns. One left out keeps its value, and
+ *  every field another program added survives.
+ */
+export type ConnectionRowAssignment_Serialize = {
+	kind?: AssignedConnectionKind,
+	title?: string,
+	model?: string,
+};
+
+/**  A connection row's three schema fields, when it reads as one. */
+export type ConnectionRowFields = {
+	kind: ConnectionKind,
+	title: string,
+	model: string,
+};
+
+export type ConnectionRowIssue = ConnectionRowIssue_Serialize | ConnectionRowIssue_Deserialize;
+
+/**  Why a row does not read as a connection, as `@epicenter/folder` reports it. */
+export type ConnectionRowIssueKind = "not-text" | "frontmatter" | "schema";
+
+export type ConnectionRowIssue_Deserialize = {
+	kind: ConnectionRowIssueKind,
+	message: string,
+	path: IssuePathStep[],
+	line?: number | null,
+};
+
+export type ConnectionRowIssue_Serialize = {
+	kind: ConnectionRowIssueKind,
+	message: string,
+	path: IssuePathStep[],
+	line?: number,
+};
+
+/**
+ *  One of Whispering's connection rows as the CLI read or sent it. `text`
+ *  is the file's exact source; `issues` describes its interpretation.
+ */
+export type ConnectionRow_Deserialize = {
+	text: string,
+	issues: ConnectionRowIssue_Deserialize[] | null,
+	/**  `null` when the row does not read; any other field stays in `text`. */
+	fields: ConnectionRowFields | null,
+};
+
+/**
+ *  One of Whispering's connection rows as the CLI read or sent it. `text`
+ *  is the file's exact source; `issues` describes its interpretation.
+ */
+export type ConnectionRow_Serialize = {
+	text: string,
+	issues: ConnectionRowIssue_Serialize[] | null,
+	/**  `null` when the row does not read; any other field stays in `text`. */
+	fields: ConnectionRowFields | null,
 };
 
 /**
@@ -440,73 +501,24 @@ export type DownloadProgress = {
 	totalBytes: number | null,
 };
 
-/**
- *  Why the host ended a recording's capture on its own.
- *
- *  This never describes a stop, a cancel, or an owner window being destroyed.
- *  Those are endings someone asked for, and the caller already knows about them
- *  from its own call returning.
- */
-export type EndedReason =
-/**
- *  The microphone went away while recording (`ErrorKind::DeviceNotAvailable`).
- *  The recovery is physical: reconnect it, or pick another input.
- */
-"deviceDisconnected" |
-/**
- *  The OS withdrew microphone access mid-recording
- *  (`ErrorKind::PermissionDenied`). The device is still there and still
- *  works; the recovery is a permission toggle, which is why this is not
- *  folded into `DeviceDisconnected`.
- */
-"permissionRevoked" |
-/**
- *  The capture stream failed for a reason the host cannot make actionable:
- *  the configuration was invalidated, the audio host vanished, a resource
- *  limit was hit, or the backend reported something cpal could not classify.
- *  One variant rather than five, because the person does the same thing
- *  about all of them.
- */
-"streamFailed" |
-/**
- *  The staged file could not be written any further: the disk filled, its
- *  volume went away, or the recording reached the longest audio a WAV can
- *  describe (about 12 hours of mono capture).
- *
- *  Kept apart from `StreamFailed` because the microphone is fine and the
- *  remedy is on the machine, not the hardware. The three storage causes are
- *  *not* kept apart from each other: whichever one it was, the recording is
- *  capped at what already reached disk and the next step is the same, so a
- *  finer split would be a decorative name on a message string.
- */
-"storageFailed";
+export type FolderGroup = "pinned" | "library" | "recent";
 
-export type FallbackReason =
-/**  No device was requested, so the system default was used. */
-"no-device-selected" |
-/**  The requested device is not present, so the system default was used. */
-"preferred-device-unavailable";
-
-export type GlobalShortcutRegistration = {
-	commandId: string,
-	accelerator: string,
-};
-
-export type GlobalShortcutState = "Pressed" | "Released";
-
-export type GlobalShortcutTriggered = {
-	commandId: string,
-	state: GlobalShortcutState,
+export type FolderListing = {
+	folders: ListedFolder[],
+	libraryName: string,
+	problems: string[],
 };
 
 /**
  *  A section of Epicenter Home an application can ask the shell to open.
- *
+ * 
  *  A closed set, not a string-addressed destination: Home is a privileged
  *  built-in app, so what an application may name inside it is enumerated
  *  here rather than parsed.
  */
-export type HomeSection =
+export type HomeSection = 
+/**  Account sign-in and sign-out. */
+"account" |
 /**  Local transcription model administration. */
 "transcription";
 
@@ -518,72 +530,56 @@ export type HomeSection =
  */
 export type HomeSectionPending = null;
 
-/**
- *  The document's live capture identity, opened microphone, and terminal event.
- *  `current` reconciles a missed event while that same document remains alive.
- */
-export type HostRecording = {
-	audioBlobId: string,
-	device: DeviceAcquisition,
-	/**
-	 *  `None` while capture is running. `Some` means capture is over and this
-	 *  recording is waiting to be stopped (finishing its temporary file) or
-	 *  cancelled (discarding it).
-	 */
-	endedReason: EndedReason | null,
-};
-
 export type InferenceModel = {
 	id: string,
 	installed: boolean,
 	active: boolean,
 };
 
+/**  One step of an issue's path: a field name or an index. */
+export type IssuePathStep = string | number;
+
+export type ListedFolder = {
+	id: string,
+	title: string,
+	/**  Display only. Openings pass the ID and recheck current membership. */
+	path: string,
+	group: FolderGroup,
+	/**  A pinned or library folder can also have a removable recent entry. */
+	recent: boolean,
+	protected: boolean,
+	defaultFor: string | null,
+	temporary: boolean,
+	problem: string | null,
+};
+
 /**
  *  Whether the active-model transcription route is ready and which hints it accepts.
- *
+ * 
  *  This route preserves ADR-0180's identity-free readiness response. It is advisory
  *  UI state, not a preflight gate: a caller uses it to warn before capture and to
  *  decide whether to offer a prompt or language field, never to decide whether
- *  `transcribe_recording` may be called. Transcription resolves the active model
+ *  a transcription may be requested. Transcription resolves the active model
  *  independently at the point of use, so a stale read here can only produce a
  *  stale hint, never a wrong transcription.
- *
+ * 
  *  That distinction is load-bearing because the shared Hugging Face cache can
  *  change outside Epicenter: a model deleted by another tool between this read
  *  and the next transcribe turns a `ready` answer stale, and the transcribe path
  *  still fails closed on its own.
  */
-export type LocalTranscriptionReadiness = { status: "ready";
+export type LocalTranscriptionReadiness = { status: "ready"; 
 /**  Whether the active model accepts an initial prompt. */
-supportsPrompt: boolean;
+supportsPrompt: boolean; 
 /**  Whether it takes a spoken-language hint. */
-supportsLanguage: boolean } | { status: "unavailable"; reason: UnavailableReason;
+supportsLanguage: boolean } | { status: "unavailable"; reason: UnavailableReason; 
 /**  A user-facing sentence that names no model. */
 message: string };
 
 /**
- *  The OS-level microphone authorization, read from the platform privacy store.
- *
- *  Only `Granted` and `Unknown` are usable. `Unknown` (no entry in the store, or
- *  a platform with no such gate) means "can't tell from here": the caller treats
- *  it as available and lets the recorder's stream-open fallback
- *  (`recorder::error::classify_cpal`) classify any real denial from the error
- *  itself. So this signal can only *add* a pre-record denial; it never newly
- *  blocks a setup that was already working.
- *
- *  `NotDetermined` is the one state that is neither usable nor final: the user
- *  has not been asked yet. It is not `Unknown` (we know exactly what the OS
- *  thinks) and not `Denied` (nothing has been refused). It exists so
- *  `request_microphone_permission` can tell the one state that can still raise a
- *  system prompt from the states where prompting is a silent no-op.
- */
-export type MicrophonePermission = "granted" | "denied" | "not_determined" | "unknown";
-
-/**
  *  A catalog model as Home's administration view sees it: identity, display
  *  fields, static capabilities, and whether it is already downloaded. Home names
- *  `id` when it activates, downloads, or deletes a model; it never learns the
+ *  `id` when it activates, downloads, or reveals a model; it never learns the
  *  Hugging Face coordinate. Applications see none of this.
  */
 export type ModelInfo = {
@@ -601,55 +597,21 @@ export type ModelInfo = {
 	downloaded: boolean,
 };
 
-export type RecorderError =
-/**
- *  The OS refused microphone access. The frontend checks microphone
- *  permission before recording, so this is the stream-open fallback for a
- *  denial that slips past that gate (e.g. a declined first-run prompt).
- */
-{ name: "PermissionDenied"; message: string } |
-/**
- *  No usable input device: none selected and no default, the named device
- *  is gone, cpal reports the device unavailable mid-open, or the device
- *  yields no input configurations at all (query errors or returns empty).
- */
-{ name: "NoInputDevice"; message: string } |
-/**
- *  A recording started by some window is already in flight. There is one
- *  host recorder, and a competing start is refused rather than silently
- *  displacing a recording another window is relying on.
- */
-{ name: "Busy"; message: string } |
-/**
- *  The named recording is not this window's to end: it has already
- *  finished, it is not the one in flight, or another window owns it. One
- *  variant for all three because a caller cannot act differently on them,
- *  and the distinguishing detail travels in `message`.
- */
-{ name: "NotRecording"; message: string } |
-/**  Stop consumed this capture, but no finished temporary file exists. */
-{ name: "CaptureLost"; message: string } |
-/**
- *  Any other recording failure (device config, stream build, filesystem,
- *  internal). The frontend does not branch on these.
- */
-{ name: "Failed"; message: string };
-
-/**
- *  Pushed to the window that owns a recording when the host ends its capture
- *  without being asked. Carries the blob id so a window that has since started
- *  another recording can tell which one lost its microphone, and the reason so
- *  it can say something true about what happened.
- *
- *  A signal, never a result. It carries no audio and no blob: the recording is
- *  still the owner's, and `stop` publishes what it captured. Missing this event
- *  costs nothing, because `current_recording` reports the same ended recording.
- *  See `commands::end_recording_capture` for why.
- */
-export type RecordingEndedEvent = {
-	audioBlobId: string,
-	reason: EndedReason,
+/**  A successful native opening, with a separate persistence failure if any. */
+export type OpenedFolder = {
+	/**  Why `navigation.sqlite` was not updated; the folder is open regardless. */
+	rememberProblem: string | null,
 };
+
+export type QueryAnswer = {
+	columns: string[],
+	rows: { [key in string]: QueryCell }[],
+	excluded: string[],
+	warnings: string[],
+	truncated: boolean,
+};
+
+export type QueryCell = null | number | null | string | number[];
 
 /**
  *  Failures the Home administration commands can report. Both are actionable:
@@ -658,38 +620,32 @@ export type RecordingEndedEvent = {
  */
 export type SettingsError = { name: "UnknownModel"; message: string } | { name: "SaveFailed"; message: string };
 
-export type StoppedRecording = {
-	blobId: string,
-	durationMs: number,
-	byteLength: number,
-};
-
-export type TranscriptionError = { name: "AudioReadError"; message: string } |
+export type TranscriptionError = { name: "AudioReadError"; message: string } | 
 /**
  *  The local route cannot run at all: no model is active on this device, or
  *  the active model's file is not here.
- *
+ * 
  *  One public precondition family (ADR-0180). The two cases differ only as
  *  compact `reason` data, because the caller's job is the same either way:
  *  say so honestly and point at Home. `message` never names a model, since
  *  model identity is administration data an application does not receive.
- *
+ * 
  *  Failing here changes nothing. No model is adopted, downloaded,
  *  substituted, or routed to the cloud on the caller's behalf.
  */
-{ name: "LocalRouteUnavailable"; reason: UnavailableReason; message: string } |
+{ name: "LocalRouteUnavailable"; reason: UnavailableReason; message: string } | 
 /**
  *  Operational, not a precondition: the active model was resolvable but the
  *  runtime could not load it. Kept distinct so a broken install does not
  *  read as "you have not set this up".
  */
-{ name: "ModelLoadError"; message: string } |
+{ name: "ModelLoadError"; message: string } | 
 /**  Operational: inference itself failed. */
 { name: "TranscriptionError"; message: string };
 
 /**
  *  The advisory hints an application supplies with a transcription.
- *
+ * 
  *  The active-model route resolves the model from host settings. Explicit file
  *  inference receives the model separately from these hints. Neither route
  *  changes the active-model setting. Language and prompt remain application-owned;
@@ -702,7 +658,7 @@ export type TranscriptionHints = {
 
 /**
  *  What a transcription request produced.
- *
+ * 
  *  Two outcomes because there are two honest stories. `transcribed` names the
  *  exact model that produced the text, which makes accidental substitution
  *  detectable. Explicit inference must name the requested model; the active-model
@@ -711,20 +667,20 @@ export type TranscriptionHints = {
  *  no applied hints, because claiming either would be claiming an inference that
  *  never happened.
  */
-export type TranscriptionOutcome = { outcome: "transcribed"; text: string; modelId: string; applied: AppliedHints } |
+export type TranscriptionOutcome = { outcome: "transcribed"; text: string; modelId: string; applied: AppliedHints } | 
 /**  The audio held no samples, so no model was loaded and no hint applied. */
 { outcome: "empty-audio" };
 
 /**
  *  Why the local transcription route cannot run right now.
- *
+ * 
  *  A compact reason, deliberately not a model. It is enough for an application
  *  to write an honest sentence and name Home as the fix, and it carries no
  *  identity, no inventory, and nothing about what is cached or resident.
  */
-export type UnavailableReason =
+export type UnavailableReason = 
 /**  Nobody has chosen an active local model on this device. */
-"no-active-model" |
+"no-active-model" | 
 /**
  *  A model is active, but it cannot run here: its file is not on this
  *  machine, or it is not a model this build knows about.
@@ -733,18 +689,17 @@ export type UnavailableReason =
 
 /**
  *  How long after the last transcription the resident model should be dropped.
- *
+ * 
  *  `Immediately` is enforced synchronously at the end of each transcription;
  *  timed variants are enforced by the background idle watcher.
  */
 export type UnloadPolicy = "never" | "immediately" | "after_5_minutes" | "after_30_minutes";
 
-/**  Where `write_text` left the transcript. */
-export type WriteTextOutcome =
-/**  The synthetic paste landed at the cursor. */
-"pasted" |
-/**  Delivery could not paste, so the transcript remains on the clipboard. */
-"leftOnClipboard";
+/**
+ *  Which of Whispering's two connections: a closed set, which the CLI maps
+ *  to the row `whispering-transcription` or `whispering-text`.
+ */
+export type WhisperingConnection = "transcription" | "text";
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ data: T; error: null } | { data: null; error: E }> {
@@ -776,3 +731,4 @@ function makeEvent<TListen, TEmit = TListen>(name: string, serialize?: (payload:
 
     return Object.assign(fn, base);
 }
+

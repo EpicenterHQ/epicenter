@@ -1,27 +1,18 @@
 import type { AgentMessage } from '@epicenter/agent';
-import { jsonValue } from '@epicenter/app/field';
-import {
-	defineFolder,
-	defineTable,
-	type FileTable,
-	type Folder,
-	field,
-	type RowReadError,
-	rowPath,
-	type StoredRow,
-	type TableListing,
-} from '@epicenter/folder';
-import { Type } from 'typebox';
-/**
- * Vocab's folder declaration and how its row files read. Isomorphic and inert:
- * importing it opens nothing.
- *
- * One local folder holds everything Vocab saves: the learner's words, each
- * chat's fixed focus, and every finished message. A saved thing is one
- * Markdown file. Nothing here has an account in it.
- */
-
 import type { ServableModel } from '@epicenter/constants/ai-providers';
+import type { Row } from '@epicenter/folder';
+import type { SvelteFolder } from '@epicenter/svelte/folder';
+import { Type } from 'typebox';
+
+/**
+ * Vocab's tables and how its rows read. Isomorphic and inert: importing it
+ * opens nothing.
+ *
+ * This browser's local folder, `openFolder({ tables: vocabTables })`, holds
+ * everything Vocab saves: the learner's words, each chat's fixed focus, and
+ * every finished message. A saved thing is one Markdown file. Nothing here
+ * has an account in it.
+ */
 
 /**
  * The initial model for this device's tutor workflow. The learner may choose
@@ -60,88 +51,83 @@ export const STAGE_LABELS: Record<Stage, string> = {
 	usable: 'Use',
 };
 
+const focusItem = Type.Object({ entryId: Type.String(), text: Type.String() });
+
 /**
- * Learner-selected English expressions and their self-reported ability stage.
- * Notes and stages have one owner: the learner.
+ * The tables Vocab reads, each a top-level directory of Markdown rows with
+ * its fields in frontmatter. A schema only interprets: a save keeps fields it
+ * does not name, and a file that does not fit is listed with its source and
+ * issues.
+ *
+ * - `entries/<SHA-256 of the text>.md`: one learner-selected expression, the
+ *   learner's note, and the self-reported stage. Only the learner sets the
+ *   note and the stage.
+ * - `chats/<id>.md`: when the chat started and the focus chosen for it.
+ * - `messages/<chat id>.<message id>.md`: one finished message, whole, and
+ *   the ID of its chat.
  */
-const entriesTable = defineTable({
-	fields: {
-		text: field.string(),
-		note: field.string(),
-		stage: field.select(STAGES),
-		createdAt: field.instant(),
-	},
-});
+export const vocabTables = {
+	entries: Type.Object({
+		text: Type.String(),
+		note: Type.String(),
+		stage: Type.Union([
+			Type.Literal('new'),
+			Type.Literal('recognized'),
+			Type.Literal('understood'),
+			Type.Literal('usable'),
+		]),
+		createdAt: Type.String(),
+	}),
+	chats: Type.Object({
+		createdAt: Type.String(),
+		focus: Type.Array(focusItem, { minItems: 1, maxItems: 3 }),
+	}),
+	messages: Type.Object({
+		chat: Type.String(),
+		message: Type.Object({
+			id: Type.String(),
+			role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
+			createdAt: Type.Number(),
+			parts: Type.Array(
+				Type.Union([
+					Type.Object({ type: Type.Literal('text'), text: Type.String() }),
+					Type.Object({
+						type: Type.Literal('tool-call'),
+						toolCallId: Type.String(),
+						toolName: Type.String(),
+						input: Type.Unknown(),
+					}),
+					Type.Object({
+						type: Type.Literal('tool-result'),
+						toolCallId: Type.String(),
+						toolName: Type.String(),
+						content: Type.String(),
+						details: Type.Optional(Type.Unknown()),
+						isError: Type.Boolean(),
+					}),
+				]),
+			),
+		}),
+	}),
+};
 
-/** A chat is its creation time and the focus the learner chose for it. */
-const chatsTable = defineTable({
-	fields: {
-		createdAt: field.instant(),
-		focus: field.json(
-			Type.Array(Type.Object({ entryId: Type.String(), text: Type.String() }), {
-				minItems: 1,
-				maxItems: 3,
-			}),
-		),
-	},
-});
+export type VocabTables = typeof vocabTables;
+export type VocabFolder = SvelteFolder<VocabTables>;
 
-/** One finished message, whole, and the stem of the chat it belongs to. */
-const messagesTable = defineTable({
-	fields: {
-		chat: field.string(),
-		message: field.json(
-			Type.Object({
-				id: Type.String(),
-				role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
-				createdAt: Type.Number(),
-				parts: Type.Array(
-					Type.Union([
-						Type.Object({ type: Type.Literal('text'), text: Type.String() }),
-						Type.Object({
-							type: Type.Literal('tool-call'),
-							toolCallId: Type.String(),
-							toolName: Type.String(),
-							input: jsonValue,
-						}),
-						Type.Object({
-							type: Type.Literal('tool-result'),
-							toolCallId: Type.String(),
-							toolName: Type.String(),
-							content: Type.String(),
-							details: Type.Optional(jsonValue),
-							isError: Type.Boolean(),
-						}),
-					]),
-				),
-			}),
-		),
-	},
-});
+/** A row of `table`, as it reads: its source, its fields, and any issues. */
+export type RowOf<TName extends keyof VocabTables> = Row<VocabTables[TName]>;
+/** A row of `table` that reads as one: its fields fit the schema. */
+export type ValidRowOf<TName extends keyof VocabTables> = Extract<
+	RowOf<TName>,
+	{ issues: null }
+>;
 
-export const vocabFolder = defineFolder({
-	title: 'Vocab',
-	kv: {},
-	tables: {
-		entries: entriesTable,
-		chats: chatsTable,
-		messages: messagesTable,
-	},
-});
-
-export type VocabFolder = Folder<typeof vocabFolder>;
-export type VocabTables = VocabFolder['tables'];
-
-type FieldsOf<TTable> =
-	TTable extends FileTable<infer TFields> ? TFields : never;
-export type EntryFields = FieldsOf<VocabTables['entries']>;
-type ChatFields = FieldsOf<VocabTables['chats']>;
-type MessageFields = FieldsOf<VocabTables['messages']>;
+/** The file of row `id` of `table`. */
+export const rowPath = (table: keyof VocabTables, id: string) =>
+	`${table}/${id}.md`;
 
 /**
- * One saved word as the list last read it. `id` is the file stem; `stored`
- * is that read, the capture a stage press or a delete of a closed word is
- * guarded by.
+ * One saved word from the mirror. `id` is the file's name.
  */
 export type Entry = {
 	id: string;
@@ -149,12 +135,11 @@ export type Entry = {
 	note: string;
 	stage: Stage;
 	createdAt: string;
-	stored: StoredRow<EntryFields>;
 };
 
 export type FocusItem = { entryId: string; text: string };
 export type Chat = { id: string; createdAt: string; focus: FocusItem[] };
-export type ChatMessage = { stem: string; chat: string; message: AgentMessage };
+export type ChatMessage = { id: string; chat: string; message: AgentMessage };
 
 /**
  * The saved word a focus item's stage control acts on, if there is one. A
@@ -172,61 +157,62 @@ export function focusWord(
 
 /**
  * A row file Vocab cannot show as a row, and why. It is never dropped
- * silently. `stem` is set when its text was read but is not a valid row, so
- * it can be repaired as text.
+ * silently. `id` is set when the file is text, so it can be repaired as text.
  */
-export type UnreadableFile = { path: string; reason: string; stem?: string };
+export type UnreadableFile = { path: string; reason: string; id?: string };
+type ReadRows<TRow> = { rows: TRow[]; unreadable: UnreadableFile[] };
 
-/** Why a row file could not be read as a row, in a sentence. */
-export function rowProblem(error: RowReadError): string {
-	return error.name === 'InvalidRow'
-		? error.issues.map((issue) => issue.message).join(' ')
-		: error.message;
+export function readEntry(row: ValidRowOf<'entries'>): Entry {
+	const { text, note, stage, createdAt } = row.fields;
+	return { id: row.id, text, note, stage, createdAt };
 }
 
-export function readEntry(id: string, stored: StoredRow<EntryFields>): Entry {
-	const { text, note, stage, createdAt } = stored.row.fields;
-	return { id, text, note, stage, createdAt, stored };
-}
-
-export function readChat(id: string, stored: StoredRow<ChatFields>): Chat {
-	const { createdAt, focus } = stored.row.fields;
+export function readChat(row: ValidRowOf<'chats'>): Chat {
+	const { createdAt, focus } = row.fields;
 	return {
-		id,
+		id: row.id,
 		createdAt,
 		focus: focus.map(({ entryId, text }) => ({ entryId, text })),
 	};
 }
 
-export function readMessage(
-	stem: string,
-	stored: StoredRow<MessageFields>,
-): ChatMessage {
-	const { chat, message } = stored.row.fields;
+export function readMessage(row: ValidRowOf<'messages'>): ChatMessage {
+	const { chat, message } = row.fields;
 	// The tutor loop owns a plain copy of the message.
-	return { stem, chat, message: structuredClone(message) as AgentMessage };
+	return {
+		id: row.id,
+		chat,
+		// SAFETY: cloning a schema-validated message preserves its shape.
+		message: structuredClone(message) as AgentMessage,
+	};
 }
 
 /**
- * Split a table listing into the rows Vocab can show and the files it cannot.
- * A file that could not be read or is not a valid row is reported with its
- * path, never left out. A file removed after it was enumerated is gone.
+ * Split a table's rows into the ones Vocab can show and the files it cannot,
+ * each named by its path with why. A non-text or unreadable file has no `id`:
+ * it is only named, never repaired here.
  */
-export function readRows<TFields, TRow>(
-	table: string,
-	listing: TableListing<TFields>,
-	read: (stem: string, stored: StoredRow<TFields>) => TRow,
-): { rows: TRow[]; unreadable: UnreadableFile[] } {
-	const rows: TRow[] = [];
+export function readRows<TName extends keyof VocabTables, TRow>(
+	table: TName,
+	rows: readonly RowOf<TName>[],
+	read: (row: ValidRowOf<TName>) => TRow,
+): ReadRows<TRow> {
+	const readable: TRow[] = [];
 	const unreadable: UnreadableFile[] = [];
-	for (const { stem, result } of listing) {
-		if (result.error === null) rows.push(read(stem, result.data));
-		else if (result.error.name !== 'NotFound')
-			unreadable.push({
-				path: rowPath(table, stem),
-				reason: rowProblem(result.error),
-				...(result.error.name === 'InvalidRow' ? { stem } : {}),
-			});
+	for (const row of rows) {
+		if (row.issues === null) {
+			// SAFETY: the valid branch has fields of the table's schema.
+			readable.push(read(row as ValidRowOf<TName>));
+			continue;
+		}
+		const text = !row.issues.some(
+			(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
+		);
+		unreadable.push({
+			path: row.path,
+			reason: row.issues.map((issue) => issue.message).join(' '),
+			...(text ? { id: row.id } : {}),
+		});
 	}
-	return { rows, unreadable };
+	return { rows: readable, unreadable };
 }

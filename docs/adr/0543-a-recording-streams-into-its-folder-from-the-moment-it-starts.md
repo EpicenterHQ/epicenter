@@ -1,0 +1,73 @@
+# 0543. A recording streams into its folder from the moment it starts
+
+- **Status:** Superseded
+- **Date:** 2026-10-15
+- **Superseded by:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md): the full desktop app platform; only a local built-app runner over chosen data repositories remains, without source installation, build approvals, or general native services.
+- **Amended:** 2026-10-16, at "One interface, chosen by host": the bare `@epicenter/recorder` no longer chooses by `isTauri()`. It is the recording contract alone, and a build imports `/tauri` or `/browser` (Whispering through `#platform/workspace`), because the runtime branch was reached only by the type checker and tests while builds aliased it away.
+- **Amended by:** [ADR-0577](0577-audio-stays-on-the-machine-that-recorded-it.md) at "`recordings/<name>.wav`": the audio is written to `audio/<name>.wav`, and rows stay in `recordings/`.
+- **Unbuilt:** a real desktop run: the microphone permission prompt, a recording through the shell's recorder, and a quit mid-recording leaving a playable WAV once `recoverRecordings` runs.
+
+## Context
+
+Epicenter's native recorder (since moved to
+`packages/tauri-plugin-epicenter-recorder/src/recorder.rs`) already appends
+PCM16 to a WAV through `hound`'s `WavWriter` as it captures,
+but into a staged blob in app data that is published into the folder only on
+stop, and `cancel_recording_owned_by` deletes it when its window reloads or
+closes. Standalone Whispering records with the browser's `MediaRecorder` and
+holds the audio in page memory until stop. A quit mid-recording loses the
+recording on both.
+
+## Decision
+
+**A desktop recording writes `recordings/<name>.wav` in its folder from the
+moment it starts, appending as it captures.** It is the one data file written in
+place rather than staged and renamed, and the shell checks its path like any
+other. Stop finalizes the header. Closing or reloading the window that owns it
+finalizes it too; nothing deletes it but `cancel`.
+
+**One interface, chosen by host, as `@epicenter/folder` is
+([ADR-0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md)).**
+
+```txt
+@epicenter/recorder                    the bare import chooses by isTauri()
+  /tauri    → tauri-plugin-epicenter-recorder: the recorder moved out of
+              apps/epicenter, registered by the Epicenter host (ADR-0493)
+  /browser  → MediaRecorder in memory, written to the folder on stop
+```
+
+```ts
+await recoverRecordings({ folder, under: 'recordings' });
+const recording = await startRecording({ folder, path: 'recordings/2026-10-15-0930' });
+const unsubscribe = recording.onLevel((level) => meter.set(level));
+const { path, durationMs } = await recording.stop();   // or recording.cancel()
+```
+
+| | Desktop | Browser |
+| --- | --- | --- |
+| `startRecording` | Creates `<path>.wav` and appends | Records in memory |
+| `stop` | Finalizes the WAV header | Writes `<path>.webm` (`.mp4` or `.ogg` where the browser records those) |
+| Quit, crash, window closed | Audio kept up to the cut | Lost |
+| `recoverRecordings` | Rewrites the header of any WAV whose length disagrees with it | Does nothing |
+
+**The row stores facts only** ([ADR-0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md)):
+`audioPath`, `startedAt`, and later the transcript. Whether a recording is
+running is the live handle; whether it has audio is whether `audioPath` exists.
+
+## Consequences
+
+- A quit, crash, or closed window keeps the recording on the desktop; nothing
+  asks first.
+- Whispering's in-memory capture on the desktop, its unsaved-work checks, and
+  the delete-on-cancel staging go.
+- Save version during a recording commits the audio written so far, which is
+  valid audio; the next commit holds the whole recording. Nothing tracks which
+  file is live.
+- The browser keeps no such guarantee, and says so by showing a row without
+  audio.
+
+## Considered alternatives
+
+- **A `status` field (`recording`, `done`, `interrupted`, `lost`).** Each value
+  goes stale when the process ends, which is why it would need repair.
+- **One native recorder for every host.** The browser has no native side.

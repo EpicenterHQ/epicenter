@@ -3,37 +3,37 @@
  * rows a search keeps, what order they are in, which are selected, and what
  * the actions on several of them do.
  *
- * Everything here is read from the library's current observation of the
+ * Everything here is read from Whispering's current observation of the
  * folder. Nothing is kept: the search text, the sort, and the selection are
- * the session's, and are handed in. A row's identity is its file path, so a
+ * the product's, and are handed in. A row's identity is its file path, so a
  * selection survives a new sort, a new search, and a refresh, and a path
  * that has left the folder is simply no longer selected.
  *
- * The actions on several rows are the library's own actions on one row,
+ * The actions on several rows are Whispering's own actions on one row,
  * taken one at a time in table order. A transcription is asked for once for
  * each row that needs one and never asked again here; a deletion is captured
  * for each row first, as a single deletion is, and removed only as captured.
  */
-import { audioPathIn } from './definition.js';
-import { recordingTitle, UNSAVED_DISCARDED } from './deletion.js';
+import { recordingTitle } from './deletion.js';
+import type { RecordingAudio } from './recording-audio.js';
 import type {
 	Deletion,
-	Library,
 	RecordingEntry,
 	TranscriptionEntry,
-} from './library.svelte.js';
+	Whispering,
+} from './whispering.svelte.js';
 
 export type RecordingStatus =
 	| 'transcribing'
 	| 'failed'
-	| 'unsaved'
+	| 'unfinished'
 	| 'transcribed'
 	| 'untranscribed';
 
 /** What the table says for each status, and the order the Status column sorts in. */
 export const STATUS_LABELS: Record<RecordingStatus, string> = {
 	failed: 'Transcription failed',
-	unsaved: 'Transcript not saved',
+	unfinished: 'Transcription unfinished',
 	transcribing: 'Transcribing',
 	untranscribed: 'Not transcribed',
 	transcribed: 'Transcribed',
@@ -45,9 +45,11 @@ export type RecordingRow = {
 	readonly path: string;
 	readonly entry: RecordingEntry;
 	readonly title: string;
-	/** Saved transcripts, newest first. */
+	/** Transcripts with their answer, newest first. */
 	readonly transcripts: readonly TranscriptionEntry[];
 	readonly status: RecordingStatus;
+	/** Whether the audio its row names is in this device's folder. */
+	readonly audio: RecordingAudio;
 };
 
 export type RecordingSortKey = 'title' | 'recordedAt' | 'durationMs' | 'status';
@@ -62,30 +64,48 @@ export const DEFAULT_SORT: RecordingSort = {
 	direction: 'desc',
 };
 
-type Source = Pick<Library, 'entries' | 'resultsFor' | 'transcriptionRun'>;
+type Source = Pick<
+	Whispering,
+	'entries' | 'resultsFor' | 'transcriptionRun' | 'resultState' | 'audioOf'
+>;
 
-function statusOf(
-	transcripts: readonly TranscriptionEntry[],
-	run: ReturnType<Library['transcriptionRun']>,
-): RecordingStatus {
+/** What the newest transcript of a recording shows, or undefined when it has none. */
+function newestState(whispering: Source, id: string) {
+	const newest = whispering.resultsFor(id)[0];
+	return newest && whispering.resultState(newest.path, newest.row.body);
+}
+
+function statusOf(whispering: Source, id: string): RecordingStatus {
+	const run = whispering.transcriptionRun(id);
 	if (run?.kind === 'running') return 'transcribing';
-	if (run?.kind === 'unsaved') return 'unsaved';
 	if (run?.kind === 'failed') return 'failed';
-	return transcripts.length > 0 ? 'transcribed' : 'untranscribed';
+	switch (newestState(whispering, id)?.kind) {
+		case undefined:
+			return 'untranscribed';
+		case 'answered':
+			return 'transcribed';
+		case 'running':
+		case 'writing':
+			return 'transcribing';
+		case 'failed':
+			return 'failed';
+		case 'unfinished':
+			return 'unfinished';
+	}
 }
 
 /** One row for every recording the folder lists, in the folder's own order. */
-export function recordingRows(library: Source): RecordingRow[] {
-	return library.entries.map((entry) => {
-		const transcripts = library.resultsFor(entry.stem);
-		return {
-			path: entry.path,
-			entry,
-			title: recordingTitle(entry),
-			transcripts,
-			status: statusOf(transcripts, library.transcriptionRun(entry.stem)),
-		};
-	});
+export function recordingRows(whispering: Source): RecordingRow[] {
+	return whispering.entries.map((entry) => ({
+		path: entry.path,
+		entry,
+		title: recordingTitle(entry),
+		transcripts: whispering
+			.resultsFor(entry.stem)
+			.filter((transcript) => transcript.row.body !== ''),
+		status: statusOf(whispering, entry.stem),
+		audio: whispering.audioOf(entry),
+	}));
 }
 
 /** Whether the title, ID, notes, or any transcript of a row contains the search text. */
@@ -190,11 +210,11 @@ export function nextSort(
 
 /** The table as it is shown: searched, then sorted. */
 export function shownRows(
-	library: Source,
+	whispering: Source,
 	query: string,
 	sort: RecordingSort,
 ): RecordingRow[] {
-	return sortRows(searchRows(recordingRows(library), query), sort);
+	return sortRows(searchRows(recordingRows(whispering), query), sort);
 }
 
 // --- selection ------------------------------------------------------------
@@ -203,19 +223,19 @@ export function shownRows(
  * The selection as it stands against the folder and the search: the selected
  * rows that are shown, in table order, and how many selected recordings the
  * search hides. A selected path that has left the folder counts as neither;
- * the session drops it from the selection when a listing confirms it gone.
+ * the product drops it from the selection when a listing confirms it gone.
  * Actions apply to the shown rows only, so nothing is done to a row the
  * person cannot see.
  */
 export function selectionIn(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
-	library: Pick<Library, 'entries'>,
+	whispering: Pick<Whispering, 'entries'>,
 ): { rows: RecordingRow[]; hidden: number } {
 	const chosen = new Set(selected);
 	const rows = shown.filter((row) => chosen.has(row.path));
 	let present = 0;
-	for (const entry of library.entries) if (chosen.has(entry.path)) present++;
+	for (const entry of whispering.entries) if (chosen.has(entry.path)) present++;
 	return { rows, hidden: present - rows.length };
 }
 
@@ -224,9 +244,9 @@ export function toggleSelected(
 	selected: readonly string[],
 	path: string,
 	on: boolean,
-	library: Pick<Library, 'entries'>,
+	whispering: Pick<Whispering, 'entries'>,
 ): string[] {
-	const present = new Set(library.entries.map((entry) => entry.path));
+	const present = new Set(whispering.entries.map((entry) => entry.path));
 	const next = selected.filter((item) => item !== path && present.has(item));
 	return on && present.has(path) ? [...next, path] : next;
 }
@@ -239,9 +259,9 @@ export function toggleAllShown(
 	selected: readonly string[],
 	shown: readonly RecordingRow[],
 	on: boolean,
-	library: Pick<Library, 'entries'>,
+	whispering: Pick<Whispering, 'entries'>,
 ): string[] {
-	const present = new Set(library.entries.map((entry) => entry.path));
+	const present = new Set(whispering.entries.map((entry) => entry.path));
 	const visible = new Set(shown.map((row) => row.path));
 	const kept = selected.filter(
 		(item) => present.has(item) && !visible.has(item),
@@ -287,18 +307,16 @@ export type BulkTranscription = {
 
 /**
  * Transcribe the rows that have no transcript, one at a time in the order
- * given. Each is the library's own transcription of that row: only the audio
- * its file names is sent, once. A row that already has a transcript, names
- * no audio, or has a transcription under way or unsaved is not sent. Nothing
- * is sent again here after a failure: trying again is the person's choice.
- * Once the library is closing, the rows still waiting are not sent; the one
- * already sent ends as it would have and is reported as it ended.
+ * given. Each is Whispering's own transcription of that row: only the audio
+ * its file names is sent, once. A row that already has a transcript, finished
+ * or not, names no audio, names audio not on this device, or has a
+ * transcription under way is not sent.
+ * Nothing is sent again here after a failure: trying again is the person's
+ * choice. Once Whispering is closing, the rows still waiting are not sent;
+ * the one already sent ends as it would have and is reported as it ended.
  */
 export async function transcribeRows(
-	library: Pick<
-		Library,
-		'entries' | 'resultsFor' | 'transcriptionRun' | 'transcribe' | 'closing'
-	>,
+	whispering: Source & Pick<Whispering, 'transcribe' | 'closing'>,
 	paths: readonly string[],
 	onProgress?: (done: number) => void,
 ): Promise<BulkTranscription> {
@@ -308,37 +326,54 @@ export async function transcribeRows(
 		failed: [],
 	};
 	let done = 0;
+	// What each row is called when the run starts, for a row the folder no
+	// longer lists by its turn, such as after the app closed.
+	const titles = new Map(
+		whispering.entries.map((entry) => [entry.path, recordingTitle(entry)]),
+	);
 	for (const path of paths) {
 		// Read again for each row: the folder may have changed while the last one ran.
-		const entry = library.entries.find((item) => item.path === path);
-		const title = entry ? recordingTitle(entry) : path;
+		const entry = whispering.entries.find((item) => item.path === path);
+		const title = entry ? recordingTitle(entry) : (titles.get(path) ?? path);
 		const skip = (reason: string) => outcome.skipped.push({ title, reason });
-		const before = entry && library.transcriptionRun(entry.stem)?.kind;
+		const running = entry && whispering.transcriptionRun(entry.stem);
+		const before = entry && newestState(whispering, entry.stem)?.kind;
 		// Asked before every row: a row still waiting its turn when the app
 		// began closing is not sent, and says so.
-		if (library.closing) skip('The app was closing, so it was not sent.');
+		if (whispering.closing) skip('The app was closing, so it was not sent.');
 		else if (entry === undefined) skip('It is no longer in the folder.');
-		else if (library.resultsFor(entry.stem).length > 0)
-			skip('It already has a transcript.');
-		else if (audioPathIn(entry.row.fields) === undefined)
-			skip('Its file names no audio.');
-		else if (before === 'running') skip('It is already being transcribed.');
-		else if (before === 'unsaved')
-			skip('A transcript of it arrived and is not saved yet.');
+		else if (
+			running?.kind === 'running' ||
+			before === 'running' ||
+			before === 'writing'
+		)
+			skip('It is already being transcribed.');
+		else if (before === 'answered') skip('It already has a transcript.');
+		else if (before !== undefined)
+			skip('Its transcription did not finish. Open it to run it again.');
+		else if (whispering.audioOf(entry).kind === 'absent')
+			skip('Its audio isn’t on this device.');
+		else if (whispering.audioOf(entry).kind === 'ambiguous')
+			skip('More than one audio file matches it. Keep one matching file.');
 		else {
-			await library.transcribe(entry);
+			await whispering.transcribe(entry);
 			// Counted by what the folder lists now, not by the call having returned:
-			// the library declines without a word when the recording is on its way out.
-			const run = library.transcriptionRun(entry.stem);
-			if (library.resultsFor(entry.stem).length > 0)
-				outcome.transcribed.push(title);
+			// Whispering declines without a word when the recording is on its way
+			// out. A written answer is in the mirror once its save answered.
+			const run = whispering.transcriptionRun(entry.stem);
+			const state = newestState(whispering, entry.stem);
+			if (state?.kind === 'answered') outcome.transcribed.push(title);
 			else
 				outcome.failed.push({
 					title,
 					reason:
-						run !== undefined && run.kind !== 'running'
+						run?.kind === 'failed'
 							? run.message
-							: 'No transcript is listed for it. Open the recording to see why.',
+							: state?.kind === 'failed'
+								? state.message
+								: state?.kind === 'writing' && state.message !== undefined
+									? `Its answer arrived, but its file could not be written yet: ${state.message}`
+									: 'No transcript is listed for it. Open the recording to see why.',
 				});
 		}
 		onProgress?.(++done);
@@ -349,25 +384,26 @@ export async function transcribeRows(
 export type CapturedDeletions = {
 	/** What each deletion would remove, captured as a single deletion is. */
 	readonly deletions: Extract<Deletion, { kind: 'recording' }>[];
-	/** Recordings that cannot be deleted now, with the library's own reason. */
+	/** Recordings that cannot be deleted now, with Whispering's own reason. */
 	readonly refused: { readonly title: string; readonly reason: string }[];
 };
 
 /**
  * Capture a deletion for each recording, in the order given, before anyone
- * is asked. Each is the library's own capture, so pending typing is saved
- * first and a recording with work under way, or with results that cannot be
+ * is asked. Each is Whispering's own capture, so a recording with work
+ * under way, or with results that cannot be
  * told apart from its own, is refused with that reason and left out.
  */
 export async function captureDeletions(
-	library: Pick<Library, 'deletionFor' | 'entries'>,
+	whispering: Pick<Whispering, 'deletionFor' | 'entries'>,
 	paths: readonly string[],
 ): Promise<CapturedDeletions> {
 	const captured: CapturedDeletions = { deletions: [], refused: [] };
 	for (const path of paths) {
-		const entry = library.entries.find((item) => item.path === path);
+		const entry = whispering.entries.find((item) => item.path === path);
 		const title = entry ? recordingTitle(entry) : path;
-		const { data: deletion, error: refusal } = await library.deletionFor(path);
+		const { data: deletion, error: refusal } =
+			await whispering.deletionFor(path);
 		if (refusal !== null) captured.refused.push({ title, reason: refusal });
 		else if (deletion.kind === 'recording') captured.deletions.push(deletion);
 		else
@@ -399,11 +435,11 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 	const names = deletions.map((item) => `“${item.title}”`).join(', ');
 	return {
 		title: `Delete ${count(deletions.length, 'recording', 'recordings')}?`,
-		description: `This deletes ${removed.join(', ')} from the folder: ${names}. ${
+		description: `This deletes ${removed.join(', ')} from the folder: ${names}.${
 			audio > 0
-				? `${audio === 1 ? 'The audio file is' : `The ${audio} audio files are`} not deleted: audio stays in the folder as ordinary files, and you can delete it from Files. `
+				? ` ${audio === 1 ? 'The audio file is' : `The ${audio} audio files are`} not deleted: audio stays in the folder as ordinary files, and you can delete it from Files.`
 				: ''
-		}${UNSAVED_DISCARDED} Committed versions stay in Git history.${
+		}${
 			refused.length > 0
 				? ` ${count(refused.length, 'selected recording is', 'selected recordings are')} left out and kept: ${refused
 						.map(({ title, reason }) => `“${title}” (${reason})`)
@@ -414,20 +450,21 @@ export function describeDeletions({ deletions, refused }: CapturedDeletions): {
 }
 
 /**
- * Remove exactly what was captured and confirmed, one recording at a time.
- * Each is the library's own removal, so a recording that changed since it
- * was captured is refused there and reported here; the rest still go.
+ * Delete exactly what was captured and confirmed, one recording at a time.
+ * Each is Whispering's own deletion, so a recording with work under way, or
+ * a result saved since it was captured, is refused there and reported here;
+ * the rest still go.
  */
-export async function removeCaptured(
-	library: Pick<Library, 'remove'>,
+export async function deleteCaptured(
+	whispering: Pick<Whispering, 'delete'>,
 	deletions: CapturedDeletions['deletions'],
-): Promise<{ removed: number; problems: { title: string; reason: string }[] }> {
-	let removed = 0;
+): Promise<{ deleted: number; problems: { title: string; reason: string }[] }> {
+	let deleted = 0;
 	const problems: { title: string; reason: string }[] = [];
 	for (const deletion of deletions) {
-		const problem = await library.remove(deletion);
-		if (problem === undefined) removed += 1;
+		const problem = await whispering.delete(deletion);
+		if (problem === undefined) deleted += 1;
 		else problems.push({ title: deletion.title, reason: problem });
 	}
-	return { removed, problems };
+	return { deleted, problems };
 }

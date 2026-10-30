@@ -1,8 +1,9 @@
 /**
  * Real Git smart HTTP for tests without binding a port: requests are answered
  * by the system `git http-backend` CGI against bare repositories on disk.
+ * `git-demo-server.test-support.ts` serves the same bridge over loopback.
  */
-import { mkdtemp } from 'node:fs/promises';
+import { mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,22 +48,18 @@ export async function createBareRemote(root: string): Promise<string> {
 }
 
 /**
- * A `fetch` that serves `http://git.test/<repo>.git/...` from `projectRoot`
- * through `git http-backend`, and delegates every other URL.
+ * Resolve the system `git http-backend` once, and return a function that
+ * answers one smart HTTP request for the repository `pathInfo` names under
+ * `projectRoot` (`/remote.git/info/refs`, for example).
  */
-export async function gitHttpFetch(projectRoot: string): Promise<typeof fetch> {
+export async function gitHttpBackend(
+	projectRoot: string,
+): Promise<(request: Request, pathInfo: string) => Promise<Response>> {
 	const backend = join(
 		await git(projectRoot, '--exec-path'),
 		'git-http-backend',
 	);
-	const original = globalThis.fetch;
-	const handler = async (
-		input: RequestInfo | URL,
-		init?: RequestInit,
-	): Promise<Response> => {
-		const request = new Request(input, init);
-		const url = new URL(request.url);
-		if (url.host !== 'git.test') return original(input, init);
+	return async (request, pathInfo) => {
 		const body =
 			request.method === 'GET'
 				? undefined
@@ -73,9 +70,9 @@ export async function gitHttpFetch(projectRoot: string): Promise<typeof fetch> {
 				...GIT_ENV,
 				GIT_PROJECT_ROOT: projectRoot,
 				GIT_HTTP_EXPORT_ALL: '1',
-				PATH_INFO: url.pathname,
+				PATH_INFO: pathInfo,
 				REQUEST_METHOD: request.method,
-				QUERY_STRING: url.search.slice(1),
+				QUERY_STRING: new URL(request.url).search.slice(1),
 				CONTENT_TYPE: request.headers.get('content-type') ?? '',
 				CONTENT_LENGTH: String(body?.byteLength ?? 0),
 				REMOTE_USER: 'test',
@@ -92,14 +89,17 @@ export async function gitHttpFetch(projectRoot: string): Promise<typeof fetch> {
 			new Response(child.stderr).text(),
 			child.exited,
 		]);
-		if (code !== 0) return new Response(err, { status: 500 });
-		const bytes = new Uint8Array(out);
-		const split = Buffer.from(bytes).indexOf('\r\n\r\n');
+		if (code !== 0)
+			return new Response(`git http-backend failed: ${err}`, { status: 500 });
+		const bytes = Buffer.from(out);
+		const split = bytes.indexOf('\r\n\r\n');
+		if (split < 0)
+			return new Response('git http-backend returned no headers', {
+				status: 502,
+			});
 		const headers = new Headers();
 		let status = 200;
-		for (const line of Buffer.from(bytes.subarray(0, split))
-			.toString()
-			.split('\r\n')) {
+		for (const line of bytes.subarray(0, split).toString().split('\r\n')) {
 			const colon = line.indexOf(':');
 			const key = line.slice(0, colon);
 			const value = line.slice(colon + 1).trim();
@@ -108,5 +108,30 @@ export async function gitHttpFetch(projectRoot: string): Promise<typeof fetch> {
 		}
 		return new Response(bytes.subarray(split + 4), { status, headers });
 	};
+}
+
+/**
+ * A `fetch` that serves `http://git.test/<repo>.git/...` from `projectRoot`
+ * through `git http-backend`, and delegates every other URL.
+ */
+export async function gitHttpFetch(projectRoot: string): Promise<typeof fetch> {
+	const answer = await gitHttpBackend(projectRoot);
+	const original = globalThis.fetch;
+	const handler = async (
+		input: RequestInfo | URL,
+		init?: RequestInit,
+	): Promise<Response> => {
+		const request = new Request(input, init);
+		const url = new URL(request.url);
+		if (url.host !== 'git.test') return original(input, init);
+		return answer(request, url.pathname);
+	};
 	return handler as typeof fetch;
+}
+
+/** Make `directory` a repository whose `origin` is `url`, as a person would. */
+export async function initWithOrigin(directory: string, url: string) {
+	await mkdir(directory, { recursive: true });
+	await git(directory, 'init', '--quiet', '--initial-branch=main');
+	await git(directory, 'remote', 'add', 'origin', url);
 }

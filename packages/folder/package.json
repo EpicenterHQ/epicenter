@@ -2,54 +2,44 @@
 	"name": "@epicenter/folder",
 	"version": "0.0.1",
 	"private": true,
-	"description": "File-authoritative folders: Markdown tables, kv.json, ordinary files, and Git history, opened in a browser, in the Tauri desktop app, or over a directory in Bun.",
+	"description": "One local Folder: Markdown tables and ordinary files, opened as a browser origin's default folder, a directory bound to a Tauri window, or a directory in Bun.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
 		"./browser": "./src/browser.ts",
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
-		"./file-browser": "./src/file-browser.ts"
+		"./testing": "./src/testing.ts",
+		"./file-browser": "./src/file-browser.ts",
+		"./documents": "./src/documents.ts",
+		"./declaration": "./src/declaration/index.ts"
 	},
 	"scripts": {
-		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
-		"test": "bun run build:addon && bun test --isolate --path-ignore-patterns='src/svelte/**' && bun run test:svelte",
-		"test:svelte": "bun test --isolate --conditions=browser src/svelte",
-		"test:native": "EPICENTER_FOLDER_BRIDGE=1 bun test --isolate src/tauri-native.test.ts",
+		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"test": "bun test --isolate",
+		"test:engine": "bun test --isolate src/browser/ src/shared/",
+		"smoke:local": "bun smoke/local.ts",
+		"smoke:sync:local": "bun smoke/sync.ts",
 		"gen:vectors": "bun src/git/commit-subject-vectors.ts",
-		"build:addon": "bun scripts/build-addon.ts"
+		"schema:generate": "bun src/declaration/generate-schema.ts"
 	},
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",
-		"@epicenter/principal": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"buffer": "^6.0.3",
 		"diff": "^8.0.4",
 		"ignore": "^7.0.5",
 		"isomorphic-git": "1.38.5",
-		"jsonc-parser": "^3.3.1",
-		"just-bash": "3.4.2",
-		"nanoid": "catalog:",
+		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
 		"yaml": "catalog:"
 	},
-	"peerDependencies": {
-		"svelte": "^5.9.0"
-	},
-	"peerDependenciesMeta": {
-		"svelte": {
-			"optional": true
-		}
-	},
 	"devDependencies": {
 		"@types/bun": "catalog:",
+		"fake-indexeddb": "^6.2.6",
+		"playwright": "^1.61.1",
 		"typescript": "catalog:",
-		"vite": "catalog:",
-		"svelte": "catalog:",
-		"svelte-check": "catalog:",
-		"jsdom": "26.1.0",
-		"@types/jsdom": "21.1.7",
-		"node-api-headers": "^1.9.0"
+		"vite": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

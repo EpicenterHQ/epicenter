@@ -4,22 +4,40 @@
  *   bun run --cwd apps/capture smoke:browser
  *
  * Starts the Capture dev server on a free loopback port and drives two pages
- * of one browser profile, which share the OPFS folder: the second page
- * is the "other program" that edits a file behind the first. No account, no
- * server besides Vite, and no data outside the disposable profile.
+ * of one browser profile, which share its local folder in IndexedDB: the
+ * second page is the other tab that edits a file behind the first. A third,
+ * fresh profile holds a folder an earlier build kept in OPFS, and still opens
+ * the current IndexedDB folder. No account, no server besides Vite, and no data outside the
+ * disposable profiles.
  *
  * It needs to bind a local port and launch Chromium (`bun x playwright
  * install chromium` once). It does not cover the desktop build: see
- * `src/lib/platform/folder.epicenter-host.test.ts` and the desktop shell.
+ * the desktop shell, and the folder package's desktop tests.
  */
 import assert from 'node:assert/strict';
 import { type ChildProcess, spawn } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { type Browser, chromium, type Page } from 'playwright';
 
 const root = join(import.meta.dir, '../../..');
-const fixture = join(import.meta.dir, '../fixtures/legacy-bundle.json');
+
+// Other checks regenerate SvelteKit files. Give this browser its own app
+// directory so those writes cannot reload it during an interaction.
+const scratch = join(root, '.scratch');
+mkdirSync(scratch, { recursive: true });
+const appDirectory = mkdtempSync(join(scratch, 'capture-smoke-'));
+const sourceApp = join(root, 'apps/capture');
+cpSync(sourceApp, appDirectory, {
+	recursive: true,
+	filter: (path) =>
+		!['node_modules', '.svelte-kit', 'build', 'dist'].includes(basename(path)),
+});
+symlinkSync(
+	join(sourceApp, 'node_modules'),
+	join(appDirectory, 'node_modules'),
+	'dir',
+);
 const artifacts = process.env.CAPTURE_SMOKE_ARTIFACT_DIR;
 if (artifacts) mkdirSync(artifacts, { recursive: true });
 
@@ -41,7 +59,7 @@ const vite: ChildProcess = spawn(
 	[
 		'run',
 		'--cwd',
-		'apps/capture',
+		appDirectory,
 		'dev',
 		'--host',
 		'127.0.0.1',
@@ -78,9 +96,10 @@ const errors: string[] = [];
 
 async function saved(page: Page) {
 	try {
+		// The header returns to idle after queued writes answer.
 		await page
 			.locator('header [role="status"]')
-			.filter({ hasText: /^Saved$/ })
+			.filter({ hasText: /^On this device$/ })
 			.waitFor();
 	} catch (cause) {
 		console.error(
@@ -95,6 +114,16 @@ async function saved(page: Page) {
 			});
 		throw cause;
 	}
+}
+
+/** A failed command presents its own refusal. */
+async function failedCommand(page: Page, before: number, title: string) {
+	await page.waitForFunction(
+		(count) => document.querySelectorAll('[data-sonner-toast]').length > count,
+		before,
+	);
+	const notice = page.locator('[data-sonner-toast]').last();
+	await notice.getByText(title).waitFor();
 }
 
 /** The open capture's file, read through Edit as text, then back to the capture. */
@@ -129,7 +158,7 @@ const thoughts = (page: Page) =>
 		.getByLabel('Thoughts', { exact: true })
 		.locator('li p')
 		.evaluateAll((items) =>
-			items.map((item) => (item as HTMLElement).innerText),
+			items.map((item) => (item instanceof HTMLElement ? item.innerText : '')),
 		);
 
 async function act(page: Page, index: number, action: string) {
@@ -153,15 +182,22 @@ try {
 	await first.goto(app);
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
-	// 2. The new-capture text survives closing the dialog, then saves exactly.
+	// 2. New capture text is the form's until Add: a reload neither asks nor
+	// keeps it, and nothing was written.
 	const text = 'Dinner with Sebastian\nFriday at seven\nBring the invitation.';
-	await first.getByRole('button', { name: 'New capture' }).click();
-	await first.getByLabel('Capture text').fill(text);
-	await first.getByLabel('Capture text').press('Escape');
-	await first.getByRole('button', { name: 'New capture (draft)' }).click();
-	assert.equal(await first.getByLabel('Capture text').inputValue(), text);
+	let firstAsked = 0;
+	first.on('dialog', (dialog) => {
+		firstAsked++;
+		void dialog.dismiss();
+	});
+	await first.getByLabel('New capture').fill('Typed, never added');
+	await first.reload();
+	assert.equal(firstAsked, 0, 'text not added yet does not prompt');
+	assert.equal(await first.getByLabel('New capture').inputValue(), '');
+	await first.getByText('No captures yet').waitFor();
 	// Ctrl+Enter adds it, and the new capture opens ready for a thought.
-	await first.getByLabel('Capture text').press('Control+Enter');
+	await first.getByLabel('New capture').fill(text);
+	await first.getByLabel('New capture').press('Control+Enter');
 	await first
 		.getByRole('button', { name: 'Edit as text', exact: true })
 		.waitFor();
@@ -170,14 +206,14 @@ try {
 	);
 	// The file is in the form a save writes: plain YAML frontmatter.
 	const created = await source(first);
-	const at =
-		/^---\ncapturedAt: "(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)"\n---\n\nDinner with Sebastian\nFriday at seven\nBring the invitation\.\n\n## Thoughts\n$/.exec(
+	const line =
+		/^---\n(capturedAt: "?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z"?)\n---\n\nDinner with Sebastian\nFriday at seven\nBring the invitation\.\n\n## Thoughts\n$/.exec(
 			created,
 		)?.[1];
-	assert(at, `unexpected created source:\n${created}`);
-	const head = `---\ncapturedAt: "${at}"\n---`;
+	assert(line, `unexpected created source:\n${created}`);
+	const head = `---\n${line}\n---`;
 
-	// 3. Multiline thoughts: add, edit, reorder, delete. The file is the list.
+	// 3. Multiline thoughts: add, edit as text, reorder, delete. The file is the list.
 	for (const thought of [
 		'Owning the outcome',
 		'Moving to Singapore\nA longer thought',
@@ -192,9 +228,24 @@ try {
 				.evaluate((field) => field === document.activeElement),
 		);
 	}
-	await act(first, 0, 'Edit');
-	await first.getByLabel('Thought text').fill('Owning the outcome, edited');
-	await first.getByRole('button', { name: 'Save thought' }).click();
+	// Edit as text opens the file with the thought's lines selected; typing
+	// replaces them, unfinished or not, and saves as typed.
+	await act(first, 0, 'Edit as text');
+	assert.equal(
+		await fileText(first).evaluate((field) => {
+			if (!(field instanceof HTMLTextAreaElement))
+				throw new Error('Expected textarea');
+			const box = field;
+			return box.value.slice(box.selectionStart, box.selectionEnd);
+		}),
+		'- Owning the outcome',
+	);
+	await first.keyboard.type('- Owning the outcome, edited');
+	await saved(first);
+	await first
+		.getByRole('button', { name: 'Open as capture', exact: true })
+		.click();
+	await first.getByLabel('Capture text').waitFor();
 	await act(first, 2, 'Move up');
 	await act(first, 0, 'Delete thought…');
 	await first.getByRole('button', { name: 'Delete thought' }).click();
@@ -238,57 +289,63 @@ try {
 	await openFromTimeline(first, 'Dinner with Sebastian');
 	assert.equal(await source(first), edited);
 
-	// 6. Another page edits the file. The first page's next save asks, and
-	// Reload theirs shows the other page's text.
+	// 6. Another page's save reaches the clean first page. Wait for that
+	// source to be observed before starting a new draft on the first page.
 	const second = await context.newPage();
 	second.on('pageerror', (error) => errors.push(`second: ${error.message}`));
 	await second.goto(app);
 	await openFromTimeline(second, 'Dinner with Sebastian');
 	await second.getByLabel('Capture text').fill('Changed in the other window');
 	await saved(second);
-	await first.getByLabel('Capture text').fill('Mine');
-	await first.getByText('This capture changed elsewhere').waitFor();
-	await first.getByRole('button', { name: 'Reload theirs' }).click();
 	await first.waitForFunction(
 		() =>
-			(document.querySelector('#capture-text') as HTMLTextAreaElement)
-				?.value === 'Changed in the other window',
+			document.querySelector<HTMLTextAreaElement>('#capture-text')?.value ===
+			'Changed in the other window',
 	);
-
-	// 7. Keep mine saves over a change made elsewhere.
-	await first.getByLabel('Capture text').fill('Saved over it');
+	await first.getByLabel('Capture text').fill('Mine');
 	await saved(first);
-	await second.getByLabel('Capture text').fill('Second again');
-	await second.getByText('This capture changed elsewhere').waitFor();
-	await second.getByRole('button', { name: 'Keep mine' }).click();
-	await saved(second);
+
+	// 7. Download writes the visible text before exporting the saved file.
+	await first.getByLabel('Capture text').fill('Saved over it');
+	const downloading = first.waitForEvent('download');
+	await first.getByRole('button', { name: 'More capture actions' }).click();
+	await first.getByRole('menuitem', { name: 'Download file' }).click();
+	const exported = await downloading;
+	let exportedText = '';
+	for await (const chunk of await exported.createReadStream())
+		exportedText += chunk.toString();
+	assert(exportedText.includes('\n\nSaved over it\n\n'));
+	await saved(first);
 	await first
 		.getByRole('button', { name: 'Edit as text', exact: true })
 		.click();
-	assert((await fileText(first).inputValue()).includes('\n\nSecond again\n\n'));
+	assert(
+		(await fileText(first).inputValue()).includes('\n\nSaved over it\n\n'),
+	);
+	// The local folder keeps no history and syncs nowhere: no Save version.
+	assert.equal(
+		await first.getByRole('button', { name: 'Save version' }).count(),
+		0,
+	);
 	await first.getByRole('button', { name: 'Back to timeline' }).click();
 	await first.getByRole('heading', { name: 'Timeline' }).waitFor();
 
-	// 8. Unadded thought text holds a reload back.
+	// 8. A thought not added yet is the view's; it neither prompts nor survives a reload.
 	let asked = 0;
 	second.on('dialog', (dialog) => {
 		asked++;
 		void dialog.dismiss();
 	});
 	await second.getByLabel('Add a thought').fill('typed, not added');
-	await second.reload({ timeout: 5000 }).catch(() => {});
-	assert.equal(asked, 1, 'unadded thought text is protected');
-	assert.equal(
-		await second.getByLabel('Add a thought').inputValue(),
-		'typed, not added',
-	);
-	await second.getByLabel('Add a thought').fill('');
+	await second.reload();
+	assert.equal(asked, 0, 'unsubmitted thought text does not prompt');
+	await openFromTimeline(second, 'Saved over it');
+	assert.equal(await second.getByLabel('Add a thought').inputValue(), '');
 	await second.getByRole('button', { name: 'Back to timeline' }).click();
 
 	// 9. Ambiguous Thoughts markup opens as text, with why.
-	await second.getByRole('button', { name: 'New capture' }).click();
 	await second
-		.getByLabel('Capture text')
+		.getByLabel('New capture')
 		.fill('Pasted article\n\n## Thoughts\n\n- belongs to the article');
 	await second.getByRole('button', { name: 'Add capture' }).click();
 	await second.getByRole('status', { name: 'Needs repair' }).waitFor();
@@ -307,33 +364,7 @@ try {
 		1,
 	);
 
-	// 11. Old captures come in from a bundle file, and a second import adds nothing.
-	await second
-		.getByRole('button', {
-			name: 'Bring in captures from before this version…',
-		})
-		.click();
-	await second.getByLabel('From an export file').setInputFiles(fixture);
-	await second
-		.getByRole('button', { name: 'Import as Markdown files' })
-		.click();
-	const result = second.getByRole('region', { name: 'Import result' });
-	await result.getByText('Import finished').waitFor();
-	await result.getByText('6 files created').waitFor();
-	await second
-		.getByRole('button', { name: 'Import as Markdown files' })
-		.click();
-	await result.getByText('0 files created').waitFor();
-	await result.getByText('6 imported before and left as they are').waitFor();
-	await second.getByRole('button', { name: 'Capture', exact: true }).click();
-	await second
-		.getByLabel('Timeline captures')
-		.getByRole('button')
-		.filter({ hasText: 'Dinner with Sebastian' })
-		.getByText('2 thoughts')
-		.waitFor();
-
-	// 12. A narrow screen does not scroll sideways.
+	// 11. A narrow screen does not scroll sideways.
 	await second.setViewportSize({ width: 390, height: 844 });
 	assert(
 		await second.evaluate(
@@ -347,9 +378,158 @@ try {
 			fullPage: true,
 		});
 
+	// 12. An earlier OPFS folder does not block the current timeline.
+	const earlier = await (await browser.newContext()).newPage();
+	earlier.on('pageerror', (error) => errors.push(`earlier: ${error.message}`));
+	await earlier.goto(app);
+	await earlier.getByRole('heading', { name: 'Timeline' }).waitFor();
+	await earlier.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		await root.getDirectoryHandle('so.epicenter.capture', { create: true });
+	});
+	await earlier.reload();
+	await earlier.getByRole('heading', { name: 'Timeline' }).waitFor();
+	await earlier.getByText('No captures yet').waitFor();
+	assert(
+		await earlier.evaluate(async () => {
+			const root = await navigator.storage.getDirectory();
+			return Boolean(await root.getDirectoryHandle('so.epicenter.capture'));
+		}),
+	);
+
+	// 13. A full-disk Add writes nothing and keeps the text; Add again adds it once.
+	const fillDisk = async () =>
+		earlier.evaluate(() => {
+			// SAFETY: this test installs a temporary method on this page's window.
+			const target = window as typeof window & {
+				restoreCaptureWrites?: () => void;
+			};
+			const put = IDBObjectStore.prototype.put;
+			target.restoreCaptureWrites = () => {
+				IDBObjectStore.prototype.put = put;
+			};
+			IDBObjectStore.prototype.put = () => {
+				throw new DOMException('Disk is full', 'QuotaExceededError');
+			};
+		});
+	const restoreDisk = async () =>
+		earlier.evaluate(() => {
+			// SAFETY: fillDisk installed this optional method on this page's window.
+			(
+				window as typeof window & { restoreCaptureWrites?: () => void }
+			).restoreCaptureWrites?.();
+		});
+	await earlier
+		.getByLabel('New capture')
+		.fill('Writing retained through failures');
+	await fillDisk();
+	const notices = await earlier.locator('[data-sonner-toast]').count();
+	await earlier.getByRole('button', { name: 'Add capture' }).click();
+	await failedCommand(earlier, notices, 'Could not add capture');
+	assert.equal(
+		await earlier.getByLabel('New capture').inputValue(),
+		'Writing retained through failures',
+	);
+	await restoreDisk();
+	await earlier.getByText('No captures yet').waitFor();
+	await earlier.getByRole('button', { name: 'Add capture' }).click();
+	await earlier.getByLabel('Add a thought').waitFor();
+	assert.equal((await source(earlier)).match(/^## Thoughts$/gm)?.length, 1);
+	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
+	assert.equal(
+		await earlier.getByLabel('Timeline captures').getByRole('button').count(),
+		1,
+	);
+
+	// 14. A saved draft from an earlier version uses the same whole-file editor.
+	// Seed its on-disk shape through ordinary file editing, without a test API.
+	await openFromTimeline(earlier, 'Writing retained through failures');
+	await earlier
+		.getByRole('button', { name: 'Edit as text', exact: true })
+		.click();
+	const previous = await fileText(earlier).inputValue();
+	const draftHead =
+		previous.slice(0, previous.indexOf('\n---\n') + 1) +
+		'draft: true\nunknownKey: kept\n---\n';
+	const raw = '\n  Saved draft writing  \nsecond line\n';
+	const legacyDraft = draftHead + raw;
+	await fileText(earlier).fill(legacyDraft);
+	await saved(earlier);
+	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
+	await earlier.reload();
+	await earlier.getByLabel('Draft captures').getByRole('button').click();
+	assert.equal(await fileText(earlier).inputValue(), legacyDraft);
+	assert.equal(
+		await earlier
+			.getByRole('button', { name: 'Open as capture', exact: true })
+			.count(),
+		0,
+	);
+
+	// A frontmatter typo never replaces the text box with a different view.
+	await fileText(earlier).fill(
+		legacyDraft.replace('draft: true', 'draft: tru'),
+	);
+	await earlier.getByRole('status', { name: 'Needs repair' }).waitFor();
+	assert.equal(await fileText(earlier).count(), 1);
+	await fileText(earlier).fill(legacyDraft);
+	await saved(earlier);
+
+	// A refused draft save keeps the typed text with inline recovery.
+	await fillDisk();
+	const revisedDraft = legacyDraft.replace(
+		'second line',
+		'second line, edited',
+	);
+	await fileText(earlier).fill(revisedDraft);
+	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
+	await earlier.getByText(/^Not saved:/).waitFor();
+	await restoreDisk();
+	await earlier.getByRole('button', { name: 'Save again' }).click();
+	await earlier.getByText(/^Not saved:/).waitFor({ state: 'hidden' });
+	await saved(earlier);
+	await fillDisk();
+	await earlier
+		.getByRole('button', { name: 'Add capture', exact: true })
+		.click();
+	await earlier
+		.getByLabel('Not applied')
+		.getByText(/Disk is full/i)
+		.waitFor();
+	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
+	await restoreDisk();
+	await earlier
+		.getByRole('button', { name: 'Add capture', exact: true })
+		.click();
+	await earlier.getByLabel('Add a thought').waitFor();
+	const finishedDraft = await source(earlier);
+	assert.equal(finishedDraft.match(/^## Thoughts$/gm)?.length, 1);
+	assert(!finishedDraft.includes('draft:'));
+	assert(finishedDraft.includes('unknownKey: kept'));
+	assert(finishedDraft.includes('second line, edited'));
+
+	// Confirmed discard removes an existing draft, including after reload.
+	await earlier
+		.getByRole('button', { name: 'Edit as text', exact: true })
+		.click();
+	await fileText(earlier).fill(legacyDraft);
+	await saved(earlier);
+	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
+	await earlier.reload();
+	await earlier.getByLabel('Draft captures').getByRole('button').click();
+	await earlier
+		.getByRole('button', { name: 'Discard draft…', exact: true })
+		.click();
+	await earlier
+		.getByRole('button', { name: 'Discard draft', exact: true })
+		.click();
+	await earlier.getByText('No captures yet').waitFor();
+	await earlier.reload();
+	await earlier.getByText('No captures yet').waitFor();
+
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, multiline thoughts added, edited, reordered, and deleted, Edit as text, reload persistence, the conflict prompt across two pages, a leave warning for unadded text, an ambiguous capture opened as text, deletion, and an idempotent import from a bundle file.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, download saving pending text, no Save version, full-disk Add recovery with a command toast, saved drafts reopened as full files, repaired without replacing the editor, failed draft writes retaining typed text with Save again, Finish retried once after an inline refusal, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
 	);
 } catch (cause) {
 	console.error(cause);
@@ -380,4 +560,5 @@ try {
 				console.error('Could not stop the dev server.', cause);
 		}
 	}
+	rmSync(appDirectory, { recursive: true, force: true });
 }

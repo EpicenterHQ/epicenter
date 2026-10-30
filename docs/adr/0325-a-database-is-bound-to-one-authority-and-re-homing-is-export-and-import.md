@@ -80,6 +80,7 @@ bytes do not.
 - `POST` and `DELETE /_epicenter/account/instance` are deleted, along with
   `selectInstance`, `selectHosted`, `normalizeInstanceUrl`, and the
   `{ kind: 'self-hosted' }` deployment record in
+  <!-- doc-path-check: ignore-next-line -->
   `apps/epicenter/src/desktop-auth-authority.ts`. **This is the urgent half.**
   Those routes are in-place rebinding at host altitude; they were safe only
   because the address then carried the server URL. **ADR-0324 has landed in the

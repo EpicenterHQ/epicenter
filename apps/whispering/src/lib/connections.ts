@@ -3,10 +3,12 @@
  * transcription and one for text.
  *
  * A connection is a base URL, the model used when a request names none, and
- * an optional API key. It is kept on this device, never in the folder: the
- * desktop host keeps it in the device file under `.git`, a browser tab in
- * `localStorage`. The folder's files (a recipe's endpoint, `kv.json`) never
- * choose where a request goes or which key it carries. A request names the
+ * an optional API key. Its base URL and key are kept on this device, never in
+ * Whispering's folder: inside Epicenter the connection is a row of
+ * `so.epicenter` holding the model, with the base URL and key in this
+ * computer's keychain, and a browser tab keeps all three in `localStorage`.
+ * The folder's files never choose where a
+ * request goes or which key it carries. A request names the
  * connection's base URL it was prepared for, and is sent only while the
  * connection still targets exactly that URL, so a change of connection never
  * retargets a request already prepared.
@@ -15,13 +17,12 @@
  * is kept only for the destination it was saved for: changing the base URL
  * needs the key replaced or removed in the same change.
  *
- * These rules are pure, so the host and the browser workspace apply the same
- * ones to their own storage. Nothing here reads or writes anything.
+ * These rules are pure, so both platform adapters apply the same ones to their own
+ * storage. Nothing here reads or writes anything.
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export type Operation = 'transcription' | 'text';
-export const OPERATIONS: readonly Operation[] = ['transcription', 'text'];
 
 /** What storage holds for one connection. The key never leaves the storage that holds it. */
 export type StoredConnection = {
@@ -36,7 +37,10 @@ export type StoredConnection = {
 export type ConnectionInfo = {
 	readonly baseUrl: string;
 	readonly model: string;
+	/** Whether a custom endpoint has a saved provider key; an account uses no provider key. */
 	readonly keyPresent: boolean;
+	/** This connection sends through the signed-in Epicenter account. */
+	readonly source?: 'account';
 	/** Set when the connection cannot be changed from the app. */
 	readonly readOnlyReason: string | undefined;
 };
@@ -44,11 +48,6 @@ export type ConnectionInfo = {
 export type ConnectionsInfo = {
 	readonly transcription: ConnectionInfo | undefined;
 	readonly text: ConnectionInfo | undefined;
-	/**
-	 * A key saved by an earlier build, which used one key for every endpoint.
-	 * It is sent nowhere until the person moves it into a connection.
-	 */
-	readonly legacyKey: boolean;
 };
 
 export type KeyChange =
@@ -179,46 +178,6 @@ export function applyConnectionChange(
 	return Ok(
 		apiKey === undefined ? { baseUrl, model } : { baseUrl, model, apiKey },
 	);
-}
-
-/** Where the earlier key is to go: the destination the person was shown and agreed to. */
-export type LegacyKeyTargets = Partial<
-	Record<Operation, { readonly baseUrl: string; readonly model: string }>
->;
-
-/**
- * The connections that result from moving the earlier key into the targets
- * the person chose. Each target becomes a connection with that key, so the
- * key goes only to destinations shown to them.
- */
-export function adoptLegacyKey(
-	key: string,
-	targets: LegacyKeyTargets,
-	readOnly: Partial<Record<Operation, string>>,
-): Result<Partial<Record<Operation, StoredConnection>>, string> {
-	if (key === '')
-		return Err('No key from an earlier version is saved on this device.');
-	const chosen = OPERATIONS.filter((operation) => targets[operation]);
-	if (chosen.length === 0)
-		return Err('Choose where the earlier key may be sent.');
-	const adopted: Partial<Record<Operation, StoredConnection>> = {};
-	for (const operation of chosen) {
-		const reason = readOnly[operation];
-		if (reason !== undefined) return Err(reason);
-		const target = targets[operation]!;
-		const { data: made, error: changeError } = applyConnectionChange(
-			operation,
-			undefined,
-			{
-				baseUrl: target.baseUrl,
-				model: target.model,
-				key: { action: 'replace', key },
-			},
-		);
-		if (changeError !== null) return Err(changeError);
-		adopted[operation] = made;
-	}
-	return Ok(adopted);
 }
 
 /**

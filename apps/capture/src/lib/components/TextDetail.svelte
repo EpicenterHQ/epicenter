@@ -1,96 +1,164 @@
-<!--
-	One capture file as its exact Markdown, frontmatter included. It saves as
-	typed, valid or not, so a file that is not a valid capture is repaired
-	here. What keeps it from reading as a capture is read live from the text;
-	once nothing does, Open as capture shows its text and thoughts. The parent
-	keys this view by the open item.
--->
+<!-- One capture file as Markdown. This view owns its text edit until each save answers. -->
 <script lang="ts">
-	import { captureBody, captureDefinition, fromTextarea, toTextarea } from '@epicenter/capture';
-	import { parseRow } from '@epicenter/folder';
+	import { captureTables } from '@epicenter/capture';
+	import { readRow } from '@epicenter/folder';
+	import { fileEdit } from '@epicenter/svelte/folder';
+	import RowIssues from '@epicenter/svelte/row-issues';
+	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
+	import * as Alert from '@epicenter/ui/alert';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
+	import * as Empty from '@epicenter/ui/empty';
 	import { toast } from '@epicenter/ui/sonner';
 	import { Textarea } from '@epicenter/ui/textarea';
-	import { untrack } from 'svelte';
-	import type { Captures, Opened } from '$lib/captures.svelte.js';
+	import { onDestroy, untrack } from 'svelte';
+	import { type Captures, capturePath, readCaptureBody } from '$lib/captures.svelte.js';
 	import { copyText } from '$lib/download.js';
-	import { backToTimeline, confirmDelete, openItem } from '$lib/item-actions.js';
-	import SaveBar from '@epicenter/svelte/save-bar';
+	import { getFolder } from '$lib/folder.js';
+	import { confirmDelete } from '$lib/item-actions.js';
 
-	let {
-		captures,
-		item,
-	}: {
-		captures: Captures;
-		/** The open file. The parent keys this view by it. */
-		item: Extract<Opened, { kind: 'text' }>;
-	} = $props();
-
-	// The view is keyed by the item, so it never changes for this view.
-	const { session, stem } = untrack(() => item);
-
-	/** Why the text is not a capture yet: each with its line when it has one. */
-	const issues = $derived.by((): readonly { line?: number; message: string }[] => {
-		const { data: row, error } = parseRow(captureDefinition.tables.captures, session.draft);
-		if (error !== null) return error;
-		const { error: refusal } = captureBody.decode(row.body);
-		return refusal === null ? [] : [{ message: refusal.message }];
+	let { captures, stem }: { captures: Captures; stem: string } = $props();
+	const folder = getFolder();
+	let active = true;
+	onDestroy(() => {
+		active = false;
 	});
+	const path = untrack(() => capturePath(stem));
+	const row = $derived(folder.tables.captures.row(stem));
+	const source = $derived.by(() => {
+		const file = folder.file(path);
+		return file?.readError === null && typeof file.data === 'string' ? file.data : undefined;
+	});
+	const text = fileEdit(folder, path);
+	const parsed = $derived(readRow(text.value, captureTables.captures));
+	const isDraft = $derived(parsed.issues === null && parsed.fields.draft === true);
+	const body = $derived(parsed.issues === null ? parsed.body : undefined);
+	const reading = $derived(parsed.issues === null ? readCaptureBody(parsed) : undefined);
+	const needsRepair = $derived(parsed.issues !== null || reading?.error !== null);
+	const selection = untrack(() => captures.opened?.focus);
+	let finishing = $state(false);
+	let refusal = $state<string | undefined>();
+	let textField = $state<HTMLTextAreaElement | null>(null);
 
-	async function copy() {
-		if (await copyText(session.draft)) toast.success('File text copied');
+	function selectThought(node: HTMLTextAreaElement) {
+		if (typeof selection !== 'object') return;
+		node.focus();
+		node.setSelectionRange(selection.start, selection.end);
+	}
+	function input(typing: string) {
+		if (typing.includes('\0')) {
+			refusal = 'A file cannot contain U+0000.';
+			queueMicrotask(() => {
+				if (textField) textField.value = text.value;
+			});
+			return;
+		}
+		refusal = undefined;
+		text.set(typing);
+	}
+	async function openCapture() {
+		// Navigation checks that the saved file reads as a capture.
+		if ((await text.landed()).error !== null) return;
+		if (!active) return;
+		captures.open(stem, 'capture');
+	}
+	async function finish() {
+		if (finishing || !isDraft || !body?.trim()) return;
+		finishing = true;
+		// Finishing composes the landed draft body into a capture.
+		if ((await text.landed()).error !== null) {
+			if (active) finishing = false;
+			return;
+		}
+		if (!active) return;
+		const result = await captures.finishDraft(stem);
+		if (!active) return;
+		finishing = false;
+		if (result.error !== null) refusal = result.error.message;
+	}
+	async function copy(value: string, what: string) {
+		if (await copyText(value)) toast.success(`${what} copied`);
 		else toast.error('Could not copy. Select the text and copy it.');
 	}
 </script>
 
 <div class="flex flex-col gap-4">
 	<div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-		<Button variant="outline" size="sm" onclick={() => void backToTimeline(captures)}>Back to timeline</Button>
-		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{session.path}</h1>
-		<Button
-			size="sm"
-			variant="outline"
-			disabled={issues.length > 0}
-			onclick={() => void openItem(captures, stem, 'capture')}>Open as capture</Button
-		>
-		<Button size="sm" variant="ghost" onclick={copy}>Copy file text</Button>
-		<Button size="sm" variant="ghost" disabled={captures.fenced} onclick={() => confirmDelete(captures, '')}>Delete…</Button>
+		<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
+		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
+		{#if source !== undefined}
+			{#if isDraft}
+				<Button size="sm" disabled={finishing || !body?.trim()} onclick={() => void finish()}>
+					{finishing ? 'Adding…' : 'Add capture'}
+				</Button>
+			{:else}
+				<Button size="sm" variant="outline" disabled={needsRepair} onclick={() => void openCapture()}>Open as capture</Button>
+			{/if}
+			<Button size="sm" variant="ghost" onclick={() => void copy(text.value, 'File text')}>Copy file text</Button>
+			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem)}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
+		{/if}
 	</div>
 
-	<SaveBar
-		save={session.state}
-		class="rounded-md border"
-		onRetry={() => session.retry()}
-		onKeepMine={() => captures.keepMine(session)}
-		onReloadTheirs={() => captures.reloadTheirs(session)}
-	/>
-
-	{#if issues.length > 0}
-		<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
-			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
-				<Badge variant="destructive">Needs repair</Badge>
-				This text does not read as a capture yet. Fix it here; it saves as you type.
-			</p>
-			<ul class="space-y-0.5 text-muted-foreground">
-				{#each issues as issue, index (index)}
-					<li>{issue.line === undefined ? '' : `Line ${issue.line}: `}{issue.message}</li>
-				{/each}
-			</ul>
-		</div>
+	{#if isDraft}
+		<p class="text-sm text-muted-foreground">This saved draft is its full Markdown file. Add capture finishes its writing and adds the Thoughts section. Ctrl or ⌘ + Enter adds it.</p>
 	{/if}
+	{#if refusal}
+		<Alert.Root variant="destructive" aria-label="Not applied">
+			<Alert.Title>That change was not made</Alert.Title>
+			<Alert.Description>{refusal}</Alert.Description>
+		</Alert.Root>
+	{/if}
+	<UnsavedEdit edit={text} />
 
-	<Textarea
-		aria-label="Contents of {session.path}"
-		class="min-h-96 font-mono text-xs"
-		spellcheck={false}
-		readonly={session.locked}
-		bind:value={
-			() => toTextarea(session.draft),
-			(text) =>
-				session.input(
-					fromTextarea(session.draft, text, session.draft.includes('\r\n') ? '\r\n' : '\n'),
-				)
-		}
-	/>
+	{#if source !== undefined || text.value !== '' || text.error !== null}
+		{#if needsRepair}
+			<div class="rounded-md border bg-destructive/5 px-4 py-2 text-sm" role="status" aria-label="Needs repair">
+				<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
+					<Badge variant="destructive">Needs repair</Badge>
+					This text does not read as a capture yet. It is checked as you type.
+				</p>
+				<div class="space-y-0.5 text-muted-foreground">
+					{#if parsed.issues !== null}<RowIssues issues={parsed.issues} />{/if}
+					{#if reading?.error}<p>{reading.error.message}</p>{/if}
+				</div>
+			</div>
+		{/if}
+		<Textarea
+			aria-label="Contents of {path}"
+			class="min-h-96 font-mono text-xs"
+			spellcheck={false}
+			readonly={finishing}
+			aria-invalid={refusal !== undefined}
+			bind:value={() => text.value, input}
+			bind:ref={textField}
+			onkeydown={(event) => {
+				if (!isDraft || !(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
+				event.preventDefault();
+				void finish();
+			}}
+			{@attach selectThought}
+		/>
+	{:else if row === undefined}
+		<Empty.Root role="alert">
+			<Empty.Header>
+				<Empty.Title>This capture is no longer here</Empty.Title>
+				<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+			</Empty.Header>
+		</Empty.Root>
+	{:else if row.issues?.some((issue) => issue.kind === 'unreadable')}
+		<Empty.Root role="alert">
+			<Empty.Header>
+				<Empty.Title>This capture could not be read</Empty.Title>
+				<Empty.Description><RowIssues issues={row.issues} /></Empty.Description>
+			</Empty.Header>
+			<Empty.Content><Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button></Empty.Content>
+		</Empty.Root>
+	{:else}
+		<Empty.Root role="alert">
+			<Empty.Header>
+				<Empty.Title>This file cannot be edited here</Empty.Title>
+				<Empty.Description>It is not text. Nothing in it was changed.</Empty.Description>
+			</Empty.Header>
+		</Empty.Root>
+	{/if}
 </div>

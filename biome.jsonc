@@ -1,5 +1,5 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.4.10/schema.json",
+	"$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
 	"plugins": ["./scripts/biome/c-json-errors.grit"],
 	"vcs": {
 		"enabled": true,
@@ -39,8 +39,13 @@
 			// two files it did not change, so the generator's output is the
 			// committed form. `typecheck` still reads them.
 			"!**/bindings.gen.ts",
+			// Written by the `tauri-plugin` build script on every cargo build of a
+			// plugin, for the same reason: the generator's output is the committed form.
+			"!**/permissions/schemas/schema.json",
 			// Raw registry responses are retained byte-for-byte for upstream comparison.
 			"!packages/ui/upstream",
+			// Preserve the vendored lint rules byte-for-byte for upstream updates.
+			"!tools/oxlint/anti-slop",
 			"!**/.gitignore",
 			"!.DS_Store",
 			"!docs/articles",
@@ -71,7 +76,7 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true,
+			"preset": "recommended",
 			"nursery": {
 				"useSortedClasses": "warn"
 			}

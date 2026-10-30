@@ -1,0 +1,273 @@
+{
+	"recordedAt": "2026-10-27T06:58:33.966Z",
+	"browser": "151.0.7922.34",
+	"edits": 2000,
+	"runs": [
+		{
+			"size": 1000,
+			"variant": "packed",
+			"seed": {
+				"storedBytes": 14600560,
+				"seedMs": 7.900000095367432
+			},
+			"cold": [
+				{
+					"readMs": 6.900000095367432,
+					"parseMs": 155.40000009536743,
+					"readyMs": 162.30000019073486,
+					"logRecords": 0,
+					"retainedMiB": 21.3
+				},
+				{
+					"readMs": 6.599999904632568,
+					"parseMs": 126.40000009536743,
+					"readyMs": 133,
+					"logRecords": 0,
+					"retainedMiB": 21.3
+				},
+				{
+					"readMs": 6.800000190734863,
+					"parseMs": 132.09999990463257,
+					"readyMs": 138.90000009536743,
+					"logRecords": 0,
+					"retainedMiB": 21.3
+				}
+			],
+			"typing": {
+				"digest": {
+					"n": 5000,
+					"h": 2151126517
+				}
+			},
+			"typingSummary": {
+				"p50": 0.8,
+				"p95": 2.2,
+				"max": 7,
+				"logBytes": null
+			},
+			"reopenWithLog": {
+				"readMs": 21.90000009536743,
+				"parseMs": 142.7999997138977,
+				"readyMs": 164.69999980926514,
+				"logRecords": 2000,
+				"sameText": true
+			},
+			"compact": {
+				"ms": 34.89999961853027,
+				"bytes": 14602160
+			},
+			"reopenCompacted": {
+				"readMs": 14.700000286102295,
+				"parseMs": 134.19999980926514,
+				"readyMs": 148.90000009536743,
+				"logRecords": 0,
+				"sameText": true,
+				"retainedMiB": 21.3
+			}
+		},
+		{
+			"size": 1000,
+			"variant": "yjs",
+			"seed": {
+				"storedBytes": 14679602,
+				"seedMs": 6.5
+			},
+			"cold": [
+				{
+					"readMs": 6.5,
+					"applyMs": 32.700000286102295,
+					"projectMs": 4.900000095367432,
+					"readyMs": 44.10000038146973,
+					"logRecords": 0,
+					"retainedMiB": 24.9
+				},
+				{
+					"readMs": 7,
+					"applyMs": 31.40000009536743,
+					"projectMs": 4.700000286102295,
+					"readyMs": 43.10000038146973,
+					"logRecords": 0,
+					"retainedMiB": 24.9
+				},
+				{
+					"readMs": 7.599999904632568,
+					"applyMs": 33.59999990463257,
+					"projectMs": 5.099999904632568,
+					"readyMs": 46.299999713897705,
+					"logRecords": 0,
+					"retainedMiB": 24.9
+				}
+			],
+			"typing": {
+				"digest": {
+					"n": 5000,
+					"h": 736836039
+				}
+			},
+			"typingSummary": {
+				"p50": 0.4,
+				"p95": 1.6,
+				"max": 4,
+				"logBytes": 76827
+			},
+			"reopenWithLog": {
+				"readMs": 17.800000190734863,
+				"applyMs": 34.69999980926514,
+				"projectMs": 5,
+				"readyMs": 57.5,
+				"logRecords": 2000,
+				"sameText": true
+			},
+			"compact": {
+				"ms": 36.89999961853027,
+				"bytes": 14688829,
+				"rebuild": {
+					"ms": 64.60000038146973,
+					"bytes": 14681204
+				}
+			},
+			"reopenCompacted": {
+				"readMs": 24.300000190734863,
+				"applyMs": 38.5,
+				"projectMs": 5.900000095367432,
+				"readyMs": 68.7000002861023,
+				"logRecords": 0,
+				"sameText": true,
+				"retainedMiB": 26.1
+			}
+		},
+		{
+			"size": 10000,
+			"variant": "packed",
+			"seed": {
+				"storedBytes": 146045560,
+				"seedMs": 51.40000009536743
+			},
+			"cold": [
+				{
+					"readMs": 33.30000019073486,
+					"parseMs": 1038.5999999046326,
+					"readyMs": 1071.9000000953674,
+					"logRecords": 0,
+					"retainedMiB": 206.6
+				},
+				{
+					"readMs": 33.90000009536743,
+					"parseMs": 1026.5,
+					"readyMs": 1060.4000000953674,
+					"logRecords": 0,
+					"retainedMiB": 206.6
+				},
+				{
+					"readMs": 35.69999980926514,
+					"parseMs": 1013.9000000953674,
+					"readyMs": 1049.5999999046326,
+					"logRecords": 0,
+					"retainedMiB": 206.6
+				}
+			],
+			"typing": {
+				"digest": {
+					"n": 50000,
+					"h": 3017198925
+				}
+			},
+			"typingSummary": {
+				"p50": 0.8,
+				"p95": 2,
+				"max": 83.8,
+				"logBytes": null
+			},
+			"reopenWithLog": {
+				"readMs": 45.69999980926514,
+				"parseMs": 1027.4000000953674,
+				"readyMs": 1073.0999999046326,
+				"logRecords": 2000,
+				"sameText": true
+			},
+			"compact": {
+				"ms": 162.2000002861023,
+				"bytes": 146047160
+			},
+			"reopenCompacted": {
+				"readMs": 42.39999961853027,
+				"parseMs": 1035.7000002861023,
+				"readyMs": 1078.0999999046326,
+				"logRecords": 0,
+				"sameText": true,
+				"retainedMiB": 206.6
+			}
+		},
+		{
+			"size": 10000,
+			"variant": "yjs",
+			"seed": {
+				"storedBytes": 146835604,
+				"seedMs": 48.19999980926514
+			},
+			"cold": [
+				{
+					"readMs": 32.80000019073486,
+					"applyMs": 260,
+					"projectMs": 31.09999990463257,
+					"readyMs": 323.90000009536743,
+					"logRecords": 0,
+					"retainedMiB": 246.9
+				},
+				{
+					"readMs": 30.59999990463257,
+					"applyMs": 275.09999990463257,
+					"projectMs": 33.40000009536743,
+					"readyMs": 339.09999990463257,
+					"logRecords": 0,
+					"retainedMiB": 246.9
+				},
+				{
+					"readMs": 29.5,
+					"applyMs": 269.19999980926514,
+					"projectMs": 32.60000038146973,
+					"readyMs": 331.30000019073486,
+					"logRecords": 0,
+					"retainedMiB": 246.9
+				}
+			],
+			"typing": {
+				"digest": {
+					"n": 50000,
+					"h": 1159766199
+				}
+			},
+			"typingSummary": {
+				"p50": 0.7,
+				"p95": 2,
+				"max": 7.1,
+				"logBytes": 80428
+			},
+			"reopenWithLog": {
+				"readMs": 45.40000009536743,
+				"applyMs": 305.19999980926514,
+				"projectMs": 34.80000019073486,
+				"readyMs": 385.40000009536743,
+				"logRecords": 2000,
+				"sameText": true
+			},
+			"compact": {
+				"ms": 326,
+				"bytes": 146845240,
+				"rebuild": {
+					"ms": 694.5,
+					"bytes": 146837205
+				}
+			},
+			"reopenCompacted": {
+				"readMs": 47.69999980926514,
+				"applyMs": 278.59999990463257,
+				"projectMs": 33.30000019073486,
+				"readyMs": 359.59999990463257,
+				"logRecords": 0,
+				"sameText": true,
+				"retainedMiB": 247
+			}
+		}
+	]
+}

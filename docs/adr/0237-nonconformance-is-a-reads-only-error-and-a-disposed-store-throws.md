@@ -18,6 +18,7 @@
   (the superseded stack's read surface already drew this line: "classification
   failure is row data, but operational failure is control flow"; this record
   carries it into the store),
+  <!-- doc-path-check: ignore-next-line -->
   [ADR-0125 territory restated in `docs/the-store-and-what-it-replaced.md`]
   (nonconforming is a view, not damage),
   [ADR-0213](0213-a-lens-is-arktype-json-and-an-application-queries-only-its-own-projection.md)
@@ -40,6 +41,7 @@ The mixture produced exactly the symptoms a wrong boundary produces:
   settings).
 - The sync client probed `stampError.name === 'Unstampable'` to separate a
   protocol refusal from a storage failure it could do nothing about.
+<!-- doc-path-check: ignore-next-line -->
 - `packages/app/src/data/README.md` spent paragraphs warning that
   `.data?.rows ?? []` turns an operational failure into "you have never
   written one of these". A surface that needs a standing warning against its

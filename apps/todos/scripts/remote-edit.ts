@@ -9,8 +9,9 @@
  * person editing the file might (a YAML comment, a new title, done set, and
  * the keys `owner` and `labels`, which Todos does not declare), then commits
  * and pushes. In the browser, Fetch and Pull show the changed todo; its file
- * keeps the comment and the keys byte for byte, and saving the todo later
- * keeps the keys. Prints what it pushed as JSON.
+ * shows the comment and keys in the source, and saving the todo later keeps
+ * the keys while writing canonical frontmatter without the comment. Prints
+ * what it pushed as JSON.
  */
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';

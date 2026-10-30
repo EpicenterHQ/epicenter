@@ -2,10 +2,11 @@
  * Calling code the folder does not own.
  *
  * A change listener or a snapshot subscriber runs inside the folder's own
- * work: a hint is announced from the save that caused it. What such a
- * callback throws is its own failure. It must not turn a save that landed
- * into a rejection, stop the commit request that follows it, or keep the
- * listeners after it from hearing.
+ * work: a snapshot is announced from the save that changed it, and a change
+ * from the Sync that wrote it. What such a callback throws is its own
+ * failure. It must not turn a save that landed into a rejection, stop the
+ * commit request that follows it, or keep the listeners after it from
+ * hearing.
  */
 import { createLogger } from 'wellcrafted/logger';
 

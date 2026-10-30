@@ -1,0 +1,652 @@
+/**
+ * Repository API Tests
+ *
+ * The handle a page uses, over a replica in this process: residency
+ * declared with the collection, a status gate across worker sessions, an
+ * ordered snapshot then deltas, and writes projected until answered.
+ *
+ * Key behaviors:
+ * - A collection kept in memory lists every note whole, invalid ones with their issues; one declared `memory: false` reads one note at a time and through SQL
+ * - Writes are refused while no session is open, and project nothing
+ * - A write shows at once, is cleared by its answer, and is dropped when it fails
+ * - A new session's snapshot keeps the object of every note that did not change
+ * - Typing in a body keeps the note's fields as read and replaces it in the ordered list, without sorting it again
+ * - A note not kept in memory is read, and edited, through another spelling of its path
+ * - What shows before an answer is what the worker will make: a field set a moment ago still shows under body typing and a write made over an older text
+ * - Subscribers hear which collections changed, in memory or not, and the revision moves for SQL reads
+ * - The plain file API lists, reads, writes and edits every file, in a collection or none, and lists those not yet synced; a write to a path a collection keeps shows there at once
+ * - Apps combined may claim one file: it shows in each collection, read with each schema
+ * - A blob collection creates, replaces, opens and deletes bytes at named paths, refusing a create where a file is and a replace where none is; the plain file API reaches the same bytes
+ * - A batch of two notes and a new blob, with a delayed upload, lands as one commit; a refused upload holds the whole batch; a batch with a change that cannot apply stores no file
+ */
+import { expect, test } from 'bun:test';
+import { Type } from 'typebox';
+import { unwrap } from 'wellcrafted/result';
+import { expectErr, expectOk } from 'wellcrafted/testing';
+import { openBunSqlite } from '../bun/sqlite.js';
+import { openReplica, type Replica } from '../client/replica.js';
+import { combineApps, defineApp } from '../core/lens.js';
+import { parsePointer, writePointer } from '../core/markdown.js';
+import { twoDevices } from './api.test-support.js';
+import { createLocalHost } from './local.js';
+import {
+	type InvalidNote,
+	type Note,
+	openRepository,
+	type RepositoryChange,
+	type ValidNote,
+} from './repository.js';
+
+const todos = Type.Object({ title: Type.String(), done: Type.Boolean() });
+const app = defineApp({
+	todos: { path: 'todos/{stem}.md', schema: todos },
+	entries: {
+		path: 'journal/{stem}.md',
+		schema: Type.Object({ title: Type.String() }),
+		memory: false,
+	},
+});
+const todo = (title: string, done = false, body = '') =>
+	`---\ntitle: ${title}\ndone: ${done}\n---\n${body}`;
+
+/** Let every answer and change in flight arrive. */
+const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function setup(seed: (replica: Replica) => void = () => {}) {
+	const driver = openBunSqlite();
+	const replica = unwrap(
+		openReplica({
+			driver,
+			binding: { repository: 'r', server: null, account: null },
+			device: 'laptop',
+			app,
+			after: () => {},
+			now: () => 0,
+			quiet: 0,
+		}),
+	);
+	seed(replica);
+	const local = createLocalHost({ replica, app });
+	const repo = openRepository({ app, host: local.host });
+	const heard: RepositoryChange[] = [];
+	repo.subscribe((change) => heard.push(change));
+	return { driver, replica, local, repo, heard };
+}
+
+test('a collection kept in memory lists every note whole, invalid ones with their issues', async () => {
+	const { repo } = setup((replica) => {
+		replica.write('todos/milk.md', todo('Milk', false, 'two litres\n'));
+		replica.write('todos/odd.md', '---\ntitle: Odd\n---\n');
+		replica.write('todos/broken.md', '---\ntitle: A\ntitle: B\n---\n');
+	});
+	expect(repo.status()).toEqual({ status: 'opening' });
+	expect(repo.todos.all()).toEqual([]);
+	await settled();
+	expect(repo.status()).toEqual({ status: 'open' });
+	const [broken, milk, odd] = repo.todos.all();
+	expect(milk).toMatchObject({
+		path: 'todos/milk.md',
+		params: { stem: 'milk' },
+		valid: true,
+		fields: { title: 'Milk', done: false },
+		body: 'two litres\n',
+		text: todo('Milk', false, 'two litres\n'),
+	});
+	expect(odd).toMatchObject({ valid: false, fields: { title: 'Odd' } });
+	expect(odd?.valid === false && odd.issues.length).toBeGreaterThan(0);
+	// Narrowed once, a note is one of the two named shapes.
+	const named = (
+		note: Note<'todos/{stem}.md', typeof todos>,
+	):
+		| ValidNote<'todos/{stem}.md', typeof todos>
+		| InvalidNote<'todos/{stem}.md'> => note;
+	const titles = repo.todos
+		.all()
+		.map(named)
+		.map((note) => (note.valid ? note.fields.title : note.issues.length));
+	expect(titles).toHaveLength(3);
+	// Its title is held twice: a note all the same, that key an issue of its own and missing; its body is what follows the header.
+	expect(broken).toMatchObject({
+		valid: false,
+		fields: {},
+		body: '',
+		issues: [
+			'/title does not parse',
+			'/ must have required properties title, done',
+		],
+	});
+	expect(broken?.state.status).not.toBe('waiting');
+	expect(repo.todos.get({ stem: 'milk' })).toBe(milk);
+	// The same array until a note changes.
+	expect(repo.todos.all()).toBe(repo.todos.all());
+});
+
+test('a collection not kept in memory reads one note at a time and through SQL, and is told when its notes change', async () => {
+	const { repo, heard } = setup((replica) =>
+		replica.write(
+			'journal/2026-01-01.md',
+			'---\ntitle: New year\n---\nCold.\n',
+		),
+	);
+	await settled();
+	// @ts-expect-error a collection not kept in memory has no synchronous reads
+	expect(repo.entries.all).toBeUndefined();
+	expect(
+		expectOk(await repo.entries.read({ stem: '2026-01-01' })),
+	).toMatchObject({
+		valid: true,
+		fields: { title: 'New year' },
+		body: 'Cold.\n',
+	});
+	expect(expectOk(await repo.entries.read({ stem: 'missing' }))).toBeNull();
+	heard.length = 0;
+	const before = repo.revision();
+	expectOk(
+		await repo.entries.create(
+			{ stem: '2026-01-02' },
+			{ fields: { title: 'Snow' }, body: 'More.\n' },
+		),
+	);
+	await settled();
+	expect(heard.flatMap((change) => change.collections)).toContain('entries');
+	expect(repo.revision()).toBeGreaterThan(before);
+	expect(
+		expectOk(await repo.query('SELECT stem, title FROM entries ORDER BY stem')),
+	).toEqual([
+		{ stem: '2026-01-01', title: 'New year' },
+		{ stem: '2026-01-02', title: 'Snow' },
+	]);
+});
+
+test('writes are refused while no session is open, and project nothing', async () => {
+	const { repo, local } = setup((replica) =>
+		replica.write('todos/milk.md', todo('Milk')),
+	);
+	expect(
+		expectErr(await repo.todos.patch({ stem: 'milk' }, { done: true })).name,
+	).toBe('Unavailable');
+	await settled();
+	local.end();
+	expect(repo.status()).toEqual({ status: 'opening' });
+	expect(
+		expectErr(
+			await repo.todos.create(
+				{ stem: 'eggs' },
+				{ fields: { title: 'Eggs', done: false } },
+			),
+		).name,
+	).toBe('Unavailable');
+	expect(repo.todos.all().map((note) => note.params.stem)).toEqual(['milk']);
+	expect(expectErr(await repo.query('SELECT 1')).name).toBe('Unavailable');
+});
+
+test('a write shows at once, sending, and its answer leaves the note as the worker holds it', async () => {
+	const { repo } = setup((replica) =>
+		replica.write('todos/milk.md', todo('Milk', false, 'two litres\n')),
+	);
+	await settled();
+	const saving = repo.todos.patch({ stem: 'milk' }, { done: true });
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		fields: { done: true },
+		state: { status: 'sending' },
+	});
+	expect(expectOk(await saving)).toMatchObject({
+		text: todo('Milk', true, 'two litres\n'),
+	});
+	await settled();
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		fields: { done: true },
+		text: todo('Milk', true, 'two litres\n'),
+	});
+});
+
+test('a batch that fails is dropped from what shows: nothing of it stays', async () => {
+	const { repo, replica } = setup((replica) =>
+		replica.write('todos/milk.md', todo('Milk')),
+	);
+	await settled();
+	const saving = repo.commit((batch) => {
+		batch.todos.create(
+			{ stem: 'eggs' },
+			{ fields: { title: 'Eggs', done: false } },
+		);
+		batch.todos.patch({ stem: 'gone' }, { done: true });
+	});
+	expect(repo.todos.get({ stem: 'eggs' })).toMatchObject({
+		fields: { title: 'Eggs' },
+	});
+	expect(expectErr(await saving).name).toBe('NotFound');
+	expect(repo.todos.get({ stem: 'eggs' })).toBeUndefined();
+	expect(replica.read('todos/eggs.md')).toBeNull();
+});
+
+test('a new session keeps the object of every note that did not change, and shows what changed while none was open', async () => {
+	const { repo, replica, local, heard } = setup((replica) => {
+		replica.write('todos/milk.md', todo('Milk'));
+		replica.write('todos/eggs.md', todo('Eggs'));
+	});
+	await settled();
+	const milk = repo.todos.get({ stem: 'milk' });
+	const eggs = repo.todos.get({ stem: 'eggs' });
+	local.end();
+	// While no session is open, the replica changes (another tab's worker, a sync).
+	replica.write('todos/eggs.md', todo('Eggs', true));
+	replica.write('todos/bread.md', todo('Bread'));
+	expect(repo.todos.get({ stem: 'eggs' })).toBe(eggs);
+	heard.length = 0;
+	local.resume();
+	await settled();
+	expect(repo.status()).toEqual({ status: 'open' });
+	expect(repo.todos.get({ stem: 'milk' })).toBe(milk);
+	expect(repo.todos.get({ stem: 'eggs' })).toMatchObject({
+		fields: { done: true },
+	});
+	expect(repo.todos.all().map((note) => note.params.stem)).toEqual([
+		'bread',
+		'eggs',
+		'milk',
+	]);
+	expect(
+		heard.some(
+			(change) => change.status && change.collections.includes('todos'),
+		),
+	).toBe(true);
+});
+
+test("changes made beneath the page arrive in order, and a note's state follows its sync", async () => {
+	const { repo, replica } = setup();
+	await settled();
+	replica.write('todos/milk.md', todo('Milk'));
+	replica.write('todos/milk.md', todo('Milk', true));
+	await settled();
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		fields: { done: true },
+		state: { status: 'sending' },
+	});
+	replica.write('todos/milk.md', null);
+	await settled();
+	expect(repo.todos.all()).toEqual([]);
+});
+
+test('a closed repository refuses writes and lets its host go', async () => {
+	const { repo, local } = setup();
+	await settled();
+	repo.close();
+	expect(repo.status()).toEqual({ status: 'closed' });
+	expect(expectErr(await repo.todos.create({ stem: 'x' })).name).toBe(
+		'Unavailable',
+	);
+	local.resume();
+	expect(repo.status()).toEqual({ status: 'closed' });
+});
+
+test("typing in a note's body keeps its fields as read and the list in order, without reading or sorting the rest again", async () => {
+	const { repo } = setup((replica) => {
+		for (const name of ['apple', 'milk', 'eggs'])
+			replica.write(`todos/${name}.md`, todo(name, false, 'one\n'));
+	});
+	await settled();
+	const before = repo.todos.all();
+	const milk = repo.todos.get({ stem: 'milk' });
+	const editor = expectOk(await repo.todos.openEditor({ stem: 'milk' }));
+	editor.update(editor.draft().replace('\none\n', '\none two\n'));
+	const after = repo.todos.all();
+	expect(after).not.toBe(before);
+	expect(after.map((note) => note.path)).toEqual([
+		'todos/apple.md',
+		'todos/eggs.md',
+		'todos/milk.md',
+	]);
+	expect(after[0]).toBe(before[0]);
+	expect(after[2]).toMatchObject({
+		body: 'one two\n',
+		state: { status: 'sending' },
+	});
+	expect(after[2]?.fields).toBe(milk?.fields);
+	// A change to the frontmatter is read again.
+	editor.update(editor.draft().replace('done: false', 'done: true'));
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		valid: true,
+		fields: { done: true },
+	});
+	await settled();
+	expectOk(await editor.close());
+});
+
+test('a field set a moment ago still shows while the body is typed, and under a write made over an older text', async () => {
+	const { repo } = setup((replica) =>
+		replica.write('todos/milk.md', todo('Milk', false, 'one\n')),
+	);
+	await settled();
+	const editor = expectOk(await repo.todos.openEditor({ stem: 'milk' }));
+	// The title is set; before its answer, the person types in the body.
+	const titled = repo.todos.patch({ stem: 'milk' }, { title: 'Oat milk' });
+	editor.update(todo('Milk', false, 'one two\n'));
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		fields: { title: 'Oat milk' },
+		body: 'one two\n',
+	});
+	// A write made over the note as it was keeps the field too, as the worker will merge it.
+	const written = repo.todos.write(
+		{ stem: 'milk' },
+		todo('Milk', true, 'one two\n'),
+		{ over: todo('Milk', false, 'one two\n') },
+	);
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		fields: { title: 'Oat milk', done: true },
+		body: 'one two\n',
+	});
+	expectOk(await titled);
+	expectOk(await written);
+	await settled();
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		fields: { title: 'Oat milk', done: true },
+		body: 'one two\n',
+	});
+	expect(editor.draft()).toBe(todo('Oat milk', true, 'one two\n'));
+});
+
+test('a note not kept in memory is read, and edited, through another spelling of its path', async () => {
+	const { repo } = setup((replica) =>
+		replica.write('journal/day.md', '---\ntitle: Day\n---\nnotes\n'),
+	);
+	await settled();
+	expect(expectOk(await repo.entries.read({ stem: 'Day' }))?.path).toBe(
+		'journal/day.md',
+	);
+	const editor = expectOk(await repo.entries.openEditor({ stem: 'DAY' }));
+	expect(editor.path).toBe('journal/day.md');
+	expect(expectOk(await repo.entries.openEditor({ stem: 'day' }))).toBe(editor);
+});
+
+test('the plain file API lists, reads, writes and edits every file, in a collection or none', async () => {
+	const { repo, heard } = setup((replica) => {
+		replica.write('todos/milk.md', todo('Milk'));
+		replica.write('README.md', '# Home\n');
+	});
+	expectErr(await repo.files.list());
+	await settled();
+	expect(expectOk(await repo.files.list()).map(({ path }) => path)).toEqual([
+		'README.md',
+		'todos/milk.md',
+	]);
+	expect(expectOk(await repo.files.read('readme.md'))).toMatchObject({
+		path: 'README.md',
+		text: '# Home\n',
+	});
+	expect(expectOk(await repo.files.read('missing.md'))).toBeNull();
+
+	// A file in no collection: subscribers hear that a file changed, and no collection did.
+	heard.length = 0;
+	expectOk(await repo.files.create('plans/trip.md', 'Go north\n'));
+	await settled();
+	expect(
+		heard.some((change) => change.files && change.collections.length === 0),
+	).toBe(true);
+	expect(expectOk(await repo.files.read('plans/trip.md'))?.text).toBe(
+		'Go north\n',
+	);
+
+	// With no server, every file waits to be sent; the list of those that wait is only those.
+	expect(expectOk(await repo.files.waiting()).map(({ path }) => path)).toEqual([
+		'README.md',
+		'plans/trip.md',
+		'todos/milk.md',
+	]);
+
+	// A path a collection keeps in memory shows there at once, before its answer.
+	const written = repo.files.write('todos/milk.md', todo('Oat milk'), {
+		over: todo('Milk'),
+	});
+	expect(repo.todos.get({ stem: 'milk' })).toMatchObject({
+		fields: { title: 'Oat milk' },
+		state: { status: 'sending' },
+	});
+	expectOk(await written);
+
+	// A rename is a delete and a write, in one transaction.
+	expectOk(
+		await repo.commit((batch) => {
+			batch.files.write('plans/journey.md', 'Go north\n');
+			batch.files.delete('plans/trip.md');
+		}),
+	);
+	expect(expectOk(await repo.files.list()).map(({ path }) => path)).toEqual([
+		'README.md',
+		'plans/journey.md',
+		'todos/milk.md',
+	]);
+
+	const editor = expectOk(await repo.files.openEditor('README.md'));
+	editor.update('# Home\nWelcome\n');
+	await editor.close();
+	await settled();
+	expect(expectOk(await repo.files.read('README.md'))?.text).toBe(
+		'# Home\nWelcome\n',
+	);
+	expectOk(await repo.files.delete('README.md'));
+	expect(expectOk(await repo.files.read('README.md'))).toBeNull();
+});
+
+test('a note two combined apps claim shows in each of their collections, each read with its own schema', async () => {
+	const tasks = defineApp({
+		tasks: {
+			path: 'todos/{stem}.md',
+			schema: Type.Object({ title: Type.String() }),
+		},
+	});
+	const both = combineApps([app, tasks]);
+	const driver = openBunSqlite();
+	const replica = unwrap(
+		openReplica({
+			driver,
+			binding: { repository: 'r', server: null, account: null },
+			device: 'laptop',
+			app: both,
+			after: () => {},
+			now: () => 0,
+			quiet: 0,
+		}),
+	);
+	replica.write('todos/milk.md', '---\ntitle: Milk\n---\n');
+	const repo = openRepository({
+		app: both,
+		host: createLocalHost({ replica, app: both }).host,
+	}) as unknown as {
+		todos: { all(): Note[] };
+		tasks: { all(): Note[] };
+	};
+	await settled();
+	expect(repo.todos.all().map((note) => [note.path, note.valid])).toEqual([
+		['todos/milk.md', false],
+	]);
+	expect(repo.tasks.all().map((note) => [note.path, note.valid])).toEqual([
+		['todos/milk.md', true],
+	]);
+});
+
+test('a blob collection creates, replaces, opens and deletes bytes at named paths; the file API reaches the same files', async () => {
+	const recordings = defineApp({
+		notes: {
+			path: 'recordings/{stem}.md',
+			schema: Type.Object({ title: Type.String() }),
+		},
+		audio: { path: 'recordings/{stem}.webm', blob: true },
+	});
+	const driver = openBunSqlite();
+	const replica = unwrap(
+		openReplica({
+			driver,
+			binding: { repository: 'r', server: null, account: null },
+			device: 'laptop',
+			app: recordings,
+			after: () => {},
+			now: () => 0,
+			quiet: 0,
+		}),
+	);
+	const repo = openRepository({
+		app: recordings,
+		host: createLocalHost({ replica, app: recordings }).host,
+	});
+	expect(
+		(await repo.audio.create({ stem: 'r1' }, new Blob(['early']))).error,
+	).toMatchObject({ name: 'Unavailable' });
+	await settled();
+	const created = expectOk(
+		await repo.audio.create({ stem: 'r1' }, new Blob(['first take'])),
+	);
+	expect(created).toMatchObject({
+		size: 10,
+		text: writePointer({ oid: created.oid, size: 10 }),
+	});
+	expect(
+		expectErr(await repo.audio.create({ stem: 'r1' }, new Blob(['again'])))
+			.name,
+	).toBe('Exists');
+	expect(
+		expectErr(await repo.audio.replace({ stem: 'r2' }, new Blob(['none'])))
+			.name,
+	).toBe('NotFound');
+	const replaced = expectOk(
+		await repo.audio.replace({ stem: 'r1' }, new Blob(['second take'])),
+	);
+	const file = expectOk(await repo.audio.open({ stem: 'r1' }));
+	expect([file.name, file.type, await file.text()]).toEqual([
+		'r1.webm',
+		'audio/webm',
+		'second take',
+	]);
+	expect(expectOk(await repo.files.open('recordings/r1.webm')).size).toBe(
+		replaced.size,
+	);
+	// The plain file API adds bytes under any path, and a note's create stays text.
+	expectOk(await repo.files.create('photos/beach.png', new Blob(['png'])));
+	expect(expectOk(await repo.files.open('photos/beach.png')).type).toBe(
+		'image/png',
+	);
+	expect(expectErr(await repo.files.open('recordings/none.webm')).name).toBe(
+		'NotFound',
+	);
+	expectOk(await repo.audio.delete({ stem: 'r1' }));
+	expect(expectErr(await repo.audio.open({ stem: 'r1' })).name).toBe(
+		'NotFound',
+	);
+	expect(replica.read('recordings/r1.webm')).toBeNull();
+	// Text at a path that is not a note is its bytes' pointer (a blob moved by writing it), or refused at once: nothing is stored to be held.
+	const beach = expectOk(await repo.files.read('photos/beach.png'));
+	expectOk(await repo.files.write('photos/moved.png', beach?.text ?? null));
+	expect(
+		expectErr(await repo.files.create('photos/note.png', 'not bytes')).name,
+	).toBe('NotPointer');
+	expect(
+		expectErr(await repo.files.write('photos/beach.png', 'not bytes')).name,
+	).toBe('NotPointer');
+	expect(
+		expectErr(
+			await repo.commit((batch) => {
+				batch.files.write('photos/moved.png', null);
+				batch.files.write('photos/beach.png', 'not bytes');
+			}),
+		).name,
+	).toBe('NotPointer');
+	expect(replica.read('photos/note.png')).toBeNull();
+	expect(replica.read('photos/moved.png')).toBe(beach?.text ?? 'none');
+	// Nothing refused or held: the two pointers wait only for their bytes.
+	expect(replica.notSent()).toEqual(
+		['photos/beach.png', 'photos/moved.png'].map((path) => ({
+			path,
+			status: 'waiting',
+			reason: 'its bytes are uploading',
+		})),
+	);
+});
+
+test('a batch of two notes and a new blob is stored at once; the notes go, and the blob alone waits for its upload; a refused upload holds only the blob', async () => {
+	const recordings = defineApp({
+		notes: {
+			path: 'recordings/{stem}.md',
+			schema: Type.Object({ title: Type.String() }),
+		},
+		audio: { path: 'recordings/{stem}.webm', blob: true },
+	});
+	const { server, alice, bob, repo } = twoDevices(recordings);
+	bob.replica.writeAll({
+		'recordings/r1.md': '---\ntitle: One\n---\n',
+		'recordings/r2.md': '---\ntitle: Two\n---\n',
+	});
+	bob.sync();
+	alice.catchUp();
+	await settled();
+	const events: string[][] = [];
+	server.subscribe((event) =>
+		events.push(event.files.map((f) => f.path).sort()),
+	);
+	expectOk(
+		await repo.commit((batch) => {
+			batch.notes.patch({ stem: 'r1' }, { title: 'One, heard' });
+			batch.notes.patch({ stem: 'r2' }, { title: 'Two, heard' });
+			batch.audio.create({ stem: 'r1' }, new Blob(['take one']));
+		}),
+	);
+	const pointer = alice.replica.read('recordings/r1.webm');
+	const sealed = pointer === null ? null : parsePointer(pointer);
+	if (sealed === null) throw new Error('no pointer stored');
+	// Typing elsewhere while the bytes upload; the notes go, merged with it, and the blob waits.
+	bob.replica.edit('recordings/r2.md', (text) => `${text}bob\n`);
+	bob.sync();
+	alice.sync();
+	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One, heard\n---\n');
+	expect(server.read('recordings/r2.md')).toBe(
+		'---\ntitle: Two, heard\n---\nbob\n',
+	);
+	expect(server.read('recordings/r1.webm')).toBeNull();
+	expect(events.flat()).not.toContain('recordings/r1.webm');
+	server.upload(sealed.oid, sealed.size);
+	alice.replica.present(sealed.oid, sealed.size);
+	alice.sync();
+	expect(events.at(-1)).toEqual(['recordings/r1.webm']);
+	expect(server.read('recordings/r1.webm')).toBe(pointer);
+
+	// A refused upload holds only its blob, and a batch whose change cannot apply stores no file: its bytes stay sealed on this device, named by nothing.
+	expectOk(
+		await repo.commit((batch) => {
+			batch.notes.patch({ stem: 'r1' }, { title: 'One, again' });
+			batch.files.create('recordings/r3.webm', new Blob(['take three']));
+		}),
+	);
+	const three = parsePointer(alice.replica.read('recordings/r3.webm') ?? '');
+	if (three === null) throw new Error('no pointer stored');
+	alice.replica.refused(three.oid, 'over the quota');
+	alice.sync();
+	expect(alice.replica.state('recordings/r3.webm')).toEqual({
+		status: 'waiting',
+		reason: 'over the quota',
+	});
+	expect(alice.replica.state('recordings/r1.md')).toEqual({ status: 'synced' });
+	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One, again\n---\n');
+	const failed = await repo.commit((batch) => {
+		batch.notes.patch({ stem: 'none' }, { title: 'x' });
+		batch.audio.create({ stem: 'r4' }, new Blob(['take four']));
+	});
+	expect(expectErr(failed).name).toBe('NotFound');
+	expect(alice.replica.read('recordings/r4.webm')).toBeNull();
+});
+
+test('repo.files.outcomes says how each file this device sent landed', async () => {
+	const { alice, repo } = twoDevices(
+		defineApp({
+			notes: {
+				path: 'notes/{stem}.md',
+				schema: Type.Object({ title: Type.String() }),
+			},
+		}),
+	);
+	await settled();
+	expectOk(await repo.files.write('notes/x.md', '---\ntitle: X\n---\nx\n'));
+	await settled();
+	alice.sync();
+	expect(expectOk(await repo.files.outcomes())).toEqual([
+		{ path: 'notes/x.md', outcome: { kind: 'landed' } },
+	]);
+});
