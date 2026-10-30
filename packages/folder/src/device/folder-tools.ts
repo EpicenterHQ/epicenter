@@ -10,7 +10,7 @@ import {
 } from '@epicenter/definition/contract';
 import { formatNote } from '@epicenter/definition/note';
 import { Ok } from 'wellcrafted/result';
-import { decodeNote } from './client.js';
+import { decodeNote } from '../note-codec.js';
 import type { DeviceStore } from './store.js';
 
 /** Whether a path is hidden, and so not the contract's (`checkContract` skips it). */

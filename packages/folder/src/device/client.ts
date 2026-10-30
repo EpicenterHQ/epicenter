@@ -22,34 +22,26 @@ import {
 	compileContract,
 	type Version,
 } from '@epicenter/definition/contract';
-import {
-	type CanonicalDocument,
-	formatRowSource,
-	parseRowSource,
-} from '@epicenter/definition/note';
-import { Err, Ok, type Result } from 'wellcrafted/result';
+import { Ok } from 'wellcrafted/result';
 import { hashBytes } from '../hash.js';
+import {
+	createdFields,
+	defined,
+	noteCodec,
+	noteValue,
+	type Params,
+	paramsOf,
+	pathOf,
+	type Value,
+} from '../note-codec.js';
 import { createOutbox, registerOutbox } from './outbox.js';
 import type { DeviceStore } from './store.js';
 
-type Params = Record<string, string>;
-type Value = Record<string, unknown>;
-
 const encoder = new TextEncoder();
-const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
 /** The sha256 that is a device version. */
 export const versionOf = async (bytes: Uint8Array) =>
 	(await hashBytes(bytes)) as Version;
-
-/** The note text in `bytes`, or why it is not UTF-8. */
-export function decodeNote(bytes: Uint8Array): Result<string, string> {
-	try {
-		return Ok(decoder.decode(bytes));
-	} catch {
-		return Err('The note is not UTF-8 text');
-	}
-}
 
 /**
  * The client of `contract` over `store`. A contract that is not well formed
@@ -70,24 +62,6 @@ export function createDeviceClient<TContract extends Contract>(
 	const client = clients as Client<TContract>;
 	registerOutbox(client, createOutbox(compiled, store));
 	return client;
-}
-
-/** The placeholder values of `value`, read by the collection's template. */
-function paramsOf(collection: CompiledCollection, value: Value): Params {
-	return Object.fromEntries(
-		collection.template.params.map((param) => [param, value[param]]),
-	) as Params;
-}
-
-/** The path `value`'s placeholders name, or `Invalid` naming the placeholder that cannot. */
-function pathOf(collection: CompiledCollection, value: Value) {
-	const filled = collection.pathOf(value);
-	if (filled.error === null) return filled;
-	const field = filled.error.name === 'InvalidValue' ? filled.error.param : '';
-	return ClientError.Invalid({
-		path: null,
-		issues: [{ field, message: filled.error.message }],
-	});
 }
 
 /**
@@ -133,56 +107,24 @@ function noteClient(
 	collection: CompiledCollection,
 	store: DeviceStore,
 ) {
-	const invalid = (path: string, field: string | undefined, message: string) =>
-		ClientError.Invalid({ path, issues: [{ field: field ?? '', message }] });
-
-	/** The document in `bytes`, parsed but not checked against the fields. */
-	function parse(path: string, bytes: Uint8Array) {
-		const text = decodeNote(bytes);
-		if (text.error !== null) return invalid(path, undefined, text.error);
-		const parsed = parseRowSource(text.data);
-		if (parsed.error !== null)
-			return invalid(path, parsed.error.field, parsed.error.reason);
-		return Ok(parsed.data.document);
-	}
+	const codec = noteCodec(collection);
 
 	/** The document in `bytes`, when it parses and its fields fit. */
 	function decode(path: string, bytes: Uint8Array) {
-		const parsed = parse(path, bytes);
-		if (parsed.error !== null) return parsed;
-		const issues = collection.checkFields(parsed.data.fields);
-		if (issues.length > 0) return ClientError.Invalid({ path, issues });
-		return parsed;
+		const text = codec.text(path, bytes);
+		if (text.error !== null) return text;
+		return codec.decode(path, text.data);
 	}
 
-	/** `document` in house style, when its fields fit. */
-	function encode(path: string, document: CanonicalDocument) {
-		const issues = collection.checkFields(document.fields);
-		if (issues.length > 0) return ClientError.Invalid({ path, issues });
-		const formatted = formatRowSource(document, collection.keys);
-		if (formatted.error !== null)
-			return invalid(path, formatted.error.field, formatted.error.reason);
+	/** `document` in house style as bytes, when its fields fit. */
+	function encode(path: string, document: Parameters<typeof codec.encode>[1]) {
+		const encoded = codec.encode(path, document);
+		if (encoded.error !== null) return encoded;
 		return Ok({
-			bytes: encoder.encode(formatted.data.text),
-			document: formatted.data.document,
+			bytes: encoder.encode(encoded.data.text),
+			document: encoded.data.document,
 		});
 	}
-
-	/**
-	 * A note as read: its fields, then its placeholders, body and version,
-	 * which a front matter key of the same name cannot shadow.
-	 */
-	const noteValue = (
-		params: Params,
-		document: CanonicalDocument,
-		version: Version,
-	) => ({ ...document.fields, ...params, body: document.body, version });
-
-	/** `fields` without the keys whose value is `undefined`, which means absent. */
-	const defined = (fields: Value) =>
-		Object.fromEntries(
-			Object.entries(fields).filter(([, value]) => value !== undefined),
-		) as CanonicalDocument['fields'];
 
 	return {
 		async list() {
@@ -221,13 +163,12 @@ function noteClient(
 			const path = pathOf(collection, value);
 			if (path.error !== null) return path;
 			const params = paramsOf(collection, value);
-			// A read value spread back in carries its placeholders and version,
-			// which name the file; they are never front matter.
-			const { version: _version, ...fields } = value;
-			for (const param of collection.template.params) delete fields[param];
 			if (typeof body !== 'string')
-				return invalid(path.data, 'body', 'The body is not a string');
-			const encoded = encode(path.data, { fields: defined(fields), body });
+				return codec.invalid(path.data, 'body', 'The body is not a string');
+			const encoded = encode(path.data, {
+				fields: createdFields(collection, value),
+				body,
+			});
 			if (encoded.error !== null) return encoded;
 			const version = await versionOf(encoded.data.bytes);
 			const written = await store.write(
@@ -250,11 +191,13 @@ function noteClient(
 					path: path.data,
 					current: read.data?.version ?? null,
 				});
-			const parsed = parse(path.data, read.data.bytes);
+			const text = codec.text(path.data, read.data.bytes);
+			if (text.error !== null) return text;
+			const parsed = codec.parse(path.data, text.data);
 			if (parsed.error !== null) return parsed;
 			const { body = parsed.data.body, version: _version, ...changes } = patch;
 			if (typeof body !== 'string')
-				return invalid(path.data, 'body', 'The body is not a string');
+				return codec.invalid(path.data, 'body', 'The body is not a string');
 			const encoded = encode(path.data, {
 				fields: defined({ ...parsed.data.fields, ...changes }),
 				body,
