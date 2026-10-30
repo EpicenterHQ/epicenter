@@ -1,9 +1,9 @@
 /**
- * Repository Benchmarks (phase 0a: live commits, no stored notices, a retention window)
+ * Repository Benchmarks (numbered device pushes, server commits, a retention window)
  *
  * 1. A busy note: 2, 5 and 10 people type into their own line of one note
  *    at 5 keystrokes a second, saved every 300 ms, at 150 ms one-way latency,
- *    with no loss. Each save commits (amending while a commit is in
+ *    with no loss. Each save pushes (amending while a push is in
  *    flight). Reports requests per applied commit (pushes,
  *    catch-ups, reads by hash), how long until typing is on the server and
  *    on every device, the longest any typist's text stays off the server,
@@ -16,14 +16,15 @@
  *    pages, reply bytes (paths, hashes and the commit ids passed) and the
  *    texts read by hash.
  *
- * Run: bun run src/sim/bench.ts
+ * Run: bun run src/sim/bench.ts [--quick]
  */
-import { commitId, type LiveCommit } from '../core/commit.js';
+import { type CommitFile, textOf } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { LIMITS } from '../server/server.js';
 import {
 	createTestServer,
 	createWorld,
+	directPush,
 	EPOCH,
 	STAMP,
 	writer,
@@ -33,6 +34,7 @@ import {
 // 1. A busy note
 // ============================================================================
 
+const quick = process.argv.includes('--quick');
 const PATH = 'notes/shared.md';
 const percentile = (values: number[], p: number) => {
 	const sorted = [...values].sort((a, b) => a - b);
@@ -191,9 +193,9 @@ function typists(
 }
 
 console.log(
-	'\n1. A busy note, 150 ms one-way, 5 keys/s saved every 300 ms, 20 s of typing\n',
+	'\n1. A busy note, 150 ms one-way, 5 keys/s saved every 300 ms, typing\n',
 );
-console.table([2, 5, 10].map((n) => typists(n)));
+console.table([2, 5, 10].map((n) => typists(n, { seconds: quick ? 2 : 20 })));
 
 // ============================================================================
 // 2. Catch-up as a tree diff
@@ -201,7 +203,6 @@ console.table([2, 5, 10].map((n) => typists(n)));
 
 const body = (i: number, v = 0) =>
 	`---\ntitle: Note ${i}\nversion: ${v}\n---\n${'Some words of a note, about a line long. '.repeat(4)}\n`;
-const author = { user: 'bench', device: 'bench' };
 
 function catchUp(total: number, behind: number | 'outside the window') {
 	let clock = 0;
@@ -215,11 +216,18 @@ function catchUp(total: number, behind: number | 'outside the window') {
 		},
 	});
 	const session = writer('bench');
+	let seq = 0;
 	const path = (i: number) =>
 		`notes/${(i % 256).toString(16).padStart(2, '0')}/n${i}.md`;
-	const commit = (files: LiveCommit['files']) => {
-		const draft = { parent: server.main(), author, time: STAMP, files };
-		const answer = server.push({ id: commitId(draft), ...draft }, session);
+	const commit = (files: CommitFile[]) => {
+		const answer = server.push(
+			{
+				...directPush(server, 'bench', files, { device: 'bench', time: STAMP }),
+				epoch: 'bench',
+				seq: ++seq,
+			},
+			session,
+		);
 		if (answer.kind !== 'applied')
 			throw new Error(`seeding failed: ${answer.kind}`);
 	};
@@ -265,7 +273,9 @@ function catchUp(total: number, behind: number | 'outside the window') {
 		'of which commit ids KB': +(ids / 1024).toFixed(1),
 		'texts read': hashes.length,
 		'read KB': +(JSON.stringify(texts).length / 1024).toFixed(1),
-		check: hashes.every((h) => gitBlobHash(texts[h] ?? '') === h),
+		check: hashes.every(
+			(h) => texts[h] !== undefined && gitBlobHash(textOf(texts[h])) === h,
+		),
 	};
 }
 
@@ -273,9 +283,10 @@ console.log(
 	'\n2. Catch-up as a tree diff (256 directories, one changed note per commit, 1,000 paths a page)\n',
 );
 console.table(
-	[5_000, 50_000].flatMap((total) =>
-		([1, 100, 5_000, 'outside the window'] as const).map((behind) =>
-			catchUp(total, behind),
-		),
+	(quick ? [500] : [5_000, 50_000]).flatMap((total) =>
+		(quick
+			? ([1, 100, 'outside the window'] as const)
+			: ([1, 100, 5_000, 'outside the window'] as const)
+		).map((behind) => catchUp(total, behind)),
 	),
 );

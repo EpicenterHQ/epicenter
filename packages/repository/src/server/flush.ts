@@ -99,9 +99,8 @@ type Planned = {
  * A pushed commit Git's `main` moved to while live history ran ahead of
  * Git, waiting for the flush that joins them: the push's old value and the
  * tree it stands for, the pushed commit and its tree (the live tree it
- * became), the place of the live merge that took it in, and the live
- * commit it became (the next push on it is merged against this). Trees are
- * as live history holds them, `.gitattributes` included.
+ * became), and the place of the live merge that took it in. Trees are as
+ * live history holds them, `.gitattributes` included.
  */
 export type Join = {
 	old: string | null;
@@ -109,7 +108,6 @@ export type Join = {
 	oid: string;
 	tree: string;
 	place: number;
-	side: string;
 };
 
 /** `join`: the join a push's row leaves once Git moved. */
@@ -378,11 +376,13 @@ export function createFlusher({
 			if (plan.join !== undefined)
 				meta.set('joins', JSON.stringify([...joins(), plan.join]));
 			else store.run("DELETE FROM meta WHERE key = 'joins'");
-			for (const commit of plan.commits)
+			for (const commit of plan.commits) {
 				store.run(
 					'INSERT INTO flushes (oid, tree, through, message) VALUES (?, ?, ?, ?)',
 					[commit.oid, commit.tree, plan.through, commit.message],
 				);
+				history.inGit(commit.blobs);
+			}
 			store.run("UPDATE journal SET state = 'completed' WHERE n = ?", [n]);
 		});
 	}

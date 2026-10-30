@@ -3,7 +3,7 @@
  *
  * The replica's gate on blobs, in the memory world: a pointer whose bytes
  * the server does not hold yet is owed, and an owed pointer stays saved on
- * this device and out of every commit until the upload track marks its
+ * this device and out of every push until the upload track marks its
  * bytes present. Owed is derived, never stored: a file whose text is a
  * pointer this device made, whose oid is neither present nor refused.
  *
@@ -27,7 +27,7 @@
  * - A note saved with a blob that lost goes on its own; the blob lands beside, and new bytes go only once present
  */
 import { expect, test } from 'bun:test';
-import type { LiveCommit } from '../core/commit.js';
+import { type Push, storedText } from '../core/commit.js';
 import { writePointer } from '../core/markdown.js';
 import { createWorld } from '../sim/harness.js';
 import type { FileStatus } from './replica.js';
@@ -48,22 +48,19 @@ const UPLOADING: FileStatus = {
 
 function setup(names = ['alice', 'bob']) {
 	const world = createWorld({ latency: { min: 20, max: 20 }, quiet: 0 });
-	/** Every commit the server was sent, by device. */
-	const pushed: { device: string; commit: LiveCommit }[] = [];
+	/** Every push the server was sent, by device. */
+	const pushed: { device: string; push: Push }[] = [];
 	world.onRequest((device, request) => {
-		if (request.type === 'push')
-			pushed.push({ device, commit: request.commit });
+		if (request.type === 'push') pushed.push({ device, push: request.push });
 	});
 	const devices = names.map((name) => world.device(name));
 	world.net.runFor(500);
 	const [alice, bob] = devices;
 	if (alice === undefined || bob === undefined) throw new Error('two devices');
 	const settle = () => world.net.runFor(10_000);
-	/** Whether any commit sent so far named `path`. */
+	/** Whether any push sent so far named `path`. */
 	const sent = (path: string) =>
-		pushed.some(({ commit }) =>
-			commit.files.some((file) => file.path === path),
-		);
+		pushed.some(({ push }) => push.files.some((file) => file.path === path));
 	return { world, alice, bob, settle, sent, pushed };
 }
 
@@ -89,7 +86,7 @@ test('an owed pointer waits alone for its bytes: the note saved with it goes at 
 	expect(alice.replica.owed()).toEqual([]);
 	settle();
 	expect(world.server.read(AUDIO)).toBe(writePointer(a));
-	expect(pushed.map(({ commit }) => commit.files.map((f) => f.path))).toEqual([
+	expect(pushed.map(({ push }) => push.files.map((f) => f.path))).toEqual([
 		[NOTE],
 		[AUDIO],
 	]);
@@ -306,13 +303,13 @@ test('a pointer saved over an owed pointer while a commit is out: the notes go, 
 		[AUDIO]: writePointer(d),
 	});
 	settle();
-	// Each pointer sent, once however often its commit was sent again.
+	// Each pointer sent, once however often its push was sent again.
 	const sentPointers = () => [
 		...new Set(
-			pushed.flatMap(({ commit }) =>
-				commit.files
+			pushed.flatMap(({ push }) =>
+				push.files
 					.filter((file) => file.path === AUDIO)
-					.map((file) => file.text),
+					.map((file) => storedText(file.next)),
 			),
 		),
 	];
@@ -341,16 +338,16 @@ test("a pointer equal to main's, saved while a change to its path is in flight, 
 	alice.replica.write(AUDIO, writePointer(b));
 	settle();
 	// The delete landed, so `a` is no longer `main`'s: it never went, and only `b` is owed.
-	expect(pushed.map(({ commit }) => commit.files.map((f) => f.text))).toEqual([
-		[null],
+	expect(pushed.map(({ push }) => push.files.map((f) => f.next))).toEqual([
+		[{ deleted: true }],
 	]);
 	expect(alice.replica.owed()).toEqual([b]);
 	world.upload(b.oid, b.size);
 	alice.replica.present(b.oid, b.size);
 	settle();
-	expect(pushed.map(({ commit }) => commit.files.map((f) => f.text))).toEqual([
-		[null],
-		[writePointer(b)],
+	expect(pushed.map(({ push }) => push.files.map((f) => f.next))).toEqual([
+		[{ deleted: true }],
+		[{ blob: b }],
 	]);
 	expect(world.server.read(AUDIO)).toBe(writePointer(b));
 	expect(alice.replica.busy()).toBe(false);
@@ -405,13 +402,13 @@ test('a note saved with a blob that lost goes on its own; the blob lands beside,
 	const sentAudio = () =>
 		pushed
 			.filter(({ device }) => device === 'alice')
-			.flatMap(({ commit }) =>
-				commit.files.filter((f) => f.path === AUDIO).map((f) => f.text),
+			.flatMap(({ push }) =>
+				push.files.filter((f) => f.path === AUDIO).map((f) => f.next),
 			);
-	expect(sentAudio()).toEqual([writePointer(a)]);
+	expect(sentAudio()).toEqual([{ blob: a }]);
 	world.upload(c.oid, c.size);
 	alice.replica.present(c.oid, c.size);
 	settle();
-	expect(sentAudio()).toEqual([writePointer(a), writePointer(c)]);
+	expect(sentAudio()).toEqual([{ blob: a }, { blob: c }]);
 	expect(world.server.read(AUDIO)).toBe(writePointer(c));
 });

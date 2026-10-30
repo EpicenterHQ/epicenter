@@ -24,6 +24,9 @@
  * whether it must catch up: a device resumes from its last head.
  */
 
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { unwrap } from 'wellcrafted/result';
 import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { openBunSqlite } from '../bun/sqlite.js';
@@ -402,6 +405,23 @@ export function createWireWorld(
 				replica.close();
 				driver.close();
 				driver = openBunSqlite();
+				replica = make();
+				reconnect();
+			},
+			/** A copy of the device's database as it is now, kept in a file (a backup). */
+			snapshot() {
+				const file = join(
+					mkdtempSync(join(tmpdir(), 'epicenter-snapshot-')),
+					'replica.db',
+				);
+				driver.exec(`VACUUM INTO '${file}'`);
+				return file;
+			},
+			/** The device's database is restored from a copy: it opens again as it was then. */
+			restore(file: string) {
+				replica.close();
+				driver.close();
+				driver = openBunSqlite(file);
 				replica = make();
 				reconnect();
 			},

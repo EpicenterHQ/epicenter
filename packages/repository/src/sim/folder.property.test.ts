@@ -623,11 +623,11 @@ async function run(seed: number, steps: number) {
 		if (request.type !== 'push') return;
 		if (process.env.F_TRACE && device === 'ada' && reply.type === 'answer')
 			log.push(
-				`   [${world.net.now()} push ${request.commit.id.slice(0, 7)} ${request.commit.files.map((f) => f.path).join(',')} -> ${reply.answer.kind}]`,
+				`   [${world.net.now()} push ${request.push.seq} ${request.push.files.map((f) => f.path).join(',')} -> ${reply.answer.kind}]`,
 			);
-		// No pointer sent before its bytes: the server holds every pointer's bytes when a device sends it.
-		for (const file of request.commit.files) {
-			const pointer = file.text === null ? null : parsePointer(file.text);
+		// No blob sent before its bytes: the server holds every blob's bytes when a device sends it.
+		for (const file of request.push.files) {
+			const pointer = 'blob' in file.next ? file.next.blob : null;
 			if (
 				pointer !== null &&
 				world.server.uploaded(pointer.oid) !== pointer.size

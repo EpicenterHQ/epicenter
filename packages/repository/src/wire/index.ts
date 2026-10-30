@@ -13,7 +13,6 @@ export {
 	type Authenticate,
 	authenticateBearer,
 	type CatchUpQuery,
-	COMMIT_HEADER,
 	createWire,
 	DEVICE_HEADER,
 	PING,

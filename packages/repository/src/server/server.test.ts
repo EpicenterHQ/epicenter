@@ -6,9 +6,9 @@
  * in src/sim/ cover how they combine.
  *
  * Key behaviors:
- * - merging: one clash is one block, however many of a person's commits follow it on a stale parent
- * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds; a commit on a stale parent is merged, whoever wrote it, never refused because main moved
- * - idempotency: a resend gets its answer brought up to now; after the window, `flushed`; a parent past the window with no record, `outcome-unknown`
+ * - merging: one clash is one block, however many of a person's writes follow it on a stale base
+ * - admission: a session is required, a reader or a stranger may not write, the author is the session's user, and each limit holds; a push from a stale position with its file's current base is applied, whoever wrote it, never refused because main moved
+ * - idempotency: the last numbered push gets its recorded answer exactly, across time and restarts; an older or changed push is behind
  * - catch-up is a tree diff in pages; the change feed names each commit, its parents and changed paths with hashes
  * - a fresh instance over the same Store answers as the first did
  * - the Git receive path checks every pushed commit and refuses merges, broken notes, other file modes, Epicenter's files and other refs; a live commit that lands meanwhile is merged with the push (receive.test.ts covers push-as-merge)
@@ -18,8 +18,16 @@
 import { describe, expect, test } from 'bun:test';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
+import {
+	type CommitFile,
+	commitId,
+	contentOf,
+	type Push,
+	pushHash,
+	storedText,
+} from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
+import { fold } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import { writePointer } from '../core/markdown.js';
 import { type GitObjects, MAIN } from './git-store.js';
@@ -47,18 +55,69 @@ function setup(limits: Partial<Limits> = {}) {
 	return { clock, store, git, server };
 }
 
+// Fixture versions at each observed position, so stale writers name per-file bases.
+const versions = new Map<string, Map<string, string>>();
+const watching = new WeakSet<Server>();
+let seq = 0;
+function remember(server: Server) {
+	const capture = () =>
+		versions.set(
+			server.main(),
+			new Map(
+				[...server.snapshot()].map(([path, text]) => [
+					fold(path),
+					gitBlobHash(text),
+				]),
+			),
+		);
+	if (!watching.has(server)) {
+		capture();
+		server.subscribe(capture);
+		watching.add(server);
+	}
+}
 function make(
 	server: Server,
-	files: CommitFile[],
+	files: (CommitFile & { base?: string | null })[],
 	{
 		user = 'alice',
-		parent = server.main(),
+		device = 'laptop',
+		at = server.main(),
+		from = at,
 		time = new Date(EPOCH).toISOString(),
+	}: {
+		user?: string;
+		device?: string;
+		at?: string;
+		from?: string | null;
+		time?: string;
 	} = {},
-): LiveCommit {
-	const body = { parent, author: { user, device: 'laptop' }, time, files };
-	return { id: commitId(body), ...body };
+): Push {
+	remember(server);
+	return {
+		user,
+		device,
+		epoch: 'e',
+		seq: ++seq,
+		time,
+		from,
+		files: files.map(({ path, text, base }) => ({
+			path,
+			base:
+				base === undefined ? (versions.get(at)?.get(fold(path)) ?? null) : base,
+			next: text === null ? { deleted: true } : contentOf(text),
+		})),
+	};
 }
+
+/** The id of a fresh, already styled write's server commit. */
+const landedId = (push: Push) =>
+	commitId({
+		parent: push.from ?? '',
+		author: { user: push.user, device: push.device },
+		time: push.time,
+		files: push.files.map((f) => ({ path: f.path, text: storedText(f.next) })),
+	});
 
 describe('admission', () => {
 	test('a session is required, and only a writer of this repository may write as themselves', () => {
@@ -178,7 +237,7 @@ describe('admission', () => {
 		const big = note(`${'b'.repeat(600_000)}\n`);
 		expect(
 			server.push(
-				make(server, [{ path: 'n/a.md', text: big }], { parent: base }),
+				make(server, [{ path: 'n/a.md', text: big }], { at: base }),
 				alice,
 			).kind,
 		).toBe('merged');
@@ -187,7 +246,7 @@ describe('admission', () => {
 				make(
 					server,
 					[{ path: 'n/a.md', text: note(`${'c'.repeat(600_000)}\n`) }],
-					{ parent: base },
+					{ at: base },
 				),
 				alice,
 			),
@@ -199,7 +258,7 @@ describe('admission', () => {
 		});
 	});
 
-	test('a commit on a stale parent is merged, whoever wrote it, never refused because main moved', () => {
+	test("a push from a stale position with its file's current base is applied, whoever wrote it, never refused because main moved", () => {
 		const { server } = setup();
 		const base = server.main();
 		expect(
@@ -208,15 +267,11 @@ describe('admission', () => {
 				alice,
 			).kind,
 		).toBe('applied');
-		const body = {
-			parent: base,
-			author: { user: 'alice', device: 'agent' },
-			time: new Date(EPOCH).toISOString(),
-			files: [{ path: 'n/b.md', text: note('two\n') }],
-		};
-		expect(server.push({ id: commitId(body), ...body }, alice)).toMatchObject({
-			kind: 'merged',
+		const push = make(server, [{ path: 'n/b.md', text: note('two\n') }], {
+			device: 'agent',
+			at: base,
 		});
+		expect(server.push(push, alice)).toMatchObject({ kind: 'applied' });
 		expect([server.read('n/a.md'), server.read('n/b.md')]).toEqual([
 			note('one\n'),
 			note('two\n'),
@@ -225,14 +280,14 @@ describe('admission', () => {
 });
 
 describe('house style', () => {
-	test('every note lands in house style: one already in it is applied as sent; one not is formatted, its commit kept as the side of a merge', () => {
+	test('every note lands in house style: one already in it is applied as sent; one not is formatted in the server commit', () => {
 		const { server } = setup();
 		const styled = make(server, [
 			{ path: 'n/a.md', text: '---\ntitle: A\n---\nbody  \n' },
 		]);
 		expect(server.push(styled, alice)).toMatchObject({
 			kind: 'applied',
-			main: styled.id,
+			main: landedId(styled),
 		});
 		const loose = make(server, [
 			{
@@ -246,7 +301,9 @@ describe('house style', () => {
 			files: expect.arrayContaining([
 				expect.objectContaining({
 					path: 'n/b.md',
-					text: '---\ntitle: B # mine\ntags: [x, y]\n---\nbody  \n',
+					content: {
+						text: '---\ntitle: B # mine\ntags: [x, y]\n---\nbody  \n',
+					},
 				}),
 			]),
 		});
@@ -279,7 +336,7 @@ describe('house style', () => {
 						text: '---\ntitle:   A\nmood:   calm\n---\nbody  \n',
 					},
 				],
-				{ parent: base },
+				{ at: base },
 			),
 			alice,
 		);
@@ -290,14 +347,14 @@ describe('house style', () => {
 });
 
 describe('merging', () => {
-	test("one clash is one block: a person's second commit on a stale parent, after main already holds the block, continues it", () => {
+	test("one clash is one block: a person's next write over a stale base continues the block main holds", () => {
 		const { server } = setup();
 		const bob: Session = { user: 'bob', role: 'writer' };
 		const start = server.main();
 		expect(
 			server.push(
 				make(server, [{ path: 'n/a.md', text: note('one\n') }], {
-					parent: start,
+					at: start,
 				}),
 				alice,
 			).kind,
@@ -306,25 +363,25 @@ describe('merging', () => {
 		expect(
 			server.push(
 				make(server, [{ path: 'n/a.md', text: note('oneA\n') }], {
-					parent: base,
+					at: base,
 				}),
 				alice,
 			).kind,
 		).toBe('applied');
 		const afterK1 = server.main();
-		// Bob, from before Alice's edit, changes the same line: the server merges it into one block.
+		// Bob, over the version before Alice's edit, changes the same line: one block.
 		const merged = server.push(
 			make(server, [{ path: 'n/a.md', text: note('oneR\n') }], {
 				user: 'bob',
-				parent: base,
+				at: base,
 			}),
 			bob,
 		);
 		expect(merged.kind).toBe('merged');
-		// Alice has not heard of it: her next commit's parent is her own last one.
+		// Alice has not heard of it: her next write is over her own last version.
 		const again = server.push(
 			make(server, [{ path: 'n/a.md', text: note('oneAB\n') }], {
-				parent: afterK1,
+				at: afterK1,
 				time: new Date(EPOCH + 1).toISOString(),
 			}),
 			alice,
@@ -332,54 +389,79 @@ describe('merging', () => {
 		expect(again.kind).toBe('merged');
 		const text =
 			again.kind === 'merged'
-				? (again.files.find((file) => file.path === 'n/a.md')?.text ?? '')
+				? again.files.find((file) => file.path === 'n/a.md')?.content
 				: '';
-		expect(findConflicts(text)).toMatchObject([
+		expect(
+			findConflicts(text && 'text' in text ? text.text : ''),
+		).toMatchObject([
 			{ current: 'oneAB\n', base: 'one\n', incoming: 'oneR\n' },
 		]);
 	});
 });
 
 describe('idempotency', () => {
-	test('a resend gets its answer brought up to now, then `flushed` once the window passed, from a fresh instance too', async () => {
+	test('an exact resend keeps its recorded answer after the window, from a fresh instance too', async () => {
 		const { server, clock, store, git } = setup();
 		const first = make(server, [{ path: 'n/a.md', text: note('a\n') }]);
-		expect(server.push(first, alice)).toMatchObject({
-			kind: 'applied',
-			main: first.id,
-		});
-		const second = make(server, [{ path: 'n/b.md', text: note('b\n') }]);
-		server.push(second, alice);
-		const resent = server.push(first, alice);
-		expect(resent).toMatchObject({
-			kind: 'applied',
-			main: second.id,
-			commits: [first.id, second.id],
-		});
-		// An id with other files is a forgery, not a resend.
-		expect(
-			server.push(
-				{
-					...make(server, [{ path: 'n/a.md', text: note('other\n') }]),
-					id: first.id,
-				},
-				alice,
-			),
-		).toMatchObject({ kind: 'rejected', code: 'bad-id' });
+		const answer = server.push(first, alice);
+		expect(answer).toMatchObject({ kind: 'applied', main: landedId(first) });
+		server.push(
+			make(server, [{ path: 'n/b.md', text: note('b\n') }], {
+				device: 'phone',
+			}),
+			alice,
+		);
+		expect(server.push(first, alice)).toEqual(answer);
 		await server.flush();
 		clock.now += LIMITS.window + 1;
 		const fresh = createServer({ store, git, clock: () => clock.now });
-		expect(fresh.push(first, alice)).toEqual({
-			kind: 'flushed',
-			main: second.id,
-			files: [
-				{ path: 'n/a.md', text: note('a\n'), hash: gitBlobHash(note('a\n')) },
-			],
-		});
+		expect(fresh.push(first, alice)).toEqual(answer);
 		expect(fresh.history().commits).toBe(2);
 	});
 
-	test('a commit on a parent past the window, with no record, is outcome-unknown', () => {
+	test('a lower seq or the same seq with other writes is behind; higher seq gaps land', () => {
+		const { server } = setup();
+		const first = make(server, [{ path: 'n/a.md', text: note('a\n') }]);
+		server.push(first, alice);
+		expect(
+			server.push(
+				{
+					...first,
+					files: make(server, [{ path: 'n/a.md', text: note('other\n') }])
+						.files,
+				},
+				alice,
+			),
+		).toEqual({ kind: 'behind', main: server.main() });
+		const next = {
+			...make(server, [{ path: 'n/b.md', text: note('b\n') }]),
+			seq: first.seq + 10,
+		};
+		expect(server.push(next, alice)).toMatchObject({ kind: 'applied' });
+		expect(server.push(first, alice)).toEqual({
+			kind: 'behind',
+			main: server.main(),
+		});
+	});
+
+	test('a rejected request is not recorded; a refusal is recorded', () => {
+		const { server } = setup();
+		const first = make(server, [{ path: 'n/a.md', text: note('a\n') }]);
+		expect(server.push({ ...first, time: 'yesterday' }, alice)).toMatchObject({
+			kind: 'rejected',
+			code: 'bad-time',
+		});
+		expect(server.push(first, alice)).toMatchObject({ kind: 'applied' });
+		const refused = make(server, [{ path: '.git/a.md', text: note('a\n') }]);
+		const answer = server.push(refused, alice);
+		expect(answer).toMatchObject({ kind: 'refused' });
+		expect(server.push(refused, alice)).toEqual(answer);
+		expect(
+			server.push({ ...refused, files: first.files }, alice),
+		).toMatchObject({ kind: 'behind' });
+	});
+
+	test('a push from a position past the window lands with a stale answer containing only touched paths', () => {
 		const { server, clock } = setup();
 		const root = server.main();
 		server.push(make(server, [{ path: 'n/a.md', text: note('a\n') }]), alice);
@@ -387,10 +469,21 @@ describe('idempotency', () => {
 		server.push(make(server, [{ path: 'n/a.md', text: note('b\n') }]), alice);
 		expect(
 			server.push(
-				make(server, [{ path: 'n/c.md', text: note('c\n') }], { parent: root }),
+				make(server, [{ path: 'n/c.md', text: note('c\n') }], { from: root }),
 				alice,
 			),
-		).toMatchObject({ kind: 'outcome-unknown' });
+		).toMatchObject({
+			kind: 'applied',
+			stale: true,
+			commits: [],
+			files: [
+				{
+					path: 'n/c.md',
+					hash: gitBlobHash(note('c\n')),
+					content: { text: note('c\n') },
+				},
+			],
+		});
 	});
 });
 
@@ -408,7 +501,7 @@ describe('catch-up and the change feed', () => {
 		server.push(commit, alice);
 		const one = server.catchUp({ from });
 		expect(one).toMatchObject({
-			main: commit.id,
+			main: landedId(commit),
 			full: false,
 			next: 'n/b.md',
 			commits: [],
@@ -417,7 +510,7 @@ describe('catch-up and the change feed', () => {
 		const two = server.catchUp({ from, to: one.main, after: one.next ?? '' });
 		expect(two).toMatchObject({
 			next: null,
-			commits: [commit.id],
+			commits: [landedId(commit)],
 			files: [{ path: 'n/c.md', hash: gitBlobHash(note('c\n')) }],
 		});
 		clock.now += LIMITS.window + 1;
@@ -512,20 +605,20 @@ describe('catch-up and the change feed', () => {
 		]);
 		server.push(first, alice);
 		server.push(
-			make(server, [{ path: 'n/b.md', text: note('b\n') }], { parent: base }),
+			make(server, [{ path: 'n/b.md', text: note('b\n') }], { at: base }),
 			alice,
 		);
 		expect(events[0]).toEqual({
-			commit: first.id,
+			commit: landedId(first),
 			parents: [base],
 			files: [{ path: 'n/a.md', hash: gitBlobHash(note('a\n')) }],
 		});
-		expect(events[1]?.parents[0]).toBe(first.id);
+		expect(events[1]?.parents).toEqual([landedId(first)]);
 		expect(events[1]?.files).toEqual([
 			{ path: 'n/b.md', hash: gitBlobHash(note('b\n')) },
 		]);
 		expect(events.map((event) => event.commit)).toEqual([
-			first.id,
+			landedId(first),
 			server.main(),
 		]);
 	});
@@ -641,7 +734,7 @@ describe('flush scheduling', () => {
 });
 
 describe('storage', () => {
-	test('texts and tree nodes no kept commit names are collected after a flush, so 200 saves of a 10 KB note leave a bounded store', async () => {
+	test('texts Git has and tree nodes no kept commit names are collected after a flush, so 200 flushed saves of a 10 KB note leave a bounded store', async () => {
 		const { server, clock } = setup();
 		const text = (i: number) => note(`${'x'.repeat(10_000)} ${i}\n`);
 		for (let i = 0; i < 200; i++) {
@@ -655,8 +748,8 @@ describe('storage', () => {
 				).kind,
 			).toBe('applied');
 			clock.now += 1_000;
+			await server.flush();
 		}
-		await server.flush();
 		expect(server.history().bytes).toBeGreaterThan(200 * 10_000);
 		clock.now += LIMITS.window + 1;
 		await server.flush();
@@ -667,7 +760,24 @@ describe('storage', () => {
 		expect(server.read('n/a.md')).toBe(text(199));
 		expect(server.catchUp({ from: null }).files).toHaveLength(4);
 		expect(server.fetch([gitBlobHash(text(199))])).toEqual({
-			[gitBlobHash(text(199))]: text(199),
+			[gitBlobHash(text(199))]: { text: text(199) },
+		});
+	});
+
+	test('a version Git never had stays in the store, whatever its age, so a write over it still merges: the storage this costs', async () => {
+		const { server, clock } = setup();
+		const text = (i: number) => note(`${'x'.repeat(10_000)} ${i}\n`);
+		for (let i = 0; i < 20; i++) {
+			server.push(make(server, [{ path: 'n/a.md', text: text(i) }]), alice);
+			clock.now += 1_000;
+		}
+		await server.flush();
+		clock.now += LIMITS.window + 1;
+		await server.flush();
+		// Only the last was ever in Git's tree; the nineteen before it stay.
+		expect(server.history().bytes).toBeGreaterThan(20 * 10_000);
+		expect(server.fetch([gitBlobHash(text(0))])).toEqual({
+			[gitBlobHash(text(0))]: { text: text(0) },
 		});
 	});
 });
@@ -690,7 +800,9 @@ describe('a file and a folder never share a name', () => {
 			).kind,
 		).toBe('applied');
 		const over = { path: 'album', text: writePointer(photo) };
-		expect(server.push(make(server, [over], { parent }), alice)).toMatchObject({
+		expect(
+			server.push(make(server, [over], { at: parent }), alice),
+		).toMatchObject({
 			kind: 'refused',
 			code: 'is-a-folder',
 			reason: 'a folder already has this name',
@@ -715,14 +827,14 @@ describe('a file and a folder never share a name', () => {
 			).kind,
 		).toBe('applied');
 		const under = { path: 'album/a.md', text: note('a\n') };
-		expect(server.push(make(server, [under], { parent }), alice)).toMatchObject(
-			{
-				kind: 'refused',
-				code: 'under-a-file',
-				reason: 'a file already has this name',
-				path: 'album/a.md',
-			},
-		);
+		expect(
+			server.push(make(server, [under], { at: parent }), alice),
+		).toMatchObject({
+			kind: 'refused',
+			code: 'under-a-file',
+			reason: 'a file already has this name',
+			path: 'album/a.md',
+		});
 		expect(server.push(make(server, [under]), alice)).toMatchObject({
 			kind: 'refused',
 			code: 'under-a-file',
@@ -776,7 +888,7 @@ describe('a file and a folder never share a name', () => {
 		);
 		expect(
 			server.push(
-				make(server, [{ path: 'album/a.md', text: null }], { parent: saw }),
+				make(server, [{ path: 'album/a.md', text: null }], { at: saw }),
 				alice,
 			).kind,
 		).toBe('merged');
@@ -799,7 +911,7 @@ describe('a file and a folder never share a name', () => {
 		);
 		expect(
 			server.push(
-				make(server, [{ path: 'album', text: null }], { parent: saw }),
+				make(server, [{ path: 'album', text: null }], { at: saw }),
 				alice,
 			).kind,
 		).toBe('merged');
@@ -846,11 +958,13 @@ describe('blobs', () => {
 		const parent = server.main();
 		expect(
 			server.push(
-				make(server, [{ path, text: writePointer(a) }], { parent }),
+				make(server, [{ path, text: writePointer(a) }], { at: parent }),
 				alice,
 			).kind,
 		).toBe('applied');
-		const second = make(server, [{ path, text: writePointer(b) }], { parent });
+		const second = make(server, [{ path, text: writePointer(b) }], {
+			at: parent,
+		});
 		const answer = server.push(second, alice);
 		expect(answer).toMatchObject({
 			kind: 'merged',
@@ -868,7 +982,7 @@ describe('blobs', () => {
 		expect(
 			server.push(
 				make(server, [{ path, text: writePointer(b) }], {
-					parent,
+					at: parent,
 					time: new Date(EPOCH + 2).toISOString(),
 				}),
 				alice,
@@ -878,7 +992,7 @@ describe('blobs', () => {
 		expect(
 			server.push(
 				make(server, [{ path, text: writePointer(a) }], {
-					parent,
+					at: parent,
 					time: new Date(EPOCH + 1).toISOString(),
 				}),
 				alice,
@@ -895,13 +1009,13 @@ describe('blobs', () => {
 		server.push(make(server, [{ path, text: writePointer(b) }]), alice);
 		expect(
 			server.push(
-				make(server, [{ path, text: writePointer(c) }], { parent: saw }),
+				make(server, [{ path, text: writePointer(c) }], { at: saw }),
 				alice,
 			),
 		).toMatchObject({ kind: 'merged', siblings: [{ path, at: sibling(c) }] });
 		expect(server.read(sibling(c))).toBe(writePointer(c));
 		expect(
-			server.push(make(server, [{ path, text: null }], { parent: saw }), alice)
+			server.push(make(server, [{ path, text: null }], { at: saw }), alice)
 				.kind,
 		).toBe('merged');
 		expect(server.read(path)).toBe(writePointer(b));
@@ -914,14 +1028,16 @@ describe('blobs', () => {
 		expect(server.read(path)).toBeNull();
 	});
 
-	test('a write that says what its writer saw (`over`) is judged over that, on main too', () => {
+	test('a write that says what its writer saw (`base`) is judged over that, on main too', () => {
 		const { server } = landed();
 		server.push(make(server, [{ path, text: writePointer(a) }]), alice);
 		server.push(make(server, [{ path, text: writePointer(b) }]), alice);
 		// Made over `a`, sent on today's main: it lost to `b`.
 		expect(
 			server.push(
-				make(server, [{ path, text: writePointer(c), over: writePointer(a) }]),
+				make(server, [
+					{ path, text: writePointer(c), base: gitBlobHash(writePointer(a)) },
+				]),
 				alice,
 			),
 		).toMatchObject({ kind: 'merged', siblings: [{ path, at: sibling(c) }] });
@@ -929,15 +1045,20 @@ describe('blobs', () => {
 		// Made over what main holds: it lands where it was written.
 		expect(
 			server.push(
-				make(server, [{ path, text: writePointer(a), over: writePointer(b) }]),
+				make(server, [
+					{ path, text: writePointer(a), base: gitBlobHash(writePointer(b)) },
+				]),
 				alice,
 			),
 		).toMatchObject({ kind: 'applied' });
 		expect(server.read(path)).toBe(writePointer(a));
-		// The id hashes `over`: the same file without it is another commit.
-		const body = make(server, [{ path, text: writePointer(c), over: null }]);
-		expect(body.id).not.toBe(
-			make(server, [{ path, text: writePointer(c) }]).id,
+		// The push hash includes the base.
+		const body = make(server, [{ path, text: writePointer(c), base: null }]);
+		expect(pushHash(body)).not.toBe(
+			pushHash({
+				...body,
+				files: make(server, [{ path, text: writePointer(c) }]).files,
+			}),
 		);
 	});
 
@@ -947,11 +1068,11 @@ describe('blobs', () => {
 		server.upload(d.oid, d.size);
 		const parent = server.main();
 		server.push(
-			make(server, [{ path, text: writePointer(a) }], { parent }),
+			make(server, [{ path, text: writePointer(a) }], { at: parent }),
 			alice,
 		);
 		server.push(
-			make(server, [{ path, text: writePointer(b) }], { parent }),
+			make(server, [{ path, text: writePointer(b) }], { at: parent }),
 			alice,
 		);
 		// A stale write at the sibling itself lands at a sibling of the original stem.
@@ -963,7 +1084,7 @@ describe('blobs', () => {
 		expect(
 			server.push(
 				make(server, [{ path: sibling(b), text: writePointer(c) }], {
-					parent: atSibling,
+					at: atSibling,
 				}),
 				alice,
 			),
@@ -972,7 +1093,7 @@ describe('blobs', () => {
 		// Bytes whose hash starts as c's does: their seven-character sibling holds other bytes, so they take eight.
 		expect(
 			server.push(
-				make(server, [{ path, text: writePointer(d) }], { parent }),
+				make(server, [{ path, text: writePointer(d) }], { at: parent }),
 				alice,
 			),
 		).toMatchObject({
@@ -992,13 +1113,13 @@ describe('blobs', () => {
 						text: writePointer(a),
 					},
 				],
-				{ parent: first },
+				{ at: first },
 			),
 			alice,
 		);
 		expect(
 			other.push(
-				make(other, [{ path, text: writePointer(b) }], { parent: first }),
+				make(other, [{ path, text: writePointer(b) }], { at: first }),
 				alice,
 			),
 		).toMatchObject({
@@ -1006,7 +1127,7 @@ describe('blobs', () => {
 		});
 		expect(
 			other.push(
-				make(other, [{ path, text: writePointer(c) }], { parent: first }),
+				make(other, [{ path, text: writePointer(c) }], { at: first }),
 				alice,
 			),
 		).toMatchObject({
@@ -1018,7 +1139,7 @@ describe('blobs', () => {
 		const { server } = landed();
 		server.push(make(server, [{ path, text: writePointer(a) }]), alice);
 		const saw = server.main();
-		server.push(make(server, [{ path, text: null }], { parent: saw }), alice);
+		server.push(make(server, [{ path, text: null }], { at: saw }), alice);
 		expect(
 			server.push(make(server, [{ path, text: writePointer(b) }]), alice).kind,
 		).toBe('applied');

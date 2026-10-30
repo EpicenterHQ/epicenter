@@ -29,7 +29,7 @@ function answer(server: Server, request: Request, user: string): Reply {
 			return {
 				type: 'answer',
 				rid: request.rid,
-				answer: server.push(request.commit, writer(user)),
+				answer: server.push(request.push, writer(user)),
 			};
 		case 'catch-up':
 			return {
@@ -41,7 +41,7 @@ function answer(server: Server, request: Request, user: string): Reply {
 			return {
 				type: 'fetched',
 				rid: request.rid,
-				texts: server.fetch(request.hashes),
+				versions: server.fetch(request.hashes),
 			};
 	}
 }

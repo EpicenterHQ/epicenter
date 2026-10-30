@@ -18,7 +18,7 @@
  * - a second push from the first pushed commit, before the export, merges against the first push's tree
  * - a retry of an accepted push is answered accepted and is not applied twice
  * - a join is Epicenter's commit, with every writer it merges in as a co-author
- * - a join waits under the window like all live history; a push on a dropped one flushes first
+ * - a join waits under the window like all live history; a push on a dropped one still merges against Git versions
  * - a flush makes the same few Git requests however many commits it writes, so a push behind it waits for no more
  * - a crash at each step of the push, or of the export, leaves one answer and the same history
  */
@@ -28,9 +28,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBunGitStore } from '../bun/git.js';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { type CommitFile, commitId } from '../core/commit.js';
+import { type CommitFile, contentOf } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
-import { ATTRIBUTES } from '../core/door.js';
+import { ATTRIBUTES, fold } from '../core/door.js';
+import { gitBlobHash } from '../core/hash.js';
 import { writePointer } from '../core/markdown.js';
 import type { SqlDriver } from '../sql.js';
 import type { FlushStep } from './flush.js';
@@ -89,20 +90,51 @@ async function world() {
 	return { path, git, store, clock, open, crashingAt, server: open() };
 }
 
-/** A live save by `session` on `parent` (main by default). */
+// Fixture versions at each observed position, so stale writers name per-file bases.
+const versions = new Map<string, Map<string, string>>();
+const watching = new WeakSet<Server>();
+let seq = 0;
+function remember(server: Server) {
+	const capture = () =>
+		versions.set(
+			server.main(),
+			new Map(
+				[...server.snapshot()].map(([path, text]) => [
+					fold(path),
+					gitBlobHash(text),
+				]),
+			),
+		);
+	if (!watching.has(server)) {
+		capture();
+		server.subscribe(capture);
+		watching.add(server);
+	}
+}
+/** A save carrying the versions its writer saw at the fixture position. */
 function save(
 	server: Server,
 	session: Session,
 	files: CommitFile[],
-	{ parent = server.main() }: { parent?: string } = {},
+	{ at = server.main() }: { at?: string } = {},
 ) {
-	const body = {
-		parent,
-		author: { user: session.user, device: 'laptop' },
-		time: new Date(EPOCH).toISOString(),
-		files,
-	};
-	return server.push({ id: commitId(body), ...body }, session);
+	remember(server);
+	return server.push(
+		{
+			user: session.user,
+			device: 'laptop',
+			epoch: 'e',
+			seq: ++seq,
+			time: new Date(EPOCH).toISOString(),
+			from: at,
+			files: files.map(({ path, text }) => ({
+				path,
+				base: versions.get(at)?.get(fold(path)) ?? null,
+				next: text === null ? { deleted: true } : contentOf(text),
+			})),
+		},
+		session,
+	);
 }
 
 /** A clone's commit on `parent` with `changes` to its tree, written as a transport would before asking. */
@@ -389,6 +421,31 @@ describe('a push behind live main', () => {
 		).toEqual([beside, 'audio/r.wav'].sort());
 	});
 
+	test('a push mixing notes and blobs lands each by its kind: a note merges with a live edit, a blob lands over the version Git had, and the export holds both', async () => {
+		const { server, git, store, path, old } = await flushedWorld();
+		const bytes = { oid: 'f'.repeat(64), size: 9 };
+		server.upload(bytes.oid, bytes.size);
+		// A live edit Git does not hold yet, to the note the push also changes.
+		expect(
+			save(server, bob, [{ path: 'notes/a.md', text: note('one\nbob\n') }]),
+		).toMatchObject({ kind: 'applied' });
+		const next = await commitOn(git, old, {
+			'notes/a.md': note('zero\none\n'),
+			'audio/new.webm': writePointer(bytes),
+			'notes/b.md': null,
+		});
+		expect(await receive(server, old, next)).toMatchObject({
+			kind: 'accepted',
+			main: next,
+			merged: true,
+		});
+		expect(server.read('notes/a.md')).toBe(note('zero\none\nbob\n'));
+		expect(server.read('audio/new.webm')).toBe(writePointer(bytes));
+		expect(server.read('notes/b.md')).toBeNull();
+		expect(await server.flush()).toMatchObject({ kind: 'flushed' });
+		await expectExported(server, store, git, path, [{ old, next }]);
+	});
+
 	test("a push that changes only a file's capitalization is refused: a file's capitalization can't change, and Git does not move", async () => {
 		const { server, git, old } = await flushedWorld();
 		const next = await commitOn(git, old, {
@@ -462,7 +519,7 @@ describe('history', () => {
 		).toMatchObject({ kind: 'applied' });
 		expect(
 			save(server, bob, [{ path: 'notes/a.md', text: note('three\n') }], {
-				parent: base,
+				at: base,
 			}),
 		).toMatchObject({ kind: 'merged' });
 		const blocked = server.read('notes/a.md') as string;
@@ -661,28 +718,25 @@ describe('a join waiting past the window', () => {
 		await expectExported(server, store, git, path, [{ old, next }]);
 	});
 
-	test('a push on the dropped join flushes first and is refused as main-moved; rebased, it lands', async () => {
+	test('a push on a dropped join still merges against its file versions in Git', async () => {
 		const { server, git, store, path, old, next } = await aged();
 		const second = await commitOn(git, next, {
 			'agent/log.md': note('step 1\nstep 2\n'),
 		});
 		expect(await receive(server, next, second)).toMatchObject({
-			kind: 'refused',
-			code: 'main-moved',
-		});
-		const exported = await gitMain(git);
-		expect(await firstParents(git, exported)).toContain(next);
-		const rebased = await commitOn(git, exported, {
-			'agent/log.md': note('step 1\nstep 2\n'),
-		});
-		expect(await receive(server, exported, rebased)).toMatchObject({
 			kind: 'accepted',
-			main: rebased,
+			main: second,
+			merged: true,
+			published: true,
 		});
+		expect(await gitMain(git)).toBe(second);
+		expect(server.read('agent/log.md')).toBe(note('step 1\nstep 2\n'));
+		expect(server.read('notes/a.md')).toBe(note('one, after a while\n'));
+		expect(server.read('notes/b.md')).toBe(note('b by bob, later\n'));
 		await server.flush();
 		await expectExported(server, store, git, path, [
 			{ old, next },
-			{ old: exported, next: rebased },
+			{ old: next, next: second },
 		]);
 	});
 });
@@ -709,7 +763,7 @@ describe('a flush', () => {
 				).toMatchObject({ kind: 'applied' });
 				expect(
 					save(server, bob, [{ path: `notes/n${i}.md`, text: note('b\n') }], {
-						parent: base,
+						at: base,
 					}),
 				).toMatchObject({ kind: 'merged' });
 			}
@@ -847,12 +901,11 @@ describe('randomized', () => {
 	const FROM = Number(process.env.PUSH_FROM ?? 1);
 
 	/**
-	 * Saves (some on a stale parent), pushes from Git's main or from the
+	 * Saves (some over stale file versions), pushes from Git's main or from the
 	 * pusher's own last pushed commit, flushes, crashes at a random step of
 	 * a flush or a push, and time passing beyond the window. Every push
 	 * whose old value is Git's main is accepted (or refused by the live door
-	 * with a path, or main-moved when the server moved Git first: a row a
-	 * crash left, or live history the window dropped), every other is
+	 * with a path, or main-moved when a row a crash left moved Git first), every other is
 	 * main-moved, a retry after a crash is accepted, and at the end Git's
 	 * first-parent history runs through every push, its main holds the
 	 * live tree, and no commit after a push holds an agent path at its
@@ -867,7 +920,6 @@ describe('randomized', () => {
 			flushCrashes: 0,
 			refusedLive: 0,
 			decidedFirst: 0,
-			droppedFirst: 0,
 			aged: 0,
 		};
 		for (let seed = FROM; seed < FROM + SEEDS; seed++) {
@@ -877,24 +929,6 @@ describe('randomized', () => {
 			const git = createMemoryGitStore();
 			const store = openBunSqlite();
 			let now = EPOCH;
-			/** Whether the window, as of now, no longer keeps the live commit Git's main stands for (the last join's place, or the flushed place). */
-			const dropped = () => {
-				const newest =
-					store.all<{ place: number | null }>(
-						'SELECT MAX(place) AS place FROM commits WHERE place IS NOT NULL AND at < ?',
-						[now - LIMITS.window],
-					)[0]?.place ?? -1;
-				const keptFrom = Math.max(
-					Number(meta(store, 'offset')),
-					Math.min(Number(meta(store, 'top')), newest + 1),
-				);
-				const joins = JSON.parse(meta(store, 'joins') ?? '[]') as {
-					place: number;
-				}[];
-				return (
-					(joins.at(-1)?.place ?? Number(meta(store, 'flushed'))) < keptFrom
-				);
-			};
 			const open = (faults?: (step: FlushStep) => void) =>
 				createServer({
 					store,
@@ -930,7 +964,7 @@ describe('randomized', () => {
 								text: note(`${now === null ? '' : 'x '}${who.user} ${step}\n`),
 							},
 						],
-						{ parent },
+						{ at: parent },
 					);
 					if (answer.kind === 'applied' || answer.kind === 'merged')
 						mains.push(answer.main);
@@ -954,7 +988,6 @@ describe('randomized', () => {
 					const next = await commitOn(git, old, changes, `step ${step}\n`);
 					// A row a crash left was decided before this push: it finishes first, and may move Git's main past what was fetched.
 					const decided = store.all('SELECT 1 FROM journal').length > 0;
-					const gone = !decided && dropped();
 					const waiting = meta(store, 'joins') !== null;
 					const crash =
 						random() < 0.15
@@ -977,25 +1010,18 @@ describe('randomized', () => {
 						server = open();
 						answer = await receive(server, old, next);
 					}
-					// Git moved before this push was checked: a row a crash left finished, or the window dropped what Git's main stands for and live history was flushed.
+					// A row a crash left may move Git before this push is checked.
 					const movedFirst =
 						answer.kind === 'refused' &&
 						answer.code === 'main-moved' &&
 						(await gitMain(git)) !== fetched;
 					if (movedFirst) {
-						expect({ where, decidedOrDropped: decided || gone }).toEqual({
+						expect({ where, decided }).toEqual({
 							where,
-							decidedOrDropped: true,
+							decided: true,
 						});
-						if (decided) seen.decidedFirst++;
-						else seen.droppedFirst++;
+						seen.decidedFirst++;
 					}
-					// The window dropped Git's base: whatever the push's old value, the server flushes first.
-					if (gone)
-						expect({
-							where,
-							movedFirst: (await gitMain(git)) !== fetched,
-						}).toEqual({ where, movedFirst: true });
 					if (answer.kind === 'accepted' && answer.merged) seen.merged++;
 					if (answer.kind === 'accepted' && waiting && old === own)
 						seen.chained++;

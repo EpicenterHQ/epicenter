@@ -23,8 +23,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBunGitStore } from '../bun/git.js';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { type CommitFile, commitId } from '../core/commit.js';
-import { ATTRIBUTES } from '../core/door.js';
+import { type CommitFile } from '../core/commit.js';
+import { ATTRIBUTES, fold } from '../core/door.js';
+import { gitBlobHash } from '../core/hash.js';
 import type { SqlDriver } from '../sql.js';
 import type { FlushStep } from './flush.js';
 import { type GitObjects, MAIN } from './git-store.js';
@@ -62,20 +63,51 @@ async function bunGit() {
 	return { git: await openBunGitStore(path), path };
 }
 
-/** A live commit by `session` on `parent` (main by default). */
+// Fixture versions at each observed position, so stale writers name per-file bases.
+const versions = new Map<string, Map<string, string>>();
+const watching = new WeakSet<Server>();
+let seq = 0;
+function remember(server: Server) {
+	const capture = () =>
+		versions.set(
+			server.main(),
+			new Map(
+				[...server.snapshot()].map(([path, text]) => [
+					fold(path),
+					gitBlobHash(text),
+				]),
+			),
+		);
+	if (!watching.has(server)) {
+		capture();
+		server.subscribe(capture);
+		watching.add(server);
+	}
+}
+/** A save carrying the versions its writer saw at the fixture position. */
 function push(
 	server: Server,
 	session: Session,
 	files: CommitFile[],
-	parent = server.main(),
+	at = server.main(),
 ) {
-	const body = {
-		parent,
-		author: { user: session.user, device: 'laptop' },
-		time: new Date(EPOCH).toISOString(),
-		files,
-	};
-	return server.push({ id: commitId(body), ...body }, session);
+	remember(server);
+	return server.push(
+		{
+			user: session.user,
+			device: 'laptop',
+			epoch: 'e',
+			seq: ++seq,
+			time: new Date(EPOCH).toISOString(),
+			from: at,
+			files: files.map(({ path, text }) => ({
+				path,
+				base: versions.get(at)?.get(fold(path)) ?? null,
+				next: text === null ? { deleted: true } : { text },
+			})),
+		},
+		session,
+	);
 }
 
 /** Two notes, then a stale edit that merges with a conflict block, then an edit that resolves it. */
@@ -208,13 +240,24 @@ test("a device may claim any time: its claim is Git's author date, the server's 
 		clock: () => clock.now,
 	});
 	const claim = (time: string, text: string) => {
-		const body = {
-			parent: server.main(),
-			author: { user: alice.user, device: 'laptop' },
-			time,
-			files: [{ path: 'notes/a.md', text: note(text) }],
-		};
-		return server.push({ id: commitId(body), ...body }, alice);
+		return server.push(
+			{
+				user: alice.user,
+				device: 'laptop',
+				epoch: 'e',
+				seq: ++seq,
+				time,
+				from: server.main(),
+				files: [
+					{
+						path: 'notes/a.md',
+						base: server.version('notes/a.md'),
+						next: { text: note(text) },
+					},
+				],
+			},
+			alice,
+		);
 	};
 	// A clock a year ahead, and one a decade behind: both are taken.
 	expect(claim('2027-10-28T12:00:00.000Z', 'ahead\n')).toMatchObject({

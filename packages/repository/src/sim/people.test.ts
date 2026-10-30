@@ -3,8 +3,9 @@
  *
  * The closing people review's probes P1 to P12, each the sequence a person
  * would notice, with what they should see after the phase 0a decisions:
- * a stale edit across a delete or a second create appends whole as one
- * conflict block (D3); a field both sides set takes the later arrival's
+ * a second create appends whole as one conflict block (D3), while a stale
+ * edit across a delete and a create again merges by content (the owner's
+ * accepted oddity: no generations); a field both sides set takes the later arrival's
  * value at the server, with no block; a merge of notes whose frontmatter parses writes frontmatter that parses (D4); there are no
  * stored notices: what contested is a block in the text, and whatever of a
  * person's the shared text does not hold stays held on their device with a
@@ -12,7 +13,7 @@
  * with what changed under it; blobs live at paths named by their content.
  *
  * Key behaviors:
- * - P1, P2: an offline edit of a note deleted and created again lands as one block in the new note
+ * - P1, P2: an offline edit of a note deleted and created again merges into the new note by content, visibly (accepted)
  * - P3, P4, P7: a second create at a path, a rename onto it, or a half-typed draft meeting it: one block, nothing glued silently
  * - P5: a rename racing an edit of the old path keeps both
  * - P6: a note whose frontmatter does not parse is a note: it lands, and two repairs of it merge by line
@@ -25,7 +26,7 @@
  * - A flush writes one Git commit per merge that wrote a block; pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
  */
 import { expect, test } from 'bun:test';
-import { commitId, type LiveCommit } from '../core/commit.js';
+import type { Push } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
 import { admissible } from '../core/door.js';
 import { writePointer } from '../core/markdown.js';
@@ -34,9 +35,9 @@ import type { Session } from '../server/server.js';
 import {
 	createTestServer,
 	createWorld,
+	directPush,
 	EPOCH,
 	QUIET,
-	STAMP,
 	writer,
 } from './harness.js';
 
@@ -53,7 +54,7 @@ function setup(names = ['alice', 'bob']) {
 	return { world, alice, bob, settle };
 }
 
-test('P1: an offline check-off of a todo deleted and created again lands as one block in the new todo, and its person is told', async () => {
+test('P1: an offline check-off of a todo deleted and created again merges into the new todo by its content: the accepted, visible oddity', async () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'todos/buy-milk.md';
 	alice.replica.write(
@@ -76,19 +77,14 @@ test('P1: an offline check-off of a todo deleted and created again lands as one 
 	settle();
 	alice.setOnline(true);
 	settle();
-	const text = world.server.read(path) ?? '';
-	expect(
-		text.startsWith(
-			note('oat milk this time\n', 'title: Buy milk\ndone: false'),
-		),
-	).toBe(true);
-	expect(text).toContain('<<<<<<< ');
-	expect(text).toContain('done: true');
-	expect(findConflicts(text)).toHaveLength(1);
+	// Nothing tells the new todo from the one alice checked off: her edit merges in as an edit of it, visibly, in the text.
+	expect(world.server.read(path)).toBe(
+		note('oat milk this time\n', 'title: Buy milk\ndone: true'),
+	);
 	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
 });
 
-test('P2: an offline append to a journal deleted and created again lands as one block, never as a clean line in the new note', () => {
+test('P2: an offline append to a journal deleted and created again merges into the new note by its content: the accepted, visible oddity', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'journal/2026-10-28.md';
 	alice.replica.write(path, note('slept badly\n', 'title: Wed'));
@@ -105,11 +101,11 @@ test('P2: an offline append to a journal deleted and created again lands as one 
 	settle();
 	alice.setOnline(true);
 	settle();
+	// The owner accepted this: with no generations, an edit made before a delete merges into a note made again at its path. Nothing is lost, and the line is there to see and move.
 	const text = world.server.read(path) ?? '';
-	const block = text.indexOf('<<<<<<< ');
-	expect(block).toBeGreaterThan(0);
-	expect(text.indexOf('private: called the lawyer')).toBeGreaterThan(block);
-	expect(findConflicts(text)).toHaveLength(1);
+	expect(text).toContain('private: called the lawyer');
+	expect(text).toContain('day one in Lisbon');
+	expect(text).toContain('title: Shared trip log');
 });
 
 test('P3: two offline creates at one path keep the first and append the second as one block, with a notice', () => {
@@ -190,14 +186,13 @@ test('P5: a rename racing an offline edit of the old path keeps both', () => {
 
 test('P6: a note whose frontmatter does not parse is a note: it lands, and two repairs of it merge by line', () => {
 	const { world, alice, bob, settle } = setup();
-	const body = {
-		parent: world.server.main(),
-		author: { user: 'alice', device: 'ci' },
-		time: STAMP,
-		files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }],
-	};
 	expect(
-		world.server.push({ id: commitId(body), ...body }, writer('alice')),
+		world.server.push(
+			directPush(world.server, 'alice', [
+				{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' },
+			]),
+			writer('alice'),
+		),
 	).toMatchObject({ kind: 'applied' });
 	settle();
 	expect(alice.replica.read('notes/x.md')).toBe(
@@ -275,18 +270,10 @@ test('P9: a forged author and a note over 1 MB are refused; forged conflict labe
 		member: string,
 		author: string,
 		text: string,
-	): [LiveCommit, Session] => {
-		const body = {
-			parent: server.main(),
-			author: { user: author, device: 'x' },
-			time: STAMP,
-			files: [{ path: 'notes/n.md', text }],
-		};
-		return [
-			{ id: commitId(body), ...body },
-			{ user: member, role: members.has(member) ? 'writer' : null },
-		];
-	};
+	): [Push, Session] => [
+		directPush(server, author, [{ path: 'notes/n.md', text }]),
+		{ user: member, role: members.has(member) ? 'writer' : null },
+	];
 	expect(
 		server.push(...commit('mallory', 'alice', note('forged\n'))),
 	).toMatchObject({

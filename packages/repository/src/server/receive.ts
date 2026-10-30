@@ -8,26 +8,28 @@
  * present at its size, one spelling per folded path), so no commit in
  * `main`'s history breaks a rule even if a later one repairs it.
  *
- * Accepted, the pushed change becomes one live commit on the live commit
- * Git's `main` stands for (the flushed place, or, while a pushed commit
- * waits to be joined, the live commit that push became), merged into live
- * `main` like any commit: every note merges, a blob by compare-and-swap. A
- * live edit Git does not hold yet, or one that lands while the push is
- * checked, is merged, never a refusal (ADR-0697). The transaction that
+ * Accepted, the pushed change becomes one write per changed file, each
+ * whose base is that file's version in the push's old value (in Git, so
+ * always readable), landed on live `main` like any write: every note
+ * merges, a blob by compare-and-swap. A live edit Git does not hold yet, or
+ * one that lands while the push is checked, is merged, never a refusal
+ * (ADR-0697). The transaction that
  * merges it journals the move of Git's `main` to exactly the pushed commit,
  * as a flush is journaled (flush.ts), and records the push as received;
  * only then does Git's `main` move, by compare-and-swap. A merged push does
  * not move the flushed place: Git holds the push, not the live edits it was
- * merged over, which the next flush joins to it. Once the window dropped
- * the live commit Git's `main` stands for, live history is flushed first,
- * so the push meets `main-moved` under Git's own rule. A push the live door
+ * merged over, which the next flush joins to it. A push the live door
  * refuses never moves Git, so a published `main` is never rewound; a crash
  * after the transaction is finished by the next flush or push, and the push
  * sent again is answered accepted.
  */
-import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
+import {
+	type Author,
+	type CommitFile,
+	contentOf,
+	type FileWrite,
+} from '../core/commit.js';
 import { ATTRIBUTES, admissible, CASE_FIXED, fold } from '../core/door.js';
-import { gitBlobHash } from '../core/hash.js';
 import { parsePointer } from '../core/markdown.js';
 import { first, type SqlDriver } from '../sql.js';
 import type { Flusher, FlushStep, Join } from './flush.js';
@@ -94,7 +96,6 @@ export function createReceiver({
 	flusher,
 	faults,
 	apply,
-	prune,
 }: {
 	history: History;
 	store: SqlDriver;
@@ -103,14 +104,12 @@ export function createReceiver({
 	limits: Limits;
 	flusher: Flusher;
 	faults?: (step: FlushStep) => void;
-	/** Apply a live commit past the rate limit (its checks were made against Git), running `during` in its transaction once it lands. */
+	/** Land writes past the rate limit (their checks were made against Git), running `during` in their transaction once they land. */
 	apply: (
-		commit: LiveCommit,
-		session: Session,
+		files: FileWrite[],
+		as: { author: Author; time: string; from: null },
 		during: (answer: PushAnswer & { kind: 'applied' | 'merged' }) => void,
 	) => PushAnswer;
-	/** Drop what the window no longer keeps, as every live commit does first. */
-	prune: () => void;
 }) {
 	const { meta } = history;
 	const refused = (
@@ -204,22 +203,6 @@ export function createReceiver({
 		return chain;
 	}
 
-	/**
-	 * The live commit Git's `main` stands for: the flushed place, or, while a
-	 * pushed commit waits to be joined, the live commit it became. Undefined
-	 * once the window dropped it, like any live history: ask after `prune`,
-	 * as the live commit a push becomes prunes first.
-	 */
-	function standsFor(): string | undefined {
-		const waiting = flusher.joins().at(-1);
-		if (waiting !== undefined)
-			return history.baseOf(waiting.side) === undefined
-				? undefined
-				: waiting.side;
-		const flushed = meta.number('flushed');
-		return flushed < history.offset() ? undefined : history.at(flushed).id;
-	}
-
 	/** The answer to a push already taken: Git's `main` holds it once its row is finished. */
 	async function taken(next: string, merged: boolean): Promise<ReceiveAnswer> {
 		const stored =
@@ -275,13 +258,6 @@ export function createReceiver({
 			(await flusher.finish()).kind === 'diverged'
 		)
 			return refused('diverged', DIVERGED);
-		// RULE: a push merges on the live commit Git's `main` stands for; once the window dropped it, live history is flushed first (Git's `main` moves, so this push is refused below).
-		prune();
-		if (
-			standsFor() === undefined &&
-			(await flusher.flushHere()).kind === 'diverged'
-		)
-			return refused('diverged', DIVERGED);
 		const head = meta.get('git_head') || null;
 		if (old !== head || (await git.readRef(MAIN)) !== old)
 			return refused('main-moved', 'main moved; fetch and rebase');
@@ -301,26 +277,25 @@ export function createReceiver({
 			last = tree;
 		}
 
-		// The pushed change as one live commit on the live commit Git's `main` stands for.
+		// The pushed change as one write per changed file, each over its version in the push's old value.
 		const files: CommitFile[] = [];
-		for (const path of new Set([...base.keys(), ...last.keys()])) {
-			if (
-				path === '.gitattributes' ||
-				base.get(path)?.oid === last.get(path)?.oid
-			)
-				continue;
+		const writes: FileWrite[] = [];
+		for (const path of [...new Set([...base.keys(), ...last.keys()])].sort()) {
+			const before = base.get(path)?.oid ?? null;
 			const entry = last.get(path);
-			files.push({
+			if (path === '.gitattributes' || before === (entry?.oid ?? null))
+				continue;
+			const text =
+				entry === undefined
+					? null
+					: decoder.decode((await git.readBlob(entry.oid)) ?? new Uint8Array());
+			files.push({ path, text });
+			writes.push({
 				path,
-				text:
-					entry === undefined
-						? null
-						: decoder.decode(
-								(await git.readBlob(entry.oid)) ?? new Uint8Array(),
-							),
+				base: before,
+				next: text === null ? { deleted: true } : contentOf(text),
 			});
 		}
-		files.sort((a, b) => (a.path < b.path ? -1 : 1));
 		// RULE: a file's capitalization is fixed at creation: a push that removes one spelling of a path and adds another changes only that, and is refused (`check` refused a tree holding two). The delete must land first.
 		const removed = new Set(
 			files.filter((f) => f.text === null).map((f) => fold(f.path)),
@@ -330,6 +305,13 @@ export function createReceiver({
 		);
 		if (respelled !== undefined)
 			return refused('file', CASE_FIXED, { path: respelled.path });
+		// The bases a note merges against: Git has them, and the store keeps them while it needs them.
+		const bases: string[] = [];
+		for (const write of writes)
+			if (write.base !== null && 'text' in write.next) {
+				const bytes = await git.readBlob(write.base);
+				if (bytes !== null) bases.push(decoder.decode(bytes));
+			}
 		const tree = chain.at(-1)?.tree as string;
 		const staging = `refs/heads/epicenter-receive-${next}`;
 		if (
@@ -337,67 +319,68 @@ export function createReceiver({
 			(await git.readRef(staging)) !== next
 		)
 			throw new Error(`the staging ref ${staging} moved`);
-		// Asked again after the last wait, so nothing lands between this and the live commit.
-		prune();
-		const parent = standsFor();
-		if (parent === undefined) {
-			// Dropped during the checks (it was at the window's edge): sent again, the push finds it gone and flushes first.
-			await git.deleteRef(staging, next);
-			return refused(
-				'live',
-				'the live commit this push merges on left the window while the push was checked; push again',
-			);
-		}
 		const at = clock();
-		const body = {
-			parent,
-			author: { user: session.user, device: 'git' },
-			time: new Date(at).toISOString(),
-			files,
-		};
-		const id = commitId(body);
-		// One transaction: the live commit, the journal row that moves Git's main to the pushed commit, and the record that the push was taken. Git moves only after all three are kept.
-		const live = apply({ id, ...body }, session, (landed) => {
-			const merged = landed.kind === 'merged';
-			const flushed = meta.number('flushed');
-			// The trees of `old` and of the pushed commit as live history holds them, so a flush diffs against them from the nodes it keeps.
-			const base = history.trees.update(
-				history.baseOf(parent)?.tree ?? history.trees.empty,
-				[[['.gitattributes'], history.keep(ATTRIBUTES)]],
-			);
-			const pushed = history.trees.update(
-				base,
-				files.map((f): [string[], string | null] => [
-					f.path.split('/'),
-					f.text === null ? null : gitBlobHash(f.text),
-				]),
-			);
-			const join: Join | undefined = merged
-				? { old, base, oid: next, tree: pushed, place: history.top(), side: id }
-				: undefined;
-			// Applied on Git's `main` with nothing waiting, Git holds all of live history; merged, it holds the push, not the live edits it was merged over.
-			flusher.journalPushed({
-				old,
-				next,
-				tree,
-				through: merged ? flushed : history.top(),
-				staging,
-				user: session.user,
-				at,
-				...(join === undefined ? {} : { join }),
-			});
-			store.run(
-				'INSERT INTO received (next, merged, at, siblings) VALUES (?, ?, ?, ?)',
-				[
-					next,
-					merged ? 1 : 0,
-					at,
-					landed.siblings === undefined
-						? null
-						: JSON.stringify(landed.siblings),
-				],
-			);
+		store.transaction(() => {
+			for (const text of bases) history.keep(text, true);
 		});
+		// Applied, Git holds all of live history only if nothing live was ahead of its `main`.
+		const ahead = meta.number('flushed') !== history.top();
+		const author: Author = { user: session.user, device: 'git' };
+		// One transaction: the writes, the journal row that moves Git's main to the pushed commit, and the record that the push was taken. Git moves only after all three are kept.
+		const live = apply(
+			writes,
+			{ author, time: new Date(at).toISOString(), from: null },
+			(landed) => {
+				const merged = ahead || landed.kind === 'merged';
+				const flushed = meta.number('flushed');
+				// The trees of `old` and of the pushed commit as live history holds them, so a flush diffs against them from the nodes it keeps.
+				const baseTree = history.trees.update(
+					history.trees.empty,
+					[...base].map(([path, entry]): [string[], string] => [
+						path.split('/'),
+						entry.oid,
+					]),
+				);
+				const pushed = history.trees.update(
+					baseTree,
+					files.map((f): [string[], string | null] => [
+						f.path.split('/'),
+						f.text === null ? null : history.keep(f.text, true),
+					]),
+				);
+				const join: Join | undefined = merged
+					? {
+							old,
+							base: baseTree,
+							oid: next,
+							tree: pushed,
+							place: history.top(),
+						}
+					: undefined;
+				// Applied on Git's `main` with nothing waiting, Git holds all of live history; merged, it holds the push, not the live edits it was merged over.
+				flusher.journalPushed({
+					old,
+					next,
+					tree,
+					through: merged ? flushed : history.top(),
+					staging,
+					user: session.user,
+					at,
+					...(join === undefined ? {} : { join }),
+				});
+				store.run(
+					'INSERT INTO received (next, merged, at, siblings) VALUES (?, ?, ?, ?)',
+					[
+						next,
+						merged ? 1 : 0,
+						at,
+						landed.siblings === undefined
+							? null
+							: JSON.stringify(landed.siblings),
+					],
+				);
+			},
+		);
 		if (live.kind !== 'applied' && live.kind !== 'merged') {
 			await git.deleteRef(staging, next);
 			const reason =
@@ -411,7 +394,14 @@ export function createReceiver({
 			);
 		}
 		faults?.('received');
-		return taken(next, live.kind === 'merged');
+		return taken(
+			next,
+			first<{ merged: number }>(
+				store,
+				'SELECT merged FROM received WHERE next = ?',
+				[next],
+			)?.merged === 1,
+		);
 	}
 
 	return {

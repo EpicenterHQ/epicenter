@@ -4,8 +4,8 @@
  * change event down, in order. A browser cannot set a WebSocket's headers,
  * so with `tickets` the socket first asks `POST /tickets` (with `headers`)
  * for a one-use ticket and connects with it. `send` carries one replica request as HTTP
- * (a push is one `POST /commits`, a catch-up page one `GET /catch-up`, a
- * read by hash one `GET /blobs/<hash>` per text, a few at a time, so each
+ * (a push is one `POST /writes`, a catch-up page one `GET /catch-up`, a
+ * read by hash one `GET /blobs/<hash>` per version, a few at a time, so each
  * is cached for good): reads by hash always go this way, and a one-shot client can send
  * everything this way. A replica's socket transport (client/socket.ts)
  * drives it in real time; the property test drives the same client on
@@ -14,6 +14,7 @@
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, tryAsync } from 'wellcrafted/result';
 import type { Request as ReplicaRequest, Reply } from '../client/replica.js';
+import type { Content } from '../core/commit.js';
 import type { CatchUp, PushAnswer } from '../server/server.js';
 import {
 	PING,
@@ -45,10 +46,9 @@ const READS_AT_ONCE = 16;
 const ANSWERS = new Set<string>([
 	'applied',
 	'merged',
-	'flushed',
 	'refused',
 	'rejected',
-	'outcome-unknown',
+	'behind',
 ] satisfies PushAnswer['kind'][]);
 const isAnswer = (body: unknown): body is PushAnswer =>
 	typeof body === 'object' &&
@@ -97,14 +97,14 @@ export function createWireClient({
 
 	async function push(
 		rid: number,
-		commit: Extract<ReplicaRequest, { type: 'push' }>['commit'],
+		sent: Extract<ReplicaRequest, { type: 'push' }>['push'],
 	): Promise<Result<Reply, WireClientError>> {
-		const { data: response, error } = await call(at('commits'), {
+		const { data: response, error } = await call(at('writes'), {
 			method: 'POST',
-			body: JSON.stringify(commit),
+			body: JSON.stringify(sent),
 		});
 		if (error !== null) return Err(error);
-		// A write's answer is JSON whatever its status; anything else (401, 403, 400) is not an answer to this commit.
+		// A write's answer is JSON whatever its status; anything else (401, 403, 400) is not an answer to this push.
 		const text = await response.text();
 		const body: unknown = response.headers.get('content-type')?.includes('json')
 			? JSON.parse(text)
@@ -136,12 +136,12 @@ export function createWireClient({
 		});
 	}
 
-	/** One replica read: its texts by hash, `READS_AT_ONCE` requests at a time. */
+	/** One replica read: its versions by hash, `READS_AT_ONCE` requests at a time. */
 	async function read(
 		rid: number,
 		hashes: string[],
 	): Promise<Result<Reply, WireClientError>> {
-		const texts: Record<string, string> = {};
+		const versions: Record<string, Content> = {};
 		for (let start = 0; start < hashes.length; start += READS_AT_ONCE) {
 			const results = await Promise.all(
 				hashes
@@ -149,17 +149,17 @@ export function createWireClient({
 					.map(async (hash): Promise<Result<null, WireClientError>> => {
 						const { data: response, error } = await call(at(`blobs/${hash}`));
 						if (error !== null) return Err(error);
-						// A text the server does not have is left out, as the server's own `fetch` leaves it out.
+						// A version the server does not have is left out, as the server's own `fetch` leaves it out.
 						if (response.status === 404) return Ok(null);
 						if (response.status !== 200) return unexpected(response);
-						texts[hash] = await response.text();
+						versions[hash] = (await response.json()) as Content;
 						return Ok(null);
 					}),
 			);
 			const failed = results.find((result) => result.error !== null);
 			if (failed !== undefined) return failed;
 		}
-		return Ok({ type: 'fetched', rid, texts });
+		return Ok({ type: 'fetched', rid, versions });
 	}
 
 	/** A one-use ticket for the next socket. */
@@ -179,7 +179,7 @@ export function createWireClient({
 		send(request: ReplicaRequest): Promise<Result<Reply, WireClientError>> {
 			switch (request.type) {
 				case 'push':
-					return push(request.rid, request.commit);
+					return push(request.rid, request.push);
 				case 'catch-up':
 					return catchUp(request);
 				case 'fetch':

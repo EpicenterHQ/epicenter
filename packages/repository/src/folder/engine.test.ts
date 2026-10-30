@@ -23,6 +23,7 @@
  */
 import { expect, test } from 'bun:test';
 import { BlobStoreError } from '../client/blobs.js';
+import { storedText } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
 import { fold } from '../core/door.js';
 import { parsePointer } from '../core/markdown.js';
@@ -178,7 +179,7 @@ test('a file captured mid-save (truncated, its bytes not yet written) is read on
 	const sent: (string | null)[] = [];
 	world.onRequest((from, request) => {
 		if (from === 'ada' && request.type === 'push')
-			for (const file of request.commit.files) sent.push(file.text);
+			for (const file of request.push.files) sent.push(storedText(file.next));
 	});
 	other.replica.write('notes/a.md', note('one\nremote\n'));
 	await runFor(world, 3_000);
@@ -541,7 +542,7 @@ async function deciding({ invalid }: { invalid: boolean }) {
 			? ['media/chart.png', 'notes/plan.md']
 			: ['media/chart.png', 'notes/plan.md', 'notes/summary.md'],
 	);
-	// The person autosaves the same lines every 2 s while the agent's commit is out.
+	// The person autosaves the same lines every 2 s while the agent's push is out.
 	let typed = 0;
 	const autosave = () => {
 		if (typed >= 5) return;

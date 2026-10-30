@@ -9,6 +9,9 @@
  * demand.
  */
 
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { unwrap } from 'wellcrafted/result';
 import { openBunSqlite } from '../bun/sqlite.js';
 import {
@@ -17,6 +20,7 @@ import {
 	type Request,
 	SEND_QUIET,
 } from '../client/replica.js';
+import { contentOf, type Push } from '../core/commit.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import {
 	type Committed,
@@ -78,6 +82,37 @@ const BINDING = (account: string) => ({
 
 /** A writer's session, as a host would verify it. */
 export const writer = (user: string): Session => ({ user, role: 'writer' });
+
+let directs = 0;
+/**
+ * One push straight to the server, as a writer with no replica: its own
+ * epoch, seq 1. Each file is written over `base`, by default the version
+ * `main` holds now (so it lands as written unless something differs).
+ */
+export function directPush(
+	server: { main(): string; version(path: string): string | null },
+	user: string,
+	files: { path: string; text: string | null; base?: string | null }[],
+	{
+		device = 'x',
+		time = STAMP,
+		from = server.main(),
+	}: { device?: string; time?: string; from?: string | null } = {},
+): Push {
+	return {
+		user,
+		device,
+		epoch: `direct-${directs++}`,
+		seq: 1,
+		time,
+		from,
+		files: files.map(({ path, text, base }) => ({
+			path,
+			base: base === undefined ? server.version(path) : base,
+			next: text === null ? { deleted: true } : contentOf(text),
+		})),
+	};
+}
 
 export function createWorld({
 	seed = 1,
@@ -173,7 +208,7 @@ export function createWorld({
 			counts[request.type]++;
 			switch (request.type) {
 				case 'push': {
-					const answer = server.push(request.commit, session(name));
+					const answer = server.push(request.push, session(name));
 					return { type: 'answer', rid: request.rid, answer };
 				}
 				case 'catch-up': {
@@ -184,7 +219,7 @@ export function createWorld({
 					return {
 						type: 'fetched',
 						rid: request.rid,
-						texts: server.fetch(request.hashes),
+						versions: server.fetch(request.hashes),
 					};
 			}
 		}
@@ -293,6 +328,23 @@ export function createWorld({
 			/** Drop the replica and open it again from its database. */
 			restart() {
 				replica.close();
+				replica = make();
+				reconnect();
+			},
+			/** A copy of the device's database as it is now, kept in a file (a backup). */
+			snapshot() {
+				const file = join(
+					mkdtempSync(join(tmpdir(), 'epicenter-snapshot-')),
+					'replica.db',
+				);
+				driver.exec(`VACUUM INTO '${file}'`);
+				return file;
+			},
+			/** The device's database is restored from a copy: it opens again as it was then. */
+			restore(file: string) {
+				replica.close();
+				driver.close();
+				driver = openBunSqlite(file);
 				replica = make();
 				reconnect();
 			},

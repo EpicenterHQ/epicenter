@@ -1,8 +1,9 @@
 /**
- * Push-as-merge, as Git history: builds one scenario on a temporary bare
- * repository through the real server and prints `git log --graph`.
+ * Server commits and Git push-as-merge: builds one scenario on a temporary
+ * bare repository through the real server and prints `git log --graph`.
  *
- * Alice and Bob type (Bob's stale edit writes a conflict block, Alice
+ * Devices send writes over file versions; the server makes their single-parent
+ * commits. Alice and Bob type (Bob's stale base writes a conflict block, Alice
  * resolves it, Bob saves another note), an agent pushes over those
  * unexported edits, typing goes on, the agent pushes again from its own
  * pushed commit before any flush, a flush joins them, then the agent
@@ -15,13 +16,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBunGitStore } from '../src/bun/git.js';
 import { openBunSqlite } from '../src/bun/sqlite.js';
-import { type CommitFile, commitId } from '../src/core/commit.js';
+import type { CommitFile } from '../src/core/commit.js';
 import { MAIN } from '../src/server/git-store.js';
 import {
 	createServer,
 	type Server,
 	type Session,
 } from '../src/server/server.js';
+
+import { directPush } from '../src/sim/harness.js';
 
 const EPOCH = Date.UTC(2026, 9, 30, 12);
 const note = (body: string) => `---\ntitle: Note\n---\n${body}`;
@@ -40,21 +43,27 @@ const git = await openBunGitStore(path);
 let now = EPOCH;
 const server = createServer({ store: openBunSqlite(), git, clock: () => now });
 const encoder = new TextEncoder();
+const sequences = new Map<string, number>();
 
 function save(
 	server: Server,
 	who: Session,
-	files: CommitFile[],
-	{ parent = server.main() }: { parent?: string } = {},
+	files: (CommitFile & { base?: string | null })[],
 ) {
 	now += 60_000;
-	const body = {
-		parent,
-		author: { user: who.user, device: 'laptop' },
-		time: new Date(now).toISOString(),
-		files,
-	};
-	return server.push({ id: commitId(body), ...body }, who);
+	const seq = (sequences.get(who.user) ?? 0) + 1;
+	sequences.set(who.user, seq);
+	return server.push(
+		{
+			...directPush(server, who.user, files, {
+				device: 'laptop',
+				time: new Date(now).toISOString(),
+			}),
+			epoch: `graph-${who.user}`,
+			seq,
+		},
+		who,
+	);
 }
 async function commitOn(
 	parent: string,
@@ -90,16 +99,13 @@ await server.flush();
 const g0 = await head();
 console.log(`flushed: Git main ${short(g0)}`);
 
-const base = server.main();
+const base = server.version('notes/plan.md');
 save(server, alice, [
 	{ path: 'notes/plan.md', text: note('Ship on Monday.\n') },
 ]);
-save(
-	server,
-	bob,
-	[{ path: 'notes/plan.md', text: note('Ship on Tuesday.\n') }],
-	{ parent: base },
-);
+save(server, bob, [
+	{ path: 'notes/plan.md', base, text: note('Ship on Tuesday.\n') },
+]);
 save(server, alice, [
 	{ path: 'notes/plan.md', text: note('Ship on Tuesday.\n') },
 ]);

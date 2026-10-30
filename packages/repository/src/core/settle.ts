@@ -8,9 +8,11 @@
  * Every conflict is text: overlaps are conflict blocks. A header key
  * both sides set takes the later write's value, `incoming`'s (the write
  * arriving now) over `current`'s (`main`'s), with no block: the value that
- * lost stays in history. A path that was deleted since `base`, or that two
- * writers created, holds another note (D3): `current` stays and `incoming`
- * is appended whole as one block. A block identical to one already in the
+ * lost stays in history. A path two writers created holds another note
+ * (D3): `current` stays and `incoming` is appended whole as one block. A
+ * note deleted and created again since `base` merges by its content, as
+ * an edit of the note `base` was: nothing tells the two apart, a visible
+ * and repairable result the owner accepted. A block identical to one already in the
  * note is not written again, and one clash is one block however many
  * writes follow it (`merge`'s `continuedBlock`). A blob never merges:
  * `settlePointer` is its rule, compare-and-swap.
@@ -124,28 +126,23 @@ export function conflictSibling(
 
 /**
  * Settle `incoming` (the writer's text) against `current` (what is there
- * now), both made from `base`. `deletedSince`: the path was deleted at some
- * point after `base`.
+ * now), both made from `base`.
  */
 export function settle(
 	base: string | null,
 	current: string | null,
 	incoming: string | null,
-	{
-		deletedSince = false,
-		parties,
-	}: { deletedSince?: boolean; parties: Parties },
+	{ parties }: { parties: Parties },
 ): Settled {
 	if (incoming === current) return { text: current, blocks: false };
 	if (incoming === base) return { text: current, blocks: false };
-	if (current === base && !deletedSince)
-		return { text: incoming, blocks: false };
+	if (current === base) return { text: incoming, blocks: false };
 	// A delete against an edit it had not seen keeps the edit; an edit brings a deleted note back.
 	if (incoming === null) return { text: current, blocks: false };
 	if (current === null) return { text: incoming, blocks: false };
-	// Two creates, or a path deleted and created again: another note.
+	// Two creates: another note.
 	const labels = labelled(parties, base, current, incoming);
-	if (base === null || deletedSince)
+	if (base === null)
 		return {
 			text: withBlock(current, block({ current: '', incoming }, labels)),
 			blocks: true,

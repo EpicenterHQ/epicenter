@@ -1,15 +1,15 @@
 /**
  * Commit Id Tests
  *
- * A commit id hashes the commit's canonical form, so a resent commit is the
- * same commit and any change to its parent or content is a different one.
+ * A live commit id hashes the commit's canonical form, so any change to
+ * its parent or content is a different commit.
  *
  * Key behaviors:
  * - the id ignores key order and extra fields of the object it is given
  * - the id changes with the parent, the author, the time, a path or a text
  */
 import { expect, test } from 'bun:test';
-import { type CommitBody, commitId, type LiveCommit } from './commit.js';
+import { type CommitBody, commitId } from './commit.js';
 
 const body: CommitBody = {
 	parent: 'p',
@@ -29,8 +29,9 @@ test('the id depends on the canonical form only', () => {
 		parent: 'p',
 	} as const;
 	expect(commitId(reordered)).toBe(commitId(body));
-	const live: LiveCommit = { ...body, id: 'ignored' };
-	expect(commitId(live)).toBe(commitId(body));
+	expect(commitId({ ...body, id: 'ignored' } as CommitBody)).toBe(
+		commitId(body),
+	);
 });
 
 test('every part of the commit changes its id', () => {

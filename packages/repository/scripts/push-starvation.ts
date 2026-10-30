@@ -23,6 +23,9 @@
  * uploads it and calls `receive`, retrying the same commit until it lands.
  * The server's work is synchronous SQLite plus promise-only memory Git, so
  * draining one `setImmediate` per timer runs each step to completion.
+ * Autosaves send numbered device pushes over per-file versions; concurrent
+ * changes to other files no longer make an autosave stale. The Git pusher
+ * still measures receive and flush contention.
  *
  * Pusher strategies (all on unmodified server code):
  * - `retry`: a plain Git client. On any refusal, wait 1 s, fetch, rebase, push.
@@ -51,7 +54,6 @@
  * Run: bun scripts/push-starvation.ts [minutes=20] [seeds=3] [people=0,1,10] [strategies=retry,wait-flush,fetch-flush] [profiles=instant,fast,typical,slow] [patterns=steady,bursty]
  */
 import { openBunSqlite } from '../src/bun/sqlite.js';
-import { commitId, type LiveCommit } from '../src/core/commit.js';
 import { ATTRIBUTES } from '../src/core/door.js';
 import { type GitObjects, MAIN } from '../src/server/git-store.js';
 import { createMemoryGitStore } from '../src/server/memory-git.js';
@@ -60,6 +62,8 @@ import {
 	type Server,
 	type Session,
 } from '../src/server/server.js';
+
+import { directPush } from '../src/sim/harness.js';
 
 const minutes = Number(process.argv[2] ?? 20);
 const seeds = Number(process.argv[3] ?? 3);
@@ -258,17 +262,15 @@ async function runOnce({
 	// Seed Git with a first flush, as a repository someone has used.
 	const agentPath = 'agent/log.md';
 	const agentSession: Session = { user: 'agent', role: 'writer' };
-	{
-		const body = {
-			parent: server.main(),
-			author: { user: 'agent', device: 'cli' },
-			time: iso(),
-			files: [
-				{ path: agentPath, text: '---\ntitle: Agent log\n---\nStarted.\n' },
-			],
-		};
-		server.push({ id: commitId(body), ...body }, agentSession);
-	}
+	server.push(
+		directPush(
+			server,
+			'agent',
+			[{ path: agentPath, text: '---\ntitle: Agent log\n---\nStarted.\n' }],
+			{ device: 'cli', time: iso() },
+		),
+		agentSession,
+	);
 	const seeded = server.flush();
 	await vt.run(EPOCH + 5_000);
 	await seeded;
@@ -278,7 +280,8 @@ async function runOnce({
 	for (let i = 0; i < people; i++) {
 		const writer = createWriter(i, random);
 		const session: Session = { user: `person-${i}`, role: 'writer' };
-		let parent = server.main();
+		let base = server.version(writer.path);
+		let seq = 0;
 		let typingUntil =
 			pattern === 'steady' || random() < 1 / 3
 				? Number.POSITIVE_INFINITY
@@ -293,21 +296,24 @@ async function runOnce({
 				typingUntil = resume + exponential(60_000);
 				vt.at(resume, () => {
 					// Back from a pause on a replica that kept up with the change feed.
-					parent = server.main();
+					base = server.version(writer.path);
 					save();
 				});
 				return;
 			}
-			const body = {
-				parent,
-				author: { user: session.user, device: 'laptop' },
-				time: iso(),
-				files: [{ path: writer.path, text: writer.edit() }],
+			const push = {
+				...directPush(
+					server,
+					session.user,
+					[{ path: writer.path, text: writer.edit(), base }],
+					{ device: 'laptop', time: iso() },
+				),
+				epoch: 'typing',
+				seq: ++seq,
 			};
-			const commit: LiveCommit = { id: commitId(body), ...body };
-			const answer = server.push(commit, session);
+			const answer = server.push(push, session);
 			if (answer.kind === 'applied' || answer.kind === 'merged') {
-				parent = answer.main;
+				base = server.version(writer.path);
 				saves++;
 			} else saveRefusals++;
 			vt.at(vt.now() + 1_000 + random() * 2_000, save);

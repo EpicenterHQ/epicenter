@@ -36,7 +36,7 @@
  * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged, or what only its own unsent work held
  * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, unless it lost to an edit by someone else that it had not seen: then the edited file stays, and nothing typed is lost
  * - No stale edit of a note merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block; a blob write lands in a merge only over the bytes its writer saw, or bytes equal to its own (compare-and-swap)
- * - Every server Markdown file is at most 1 MB (one whose frontmatter does not parse is a note with no fields, and syncs); hostile writes (forged author, non-member, oversized, CRLF endings, replayed id with other files, a flood of stale-parent commits) are refused or bounded
+ * - Every server Markdown file is at most `MAX_FILE_BYTES` (one whose frontmatter does not parse is a note with no fields, and syncs); hostile writes (forged author, non-member, oversized, CRLF endings, a write of the wrong kind, a push replayed under its seq with other writes, a flood of writes over no base) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
  * - None applied twice: at quiescence no token appears twice in a server text outside its conflict blocks, nor twice in any one side of a block (`versionsOf`), except tokens a person wrote twice on purpose (resolving blocks by keeping every side's lines)
  * - Held alone: once everyone is online and every upload is completed or refused, every file a device has not sent is held, with a reason of its own; nothing waits on another file
@@ -49,8 +49,10 @@
  */
 import { expect, test } from 'bun:test';
 import { UPLOADING } from '../client/replica.js';
-import { commitId, type LiveCommit } from '../core/commit.js';
+import { contentOf, type Next, storedText } from '../core/commit.js';
 import { escapeLines, findConflicts } from '../core/conflict.js';
+import { MAX_FILE_BYTES } from '../core/door.js';
+import { gitBlobHash } from '../core/hash.js';
 import {
 	parseMarkdown,
 	parsePointer,
@@ -62,12 +64,7 @@ import { conflictSibling } from '../core/settle.js';
 import { MAIN } from '../server/git-store.js';
 import type { MemoryGitStore } from '../server/memory-git.js';
 import type { Server } from '../server/server.js';
-import {
-	type Committed,
-	LIMITS,
-	type PushAnswer,
-	REASONS,
-} from '../server/server.js';
+import { LIMITS, type PushAnswer, REASONS } from '../server/server.js';
 import { createWorld, type Device, STAMP, type World } from './harness.js';
 import { createRandom } from './net.js';
 
@@ -118,8 +115,8 @@ const REFUSED = 'refused by the server';
 /** A note created from a template: the same text each time, so a path can hold a new note with an old note's text. */
 const TEMPLATE = '---\ntitle: New\n---\n';
 const TOKEN = /t\d+z/g;
-/** Filler that makes a note larger than the 1 MB a note may be. */
-const FILLER = `big ${'x'.repeat(1_100_000)}`;
+/** Filler that makes a note larger than the most bytes a note may hold. */
+const FILLER = `big ${'x'.repeat(MAX_FILE_BYTES + 100_000)}`;
 /** `hasFiller(text)` is pathologically slow in JavaScriptCore on a long text of x's, so look for it this way. */
 const hasFiller = (text: string) => /x{1000}/.test(text);
 /** Whether every key of a text's header, if any, parses. A note with a broken key is a note all the same: that key is missing. */
@@ -238,7 +235,11 @@ async function run(
 	}[] = [];
 	/** Every blob text main has held, by path. */
 	const onMain = new Set<string>();
-	const honestIds: string[] = [];
+	/** Honest pushes that landed: who sent them, under which epoch and seq. */
+	const honest: { user: string; device: string; epoch: string; seq: number }[] =
+		[];
+	/** Every text any commit on main held, by version: what a write's base names. */
+	const versions = new Map<string, string>();
 	let next = 1;
 	const token = () => `t${next++}z`;
 
@@ -251,7 +252,6 @@ async function run(
 	const writers: { user: string; paths: Set<string> }[] = [
 		{ user: '', paths: new Set() },
 	];
-	let lastMerge: Committed | null = null;
 	/**
 	 * Tokens that were header values on main. The header merges by key, each
 	 * value whole, the later arrival winning (a device's rebase of its unsent
@@ -267,7 +267,7 @@ async function run(
 					JSON.stringify(parseMarkdown(file.after).fields),
 				))
 					superseded.add(t);
-			if (file.after !== null && file.after.length > 1024 * 1024)
+			if (file.after !== null && file.after.length > MAX_FILE_BYTES)
 				violations.push(`server: ${file.path} is ${file.after.length} bytes`);
 			// A removal is done once its path is absent on the server after it, whoever's commit did it.
 			if (file.after === null)
@@ -282,6 +282,8 @@ async function run(
 					`server: main holds ${file.path} without its bytes (${pointer.oid.slice(0, 8)})`,
 				);
 			if (pointer !== null) onMain.add(`${file.path}\0${file.after}`);
+			for (const text of [file.before, file.after])
+				if (text !== null) versions.set(gitBlobHash(text), text);
 			if (file.after === null) state.delete(file.path);
 			else state.set(file.path, file.after);
 		}
@@ -291,12 +293,11 @@ async function run(
 			user: committed.author.user,
 			paths: new Set(committed.files.map((f) => f.path)),
 		});
-		lastMerge = committed.parents.length > 1 ? committed : null;
 	});
 	world.onRequest((device, request, reply) => {
 		if (request.type === 'push')
-			for (const file of request.commit.files) {
-				const pointer = file.text === null ? null : parsePointer(file.text);
+			for (const file of request.push.files) {
+				const text = storedText(file.next);
 				// Bytes this device heard are present, or the pointer `main` gave it at that path (its base): main admits a pointer only once the server holds its bytes.
 				const base =
 					everyone
@@ -304,9 +305,9 @@ async function run(
 						?.replica.files()
 						.get(file.path)?.base ?? null;
 				if (
-					pointer !== null &&
-					!marked.get(device)?.has(pointer.oid) &&
-					file.text !== base
+					'blob' in file.next &&
+					!marked.get(device)?.has(file.next.blob.oid) &&
+					text !== base
 				)
 					violations.push(
 						`${device}: sent ${file.path} before its bytes were present`,
@@ -315,52 +316,44 @@ async function run(
 		if (request.type !== 'push' || reply.type !== 'answer') return;
 		const answer = reply.answer as PushAnswer;
 		if (answer.kind !== 'applied' && answer.kind !== 'merged') return;
-		const commit = request.commit;
-		honestIds.push(commit.id);
-		for (const file of commit.files)
-			for (const t of tokensIn(file.text)) acknowledged.add(t);
-		// No silent merge across a delete, judged by the test's own history; a blob, which never merges, by compare-and-swap on its bytes.
-		const merge = lastMerge as Committed | null;
-		if (
-			answer.kind !== 'merged' ||
-			merge === null ||
-			merge.parents[1] !== commit.id
-		)
+		const push = request.push;
+		// A resend answered from the record lands nothing new.
+		if (honest.some((h) => h.epoch === push.epoch && h.seq === push.seq))
 			return;
-		const from = chain.indexOf(commit.parent);
-		const before = chain.indexOf(merge.parents[0] ?? '');
-		for (const file of commit.files) {
-			if (file.text === null || from < 0 || before < 0) continue;
-			const then = states.get(commit.parent)?.get(file.path) ?? null;
-			const ours = states.get(chain[before] ?? '')?.get(file.path) ?? null;
-			// A blob never merges: it lands by compare-and-swap over the bytes its writer saw (a path deleted and made again with those bytes holds them).
+		honest.push(push);
+		for (const file of push.files)
+			for (const t of tokensIn(storedText(file.next))) acknowledged.add(t);
+		// No silent merge of two creates, judged by the test's own history; a blob, which never merges, by compare-and-swap over the version its writer saw. RULE: a note deleted and created again since a base merges by its content (the owner's accepted oddity), so that is not checked.
+		const at = chain.indexOf(answer.main);
+		if (at < 1) return;
+		const before = states.get(chain[at - 1] ?? '');
+		const after = states.get(answer.main);
+		for (const file of push.files) {
+			const text = storedText(file.next);
+			if (text === null) continue;
+			const then = file.base === null ? null : versions.get(file.base);
+			if (then === undefined) continue;
+			const ours = before?.get(file.path) ?? null;
+			const landed = after?.get(file.path) ?? '';
 			if (!file.path.endsWith('.md')) {
-				// What its writer saw: `over` when it said, else the commit's parent. One that lost lands beside it.
-				const saw = file.over !== undefined ? file.over : then;
-				const landed = states.get(merge.id)?.get(file.path) === file.text;
-				if (landed && ours !== saw && ours !== file.text)
+				if (landed === text && ours !== then && ours !== text)
 					violations.push(
 						`server: ${device}'s write of ${file.path} landed over bytes it had not seen`,
 					);
 				continue;
 			}
-			let deleted = false;
-			for (let i = from + 1; i <= before; i++)
-				if (!states.get(chain[i] ?? '')?.has(file.path)) deleted = true;
 			// Two creates of the same text (two notes from the template) are one text: nothing to keep apart.
-			const other =
-				ours !== null && ours !== file.text && (then === null || deleted);
-			const after = states.get(merge.id)?.get(file.path) ?? '';
+			const other = ours !== null && ours !== text && then === null;
 			// Inside a block, delimiter-like lines of the incoming note are escaped.
 			if (
 				other &&
 				!(
-					after.includes('<<<<<<< ') &&
-					after.includes(escapeLines(file.text.trimEnd()))
+					landed.includes('<<<<<<< ') &&
+					landed.includes(escapeLines(text.trimEnd()))
 				)
 			)
 				violations.push(
-					`server: ${device}'s edit of ${file.path} merged silently into another note (${then === null ? 'two creates' : 'deleted since its parent'})`,
+					`server: ${device}'s edit of ${file.path} merged silently into another note (two creates)`,
 				);
 		}
 	});
@@ -482,24 +475,46 @@ async function run(
 	const editors = new Map<string, { path: string; text: string }>();
 
 	// A hostile member writing straight to the server, and a stranger.
+	/** Each hostile push is its own epoch: nothing it sends is a resend. */
+	let hostiles = 0;
 	const hostile = (
 		member: string,
-		files: LiveCommit['files'],
+		files: { path: string; text?: string | null; next?: Next }[],
 		{
 			author = member,
-			parent = world.server.main(),
-			id,
-		}: { author?: string; parent?: string; id?: string } = {},
-	) => {
-		const body = {
-			parent,
-			author: { user: author, device: 'x' },
-			time: STAMP,
-			files,
-		};
-		const commit = { id: id ?? commitId(body), ...body };
-		return world.server.push(commit, world.session(member));
-	};
+			device = 'x',
+			epoch = `hostile-${hostiles++}`,
+			seq = 1,
+			base,
+		}: {
+			author?: string;
+			device?: string;
+			epoch?: string;
+			seq?: number;
+			/** Every file's base; by default the version `main` holds, so a write lands as sent. */
+			base?: string | null;
+		} = {},
+	) =>
+		world.server.push(
+			{
+				user: author,
+				device,
+				epoch,
+				seq,
+				time: STAMP,
+				from: world.server.main(),
+				files: files.map((f) => ({
+					path: f.path,
+					base: base === undefined ? world.server.version(f.path) : base,
+					next:
+						f.next ??
+						(f.text === null || f.text === undefined
+							? { deleted: true }
+							: contentOf(f.text)),
+				})),
+			},
+			world.session(member),
+		);
 	const accepted = (answer: PushAnswer) =>
 		answer.kind === 'applied' || answer.kind === 'merged';
 	const hostileSteps: (() => string)[] = [
@@ -542,7 +557,7 @@ async function run(
 					]),
 				)
 			)
-				violations.push('server: accepted a note larger than 1 MB');
+				violations.push('server: accepted a note past the size limit');
 			return 'mallory pushes an oversized note';
 		},
 		() => {
@@ -569,24 +584,52 @@ async function run(
 			return 'mallory writes forged conflict labels';
 		},
 		() => {
-			const id = honestIds.length === 0 ? undefined : random.pick(honestIds);
+			// A device's push sent again with other writes under its epoch and seq: the device is behind itself, and nothing lands.
+			const replayed = honest.length === 0 ? undefined : random.pick(honest);
 			if (
-				id !== undefined &&
+				replayed !== undefined &&
 				accepted(
 					hostile(
-						'mallory',
+						replayed.user,
 						[
 							{
 								path: random.pick(PATHS),
 								text: '---\ntitle: replay\n---\nreplayed\n',
 							},
 						],
-						{ id },
+						{
+							device: replayed.device,
+							epoch: replayed.epoch,
+							seq: replayed.seq,
+						},
 					),
 				)
 			)
-				violations.push('server: a replayed id with other files was accepted');
-			return 'mallory replays an id with other files';
+				violations.push(
+					'server: a replayed seq with other writes was accepted',
+				);
+			return 'a push is replayed under its seq with other writes';
+		},
+		() => {
+			// The kind comes from the path: text where bytes belong, or bytes at a note, is refused at the door.
+			const bytes = random.pick(BYTES);
+			if (
+				accepted(
+					hostile('mallory', [
+						{
+							path: random.pick(BLOB_PATHS),
+							next: { text: '---\ntitle: m\n---\n' },
+						},
+					]),
+				) ||
+				accepted(
+					hostile('mallory', [
+						{ path: random.pick(PATHS), next: { blob: bytes } },
+					]),
+				)
+			)
+				violations.push('server: accepted a write of the wrong kind');
+			return 'mallory writes text at a blob and bytes at a note';
 		},
 		() => {
 			const path = random.pick(PATHS);
@@ -597,16 +640,16 @@ async function run(
 						hostile(
 							'mallory',
 							[{ path, text: `---\ntitle: flood\n---\nflood ${i}\n` }],
-							{ parent: chain[0] ?? '' },
+							{ base: null },
 						),
 					)
 				)
 					landed++;
 			if (landed > FLOOD_BOUND)
 				violations.push(
-					`server: ${landed} of a flood of ${FLOOD} stale-parent commits were accepted`,
+					`server: ${landed} of a flood of ${FLOOD} stale-base writes were accepted`,
 				);
-			return `mallory floods ${path} with stale-parent commits`;
+			return `mallory floods ${path} with stale-base writes`;
 		},
 	];
 
@@ -821,7 +864,7 @@ async function run(
 					},
 					[t],
 				);
-				return `${d.name} pastes more than 1 MB into ${path} (${t})`;
+				return `${d.name} pastes past the size limit into ${path} (${t})`;
 			},
 		],
 		// Repair frontmatter that does not parse, or a note that does not fit.
@@ -975,7 +1018,7 @@ async function run(
 		const sends =
 			(flying === undefined
 				? agent.replica.files().get(blobPath)?.base
-				: flying.text) !== pointer;
+				: storedText(flying.next)) !== pointer;
 		const first = paths[0] as string;
 		if (withBlob) {
 			changes[blobPath] = pointer;

@@ -27,9 +27,9 @@ Two rules shape everything a person sees:
 | Directory | What it is |
 | --- | --- |
 | `src/core/` | Pure code: hashes, trees, commit ids, the three-way merge and conflict blocks, Markdown frontmatter, the door rules every file must pass, templates and lenses (`defineApp`). |
-| `src/server/` | The server as a state machine over ports (`Store`, `GitObjects`, a timer): live history, pushes answered as applied, merged or refused, catch-up, and the flush into Git. |
+| `src/server/` | The server as a state machine over ports (`Store`, `GitObjects`, a timer): live history, each writer's numbered pushes, writes merged against their bases (read from the store or Git) and answered as applied, merged, refused or behind, catch-up, and the flush into Git. |
 | `src/wire/` | HTTP and one WebSocket per device: commits, catch-ups and their answers, and every change event, in one ordered sequence. |
-| `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text, the position, the commit in flight, work waiting or refused, and how each sent file landed; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blob bytes on the device (`blobs.ts`), put and opened (`bytes.ts`), and the upload track (`uploads.ts`). |
+| `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text with the version each was made over, the position, its epoch and seq, the push in flight, work waiting or refused, and how each sent file landed; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blob bytes on the device (`blobs.ts`), put and opened (`bytes.ts`), and the upload track (`uploads.ts`). |
 | `src/hosts/browser/` | The browser host: a replica in this origin's private storage (`.epicenter/replicas/<id>/`), owned by one tab's worker under a Web Lock. |
 | `src/folder/` | The folder engine, host-free: a folder on disk as a projection of one replica (`engine.ts`), over the folder port (`fs.ts`) whose writes never destroy a save. |
 | `src/bun/` | Bun adapters: SQLite, a Git store on disk, blob bytes on disk (a device's and a server's), the development server, the folder port over `node:fs`, and `epicenter sync` (`folder.ts`, `folder-commands.ts`). |
@@ -237,15 +237,17 @@ const { data: photo } = await repo.files.open('photos/beach.png');
 ```
 
 **One rule for blob writes, compare-and-swap** (`settlePointer`,
-`core/settle.ts`, on the server and in the replica's rebase): a write lands
-only where the path still holds the blob its writer saw, which the engine
-takes from the commit's parent; apps never pass it. A create expects no
+`core/settle.ts`, on the server): a write lands only where the path still
+holds the blob its writer saw, the version the engine sends as the write's
+base; apps never pass it. A create expects no
 file (`Exists` at once if this device shows one), a replace expects one
 (`NotFound` if not). A create or replace that does not land lands beside
 the other at a sibling the server names, `<stem> (conflict <hash7>).<ext>`,
 from the original stem and its bytes' hash; the answer names it, and the
-file's outcome says so. A device that knows its write lost sends what it
-was made over (`over`); it never names the sibling. A delete that does not
+file's outcome says so. The device never judges its own blob write and
+never names the sibling: the write keeps the version it was made over until
+the server answers. A blob travels as its bytes' `{ oid, size }`, never as
+its pointer's text. A delete that does not
 land leaves the file, as a lost delete of a note does.
 
 **A pointer waits alone for its bytes** (ADR-0698, proposed). A note saved
@@ -416,10 +418,11 @@ writes such a pair itself; it waits until the other file is gone. On a
 case-insensitive file system the two spellings are one file, named by the
 spelling the engine knows. The replica keeps one row per folded path,
 spelled as `main` spells it, so the folder takes `main`'s spelling as the
-engine projects. A rename to another spelling of the same path (a delete,
-then a create under the new spelling, before the delete lands) goes to the
-server as a rename: the file keeps its text and history, and takes the new
-spelling everywhere.
+engine projects. A file's spelling is fixed when it is created: a delete
+and a create under another spelling before the delete lands is a write to
+the file, which keeps its spelling. To change a file's case, delete it, let
+the delete land, and create it again; a `git push` that changes only a
+file's capitalization is refused.
 
 ### Identity and place
 
@@ -463,7 +466,7 @@ ignored.
 | --- | --- | --- |
 | 0 | `{"landed": [{"path", "outcome"}]}`, then `{"stopped": true}` | Everything was sent and landed; each file says how (`landed`, `blocks`, `sibling` with `at`, `delete-did-not-take`) |
 | 2 | `{"waiting": [{"path", "reason"}]}`, `{"refused": [{"path", "reason"}]}` | These files are not sent, each alone with why: waiting clears itself, refused needs a person; everything else was sent |
-| 2 | `{"pending": "<id>" \| null}` | Offline, or not answered yet; `<id>` is the commit in flight; the next `sync` sends it, once |
+| 2 | `{"pending": <seq> \| null}` | Offline, or not answered yet; `<seq>` numbers the push in flight; the next `sync` sends it again, and the server answers it exactly once |
 | 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy, an `--agent` other than the folder's |
 
 `sync` also prints `joined` and `caught-up`.
@@ -504,16 +507,21 @@ the one exception is HTTP's conditional file write, which is refused (412,
 
 ```sh
 curl -i -H 'authorization: Bearer ada' http://127.0.0.1:8787/files/notes/trip.md
-# etag: "<hash>"   epicenter-commit: <commit>
+# etag: "<hash>"   (the note's version: its Git blob hash)
 curl -X PUT -H 'authorization: Bearer ada' -H 'if-match: "<hash>"' --data-binary @trip.md http://127.0.0.1:8787/files/notes/trip.md
 ```
 
-To have a write merged instead, post a live commit on the commit the read
-named (`POST /commits`): its parent is the `epicenter-commit` header, its
-id is `commitId` (`core/commit.ts`) of the rest, and its author is the
-session's user. The answer is `applied` or `merged`, with `main`'s text for
-each path it touched. A parent older than the server's retention window
-(10 minutes) is answered `outcome-unknown`: read again and post anew.
+A file that is not a note reads as its bytes' `{ "oid", "size" }` (JSON),
+and a `PUT` of one sends that, never a pointer's text.
+
+To have a write merged instead, post a push (`POST /writes`, `Push` in
+`core/commit.ts`) whose file's `base` is the ETag the read named: the
+server merges your text against that version, however old, reading it
+from Git if it must. Name a fresh `epoch` and `seq: 1` for a one-off write;
+a writer that sends again under the same epoch and seq gets the same
+answer, and one that reuses a seq with other writes is answered `behind`
+(409). The answer is `applied` or `merged`, with `main`'s file for each path
+it touched.
 
 ## Checks
 

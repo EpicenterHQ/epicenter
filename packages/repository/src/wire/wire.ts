@@ -1,9 +1,9 @@
 /**
- * The repository's wire. A device keeps one WebSocket: it sends its commits and
+ * The repository's wire. A device keeps one WebSocket: it sends its pushes and
  * catch-ups there and gets their answers and every change event on it, in
  * one ordered sequence. HTTP serves one-shot clients (agents, the CLI,
  * scripts) and content by hash. Both transports call the same composed
- * functions, `takeCommit` and `takeCatchUp`; only the endpoints differ.
+ * functions, `takePush` and `takeCatchUp`; only the endpoints differ.
  *
  * It is host-agnostic: `createWire` turns a `Request` into a `Response`
  * and a socket message into replies; the host supplies who is asking (an
@@ -14,12 +14,12 @@
  *
  *   GET    /socket           the device's WebSocket (below)
  *   POST   /tickets          a one-use ticket for the socket, for a client that cannot set its headers
- *   POST   /commits          a live commit, as JSON; answered with its PushAnswer
- *   GET    /files/<path>     main's text, its hash as the ETag, and the commit it was read at as Epicenter-Commit
- *   PUT    /files/<path>     If-Match: "<hash>", or If-None-Match: * to create: one conditional commit on main
+ *   POST   /writes           a push of writes, as JSON; answered with its PushAnswer
+ *   GET    /files/<path>     main's note text, or a blob's `{ oid, size }` as JSON, its version (Git blob hash) as the ETag
+ *   PUT    /files/<path>     If-Match: "<hash>", or If-None-Match: * to create: one conditional write on main (a blob's body is `{ oid, size }`)
  *   DELETE /files/<path>     If-Match: "<hash>": the same, deleting
  *   GET    /catch-up         ?from=<commit>&to=&after=&path=...: one catch-up page
- *   GET    /blobs/<hash>     a text by its Git blob hash: immutable, so cached for good, but never by a shared cache
+ *   GET    /blobs/<hash>     a version by its Git blob hash, as JSON content: immutable, so cached for good, but never by a shared cache
  *   POST   /info/lfs/objects/batch   Git LFS basic-transfer actions and per-object errors
  *   PUT    /lfs/objects/<oid>        stream, verify, and record server-side object bytes
  *   GET    /lfs/objects/<oid>        stream immutable object bytes to a member
@@ -29,15 +29,15 @@
  * otherwise, `server.mayRead`). Reads (catch-up pages, files, texts by
  * hash, at a small part of a read each) come out of the member's read
  * bucket (`server.admitRead`): past it, 429 with `retry-after`. A write's answer is JSON whatever its
- * status: 200 applied, merged or flushed; 409 outcome-unknown; 422 a text
- * the door refuses (`refused`, naming its path); and for a request
- * rejection (`rejected`, by its code), 428 with no parent (or no
- * precondition), 412 when a file is not at the hash named, with main's text
- * for it, 429 rate,
- * 403 a reader or another author, 413 too large, and 422 a malformed one.
- * A one-shot client that wants its write merged, not refused because the
- * file moved, reads the file, then posts a commit whose parent is the
- * `Epicenter-Commit` the read named. A request body is capped
+ * status: 200 applied or merged; 409 behind (the writer's epoch already
+ * sent a later push); 422 a write the door refuses (`refused`, naming its
+ * path); and for a request rejection (`rejected`, by its code), 428 with no
+ * precondition, 412 when a file is not at the hash named, with main's file
+ * for it, 429 rate (and 503 while a base is read from Git), 403 a reader or
+ * another author, 413 too large, and 422 a malformed one. A one-shot client
+ * that wants its write merged, not refused because the file moved, reads
+ * the file, then posts a write whose base is the ETag the read named. A
+ * request body is capped
  * before it is parsed, and a request body has `timeout` plus its declared
  * length divided by `minRate` to finish or gets 408.
  *
@@ -66,7 +66,14 @@ import { Check } from 'typebox/value';
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Err, Ok, type Result, trySync } from 'wellcrafted/result';
 import type { Sizing } from '../client/replica.js';
-import { commitId, type LiveCommit } from '../core/commit.js';
+import {
+	type Content,
+	contentOf,
+	type FileWrite,
+	type Push,
+	storedText,
+} from '../core/commit.js';
+import { isNote } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import { LFS_OID, type LfsStore } from '../server/lfs-store.js';
 import {
@@ -119,7 +126,7 @@ export type CatchUpQuery = Parameters<Server['catchUp']>[0];
 
 /** What a device sends on its socket; `rid` is its own request id, named in the reply. */
 export type SocketRequest =
-	| { type: 'push'; rid: number; commit: LiveCommit }
+	| { type: 'push'; rid: number; push: Push }
 	| ({ type: 'catch-up'; rid: number } & CatchUpQuery);
 
 /** What a socket carries down: main when it opens, each commit on main (never texts), and the replies to its own requests. */
@@ -178,25 +185,42 @@ export type Ticket = { ticket: string; expires: number };
 /** The header a plain HTTP writer names its device in; `http` without it. */
 export const DEVICE_HEADER = 'epicenter-device';
 
-/** The header a file read names the commit it read in: the parent for a merging `POST /commits`. */
-export const COMMIT_HEADER = 'epicenter-commit';
-
-/** A live commit as it may arrive; a missing parent is the door's to refuse (428). */
-const CommitSchema = Type.Object(
+const BlobSchema = Type.Object(
 	{
-		id: Type.String(),
-		parent: Type.Optional(Type.String()),
-		author: Type.Object(
-			{ user: Type.String(), device: Type.String() },
-			{ additionalProperties: false },
-		),
+		oid: Type.String({ pattern: '^[0-9a-f]{64}$' }),
+		size: Type.Integer({ minimum: 0 }),
+	},
+	{ additionalProperties: false },
+);
+
+/** A push as it may arrive: each write's `next` one of a note's text, a blob's bytes or a delete; never a pointer's text. */
+const PushSchema = Type.Object(
+	{
+		user: Type.String(),
+		device: Type.String(),
+		epoch: Type.String({ minLength: 1, maxLength: 64 }),
+		seq: Type.Integer({ minimum: 1 }),
 		time: Type.String(),
+		from: Type.Union([Type.String(), Type.Null()]),
 		files: Type.Array(
 			Type.Object(
 				{
 					path: Type.String(),
-					text: Type.Union([Type.String(), Type.Null()]),
-					over: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+					base: Type.Union([
+						Type.String({ pattern: '^[0-9a-f]{40}$' }),
+						Type.Null(),
+					]),
+					next: Type.Union([
+						Type.Object(
+							{ text: Type.String() },
+							{ additionalProperties: false },
+						),
+						Type.Object({ blob: BlobSchema }, { additionalProperties: false }),
+						Type.Object(
+							{ deleted: Type.Literal(true) },
+							{ additionalProperties: false },
+						),
+					]),
 				},
 				{ additionalProperties: false },
 			),
@@ -207,7 +231,7 @@ const CommitSchema = Type.Object(
 
 const SocketRequestSchema = Type.Union([
 	Type.Object(
-		{ type: Type.Literal('push'), rid: Type.Number(), commit: Type.Unknown() },
+		{ type: Type.Literal('push'), rid: Type.Number(), push: Type.Unknown() },
 		{ additionalProperties: false },
 	),
 	Type.Object(
@@ -236,15 +260,14 @@ const REJECTED: Record<RequestCode, number> = {
 	'not-member': 403,
 	reader: 403,
 	'not-author': 403,
-	'no-parent': 428,
 	'no-precondition': 428,
 	'file-moved': 412,
 	rate: 429,
 	'too-large': 413,
 	'too-many-files': 413,
-	'bad-id': 422,
 	'bad-time': 422,
 	'path-twice': 422,
+	reading: 503,
 };
 
 /** The HTTP status of a write's answer. */
@@ -252,9 +275,8 @@ export function statusOf(answer: PushAnswer): number {
 	switch (answer.kind) {
 		case 'applied':
 		case 'merged':
-		case 'flushed':
 			return 200;
-		case 'outcome-unknown':
+		case 'behind':
 			return 409;
 		case 'refused':
 			return 422;
@@ -411,23 +433,34 @@ export function createWire({
 	}
 
 	/**
-	 * Take one commit, from either transport: its answer and that answer's
-	 * status, or why the value is not a live commit.
+	 * Take one push, from either transport: its answer and that answer's
+	 * status, with the events it made (each goes out once the answer has),
+	 * or why the value is not a push. A base only Git has is read first, so
+	 * the push finds it.
 	 */
-	function takeCommit(
+	async function takePush(
 		value: unknown,
 		session: Session,
 		expect?: Expect,
-	): { status: number; answer: PushAnswer } | { status: 400; error: string } {
-		if (!Check(CommitSchema, value))
-			return { status: 400, error: 'Not a live commit' };
-		// The schema allows a missing parent only so the door can refuse it in its order (428); nothing else differs from LiveCommit.
-		const answer = server.push(
-			value as LiveCommit,
-			session,
-			expect === undefined ? {} : { expect },
-		);
-		return { status: statusOf(answer), answer };
+	): Promise<
+		| { status: number; answer: PushAnswer; held: string[] }
+		| { status: 400; error: string }
+	> {
+		if (!Check(PushSchema, value)) return { status: 400, error: 'Not a push' };
+		const push = value as Push;
+		await server.prepare(push);
+		const held: string[] = [];
+		holding = held;
+		try {
+			const answer = server.push(
+				push,
+				session,
+				expect === undefined ? {} : { expect },
+			);
+			return { status: statusOf(answer), answer, held };
+		} finally {
+			holding = null;
+		}
 	}
 
 	/** One catch-up page, from either transport. */
@@ -456,7 +489,7 @@ export function createWire({
 		}
 	}
 
-	async function postCommit(
+	async function postPush(
 		request: Request,
 		session: Session,
 		expired: Promise<typeof EXPIRED>,
@@ -468,17 +501,20 @@ export function createWire({
 			catch: () => BodyError.NotText(),
 		});
 		if (parsed.error !== null) return failure(400, 'The body is not JSON');
-		const taken = takeCommit(parsed.data, session);
-		return 'error' in taken ? failure(400, taken.error) : answer(taken.answer);
+		const taken = await takePush(parsed.data, session);
+		if ('error' in taken) return failure(400, taken.error);
+		for (const event of taken.held) sockets.publish(event);
+		return answer(taken.answer);
 	}
 
 	/**
-	 * PUT and DELETE: one file, conditional on its hash, as one commit on
+	 * PUT and DELETE: one file, conditional on its version, as one write on
 	 * `main`, taken like any other. The condition is HTTP's conditional
-	 * write: checked inside the push, against the file in `main`'s spelling
-	 * of the path, it is the one text write refused because of someone
-	 * else's write. A one-shot client that wants merging posts a commit
-	 * instead (`POST /commits`), on the commit a read named.
+	 * write: checked inside the push, against the file in the spelling it
+	 * was created with, it is the one text write refused because of someone
+	 * else's write. A one-shot client that wants merging posts a write over
+	 * the version a read named instead (`POST /writes`). A blob's body is
+	 * its bytes' `{ oid, size }`, never a pointer's text.
 	 */
 	async function writeFile(
 		request: Request,
@@ -491,11 +527,20 @@ export function createWire({
 			request.method === 'PUT' &&
 			request.headers.get('if-none-match')?.trim() === '*';
 		if (ifMatch === null && !create) return rejected('no-precondition');
-		let text: string | null = null;
+		let next: FileWrite['next'] = { deleted: true };
 		if (request.method === 'PUT') {
 			const { data, error } = await readBody(request, limits.body, expired);
 			if (error !== null) return unread(error);
-			text = data;
+			if (isNote(path)) next = { text: data };
+			else {
+				const blob = trySync({
+					try: (): unknown => JSON.parse(data),
+					catch: () => BodyError.NotText(),
+				});
+				if (blob.error !== null || !Check(BlobSchema, blob.data))
+					return failure(400, "A blob's body is its bytes' { oid, size }");
+				next = { blob: blob.data };
+			}
 		}
 		// The server checks the condition inside the push, against the file in main's spelling of the path.
 		const tags = ifMatch?.split(',').map((tag) => tag.trim());
@@ -507,21 +552,21 @@ export function createWire({
 					: (tags ?? [])
 							.filter((tag) => /^"[0-9a-f]{40}"$/.test(tag))
 							.map((tag) => tag.slice(1, -1));
-		const commit = {
-			parent: server.main(),
-			author: {
-				user: session.user,
-				device: request.headers.get(DEVICE_HEADER) ?? 'http',
-			},
+		// RULE: a one-file write is its own push, from a writer with no numbered pushes: a fresh epoch, its first seq. Its base is the version on `main` now, which the condition, checked in the same transaction, requires.
+		const push: Push = {
+			user: session.user,
+			device: request.headers.get(DEVICE_HEADER) ?? 'http',
+			epoch: crypto.randomUUID(),
+			seq: 1,
 			time: server.time(),
-			files: [{ path, text }],
+			from: null,
+			files: [{ path, base: server.version(path), next }],
 		};
-		const taken = takeCommit({ id: commitId(commit), ...commit }, session, {
-			path,
-			is,
-		});
+		const taken = await takePush(push, session, { path, is });
 		if ('error' in taken) return failure(400, taken.error);
+		for (const event of taken.held) sockets.publish(event);
 		const pushed = taken.answer;
+		const text = storedText(next);
 		return answer(
 			pushed,
 			pushed.kind === 'applied' && text !== null
@@ -530,21 +575,20 @@ export function createWire({
 		);
 	}
 
-	/** A file's text on `main`, and the commit it was read at, from one synchronous read. */
+	/** A file on `main`: a note's text, or a blob's `{ oid, size }`; its version (Git blob hash) is the ETag, the base of a write over it. */
 	function readFile(request: Request, path: string) {
 		const text = server.read(path);
 		if (text === null) return failure(404, 'No such file on main');
 		const etag = `"${gitBlobHash(text)}"`;
-		const headers = {
-			etag,
-			[COMMIT_HEADER]: server.main(),
-			'cache-control': 'private, no-cache',
-		};
+		const headers = { etag, 'cache-control': 'private, no-cache' };
 		if (matches(request.headers.get('if-none-match') ?? '', gitBlobHash(text)))
 			return new Response(null, { status: 304, headers });
-		return new Response(text, {
-			headers: { ...headers, 'content-type': 'text/plain; charset=utf-8' },
-		});
+		const content = contentOf(text);
+		return 'text' in content
+			? new Response(content.text, {
+					headers: { ...headers, 'content-type': 'text/plain; charset=utf-8' },
+				})
+			: json(200, content.blob, headers);
 	}
 
 	function catchUp(url: URL) {
@@ -561,16 +605,14 @@ export function createWire({
 	}
 
 	function readBlob(request: Request, hash: string) {
-		const text = /^[0-9a-f]{40}$/.test(hash)
+		const content: Content | undefined = /^[0-9a-f]{40}$/.test(hash)
 			? server.fetch([hash])[hash]
 			: undefined;
-		if (text === undefined) return failure(404, 'No text has this hash');
+		if (content === undefined) return failure(404, 'No version has this hash');
 		const headers = { ...IMMUTABLE, etag: `"${hash}"` };
 		if (matches(request.headers.get('if-none-match') ?? '', hash))
 			return new Response(null, { status: 304, headers });
-		return new Response(text, {
-			headers: { ...headers, 'content-type': 'text/plain; charset=utf-8' },
-		});
+		return json(200, content, headers);
 	}
 
 	// ------------------------------------------------------------------------
@@ -842,9 +884,9 @@ export function createWire({
 			if (method === 'GET') return throttled(session) ?? lfsGet(oid);
 			return notAllowed('GET, PUT');
 		}
-		if (pathname === '/commits')
+		if (pathname === '/writes')
 			return method === 'POST'
-				? postCommit(request, session, expired)
+				? postPush(request, session, expired)
 				: notAllowed('POST');
 		if (pathname === '/tickets')
 			return method === 'POST' ? issueTicket(session) : notAllowed('POST');
@@ -966,30 +1008,22 @@ export function createWire({
 			const request = parsed.data;
 			switch (request.type) {
 				case 'push': {
-					holding = [];
-					let taken: ReturnType<typeof takeCommit>;
-					let held: string[];
-					try {
-						taken = takeCommit(request.commit, verified);
-					} finally {
-						held = holding;
-						holding = null;
-					}
-					if ('error' in taken)
-						reply({
-							type: 'error',
-							rid: request.rid,
-							status: taken.status,
-							error: taken.error,
-						});
-					else
+					void takePush(request.push, verified).then((taken) => {
+						if ('error' in taken)
+							return reply({
+								type: 'error',
+								rid: request.rid,
+								status: taken.status,
+								error: taken.error,
+							});
 						reply({
 							type: 'answer',
 							rid: request.rid,
 							status: taken.status,
 							answer: taken.answer,
 						});
-					for (const event of held) sockets.publish(event);
+						for (const event of taken.held) sockets.publish(event);
+					});
 					return;
 				}
 				case 'catch-up': {

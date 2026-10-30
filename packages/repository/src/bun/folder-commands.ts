@@ -11,7 +11,7 @@
  * lines: `joined`, `caught-up`, `landed` (each file sent and how it
  * landed: as sent, with conflict blocks, at a sibling, or a delete that did
  * not take), `waiting` and `refused` (path and reason), `pending` (the
- * commit in flight, if any), `stopped`. Exit codes: 0 done, 1 usage or
+ * seq of the push in flight, if any), `stopped`. Exit codes: 0 done, 1 usage or
  * environment, 2 work not landed (waiting, refused, pending).
  */
 import type { Outcome } from '../client/replica.js';
@@ -28,7 +28,7 @@ export type Line =
 	| { landed: { path: string; outcome: Outcome }[] }
 	| { waiting: { path: string; reason: string }[] }
 	| { refused: { path: string; reason: string }[] }
-	| { pending: string | null }
+	| { pending: number | null }
 	| { stopped: true }
 	| { error: string };
 
@@ -55,7 +55,7 @@ export function plain(line: Line): string {
 	if ('refused' in line)
 		return `Refused, to fix: ${line.refused.map((h) => `${h.path} (${h.reason})`).join(', ')}`;
 	if ('pending' in line)
-		return `Pending${line.pending === null ? '' : ` ${line.pending.slice(0, 7)}`}: it goes with the next sync`;
+		return `Pending${line.pending === null ? '' : ` push ${line.pending}`}: it goes with the next sync`;
 	if ('stopped' in line) return 'Stopped';
 	return `Error: ${line.error}`;
 }
@@ -131,7 +131,7 @@ export async function sync(
 				);
 			const held = report();
 			if (held || replica.unsent().length > 0) {
-				print({ pending: replica.sent()?.id ?? null });
+				print({ pending: replica.sent()?.seq ?? null });
 				return 2;
 			}
 			print({ stopped: true });

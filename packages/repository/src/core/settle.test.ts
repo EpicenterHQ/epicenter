@@ -8,7 +8,7 @@
  * - a change against an unchanged base lands as is; a repeat lands as nothing
  * - a delete loses to an edit it had not seen; an edit brings a deleted note back
  * - a field both sides set takes the later write's value (incoming, arriving now, over main's), with no block
- * - a path created twice, or deleted since base, keeps current and appends incoming whole (D3)
+ * - a path created twice keeps current and appends incoming whole (D3); a recreated note merges by content
  * - an identical block is never written twice
  */
 import { describe, expect, test } from 'bun:test';
@@ -79,7 +79,7 @@ describe('settle', () => {
 		});
 	});
 
-	test('a path created twice or deleted since base holds another note (D3)', () => {
+	test('a path created twice holds another note (D3); one deleted and created again merges by content', () => {
 		const twice = settle(null, note('One'), note('Two'), { parties });
 		expect(twice.blocks).toBe(true);
 		expect(twice.text?.startsWith(note('One'))).toBe(true);
@@ -91,11 +91,11 @@ describe('settle', () => {
 				sides: { incoming: { author: 'alice/laptop', time: 't2' } },
 			},
 		]);
+		// Nothing tells a note made again from the one a base names: it merges as an edit of it (the accepted oddity).
 		const reused = settle(note('Old'), note('New'), note('Old', 'edit\n'), {
-			deletedSince: true,
 			parties,
 		});
-		expect(reused.blocks).toBe(true);
+		expect(reused).toEqual({ text: note('New', 'edit\n'), blocks: false });
 	});
 
 	test('an identical block is written once, whoever its labels name', () => {

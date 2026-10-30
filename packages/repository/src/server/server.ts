@@ -42,8 +42,14 @@ import type { Logger } from 'wellcrafted/logger';
 import {
 	type Author,
 	type CommitFile,
+	type Content,
 	commitId,
-	type LiveCommit,
+	contentOf,
+	type FileWrite,
+	kindRefusal,
+	type Push,
+	pushHash,
+	storedText,
 } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
 import {
@@ -97,41 +103,36 @@ export type Role = 'owner' | 'writer' | 'reader';
 /** Who is asking, as the host verified: the user and their role here, or null when they are not a member. */
 export type Session = { user: string; role: Role | null };
 
-/** A path's text on `main`; `deleted` when the path was deleted at some point since the commit or position asked from. */
+/** A file on `main`: its version (Git blob hash) and what it is, a note's text or a blob's bytes (null: no file). Pointer text never travels. */
 export type FileState = {
 	path: string;
-	text: string | null;
 	hash: string | null;
-	deleted?: true;
+	content: Content | null;
 };
 
 export type PushAnswer =
 	/**
-	 * The commit is in `main`: applied (`main` is the commit) or merged
-	 * (`main` is the merge commit). `files` are `main`'s texts for every path
-	 * changed since the commit's parent and every path it touched, so the
-	 * device can stand on `main` at once. What became of each path is in the
-	 * text itself (conflict blocks); the device compares what it sent.
+	 * The push is in `main`: `applied` when every write landed as sent,
+	 * `merged` when one was merged, landed beside its file or did not take.
+	 * `files` are `main`'s files for every path changed since the push's
+	 * `from` and every path it touched, so the device stands on `main` at
+	 * once; `stale` when `from` has left history, so `files` are only what
+	 * it touched and the device catches up in full. What became of each
+	 * path is in the text itself (conflict blocks).
 	 */
 	| {
 			kind: 'applied' | 'merged';
 			main: string;
-			/** The commits on `main` after the commit's parent, so the device drops those notifications. */
+			/** The commits on `main` after `from`, so the device drops those notifications. */
 			commits: string[];
 			files: FileState[];
 			/** Blob writes that lost and landed beside their file instead: the path written, and where its bytes are (`conflictSibling`). */
 			siblings?: { path: string; at: string }[];
+			stale?: true;
 	  }
 	/**
-	 * The commit landed earlier and its answer has left the retention window
-	 * (live history is in Git by then). `files` are `main`'s texts for the
-	 * paths it touched; the device catches up for the rest.
-	 */
-	| { kind: 'flushed'; main: string; files: FileState[] }
-	/**
-	 * Nothing changed: the door refused one file's text (`path`), so the
-	 * device holds that text with the reason; the rest of the commit may go
-	 * again without it.
+	 * Nothing changed: the door refused one file's write (`path`), so the
+	 * device holds it with the reason; the rest may go again without it.
 	 */
 	| {
 			kind: 'refused';
@@ -142,11 +143,11 @@ export type PushAnswer =
 	  }
 	/**
 	 * Nothing changed: the request itself was not taken (who sent it, its
-	 * size or rate, its form, or a condition on `main`). No text is at
-	 * fault: the device keeps its work and fixes the request (waits, splits
-	 * it, catches up) or reports it. For `file-moved`, `files` are `main`'s
-	 * texts for the paths the commit touched, so a writer can redo its
-	 * change without asking again.
+	 * size or rate, its form, a condition on `main`, or a base the server is
+	 * still reading from Git). No write is at fault: the device keeps its
+	 * work and sends it again (waits, splits it) or reports it. For
+	 * `file-moved`, `files` are `main`'s files for the paths the push
+	 * touched, so a writer can redo its change without asking again.
 	 */
 	| {
 			kind: 'rejected';
@@ -155,8 +156,17 @@ export type PushAnswer =
 			main: string;
 			files?: FileState[];
 	  }
-	/** RULE: the commit's parent is older than the retention window, and the server has no record of it: it cannot say what happened. */
-	| { kind: 'outcome-unknown'; main: string };
+	/**
+	 * RULE: this device is behind itself: its epoch already sent a later
+	 * push, or this one with other writes (a database restored from a
+	 * copy). Nothing changed; the device takes a new epoch, catches up, and
+	 * sends what it has not sent as new writes, each whose outcome it
+	 * cannot know over an unknown base.
+	 */
+	| { kind: 'behind'; main: string };
+
+/** What a device behind itself is told, for people. */
+export const BEHIND = 'this device is behind itself';
 
 /**
  * Why the door refused a file's text. `inadmissible`'s reason is the door's
@@ -168,6 +178,7 @@ export type TextCode =
 	| 'path-too-long'
 	| 'inadmissible'
 	| 'blob-missing'
+	| 'unknown-base'
 	| 'merge-too-large'
 	| 'too-many-blocks'
 	| keyof typeof COLLISIONS;
@@ -181,12 +192,11 @@ export type RequestCode =
 	| 'rate'
 	| 'too-large'
 	| 'too-many-files'
-	| 'no-parent'
-	| 'bad-id'
 	| 'bad-time'
 	| 'path-twice'
 	| 'file-moved'
-	| 'no-precondition';
+	| 'no-precondition'
+	| 'reading';
 
 /** What each code says to a person; code branches on the code, never on this. */
 export const REASONS: Record<
@@ -195,6 +205,7 @@ export const REASONS: Record<
 > = {
 	'path-too-long': PATH_TOO_LONG,
 	'blob-missing': "the file's bytes are not on the server",
+	'unknown-base': 'the version this write was made on is not in the history',
 	'merge-too-large': 'the merge would grow the note past 1 MB',
 	'too-many-blocks': 'this note has unresolved conflicts; resolve some first',
 	...COLLISIONS,
@@ -205,12 +216,11 @@ export const REASONS: Record<
 	rate: 'rate',
 	'too-large': 'request too large',
 	'too-many-files': 'too many files',
-	'no-parent': 'no parent',
-	'bad-id': 'the id is not the hash of the commit',
 	'bad-time': 'the time is not an ISO instant',
 	'path-twice': 'a path is named twice',
 	'file-moved': 'the file moved',
 	'no-precondition': 'no precondition',
+	reading: "the server is reading this file's history; send again",
 };
 
 /** A request rejection, as an answer. */
@@ -259,7 +269,7 @@ export type CatchUp = {
 	/** Every file, because the server no longer keeps the position. */
 	full: boolean;
 	/** One page of paths changed since the position, with hashes. */
-	files: { path: string; hash: string | null; deleted?: true }[];
+	files: { path: string; hash: string | null }[];
 	/** The commits walked (on the last page), so the device drops those notifications. */
 	commits: string[];
 	/** Ask again with `after` for the next page, or null on the last. */
@@ -290,10 +300,8 @@ export type Limits = {
 	/** Reads per member (a catch-up page, a file): a bucket of `readBurst`, refilled at `readRate` a second; a text by hash costs `1 / TEXTS_PER_READ`. */
 	readBurst: number;
 	readRate: number;
-	/** How long positions, commits and answers are kept, in ms. */
+	/** How long positions are kept, in ms: a catch-up from an older one gets every file. Nothing a write needs is kept by time. */
 	window: number;
-	/** How long a landed commit's id is recognized after its answer left the window, in ms. */
-	seen: number;
 	/** Commits in one `git push`. */
 	pushedCommits: number;
 	/** Bytes of one blob. */
@@ -312,7 +320,6 @@ export const LIMITS: Limits = {
 	readBurst: 300,
 	readRate: 20,
 	window: 10 * 60_000,
-	seen: 24 * 60 * 60_000,
 	pushedCommits: 1000,
 	blob: MAX_BLOB_BYTES,
 	quota: 10 * 1000 ** 3,
@@ -412,38 +419,12 @@ export function createServer({
 	}
 
 	const main = () => history.main();
-	const state = (path: string, from?: number): FileState => {
+	const state = (path: string): FileState => {
 		const hash = trees.read(main().tree, path);
 		const text = hash === null ? null : history.blob(hash);
-		return {
-			path,
-			text,
-			hash,
-			...(from !== undefined && history.deletedSince(from, path)
-				? { deleted: true as const }
-				: {}),
-		};
+		return { path, hash, content: text === null ? null : contentOf(text) };
 	};
 
-	/**
-	 * RULE: a file is one name: paths equal after NFC and case folding are
-	 * one path, and its spelling is fixed when it is created. Its spelling
-	 * in `tree`: `main`'s spelling of it, or the one given, whichever `tree`
-	 * holds (a writer's parent may hold a file since deleted and created
-	 * again in other letters); for a file `tree` lacks, `main`'s or the one
-	 * given.
-	 */
-	function spellingIn(tree: string, path: string) {
-		const named = history.spelling(path);
-		return (
-			[named, path].find((p) => p !== null && trees.read(tree, p) !== null) ??
-			named ??
-			path
-		);
-	}
-	/** `files` as they land in `tree`: each at its file's spelling there. */
-	const landIn = (tree: string, files: CommitFile[]): CommitFile[] =>
-		files.map((file) => ({ ...file, path: spellingIn(tree, file.path) }));
 	/** RULE: a listing names each file once, by one spelling of its path: the one `tree` holds (it holds at most one), else the first given. */
 	function byName(paths: Iterable<string>, tree: string): string[] {
 		const named = new Map<string, string>();
@@ -512,10 +493,11 @@ export function createServer({
 	};
 
 	/**
-	 * RULE: drop commits older than the window (never `main` itself), and
-	 * answers older than the window once `main` at their landing is in Git;
-	 * ids are recognized for `seen` longer. A pushed commit waiting to be
-	 * joined holds nothing past the window (flush.ts).
+	 * RULE: drop commits older than the window (never `main` itself): they
+	 * are positions a catch-up starts from, and a catch-up from one dropped
+	 * gets every file. No write needs them: each names its own base. A
+	 * pushed commit waiting to be joined holds nothing past the window
+	 * (flush.ts).
 	 */
 	function prune() {
 		const now = clock();
@@ -523,12 +505,6 @@ export function createServer({
 		history.pruneBefore(
 			Math.min(history.top(), history.newestBefore(cutoff) + 1),
 		);
-		store.run('DELETE FROM outcomes WHERE at < ? AND place <= ?', [
-			cutoff,
-			meta.number('flushed'),
-		]);
-		store.run('DELETE FROM seen WHERE at < ?', [now - limits.seen]);
-		store.run('DELETE FROM received WHERE at < ?', [now - limits.seen]);
 	}
 
 	/** Put a commit on `main`: its snapshot and its notification. */
@@ -591,7 +567,7 @@ export function createServer({
 
 	/** The door: who may push this, and is it something the repository may hold? */
 	function admit(
-		commit: LiveCommit,
+		push: Push,
 		session: Session | undefined,
 		rate: boolean,
 	): PushAnswer | null {
@@ -602,133 +578,85 @@ export function createServer({
 		if (session.role === 'reader') return reject('reader');
 		if (rate && !take(session.user, 1, limits.burst, limits.rate))
 			return reject('rate');
-		if (commit.parent === undefined) return reject('no-parent');
-		// The id is checked before any recorded outcome is read, so a replayed id with other files is refused.
-		if (commitId(commit) !== commit.id) return reject('bad-id');
-		if (commit.author.user !== session.user) return reject('not-author');
-		// RULE: `time` is the device's claim, any ISO instant: a label people read (in conflict blocks, and Git's author date), never an order. What is time-based (the window, the flush schedule) runs on the server's clock, when a commit arrives.
-		if (!isInstant(commit.time)) return reject('bad-time');
-		if (bytes(JSON.stringify(commit)) > limits.request)
+		if (push.user !== session.user) return reject('not-author');
+		// RULE: `time` is the device's claim, any ISO instant: a label people read (in conflict blocks, and Git's author date), never an order. What is time-based (the window, the flush schedule) runs on the server's clock, when a push arrives.
+		if (!isInstant(push.time)) return reject('bad-time');
+		if (bytes(JSON.stringify(push)) > limits.request)
 			return reject('too-large');
-		if (commit.files.length > limits.files) return reject('too-many-files');
+		if (push.files.length > limits.files) return reject('too-many-files');
 		const paths = new Set<string>();
-		for (const file of commit.files) {
+		for (const file of push.files) {
 			if (paths.has(fold(file.path))) return reject('path-twice');
 			paths.add(fold(file.path));
 		}
-		for (const file of commit.files) {
+		return null;
+	}
+
+	/** The door's rules for each file: a portable path of a kind its write agrees with, holding what the repository may hold. */
+	function admitFiles(files: FileWrite[], head: string): PushAnswer | null {
+		for (const file of files) {
 			if (bytes(file.path) > limits.path)
 				return refusal('path-too-long', file.path, head);
+			// RULE: the kind comes from the path, checked once here; after this, no code asks a write what it is.
+			const kind = kindRefusal(file.path, file.next);
+			if (kind !== null) return refusal('inadmissible', file.path, head, kind);
 			// D4 and the door's content rules: the same predicate the device runs.
-			const reason = admissible(file.path, file.text);
+			const reason = admissible(file.path, storedText(file.next));
 			if (reason !== null)
 				return refusal('inadmissible', file.path, head, reason);
-			// A pointer names bytes the server holds, at its size.
-			const pointer = file.text === null ? null : parsePointer(file.text);
-			if (pointer !== null && !holdsBlob(store, pointer))
+			// A blob names bytes the server holds, at their size.
+			if ('blob' in file.next && !holdsBlob(store, file.next.blob))
 				return refusal('blob-missing', file.path, head);
 		}
 		return null;
 	}
 
-	/** Fill an answer's files (everything changed since the commit's parent, and what it touched) and keep it for a resend. */
-	function record(
-		commit: LiveCommit,
-		kind: 'applied' | 'merged',
-		mainId: string,
-		{ from, tree }: { from: number; tree: string },
-		siblings: { path: string; at: string }[] = [],
-	): PushAnswer {
-		const touched = [
-			...new Set([
-				...commit.files.map((f) => f.path),
-				...siblings.map((s) => s.at),
-			]),
-		];
-		const answer: PushAnswer = {
-			kind,
-			main: mainId,
-			commits: history.idsAfter(from),
-			files: byName([...trees.diff(tree, main().tree), ...touched], main().tree)
-				.sort()
-				.map((path) => state(path, from)),
-			...(siblings.length === 0 ? {} : { siblings }),
-		};
-		const now = clock();
-		store.run(
-			'INSERT OR REPLACE INTO outcomes (id, at, place, answer, paths) VALUES (?, ?, ?, ?, ?)',
-			[
-				commit.id,
-				now,
-				history.top(),
-				JSON.stringify(answer),
-				JSON.stringify(touched),
-			],
+	/** Versions Git does not have that a base names, found absent by a read: a write over one is refused (`unknown-base`). In memory: a restart reads again. */
+	const absent = new Set<string>();
+	/** The bases these writes merge against that the store does not hold: notes written over a version `main` no longer has. */
+	function unread(files: FileWrite[]) {
+		const head = main().tree;
+		return files.flatMap(({ path, base, next }) =>
+			base !== null &&
+			'text' in next &&
+			base !== trees.read(head, history.spelling(path) ?? path) &&
+			history.blob(base) === null
+				? [base]
+				: [],
 		);
-		store.run('INSERT OR REPLACE INTO seen (id, at, paths) VALUES (?, ?, ?)', [
-			commit.id,
-			now,
-			JSON.stringify(touched),
-		]);
-		return answer;
+	}
+	/** Read versions from Git into the store, by hash: what a base names once only Git has it. */
+	async function read(hashes: string[]) {
+		for (const hash of new Set(hashes)) {
+			if (absent.has(hash) || history.blob(hash) !== null) continue;
+			const found = await git.readBlob(hash);
+			let text: string | null = null;
+			try {
+				text = found === null ? null : decoder.decode(found);
+			} catch {}
+			if (text === null || gitBlobHash(text) !== hash) absent.add(hash);
+			else store.transaction(() => history.keep(text, true));
+		}
 	}
 
-	function pushInside(
-		commit: LiveCommit,
-		session: Session | undefined,
-		rate: boolean,
-		expect?: Expect,
+	/**
+	 * Land `files` on `main` as one commit by `author`: each write is
+	 * judged against its own base. A note whose base is `main`'s version
+	 * lands as written; any other merges with `settle` against the base's
+	 * text (a base of null: two creates). A blob lands by compare-and-swap
+	 * of versions (`settlePointer`), and one that lost lands beside it. A
+	 * write to any spelling of a file lands at the file, in its spelling.
+	 */
+	function land(
+		files: FileWrite[],
+		{
+			author,
+			time: claimed,
+			from,
+			expect,
+		}: { author: Author; time: string; from: string | null; expect?: Expect },
 	): PushAnswer {
-		prune();
-		const turned = admit(commit, session, rate);
-		if (turned !== null) return turned;
-		const recorded = first<{ answer: string; paths: string }>(
-			store,
-			'SELECT answer, paths FROM outcomes WHERE id = ?',
-			[commit.id],
-		);
-		if (recorded !== undefined) {
-			// RULE: a resend gets its verdict brought up to now: `main` and every file changed since its parent, as they are now.
-			const answer = JSON.parse(recorded.answer) as PushAnswer;
-			const base = history.baseOf(commit.parent);
-			if (
-				base === undefined ||
-				(answer.kind !== 'applied' && answer.kind !== 'merged')
-			)
-				return answer;
-			return {
-				...answer,
-				main: main().id,
-				commits: history.idsAfter(base.from),
-				files: byName(
-					[
-						...trees.diff(base.tree, main().tree),
-						...(JSON.parse(recorded.paths) as string[]),
-					],
-					main().tree,
-				)
-					.sort()
-					.map((path) => state(path, base.from)),
-			};
-		}
-		const seen = first<{ paths: string }>(
-			store,
-			'SELECT paths FROM seen WHERE id = ?',
-			[commit.id],
-		);
-		if (seen !== undefined)
-			return {
-				kind: 'flushed',
-				main: main().id,
-				files: byName(JSON.parse(seen.paths) as string[], main().tree).map(
-					(path) => state(path),
-				),
-			};
 		const head = main();
-		// A commit's parent is a commit on `main`, or one a merge took in (a `git push` on the commit Git's `main` is, before its export).
-		const base = history.baseOf(commit.parent);
-		if (base === undefined) return { kind: 'outcome-unknown', main: head.id };
-		const from = base.from;
 		if (expect !== undefined) {
 			const path = history.spelling(expect.path) ?? expect.path;
 			const hash = trees.read(head.tree, path);
@@ -740,137 +668,166 @@ export function createServer({
 						: hash !== null && expect.is.includes(hash);
 			if (!holds) return rejection('file-moved', head.id, [state(path)]);
 		}
-		const author = {
-			user: session?.user ?? commit.author.user,
-			device: commit.author.device,
-		};
-		// The commit must be one tree over what its writer stood on (on `main`, that is the check), and its merge one tree over `main`, below.
-		const clash = collides(base.tree, landIn(base.tree, commit.files), head.id);
-		if (clash !== null) return clash;
-		/** A file's text in `tree`, in any spelling of its path. */
-		const textOf = (tree: string, path: string) =>
-			history.textIn(tree, spellingIn(tree, path));
-		/** What a file was written over: a blob's `over` when its writer said, else what the commit's parent holds there. */
-		const over = (file: CommitFile) =>
-			file.over !== undefined && !isNote(file.path)
-				? file.over
-				: textOf(base.tree, file.path);
-		/** RULE: every note lands in house style (core/markdown's `formatMarkdown`); a commit whose notes are not in it is merged, so the commit kept is the one its writer sent. */
+		/** RULE: every note lands in house style (core/markdown's `formatMarkdown`); a write not in it is merged, never applied as sent. */
 		const styled = (path: string, text: string | null) =>
 			text === null || !isNote(path) ? text : formatMarkdown(text);
-		if (
-			commit.parent === head.id &&
-			commit.files.every(
-				(file) =>
-					over(file) === textOf(head.tree, file.path) &&
-					styled(file.path, file.text) === file.text,
-			)
-		) {
-			advance(
-				{
-					id: commit.id,
-					parents: [commit.parent],
-					author,
-					time: commit.time,
-					blocks: false,
-				},
-				landIn(head.tree, commit.files),
-			);
-			return record(commit, 'applied', commit.id, base);
-		}
-
-		// Merge where the commit's history and main's meet, path by path.
-		const parentTree = base.tree;
 		const out: CommitFile[] = [];
 		const siblings: { path: string; at: string }[] = [];
 		let blocks = false;
-		for (const sent of commit.files) {
-			// The file this write names, under the spelling `main` has for it.
-			const file = { ...sent, path: spellingIn(head.tree, sent.path) };
-			/** The write as it lands: at the file, in the spelling it has. */
-			const land = (text: string | null) => [{ path: file.path, text }];
-			const ours = history.textIn(head.tree, file.path);
-			const base = textOf(parentTree, sent.path);
-			if (!isNote(file.path)) {
-				// A blob lands only over the blob its writer saw: compare-and-swap, never a merge. One that lost lands beside it.
-				const swapped = settlePointer(over(sent), ours, file.text);
+		let asSent = true;
+		for (const write of files) {
+			// The file this write names, under the spelling it was created with.
+			const path = history.spelling(write.path) ?? write.path;
+			const hash = trees.read(head.tree, path);
+			const current = hash === null ? null : history.blob(hash);
+			const incoming = storedText(write.next);
+			if (!isNote(path)) {
+				// A blob lands only over the version its writer saw: compare-and-swap, never a merge. One that lost lands beside it.
+				const version = incoming === null ? null : gitBlobHash(incoming);
+				const swapped = settlePointer(write.base, hash, version);
 				if ('lost' in swapped) {
-					const placed = besideIt(
-						file.path,
-						file.text as string,
-						out,
-						head.tree,
-					);
-					if (placed === null)
-						return refusal('path-too-long', file.path, head.id);
-					siblings.push({ path: file.path, at: placed.at });
-					if (placed.write) out.push({ path: placed.at, text: file.text });
+					asSent = false;
+					const placed = besideIt(path, incoming as string, out, head.tree);
+					if (placed === null) return refusal('path-too-long', path, head.id);
+					siblings.push({ path, at: placed.at });
+					if (placed.write) out.push({ path: placed.at, text: incoming });
 					continue;
 				}
-				out.push(...land(swapped.text));
+				const text = swapped.text === hash ? current : incoming;
+				if (text !== incoming || hash !== write.base) asSent = false;
+				out.push({ path, text });
 				continue;
 			}
-			const who = history.lastAuthor(file.path) ?? SERVER;
-			const merged = settle(base, ours, file.text, {
-				deletedSince: history.deletedSince(from, file.path),
-				parties: {
-					current: { author: `${who.user}/${who.device}`, time: head.time },
-					incoming: {
-						author: `${author.user}/${author.device}`,
-						time: commit.time,
+			let settled: { text: string | null; blocks: boolean } = {
+				text: incoming,
+				blocks: false,
+			};
+			if (write.base !== hash) {
+				asSent = false;
+				const base = write.base === null ? null : history.blob(write.base);
+				if (write.base !== null && base === null) {
+					if (absent.has(write.base))
+						return refusal('unknown-base', path, head.id);
+					// Only Git has it: read it, and the writer sends again.
+					void read([write.base]);
+					return rejection('reading', head.id);
+				}
+				const who = history.lastAuthor(path) ?? SERVER;
+				settled = settle(base, current, incoming, {
+					parties: {
+						current: { author: `${who.user}/${who.device}`, time: head.time },
+						incoming: {
+							author: `${author.user}/${author.device}`,
+							time: claimed,
+						},
 					},
-				},
-			});
-			const settled = { ...merged, text: styled(file.path, merged.text) };
-			if (settled.text !== null) {
+				});
+			}
+			const text = styled(path, settled.text);
+			if (text !== incoming) asSent = false;
+			if (text !== null) {
 				// RULE, the first named exception: a merge that would grow a note past 1 MB is refused, so its writer holds it.
-				if (bytes(settled.text) > MAX_FILE_BYTES)
-					return refusal('merge-too-large', file.path, head.id);
-				// RULE, the second named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-parent flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: its writer holds it with the reason until blocks are resolved.
+				if (bytes(text) > MAX_FILE_BYTES)
+					return refusal('merge-too-large', path, head.id);
+				// RULE, the second named exception: a merge may not leave a note with more than BLOCK_CAP conflict blocks (a stale-base flood). Past it, any writer's merge is refused, even one whose own change adds the block to others' blocks: its writer holds it with the reason until blocks are resolved.
 				if (
-					findConflicts(settled.text).length >
-					Math.max(BLOCK_CAP, ours === null ? 0 : findConflicts(ours).length)
+					findConflicts(text).length >
+					Math.max(
+						BLOCK_CAP,
+						current === null ? 0 : findConflicts(current).length,
+					)
 				)
-					return refusal('too-many-blocks', file.path, head.id);
+					return refusal('too-many-blocks', path, head.id);
 			}
 			// Every merge result passes the door too.
-			const reason = admissible(file.path, settled.text);
+			const reason = admissible(path, text);
 			if (reason !== null)
-				return refusal('inadmissible', file.path, head.id, reason);
-			out.push(...land(settled.text));
+				return refusal('inadmissible', path, head.id, reason);
+			out.push({ path, text });
 			if (settled.blocks) blocks = true;
 		}
-		const merged = collides(head.tree, out, head.id);
-		if (merged !== null) return merged;
-		// The device's commit stays a real commit: the merge's second parent.
-		const mergeTime = time();
-		const id = commitId({
-			parent: `${head.id} ${commit.id}`,
-			author: SERVER,
-			time: mergeTime,
-			files: out,
-		});
-		history.keepSide(
-			{
-				id: commit.id,
-				parents: [commit.parent],
-				author,
-				time: commit.time,
-				at: clock(),
-				tree: trees.update(
-					parentTree,
-					changes(landIn(parentTree, commit.files), gitBlobHash),
-				),
-				blocks: false,
-			},
-			id,
-			commit.files,
+		const clash = collides(head.tree, out, head.id);
+		if (clash !== null) return clash;
+		const id = commitId({ parent: head.id, author, time: claimed, files: out });
+		advance({ id, parents: [head.id], author, time: claimed, blocks }, out);
+		const place = from === null ? undefined : history.placeOf(from);
+		// Every path written (in the spelling it lands at), and every sibling: what the writer's device stands on next.
+		const touched = [
+			...new Set([
+				...files.map((f) => history.spelling(f.path) ?? f.path),
+				...out.map((f) => f.path),
+				...siblings.map((s) => s.at),
+			]),
+		];
+		return {
+			kind: asSent ? 'applied' : 'merged',
+			main: id,
+			commits: place === undefined ? [] : history.idsAfter(place),
+			files: byName(
+				[
+					...(place === undefined
+						? []
+						: trees.diff(history.at(place).tree, main().tree)),
+					...touched,
+				],
+				main().tree,
+			)
+				.sort()
+				.map(state),
+			...(siblings.length === 0 ? {} : { siblings }),
+			...(place === undefined ? { stale: true as const } : {}),
+		};
+	}
+
+	/**
+	 * A device's push: the door, then its place in its writer's numbered
+	 * pushes, then its writes. RULE: one row per writer's epoch keeps its
+	 * last push's seq, hash and answer. That push sent again gets that
+	 * answer, exactly; an earlier seq, or this seq with other writes, is a
+	 * device behind itself. A rejected request is not a push the writer
+	 * made: it is not recorded, and goes again under its seq.
+	 */
+	function pushInside(
+		push: Push,
+		session: Session | undefined,
+		rate: boolean,
+		expect?: Expect,
+	): PushAnswer {
+		prune();
+		const turned = admit(push, session, rate);
+		if (turned !== null) return turned;
+		const hash = pushHash(push);
+		const last = first<{ seq: number; hash: string; answer: string }>(
+			store,
+			'SELECT seq, hash, answer FROM writers WHERE user = ? AND device = ? AND epoch = ?',
+			[push.user, push.device, push.epoch],
 		);
-		advance(
-			{ id, parents: [head.id, commit.id], author, time: mergeTime, blocks },
-			out,
-		);
-		return record(commit, 'merged', id, base, siblings);
+		if (last !== undefined) {
+			if (push.seq === last.seq && hash === last.hash)
+				return JSON.parse(last.answer) as PushAnswer;
+			if (push.seq <= last.seq) return { kind: 'behind', main: main().id };
+		}
+		const answer =
+			admitFiles(push.files, main().id) ??
+			land(push.files, {
+				author: { user: push.user, device: push.device },
+				time: push.time,
+				from: push.from,
+				...(expect === undefined ? {} : { expect }),
+			});
+		if (answer.kind !== 'rejected')
+			store.run(
+				'INSERT OR REPLACE INTO writers (user, device, epoch, seq, hash, answer) VALUES (?, ?, ?, ?, ?, ?)',
+				[
+					push.user,
+					push.device,
+					push.epoch,
+					push.seq,
+					hash,
+					JSON.stringify(answer),
+				],
+			);
+		return answer;
 	}
 
 	/**
@@ -915,9 +872,16 @@ export function createServer({
 		limits,
 		flusher,
 		faults,
-		apply: (commit, session, during) =>
-			push(commit, session, { rate: false, during }),
-		prune: () => store.transaction(prune),
+		apply: (files, { author, time, from }, during) =>
+			transact(() => {
+				// A `git push` lands as one live commit, under the bounds of any push.
+				const head = main().id;
+				if (files.length > limits.files)
+					return rejection('too-many-files', head);
+				if (bytes(JSON.stringify(files)) > limits.request)
+					return rejection('too-large', head);
+				return land(files, { author, time, from });
+			}, during),
 	});
 
 	/**
@@ -1003,20 +967,14 @@ export function createServer({
 	}
 	reschedule();
 
-	type PushOptions = {
-		rate?: boolean;
-		expect?: Expect;
-		during?: (answer: PushAnswer & { kind: 'applied' | 'merged' }) => void;
-	};
-	/** Take a live commit; `during` runs in its transaction once it lands (the receiver's journal row). */
-	function push(
-		commit: LiveCommit,
-		session?: Session,
-		{ rate = true, expect, during }: PushOptions = {},
+	/** Run `take` in one transaction, then tell the listeners what landed; `during` runs in that transaction once it lands (the receiver's journal row). */
+	function transact(
+		take: () => PushAnswer,
+		during?: (answer: PushAnswer & { kind: 'applied' | 'merged' }) => void,
 	): PushAnswer {
 		pending = [];
 		const answer = store.transaction(() => {
-			const answer = pushInside(commit, session, rate, expect);
+			const answer = take();
 			if (answer.kind === 'applied' || answer.kind === 'merged')
 				during?.(answer);
 			return answer;
@@ -1067,6 +1025,9 @@ export function createServer({
 					limits.readRate,
 				),
 			),
+		/** `main`'s version (Git blob hash) of a file, in any spelling of its path, or null for none. */
+		version: (path: string) =>
+			trees.read(main().tree, history.spelling(path) ?? path),
 		/** `main`'s text at a path, in any spelling of it. */
 		read: (path: string) =>
 			history.textIn(main().tree, history.spelling(path) ?? path),
@@ -1079,15 +1040,19 @@ export function createServer({
 					.map((path) => [path, history.textIn(main().tree, path) as string]),
 			),
 		/**
-		 * Take a live commit: apply it on `main`, merge it in, or refuse it; a
-		 * resend gets its recorded outcome. `expect` is a one-file
-		 * precondition, refused as `the file moved` when it does not hold.
+		 * Take a push: land each write on `main`, merged against its base, or
+		 * refuse it; its resend gets its recorded answer. `expect` is a
+		 * one-file precondition, refused as `the file moved` when it does not
+		 * hold. A note written over a version only Git has is answered
+		 * `reading` while it is read: a host calls `prepare` first.
 		 */
 		push: (
-			commit: LiveCommit,
+			push: Push,
 			session?: Session,
 			{ expect }: { expect?: Expect } = {},
-		) => push(commit, session, expect === undefined ? {} : { expect }),
+		) => transact(() => pushInside(push, session, true, expect)),
+		/** Read from Git the bases `push` merges against that only Git has, so `push` then finds them. */
+		prepare: (push: Push) => read(unread(push.files)),
 		/**
 		 * What changed on `main` since `from`, as a tree diff, plus `paths` the
 		 * device names, one page at a time: a later page names `to` (the commit
@@ -1135,16 +1100,10 @@ export function createServer({
 			return {
 				main: target.id,
 				full,
-				files: page.map((path) => {
-					const hash = trees.read(target.tree, path);
-					return {
-						path,
-						hash,
-						...(!full && history.deletedSince(index, path)
-							? { deleted: true as const }
-							: {}),
-					};
-				}),
+				files: page.map((path) => ({
+					path,
+					hash: trees.read(target.tree, path),
+				})),
 				commits:
 					last && !full
 						? history.idsAfter(index, target.place ?? history.top())
@@ -1152,12 +1111,12 @@ export function createServer({
 				next: last ? null : (page.at(-1) ?? null),
 			};
 		},
-		/** Texts by hash: a content-addressed read, never stale. */
-		fetch: (hashes: string[]) =>
+		/** Versions by hash, as content (a note's text, a blob's bytes): a content-addressed read, never stale. */
+		fetch: (hashes: string[]): Record<string, Content> =>
 			Object.fromEntries(
 				hashes.flatMap((hash) => {
 					const text = history.blob(hash);
-					return text === null ? [] : [[hash, text]];
+					return text === null ? [] : [[hash, contentOf(text)]];
 				}),
 			),
 		/** Follow the change feed: one event per commit on `main`. */
@@ -1232,8 +1191,8 @@ export function createServer({
 		history: () => ({
 			commits: meta.number('made'),
 			kept: history.top() - history.offset() + 1,
-			outcomes:
-				first<{ n: number }>(store, 'SELECT COUNT(*) AS n FROM outcomes')?.n ??
+			writers:
+				first<{ n: number }>(store, 'SELECT COUNT(*) AS n FROM writers')?.n ??
 				0,
 			bytes:
 				first<{ n: number }>(
@@ -1268,7 +1227,10 @@ export async function openServer(options: Parameters<typeof createServer>[0]) {
 				const bytes = await git.readBlob(entry.oid);
 				if (bytes === null)
 					throw new Error(`Git's main names a missing blob at ${path}`);
-				changes.push([path.split('/'), history.keep(decoder.decode(bytes))]);
+				changes.push([
+					path.split('/'),
+					history.keep(decoder.decode(bytes), true),
+				]);
 			}
 			const at = clock();
 			const time = new Date(at).toISOString();

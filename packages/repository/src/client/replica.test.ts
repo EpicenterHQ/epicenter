@@ -9,7 +9,7 @@
  *
  * Key behaviors:
  * - A database bound to another repository, server or account is refused at open, and a hello naming another is refused; a replica with no server refuses every hello
- * - A commit in flight whose answer was lost survives closing and reopening the database file: the reopened replica keeps its device id and sends the same commit, which lands once
+ * - A push in flight whose answer was lost survives closing and reopening the database file: the reopened replica keeps its device id, epoch and seq and sends the same push, which lands once
  * - No text is kept in memory: reads and saves read the database, and a catch-up's pages are staged there, started again after a restart
  * - A database made before the fold column (phase 5) opens, the column filled from each path
  * - One clash is one block: unsent text replayed over a block that offers its base continues that block
@@ -23,13 +23,13 @@ import { Type } from 'typebox';
 import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { openBunSqlite } from '../bun/sqlite.js';
-import type { LiveCommit } from '../core/commit.js';
-import { commitId } from '../core/commit.js';
+import type { CommitFile, Push } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
+import { gitBlobHash } from '../core/hash.js';
 import { defineApp } from '../core/lens.js';
 import { BODY_SQL, writePointer } from '../core/markdown.js';
 import type { Event, Server } from '../server/server.js';
-import { createTestServer, STAMP, writer } from '../sim/harness.js';
+import { createTestServer, directPush, writer } from '../sim/harness.js';
 import type { SqlDriver } from '../sql.js';
 import {
 	type Binding,
@@ -70,7 +70,7 @@ function answer(
 			return {
 				type: 'answer',
 				rid: request.rid,
-				answer: server.push(request.commit, session),
+				answer: server.push(request.push, session),
 			};
 		case 'catch-up':
 			return {
@@ -82,7 +82,7 @@ function answer(
 			return {
 				type: 'fetched',
 				rid: request.rid,
-				texts: server.fetch(request.hashes),
+				versions: server.fetch(request.hashes),
 			};
 	}
 }
@@ -90,7 +90,7 @@ function answer(
 /** Attach `replica` to `server`; `deliver` answers what it sent, until it sends nothing more, as `session` (alice, a writer). */
 function connect(replica: Replica, server: Server) {
 	const sent: Request[] = [];
-	const pushes: LiveCommit[] = [];
+	const pushes: Push[] = [];
 	replica.attach((request) => sent.push(request));
 	return {
 		sent,
@@ -101,17 +101,17 @@ function connect(replica: Replica, server: Server) {
 				request !== undefined;
 				request = sent.shift()
 			) {
-				if (request.type === 'push') pushes.push(request.commit);
+				if (request.type === 'push') pushes.push(request.push);
 				replica.reply(answer(server, request, session));
 			}
 		},
 	};
 }
 
-const bytes = (commit: LiveCommit) =>
-	new TextEncoder().encode(JSON.stringify(commit)).length;
+const bytes = (push: Push) =>
+	new TextEncoder().encode(JSON.stringify(push)).length;
 
-test("commits fit the server's bounds from the hello: saves split into several", () => {
+test("pushes fit the server's bounds from the hello: saves split into several", () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));
 	expectOk(
@@ -136,14 +136,14 @@ test("commits fit the server's bounds from the hello: saves split into several",
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
 	expect(link.pushes.length).toBeGreaterThan(2);
-	for (const commit of link.pushes)
-		expect(bytes(commit)).toBeLessThanOrEqual(3_000);
+	for (const push of link.pushes)
+		expect(bytes(push)).toBeLessThanOrEqual(3_000);
 	expect(replica.notSent()).toEqual([]);
 	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
 	expect(replica.busy()).toBe(false);
 });
 
-test('a commit rejected as too large is split in half; one file too large alone is held with why, its text kept, and the rest goes', () => {
+test('a push rejected as too large is split in half; one file too large alone is held with why, its text kept, and the rest goes', () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));
 	const link = connect(replica, server);
@@ -253,7 +253,7 @@ test('a database bound to another repository, server or account is refused, and 
 	).toBe('server');
 });
 
-test('a commit in flight whose answer was lost survives reopening the database file, and lands once', () => {
+test('a push in flight whose answer was lost survives reopening the database file, and lands once', () => {
 	const dir = mkdtempSync(join(tmpdir(), 'replica-'));
 	try {
 		const file = join(dir, 'replica.sqlite');
@@ -266,7 +266,7 @@ test('a commit in flight whose answer was lost survives reopening the database f
 		const [push] = link.sent.splice(0);
 		if (push?.type !== 'push') throw new Error('a save sends its commit');
 		// The server takes it, and its answer is lost with the process.
-		server.push(push.commit, writer('alice'));
+		server.push(push.push, writer('alice'));
 		first.close();
 		driver.close();
 
@@ -279,7 +279,7 @@ test('a commit in flight whose answer was lost survives reopening the database f
 		const again = connect(reopened, server);
 		expect(again.sent[0]).toMatchObject({
 			type: 'push',
-			commit: { id: push.commit.id },
+			push: push.push,
 		});
 		again.deliver();
 		expect(server.history().commits).toBe(1);
@@ -292,7 +292,7 @@ test('a commit in flight whose answer was lost survives reopening the database f
 	}
 });
 
-test("a commit carries the host's clock as its time", () => {
+test("a push carries the host's clock as its time", () => {
 	const at = Date.UTC(2026, 9, 29, 10, 30);
 	const replica = unwrap(open(openBunSqlite(), { now: () => at }));
 	const server = createTestServer({ clock: () => at });
@@ -302,7 +302,7 @@ test("a commit carries the host's clock as its time", () => {
 	const [push] = link.sent;
 	expect(push).toMatchObject({
 		type: 'push',
-		commit: { time: '2026-10-29T10:30:00.000Z' },
+		push: { time: '2026-10-29T10:30:00.000Z' },
 	});
 });
 
@@ -313,17 +313,10 @@ test('a notification costs what it names, not every text the device holds', () =
 	const bob = writer('bob');
 	const text = (i: number, version = 0) =>
 		note(`${'word '.repeat(1_000)}${version}\n`, `n${i}`);
-	const commit = (files: LiveCommit['files']) => {
-		const body = {
-			parent: server.main(),
-			author: { user: 'bob', device: 'd' },
-			time: STAMP,
-			files,
-		};
-		return { id: commitId(body), ...body };
-	};
+	const push = (files: CommitFile[]) =>
+		directPush(server, 'bob', files, { device: 'd' });
 	server.push(
-		commit(
+		push(
 			Array.from({ length: 2_000 }, (_, i) => ({
 				path: `notes/${i}.md`,
 				text: text(i),
@@ -339,7 +332,7 @@ test('a notification costs what it names, not every text the device holds', () =
 	server.subscribe((event) => events.push(event));
 	let spent = 0;
 	for (let k = 0; k < 20; k++) {
-		server.push(commit([{ path: `notes/${k}.md`, text: text(k, k + 1) }]), bob);
+		server.push(push([{ path: `notes/${k}.md`, text: text(k, k + 1) }]), bob);
 		const event = events.shift();
 		if (event === undefined) throw new Error('every commit is an event');
 		const start = performance.now();
@@ -356,15 +349,8 @@ test("a catch-up's texts are read in batches, and a read that times out is asked
 	const server = createTestServer({
 		limits: { page: 100, request: 64 * 1024 * 1024 },
 	});
-	const commit = (files: LiveCommit['files']) => {
-		const body = {
-			parent: server.main(),
-			author: { user: 'bob', device: 'd' },
-			time: STAMP,
-			files,
-		};
-		return { id: commitId(body), ...body };
-	};
+	const commit = (files: CommitFile[]) =>
+		directPush(server, 'bob', files, { device: 'd' });
 	server.push(
 		commit(
 			Array.from({ length: 600 }, (_, i) => ({
@@ -413,16 +399,17 @@ test('a replica keeps no text in memory: each read and save reads the database, 
 	const server = createTestServer({
 		limits: { page: 2, request: 64 * 1024 * 1024 },
 	});
-	const body = {
-		parent: server.main(),
-		author: { user: 'bob', device: 'd' },
-		time: STAMP,
-		files: ['a', 'b', 'c'].map((stem) => ({
-			path: `notes/${stem}.md`,
-			text: note(`${stem}\n`),
-		})),
-	};
-	server.push({ id: commitId(body), ...body }, writer('bob'));
+	server.push(
+		directPush(
+			server,
+			'bob',
+			['a', 'b', 'c'].map((stem) => ({
+				path: `notes/${stem}.md`,
+				text: note(`${stem}\n`),
+			})),
+		),
+		writer('bob'),
+	);
 	const directory = mkdtempSync(join(tmpdir(), 'replica-'));
 	try {
 		const file = join(directory, 'replica.sqlite');
@@ -660,7 +647,7 @@ test('a held file holds only itself: what was saved with it goes', () => {
 	expect(server.read('notes/b.md')).toBe(note('b\nmore\n'));
 });
 
-test('work whose outcome is unknown goes as a labelled conflict block over what is there, never held; a blob of it goes saying what it was made over', () => {
+test('a behind answer starts a new epoch: the note lands as a labelled block, and a different blob lands beside', () => {
 	const server = createTestServer();
 	const replica = unwrap(open(openBunSqlite()));
 	const link = connect(replica, server);
@@ -683,15 +670,11 @@ test('work whose outcome is unknown goes as a labelled conflict block over what 
 	const resend = link.sent.shift();
 	if (resend?.type !== 'push') throw new Error('a resend');
 	link.sent.length = 0;
-	const other = (files: { path: string; text: string }[]) => {
-		const body = {
-			parent: server.main(),
-			author: { user: 'bob', device: 'phone' },
-			time: STAMP,
-			files,
-		};
-		return server.push({ id: commitId(body), ...body }, writer('bob'));
-	};
+	const other = (files: CommitFile[]) =>
+		server.push(
+			directPush(server, 'bob', files, { device: 'phone' }),
+			writer('bob'),
+		);
 	other([
 		{ path: PATH, text: note('one\ntheirs\n') },
 		{ path: 'media/x.png', text: pointer('c') },
@@ -699,17 +682,21 @@ test('work whose outcome is unknown goes as a labelled conflict block over what 
 	replica.reply({
 		type: 'answer',
 		rid: resend.rid,
-		answer: { kind: 'outcome-unknown', main: server.main() },
+		answer: { kind: 'behind', main: server.main() },
 	});
 	link.deliver();
 	expect(replica.notSent()).toEqual([]);
 	const text = server.read(PATH) ?? '';
 	expect(text.startsWith(note('one\ntheirs\n'))).toBe(true);
 	expect(findConflicts(text)).toHaveLength(1);
-	expect(text).toContain('laptop/outcome-unknown');
+	expect(text).toContain('alice/laptop');
+	expect(replica.stats().behind).toBe(1);
+	const renewed = link.pushes.at(-1);
+	expect(renewed?.epoch).not.toBe(resend.push.epoch);
+	expect(renewed?.seq).toBe(1);
 	expect(findConflicts(text)[0]?.incoming).toBe(note('one\nmine\n'));
 	expect(replica.read(PATH)).toBe(text);
-	// The blob was made over `a`, which moved: it lands beside.
+	// The blob forgot its base: different bytes are there, so it lands beside.
 	expect(server.read('media/x.png')).toBe(pointer('c'));
 	expect(server.read(`media/x (conflict ${'b'.repeat(7)}).png`)).toBe(
 		pointer('b'),
@@ -729,13 +716,10 @@ test('a newer save over a blob write that lost, whose commit was turned away, st
 	}
 	replica.write('media/x.png', pointer('a'));
 	link.deliver();
-	const body = {
-		parent: server.main(),
-		author: { user: 'bob', device: 'phone' },
-		time: STAMP,
-		files: [{ path: 'media/x.png', text: pointer('b') }],
-	};
-	server.push({ id: commitId(body), ...body }, writer('bob'));
+	server.push(
+		directPush(server, 'bob', [{ path: 'media/x.png', text: pointer('b') }]),
+		writer('bob'),
+	);
 	expectOk(
 		replica.hello({
 			...BINDING,
@@ -753,8 +737,12 @@ test('a newer save over a blob write that lost, whose commit was turned away, st
 	);
 	const push = link.sent.shift();
 	if (push?.type !== 'push') throw new Error('a push');
-	expect(push.commit.files).toEqual([
-		{ path: 'media/x.png', text: pointer('c'), over: pointer('a') },
+	expect(push.push.files).toEqual([
+		{
+			path: 'media/x.png',
+			base: gitBlobHash(pointer('a')),
+			next: { blob: { oid: 'c'.repeat(64), size: 3 } },
+		},
 	]);
 	// Typed over again while it is out; then the push is turned away, and a new connection sends again.
 	replica.write('media/x.png', pointer('d'));

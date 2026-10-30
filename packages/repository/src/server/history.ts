@@ -1,13 +1,15 @@
 /**
  * Live history, kept in the `Store`: every commit on `main` in order (its
- * place), each with the tree it left, the texts those trees name, which
- * paths each commit deleted, `main`'s spelling and last author of each path,
- * and the counters the server keeps. Everything a fresh instance needs is
- * here, so a crash loses nothing that was answered.
+ * place), each with the tree it left, the texts those trees name, `main`'s
+ * spelling and last author of each path, each writer's last push, and the
+ * counters the server keeps. Everything a fresh instance needs is here, so
+ * a crash loses nothing that was answered.
  *
  * Trees are Git tree objects (core/tree), stored as nodes by id; a commit's
- * snapshot stays readable for as long as its row is kept. Texts and nodes
- * are kept only while a tree that names them is (`sweep`).
+ * snapshot stays readable for as long as its row is kept, and nodes only
+ * while a tree that names them is (`sweep`). RULE: a text stays until Git
+ * has it, whatever names it: any version a writer saw may be the base of
+ * its write, and once Git has it, it is read from Git.
  */
 import type { Author, CommitFile } from '../core/commit.js';
 import { fold } from '../core/door.js';
@@ -29,15 +31,11 @@ CREATE TABLE IF NOT EXISTS commits (
 	time TEXT NOT NULL,
 	at INTEGER NOT NULL,
 	tree TEXT NOT NULL,
-	blocks INTEGER NOT NULL,
-	merged_into TEXT
+	blocks INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS deletes (path TEXT NOT NULL, place INTEGER NOT NULL, PRIMARY KEY (path, place));
-CREATE INDEX IF NOT EXISTS deletes_by_place ON deletes (place);
 CREATE TABLE IF NOT EXISTS spellings (folded TEXT PRIMARY KEY, path TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS authors (path TEXT PRIMARY KEY, user TEXT NOT NULL, device TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS outcomes (id TEXT PRIMARY KEY, at INTEGER NOT NULL, place INTEGER NOT NULL, answer TEXT NOT NULL, paths TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS seen (id TEXT PRIMARY KEY, at INTEGER NOT NULL, paths TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS writers (user TEXT NOT NULL, device TEXT NOT NULL, epoch TEXT NOT NULL, seq INTEGER NOT NULL, hash TEXT NOT NULL, answer TEXT NOT NULL, PRIMARY KEY (user, device, epoch));
 CREATE TABLE IF NOT EXISTS buckets (user TEXT PRIMARY KEY, tokens REAL NOT NULL, at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS uploads (oid TEXT PRIMARY KEY, size INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS flushes (n INTEGER PRIMARY KEY, oid TEXT NOT NULL, tree TEXT NOT NULL, through INTEGER NOT NULL, message TEXT NOT NULL);
@@ -99,7 +97,19 @@ export function openHistory(store: SqlDriver) {
 			.some((column) => column.name === 'size')
 	)
 		store.exec('DROP TABLE uploads');
+	// Answers kept by commit id for a window, ids recognized for a day, and deletes per place (before each write carried its base): a writer's last push answers a resend now, and a base is read by its hash.
+	for (const table of ['outcomes', 'seen', 'deletes'])
+		store.exec(`DROP TABLE IF EXISTS ${table}`);
 	store.exec(SCHEMA);
+	// A device's commit a merge took in as its second parent (before each write carried its base) is nothing a write or a catch-up reads.
+	store.run('DELETE FROM commits WHERE place IS NULL');
+	// Whether Git has a text (once a flush or a push put it there): only then may it go from the store.
+	if (
+		!store
+			.all<{ name: string }>('PRAGMA table_info(blobs)')
+			.some((column) => column.name === 'git')
+	)
+		store.exec('ALTER TABLE blobs ADD COLUMN git INTEGER NOT NULL DEFAULT 0');
 	// Where a pushed blob that lost landed (phase 9g), so a retry's answer names it too.
 	if (
 		!store
@@ -152,12 +162,12 @@ export function openHistory(store: SqlDriver) {
 		first<{ text: string }>(store, 'SELECT text FROM blobs WHERE hash = ?', [
 			hash,
 		])?.text ?? null;
-	const keep = (text: string) => {
+	const keep = (text: string, git = false) => {
 		const hash = gitBlobHash(text);
-		store.run('INSERT OR IGNORE INTO blobs (hash, text) VALUES (?, ?)', [
-			hash,
-			text,
-		]);
+		store.run(
+			'INSERT INTO blobs (hash, text, git) VALUES (?, ?, ?) ON CONFLICT (hash) DO UPDATE SET git = MAX(git, excluded.git)',
+			[hash, text, git ? 1 : 0],
+		);
 		return hash;
 	};
 
@@ -173,9 +183,9 @@ export function openHistory(store: SqlDriver) {
 		return fromRow(row);
 	};
 	const top = () => meta.number('top');
-	const insert = (stored: Stored, mergedInto: string | null = null) =>
+	const insert = (stored: Stored) =>
 		store.run(
-			'INSERT OR REPLACE INTO commits (id, place, parents, user, device, time, at, tree, blocks, merged_into) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+			'INSERT OR REPLACE INTO commits (id, place, parents, user, device, time, at, tree, blocks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
 			[
 				stored.id,
 				stored.place,
@@ -186,7 +196,6 @@ export function openHistory(store: SqlDriver) {
 				stored.at,
 				stored.tree,
 				stored.blocks ? 1 : 0,
-				mergedInto,
 			],
 		);
 
@@ -215,42 +224,7 @@ export function openHistory(store: SqlDriver) {
 				'SELECT place FROM commits WHERE id = ?',
 				[id],
 			)?.place ?? undefined,
-		/**
-		 * What a commit on `id` is merged against: its tree, and the place on
-		 * `main` after which changes are its writer's news (its own place, or
-		 * for a commit a merge took in, that merge's place). Undefined when
-		 * history no longer keeps it.
-		 */
-		baseOf(id: string): { from: number; tree: string } | undefined {
-			const row = first<{
-				place: number | null;
-				tree: string;
-				merged_into: string | null;
-			}>(store, 'SELECT place, tree, merged_into FROM commits WHERE id = ?', [
-				id,
-			]);
-			if (row === undefined) return undefined;
-			if (row.place !== null) return { from: row.place, tree: row.tree };
-			const into =
-				row.merged_into === null
-					? undefined
-					: first<{ place: number | null }>(
-							store,
-							'SELECT place FROM commits WHERE id = ?',
-							[row.merged_into],
-						)?.place;
-			return into === undefined || into === null
-				? undefined
-				: { from: into, tree: row.tree };
-		},
 		textIn,
-		/** Was `path` deleted on `main` after place `from`? */
-		deletedSince: (from: number, path: string) =>
-			first(
-				store,
-				'SELECT 1 FROM deletes WHERE path = ? AND place > ? LIMIT 1',
-				[path, from],
-			) !== undefined,
 		/** The ids on `main` after place `from`, through place `to`. */
 		idsAfter: (from: number, to = top()) =>
 			store
@@ -312,10 +286,6 @@ export function openHistory(store: SqlDriver) {
 			meta.set('made', meta.number('made') + 1);
 			for (const { path, after } of changed) {
 				if (after === null) {
-					store.run(
-						'INSERT OR IGNORE INTO deletes (path, place) VALUES (?, ?)',
-						[path, place],
-					);
 					// Only this spelling's row: a file's spelling never changes while it exists, so this is its only row.
 					store.run('DELETE FROM spellings WHERE folded = ? AND path = ?', [
 						fold(path),
@@ -333,31 +303,22 @@ export function openHistory(store: SqlDriver) {
 			}
 			return { tree, changed };
 		},
-		/** Keep a device's commit that a merge takes in as its second parent. */
-		keepSide(
-			stored: Omit<Stored, 'place'>,
-			mergedInto: string,
-			files: CommitFile[],
-		) {
-			for (const f of files) if (f.text !== null) keep(f.text);
-			insert({ ...stored, place: null }, mergedInto);
-		},
-		/** Drop places before `keep` (never `main` itself), with the device commits their merges took in. */
+		/** Drop places before `keep` (never `main` itself): positions a catch-up starts from, never what a write needs. */
 		pruneBefore(keep: number) {
 			const offset = meta.number('offset');
 			if (keep <= offset) return;
-			store.run(
-				'DELETE FROM commits WHERE merged_into IN (SELECT id FROM commits WHERE place < ?)',
-				[keep],
-			);
 			store.run('DELETE FROM commits WHERE place < ?', [keep]);
-			store.run('DELETE FROM deletes WHERE place < ?', [keep]);
 			meta.set('offset', keep);
 		},
+		/** Git has these texts: from now on they may go from the store once nothing kept names them. */
+		inGit(hashes: Iterable<string>) {
+			for (const hash of hashes)
+				store.run('UPDATE blobs SET git = 1 WHERE hash = ?', [hash]);
+		},
 		/**
-		 * Delete every text and tree node that no tree named by a kept commit
-		 * (on `main` or merged in) or by `roots` reaches. Mark and sweep: what
-		 * a kept tree reaches is walked once, shared subtrees included.
+		 * Delete every tree node, and every text Git has, that no tree named
+		 * by a kept commit or by `roots` reaches. Mark and sweep: what a kept
+		 * tree reaches is walked once, shared subtrees included.
 		 */
 		sweep(roots: string[]) {
 			const reached = new Set<string>();
@@ -384,7 +345,7 @@ export function openHistory(store: SqlDriver) {
 					cache.delete(hash);
 				}
 			for (const { hash } of store.all<{ hash: string }>(
-				'SELECT hash FROM blobs',
+				'SELECT hash FROM blobs WHERE git = 1',
 			))
 				if (!texts.has(hash))
 					store.run('DELETE FROM blobs WHERE hash = ?', [hash]);

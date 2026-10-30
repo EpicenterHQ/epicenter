@@ -32,6 +32,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import { createServer, type Server } from '../server/server.js';
+import { directPush } from '../sim/harness.js';
 import { authenticateBearer } from '../wire/wire.js';
 import { type Line, sync } from './folder-commands.js';
 import { serveRepository } from './serve.js';
@@ -182,16 +183,14 @@ describe('each recorded save pattern', () => {
 			never('4913', '~', '.swp', '___jb_tmp___', '___jb_old___', '.tmp');
 			// A remote change while the file is open reaches the file; the next save keeps it.
 			const remote = server.read(name) ?? '';
-			const body = {
-				parent: server.main(),
-				author: { user: 'bo', device: 'laptop' },
-				time: new Date().toISOString(),
-				files: [{ path: name, text: `${remote}remote\n` }],
-			};
-			const { commitId } = await import('../core/commit.js');
 			expect(
 				server.push(
-					{ id: commitId(body), ...body },
+					directPush(
+						server,
+						'bo',
+						[{ path: name, text: `${remote}remote\n` }],
+						{ device: 'laptop', time: new Date().toISOString() },
+					),
 					{ user: 'bo', role: 'writer' },
 				).kind,
 			).toBe('applied');

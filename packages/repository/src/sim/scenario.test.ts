@@ -1,41 +1,39 @@
 /**
  * Scenario Tests
  *
- * The intent of today's engine's held, reconcile, verdict and delete/reuse
- * tests, asserted after phase 0a: live commits with parents,
- * the server merging every writer's commits, the commit id as idempotency, a
- * commit on every save, no stored notices (conflict blocks in the text, and
- * held work with a reason on the device), and a retention window. Each world
- * has a fixed latency and no loss unless a test loses a reply. The people
+ * Devices save locally and send numbered pushes with each file's base.
+ * The server merges those writes and makes its own commits. Each world has
+ * a fixed latency and no loss unless a test loses a reply. The people
  * review's probes live in `people.test.ts`.
  *
  * Key behaviors:
  * - A note whose frontmatter does not parse is a note: it syncs, with no fields, and merges by line
  * - A file saved where someone made a folder (or beneath someone's file) is held with why at that file; nothing on main is lost, and a rename sends it
  * - Held text survives a change from elsewhere (rebased) and a restart, and over a remote delete; a repair commits exactly the repaired text
- * - A lost reply is answered by sending the same commit again, which lands once, with its outcome brought up to now; typing since never conflicts with itself
- * - A commit meeting a moved `main` is merged by the server in one push; the device never sends an edit made elsewhere back as its own
- * - Changed (D3): an edit made before a delete, landing after the note was brought back or replaced, is one block in the note there
- * - A rename racing an edit of the old path keeps both, and the renamer's delete stays held
- * - An agent's batch meeting a moved `main` merges as anyone's save does, its files in one commit; the server refuses commits with no parent, a bad id, or a path named twice
- * - Every save commits while online; saves while a commit is in flight, or offline, amend one unsent commit; a sent commit is never rewritten
- * - A commit sent once whose parent left the window merges again after a full catch-up
- * - A held call holds only its own work: an earlier unsent commit below it goes alone, even when the held call has a message and saved the same text there
+ * - A lost reply is answered by sending the same push again, which lands once and gets its recorded answer verbatim; typing since never conflicts with itself
+ * - A push meeting a moved `main` is merged by the server in one push; the device never sends an edit made elsewhere back as its own
+ * - Edits made before a delete merge against their base text after the note is brought back
+ * - A rename racing an edit of the old path keeps both; its delete does not take and is not held
+ * - An agent's batch meeting a moved `main` merges as anyone's save does, its files in one commit; the server rejects a path named twice and reports changed or older numbered pushes as behind
+ * - Every save pushes while online; saves while a push is in flight, or offline, amend unsent work; a sent push is never rewritten
+ * - An offline edit keeps its per-file base when its position leaves the window
+ * - A held save holds only its own work: earlier unsent work and other files go alone
  */
 import { expect, test } from 'bun:test';
 import { unwrap } from 'wellcrafted/result';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Request, SEND_QUIET } from '../client/replica.js';
-import { commitId, type LiveCommit } from '../core/commit.js';
+import { type CommitFile, type Push, pushHash } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
+import { gitBlobHash } from '../core/hash.js';
 import { writePointer } from '../core/markdown.js';
 import { BLOCK_CAP } from '../core/settle.js';
 import {
 	createTestServer,
 	createWorld,
+	directPush,
 	EPOCH,
 	QUIET,
-	STAMP,
 	writer,
 } from './harness.js';
 
@@ -56,10 +54,9 @@ function setup(names = ['alice', 'bob'], { paused = false } = {}) {
 		latency: { min: 20, max: 20 },
 		...(paused ? {} : { quiet: 0 }),
 	});
-	const pushes: { device: string; commit: LiveCommit }[] = [];
+	const pushes: { device: string; push: Push }[] = [];
 	world.onRequest((device, request: Request) => {
-		if (request.type === 'push')
-			pushes.push({ device, commit: request.commit });
+		if (request.type === 'push') pushes.push({ device, push: request.push });
 	});
 	const devices = names.map((name) => world.device(name));
 	world.net.runFor(500);
@@ -70,7 +67,9 @@ function setup(names = ['alice', 'bob'], { paused = false } = {}) {
 		pushes
 			.filter((p) => p.device === device)
 			.flatMap((p) =>
-				p.commit.files.filter((f) => f.path === path).map((f) => f.text),
+				p.push.files
+					.filter((f) => f.path === path)
+					.map((f) => ('text' in f.next ? f.next.text : null)),
 			);
 	/** Run until everything is quiet, short of the quiet-time flush. */
 	const settle = () => world.net.runFor(QUIET - 1_000);
@@ -167,8 +166,14 @@ test('held text survives a change from elsewhere and a restart, and a repair com
 	const before = pushes.length;
 	alice.replica.edit(PATH, () => note('ONE\n.\n.\nBOB\n', 'B'));
 	settle();
-	expect(pushes.slice(before).map((p) => p.commit.files)).toEqual([
-		[{ path: PATH, text: note('ONE\n.\n.\nBOB\n', 'B') }],
+	expect(pushes.slice(before).map((p) => p.push.files)).toEqual([
+		[
+			{
+				path: PATH,
+				base: gitBlobHash(note('one\n.\n.\nBOB\n')),
+				next: { text: note('ONE\n.\n.\nBOB\n', 'B') },
+			},
+		],
 	]);
 	expect(world.server.read(PATH)).toBe(note('ONE\n.\n.\nBOB\n', 'B'));
 });
@@ -196,7 +201,7 @@ test('held text over a remote delete stays held until its person saves it', () =
 // Lost replies (verdict.test.ts) and meeting a moved main (reconcile.test.ts)
 // ============================================================================
 
-test('a lost reply is answered by sending the same commit again, which lands once', () => {
+test('a lost reply is answered by sending the same push again, which lands once', () => {
 	const { world, alice, pushes, settle } = setup();
 	alice.replica.write(PATH, note('one\n'));
 	settle();
@@ -205,21 +210,32 @@ test('a lost reply is answered by sending the same commit again, which lands onc
 	alice.replica.write(PATH, note('two\n'));
 	settle();
 	expect(world.server.read(PATH)).toBe(note('two\n'));
-	const ids = pushes.map((p) => p.commit.id);
+	const ids = pushes.map((p) => pushHash(p.push));
 	expect(ids.at(-1)).toBe(ids.at(-2));
 	expect(world.server.history().commits).toBe(commits + 1);
 	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
 });
 
-test("a resend gets its outcome brought up to now: the device stands on today's main, not the one it landed on", () => {
+test("a resend gets its recorded answer verbatim, and notifications bring the device to today's main", () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write(PATH, note('one\n.\n.\nend\n'));
 	settle();
+	const answers: unknown[] = [];
+	world.onRequest((device, request, reply) => {
+		if (
+			device === 'alice' &&
+			request.type === 'push' &&
+			reply.type === 'answer'
+		)
+			answers.push(reply.answer);
+	});
 	alice.loseNextReply();
 	alice.replica.edit(PATH, () => note('ONE\n.\n.\nend\n'));
 	world.net.runFor(100);
 	bob.replica.edit(PATH, (text) => (text ?? '').replace('end', 'END'));
 	settle();
+	expect(answers).toHaveLength(2);
+	expect(answers[1]).toEqual(answers[0]);
 	expect(world.server.read(PATH)).toBe(note('ONE\n.\n.\nEND\n'));
 	expect(alice.replica.read(PATH)).toBe(world.server.read(PATH));
 	expect(alice.replica.position()).toBe(world.server.main());
@@ -239,7 +255,7 @@ test('a lost reply, more typing on the same line, and an edit elsewhere merge wi
 	expect(alice.replica.read(PATH)).toBe(note('one two three\n.\n.\nBOB\n'));
 });
 
-test('a commit meeting a moved main is merged by the server in one push, and sends no edit made elsewhere back as its own', () => {
+test('a push meeting a moved main is merged by the server in one push, and sends no edit made elsewhere back as its own', () => {
 	const { world, alice, bob, pushes, settle } = setup();
 	alice.replica.write(PATH, note('one\n.\n.\nb0\n'));
 	settle();
@@ -248,29 +264,40 @@ test('a commit meeting a moved main is merged by the server in one push, and sen
 	alice.replica.edit(PATH, () => note('one\n.\n.\nb0\n', 'T1'));
 	settle();
 	expect(world.server.read(PATH)).toBe(note('one\n.\n.\nb1\n', 'T1'));
-	const mine = pushes.filter((p) => p.device === 'alice').at(-1)?.commit;
-	expect(pushes.filter((p) => p.commit.id === mine?.id)).toHaveLength(1);
+	const mine = pushes.filter((p) => p.device === 'alice').at(-1)?.push;
+	expect(
+		pushes.filter(
+			(p) =>
+				pushHash(p.push) === (mine === undefined ? undefined : pushHash(mine)),
+		),
+	).toHaveLength(1);
 	expect(mine?.files).toEqual([
-		{ path: PATH, text: note('one\n.\n.\nb0\n', 'T1') },
+		{
+			path: PATH,
+			base: gitBlobHash(note('one\n.\n.\nb0\n')),
+			next: { text: note('one\n.\n.\nb0\n', 'T1') },
+		},
 	]);
 });
 
-test('typing while a commit is in flight makes a new commit on top of the answer; the sent one is never rewritten', () => {
+test('typing while a push is in flight makes a new push over the answered version; the sent one is never rewritten', () => {
 	const { alice, pushes, settle } = setup();
 	alice.replica.write(PATH, note('one\n'));
 	alice.replica.write(PATH, note('one\ntwo\n'));
 	settle();
-	const [first, second] = pushes.map((p) => p.commit);
-	expect(first?.files[0]?.text).toBe(note('one\n'));
-	expect(second?.parent).toBe(first?.id);
-	expect(second?.files[0]?.text).toBe(note('one\ntwo\n'));
+	const [first, second] = pushes.map((p) => p.push);
+	expect(first?.files[0]?.next).toEqual({ text: note('one\n') });
+	expect(second?.files[0]?.base).toBe(gitBlobHash(note('one\n')));
+	expect(second?.epoch).toBe(first?.epoch);
+	expect(second?.seq).toBe((first?.seq ?? 0) + 1);
+	expect(second?.files[0]?.next).toEqual({ text: note('one\ntwo\n') });
 });
 
 // ============================================================================
 // Deletes and reused paths (e2e.test.ts)
 // ============================================================================
 
-test('changed: a later unseen edit of a note deleted and brought back by an edit lands as one block in it (bug A, D3)', () => {
+test('edits made over the same file merge against its text after it was deleted and brought back', () => {
 	const { world, alice, bob, carol, settle } = setup(['alice', 'bob', 'carol']);
 	alice.replica.write('notes/n.md', 'v1\n');
 	settle();
@@ -285,8 +312,8 @@ test('changed: a later unseen edit of a note deleted and brought back by an edit
 	carol?.setOnline(true);
 	settle();
 	const text = world.server.read('notes/n.md') ?? '';
-	expect(text.startsWith('v1 bob\n<<<<<<< ')).toBe(true);
-	expect(text).toContain('carol v1');
+	expect(text).toBe('carol v1 bob\n');
+	expect(findConflicts(text)).toEqual([]);
 });
 
 test("changed: a rename racing an edit of the old path keeps both; the renamer's delete lost to the edit and is not held", () => {
@@ -316,10 +343,14 @@ test("changed: a rename racing an edit of the old path keeps both; the renamer's
 
 test("an agent's batch meeting a moved main merges as anyone's save does; its files, ready together, go in one commit", () => {
 	const world = createWorld({ latency: { min: 20, max: 20 }, quiet: 0 });
-	const sent: LiveCommit[] = [];
+	const sent: Push[] = [];
+	const committed: string[][] = [];
+	world.onCommit((commit) => {
+		if (commit.author.user === 'agent')
+			committed.push(commit.files.map((file) => file.path));
+	});
 	world.onRequest((device, request) => {
-		if (device === 'agent' && request.type === 'push')
-			sent.push(request.commit);
+		if (device === 'agent' && request.type === 'push') sent.push(request.push);
 	});
 	const alice = world.device('alice');
 	const agent = world.device('agent');
@@ -337,47 +368,33 @@ test("an agent's batch meeting a moved main merges as anyone's save does; its fi
 	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
 	expect(agent.replica.lastRefusal()).toBeNull();
 	expect([
-		...new Set(sent.map((commit) => commit.files.map((f) => f.path).join(' '))),
+		...new Set(sent.map((push) => push.files.map((f) => f.path).join(' '))),
 	]).toEqual([`${PATH} notes/b.md`]);
+	expect(committed).toEqual([[PATH, 'notes/b.md']]);
 });
 
-test('the server refuses a commit with no parent, a bad id, or a path named twice, and a resend gets the recorded outcome', () => {
+test('the server recognizes a numbered resend, reports changed or older pushes as behind, and rejects a path named twice', () => {
 	const server = createTestServer();
 	const session = writer('x');
-	const make = (files: LiveCommit['files']): LiveCommit => {
-		const body = {
-			parent: server.main(),
-			author: { user: 'x', device: 'x' },
-			time: STAMP,
-			files,
-		};
-		return { id: commitId(body), ...body };
-	};
+	let seq = 0;
+	const make = (files: CommitFile[]): Push => ({
+		...directPush(server, 'x', files),
+		epoch: 'numbered',
+		seq: ++seq,
+	});
 	const first = make([{ path: PATH, text: note('one\n') }]);
-	expect(server.push(first, session)).toMatchObject({
-		kind: 'applied',
-		main: first.id,
-	});
-	expect(server.push(first, session)).toMatchObject({
-		kind: 'applied',
-		main: first.id,
-	});
+	const recorded = server.push(first, session);
+	expect(recorded).toMatchObject({ kind: 'applied', main: server.main() });
+	expect(server.push(first, session)).toEqual(recorded);
 	expect(server.history().commits).toBe(1);
 	expect(
-		server.push(
-			{ ...make([]), parent: undefined } as unknown as LiveCommit,
-			session,
-		),
-	).toMatchObject({ kind: 'rejected', code: 'no-parent', reason: 'no parent' });
-	expect(
-		server.push(
-			{ ...make([{ path: PATH, text: 'x' }]), id: 'forged' },
-			session,
-		),
-	).toMatchObject({
-		kind: 'rejected',
-		code: 'bad-id',
-		reason: 'the id is not the hash of the commit',
+		server.push({ ...first, time: new Date(EPOCH + 1).toISOString() }, session),
+	).toEqual({ kind: 'behind', main: server.main() });
+	const second = make([{ path: PATH, text: note('two\n') }]);
+	expect(server.push(second, session)).toMatchObject({ kind: 'applied' });
+	expect(server.push(first, session)).toEqual({
+		kind: 'behind',
+		main: server.main(),
 	});
 	expect(
 		server.push(
@@ -387,10 +404,7 @@ test('the server refuses a commit with no parent, a bad id, or a path named twic
 			]),
 			session,
 		),
-	).toMatchObject({
-		kind: 'rejected',
-		code: 'path-twice',
-	});
+	).toMatchObject({ kind: 'rejected', code: 'path-twice' });
 	expect(
 		server.push(make([{ path: PATH, text: crlf('one\n') }]), session),
 	).toMatchObject({
@@ -399,38 +413,38 @@ test('the server refuses a commit with no parent, a bad id, or a path named twic
 		reason: LF,
 		path: PATH,
 	});
-	expect(server.snapshot()).toEqual(new Map([[PATH, note('one\n')]]));
+	expect(server.snapshot()).toEqual(new Map([[PATH, note('two\n')]]));
 });
 
-test('every save commits while online; saves while a commit is in flight, or offline, amend one unsent commit', () => {
+test('every save pushes while online; saves while a push is in flight, or offline, amend unsent work into one push', () => {
 	const { world, alice, pushes, settle } = setup();
 	for (let i = 1; i <= 10; i++) {
 		alice.replica.write(PATH, note(`${'x'.repeat(i)}\n`));
 		world.net.runFor(100);
 	}
 	// A round trip is 40 ms: each save went alone.
-	expect(new Set(pushes.map((p) => p.commit.id)).size).toBe(10);
-	// Three saves inside one round trip: the first goes, the next two amend one commit.
+	expect(new Set(pushes.map((p) => pushHash(p.push))).size).toBe(10);
+	// Three saves inside one round trip: the first goes, the next two amend one unsent save.
 	alice.replica.write(PATH, note('a\n'));
 	alice.replica.write(PATH, note('ab\n'));
 	alice.replica.write(PATH, note('abc\n'));
 	settle();
-	expect(pushes.slice(10).map((p) => p.commit.files[0]?.text)).toEqual([
-		note('a\n'),
-		note('abc\n'),
+	expect(pushes.slice(10).map((p) => p.push.files[0]?.next)).toEqual([
+		{ text: note('a\n') },
+		{ text: note('abc\n') },
 	]);
 	alice.setOnline(false);
 	for (let i = 0; i < 20; i++)
 		alice.replica.write(PATH, note(`offline ${i}\n`));
 	alice.setOnline(true);
 	settle();
-	expect(pushes.slice(12).map((p) => p.commit.files[0]?.text)).toEqual([
-		note('offline 19\n'),
+	expect(pushes.slice(12).map((p) => p.push.files[0]?.next)).toEqual([
+		{ text: note('offline 19\n') },
 	]);
 	expect(world.server.read(PATH)).toBe(note('offline 19\n'));
 });
 
-test('a commit sent once whose parent left the retention window merges again after a full catch-up, and lands once', () => {
+test('an offline edit keeps its per-file base when its position leaves the window, and lands once', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write(PATH, note('one\n.\n.\nend\n'));
 	settle();
@@ -442,36 +456,41 @@ test('a commit sent once whose parent left the retention window merges again aft
 		);
 		world.net.runFor(QUIET * 5);
 	}
+	const bases: (string | null)[] = [];
+	const base = gitBlobHash(note('one\n.\n.\nend\n'));
+	world.onRequest((device, request) => {
+		if (device === 'alice' && request.type === 'push')
+			for (const file of request.push.files) bases.push(file.base);
+	});
 	alice.setOnline(true);
 	settle();
+	expect(bases).toEqual([base]);
 	expect(world.server.read(PATH)).toBe(note('ONE\n.\n.\nend 2 1 0\n'));
 	expect(alice.replica.read(PATH)).toBe(world.server.read(PATH));
 	expect(alice.replica.position()).toBe(world.server.main());
-	expect(alice.replica.stats().unknown).toBe(1);
+	expect(alice.replica.stats().behind).toBe(0);
 });
 
-test('a stale-parent flood writes each different text once, an identical one not again, and is refused past the block cap', () => {
+test('a null-base flood writes each different text once, an identical one not again, and is refused past the block cap', () => {
 	const server = createTestServer();
 	let clock = 0;
-	// Each commit is new (its own time, so its own id): a resend of one would just get its recorded outcome.
-	const make = (
-		parent: string,
-		files: LiveCommit['files'],
-		user = 'x',
-	): LiveCommit => {
-		const body = {
-			parent,
-			author: { user, device: user },
-			time: new Date(EPOCH + clock++).toISOString(),
-			files,
-		};
-		return { id: commitId(body), ...body };
-	};
+	// Every push is new; resending one gets its recorded answer.
+	const make = (from: string, files: CommitFile[], user = 'x'): Push =>
+		directPush(
+			server,
+			user,
+			files.map((file) => ({ ...file, base: null })),
+			{
+				from,
+				device: user,
+				time: new Date(EPOCH + clock++).toISOString(),
+			},
+		);
 	const root = server.main();
 	expect(
 		server.push(make(root, [{ path: PATH, text: note('one\n') }]), writer('x')),
 	).toMatchObject({ kind: 'applied' });
-	// Every flood commit stands on the parent before the note existed: each is another note at the path (D3).
+	// Every flood write has no base: each is another note at the path.
 	const same = note('flood\n', 'flood');
 	for (let i = 0; i < 3; i++)
 		expect(

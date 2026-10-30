@@ -44,12 +44,11 @@ import {
 	type Reply,
 	type Request,
 } from '../src/client/replica.js';
-import { commitId } from '../src/core/commit.js';
 import { fold } from '../src/core/door.js';
 import { gitBlobHash } from '../src/core/hash.js';
 import { compileTemplate } from '../src/core/templates.js';
 import type { Server } from '../src/server/server.js';
-import { createTestServer, writer } from '../src/sim/harness.js';
+import { createTestServer, directPush, writer } from '../src/sim/harness.js';
 
 // The account every hello names: the server's sessions are 'reader'.
 const binding = { repository: 'bench', server: null, account: 'reader' };
@@ -292,7 +291,7 @@ function serve(
 				? {
 						type: 'answer',
 						rid: request.rid,
-						answer: server.push(request.commit, writer(user)),
+						answer: server.push(request.push, writer(user)),
 					}
 				: request.type === 'catch-up'
 					? {
@@ -303,7 +302,7 @@ function serve(
 					: {
 							type: 'fetched',
 							rid: request.rid,
-							texts: server.fetch(request.hashes),
+							versions: server.fetch(request.hashes),
 						};
 		sample();
 		replica.reply(reply);
@@ -314,6 +313,7 @@ const unlimited = { burst: 1e9, rate: 1e9, readBurst: 1e9, readRate: 1e9 };
 
 async function catchUp(count: number) {
 	const server = createTestServer({ limits: unlimited });
+	let seq = 0;
 	for (let start = 0; start < count; start += 1000) {
 		const files = Array.from(
 			{ length: Math.min(1000, count - start) },
@@ -322,13 +322,17 @@ async function catchUp(count: number) {
 				text: note(start + k),
 			}),
 		);
-		const body = {
-			parent: server.main(),
-			author: { user: 'seed', device: 'seed' },
-			time: new Date(0).toISOString(),
-			files,
-		};
-		server.push({ id: commitId(body), ...body }, writer('seed'));
+		server.push(
+			{
+				...directPush(server, 'seed', files, {
+					device: 'seed',
+					time: new Date(0).toISOString(),
+				}),
+				epoch: 'seed',
+				seq: ++seq,
+			},
+			writer('seed'),
+		);
 	}
 	await peakOf('catch-up', (sample) => {
 		const replica = unwrap(

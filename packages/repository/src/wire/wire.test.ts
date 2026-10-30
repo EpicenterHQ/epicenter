@@ -8,11 +8,12 @@
  *
  * Key behaviors:
  * - every endpoint, reads included, refuses a request with no session (401) and one from a non-member (403)
- * - a commit's answer is JSON with a status for each outcome: 200 applied, merged (a stale parent merges), flushed; 409 outcome-unknown; 428 no parent; 429 rate; 403 a reader or another author; 413 too large; 422 the door; 400 not a commit
- * - PUT and DELETE are one-file conveniences over the same commit: 428 without a precondition, 412 with a stale one, an ETag that is the Git blob hash
- * - A GET of a file names the commit it read (Epicenter-Commit), so a one-shot client posts a commit on it and merges with what landed since
- * - a text by hash is immutable and private; a body is capped before it is parsed, and a slow one times out
- * - a device's socket names `main` when it opens, answers each request by its id before the commit's event, takes commits and catch-ups through the same functions as HTTP, and closes when the session expires
+ * - a push's answer is JSON with a status for each outcome: 200 applied or merged; 409 behind; 503 reading; 429 rate; 403 a reader or another author; 413 too large; 422 the door; 400 not a push
+ * - exact resends keep their recorded answer past the history window; reused or lower seq is behind
+ * - PUT and DELETE are one-file conveniences over the same push: 428 without a precondition, 412 with a stale one, an ETag that is the Git blob hash
+ * - A GET of a file names its version (ETag), so a one-shot client posts a write over it and merges with what landed since
+ * - content by hash is immutable and private; a body is capped before it is parsed, and a slow one times out
+ * - a device's socket names `main` when it opens, answers each request by its id before the commit's event, takes pushes and catch-ups through the same functions as HTTP, and closes when the session expires
  * - a replica whose socket dropped resumes from its last head by catching up
  * - a browser's socket connects with a one-use ticket bound to the session that asked for it: refused when reused, expired, presented with another account's credential, or outliving its session
  * - the dev server serves a listed origin across origins
@@ -24,7 +25,7 @@ import { serveRepository, socketWithHeaders } from '../bun/serve.js';
 import { openBunSqlite } from '../bun/sqlite.js';
 import { openReplica, type Replica } from '../client/replica.js';
 import { connectSocket } from '../client/socket.js';
-import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
+import type { CommitFile, Push } from '../core/commit.js';
 import { gitBlobHash } from '../core/hash.js';
 import { writePointer } from '../core/markdown.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
@@ -35,6 +36,7 @@ import {
 	type Limits,
 	type Server,
 } from '../server/server.js';
+import { directPush } from '../sim/harness.js';
 import { createLfsClient, createWireClient } from './client.js';
 import {
 	type Authenticate,
@@ -90,7 +92,7 @@ function setup({
 		...headers,
 	});
 	const post = (body: unknown, user = 'alice') =>
-		fetch(url('commits'), {
+		fetch(url('writes'), {
 			method: 'POST',
 			headers: as(user, { 'content-type': 'application/json' }),
 			body: typeof body === 'string' ? body : JSON.stringify(body),
@@ -100,15 +102,14 @@ function setup({
 
 function make(
 	server: Server,
-	files: CommitFile[],
+	files: (CommitFile & { base?: string | null })[],
 	{
 		user = 'alice',
-		parent = server.main(),
+		from = server.main(),
 		time = new Date(EPOCH).toISOString(),
 	} = {},
-): LiveCommit {
-	const body = { parent, author: { user, device: 'laptop' }, time, files };
-	return { id: commitId(body), ...body };
+): Push {
+	return directPush(server, user, files, { device: 'laptop', from, time });
 }
 
 describe('Git LFS', () => {
@@ -385,7 +386,7 @@ test('every endpoint refuses a request with no session (401) and one from a non-
 	const hash = gitBlobHash(note('a\n'));
 	const requests: [string, RequestInit][] = [
 		[
-			'commits',
+			'writes',
 			{
 				method: 'POST',
 				body: JSON.stringify(
@@ -438,10 +439,10 @@ test('every endpoint refuses a request with no session (401) and one from a non-
 });
 
 // ============================================================================
-// POST /commits: every answer and its status
+// POST /writes: every answer and its status
 // ============================================================================
 
-describe('POST /commits', () => {
+describe('POST /writes', () => {
 	test('applied and merged are 200, with the answer as JSON', async () => {
 		const { server, post } = setup();
 		const base = server.main();
@@ -455,9 +456,9 @@ describe('POST /commits', () => {
 			main: server.main(),
 		});
 		const merged = await post(
-			make(server, [{ path: 'n/b.md', text: note('two\n') }], {
+			make(server, [{ path: 'n/a.md', base: null, text: note('two\n') }], {
 				user: 'bob',
-				parent: base,
+				from: base,
 			}),
 			'bob',
 		);
@@ -468,58 +469,55 @@ describe('POST /commits', () => {
 		});
 	});
 
-	test('a resend after its answer left the window is 200 flushed; a parent past the window with no record is 409 outcome-unknown', async () => {
-		const { server, post, clock } = setup({
-			limits: { window: 1_000, seen: 1_000_000 },
-		});
-		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
-		const stale = make(server, [{ path: 'n/b.md', text: note('two\n') }], {
-			time: new Date(EPOCH - 1).toISOString(),
-		});
-		expect((await post(commit)).status).toBe(200);
+	test('an exact resend keeps its recorded answer past the window; reused or lower seq is 409 behind', async () => {
+		const { server, post, clock } = setup({ limits: { window: 1_000 } });
+		const push = {
+			...make(server, [{ path: 'n/a.md', text: note('one\n') }]),
+			seq: 2,
+		};
+		const first = await post(push);
+		expect(first.status).toBe(200);
+		const answer = await first.json();
 		await server.flush();
 		clock.now += 5_000;
-		// Something else lands, so the window moves past the old parent.
 		expect(
 			(await post(make(server, [{ path: 'n/c.md', text: note('three\n') }])))
 				.status,
 		).toBe(200);
-		const flushed = await post(commit);
-		expect([flushed.status, (await flushed.json()).kind]).toEqual([
-			200,
-			'flushed',
-		]);
-		const unknown = await post(stale);
-		expect([unknown.status, (await unknown.json()).kind]).toEqual([
-			409,
-			'outcome-unknown',
-		]);
+		const again = await post(push);
+		expect(again.status).toBe(200);
+		expect(await again.json()).toEqual(answer);
+		for (const seq of [push.seq, push.seq - 1]) {
+			const behind = await post({
+				...push,
+				seq,
+				time: new Date(EPOCH - 1).toISOString(),
+			});
+			expect(behind.status).toBe(409);
+			expect(await behind.json()).toEqual({
+				kind: 'behind',
+				main: server.main(),
+			});
+		}
 	});
 
-	test('a commit with no parent is 428', async () => {
+	test('a push without a file base is 400', async () => {
 		const { server, post } = setup();
-		const { parent: _, ...orphan } = make(server, [
-			{ path: 'n/a.md', text: note('a\n') },
-		]);
-		const response = await post(orphan);
-		expect(response.status).toBe(428);
-		expect(await response.json()).toMatchObject({
-			kind: 'rejected',
-			code: 'no-parent',
-			reason: 'no parent',
-		});
+		const push = make(server, [{ path: 'n/a.md', text: note('a\n') }]);
+		const { base: _, ...file } = push.files[0]!;
+		expect((await post({ ...push, files: [file] })).status).toBe(400);
 	});
 
-	test('a commit on a stale parent is 200 merged', async () => {
+	test('a stale answer position with current file bases is 200 applied', async () => {
 		const { server, post } = setup();
-		const base = server.main();
+		const from = server.main();
 		await post(make(server, [{ path: 'n/a.md', text: note('one\n') }]));
 		const response = await post(
-			make(server, [{ path: 'n/b.md', text: note('two\n') }], { parent: base }),
+			make(server, [{ path: 'n/b.md', text: note('two\n') }], { from }),
 		);
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({
-			kind: 'merged',
+			kind: 'applied',
 			main: server.main(),
 		});
 		expect([server.read('n/a.md'), server.read('n/b.md')]).toEqual([
@@ -579,11 +577,11 @@ describe('POST /commits', () => {
 		});
 	});
 
-	test('a body that is not a live commit is 400; a route or method that does not exist is 404 or 405', async () => {
+	test('a body that is not a push is 400; a route or method that does not exist is 404 or 405', async () => {
 		const { server, post, url, as } = setup();
 		expect((await post('{not json')).status).toBe(400);
 		expect((await post({ ...make(server, []), extra: true })).status).toBe(400);
-		const wrong = await fetch(url('commits'), { headers: as('alice') });
+		const wrong = await fetch(url('writes'), { headers: as('alice') });
 		expect([wrong.status, wrong.headers.get('allow')]).toEqual([405, 'POST']);
 		expect((await fetch(url('nowhere'), { headers: as('alice') })).status).toBe(
 			404,
@@ -618,7 +616,7 @@ describe('limits', () => {
 				controller.close();
 			},
 		});
-		const streamed = await fetch(url('commits'), {
+		const streamed = await fetch(url('writes'), {
 			method: 'POST',
 			headers: as('alice', { 'content-type': 'application/json' }),
 			body: stream,
@@ -631,10 +629,10 @@ describe('limits', () => {
 		const { url, as } = setup({ wire: { timeout: 100 } });
 		const stalled = new ReadableStream({
 			start(controller) {
-				controller.enqueue(new TextEncoder().encode('{"id":'));
+				controller.enqueue(new TextEncoder().encode('{"user":'));
 			},
 		});
-		const response = await fetch(url('commits'), {
+		const response = await fetch(url('writes'), {
 			method: 'POST',
 			headers: as('alice', { 'content-type': 'application/json' }),
 			body: stalled,
@@ -704,7 +702,7 @@ describe('PUT and DELETE /files/<path>', () => {
 		).toBe(404);
 	});
 
-	test('a GET names the commit it read, so a one-shot client posts a commit on it and merges with what landed since', async () => {
+	test('a GET names the version it read, so a one-shot client posts a write over it and merges with what landed since', async () => {
 		const { server, url, as, post } = setup();
 		await fetch(url('files/n/a.md'), {
 			method: 'PUT',
@@ -712,18 +710,18 @@ describe('PUT and DELETE /files/<path>', () => {
 			body: note('one\ntwo\n'),
 		});
 		const read = await fetch(url('files/n/a.md'), { headers: as('bob') });
-		const parent = read.headers.get('epicenter-commit');
-		expect(parent).toBe(server.main());
+		const base = read.headers.get('etag')?.slice(1, -1);
+		expect(base).toBe(gitBlobHash(note('one\ntwo\n')));
 		const unchanged = await fetch(url('files/n/a.md'), {
 			headers: as('bob', {
 				'if-none-match': `"${gitBlobHash(note('one\ntwo\n'))}"`,
 			}),
 		});
-		expect([
-			unchanged.status,
-			unchanged.headers.get('epicenter-commit'),
-		]).toEqual([304, parent]);
-		// Someone else's edit lands; the one-shot client's commit on what it read merges with it, where a PUT on its ETag would be 412.
+		expect([unchanged.status, unchanged.headers.get('etag')]).toEqual([
+			304,
+			`"${base}"`,
+		]);
+		// Someone else's edit lands; a write over the read version merges, where a PUT on its ETag would be 412.
 		await fetch(url('files/n/a.md'), {
 			method: 'PUT',
 			headers: as('alice', {
@@ -732,10 +730,13 @@ describe('PUT and DELETE /files/<path>', () => {
 			body: note('zero\none\ntwo\n'),
 		});
 		const response = await post(
-			make(server, [{ path: 'n/a.md', text: note('one\ntwo\nbob\n') }], {
-				user: 'bob',
-				parent: parent ?? '',
-			}),
+			make(
+				server,
+				[{ path: 'n/a.md', base: base!, text: note('one\ntwo\nbob\n') }],
+				{
+					user: 'bob',
+				},
+			),
 			'bob',
 		);
 		expect(response.status).toBe(200);
@@ -753,7 +754,7 @@ describe('PUT and DELETE /files/<path>', () => {
 		const main = server.main();
 		const current = {
 			path: 'n/a.md',
-			text: note('one\n'),
+			content: { text: note('one\n') },
 			hash: gitBlobHash(note('one\n')),
 		};
 		const stale = await fetch(url('files/n/a.md'), {
@@ -804,7 +805,7 @@ describe('PUT and DELETE /files/<path>', () => {
 			kind: 'rejected',
 			code: 'file-moved',
 			reason: 'the file moved',
-			files: [{ path: 'notes/a.md', text: note('alice\n') }],
+			files: [{ path: 'notes/a.md', content: { text: note('alice\n') } }],
 		});
 		expect(server.read('notes/a.md')).toBe(note('alice\n'));
 		const update = await fetch(url('files/Notes/A.md'), {
@@ -873,7 +874,7 @@ describe('reads', () => {
 			'private, max-age=31536000, immutable',
 		);
 		expect(response.headers.get('etag')).toBe(`"${hash}"`);
-		expect(await response.text()).toBe(note('one\n'));
+		expect(await response.json()).toEqual({ text: note('one\n') });
 		const again = await fetch(url(`blobs/${hash}`), {
 			headers: as('rita', { 'if-none-match': `"${hash}"` }),
 		});
@@ -966,13 +967,13 @@ describe("the device's socket", () => {
 				blob: LIMITS.blob,
 			},
 		});
-		const commit = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
-		alice.socket.send({ type: 'push', rid: 7, commit });
+		const push = make(server, [{ path: 'n/a.md', text: note('one\n') }]);
+		alice.socket.send({ type: 'push', rid: 7, push });
 		await alice.socket.ping();
 		await rita.socket.ping();
 		const event = {
 			type: 'commit' as const,
-			commit: commit.id,
+			commit: server.main(),
 			parents: [base],
 			files: [{ path: 'n/a.md', hash: gitBlobHash(note('one\n')) }],
 		};
@@ -981,7 +982,10 @@ describe("the device's socket", () => {
 				type: 'answer',
 				rid: 7,
 				status: 200,
-				answer: expect.objectContaining({ kind: 'applied', main: commit.id }),
+				answer: expect.objectContaining({
+					kind: 'applied',
+					main: server.main(),
+				}),
 			},
 			event,
 		]);
@@ -989,7 +993,7 @@ describe("the device's socket", () => {
 		expect(rita.messages.slice(1)).toEqual([event]);
 	});
 
-	test('the socket and HTTP take a commit and a catch-up through the same functions, with the same statuses', async () => {
+	test('the socket and HTTP take a push and a catch-up through the same functions, with the same statuses', async () => {
 		const { server, served, post } = setup();
 		const alice = open(served.url, 'alice');
 		const rita = open(served.url, 'rita');
@@ -1001,21 +1005,21 @@ describe("the device's socket", () => {
 		alice.socket.send({
 			type: 'push',
 			rid: 1,
-			commit: make(server, [{ path: 'n/z.md', text: note('two\n') }], {
-				parent: base,
+			push: make(server, [{ path: 'n/z.md', text: note('two\n') }], {
+				from: base,
 			}),
 		});
 		rita.socket.send({
 			type: 'push',
 			rid: 2,
-			commit: make(server, [{ path: 'n/b.md', text: note('b\n') }], {
+			push: make(server, [{ path: 'n/b.md', text: note('b\n') }], {
 				user: 'rita',
 			}),
 		});
 		alice.socket.send({
 			type: 'push',
 			rid: 3,
-			commit: make(server, [
+			push: make(server, [
 				{ path: 'n/c.md', text: '---\r\ntitle: C\r\n---\r\n' },
 			]),
 		});
@@ -1030,7 +1034,7 @@ describe("the device's socket", () => {
 				type: 'answer',
 				rid: 1,
 				status: 200,
-				answer: expect.objectContaining({ kind: 'merged' }),
+				answer: expect.objectContaining({ kind: 'applied' }),
 			},
 			{
 				type: 'answer',
@@ -1055,7 +1059,7 @@ describe("the device's socket", () => {
 		alice.socket.send({
 			type: 'push',
 			rid: 9,
-			commit: make(server, [{ path: 'n/a.md', text: note('x'.repeat(2_000)) }]),
+			push: make(server, [{ path: 'n/a.md', text: note('x'.repeat(2_000)) }]),
 		});
 		alice.socket.send({ type: 'nonsense', rid: 10 } as never);
 		await alice.socket.ping();
