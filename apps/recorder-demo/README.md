@@ -75,6 +75,8 @@ browser must keep its files until a receipt arrives; clone and
 `epicenter check`; a desktop title edit shown on the web; and a web rename
 over a note the desktop changed meanwhile, which the client refuses as
 `Conflict`: the row keeps the draft, and saving again lands it beside the
-desktop's edit. Chromium records from its
+desktop's edit. In WebKit a sixth step opens an ephemeral context, which
+refuses OPFS as Safari's private windows do: a recording the device cannot
+keep stays in the page, with "Save again" and "Download it". Chromium records from its
 fake capture device and WebKit from the tone; both use persistent profiles,
 the only kind in which WebKit opens OPFS.

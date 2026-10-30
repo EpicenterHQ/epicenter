@@ -23,6 +23,16 @@
 	let recording = $state<ReturnType<typeof startRecording> | null>(null);
 	let busy = $state(false);
 
+	type Finished = Parameters<typeof saveRecording>[1];
+	/**
+	 * Recordings the device could not keep (a private window has no file
+	 * storage; a full disk refuses). Their bytes stay in this page, to save
+	 * again or download, until one of those works or the page closes.
+	 */
+	let unsaved = $state.raw<
+		(Finished & { reason: string; download: string })[]
+	>([]);
+
 	/** Read both sides again; only the latest read is shown. */
 	let reads = 0;
 	async function refresh() {
@@ -72,13 +82,43 @@
 		}
 	}
 
+	/** Keep `finished` on the device, or hold it in this page when that fails. */
+	async function keep(finished: Finished) {
+		const saved = await saveRecording(device, finished);
+		const held = unsaved.find(({ id }) => id === finished.id);
+		if (saved.error === null) {
+			if (held) URL.revokeObjectURL(held.download);
+			unsaved = unsaved.filter(({ id }) => id !== finished.id);
+			return;
+		}
+		const download =
+			held?.download ??
+			URL.createObjectURL(
+				new Blob([finished.bytes as Uint8Array<ArrayBuffer>]),
+			);
+		unsaved = [
+			...unsaved.filter(({ id }) => id !== finished.id),
+			{ ...finished, reason: saved.error.message, download },
+		];
+	}
+
+	async function saveAgain(finished: Finished) {
+		busy = true;
+		try {
+			await keep(finished);
+		} finally {
+			busy = false;
+			await refresh();
+		}
+	}
+
 	async function stop() {
 		if (!recording) return;
 		busy = true;
 		try {
 			const { bytes, ext, durationMs } = await recording.stop();
 			const recordedAt = new Date();
-			const saved = await saveRecording(device, {
+			await keep({
 				id: timeId(recordedAt),
 				title: `Recording ${recordedAt.toLocaleString()}`,
 				recordedAt: recordedAt.toISOString(),
@@ -86,7 +126,6 @@
 				ext,
 				bytes,
 			});
-			if (saved.error !== null) problem = saved.error.message;
 		} catch (cause) {
 			problem = `Recording failed: ${cause instanceof Error ? cause.message : cause}`;
 		} finally {
@@ -109,6 +148,13 @@
 	{#if problem}
 		<p class="problem" role="alert">{problem}</p>
 	{/if}
+	{#each unsaved as held (held.id)}
+		<p class="problem row" data-testid="unsaved">
+			<span>{held.title} is not kept on this device: {held.reason}</span>
+			<button onclick={() => saveAgain(held)} disabled={busy}>Save again</button>
+			<a href={held.download} download={`${held.id}.${held.ext}`}>Download it</a>
+		</p>
+	{/each}
 	{#if rows.length === 0}
 		<p class="meta">No recordings yet.</p>
 	{:else}

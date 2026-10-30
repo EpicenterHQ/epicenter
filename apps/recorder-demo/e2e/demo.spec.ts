@@ -14,6 +14,9 @@
  * 5. A web rename over a note the desktop changed meanwhile is refused as
  *    `Conflict`; the draft stays, and saving again lands it beside the
  *    desktop's edit.
+ * 6. WebKit only, in an ephemeral context (no OPFS, as in Safari's private
+ *    windows): a recording the device cannot keep stays in the page, to
+ *    save again or download.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -348,4 +351,38 @@ test('5. a web rename over a desktop edit is refused, keeps its draft, and both 
 		clone,
 	);
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
+});
+
+test('6. where the browser keeps no files, a recording is not lost: it stays in memory to save again or download', async ({
+	stack,
+	browserName,
+	playwright,
+}) => {
+	// WebKit's ephemeral contexts reject `getDirectory()`, as Safari's
+	// private windows do; Chromium has no such context to test with.
+	test.skip(browserName !== 'webkit', 'only WebKit refuses OPFS here');
+	const ephemeral = await playwright.webkit.launch();
+	try {
+		const tab = await ephemeral.newPage();
+		await tab.goto(`${stack.app}/?fixture=tone`);
+		await tab.getByRole('button', { name: 'Record' }).click();
+		await expect(tab.getByRole('button', { name: 'Stop' })).toBeVisible();
+		await tab.waitForTimeout(1000);
+		await tab.getByRole('button', { name: 'Stop' }).click();
+
+		const unsaved = tab.getByTestId('unsaved');
+		await expect(unsaved).toContainText('not kept on this device');
+		const download = unsaved.getByRole('link', { name: 'Download it' });
+		const bytes = await tab.evaluate(
+			async (href) => (await (await fetch(href)).arrayBuffer()).byteLength,
+			(await download.getAttribute('href')) as string,
+		);
+		expect(bytes).toBeGreaterThan(0);
+		// Saving again fails the same way here, and the recording stays.
+		await unsaved.getByRole('button', { name: 'Save again' }).click();
+		await expect(unsaved).toContainText('not kept on this device');
+		await expect(download).toBeVisible();
+	} finally {
+		await ephemeral.close();
+	}
 });
