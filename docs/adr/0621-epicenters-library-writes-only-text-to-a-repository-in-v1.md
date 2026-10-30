@@ -6,6 +6,7 @@
 - **Amends:** [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) at "Audio stays on this machine while the folder's `.gitignore` ignores it" and "Whispering's template ships `.gitignore` with `audio/`": Whispering keeps audio in the app's own storage, outside the repository; `.gitignore` deciding what a commit leaves out stands.
 - **Relates:** [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) (`check`), [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) (rows and row folders).
 - **Amended by:** [ADR-0653](0653-ignore-rules-select-git-source-without-a-declaration-policy.md) at text-only library writes and outside-repository audio: the files API saves text or bytes, and ignored recordings remain local folder files.
+- **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at "Binary files come later": every file other than a note is Git LFS, with its bytes in R2.
 - **Unbuilt:** application migration onto the new engine's implemented text-write boundary and Whispering keeping audio in its own storage. Git LFS pointers with their bytes in an object store come later and are not designed.
 
 ## Context

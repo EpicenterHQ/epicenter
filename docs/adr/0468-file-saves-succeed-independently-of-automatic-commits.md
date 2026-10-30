@@ -3,6 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-09-30
 - **Amended by:** [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md): saves no longer request automatic commits; a commit happens only when sync checkpoints or a person saves a version. Save independence and separate outcome reporting remain.
+- **Amended by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) at `folder.git.commitAndPush()` and refusing attribute transformations: apps never commit, and `epicenter sync` commits with Git LFS filters.
 
 ## Context
 

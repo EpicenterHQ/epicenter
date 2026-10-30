@@ -711,10 +711,10 @@ When you add an ADR, add its row here.
 | [0464](0464-file-table-updates-conditionally-replace-the-captured-whole-file.md) | File table updates conditionally replace the captured whole file | Proposed |
 | [0466](0466-opened-media-provides-stable-input-bytes.md) | Opened media provides stable input bytes | Proposed (stable media reads and transcription migration unbuilt) |
 | [0467](0467-file-workflows-report-each-operations-outcome.md) | File workflows report each operation's outcome | Accepted |
-| [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Accepted (automatic commits withdrawn by 0529) |
+| [0468](0468-file-saves-succeed-independently-of-automatic-commits.md) | File saves succeed independently of automatic commits | Accepted (automatic commits withdrawn by 0529; amended by 0700) |
 | [0469](0469-generated-commit-messages-describe-captured-file-changes.md) | Generated commit messages describe captured file changes | Proposed (tree-derived message generation unbuilt) |
 | [0470](0470-epicenter-helps-people-make-software-that-is-unmistakably-theirs.md) | Epicenter helps people make software that is unmistakably theirs | Proposed (product articulation; public adoption and independent browser folder access unbuilt) |
-| [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, files, and Git | Accepted |
+| [0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md) | A data folder handle exposes tables, KV, files, and Git | Accepted (amended by 0700) |
 | [0472](0472-epicenter-so-is-canonical-and-product-domains-need-a-distinct-identity.md) | Epicenter.so is canonical, and product domains need a distinct identity | Proposed |
 | [0473](0473-personal-app-hosting-keeps-addresses-separate-from-data-identity.md) | Personal app hosting keeps addresses separate from data identity | Proposed (publisher app subdomains and explicit portable-folder reuse or copying unbuilt) |
 | [0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md) | Incoming Git adoption retains a recoverable plan | Superseded by 0545 |
@@ -745,19 +745,19 @@ When you add an ADR, add its row here.
 | [0517](0517-a-data-folder-can-live-inside-any-repository.md) | A data folder can live inside any repository | Proposed (epicenter.json discovery in apps, opener refusal inside a host, extraction tooling, and submodule-hosted opening unbuilt) |
 | [0518](0518-a-row-is-read-through-one-pipeline-and-repaired-as-text.md) | A row is read through one pipeline and repaired as text | Accepted |
 | [0519](0519-row-frontmatter-is-yaml-every-common-reader-reads-identically.md) | Row frontmatter is YAML every common reader reads identically | Accepted (continuous cross-reader check unbuilt) |
-| [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Accepted (running outside an Epicenter checkout unbuilt) |
+| [0520](0520-the-cli-acts-on-a-data-folder-by-its-path.md) | The CLI acts on a data folder by its path | Accepted (running outside an Epicenter checkout unbuilt; amended by 0700) |
 | [0521](0521-a-folder-syncs-over-plain-git-with-a-token-to-a-server-the-person-chooses.md) | A folder syncs over plain Git with a token, to a server the person chooses | Proposed (`mountGitApp`, both stores, LFS, Sync panel, connector deletion unbuilt) |
 | [0523](0523-applications-own-drafts-in-edit-sessions-and-leave-one-open-item.md) | Applications own drafts in edit sessions and leave one open item | Superseded by 0528 |
 | [0525](0525-a-field-is-plain-json-schema.md) | A field is plain JSON Schema | Accepted |
 | [0526](0526-a-field-is-required-unless-declared-optional.md) | A field is required unless declared optional | Accepted (amended by 0613) |
 | [0527](0527-a-data-folder-may-keep-its-declaration-as-typescript.md) | A data folder may keep its declaration as TypeScript | Superseded by 0613 |
 | [0528](0528-applications-edit-files-through-the-query-cache.md) | Applications edit files through the query cache | Accepted |
-| [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted (amended by 0623) |
-| [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Accepted (every desktop folder uses it and the Rust owner is deleted; desktop and Windows runs unbuilt) |
-| [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Accepted (desktop installed apps still use owner paths and pairings; amended by 0585; amended by 0586) |
-| [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Accepted |
+| [0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) | Commits happen only on sync or when a person saves a version | Accepted (amended by 0623; amended by 0700) |
+| [0531](0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md) | The page runs the folder engine and the shell grants the directory | Accepted (every desktop folder uses it and the Rust owner is deleted; desktop and Windows runs unbuilt; amended by 0700) |
+| [0532](0532-a-folder-is-the-directory-its-id-names-with-its-remote-in-git-configuration.md) | A folder is the directory its ID names, with its remote in Git configuration | Accepted (desktop installed apps still use owner paths and pairings; amended by 0585; amended by 0586; amended by 0700) |
+| [0533](0533-one-folder-handle-opens-in-three-hosts-chosen-by-where-the-code-runs.md) | One folder handle opens in three hosts, chosen by where the code runs | Accepted (amended by 0700) |
 | [0534](0534-data-folders-are-the-only-data-model.md) | Data folders are the only data model | Accepted (superseding the store records, retired Durable Object data) |
-| [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Accepted (amends 0531 and 0533; amended by 0568, 0585, 0586, and 0591) |
+| [0535](0535-an-existing-folder-opens-with-its-own-declaration.md) | An existing folder opens with its own declaration | Accepted (amends 0531 and 0533; amended by 0568, 0585, 0586, and 0591; amended by 0700) |
 | [0536](0536-a-folder-table-may-close-with-additionalproperties-false.md) | A folder table may close with additionalProperties false | Accepted |
 | [0537](0537-epicenter-opens-to-your-folders-and-home-becomes-settings.md) | Epicenter opens to your folders, and Home becomes Settings | Accepted (amends 0209) |
 | [0538](0538-an-app-opens-any-folder-whose-declaration-contains-its-shape.md) | An app opens any folder whose declaration contains its shape | Superseded by 0585 |
@@ -767,13 +767,13 @@ When you add an ADR, add its row here.
 | [0542](0542-quitting-is-immediate-because-unfinished-work-already-lives-in-its-folder.md) | Quitting is immediate, because unfinished work already lives in its folder | Accepted |
 | [0543](0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md) | A recording streams into its folder from the moment it starts | Superseded by 0611 |
 | [0544](0544-a-blob-is-a-file-in-its-folder-and-git-decides-how-it-travels.md) | A blob is a file in its folder, and Git decides how it travels | Superseded by 0621 |
-| [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Accepted (supersedes 0474, amends 0471) |
-| [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Accepted (amended by 0586, 0593, 0595, 0605, 0608, 0612, and 0620) |
+| [0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) | An interrupted incoming update is ordinary changed files, and the next Sync finishes it | Superseded by 0700 |
+| [0546](0546-a-folder-syncs-to-git-epicenter-so-under-its-owners-namespace-and-the-first-push-creates-it.md) | A folder syncs to git.epicenter.so under its owner's namespace, and the first push creates it | Accepted (amended by 0586, 0593, 0595, 0605, 0608, 0612, and 0620; amended by 0700) |
 | [0547](0547-every-repository-has-one-owner-namespace-and-a-person-is-a-namespace-of-one.md) | Every repository has one owner namespace, and a person is a namespace of one | Accepted (amended by 0593, 0594, and 0612) |
 | [0548](0548-a-view-is-a-cache-of-files-with-one-write-path-one-read-path-and-one-channel-of-change.md) | A view is a cache of files, with one write path, one read path, and one channel of change | Superseded by 0689 |
 | [0549](0549-every-epicenter-resource-accepts-only-opaque-access-tokens-from-one-oauth-authorization-server.md) | Every Epicenter resource accepts only opaque access tokens from one OAuth 2.1 authorization server | Accepted (supersedes 0071 and 0076; amends 0075, 0326, and 0331; amended by 0565, 0578, 0594, and 0618) |
 | [0550](0550-epicenters-mcp-server-reaches-hosted-folders-through-grants-that-target-namespaces.md) | Epicenter's MCP server reaches hosted folders through grants that target namespaces | Accepted (superseded by 0578) |
-| [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted (local writes amended by 0689; sync merge remains) |
+| [0551](0551-every-write-to-a-folder-file-is-one-save-that-merges-by-the-files-kind-and-sync-settles-with-the-same-merge.md) | Every write to a folder file is one save that merges by the file's kind, and Sync settles with the same merge | Accepted (local writes amended by 0689; sync merge remains; amended by 0700) |
 | [0552](0552-every-app-is-installed-from-a-folder-in-any-git-repository.md) | Every app is installed, from a folder in any Git repository | Superseded by 0611 |
 | [0553](0553-a-pages-own-writes-keep-its-folder-cache-in-step-and-folder-queries-carry-their-read-policy.md) | A page's own writes keep its folder cache in step, and folder queries carry their read policy | Superseded by 0689 |
 | [0554](0554-a-field-edit-sets-fields-on-the-file-as-it-is-now.md) | A field edit sets fields on the file as it is now | Accepted (amends 0548 and 0553) |
@@ -804,14 +804,14 @@ When you add an ADR, add its row here.
 | [0581](0581-a-desktop-pages-folder-storage-is-one-shell-command-per-storage-method.md) | A desktop page's folder storage is one shell command per storage method | Superseded by 0611 |
 | [0583](0583-a-folders-declaration-is-published-only-by-the-app-it-is-named-after.md) | A folder's declaration is published only by the app it is named after | Superseded by 0585 |
 | [0584](0584-each-concept-has-one-noun-in-code-on-the-wire-and-in-prose.md) | Names preserve the distinctions callers need | Accepted (amended by 0585; amended by 0586; amended by 0589; amended by 0607; amended by 0612, 0613, and 0636) |
-| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | Schema files describe tables without owning them | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, 0613, and 0626; amended by 0632) |
+| [0585](0585-a-folders-epicenter-json-is-a-description-for-readers-without-code.md) | Schema files describe tables without owning them | Accepted (supersedes 0583 and 0538; amends 0532, 0535, 0560, and 0584; amended by 0605, 0607, 0609, 0613, and 0626; amended by 0632; amended by 0700) |
 | [0586](0586-you-open-a-folder-never-an-app.md) | An app is independent of its data location | Accepted (amends 0532, 0535, 0539, 0546, 0552, 0560, 0568, 0569, 0581, and 0584; amended by 0597, 0605, 0607, and 0611) |
 | [0587](0587-epicenter-has-no-folder-of-its-own.md) | Epicenter has no folder of its own | Superseded by 0611 |
 | [0588](0588-an-installed-apps-window-runs-one-approved-commits-own-build.md) | An installed app's window runs one approved commit's own build | Superseded by 0611 |
 | [0589](0589-an-app-is-one-git-repository-of-built-files-at-an-address.md) | An app is one Git repository of built files at an address | Superseded by 0611 |
 | [0590](0590-every-change-to-the-folder-model-is-checked-against-ten-principles.md) | Every change to the folder model is checked against ten principles | Superseded by 0627 |
-| [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576; amended by 0613 and 0622) |
-| [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | Git controls which working files enter commits | Accepted (amends 0544, 0576, and 0577; amended by 0619, 0620, 0621, and 0624) |
+| [0591](0591-the-merge-reads-a-files-content-and-extension-never-a-definition.md) | The merge reads a file's content and extension, never a definition | Accepted (amends 0535 and 0576; amended by 0613 and 0622; amended by 0700) |
+| [0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | Git controls which working files enter commits | Accepted (amends 0544, 0576, and 0577; amended by 0619, 0620, 0621, and 0624; amended by 0700) |
 | [0593](0593-the-hosted-git-service-stores-data-repositories-and-offers-no-rename-or-move.md) | Hosted repositories have stable addresses | Accepted (amends 0546 and 0547; amended by 0594, 0608, and 0612) |
 | [0594](0594-a-hosted-repository-is-reached-only-by-the-person-who-owns-it.md) | Hosted access follows repository membership | Accepted (amends 0547, 0549, 0565, 0578, and 0593; amended by 0612 and 0614) |
 | [0595](0595-the-self-hosted-git-store-accepts-a-force-push.md) | The self-hosted Git store accepts a force push | Superseded by 0620 |
@@ -827,25 +827,25 @@ When you add an ADR, add its row here.
 | [0608](0608-apps-never-talk-to-each-other-they-share-paths.md) | Apps share data through ordinary files | Accepted (amends 0546 and 0593; amended by 0612 and 0626) |
 | [0609](0609-a-new-data-folder-copies-its-apps-template-once.md) | A new data folder copies its app's template once | Superseded by 0611 |
 | [0610](0610-on-macos-epicenter-deletes-a-file-by-moving-it-to-the-trash.md) | On macOS, Epicenter deletes a file by moving it to the Trash | Superseded by 0611 |
-| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is a local-first toolkit with optional services | Accepted (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586; amended by 0632, 0633, 0634, and 0635) |
+| [0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | Epicenter is a local-first toolkit with optional services | Accepted (supersedes 0541, 0543, 0552, 0555, 0556, 0559, 0560, 0561, 0562, 0563, 0567, 0568, 0569, 0570, 0581, 0587, 0588, 0589, 0596, 0598, 0602, 0605, 0607, 0609, and 0610; amends 0558 and 0586; amended by 0632, 0633, 0634, and 0635; amended by 0700) |
 | [0612](0612-a-repository-is-shared-by-the-people-on-its-access-list.md) | A repository is shared by the people on its access list | Accepted (amends 0546, 0547, 0584, 0593, 0594, and 0608) |
-| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a view of one top-level directory | Accepted (supersedes 0527; amends 0526, 0584, 0585, and 0591; amended by 0632) |
+| [0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | A table is a view of one top-level directory | Accepted (supersedes 0527; amends 0526, 0584, 0585, and 0591; amended by 0632; amended by 0700) |
 | [0614](0614-a-browser-app-is-identified-by-its-origin.md) | A browser app is identified by its origin | Accepted (amends 0594 and 0606; amended by 0633 and 0634) |
 | [0618](0618-epicenter-hosts-no-ai-service.md) | Epicenter hosts no AI service | Superseded by 0634 |
-| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Repository data has one content history in Git | Accepted (amends 0592; amended by 0634) |
-| [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Accepted (supersedes 0595; amends 0546 and 0592) |
-| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592) |
-| [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Accepted (supersedes 0576; amends 0591) |
-| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Superseded 2026-10-30 (the web never syncs; file contract decisions 11 and 12) |
-| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Accepted (amends 0592; amended by 0633) |
-| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Accepted (amends 0585 and 0608; amended by 0632, 0633, and 0636) |
-| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590; amended by 0632, 0633, 0634, and 0635) |
-| [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Accepted (amends 0619, 0623, and 0627) |
+| [0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | Repository data has one content history in Git | Accepted (amends 0592; amended by 0634; amended by 0700) |
+| [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Accepted (supersedes 0595; amends 0546 and 0592; amended by 0700) |
+| [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592; amended by 0700) |
+| [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Superseded by 0700 |
+| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Superseded by 0700 (the web never syncs) |
+| [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Accepted (amends 0592; amended by 0633; amended by 0700) |
+| [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Accepted (amends 0585 and 0608; amended by 0632, 0633, and 0636; amended by 0700) |
+| [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590; amended by 0632, 0633, 0634, and 0635; amended by 0700) |
+| [0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) | Browser sync uses transactions and Git updates instead of cross-tab ownership | Superseded by 0700 |
 | [0629](0629-a-local-save-refuses-a-file-directory-replacement.md) | A local save refuses a file-directory replacement | Proposed (amends 0622 and 0626) |
 | [0630](0630-a-file-save-accepts-exact-bytes-as-its-starting-content.md) | A file save accepts exact bytes as its starting content | Superseded by 0689 |
 | [0631](0631-a-browser-observes-the-remote-before-making-a-commit.md) | A browser observes the remote before making a commit | Proposed (amends 0623 and 0628) |
-| [0632](0632-a-lens-belongs-to-its-reader.md) | Apps supply schemas; CLI readers use root epicenter.json | Accepted (amends 0585, 0611, 0613, 0626, and 0627) |
-| [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627; amended by 0636) |
+| [0632](0632-a-lens-belongs-to-its-reader.md) | Apps supply schemas; CLI readers use root epicenter.json | Accepted (amends 0585, 0611, 0613, 0626, and 0627; amended by 0700) |
+| [0633](0633-apps-open-local-data-before-connecting-services.md) | Apps open local data before connecting services | Accepted (amends 0611, 0614, 0623, 0624, 0626, and 0627; amended by 0636; amended by 0700) |
 | [0634](0634-hosted-inference-is-independent-of-repository-sync.md) | Hosted inference is independent of repository sync | Accepted (supersedes 0618; amends 0611, 0614, 0619, and 0627) |
 | [0635](0635-generic-desktop-data-tools-are-deferred.md) | The Epicenter desktop app is deferred | Accepted (amends 0611 and 0627) |
 | [0636](0636-an-app-opens-local-files-through-one-folder-handle.md) | An app opens local files through one folder handle | Accepted (amends 0539, 0584, 0626, and 0633; amended by 0643 and 0660) |
@@ -887,11 +887,12 @@ When you add an ADR, add its row here.
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
 | [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (Whispering desktop caller implemented) |
-| [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Rejected 2026-10-30 (the web never syncs; file contract decisions 11 and 12) |
-| [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Rejected 2026-10-30 (the web never syncs; file contract decisions 11 and 12) |
+| [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
+| [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Rejected 2026-10-30 (the web never syncs; ADR-0700) |
 | [0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) | One HTTPS site is one portable release and one data area | Accepted |
 | [0687](0687-opening-a-site-url-opens-its-derived-folder.md) | Opening a site URL opens its derived folder | Proposed |
 | [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Superseded by 0689 |
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Proposed (implemented; supersedes the working-document model) |
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Proposed (renumbered from 0689) |
+| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted (supersedes 0545, 0622, 0623, and 0628; amends 23 records; grants, secrets, the Tauri opener, notify, the deep link, and Whispering unbuilt) |

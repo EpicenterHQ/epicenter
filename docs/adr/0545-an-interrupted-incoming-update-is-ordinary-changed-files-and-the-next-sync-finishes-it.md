@@ -1,8 +1,9 @@
 # 0545. An interrupted incoming update is ordinary changed files, and the next Sync finishes it
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-15
 - **Supersedes:** [ADR-0474](0474-incoming-git-adoption-retains-a-recoverable-plan.md)
+- **Superseded by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md): no host runs Epicenter's own Git engine; `epicenter sync` merges with stock `git`.
 - **Amends:** [ADR-0471](0471-a-data-folder-handle-exposes-tables-kv-and-files.md), withdrawing `git.recoverIncoming()` and `git.snapshot.pendingIncoming`.
 
 Retired source files below use their last tracked Git snapshot (`commit:path`);

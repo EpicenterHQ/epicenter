@@ -1,7 +1,8 @@
 # 0628. Browser sync uses transactions and Git updates instead of cross-tab ownership
 
-- **Status:** Accepted
+- **Status:** Superseded
 - **Date:** 2026-10-19
+- **Superseded by:** [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md): the web never syncs; a browser keeps its own files and uploads new ones through the server.
 - **Amends:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at the exhaustive browser inventory, allowing Git boundary metadata and a local publication revision; [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) at retention, save transactions, reconciliation, collection, fetch depth, sync ownership, and commit timing; and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) at principles 2 and 5, which summarize that browser design.
 - **Relates:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) (the data Git records), [ADR-0620](0620-history-in-a-repository-only-grows.md) (conditional, fast-forward server updates), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (field and text-region merging), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (the browser engine), [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) (offline reads and saves), and [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) (the maintained summary).
 - **Unbuilt:** safe collection, the public synchronization lifetime and automatic triggers over the internal native-tested sync engine, with complete-engine, Cloudflare Artifacts and iPhone evidence still required.

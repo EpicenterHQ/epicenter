@@ -2,7 +2,7 @@
 
 - **Status:** Rejected
 - **Date:** 2026-10-23
-- **Rejected:** 2026-10-30, in favor of the file contract's decisions 11 and 12 (2026-10-30): the web never syncs; a browser keeps its own files (OPFS through `openDevice`) and uploads new ones through the server, which commits them. No browser submission protocol exists to need an operations ref; the server's write translator keys a capture's receipt by its capture id instead. Never built.
+- **Rejected:** 2026-10-30, in favor of [ADR-0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md): the web never syncs; a browser keeps its own files (OPFS through `openDevice`) and uploads new ones through the server, which commits them. No browser submission protocol exists to need an operations ref; the server's write translator keys a capture's receipt by its capture id instead. Never built.
 - **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md) (main never rewinds), [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (merge units and losing candidates).
 - **Unbuilt:** protected native receive-pack gateway, initial operations ref, browser submission publisher, versioned request hashing, paired backup and restore, and real-client Artifacts tests.
 
