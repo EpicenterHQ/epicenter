@@ -225,13 +225,11 @@ globalThis.storageBenchmark = {
 						};
 						const oid = await hashObject(object);
 						objects.set(oid, object);
-						entries
-							.get(row.table)
-							.push({
-								mode: '100644',
-								name: encoder.encode(`${row.id}.md`),
-								oid,
-							});
+						entries.get(row.table).push({
+							mode: '100644',
+							name: encoder.encode(`${row.id}.md`),
+							oid,
+						});
 					}),
 				);
 			const rootEntries = [];

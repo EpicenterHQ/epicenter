@@ -167,12 +167,10 @@ export function servePage(
 		/** Every file this device shows, in any collection or none, ordered by path, with its state. */
 		files(): FileEntry[] {
 			const unsent = withWork();
-			return replica
-				.paths()
-				.map((path) => ({
-					path,
-					state: unsent.has(path) ? replica.state(path) : { status: 'synced' },
-				}));
+			return replica.paths().map((path) => ({
+				path,
+				state: unsent.has(path) ? replica.state(path) : { status: 'synced' },
+			}));
 		},
 		/** Every file not yet synced (sending, waiting or refused with why), deletes included, ordered by path: indexed, so a count of them costs what they number, not the repository. */
 		waiting(): FileEntry[] {
