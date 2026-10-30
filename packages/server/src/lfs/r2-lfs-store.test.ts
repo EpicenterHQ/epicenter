@@ -179,6 +179,7 @@ type BatchAnswer = {
 	objects: {
 		oid: string;
 		size: number;
+		authenticated?: boolean;
 		actions?: Record<string, { href: string; header?: Record<string, string> }>;
 	}[];
 };
@@ -193,7 +194,7 @@ const actionOf = (answer: BatchAnswer, name: string) => {
 describe('the batch API over a presigning store', () => {
 	const remote = 'https://spike.example/git/spike8wong01/demo.git';
 
-	test('an upload gets a presigned PUT and a verify on this server; a stored object needs nothing', async () => {
+	test('an upload gets a presigned PUT and nothing else; a stored object needs nothing', async () => {
 		const { bucket } = memoryBucket();
 		const store = createR2LfsStore({ bucket, presigner });
 		const before = await batch(
@@ -208,7 +209,10 @@ describe('the batch API over a presigning store', () => {
 			`${presigner.accountId}.r2.cloudflarestorage.com`,
 		);
 		expect(actionOf(before, 'upload').header?.['if-none-match']).toBe('*');
-		expect(actionOf(before, 'verify').href).toBe(`${remote}/info/lfs/verify`);
+		// Presigned: no credential goes to R2, and no verify action, since R2
+		// stores only the signed checksum's bytes and pointers are checked again.
+		expect(before.objects[0]?.authenticated).toBe(true);
+		expect(Object.keys(before.objects[0]?.actions ?? {})).toEqual(['upload']);
 
 		await store.put(REPO, oid, stream(audio), audio.length);
 		const after = await batch(
