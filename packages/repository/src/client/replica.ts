@@ -325,6 +325,12 @@ export function openReplica(options: Parameters<typeof createReplica>[0]): Resul
 
 /** How long a replica waits for an answer before it takes a request as lost, by default. */
 export const REQUEST_TIMEOUT = 2_000;
+/**
+ * How long a file's text must be quiet before it is sent: a burst of
+ * keystrokes, each saved here at once, lands as one text. A pause, never a
+ * hold: a file always goes once quiet, and a restart forgets the pause.
+ */
+export const SEND_QUIET = 1_500;
 
 function createReplica({
 	driver,
@@ -335,6 +341,7 @@ function createReplica({
 	now,
 	timeout = REQUEST_TIMEOUT,
 	gap = 500,
+	quiet = SEND_QUIET,
 }: {
 	driver: SqlDriver;
 	binding: Binding;
@@ -349,6 +356,8 @@ function createReplica({
 	timeout?: number;
 	/** A notification that cannot be placed this long sends a catch-up. */
 	gap?: number;
+	/** How long a file's text must be quiet before it is sent (`SEND_QUIET`); 0 for a host whose clock does not move. */
+	quiet?: number;
 }) {
 	/** Whom this device's commits name: the session's user from the connection's hello; before one, the account. */
 	let user = binding.account ?? device;
@@ -612,10 +621,38 @@ function createReplica({
 	/** What this device shows at a path is a pointer owed its bytes, and not held. */
 	const owes = (path: string, f: FileRecord) => f.held === undefined && owedText(path, f.mine, f.base);
 
-	/** RULE: committed files that can go now: each on its own, every one but a pointer owed its bytes; none while the server asked this member to slow down. */
+	/** When this device last saved each path, in this process: a file goes once its text has been quiet for `SEND_QUIET`. */
+	const savedAt = new Map<string, number>();
+	/** When the pump runs again for a file still within its pause, if it is armed. */
+	let quietUntil: number | null = null;
+	/**
+	 * RULE: committed files that can go now: each on its own, once quiet for
+	 * `SEND_QUIET`, every one but a pointer owed its bytes; none while the
+	 * server asked this member to slow down. A file still within its pause
+	 * arms the pump for when it ends.
+	 */
 	const ready = () => {
 		if (now() < backoffUntil) return [];
-		return committedFiles().filter(([path, f]) => !owedText(path, f.committed?.text ?? null, f.base));
+		const at = now();
+		let next: number | null = null;
+		const going = committedFiles().filter(([path, f]) => {
+			const due = (savedAt.get(path) ?? Number.NEGATIVE_INFINITY) + quiet;
+			if (due > at) {
+				next = Math.min(next ?? due, due);
+				return false;
+			}
+			savedAt.delete(path);
+			return !owedText(path, f.committed?.text ?? null, f.base);
+		});
+		if (next !== null && (quietUntil === null || next < quietUntil)) {
+			const wake: number = next;
+			quietUntil = wake;
+			later(wake - at, () => {
+				if (quietUntil === wake) quietUntil = null;
+				pump();
+			});
+		}
+		return going;
 	};
 
 	/**
@@ -696,6 +733,7 @@ function createReplica({
 			}
 			for (const [given, text] of Object.entries(changes)) {
 				const path = spelled(given);
+				if (quiet > 0) savedAt.set(path, now());
 				const { held: _, ...f } = record(path);
 				const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
 				if (!isNote(path)) {

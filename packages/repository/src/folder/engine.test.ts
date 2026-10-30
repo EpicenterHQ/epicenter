@@ -34,7 +34,7 @@ const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`
 const encoder = new TextEncoder();
 
 async function setup() {
-	const world = createWorld({ seed: 7, latency: { min: 1, max: 5 } });
+	const world = createWorld({ seed: 7, latency: { min: 1, max: 5 }, quiet: 0 });
 	const lfs: Lfs = new Map();
 	const folder = createFolderDevice(world, 'ada', { lfs });
 	const other = world.device('bo');
@@ -198,7 +198,7 @@ test('a crash between the capture and the link puts the file back; nothing reads
 });
 
 test("a stopped folder's scan sends every difference; nothing differing sends nothing", async () => {
-	const world = createWorld({ seed: 3, latency: { min: 1, max: 5 } });
+	const world = createWorld({ seed: 3, latency: { min: 1, max: 5 }, quiet: 0 });
 	const lfs: Lfs = new Map();
 	const folder = createFolderDevice(world, 'ada', { lfs });
 	await until(world, folder.start({ watch: false }));
@@ -435,7 +435,7 @@ test('a file made offline where another device made a folder is held with why: t
  * invalid at the door, and the reply is lost.
  */
 async function deciding({ invalid }: { invalid: boolean }) {
-	const world = createWorld({ seed: 11, latency: { min: 2, max: 20 } });
+	const world = createWorld({ seed: 11, latency: { min: 2, max: 20 }, quiet: 0 });
 	const lfs: Lfs = new Map();
 	const person = world.device('bo');
 	const agent = createFolderDevice(world, 'ada', { lfs });

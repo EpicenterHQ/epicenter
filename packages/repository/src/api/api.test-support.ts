@@ -83,7 +83,7 @@ export function twoDevices<TDefs extends Definitions>(app: App<TDefs>) {
 				driver.run(sql, params);
 			},
 		};
-		const replica = unwrap(openReplica({ driver: faulty, binding: { repository: 'r', server: null, account: user }, device: `${user}-device`, app, after: () => {}, now: () => 0 }));
+		const replica = unwrap(openReplica({ driver: faulty, binding: { repository: 'r', server: null, account: user }, device: `${user}-device`, app, after: () => {}, now: () => 0, quiet: 0 }));
 		const sent: Request[] = [];
 		replica.attach((request) => sent.push(request));
 		unwrap(replica.hello({ repository: 'r', server: 'test', user, main: server.main() }));

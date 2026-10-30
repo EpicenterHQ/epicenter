@@ -43,7 +43,7 @@ const settled = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function setup(seed: (replica: Replica) => void = () => {}) {
 	const driver = openBunSqlite();
-	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app, after: () => {}, now: () => 0 }));
+	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app, after: () => {}, now: () => 0, quiet: 0 }));
 	seed(replica);
 	const local = createLocalHost({ replica, app });
 	const repo = openRepository({ app, host: local.host });
@@ -271,7 +271,7 @@ test('a note two combined apps claim shows in each of their collections, each re
 	const tasks = defineApp({ tasks: { path: 'todos/{stem}.md', schema: Type.Object({ title: Type.String() }) } });
 	const both = combineApps([app, tasks]);
 	const driver = openBunSqlite();
-	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app: both, after: () => {}, now: () => 0 }));
+	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app: both, after: () => {}, now: () => 0, quiet: 0 }));
 	replica.write('todos/milk.md', '---\ntitle: Milk\n---\n');
 	const repo = openRepository({ app: both, host: createLocalHost({ replica, app: both }).host }) as unknown as {
 		todos: { all(): Note[] };
@@ -288,7 +288,7 @@ test('a blob collection creates, replaces, opens and deletes bytes at named path
 		audio: { path: 'recordings/{stem}.webm', blob: true },
 	});
 	const driver = openBunSqlite();
-	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app: recordings, after: () => {}, now: () => 0 }));
+	const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: null }, device: 'laptop', app: recordings, after: () => {}, now: () => 0, quiet: 0 }));
 	const repo = openRepository({ app: recordings, host: createLocalHost({ replica, app: recordings }).host });
 	expect((await repo.audio.create({ stem: 'r1' }, new Blob(['early']))).error).toMatchObject({ name: 'Unavailable' });
 	await settled();

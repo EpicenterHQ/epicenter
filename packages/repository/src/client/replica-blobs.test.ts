@@ -40,7 +40,7 @@ const b = { oid: 'b'.repeat(64), size: 1_000 };
 const UPLOADING: FileStatus = { status: 'sending', reason: 'its bytes are uploading' };
 
 function setup(names = ['alice', 'bob']) {
-	const world = createWorld({ latency: { min: 20, max: 20 } });
+	const world = createWorld({ latency: { min: 20, max: 20 }, quiet: 0 });
 	/** Every commit the server was sent, by device. */
 	const pushed: { device: string; commit: LiveCommit }[] = [];
 	world.onRequest((device, request) => {

@@ -54,7 +54,7 @@ function setup(limits: Partial<Limits> = {}) {
 	function device(user: string, { lfs: wrap = (client: LfsClient) => client }: { lfs?: (client: LfsClient) => LfsClient } = {}) {
 		const headers = { authorization: `Bearer ${user}` };
 		const driver = openBunSqlite();
-		const open = () => unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: user }, device: user, after: (ms, run) => void setTimeout(run, ms), now: () => Date.now() }));
+		const open = () => unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: user }, device: user, after: (ms, run) => void setTimeout(run, ms), now: () => Date.now(), quiet: 0 }));
 		let replica = open();
 		const socket = connectSocket(replica, createWireClient({ url: served.url, headers, openSocket: socketWithHeaders(headers) }));
 		const store = createMemoryBlobStore();

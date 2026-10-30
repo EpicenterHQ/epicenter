@@ -24,7 +24,7 @@ const PATH = 'notes/a.md';
 const note = (body: string, fields = 'title: A\n') => `---\n${fields}---\n${body}`;
 
 const open = () =>
-	unwrap(openReplica({ driver: openBunSqlite(), binding: { repository: 'r', server: null, account: null }, device: 'laptop', after: () => {}, now: () => 0 }));
+	unwrap(openReplica({ driver: openBunSqlite(), binding: { repository: 'r', server: null, account: null }, device: 'laptop', after: () => {}, now: () => 0, quiet: 0 }));
 
 test('a patch sets fields on the note as it is now, keeping its other keys, their formatting and its body', () => {
 	const replica = open();

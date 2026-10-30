@@ -29,7 +29,7 @@ import { BLOCK_CAP } from '../core/settle.js';
 import { createTestServer, createWorld, EPOCH, QUIET, STAMP, writer } from './harness.js';
 import { unwrap } from 'wellcrafted/result';
 import { openBunSqlite } from '../bun/sqlite.js';
-import { openReplica, type Request } from '../client/replica.js';
+import { openReplica, type Request, SEND_QUIET } from '../client/replica.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 
 const PATH = 'notes/a.md';
@@ -40,8 +40,9 @@ const broken = (body: string, title = 'A') => `---\ntitle: ${title}\ntitle: B\n-
 const crlf = (body: string, title = 'A') => note(body, title).replaceAll('\n', '\r\n');
 const LF = 'a note must use LF line endings';
 
-function setup(names = ['alice', 'bob']) {
-	const world = createWorld({ latency: { min: 20, max: 20 } });
+/** A world whose devices send at once (`quiet: 0`), for exact interleavings; `paused` keeps the send pause. */
+function setup(names = ['alice', 'bob'], { paused = false } = {}) {
+	const world = createWorld({ latency: { min: 20, max: 20 }, ...(paused ? {} : { quiet: 0 }) });
 	const pushes: { device: string; commit: LiveCommit }[] = [];
 	world.onRequest((device, request: Request) => {
 		if (request.type === 'push') pushes.push({ device, commit: request.commit });
@@ -57,6 +58,44 @@ function setup(names = ['alice', 'bob']) {
 	const settle = () => world.net.runFor(QUIET - 1_000);
 	return { world, alice, bob, carol, pushes, sent, settle };
 }
+
+// ============================================================================
+// Sending after a pause
+// ============================================================================
+
+test('a burst of keystrokes, each saved at once, lands as one text once it has been quiet: others see that one text', () => {
+	const { world, alice, bob, sent } = setup(['alice', 'bob'], { paused: true });
+	const landed: (string | null)[] = [];
+	world.onCommit((committed) => {
+		for (const file of committed.files) if (file.path === PATH) landed.push(file.after);
+	});
+	let typed = '';
+	for (const key of 'hello') {
+		typed += key;
+		alice.replica.write(PATH, note(typed));
+		expect(alice.replica.read(PATH)).toBe(note(typed));
+		world.net.runFor(200);
+	}
+	expect(sent('alice', PATH)).toEqual([]);
+	world.net.runFor(SEND_QUIET);
+	expect(sent('alice', PATH)).toEqual([note('hello')]);
+	world.net.runFor(500);
+	expect(landed).toEqual([note('hello')]);
+	expect(bob.replica.read(PATH)).toBe(note('hello'));
+});
+
+test('a pause of the window sends, a note whose frontmatter does not parse included: the pause never holds', () => {
+	const { world, alice, sent } = setup(['alice', 'bob'], { paused: true });
+	alice.replica.write(PATH, '---\ntitle: [\n---\nhalf typed\n');
+	world.net.runFor(SEND_QUIET - 100);
+	expect(sent('alice', PATH)).toEqual([]);
+	expect(alice.replica.state(PATH)).toEqual({ status: 'sending' });
+	world.net.runFor(200);
+	expect(sent('alice', PATH)).toEqual(['---\ntitle: [\n---\nhalf typed\n']);
+	world.net.runFor(500);
+	expect(world.server.read(PATH)).toBe('---\ntitle: [\n---\nhalf typed\n');
+	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
+});
 
 // ============================================================================
 // Held text (held.test.ts)
@@ -246,7 +285,7 @@ test('changed: a rename racing an edit of the old path keeps both; the renamer\'
 // ============================================================================
 
 test("an agent's batch meeting a moved main merges as anyone's save does; its files, ready together, go in one commit", () => {
-	const world = createWorld({ latency: { min: 20, max: 20 } });
+	const world = createWorld({ latency: { min: 20, max: 20 }, quiet: 0 });
 	const sent: LiveCommit[] = [];
 	world.onRequest((device, request) => {
 		if (device === 'agent' && request.type === 'push') sent.push(request.commit);
@@ -487,7 +526,7 @@ test('a device that restarts or loses its storage never hears replies meant for 
 
 test('a notification arriving while a catch-up is out waits for it: the catch-up never moves the position back (seed 18504)', () => {
 	const requests: Request[] = [];
-	const replica = unwrap(openReplica({ driver: openBunSqlite(), binding: { repository: 'test', server: 'memory', account: 'alice' }, device: 'alice', after: () => {}, now: () => 0 }));
+	const replica = unwrap(openReplica({ driver: openBunSqlite(), binding: { repository: 'test', server: 'memory', account: 'alice' }, device: 'alice', after: () => {}, now: () => 0, quiet: 0 }));
 	replica.attach((request) => requests.push(request));
 	const caughtUp = (rid: number, main: string, full: boolean) => replica.reply({ type: 'caught-up', rid, catchUp: { main, full, files: [], commits: [], next: null } });
 	caughtUp(1, 'A', true);

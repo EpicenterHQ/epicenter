@@ -12,7 +12,7 @@ import { openBunSqlite } from '../bun/sqlite.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import { type Committed, createServer, type Event, type Limits, SCHEDULE, type Session } from '../server/server.js';
 import { unwrap } from 'wellcrafted/result';
-import { openReplica, type Reply, type Request } from '../client/replica.js';
+import { openReplica, type Reply, SEND_QUIET, type Request } from '../client/replica.js';
 import { createNet, type LinkOptions } from './net.js';
 
 export const QUIET = SCHEDULE.quiet;
@@ -58,6 +58,7 @@ export function createWorld({
 	streamLoss = 0,
 	stall,
 	timeout = 2_000,
+	quiet = SEND_QUIET,
 	limits,
 	trace,
 }: {
@@ -70,6 +71,8 @@ export function createWorld({
 	/** Chance a request, reply or notification stalls, and for up to how long. */
 	stall?: LinkOptions['stall'];
 	timeout?: number;
+	/** How long each device waits for a file to be quiet before it sends (`SEND_QUIET`); 0 for a test of exact interleavings. */
+	quiet?: number;
 	/** The server's limits, such as a small catch-up page so catch-ups come in several. */
 	limits?: Partial<Limits>;
 	/** Called with a line for every request, reply and notification. */
@@ -100,7 +103,7 @@ export function createWorld({
 		members.add(name);
 		// The device's database: a restart opens a new replica over it; a lost device gets a new one.
 		let driver = openBunSqlite();
-		const make = () => unwrap(openReplica({ driver, binding: BINDING(name), device: name, after: net.after, now: () => EPOCH + net.now(), timeout }));
+		const make = () => unwrap(openReplica({ driver, binding: BINDING(name), device: name, after: net.after, now: () => EPOCH + net.now(), timeout, quiet }));
 		let replica = make();
 		let online = true;
 		let link: ReturnType<typeof net.connect<Request, Reply>> | null = null;

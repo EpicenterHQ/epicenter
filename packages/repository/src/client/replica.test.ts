@@ -39,7 +39,7 @@ const SERVER = 'example';
 const BINDING: Binding = { repository: 'r1', server: SERVER, account: 'alice' };
 
 const open = (driver: SqlDriver, options: Partial<Parameters<typeof openReplica>[0]> = {}) =>
-	openReplica({ driver, binding: BINDING, device: 'laptop', after: () => {}, now: () => 0, ...options });
+	openReplica({ driver, binding: BINDING, device: 'laptop', after: () => {}, now: () => 0, quiet: 0, ...options });
 
 /** The server's reply to one request, as the wire would carry it. */
 function answer(server: Server, request: Request, session = writer('alice')): Reply {

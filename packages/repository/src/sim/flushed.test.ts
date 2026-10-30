@@ -19,7 +19,7 @@ const SERVER = 'example';
 
 function device(server: ReturnType<typeof createTestServer>, account: string, id: string) {
 	const binding = { repository: 'r1', server: SERVER, account };
-	const opened = openReplica({ driver: openBunSqlite(), binding, device: id, after: () => {}, now: () => 0 });
+	const opened = openReplica({ driver: openBunSqlite(), binding, device: id, after: () => {}, now: () => 0, quiet: 0 });
 	if (opened.error !== null) throw new Error(opened.error.message);
 	const replica = opened.data;
 	replica.hello({ ...binding, server: SERVER, main: server.main(), user: account, limits: server.sizing() });

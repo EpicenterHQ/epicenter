@@ -109,7 +109,7 @@ async function setup(limits: Partial<Limits> = {}) {
 		let socket: { close(): void } | null = null;
 		let session: ReturnType<typeof open> | null = null;
 		function open() {
-			const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: user }, device: user, app: whispering, after: (ms, run) => void setTimeout(run, ms), now: () => Date.now() }));
+			const replica = unwrap(openReplica({ driver, binding: { repository: 'r', server: null, account: user }, device: user, app: whispering, after: (ms, run) => void setTimeout(run, ms), now: () => Date.now(), quiet: 0 }));
 			const local = createLocalHost({ replica, app: whispering, store, lfs });
 			const repo = openRepository({ app: whispering, host: local.host });
 			return { replica, local, repo };

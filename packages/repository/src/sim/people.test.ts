@@ -36,7 +36,7 @@ import { commitId, type LiveCommit } from '../core/commit.js';
 const note = (body: string, fields = 'title: A') => `---\n${fields}\n---\n${body}`;
 
 function setup(names = ['alice', 'bob']) {
-	const world = createWorld({ latency: { min: 20, max: 20 } });
+	const world = createWorld({ latency: { min: 20, max: 20 }, quiet: 0 });
 	const devices = names.map((name) => world.device(name));
 	world.net.runFor(500);
 	const [alice, bob] = devices;
@@ -316,7 +316,7 @@ test('a pending delete and an offline rename survive a flush and the window pass
 });
 
 test('D1: a Git push is a fast-forward of Git\'s main, merged over live edits Git does not hold yet; refused when main moved', async () => {
-	const world = createWorld();
+	const world = createWorld({ quiet: 0 });
 	const alice = world.device('alice');
 	world.net.runFor(500);
 	alice.replica.write('notes/a.md', note('from http\n'));
