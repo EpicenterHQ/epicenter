@@ -14,9 +14,12 @@
  *   `refs/epicenter/replaced/<time>` in the same transaction (decision 33).
  * - Every file other than a `.md` note or a hidden path (decision 58) must
  *   be a Git LFS pointer whose object is stored and verified, whatever
- *   `.gitattributes` says (decisions 38 and 40, codex-2's amendment). Only
- *   entries a pushed commit changes against its first parent are checked.
- *   Symlinks and submodules are refused.
+ *   `.gitattributes` says (decisions 38 and 40, codex-2's amendment). The
+ *   rule covers every commit `next` reaches that `main` does not
+ *   (`rev-list next --not main`), read from the pack or the store, so a
+ *   commit an earlier pack carried but nothing checked cannot be merged in
+ *   later. Only entries a commit changes against its first parent are
+ *   checked. Symlinks and submodules are refused.
  *
  * The advertisement shows `main` alone, offers `ofs-delta`, and asks for
  * no thin packs, so the pack can be read without the server's objects.
@@ -135,14 +138,20 @@ export function extendsMain(
 type Checked = { problem: string } | { pointers: Map<string, string> };
 
 /**
- * Check every entry the pushed commits change against their first parent:
- * the LFS pointer rule, and no symlink or submodule. Returns the pointers
- * to verify, by LFS oid, with a path that names each.
+ * Check every entry that each commit `next` brings to `main` changes
+ * against its first parent: the LFS pointer rule, and no symlink or
+ * submodule. The commits are every one `next` reaches and `current` does
+ * not, from the pack or from the store: an object an earlier push stored
+ * without its commit reaching `main` is checked the first time a push
+ * reaches it. Commits in the pack are checked as they are; the walk stops
+ * at a stored commit `current` reaches. Returns the pointers to verify, by
+ * LFS oid, with a path that names each.
  */
 export async function checkPushedTrees(
 	objects: GitObjects,
 	pushed: Map<string, PackObject>,
 	next: string,
+	current: string,
 ): Promise<Checked> {
 	const read = objectSource(objects, pushed);
 	const treeEntries = async (
@@ -221,8 +230,17 @@ export async function checkPushedTrees(
 		const oid = stack.pop() as string;
 		if (visited.has(oid)) continue;
 		visited.add(oid);
-		const object = pushed.get(oid);
-		if (object?.kind !== 'commit') continue;
+		if (
+			!pushed.has(oid) &&
+			current !== ZERO_OID &&
+			(await objects.isAncestor(oid, current))
+		)
+			continue;
+		const object = await read(oid);
+		if (object?.kind !== 'commit' || !object.bytes) {
+			problem = `commit ${oid.slice(0, 8)} is missing`;
+			break;
+		}
 		const commit = parseCommit(object.bytes);
 		const parent = commit.parents[0];
 		let parentTree: string | null = null;
@@ -319,7 +337,7 @@ export async function receivePush({
 			MAIN,
 			'non-fast-forward: only the repository owner may rewrite main; fetch, merge and push again',
 		);
-	const checked = await checkPushedTrees(objects, pushed, next);
+	const checked = await checkPushedTrees(objects, pushed, next, current);
 	if ('problem' in checked) return reply(MAIN, `refused (${checked.problem})`);
 	if (checked.pointers.size > 0) {
 		const unverified = await Promise.all(
