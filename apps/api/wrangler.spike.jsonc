@@ -1,0 +1,39 @@
+{
+	// The phase 7 spike Worker (spike-scratch/deployed-spike-8): hosted Git,
+	// web writes and Git LFS over its own Artifacts namespace and R2 bucket,
+	// behind spike bearer tokens. workers.dev only; no routes. Deploy only with
+	// `wrangler deploy --config wrangler.spike.jsonc`, and tear it down after.
+	// It shares nothing with `wrangler.jsonc`: not the Worker, the namespace,
+	// the bucket, or any secret.
+	"$schema": "./node_modules/wrangler/config-schema.json",
+	"name": "epicenter-spike8-20261031",
+	"account_id": "bd11bbdb06b934edf736ce3c23ab8a7a",
+	"main": "worker/spike.ts",
+	"compatibility_date": "2026-03-06",
+	"compatibility_flags": [
+		"nodejs_compat",
+		"enable_request_signal",
+		"global_fetch_strictly_public"
+	],
+	"workers_dev": true,
+	"preview_urls": false,
+	"routes": [],
+	"send_metrics": false,
+	"observability": { "enabled": true },
+	"vars": {
+		"ARTIFACTS_ACCOUNT_ID": "bd11bbdb06b934edf736ce3c23ab8a7a",
+		"ARTIFACTS_NAMESPACE": "epicenter-spike8-20261031-ns",
+		"LFS_BUCKET_NAME": "epicenter-spike8-20261031-r2",
+		"SPIKE_NAMESPACE": "spike8wong01",
+		"SPIKE_REPOSITORY_PREFIX": "epicenter-spike8-20261031-"
+	},
+	"artifacts": [
+		{ "binding": "ARTIFACTS", "namespace": "epicenter-spike8-20261031-ns" }
+	],
+	"r2_buckets": [
+		{ "binding": "LFS_BUCKET", "bucket_name": "epicenter-spike8-20261031-r2" }
+	]
+	// Secrets, put by spike-scratch/deployed-spike-8/deploy.sh: SPIKE_OWNER_TOKEN,
+	// SPIKE_MEMBER_TOKEN, and (inside `infisical run`) R2_ACCESS_KEY_ID and
+	// R2_SECRET_ACCESS_KEY.
+}
