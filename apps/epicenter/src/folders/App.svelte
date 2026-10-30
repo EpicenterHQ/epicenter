@@ -1,81 +1,124 @@
 <script lang="ts">
 	/**
-	 * The launcher reads one derived directory list from the native shell.
-	 * Row IDs select current membership; paths are displayed, never supplied
-	 * as folder grants. Incoming handoffs remain pending until accepted.
+	 * The Folders window: the folders the `epicenter` CLI syncs, each with its
+	 * last round, and the actions on them, each one CLI call the shell runs
+	 * (`src-tauri/src/synced_folders.rs`). The shell runs `epicenter sync
+	 * --watch` in the background and tells this window when anything changed;
+	 * the window then lists again. Below the folders, the apps Epicenter
+	 * bundles and hosted sites still open from here.
 	 */
 	import * as Alert from '@epicenter/ui/alert';
 	import { Button } from '@epicenter/ui/button';
-	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
+	import { ConfirmationDialog, confirmationDialog } from '@epicenter/ui/confirmation-dialog';
+	import * as Dialog from '@epicenter/ui/dialog';
+	import * as Empty from '@epicenter/ui/empty';
+	import { Input } from '@epicenter/ui/input';
+	import * as Item from '@epicenter/ui/item';
 	import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow';
 	import { onMount } from 'svelte';
-	import { commands, type ListedFolder } from '../ui/bindings.gen';
+	import { SvelteMap } from 'svelte/reactivity';
+	import {
+		type CliError,
+		commands,
+		type SyncedFolder,
+		type SyncedFolderListing,
+	} from '../ui/bindings.gen';
 	import { createLaunch } from '../ui/launch.svelte.ts';
 	import { bundledOpeners } from './openers.ts';
-	import { createFolderOpenings, folderName, FOLDER_OPENINGS_CHANGED } from './openings.svelte.ts';
+	import SharingDialog from './SharingDialog.svelte';
+	import SyncedFolderRow from './SyncedFolderRow.svelte';
+	import { SYNCED_FOLDERS_CHANGED } from './synced-folders.ts';
 
-	let folders = $state.raw<ListedFolder[] | undefined>(undefined);
-	let libraryName = $state('Epicenter');
-	const groups = $derived([
-		{ key: 'pinned', title: 'Pinned', folders: folders?.filter((folder) => folder.group === 'pinned') ?? [] },
-		{ key: 'library', title: libraryName, folders: folders?.filter((folder) => folder.group === 'library') ?? [] },
-		{ key: 'recent', title: 'Recent', folders: folders?.filter((folder) => folder.group === 'recent') ?? [] },
-	] as const);
-	let sourceProblems = $state.raw<string[]>([]);
+	let listing = $state.raw<SyncedFolderListing | undefined>(undefined);
 	let listProblem = $state<string | undefined>(undefined);
+	/** The last action's failure. */
+	let failure = $state<string | undefined>(undefined);
+	/** What `init` or `clone` warned about, such as a missing command link. */
+	let notice = $state<string | undefined>(undefined);
+	/** What the window is doing to each folder, by path. */
+	const busy = new SvelteMap<string, string>();
+	/** Adding or cloning a folder, said while it runs. */
+	let adding = $state<string | undefined>(undefined);
+	let now = $state(Date.now());
+
+	let cloning = $state(false);
+	let cloneSource = $state('');
+	let sharing = $state.raw<SyncedFolder | undefined>(undefined);
+
 	let siteUrl = $state('');
 	let siteProblem = $state<string | undefined>(undefined);
 	let siteBusy = $state(false);
-
-	/**
-	 * The shell's event when the list of data folders may have changed:
-	 * `DATA_FOLDERS_CHANGED` in `src-tauri/src/data_folders.rs`, sent to this
-	 * window alone.
-	 */
-	const DATA_FOLDERS_CHANGED = 'epicenter://data-folders-changed';
-
 	const launcher = createLaunch();
-	const openings = createFolderOpenings({ host: commands });
-	/** Why Settings did not open, when it did not. */
-	let settingsProblem = $state<string | undefined>(undefined);
 
-	/** What is being opened, said while the shell opens it. */
-	let opening = $state<string | undefined>(undefined);
-
-	/** Listings that resolve out of order keep only the newest. */
-	let listSeq = 0;
-
+	/** One listing at a time; changes that arrive meanwhile list once more after it. */
+	let reading = false;
+	let again = false;
 	async function list() {
-		const seq = ++listSeq;
+		if (reading) {
+			again = true;
+			return;
+		}
+		reading = true;
 		try {
-			const data = await commands.listDataFolders();
-			if (seq !== listSeq) return;
-			folders = data.folders;
-			libraryName = data.libraryName;
-			sourceProblems = data.problems;
-			listProblem = undefined;
-		} catch (error) {
-			if (seq !== listSeq) return;
-			listProblem = error instanceof Error ? error.message : String(error);
+			const { data, error } = await commands.syncedFolders();
+			if (error !== null) listProblem = error.message;
+			else {
+				listing = data;
+				listProblem = undefined;
+			}
+		} catch (cause) {
+			listProblem = cause instanceof Error ? cause.message : String(cause);
+		} finally {
+			reading = false;
+			now = Date.now();
+		}
+		if (again) {
+			again = false;
+			await list();
 		}
 	}
 
-	/** Say what is opening while `work` runs, then list again: a folder may be new. */
-	async function opened(what: string, work: () => Promise<void>) {
-		opening = `Opening ${what}…`;
-		await work();
-		opening = undefined;
-		await list();
+	/**
+	 * Run one CLI action, saying `doing` while it runs, then list again. A
+	 * refusal is the window's failure.
+	 */
+	async function act<T>(
+		doing: { folder: string; what: string } | string,
+		request: () => Promise<
+			{ data: T; error: null } | { data: null; error: CliError | string }
+		>,
+	): Promise<T | undefined> {
+		failure = undefined;
+		notice = undefined;
+		if (typeof doing === 'string') adding = doing;
+		else busy.set(doing.folder, doing.what);
+		try {
+			const { data, error } = await request();
+			if (error !== null) {
+				failure = typeof error === 'string' ? error : error.message;
+				return undefined;
+			}
+			return data;
+		} catch (cause) {
+			failure = cause instanceof Error ? cause.message : String(cause);
+			return undefined;
+		} finally {
+			if (typeof doing === 'string') adding = undefined;
+			else busy.delete(doing.folder);
+			await list();
+		}
+	}
+
+	function warn(warnings: string[] | undefined) {
+		if (warnings !== undefined && warnings.length > 0) notice = warnings.join(' ');
 	}
 
 	async function openSettings() {
-		settingsProblem = undefined;
+		failure = undefined;
 		try {
 			await commands.openHome(null);
 		} catch (cause) {
-			settingsProblem = `Settings did not open. ${
-				cause instanceof Error ? cause.message : String(cause)
-			}`;
+			failure = `Settings did not open. ${cause instanceof Error ? cause.message : String(cause)}`;
 		}
 	}
 
@@ -86,7 +129,6 @@
 			const result = await commands.openHostedSite(url);
 			if (result.error !== null) throw new Error(result.error);
 			siteUrl = '';
-			await list();
 		} catch (cause) {
 			siteProblem = cause instanceof Error ? cause.message : String(cause);
 		} finally {
@@ -95,235 +137,260 @@
 	}
 
 	onMount(() => {
-		const refreshOpenings = () => {
-			void openings.refresh();
-			void list();
-		};
+		const current = getCurrentWebviewWindow();
 		// The window's own listener: a global one would hear other windows' events too.
-		const stopListing = getCurrentWebviewWindow().listen(
-			DATA_FOLDERS_CHANGED,
-			() => void list(),
-		);
-		const stopOpenings = getCurrentWebviewWindow().listen(
-			FOLDER_OPENINGS_CHANGED,
-			refreshOpenings,
-		);
-		// Subscribe before reading: a request arriving during startup must not be missed.
-		void stopOpenings.then(
-			() => void openings.refresh(),
-			() => void openings.refresh(),
-		);
-		void stopListing.then(list, list);
-		const stopFocus = getCurrentWebviewWindow().onFocusChanged(({ payload }) => {
-			if (payload) refreshOpenings();
+		const stopListening = current.listen(SYNCED_FOLDERS_CHANGED, () => void list());
+		// Subscribe before reading: a change arriving during startup must not be missed.
+		void stopListening.then(list, list);
+		const stopFocus = current.onFocusChanged(({ payload }) => {
+			if (payload) void list();
 		});
+		const clock = setInterval(() => (now = Date.now()), 30_000);
 		return () => {
-			void stopOpenings.then((stop) => stop());
-			void stopListing.then((stop) => stop());
+			clearInterval(clock);
+			void stopListening.then((stop) => stop());
 			void stopFocus.then((stop) => stop());
 		};
 	});
 </script>
 
 <main class="flex h-full min-h-0 justify-center overflow-auto">
-	<div class="flex w-full max-w-xl flex-col gap-2 py-3">
-		<header class="flex items-center justify-between gap-2 px-4">
+	<div class="flex w-full max-w-xl flex-col gap-4 px-4 py-4">
+		<header class="flex items-center justify-between gap-2">
 			<h1 class="text-lg font-semibold">Folders</h1>
-			<Button variant="ghost" size="sm" onclick={() => void openSettings()}>
-				Settings
-			</Button>
-		</header>
-		{#if launcher.failure ?? settingsProblem}
-			<div class="px-3">
-				<Alert.Root variant="destructive">
-					<Alert.Title>Could not finish</Alert.Title>
-					<Alert.Description>{launcher.failure ?? settingsProblem}</Alert.Description>
-				</Alert.Root>
+			<div class="flex items-center gap-1">
+				<Button
+					size="sm"
+					disabled={adding !== undefined}
+					onclick={async () =>
+						warn(
+							(await act('Setting up the folder…', () => commands.addSyncedFolder()))
+								?.warnings,
+						)}
+				>
+					Add folder
+				</Button>
+				<Button
+					size="sm"
+					variant="outline"
+					disabled={adding !== undefined}
+					onclick={() => (cloning = true)}
+				>
+					Clone
+				</Button>
+				<Button size="sm" variant="ghost" onclick={() => void openSettings()}>Settings</Button>
 			</div>
+		</header>
+
+		{#if failure ?? launcher.failure}
+			<Alert.Root variant="destructive">
+				<Alert.Title>Could not finish</Alert.Title>
+				<Alert.Description>{failure ?? launcher.failure}</Alert.Description>
+			</Alert.Root>
 		{/if}
-		{#if launcher.notice}
-			<p class="px-4 text-sm text-muted-foreground" role="status">{launcher.notice}</p>
+		{#if notice}
+			<p class="text-sm text-muted-foreground" role="status">{notice}</p>
 		{/if}
-		{#each sourceProblems as problem}
-			<p class="px-4 text-sm text-destructive" role="alert">{problem}</p>
-		{/each}
-		{#if listProblem !== undefined}
-			<div class="px-3">
+		{#if adding}
+			<p class="text-sm text-muted-foreground" role="status">{adding}</p>
+		{/if}
+
+		{#if listing !== undefined}
+			{#if listing.service.state === 'stopped'}
+				<Alert.Root>
+					<Alert.Title>Syncing is paused</Alert.Title>
+					<Alert.Description>
+						<p>
+							<code>epicenter sync --watch</code> stopped: {listing.service.reason}
+						</p>
+						<Button
+							class="mt-2"
+							size="sm"
+							variant="outline"
+							onclick={async () => {
+								await commands.restartSyncService();
+								await list();
+							}}
+						>
+							Start syncing again
+						</Button>
+					</Alert.Description>
+				</Alert.Root>
+			{/if}
+
+			{#if listing.setups.length > 0}
+				<section class="flex flex-col gap-2" aria-label="Requests to sync folders">
+					{#each listing.setups as setup (setup.path)}
+						<Item.Root variant="outline" size="sm">
+							<Item.Content class="min-w-0">
+								<Item.Title>Sync this folder?</Item.Title>
+								<Item.Description class="truncate" title={setup.path}>
+									{setup.path}
+								</Item.Description>
+								{#if setup.contract !== null}
+									<p class="truncate text-xs text-muted-foreground" title={setup.contract}>
+										For {setup.contract}
+									</p>
+								{/if}
+							</Item.Content>
+							<Item.Actions>
+								<Button
+									size="sm"
+									disabled={adding !== undefined}
+									onclick={async () =>
+										warn(
+											(
+												await act('Setting up the folder…', () =>
+													commands.acceptFolderSetup(setup.path),
+												)
+											)?.warnings,
+										)}
+								>
+									Set up
+								</Button>
+								<Button
+									size="sm"
+									variant="ghost"
+									onclick={async () => {
+										await commands.dismissFolderSetup(setup.path);
+										await list();
+									}}
+								>
+									Dismiss
+								</Button>
+							</Item.Actions>
+						</Item.Root>
+					{/each}
+				</section>
+			{/if}
+		{/if}
+
+		<section class="flex flex-col gap-1" aria-label="Synced folders">
+			{#if listProblem !== undefined}
 				<Alert.Root variant="destructive">
 					<Alert.Description>Could not list the folders: {listProblem}</Alert.Description>
 				</Alert.Root>
-			</div>
-		{:else if folders === undefined}
-			<p class="px-4 text-sm text-muted-foreground">Reading…</p>
-		{:else if folders.length === 0}
-			<p class="px-4 text-sm text-muted-foreground">
-				No folders yet. Open an app to make its default folder, or add a folder under {libraryName}.
-			</p>
-		{:else}
-			{#each groups as group (group.key)}
-				{#if group.folders.length > 0}
-				<h2 class="px-4 pt-2 text-sm font-semibold">{group.title}</h2>
-				<ul class="flex flex-col gap-0.5 px-2" aria-label={group.title}>
-				{#each group.folders as folder (folder.id)}
-					<li class="flex items-center gap-1">
-						<button
-							type="button"
-							class="min-w-0 flex-1 truncate rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
-							title="Open the files of {folder.title} in a window of their own"
-							disabled={folder.problem !== null}
-							onclick={() =>
-								void opened(folder.title, () => launcher.editFolder(folder.id, folder.title))}
-						>
-							<span class="block truncate">{folder.title}</span>
-							<span class="block truncate text-xs text-muted-foreground" title={folder.path}>
-								{folder.path}
-							</span>
-							{#if folder.defaultFor !== null}
-								<span class="block text-xs text-muted-foreground">
-									Default for {folder.defaultFor}
-								</span>
-							{/if}
-							{#if folder.problem !== null}
-								<span class="block text-xs text-destructive">{folder.problem}</span>
-							{:else if folder.temporary}
-								<span class="block text-xs text-muted-foreground">Opened this time only</span>
-							{/if}
-						</button>
-						<DropdownMenu.Root>
-							<DropdownMenu.Trigger>
-								{#snippet child({ props })}
-									<Button {...props} variant="ghost" size="xs">Actions</Button>
-								{/snippet}
-							</DropdownMenu.Trigger>
-							<DropdownMenu.Content align="end">
-								{#if !folder.protected && folder.problem === null}
-									{#each bundledOpeners as application (application.app)}
-										<DropdownMenu.Item onclick={() =>
-											void opened(application.title, () => launcher.launch(application, folder.id))}>
-											Open in {application.title}
-										</DropdownMenu.Item>
-									{/each}
-									<DropdownMenu.Separator />
-								{/if}
-								{#if folder.group === 'pinned'}
-									<DropdownMenu.Item onclick={async () => {
-										await launcher.unpin(folder.id, folder.title);
-										await list();
-									}}>Unpin</DropdownMenu.Item>
-								{:else if folder.problem === null}
-									<DropdownMenu.Item onclick={async () => {
-										await launcher.pin(folder.id, folder.title);
-										await list();
-									}}>Pin</DropdownMenu.Item>
-								{/if}
-								{#if folder.recent || folder.temporary}
-									<DropdownMenu.Item onclick={async () => {
-										await launcher.removeRecent(folder.id, folder.title);
-										await list();
-									}}>Remove from Recent</DropdownMenu.Item>
-								{/if}
-							</DropdownMenu.Content>
-						</DropdownMenu.Root>
-					</li>
-				{/each}
-				</ul>
-				{/if}
-			{/each}
-		{/if}
+			{:else if listing === undefined}
+				<p class="text-sm text-muted-foreground">Reading…</p>
+			{:else if listing.folders.length === 0}
+				<Empty.Root class="border">
+					<Empty.Header>
+						<Empty.Title>No folders sync yet</Empty.Title>
+						<Empty.Description>
+							Add a folder on this computer, or clone one of your repositories. Epicenter
+							commits, merges, and pushes it in the background.
+						</Empty.Description>
+					</Empty.Header>
+				</Empty.Root>
+			{:else}
+				<Item.Group class="gap-1">
+					{#each listing.folders as folder (folder.path)}
+						<SyncedFolderRow
+							{folder}
+							{now}
+							busy={busy.get(folder.path)}
+							onSync={() =>
+								void act({ folder: folder.path, what: 'Syncing…' }, () =>
+									commands.syncFolderNow(folder.path),
+								)}
+							onOpen={() =>
+								void act({ folder: folder.path, what: 'Opening…' }, () =>
+									commands.openSyncedFolder(folder.path),
+								)}
+							onShare={() => (sharing = folder)}
+							onForget={() =>
+								confirmationDialog.open({
+									title: `Stop syncing ${folder.name}?`,
+									description:
+										'Its files and history stay where they are. Epicenter stops committing, merging, and pushing them.',
+									confirm: { text: 'Stop syncing', variant: 'destructive' },
+									async onConfirm() {
+										await act({ folder: folder.path, what: 'Stopping…' }, () =>
+											commands.forgetSyncedFolder(folder.path),
+										);
+									},
+								})}
+						/>
+					{/each}
+				</Item.Group>
+			{/if}
+		</section>
 
-		{#if openings.failure}
-			<div class="px-3">
-				<Alert.Root variant="destructive">
-					<Alert.Description>{openings.failure}</Alert.Description>
-				</Alert.Root>
-			</div>
-		{/if}
-		{#if openings.notice}
-			<p class="px-4 text-sm text-muted-foreground">{openings.notice}</p>
-		{/if}
-		{#if openings.requests.length > 0}
-			<section class="px-4" aria-label="Requests to open folders">
-				<h2 class="text-sm font-semibold">Open in Epicenter</h2>
-				{#each openings.requests as path (path)}
-					<div class="flex items-center gap-2 py-1">
-						<div class="min-w-0 flex-1">
-							<span class="block truncate">{folderName(path)}</span>
-							<span class="block truncate text-xs text-muted-foreground">{path}</span>
-						</div>
-						<Button
-							variant="ghost"
-							size="xs"
-							disabled={openings.accepting !== undefined}
-							onclick={() => void opened(folderName(path), () => openings.accept(path))}
-						>
+		<section class="flex flex-col gap-1 pt-2" aria-label="Apps">
+			<h2 class="text-sm font-semibold">Apps</h2>
+			<ul class="flex flex-col">
+				{#each bundledOpeners as application (application.app)}
+					<li class="flex items-center gap-1">
+						<span class="min-w-0 flex-1 truncate py-1.5 text-sm">{application.title}</span>
+						<Button variant="ghost" size="xs" onclick={() => void launcher.launch(application)}>
 							Open
 						</Button>
-						<Button
-							variant="ghost"
-							size="xs"
-							disabled={openings.accepting !== undefined}
-							onclick={() => void openings.dismiss(path)}
-						>
-							Dismiss
+						<Button variant="ghost" size="xs" onclick={() => void launcher.choose(application)}>
+							Choose folder…
 						</Button>
-					</div>
+					</li>
 				{/each}
-			</section>
-		{/if}
+			</ul>
+		</section>
 
-		<section class="px-4 pt-3" aria-label="Sites">
+		<section class="flex flex-col gap-1" aria-label="Sites">
 			<h2 class="text-sm font-semibold">Sites</h2>
-			<p class="mt-1 text-xs text-muted-foreground">Open a website in its own folder under {libraryName}.</p>
 			<form
-				class="mt-2 flex gap-2"
+				class="flex gap-2"
 				onsubmit={(event) => {
 					event.preventDefault();
 					void openSite(siteUrl.trim());
 				}}
 			>
-				<input
+				<Input
 					aria-label="Site URL"
 					type="url"
 					placeholder="https://todos.example.com"
-					class="min-w-0 flex-1 rounded-md border bg-background px-2 py-1 text-sm"
 					bind:value={siteUrl}
 					required
 				/>
-				<Button type="submit" size="sm" disabled={siteBusy}>Open</Button>
+				<Button type="submit" size="sm" variant="outline" disabled={siteBusy}>Open</Button>
 			</form>
 			{#if siteProblem}
-				<p class="mt-2 text-sm text-destructive" role="alert">{siteProblem}</p>
+				<p class="text-sm text-destructive" role="alert">{siteProblem}</p>
 			{/if}
 		</section>
-
-		<h2 class="px-4 pt-2 text-sm font-semibold">Apps</h2>
-		<ul class="flex flex-col gap-0.5 px-2" aria-label="Apps">
-			{#each bundledOpeners as application (application.app)}
-				<li class="flex items-center gap-1">
-					<span class="min-w-0 flex-1 truncate px-2 py-1.5 text-sm">
-						{application.title}
-					</span>
-					<Button
-						variant="ghost"
-						size="xs"
-						disabled={opening !== undefined}
-						onclick={() => void opened(application.title, () => launcher.launch(application))}
-					>
-						Open
-					</Button>
-					<Button
-						variant="ghost"
-						size="xs"
-						disabled={opening !== undefined}
-						onclick={() => void opened(application.title, () => launcher.choose(application))}
-					>
-						Choose folder…
-					</Button>
-				</li>
-			{/each}
-		</ul>
-		{#if opening !== undefined}
-			<p class="px-4 text-sm text-muted-foreground" role="status">{opening}</p>
-		{/if}
 	</div>
 </main>
+
+<Dialog.Root bind:open={cloning}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>Clone a repository</Dialog.Title>
+			<Dialog.Description>
+				Its files land in a new folder in your Epicenter folder and sync from then on.
+			</Dialog.Description>
+		</Dialog.Header>
+		<form
+			class="flex flex-col gap-3"
+			onsubmit={async (event) => {
+				event.preventDefault();
+				const source = cloneSource.trim();
+				cloning = false;
+				const cloned = await act(`Cloning ${source}…`, () => commands.cloneSyncedFolder(source));
+				if (cloned !== undefined) cloneSource = '';
+				warn(cloned?.warnings);
+			}}
+		>
+			<Input
+				aria-label="Repository"
+				placeholder="owner/name or a URL"
+				bind:value={cloneSource}
+				required
+			/>
+			<Dialog.Footer>
+				<Button type="submit" disabled={cloneSource.trim() === ''}>Clone</Button>
+			</Dialog.Footer>
+		</form>
+	</Dialog.Content>
+</Dialog.Root>
+
+{#if sharing !== undefined}
+	<SharingDialog folder={sharing} onClose={() => (sharing = undefined)} />
+{/if}
+<ConfirmationDialog />

@@ -114,6 +114,22 @@ fn signal_group(child: &Child, signal: libc::c_int) {
     }
 }
 
+/// Ask the child `slot` recorded, and every process it started, to stop,
+/// without waiting: for the app's exit, when no task is left to wait for it.
+pub(crate) fn stop_started(slot: &StartedChild) {
+    let pid = *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    #[cfg(unix)]
+    if let Some(group) = pid.and_then(|pid| libc::pid_t::try_from(pid).ok()) {
+        // SAFETY: `kill` takes no pointers; the group is the child's own,
+        // and the slot is cleared once the child is waited for.
+        unsafe {
+            libc::kill(-group, libc::SIGTERM);
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = pid;
+}
+
 /// The `epicenter` children each window's page started, by window label,
 /// each as the signal that ends its run. Cloning shares the one record, so a
 /// run can hold it across its awaits.
@@ -327,7 +343,13 @@ pub(crate) struct Invocation {
     env: Vec<(OsString, OsString)>,
     desktop: bool,
     owner: Option<(CliChildren, String, Option<String>)>,
+    started: Option<StartedChild>,
 }
+
+/// Where a run records its child's process ID once the child starts, so
+/// work no page owns can signal it without awaiting anything, as the shell
+/// must when the app exits. The run clears it when the child is waited for.
+pub(crate) type StartedChild = Arc<Mutex<Option<u32>>>;
 
 impl Invocation {
     /// `program` with the deployment at `origin` and this shell's `paths`,
@@ -345,7 +367,14 @@ impl Invocation {
             ],
             desktop: false,
             owner: None,
+            started: None,
         }
+    }
+
+    /// Record the child's process ID in `slot` while it runs.
+    pub(crate) fn recording_child(mut self, slot: &StartedChild) -> Self {
+        self.started = Some(Arc::clone(slot));
+        self
     }
 
     /// Run as the desktop app's grant: `--desktop` follows the arguments.
@@ -393,7 +422,19 @@ impl Invocation {
             .as_ref()
             .map(|(children, window, request_id)| children.start(window, request_id.as_deref()))
             .transpose()?;
-        let exit = run_child(&self.program, &args, &self.env, stdin, on_line, end.clone()).await;
+        let exit = run_child(
+            &self.program,
+            &args,
+            &self.env,
+            stdin,
+            on_line,
+            end.clone(),
+            self.started.as_ref(),
+        )
+        .await;
+        if let Some(slot) = &self.started {
+            *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        }
         if let (Some((children, window, _)), Some(end)) = (&self.owner, &end) {
             children.finish(window, end);
         }
@@ -446,6 +487,7 @@ async fn run_child(
     stdin: Option<Vec<u8>>,
     mut on_line: impl FnMut(String) -> Result<(), String>,
     end: Option<Arc<Notify>>,
+    started: Option<&StartedChild>,
 ) -> Result<CliExit, CliError> {
     let ended = async move {
         match end {
@@ -476,6 +518,9 @@ async fn run_child(
         ))
     })?));
     let child = running.child();
+    if let Some(slot) = started {
+        *slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = child.id();
+    }
 
     let writer = match (stdin, child.stdin.take()) {
         (Some(body), Some(mut pipe)) => Some(tokio::spawn(async move {

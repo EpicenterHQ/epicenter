@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-unshare-folder"
+description = "Enables the unshare_folder command without any pre-configured scope."
+commands.allow = ["unshare_folder"]
+
+[[permission]]
+identifier = "deny-unshare-folder"
+description = "Denies the unshare_folder command without any pre-configured scope."
+commands.deny = ["unshare_folder"]

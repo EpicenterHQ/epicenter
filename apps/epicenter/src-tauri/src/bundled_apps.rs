@@ -16,13 +16,11 @@
 //! - Open an app: its fixed default, `<folder_dir>/<id>`, such as
 //!   `<folder_dir>/so.epicenter.todos`, created when missing and reused as it
 //!   is otherwise. Nothing is saved, so a removed default is made again.
-//! - Open a listed folder in an app: a current row in the combined root and
-//!   grouped folder listing, found again by its native ID. It must exist.
 //! - Choose a folder for an app: the native folder picker, in Rust. The
 //!   chosen directory must exist and be a real directory; its parent may be
 //!   a link.
 //!
-//! A listed or chosen folder that is missing, a file, or a link is refused,
+//! A chosen folder that is missing, a file, or a link is refused,
 //! never created and never replaced by the default. A folder that overlaps
 //! Epicenter's own files is refused however it is reached: the records
 //! directory, `<folder_dir>/so.epicenter`, or anything in it, its save staging
@@ -44,9 +42,7 @@ use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_epicenter_folder::Directory;
 
-use crate::data_folders::overlaps_epicenter_files;
-use crate::folder_opening::{remember_opened, OpenedFolder};
-use crate::folder_windows;
+use crate::folder_windows::{self, overlaps_epicenter_files};
 use crate::DesktopAppHandle;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 
@@ -142,25 +138,17 @@ impl BundledApp {
 pub(crate) enum AppFolder {
     /// The fixed library default, created when missing.
     Default,
-    /// A folder in the grouped listing, identified by its native row ID.
-    Listed(String),
     /// A directory the person chose in the native picker.
     Chosen(PathBuf),
 }
 
-/// Open bundled app `app` on its fixed default, or with `folder`, on
-/// the folder identified by a current row in the grouped listing. A window
-/// already open on the folder is revealed.
+/// Open bundled app `app` on its fixed default. A window already open on
+/// the folder is revealed.
 #[tauri::command]
 #[specta::specta]
-pub async fn open_bundled_app(
-    handle: DesktopAppHandle,
-    app: BundledApp,
-    folder: Option<String>,
-) -> Result<OpenedFolder, String> {
+pub async fn open_bundled_app(handle: DesktopAppHandle, app: BundledApp) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let target = folder.map_or(AppFolder::Default, AppFolder::Listed);
-        open_on(&handle, app, target).map(|(_, opened)| opened)
+        open_on(&handle, app, AppFolder::Default).map(|_| ())
     })
     .await
     .map_err(|error| format!("the {} window could not be opened: {error}", app.name()))?
@@ -174,7 +162,7 @@ pub async fn open_bundled_app(
 pub async fn choose_folder_for_app(
     handle: DesktopAppHandle,
     app: BundledApp,
-) -> Result<Option<OpenedFolder>, String> {
+) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let folder_dir = handle.state::<DesktopPaths>().folder_dir.clone();
         let picked = handle
@@ -198,11 +186,11 @@ pub(crate) fn open_chosen<R: Runtime>(
     handle: &AppHandle<R>,
     app: BundledApp,
     picked: Option<PathBuf>,
-) -> Result<Option<OpenedFolder>, String> {
+) -> Result<bool, String> {
     let Some(path) = picked else {
-        return Ok(None);
+        return Ok(false);
     };
-    open_on(handle, app, AppFolder::Chosen(path)).map(|(_, opened)| Some(opened))
+    open_on(handle, app, AppFolder::Chosen(path)).map(|_| true)
 }
 
 /// Resolve `target` for `app`, then reveal its window or bind and build it.
@@ -210,22 +198,11 @@ pub(crate) fn open_on<R: Runtime>(
     handle: &AppHandle<R>,
     app: BundledApp,
     target: AppFolder,
-) -> Result<(WebviewWindow<R>, OpenedFolder), String> {
-    let directory = app_directory(
-        &handle.state::<DesktopPaths>(),
-        app,
-        target,
-        &handle.state::<crate::folder_opening::FolderOpenings>(),
-    )?;
+) -> Result<WebviewWindow<R>, String> {
+    let directory = app_directory(&handle.state::<DesktopPaths>(), app, target)?;
     let title = app.window_title(&folder_windows::directory_name(&directory));
-    let window = folder_windows::open(handle, app.page(), directory.clone(), title, &app.path())
-        .map_err(|error| format!("{error:#}"))?;
-    let opened = remember_opened(
-        &handle.state::<crate::folder_opening::FolderOpenings>(),
-        &handle.state::<DesktopPaths>(),
-        &directory,
-    );
-    Ok((window, opened))
+    folder_windows::open(handle, app.page(), directory, title, &app.path())
+        .map_err(|error| format!("{error:#}"))
 }
 
 /// The directory `app` opens `target` in: its fixed default, admitted and
@@ -235,15 +212,13 @@ fn app_directory(
     paths: &DesktopPaths,
     app: BundledApp,
     target: AppFolder,
-    openings: &crate::folder_opening::FolderOpenings,
 ) -> Result<Directory, String> {
-    let opened = match target {
+    let directory = match target {
         AppFolder::Default => return paths.open_default(app.library_default()),
-        AppFolder::Listed(id) => crate::folder_listing::listed_directory(paths, openings, &id),
-        AppFolder::Chosen(path) => Directory::existing(&path).map_err(|error| error.to_string()),
-    };
-    let directory = opened
-        .map_err(|error| format!("The folder could not be opened in {}: {error}", app.name()))?;
+        AppFolder::Chosen(path) => Directory::existing(&path),
+    }
+    .map_err(|error| error.to_string())
+    .map_err(|error| format!("The folder could not be opened in {}: {error}", app.name()))?;
     if overlaps_epicenter_files(paths, &directory) {
         return Err(format!(
             "This folder holds Epicenter's own files, so it cannot be opened in {}.",
@@ -272,7 +247,6 @@ mod tests {
     use tauri_plugin_epicenter_folder::FolderExt;
 
     use super::*;
-    use crate::data_folders::list_in;
 
     use super::BundledApp::{Capture, Honeycrisp, Todos, Whispering};
 
@@ -295,24 +269,17 @@ mod tests {
         /// Open `app` on `target` as the commands do. The boolean records
         /// whether its window already existed before this call.
         fn open(&self, app: BundledApp, target: AppFolder) -> Result<(String, bool), String> {
-            let target = match target {
-                AppFolder::Listed(name) if !name.starts_with("folder:") => {
-                    let path = self.folder_dir.join(name);
-                    let path = dunce::canonicalize(&path).unwrap_or(path);
-                    AppFolder::Listed(crate::folder_listing::folder_id(&path))
-                }
-                target => target,
-            };
             let before = self.app.webview_windows().len();
-            let (window, _) = open_on(self.app.handle(), app, target)?;
+            let window = open_on(self.app.handle(), app, target)?;
             Ok((
                 window.label().to_owned(),
                 self.app.webview_windows().len() == before,
             ))
         }
 
+        /// Open `app` on the folder `name` under the root, as if chosen.
         fn listed(&self, app: BundledApp, name: &str) -> Result<String, String> {
-            self.open(app, AppFolder::Listed(name.to_string()))
+            self.open(app, AppFolder::Chosen(self.folder_dir.join(name)))
                 .map(|(label, _)| label)
         }
 
@@ -365,7 +332,6 @@ mod tests {
         }
         let app = mock_builder()
             .plugin(tauri_plugin_epicenter_folder::init())
-            .manage(crate::folder_opening::FolderOpenings::default())
             .manage(DesktopPaths {
                 data_dir: data_dir.clone(),
                 folder_dir: folder_dir.clone(),
@@ -520,7 +486,9 @@ mod tests {
             assert_eq!(todo_files(&fixture.window(&label_b)), json!(["eggs.md"]));
 
             assert_eq!(
-                fixture.open(app, AppFolder::Listed("A".into())).unwrap(),
+                fixture
+                    .open(app, AppFolder::Chosen(fixture.folder_dir.join("A")))
+                    .unwrap(),
                 (label_a.clone(), true)
             );
             assert_eq!(bound_root(&fixture, &label_a), a);
@@ -534,7 +502,6 @@ mod tests {
     fn one_apps_default_opens_in_every_bundled_app() {
         let fixture = fixture();
         let todos = fixture.listed_with_todo(library::TODOS.id, "milk");
-        assert_eq!(list_in(&fixture.folder_dir).unwrap(), [todos.clone()]);
         for app in BundledApp::ALL {
             let label = fixture.listed(app, library::TODOS.id).unwrap();
             assert_eq!(bound_root(&fixture, &label), todos);
@@ -683,30 +650,6 @@ mod tests {
         assert_eq!(bound_root(&fixture, &todos), real.join(library::TODOS.id));
     }
 
-    /// A listed folder that is gone is refused: nothing is created in its
-    /// place, and the default is not opened instead.
-    #[test]
-    fn a_missing_listed_folder_is_refused_without_creating_it_or_the_default() {
-        for app in BundledApp::ALL {
-            let fixture = fixture();
-            fixture.listed_with_todo("A", "milk");
-            fs::remove_dir_all(fixture.folder_dir.join("A")).unwrap();
-
-            let default = fixture.folder_dir.join(app.library_default().id);
-            let refused = fixture.listed(app, "A").unwrap_err();
-            assert!(refused.contains("no longer in the list"), "{refused}");
-            assert!(!fixture.folder_dir.join("A").exists());
-            assert!(!default.exists());
-
-            // A name that is not one listed directory, and a path, open nothing.
-            for unlisted in ["B", "data:A", "/tmp", "../A", "", "A/B"] {
-                assert!(fixture.listed(app, unlisted).is_err(), "{unlisted}");
-            }
-            assert!(!default.exists());
-            assert!(fixture.app.webview_windows().is_empty());
-        }
-    }
-
     /// Opening an app makes its fixed default when it is missing, and binds
     /// the window to that directory, empty. Each app has its own. Opening it
     /// again, or opening the listed default, reveals the same window. No
@@ -737,7 +680,10 @@ mod tests {
                 (label.clone(), true)
             );
         }
-        let mut children = list_in(&fixture.folder_dir).unwrap();
+        let mut children: Vec<PathBuf> = fs::read_dir(&fixture.folder_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
         children.sort();
         assert_eq!(
             children,
@@ -749,13 +695,6 @@ mod tests {
                 "so.epicenter.whispering"
             ]
             .map(|name| fixture.folder_dir.join(name))
-        );
-        assert_eq!(
-            epicenter_folder_core::navigation::read(&fixture.data_dir)
-                .unwrap()
-                .recent
-                .len(),
-            5
         );
     }
 
@@ -795,34 +734,6 @@ mod tests {
         }
     }
 
-    /// An earlier build's `folders.json` names another location; ordinary
-    /// launches ignore it and leave it as it was.
-    #[test]
-    fn an_old_folder_configuration_neither_redirects_nor_blocks_a_launch() {
-        let fixture = fixture();
-        let old = fixture.elsewhere("Old Todos");
-        let config = fixture.data_dir.join("folders.json");
-        let contents = serde_json::to_string(&json!({
-            "homes": { "todos": old, "epicenter": old },
-            "folders": [],
-        }))
-        .unwrap();
-        fs::write(&config, &contents).unwrap();
-        let label = fixture.default(Todos).unwrap();
-        assert_eq!(
-            bound_root(&fixture, &label),
-            fixture.folder_dir.join(library::TODOS.id)
-        );
-        fs::write(&config, "not json").unwrap();
-        let capture = fixture.default(Capture).unwrap();
-        assert_eq!(
-            bound_root(&fixture, &capture),
-            fixture.folder_dir.join(library::CAPTURE.id)
-        );
-        assert_eq!(fs::read_to_string(&config).unwrap(), "not json");
-        assert_eq!(fs::read_dir(&old).unwrap().count(), 0);
-    }
-
     /// The default is not a link the shell would follow out of the root.
     #[cfg(unix)]
     #[test]
@@ -850,14 +761,12 @@ mod tests {
         let home_notes = fixture.folder_with_todo(&home, "Notes", "milk");
         let work_notes = fixture.folder_with_todo(&work, "Notes", "eggs");
 
-        assert_eq!(open_chosen(fixture.app.handle(), Todos, None), Ok(None));
+        assert_eq!(open_chosen(fixture.app.handle(), Todos, None), Ok(false));
         assert!(fixture.app.webview_windows().is_empty());
 
         assert_eq!(
             open_chosen(fixture.app.handle(), Todos, Some(home_notes.clone())),
-            Ok(Some(crate::folder_opening::OpenedFolder {
-                remember_problem: None
-            }))
+            Ok(true)
         );
         let (home_label, was_open) = fixture
             .open(Todos, AppFolder::Chosen(home_notes.clone()))

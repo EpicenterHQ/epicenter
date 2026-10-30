@@ -81,7 +81,7 @@ export const commands = {
 	 */
 	openHome: (section: 
 /**  Account sign-in and sign-out. */
-"account" |
+"account" | 
 /**  Local transcription model administration. */
 "transcription" | null) => __TAURI_INVOKE<void>("open_home", { section }),
 	/**
@@ -91,23 +91,46 @@ export const commands = {
 	 */
 	takePendingHomeSection: () => __TAURI_INVOKE<
 /**  Account sign-in and sign-out. */
-"account" |
+"account" | 
 /**  Local transcription model administration. */
 "transcription" | null>("take_pending_home_section"),
-	listDataFolders: () => __TAURI_INVOKE<FolderListing>("list_data_folders"),
+	/**  The folders the CLI registered, each with its last round. */
+	syncedFolders: () => typedError<SyncedFolderListing, CliError>(__TAURI_INVOKE("synced_folders")),
 	/**
-	 *  The directories apps asked Epicenter to open that the person has not
-	 *  accepted or dismissed, oldest first. Reads none of them.
+	 *  Choose a folder with the native picker and set it up for sync: `None`
+	 *  when the person cancelled.
 	 */
-	pendingFolderOpenings: () => __TAURI_INVOKE<string[]>("pending_folder_openings"),
-	/**  Accept a pending request and open its own editor, then record recency. */
-	acceptFolderOpening: (path: string) => typedError<OpenedFolder, string>(__TAURI_INVOKE("accept_folder_opening", { path })),
-	/**  Let go of an app's request to open `path` without reading it. */
-	dismissFolderOpening: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_opening", { path }),
-	pinFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("pin_folder", { id })),
-	unpinFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("unpin_folder", { id })),
-	removeRecentFolder: (id: string) => typedError<null, string>(__TAURI_INVOKE("remove_recent_folder", { id })),
-	openFolderEditor: (id: string) => typedError<OpenedFolder, string>(__TAURI_INVOKE("open_folder_editor", { id })),
+	addSyncedFolder: () => typedError<{
+	folder: string,
+	changed?: string[],
+	warnings?: string[],
+} | null, CliError>(__TAURI_INVOKE("add_synced_folder")),
+	/**
+	 *  Set up the folder an `epicenter://init` link asked for. A refusal keeps
+	 *  the request, so the person can read why and dismiss it.
+	 */
+	acceptFolderSetup: (path: string) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("accept_folder_setup", { path })),
+	/**  Let go of a request to sync `path` without reading it. */
+	dismissFolderSetup: (path: string) => __TAURI_INVOKE<void>("dismiss_folder_setup", { path }),
+	/**
+	 *  `epicenter clone <source>`: a repository as `<owner>/<name>` or a URL,
+	 *  into the library folder, set up and registered.
+	 */
+	cloneSyncedFolder: (source: string) => typedError<FolderSetUp, CliError>(__TAURI_INVOKE("clone_synced_folder", { source })),
+	/**  One round of `epicenter sync <path>` now, kept as the folder's last. */
+	syncFolderNow: (path: string) => typedError<SyncRound, CliError>(__TAURI_INVOKE("sync_folder_now", { path })),
+	/**  `epicenter forget <path>`: stop syncing it, leaving its files and history. */
+	forgetSyncedFolder: (path: string) => typedError<null, CliError>(__TAURI_INVOKE("forget_synced_folder", { path })),
+	/**  Open a synced folder's files in an editor window of their own. */
+	openSyncedFolder: (path: string) => typedError<null, string>(__TAURI_INVOKE("open_synced_folder", { path })),
+	/**  Who the repository a synced folder pushes to is shared with. */
+	folderSharing: (path: string) => typedError<RepositoryGrants, CliError>(__TAURI_INVOKE("folder_sharing", { path })),
+	/**  Let `person` read, or also write, the repository a synced folder pushes to. */
+	shareFolder: (path: string, person: string, level: GrantLevel) => typedError<RepositoryGrant, CliError>(__TAURI_INVOKE("share_folder", { path, person, level })),
+	/**  Revoke `person`'s access to the repository a synced folder pushes to. */
+	unshareFolder: (path: string, person: string) => typedError<RepositoryGrantRevoked, CliError>(__TAURI_INVOKE("unshare_folder", { path, person })),
+	/**  Start the service again after it stopped. */
+	restartSyncService: () => __TAURI_INVOKE<void>("restart_sync_service"),
 	folderQuery: (sql: string) => typedError<QueryAnswer, CliError>(__TAURI_INVOKE("folder_query", { sql })),
 	/**
 	 *  Send one request over an AI connection with the key saved on this
@@ -172,20 +195,16 @@ export const commands = {
 	 */
 	whisperingConnectionSet: (connection: WhisperingConnection, fields: ConnectionRowAssignment_Deserialize) => typedError<ConnectionRow_Serialize, CliError>(__TAURI_INVOKE("whispering_connection_set", { connection, fields })),
 	/**
-	 *  Open bundled app `app` on its fixed default, or with `folder`, on
-	 *  the folder identified by a current row in the grouped listing. A window
-	 *  already open on the folder is revealed.
+	 *  Open bundled app `app` on its fixed default. A window already open on
+	 *  the folder is revealed.
 	 */
-	openBundledApp: (app: BundledApp, folder: string | null) => typedError<OpenedFolder, string>(__TAURI_INVOKE("open_bundled_app", { app, folder })),
+	openBundledApp: (app: BundledApp) => typedError<null, string>(__TAURI_INVOKE("open_bundled_app", { app })),
 	/**
 	 *  Ask the person for a folder with the native picker and open bundled app
 	 *  `app` on it, or reveal the window already open on it. Answers whether a
 	 *  folder was chosen. The page passes no path: the picker answers Rust.
 	 */
-	chooseFolderForApp: (app: BundledApp) => typedError<{
-	/**  Why `navigation.sqlite` was not updated; the folder is open regardless. */
-	rememberProblem: string | null,
-} | null, string>(__TAURI_INVOKE("choose_folder_for_app", { app })),
+	chooseFolderForApp: (app: BundledApp) => typedError<boolean, string>(__TAURI_INVOKE("choose_folder_for_app", { app })),
 	openHostedSite: (url: string) => typedError<null, string>(__TAURI_INVOKE("open_hosted_site", { url })),
 	/**  When the host drops the resident model. */
 	getUnloadPolicy: () => __TAURI_INVOKE<UnloadPolicy>("get_unload_policy"),
@@ -501,13 +520,24 @@ export type DownloadProgress = {
 	totalBytes: number | null,
 };
 
-export type FolderGroup = "pinned" | "library" | "recent";
-
-export type FolderListing = {
-	folders: ListedFolder[],
-	libraryName: string,
-	problems: string[],
+/**  What `epicenter init` or `clone` did. */
+export type FolderSetUp = {
+	folder: string,
+	changed?: string[],
+	warnings?: string[],
 };
+
+/**  A folder an `epicenter://init` link asked to sync. */
+export type FolderSetup = {
+	path: string,
+	/**
+	 *  The contract the link named, shown to the person. `epicenter init`
+	 *  takes no contract yet (decision 64).
+	 */
+	contract: string | null,
+};
+
+export type GrantLevel = "read" | "write";
 
 /**
  *  A section of Epicenter Home an application can ask the shell to open.
@@ -518,7 +548,7 @@ export type FolderListing = {
  */
 export type HomeSection = 
 /**  Account sign-in and sign-out. */
-"account" |
+"account" | 
 /**  Local transcription model administration. */
 "transcription";
 
@@ -538,20 +568,6 @@ export type InferenceModel = {
 
 /**  One step of an issue's path: a field name or an index. */
 export type IssuePathStep = string | number;
-
-export type ListedFolder = {
-	id: string,
-	title: string,
-	/**  Display only. Openings pass the ID and recheck current membership. */
-	path: string,
-	group: FolderGroup,
-	/**  A pinned or library folder can also have a removable recent entry. */
-	recent: boolean,
-	protected: boolean,
-	defaultFor: string | null,
-	temporary: boolean,
-	problem: string | null,
-};
 
 /**
  *  Whether the active-model transcription route is ready and which hints it accepts.
@@ -597,12 +613,6 @@ export type ModelInfo = {
 	downloaded: boolean,
 };
 
-/**  A successful native opening, with a separate persistence failure if any. */
-export type OpenedFolder = {
-	/**  Why `navigation.sqlite` was not updated; the folder is open regardless. */
-	rememberProblem: string | null,
-};
-
 export type QueryAnswer = {
 	columns: string[],
 	rows: { [key in string]: QueryCell }[],
@@ -613,12 +623,76 @@ export type QueryAnswer = {
 
 export type QueryCell = null | number | null | string | number[];
 
+/**  One person a repository is shared with (`RepositoryGrant`). */
+export type RepositoryGrant = {
+	person: string,
+	level: GrantLevel,
+};
+
+export type RepositoryGrantRevoked = {
+	person: string,
+	revoked: boolean,
+};
+
+export type RepositoryGrants = {
+	grants: RepositoryGrant[],
+};
+
 /**
  *  Failures the Home administration commands can report. Both are actionable:
  *  the id is not a model this build knows, or the choice could not be made
  *  durable.
  */
 export type SettingsError = { name: "UnknownModel"; message: string } | { name: "SaveFailed"; message: string };
+
+/**  One folder's line of `epicenter sync --json` (`SyncResult` in the CLI). */
+export type SyncRound = {
+	folder: string,
+	status: SyncStatus,
+	/**  The commit the folder's repository is at when the round ended. */
+	head?: string | null,
+	/**  What the round did, one line each. */
+	notes?: string[],
+	/**  Why the round ended `retry` or `stopped`. */
+	message?: string | null,
+	/**  When this shell heard the round end, in milliseconds since the epoch. */
+	endedAt?: number | null,
+};
+
+/**  Whether `epicenter sync --watch` is running for this app. */
+export type SyncService = { state: "starting" } | { state: "running" } | { state: "stopped"; reason: string };
+
+/**
+ *  How one round of `epicenter sync` ended for a folder: 0, 1 and 2 as exit
+ *  codes.
+ */
+export type SyncStatus = "synced" | "retry" | "stopped";
+
+/**  A registered folder, with its last round. */
+export type SyncedFolder = {
+	path: string,
+	name: string,
+	/**  The `origin` URL, or none for a folder that syncs only locally. */
+	remote: string | null,
+	/**  Files under the folder changed since its last commit. */
+	changes: number,
+	/**  Commits ahead and behind the last fetched `origin/main`. */
+	ahead: number | null,
+	behind: number | null,
+	/**
+	 *  Why the folder cannot be read: "not on disk", "not in a Git repository",
+	 *  or a repository `init` has not adopted.
+	 */
+	problem: string | null,
+	last: SyncRound | null,
+};
+
+/**  What the Folders window shows. */
+export type SyncedFolderListing = {
+	folders: SyncedFolder[],
+	service: SyncService,
+	setups: FolderSetup[],
+};
 
 export type TranscriptionError = { name: "AudioReadError"; message: string } | 
 /**

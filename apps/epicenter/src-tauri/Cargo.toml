@@ -62,8 +62,7 @@ required-features = ["hosted-site-offline-gate"]
 dunce = "1"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
-# Fixed library defaults and machine-local navigation shared with the CLI.
-# SQLite serializes navigation writers (`epicenter_folder_core::navigation`).
+# Fixed library defaults shared with the CLI.
 epicenter-folder-core = { path = "../../../packages/tauri-plugin-epicenter-folder/core" }
 tauri-plugin-epicenter-recorder = { path = "../../../packages/tauri-plugin-epicenter-recorder" }
 anyhow = "1"
@@ -72,11 +71,8 @@ enigo = { version = "0.5.0", optional = true }
 hf-hub = { version = "0.5", features = ["tokio"] }
 hound = "3.5"
 log = "0.4"
-notify = "8"
-notify-debouncer-full = "0.5"
 percent-encoding = "2"
 rubato = "0.15"
-same-file = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

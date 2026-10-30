@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-accept-folder-setup"
+description = "Enables the accept_folder_setup command without any pre-configured scope."
+commands.allow = ["accept_folder_setup"]
+
+[[permission]]
+identifier = "deny-accept-folder-setup"
+description = "Denies the accept_folder_setup command without any pre-configured scope."
+commands.deny = ["accept_folder_setup"]
