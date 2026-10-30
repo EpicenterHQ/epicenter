@@ -108,7 +108,7 @@ type LfsAction = { href: string; header?: Record<string, string> };
 type LfsAnswer = {
 	oid: string;
 	size: number;
-	actions?: Partial<Record<'upload' | 'verify' | 'download', LfsAction>>;
+	actions?: Partial<Record<'upload' | 'download', LfsAction>>;
 	error?: { code: number; message: string };
 };
 
@@ -284,9 +284,11 @@ export function createWire(account: RemoteAccount, name: string) {
 			});
 		},
 		/**
-		 * Store each of `files`' bytes as an LFS object (upload, then verify),
-		 * skipping the ones the server already has. Returns their objects in
-		 * order.
+		 * Store each of `files`' bytes as an LFS object, skipping the ones
+		 * the server already has. No upload is verified afterwards: every
+		 * store keeps only bytes that hash to their oid, and the server checks
+		 * the object again before it admits a pointer. Returns their objects
+		 * in order.
 		 */
 		async upload(
 			files: Uint8Array[],
@@ -301,7 +303,7 @@ export function createWire(account: RemoteAccount, name: string) {
 			const answered = await batch('upload', objects);
 			if (answered.error !== null) return answered;
 			for (const answer of answered.data) {
-				const { upload, verify } = answer.actions ?? {};
+				const upload = answer.actions?.upload;
 				if (upload === undefined) continue;
 				const index = objects.findIndex(({ oid }) => oid === answer.oid);
 				const bytes = files[index];
@@ -312,13 +314,6 @@ export function createWire(account: RemoteAccount, name: string) {
 					body: bytes as Uint8Array<ArrayBuffer>,
 				});
 				if (put.error !== null) return put;
-				if (verify === undefined) continue;
-				const verified = await act(verify, {
-					method: 'POST',
-					headers: { accept: LFS_JSON, 'content-type': LFS_JSON },
-					body: JSON.stringify({ oid: answer.oid, size: answer.size }),
-				});
-				if (verified.error !== null) return verified;
 			}
 			return Ok(objects);
 		},

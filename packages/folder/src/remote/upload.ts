@@ -5,7 +5,7 @@
  *
  * One run drains the device's outbox, oldest capture first. For each:
  *
- * 1. its files' bytes go up as Git LFS objects (batch, PUT, verify), notes
+ * 1. its files' bytes go up as Git LFS objects (batch, then PUT), notes
  *    as text;
  * 2. one write carries the capture's id, so the server makes one commit and
  *    keeps a receipt; a resend after a lost reply gets that first receipt
