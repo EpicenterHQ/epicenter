@@ -66,15 +66,12 @@ describe('admission', () => {
 		expect(server.push(make(server, [{ path: 'n/a.md', text }]), alice)).toMatchObject({ kind: 'applied' });
 	});
 
-	test("a commit's time is an ISO instant no later than the server's clock allows; an earlier one is a resend's", () => {
+	test("a commit's time is any ISO instant: a label people read, never refused for a clock", () => {
 		const { server } = setup();
 		const files = [{ path: 'n/a.md', text: note('a\n') }];
 		expect(server.push(make(server, files, { time: 'yesterday' }), alice)).toMatchObject({ kind: 'rejected', code: 'bad-time', reason: 'the time is not an ISO instant' });
-		expect(server.push(make(server, files, { time: new Date(EPOCH + LIMITS.skew + 1).toISOString() }), alice)).toMatchObject({
-			kind: 'rejected',
-			code: 'clock-ahead',
-		});
-		expect(server.push(make(server, files, { time: new Date(EPOCH - 3 * 24 * 3_600_000).toISOString() }), alice)).toMatchObject({ kind: 'applied' });
+		expect(server.push(make(server, files, { time: new Date(EPOCH + 365 * 24 * 3_600_000).toISOString() }), alice)).toMatchObject({ kind: 'applied' });
+		expect(server.push(make(server, [{ path: 'n/a.md', text: note('b\n') }], { time: new Date(EPOCH - 3 * 24 * 3_600_000).toISOString() }), alice)).toMatchObject({ kind: 'applied' });
 	});
 
 	test('a merge result passes the door too', () => {

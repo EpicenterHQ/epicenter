@@ -144,7 +144,6 @@ export type RequestCode =
 	| 'no-parent'
 	| 'bad-id'
 	| 'bad-time'
-	| 'clock-ahead'
 	| 'path-twice'
 	| 'file-moved'
 	| 'no-precondition';
@@ -166,7 +165,6 @@ export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, st
 	'no-parent': 'no parent',
 	'bad-id': 'the id is not the hash of the commit',
 	'bad-time': 'the time is not an ISO instant',
-	'clock-ahead': "the time is ahead of the server's clock",
 	'path-twice': 'a path is named twice',
 	'file-moved': 'the file moved',
 	'no-precondition': 'no precondition',
@@ -233,8 +231,6 @@ export type Limits = {
 	seen: number;
 	/** Commits in one `git push`. */
 	pushedCommits: number;
-	/** How far ahead of the server's clock a commit's `time` may be, in ms. */
-	skew: number;
 	/** Bytes of one blob. */
 	blob: number;
 	/** Bytes of every blob the repository holds, together. */
@@ -253,7 +249,6 @@ export const LIMITS: Limits = {
 	window: 10 * 60_000,
 	seen: 24 * 60 * 60_000,
 	pushedCommits: 1000,
-	skew: 5 * 60_000,
 	blob: MAX_BLOB_BYTES,
 	quota: 10 * 1000 ** 3,
 };
@@ -423,15 +418,13 @@ export function createServer({
 		if (session === undefined) return reject('no-session');
 		if (session.role === null) return reject('not-member');
 		if (session.role === 'reader') return reject('reader');
-		const now = clock();
 		if (rate && !take(session.user, 1, limits.burst, limits.rate)) return reject('rate');
 		if (commit.parent === undefined) return reject('no-parent');
 		// The id is checked before any recorded outcome is read, so a replayed id with other files is refused.
 		if (commitId(commit) !== commit.id) return reject('bad-id');
 		if (commit.author.user !== session.user) return reject('not-author');
-		// RULE: `time` is a label people read (in conflict blocks), never an order: an ISO instant, not ahead of the server's clock by more than the skew. An earlier one is a commit sent again after time offline.
+		// RULE: `time` is the device's claim, any ISO instant: a label people read (in conflict blocks, and Git's author date), never an order. What is time-based (the window, the flush schedule) runs on the server's clock, when a commit arrives.
 		if (!isInstant(commit.time)) return reject('bad-time');
-		if (Date.parse(commit.time) > now + limits.skew) return reject('clock-ahead');
 		if (bytes(JSON.stringify(commit)) > limits.request) return reject('too-large');
 		if (commit.files.length > limits.files) return reject('too-many-files');
 		const paths = new Set<string>();

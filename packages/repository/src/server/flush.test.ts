@@ -129,6 +129,27 @@ describe('a crash at each step boundary', () => {
 		});
 });
 
+test("a device may claim any time: its claim is Git's author date, the server's arrival its committer date, and the window and schedule run on arrival", async () => {
+	const { git, path } = await bunGit();
+	const clock = { now: EPOCH };
+	const server = createServer({ store: openBunSqlite(), git, clock: () => clock.now });
+	const claim = (time: string, text: string) => {
+		const body = { parent: server.main(), author: { user: alice.user, device: 'laptop' }, time, files: [{ path: 'notes/a.md', text: note(text) }] };
+		return server.push({ id: commitId(body), ...body }, alice);
+	};
+	// A clock a year ahead, and one a decade behind: both are taken.
+	expect(claim('2027-10-28T12:00:00.000Z', 'ahead\n')).toMatchObject({ kind: 'applied' });
+	await server.flush();
+	clock.now += 60_000;
+	expect(claim('2016-10-28T12:00:00.000Z', 'behind\n')).toMatchObject({ kind: 'applied' });
+	await server.flush();
+	const log = Bun.spawnSync(['git', '--git-dir', path, 'log', '--format=%at %ct', MAIN]).stdout.toString().trim().split('\n');
+	expect(log).toEqual([`${Date.UTC(2016, 9, 28, 12) / 1000} ${(EPOCH + 60_000) / 1000}`, `${Date.UTC(2027, 9, 28, 12) / 1000} ${EPOCH / 1000}`]);
+	// The window runs on arrival: the claim a year ahead is not kept a year longer.
+	clock.now += 2 * 24 * 3_600_000;
+	expect(server.history().commits).toBeLessThanOrEqual(2);
+});
+
 test('a flush asked for twice at once runs once; two instances flushing at once make one Git commit', async () => {
 	const { git, path } = await bunGit();
 	const store = openBunSqlite();

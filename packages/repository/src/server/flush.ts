@@ -69,8 +69,10 @@ type Planned = {
 	parents: string[];
 	message: string;
 	author: Signature;
-	/** Milliseconds since the epoch. */
+	/** When it arrived, milliseconds since the epoch: the committer date. */
 	at: number;
+	/** The author date, seconds since the epoch: the time its writer claimed. A plan journaled before this field dates its author by `at`. */
+	authored?: number;
 	/** The blob ids this commit adds to its parent's tree. */
 	blobs: string[];
 	/** The tree ids this commit adds to its parent's tree. */
@@ -208,10 +210,12 @@ export function createFlusher({
 			// RULE: a join is Epicenter's commit, not its pusher's: the pushed commit is the push, and the join is the live edits merged into it.
 			const most = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
 			const author = join !== undefined || most === undefined ? COMMITTER : signatureOf(most);
+			// RULE: the author date is the claim the cut's commit carries (a device may claim any time; Git counts from 1970, so no earlier), the committer date when it arrived.
 			const seconds = Math.floor(cut.at / 1000);
-			const oid = gitCommitHash({ tree, parents, message, author: { ...author, at: seconds }, committer: { ...COMMITTER, at: seconds } });
+			const authored = Math.max(0, Math.floor(Date.parse(cut.time) / 1000));
+			const oid = gitCommitHash({ tree, parents, message, author: { ...author, at: authored }, committer: { ...COMMITTER, at: seconds } });
 			const blobs = [...new Set(changed.map((path) => trees.read(tree, path)).filter((hash): hash is string => hash !== null))];
-			commits.push({ oid, tree, parents, message, author, at: cut.at, blobs, trees: trees.added(against, tree) });
+			commits.push({ oid, tree, parents, message, author, at: cut.at, authored, blobs, trees: trees.added(against, tree) });
 			previousTree = tree;
 			previousOid = oid;
 		}
@@ -250,7 +254,7 @@ export function createFlusher({
 				add(tree, () => gitTreeObject([...entries]));
 			}
 			const at = Math.floor(commit.at / 1000);
-			add(commit.oid, () => gitCommitObject({ tree: commit.tree, parents: commit.parents, message: commit.message, author: { ...commit.author, at }, committer: { ...COMMITTER, at } }));
+			add(commit.oid, () => gitCommitObject({ tree: commit.tree, parents: commit.parents, message: commit.message, author: { ...commit.author, at: commit.authored ?? at }, committer: { ...COMMITTER, at } }));
 		}
 		// Another run of this flush may have staged it meanwhile.
 		if (!(await git.writePack(objects, { name: plan.staging, next: tip, expected: staged })) && (await git.readRef(plan.staging)) !== tip) throw new Error(`the staging ref ${plan.staging} moved`);

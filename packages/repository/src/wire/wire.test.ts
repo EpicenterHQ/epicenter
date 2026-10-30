@@ -728,7 +728,6 @@ describe('socket tickets', () => {
 				binding: { repository: 'test', server: 'test-server', account: 'alice' },
 				device: 'laptop',
 				after: (ms, run) => setTimeout(run, ms),
-				// The server's clock: a commit dated ahead of it is rejected.
 				now: () => EPOCH,
 				quiet: 0,
 			}),

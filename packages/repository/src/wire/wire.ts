@@ -200,7 +200,6 @@ const REJECTED: Record<RequestCode, number> = {
 	'too-many-files': 413,
 	'bad-id': 422,
 	'bad-time': 422,
-	'clock-ahead': 422,
 	'path-twice': 422,
 };
 
