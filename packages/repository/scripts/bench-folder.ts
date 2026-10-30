@@ -76,6 +76,8 @@ try {
 	if (joined.error !== null) throw new Error(joined.error.message);
 	await joined.data.engine.start({ watch: false });
 	for (let i = 0; i < CHANGED; i++) writeFileSync(join(small, `c${i}.md`), body(i));
+	// A scan reads a file only once it has been still for the quiet window, as an editor's in-place save needs.
+	await Bun.sleep(500);
 	const group = await time(() => joined.data.engine.scan());
 	const saved = joined.data.replica.unsent().length;
 	const pushesBefore = joined.data.replica.stats().pushes;
