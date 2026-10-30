@@ -1101,7 +1101,8 @@ function createReplica({
 	function takeBack(file: { path: string; text: string | null }, hold: { reason: string } | null, extra: { unknown?: true } = {}) {
 		const { sent: work = { text: file.text }, ...rest } = record(file.path);
 		if (hold !== null && rest.committed === undefined) set(file.path, { ...rest, ...extra, held: hold });
-		else if (rest.committed !== undefined) set(file.path, { ...rest, ...extra });
+		// A newer save over the work taken back continues it: what that work was made over, if it lost, goes with the newer save.
+		else if (rest.committed !== undefined) set(file.path, { ...rest, ...extra, ...(work.over !== undefined && rest.committed.over === undefined ? { committed: { ...rest.committed, over: work.over } } : {}) });
 		else set(file.path, { ...rest, ...extra, committed: work });
 	}
 

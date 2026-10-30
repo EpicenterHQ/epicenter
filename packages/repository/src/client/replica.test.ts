@@ -449,3 +449,36 @@ test('work whose outcome is unknown goes as a labelled conflict block over what 
 	expect(server.read(`media/x (conflict ${'b'.repeat(7)}).png`)).toBe(pointer('b'));
 	expect(replica.busy()).toBe(false);
 });
+
+test('a newer save over a blob write that lost, whose commit was turned away, still says what that write was made over: it lands beside', () => {
+	const server = createTestServer();
+	const replica = unwrap(open(openBunSqlite()));
+	const link = connect(replica, server);
+	link.deliver();
+	const pointer = (c: string) => writePointer({ oid: c.repeat(64), size: 3 });
+	for (const c of ['a', 'b', 'c', 'd']) {
+		server.upload(c.repeat(64), 3);
+		replica.present(c.repeat(64), 3);
+	}
+	replica.write('media/x.png', pointer('a'));
+	link.deliver();
+	const body = { parent: server.main(), author: { user: 'bob', device: 'phone' }, time: STAMP, files: [{ path: 'media/x.png', text: pointer('b') }] };
+	server.push({ id: commitId(body), ...body }, writer('bob'));
+	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice' }));
+	link.deliver();
+	expect(replica.read('media/x.png')).toBe(pointer('b'));
+	// A save made over `a` (a folder's file read late): it lost, and goes saying so.
+	replica.writeAll({ 'media/x.png': pointer('c') }, { over: { 'media/x.png': pointer('a') } });
+	const push = link.sent.shift();
+	if (push?.type !== 'push') throw new Error('a push');
+	expect(push.commit.files).toEqual([{ path: 'media/x.png', text: pointer('c'), over: pointer('a') }]);
+	// Typed over again while it is out; then the push is turned away, and a new connection sends again.
+	replica.write('media/x.png', pointer('d'));
+	replica.reply({ type: 'answer', rid: push.rid, answer: { kind: 'rejected', code: 'not-member', reason: 'not a member', main: server.main() } });
+	replica.attach(null);
+	link.sent.length = 0;
+	replica.attach(link.sent.push.bind(link.sent));
+	link.deliver();
+	expect(server.read('media/x.png')).toBe(pointer('b'));
+	expect(server.read(`media/x (conflict ${'d'.repeat(7)}).png`)).toBe(pointer('d'));
+});

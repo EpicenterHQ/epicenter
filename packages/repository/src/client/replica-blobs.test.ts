@@ -334,3 +334,4 @@ test('a note saved with a blob that lost goes on its own; the blob lands beside,
 	expect(sentAudio()).toEqual([writePointer(a), writePointer(c)]);
 	expect(world.server.read(AUDIO)).toBe(writePointer(c));
 });
+
