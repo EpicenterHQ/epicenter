@@ -1,9 +1,10 @@
 /** The folder over the browser's IndexedDB repository. */
 import 'fake-indexeddb/auto';
 import { beforeEach, expect, test } from 'bun:test';
+import { defineContract } from '@epicenter/definition/contract';
 import { Type } from 'typebox';
 import { expectOk } from 'wellcrafted/testing';
-import { openFolder } from './browser.js';
+import { closeDevice, openDevice, openFolder } from './browser.js';
 
 const tables = {
 	notes: Type.Object({
@@ -74,4 +75,21 @@ test('the browser folder refuses inside the desktop app', async () => {
 	} finally {
 		delete scope.isTauri;
 	}
+});
+
+test('a disposed device stops its Worker, and every later call is Unavailable', async () => {
+	const device = openDevice(
+		defineContract({
+			name: 'recorder',
+			collections: { audio: { path: 'recordings/{id}.{ext}' } },
+		}),
+	);
+	// Starts the Worker; Bun has no private file system, so it answers either way.
+	await device.audio.list();
+	closeDevice(device);
+	const after = await device.audio.list();
+	expect(after.error).toMatchObject({
+		name: 'Unavailable',
+		cause: { name: 'WorkerFailed' },
+	});
 });

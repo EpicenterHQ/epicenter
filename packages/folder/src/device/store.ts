@@ -43,4 +43,6 @@ export type DeviceStore = {
 		bytes: Uint8Array | null,
 		expected: 'absent' | Version,
 	): Promise<Result<'landed' | 'stale', Unavailable>>;
+	/** Release what the store holds open; every later call is `Unavailable`. */
+	close?(): void;
 };

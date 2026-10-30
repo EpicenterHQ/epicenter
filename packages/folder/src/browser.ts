@@ -15,6 +15,7 @@ import { openRepository } from './browser/repository.js';
 import { snapshotContent } from './browser/storage.js';
 import { createDeviceClient } from './device/client.js';
 import { opfsStore } from './device/opfs-store.js';
+import { deviceParts } from './device/outbox.js';
 import { OpenFolderError } from './errors.js';
 import {
 	createFolder,
@@ -50,11 +51,22 @@ export {
  * const id = timeId();
  * const note = await device.recordings.create({ id, title: 'Standup' });
  * ```
+ *
+ * `closeDevice(device)` stops its Worker (on hot reload, or at the end of a
+ * test).
  */
 export function openDevice<TContract extends Contract>(
 	contract: TContract,
 ): Client<TContract> {
 	return createDeviceClient(contract, opfsStore());
+}
+
+/**
+ * Stop the Worker of a client `openDevice` returned; every later call is
+ * `Unavailable`. Its files stay.
+ */
+export function closeDevice(device: Client<Contract>): void {
+	deviceParts(device).store.close?.();
 }
 
 /** The same fixed key as the browser's default folder, so its files carry over. */

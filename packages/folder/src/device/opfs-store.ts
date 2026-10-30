@@ -47,6 +47,7 @@ type Request =
 
 export function opfsStore(): DeviceStore {
 	let worker: Worker | undefined;
+	let closed = false;
 	let next = 0;
 	const waiting = new Map<number, (reply: Reply) => void>();
 
@@ -68,22 +69,26 @@ export function opfsStore(): DeviceStore {
 				event instanceof ErrorEvent && event.message
 					? event.message
 					: 'the worker could not start';
-			for (const [id, settle] of waiting)
-				settle({
-					id,
-					ok: false,
-					refused: false,
-					name: 'WorkerFailed',
-					message,
-				});
-			waiting.clear();
+			fail(message);
 			started.terminate();
 			if (worker === started) worker = undefined;
 		});
 		return started;
 	}
 
+	/** Answer every call still waiting with `WorkerFailed`. */
+	function fail(message: string) {
+		for (const [id, settle] of waiting)
+			settle({ id, ok: false, refused: false, name: 'WorkerFailed', message });
+		waiting.clear();
+	}
+
 	async function call(request: Request, transfer: Transferable[] = []) {
+		if (closed)
+			return ClientError.Unavailable({
+				cause: DeviceError.WorkerFailed({ cause: 'the device was closed' })
+					.error,
+			});
 		if (typeof Worker === 'undefined')
 			return ClientError.Unavailable({
 				cause: DeviceError.WorkerFailed({
@@ -139,6 +144,12 @@ export function opfsStore(): DeviceStore {
 			);
 			if (written.error !== null) return written;
 			return Ok(written.data as 'landed' | 'stale');
+		},
+		close() {
+			closed = true;
+			worker?.terminate();
+			worker = undefined;
+			fail('the device was closed');
 		},
 	};
 }
