@@ -41,15 +41,21 @@ export type CreateBrowserOAuthOptions = {
 	server: AuthServer;
 	/** The app's own pre-registered public client id, e.g. `so.epicenter.todos`. */
 	clientId: string;
-	/** The one token audience this app asks for. */
-	resource: string;
-	/** Space-separated scopes. `offline_access` is refused: a browser holds no refresh token. */
+	/**
+	 * The token audiences this app asks for, each its own access token. The
+	 * first also answers the server's own requests, such as userinfo.
+	 */
+	resources: readonly [string, ...string[]];
+	/**
+	 * Space-separated scopes. `offline_access` is refused: the client adds it
+	 * itself when it needs a refresh token for its callback.
+	 */
 	scope: string;
 	/** Expose dashboard links in account UI. */
 	accountManagement: boolean;
 	/** The registered redirect path on the app's origin. */
 	callbackPath?: string;
-	/** Holds the access token, shared by the origin's tabs. Defaults to `localStorage`. */
+	/** Holds the access tokens, shared by the origin's tabs. Defaults to `localStorage`. */
 	storage?: SyncStorage;
 	/** Holds one tab's PKCE attempt. Defaults to `sessionStorage`. */
 	attemptStorage?: SyncStorage;
@@ -69,16 +75,22 @@ export type CreateBrowserOAuthOptions = {
 	log?: Logger;
 };
 
-/** The stored access token and the principal userinfo named for it. */
-const StoredToken = type({
+const AccessToken = type({
 	'+': 'delete',
 	accessToken: 'string > 0',
 	expiresAt: 'number',
-	principalId: PrincipalId,
-	/** Missing only on cells written before attachment generations existed. */
-	'generation?': 'string > 0',
 });
-type StoredToken = typeof StoredToken.infer;
+type AccessToken = typeof AccessToken.infer;
+
+/** The stored access token of each resource, and the principal userinfo named for them. */
+const StoredGrant = type({
+	'+': 'delete',
+	tokens: { '[string]': AccessToken },
+	principalId: PrincipalId,
+	/** Nonsecret; a new one retires Accounts bound to the previous sign-in. */
+	generation: 'string > 0',
+});
+type StoredGrant = typeof StoredGrant.infer;
 
 /** One tab's pending authorization request. */
 const Attempt = type({
@@ -94,6 +106,7 @@ type Attempt = typeof Attempt.infer;
 const TokenResponse = type({
 	access_token: 'string > 0',
 	expires_in: 'number > 0',
+	'refresh_token?': 'string > 0',
 });
 
 const UserInfo = type({ sub: 'string > 0' });
@@ -104,7 +117,7 @@ const BrowserOAuthDiagnostic = defineErrors({
 		cause,
 	}),
 	RevokeFailed: ({ cause }: { cause: unknown }) => ({
-		message: 'Access token revocation failed.',
+		message: 'Token revocation failed.',
 		cause,
 	}),
 	ListenerFailed: ({ cause }: { cause: unknown }) => ({
@@ -130,8 +143,6 @@ function base64url(bytes: Uint8Array) {
 
 const randomToken = () => base64url(crypto.getRandomValues(new Uint8Array(32)));
 
-const generationOf = (stored: StoredToken) => stored.generation ?? 'legacy';
-
 async function challengeFor(verifier: string) {
 	const digest = await crypto.subtle.digest(
 		'SHA-256',
@@ -151,20 +162,24 @@ function watchWindowStorage(onChange: () => void) {
  * The OAuth 2.1 client of a first-party browser app (ADR-0549).
  *
  * Signs in with the authorization code grant and S256 PKCE as the app's own
- * client id, and keeps one access token in `storage`, shared by the origin's
- * tabs. It holds no refresh token: when the token is within ten minutes of
- * expiry, it navigates top level to the authorize endpoint with
- * `prompt=none`, which returns a code while the authorization server's session
- * cookie lasts and `login_required` once it does not.
+ * client id, and keeps one access token per resource in one `storage` cell,
+ * shared by the origin's tabs. One redirect covers every resource: the
+ * callback exchanges the code for the first, and with more than one it asks
+ * for `offline_access` and spends the refresh token once per other resource
+ * (RFC 8707), then drops it. It keeps no refresh token: when the earliest
+ * token is within ten minutes of expiry, it navigates top level to the
+ * authorize endpoint with `prompt=none`, which returns a code while the
+ * authorization server's session cookie lasts and `login_required` once it
+ * does not.
  *
- * The token is read from storage on every request, so a tab uses another
+ * The tokens are read from storage on every request, so a tab uses another
  * tab's renewal. An Account survives renewal by the same person and retires
  * when storage is cleared or names another person.
  */
 export function createBrowserOAuth({
 	server,
 	clientId,
-	resource,
+	resources,
 	scope,
 	accountManagement,
 	callbackPath = '/auth/callback',
@@ -183,9 +198,21 @@ export function createBrowserOAuth({
 }: CreateBrowserOAuthOptions): CallbackAuthClient {
 	const { baseURL, authorityId } = server;
 	const serverOrigin = new URL(baseURL).origin;
-	// The token is for `resource`, so its own origin may carry it too: on the
-	// hosted cloud, Git is served from an origin of its own.
-	const resourceOrigin = new URL(resource).origin;
+	const [primary] = resources;
+	if (new Set(resources).size !== resources.length)
+		throw new TypeError('Each resource is named once.');
+	// Most specific first: local and self-hosted deployments serve Git at
+	// `/git` on the API's own origin.
+	const routes = resources
+		.map((resource) => {
+			const url = new URL(resource);
+			return {
+				resource,
+				origin: url.origin,
+				path: url.pathname.replace(/\/$/, ''),
+			};
+		})
+		.sort((a, b) => b.path.length - a.path.length);
 	if (
 		!callbackPath.startsWith('/') ||
 		callbackPath.startsWith('//') ||
@@ -194,6 +221,8 @@ export function createBrowserOAuth({
 		throw new TypeError('The callback must be an absolute local path.');
 	if (scope.split(/\s+/).includes('offline_access'))
 		throw new TypeError('A browser app holds no refresh token.');
+	const requestedScope =
+		resources.length > 1 ? `${scope} offline_access` : scope;
 	const redirectUri = new URL(callbackPath, location.origin).href;
 	const onCallback =
 		new URL(location.href).href.split(/[?#]/)[0] === redirectUri;
@@ -208,16 +237,31 @@ export function createBrowserOAuth({
 	let disposed = false;
 	const listeners = new Set<(state: AuthState) => void>();
 
-	function readToken(): StoredToken | null {
+	/** The stored grant, or null when it is missing or corrupt. */
+	function readToken(): StoredGrant | null {
 		try {
 			const raw = storage.getItem(tokenKey);
 			if (raw === null) return null;
-			const parsed = StoredToken(JSON.parse(raw));
+			const parsed = StoredGrant(JSON.parse(raw));
 			return parsed instanceof type.errors ? null : parsed;
 		} catch {
 			return null;
 		}
 	}
+
+	/** The resource whose token `target` carries, or undefined for another origin. */
+	function resourceFor(target: URL): string | undefined {
+		const match = routes.find(
+			({ origin, path }) =>
+				target.origin === origin &&
+				(target.pathname === path || target.pathname.startsWith(`${path}/`)),
+		);
+		if (match) return match.resource;
+		if (target.origin === serverOrigin) return primary;
+	}
+
+	const primaryToken = (stored: StoredGrant | null) =>
+		stored?.tokens[primary]?.accessToken ?? null;
 
 	function publish() {
 		const next: AuthState = attachment
@@ -245,17 +289,21 @@ export function createBrowserOAuth({
 	}
 
 	/** Reconcile the published state with storage, which another tab may have changed. */
-	function sync(): StoredToken | null {
+	function sync(): StoredGrant | null {
 		if (disposed) return null;
 		const stored = readToken();
 		if (!stored) retire();
 		else if (
 			attachment?.account.principalId !== stored.principalId ||
-			attachment.generation !== generationOf(stored)
+			attachment.generation !== stored.generation
 		) {
 			retire();
-			attachment = createAttachment(stored.principalId, generationOf(stored));
-		} else if (attachment.refusedToken !== stored.accessToken) {
+			attachment = createAttachment(stored.principalId, stored.generation);
+		} else if (
+			!Object.values(stored.tokens).some(
+				({ accessToken }) => accessToken === attachment?.refusedToken,
+			)
+		) {
 			attachment.refusedToken = null;
 		}
 		publish();
@@ -263,10 +311,14 @@ export function createBrowserOAuth({
 		return stored;
 	}
 
-	const needsRenewal = (stored: StoredToken) =>
-		stored.expiresAt - RENEW_BEFORE_MS <= now();
+	/** The earliest expiry: every token renews together. */
+	const expiresAt = (stored: StoredGrant) =>
+		Math.min(...Object.values(stored.tokens).map((token) => token.expiresAt));
 
-	function scheduleRenewal(stored: StoredToken | null) {
+	const needsRenewal = (stored: StoredGrant) =>
+		expiresAt(stored) - RENEW_BEFORE_MS <= now();
+
+	function scheduleRenewal(stored: StoredGrant | null) {
 		cancelRenewal?.();
 		cancelRenewal = undefined;
 		if (!automaticRenewal || !stored || disposed || onCallback || authorization)
@@ -278,7 +330,7 @@ export function createBrowserOAuth({
 			return;
 		}
 		const delay = Math.min(
-			stored.expiresAt - RENEW_BEFORE_MS - now(),
+			expiresAt(stored) - RENEW_BEFORE_MS - now(),
 			MAX_TIMER_MS,
 		);
 		cancelRenewal = schedule(() => {
@@ -295,19 +347,19 @@ export function createBrowserOAuth({
 		const lifetime = new AbortController();
 		const accountFetch: AuthFetch = async (input, init) => {
 			const target = resolveTargetUrl(input, baseURL);
-			if (
-				(target?.origin !== serverOrigin &&
-					target?.origin !== resourceOrigin) ||
-				target.username ||
-				target.password
-			)
+			const resource =
+				target && !target.username && !target.password
+					? resourceFor(target)
+					: undefined;
+			if (!target || !resource)
 				throw new TypeError(
-					'Account requests must target their own server or the resource their token is for.',
+					'Account requests must target their own server or a resource their tokens are for.',
 				);
 			lifetime.signal.throwIfAborted();
 			const stored = sync();
 			lifetime.signal.throwIfAborted();
-			if (!stored || owner.refusedToken === stored.accessToken)
+			const accessToken = stored?.tokens[resource]?.accessToken;
+			if (!accessToken || owner.refusedToken === accessToken)
 				throw AccountUnavailable({ code: 'reauth-required' }).error;
 			if (init?.body instanceof ReadableStream) {
 				// Bun's Request has no `keepalive`, so a caller's choice survives
@@ -331,7 +383,7 @@ export function createBrowserOAuth({
 			new Headers(init?.headers).forEach((value, key) => {
 				headers.set(key, value);
 			});
-			headers.set('authorization', `Bearer ${stored.accessToken}`);
+			headers.set('authorization', `Bearer ${accessToken}`);
 			headers.delete('cookie');
 			const response = await fetchImpl(
 				input instanceof Request ? input : target.href,
@@ -347,9 +399,9 @@ export function createBrowserOAuth({
 			if (
 				response.status === 401 &&
 				attachment === owner &&
-				readToken()?.accessToken === stored.accessToken
+				readToken()?.tokens[resource]?.accessToken === accessToken
 			) {
-				owner.refusedToken = stored.accessToken;
+				owner.refusedToken = accessToken;
 				publish();
 			}
 			return response;
@@ -392,21 +444,21 @@ export function createBrowserOAuth({
 			state: randomToken(),
 			returnTo: currentPath(),
 			createdAt: now(),
-			attachmentGeneration: current ? generationOf(current) : null,
-			accessToken: current?.accessToken ?? null,
+			attachmentGeneration: current?.generation ?? null,
+			accessToken: primaryToken(current),
 		};
 		const url = new URL('/auth/oauth2/authorize', serverOrigin);
-		url.search = new URLSearchParams({
-			response_type: 'code',
-			client_id: clientId,
-			redirect_uri: redirectUri,
-			scope,
-			state: attempt.state,
-			code_challenge: await challengeFor(verifier),
-			code_challenge_method: 'S256',
-			resource,
-			...(silent ? { prompt: 'none' } : {}),
-		}).toString();
+		url.search = new URLSearchParams([
+			['response_type', 'code'],
+			['client_id', clientId],
+			['redirect_uri', redirectUri],
+			['scope', requestedScope],
+			['state', attempt.state],
+			['code_challenge', await challengeFor(verifier)],
+			['code_challenge_method', 'S256'],
+			...resources.map((resource) => ['resource', resource]),
+			...(silent ? [['prompt', 'none']] : []),
+		]).toString();
 		if (disposed) return;
 		attemptStorage.setItem(attemptKey, JSON.stringify(attempt));
 		location.assign(url.href);
@@ -434,7 +486,10 @@ export function createBrowserOAuth({
 		return returnTo;
 	}
 
-	async function revoke(token: string) {
+	async function revoke(
+		token: string,
+		hint: 'access_token' | 'refresh_token' = 'access_token',
+	) {
 		try {
 			const response = await fetchImpl(
 				new URL('/auth/oauth2/revoke', serverOrigin),
@@ -447,7 +502,7 @@ export function createBrowserOAuth({
 					body: new URLSearchParams({
 						token,
 						client_id: clientId,
-						token_type_hint: 'access_token',
+						token_type_hint: hint,
 					}),
 				},
 			);
@@ -459,7 +514,11 @@ export function createBrowserOAuth({
 		}
 	}
 
-	async function exchange(code: string, verifier: string) {
+	/**
+	 * One token request. It never sends `scope`: the provider stores a
+	 * narrowed scope on the rotated refresh token, shrinking the grant.
+	 */
+	async function requestToken(form: Record<string, string>) {
 		const response = await fetchImpl(
 			new URL('/auth/oauth2/token', serverOrigin),
 			{
@@ -467,19 +526,56 @@ export function createBrowserOAuth({
 				credentials: 'omit',
 				redirect: 'error',
 				headers: { 'content-type': 'application/x-www-form-urlencoded' },
-				body: new URLSearchParams({
-					grant_type: 'authorization_code',
-					client_id: clientId,
-					code,
-					code_verifier: verifier,
-					redirect_uri: redirectUri,
-					resource,
-				}),
+				body: new URLSearchParams(form),
 			},
 		);
 		if (!response.ok)
 			throw new Error(`The token request failed (${response.status}).`);
 		return TokenResponse.assert(await response.json());
+	}
+
+	/**
+	 * Exchange the code for the first resource, then spend the refresh token
+	 * once for each other resource, carrying the rotated one forward into
+	 * `issued` so a failure can revoke all of it.
+	 */
+	async function issueTokens(
+		code: string,
+		verifier: string,
+		issued: { tokens: Record<string, AccessToken>; refreshToken?: string },
+	) {
+		const issuedAt = now();
+		const keep = (resource: string, response: typeof TokenResponse.infer) => {
+			issued.tokens[resource] = {
+				accessToken: response.access_token,
+				expiresAt: issuedAt + response.expires_in * 1000,
+			};
+			issued.refreshToken = response.refresh_token;
+		};
+		keep(
+			primary,
+			await requestToken({
+				grant_type: 'authorization_code',
+				client_id: clientId,
+				code,
+				code_verifier: verifier,
+				redirect_uri: redirectUri,
+				resource: primary,
+			}),
+		);
+		for (const resource of resources.slice(1)) {
+			if (!issued.refreshToken)
+				throw new Error('The token response carries no refresh token.');
+			keep(
+				resource,
+				await requestToken({
+					grant_type: 'refresh_token',
+					client_id: clientId,
+					refresh_token: issued.refreshToken,
+					resource,
+				}),
+			);
+		}
 	}
 
 	async function readPrincipal(accessToken: string) {
@@ -514,9 +610,8 @@ export function createBrowserOAuth({
 				// session. A newer token or sign-in from another tab survives it.
 				const current = readToken();
 				if (
-					(current ? generationOf(current) : null) ===
-						attempt.attachmentGeneration &&
-					(current?.accessToken ?? null) === attempt.accessToken
+					(current?.generation ?? null) === attempt.attachmentGeneration &&
+					primaryToken(current) === attempt.accessToken
 				)
 					storage.removeItem(tokenKey);
 				sync();
@@ -528,30 +623,38 @@ export function createBrowserOAuth({
 				);
 			const code = params.get('code');
 			if (!code) throw new Error('The callback carries no code.');
-			const issuedAt = now();
-			const token = await exchange(code, attempt.verifier);
-			let principalId: PrincipalId;
+			// Any failure from here revokes everything issued: a partial
+			// sign-in is worse than none. On success the last refresh token is
+			// dropped, not revoked: revoking it would delete the access tokens
+			// rotation linked to it, and the grant ends with the session anyway.
+			const issued: {
+				tokens: Record<string, AccessToken>;
+				refreshToken?: string;
+			} = { tokens: {} };
+			let stored: StoredGrant;
 			try {
-				principalId = await readPrincipal(token.access_token);
+				await issueTokens(code, attempt.verifier, issued);
+				const principalId = await readPrincipal(
+					issued.tokens[primary]!.accessToken,
+				);
+				const current = readToken();
+				if ((current?.generation ?? null) !== attempt.attachmentGeneration)
+					throw new Error('The account changed during sign-in.');
+				stored = {
+					tokens: issued.tokens,
+					principalId,
+					generation:
+						current?.principalId === principalId
+							? current.generation
+							: randomToken(),
+				};
 			} catch (cause) {
-				void revoke(token.access_token);
+				for (const { accessToken } of Object.values(issued.tokens))
+					void revoke(accessToken);
+				if (issued.refreshToken)
+					void revoke(issued.refreshToken, 'refresh_token');
 				throw cause;
 			}
-			const current = readToken();
-			const currentGeneration = current ? generationOf(current) : null;
-			if (currentGeneration !== attempt.attachmentGeneration) {
-				void revoke(token.access_token);
-				throw new Error('The account changed during sign-in.');
-			}
-			const stored: StoredToken = {
-				accessToken: token.access_token,
-				expiresAt: issuedAt + token.expires_in * 1000,
-				principalId,
-				generation:
-					current?.principalId === principalId
-						? generationOf(current)
-						: randomToken(),
-			};
 			storage.setItem(tokenKey, JSON.stringify(stored));
 			sync();
 			return Ok({ returnTo });
@@ -606,7 +709,12 @@ export function createBrowserOAuth({
 			sync();
 			// Best effort and bounded: a failed revocation never keeps the person
 			// signed in here, and the token lapses on its own.
-			if (stored) await revoke(stored.accessToken);
+			if (stored)
+				await Promise.all(
+					Object.values(stored.tokens).map(({ accessToken }) =>
+						revoke(accessToken),
+					),
+				);
 			return Ok(undefined);
 		},
 		getProfile() {

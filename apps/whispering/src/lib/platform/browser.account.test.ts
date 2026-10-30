@@ -1,7 +1,7 @@
 /** Browser hosted inference uses the same Account.fetch contract as the desktop route. */
 import { afterEach, expect, test } from 'bun:test';
 import { epicenterCloud, selfHostedServer } from '@epicenter/auth';
-import { APPS } from '@epicenter/constants/apps';
+import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
 import { expectOk } from 'wellcrafted/testing';
 import type { WhisperingFolder } from '../folder.js';
@@ -50,11 +50,15 @@ Object.defineProperty(globalThis, 'location', {
 const server = SELF_HOST_ORIGIN
 	? selfHostedServer(SELF_HOST_ORIGIN)
 	: epicenterCloud(APP_URLS.API);
+const audiences = resolveOAuthAudiences(server.baseURL);
+const expiresAt = Date.now() + 60 * 60_000;
 saved.set(
 	`${APPS.WHISPERING.id}.oauth:${new URL(server.baseURL).origin}`,
 	JSON.stringify({
-		accessToken: 'test-token',
-		expiresAt: Date.now() + 60 * 60_000,
+		tokens: {
+			[audiences.api]: { accessToken: 'test-token', expiresAt },
+			[audiences.git]: { accessToken: 'test-git-token', expiresAt },
+		},
 		principalId: 'alice',
 		generation: 'test-generation',
 	}),
