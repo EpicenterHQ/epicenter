@@ -14,17 +14,24 @@ afterAll(() => rm(root, { recursive: true, force: true }));
 const PATHS = [
 	'recordings/a.md',
 	'a.md',
+	'notes/meeting notes.md',
 	'recordings/a.webm',
 	'recordings/a.m4a',
 	'photo.jpg',
+	'notes/photo.JPG',
 	'notes/deep/x.pdf',
+	'a.json',
+	'x',
 	'.gitattributes',
 	'.gitignore',
+	'sub/.gitignore',
 	'.DS_Store',
 	'recordings/.DS_Store',
 	'.epicenter/outbox/c1.json',
 	'recordings/.cache/a.webm',
+	'sub/.trash/a.webm',
 	'.obsidian/workspace.md',
+	'.obsidian/workspace.json',
 ];
 
 describe('decision 40 with decision 58', () => {
@@ -40,7 +47,10 @@ describe('decision 40 with decision 58', () => {
 			'recordings/a.webm',
 			'recordings/a.m4a',
 			'photo.jpg',
+			'notes/photo.JPG',
 			'notes/deep/x.pdf',
+			'a.json',
+			'x',
 		]);
 	});
 

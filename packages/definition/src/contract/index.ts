@@ -30,6 +30,8 @@ export {
 export {
 	isHiddenPath,
 	REPOSITORY_ATTRIBUTES,
+	REPOSITORY_ATTRIBUTES_BEGIN,
+	REPOSITORY_ATTRIBUTES_END,
 	storedWithLfs,
 } from './storage.js';
 export {

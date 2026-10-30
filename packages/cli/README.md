@@ -160,7 +160,9 @@ with real `git add`, so Git LFS's filters run.
   `git init` when needed; Epicenter's block in the folder's committed
   `.gitattributes` (`src/sync/attributes.ts`: `.md` notes merge with
   `merge=epicenter`, every other file is LFS, dotfiles and dot directories
-  are exempt); `merge.epicenter.driver`, the command link (`~/.local/bin/
+  are exempt; the block is `REPOSITORY_ATTRIBUTES` from
+  `@epicenter/definition/contract`, which the server writes in a
+  repository's first commit); `merge.epicenter.driver`, the command link (`~/.local/bin/
   epicenter merge-driver %O %A %B %P`, ADR-0566); `git lfs install --local`;
   `git lfs pull` for files checked out as pointers; the deployment's
   credential helper per clone; and the folder in the global, multi-valued
