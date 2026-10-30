@@ -73,6 +73,13 @@ describe('examples', () => {
 		expect(findConflicts(r.text ?? '')).toHaveLength(1);
 	});
 
+	test('a word both sides kept is kept once: whitespace never anchors a side ahead of a word (property seed B 621772)', () => {
+		// Current drops the leading space; incoming replaces it with a line. Both keep "a".
+		const r = merge(' a', 'a b', 'c\na d');
+		expect((r.text ?? '').match(/\ba\b/g)).toHaveLength(1);
+		expect(r.text).not.toContain('ac');
+	});
+
 	test('a line one side ends unterminated stays its own line when the other side adds after it', () => {
 		// Incoming rewrites the last line and leaves it unterminated; current adds a line after it (property seed B 601077).
 		expect(merge('agent\n', 'agent\nadded\n', 'changed\nt58z').text).toBe('changed\nt58z\nadded\n');

@@ -346,7 +346,12 @@ function matchRegion(
 	out.push(...tail);
 }
 
-/** The prototype's LCS table walk, over one region. */
+/**
+ * The prototype's LCS table walk, over one region, weighted: a match of
+ * whitespace counts less than a match of anything else. RULE: where a side
+ * could match a word or the space beside it, it matches the word, so two
+ * sides keeping one word anchor on that word and neither inserts it again.
+ */
 function tableMatches(
 	base: string[],
 	side: string[],
@@ -360,16 +365,21 @@ function tableMatches(
 	const m = bHi - bLo;
 	const table = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
 	const at = (i: number, j: number) => table[i]?.[j] ?? 0;
+	const weight = (token: string) => (token.trim() === '' ? 1 : 2);
 	for (let i = n - 1; i >= 0; i--) {
 		const row = table[i];
 		if (row === undefined) continue;
-		for (let j = m - 1; j >= 0; j--)
-			row[j] = base[aLo + i] === side[bLo + j] ? at(i + 1, j + 1) + 1 : Math.max(at(i + 1, j), at(i, j + 1));
+		for (let j = m - 1; j >= 0; j--) {
+			const token = base[aLo + i] ?? '';
+			const skip = Math.max(at(i + 1, j), at(i, j + 1));
+			row[j] = token === side[bLo + j] ? Math.max(at(i + 1, j + 1) + weight(token), skip) : skip;
+		}
 	}
 	let i = 0;
 	let j = 0;
 	while (i < n && j < m) {
-		if (base[aLo + i] === side[bLo + j]) {
+		const token = base[aLo + i] ?? '';
+		if (token === side[bLo + j] && at(i, j) === at(i + 1, j + 1) + weight(token)) {
 			out.push([aLo + i, bLo + j]);
 			i++;
 			j++;
