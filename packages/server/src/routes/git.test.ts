@@ -3,28 +3,36 @@
  * store without `objects` answers. Such a store (the hosted cloud's
  * Artifacts host until an R2 LFS bucket is bound) must answer exactly as
  * hosted Git did before the receiver (`75a0788dd4`): Git's smart HTTP under
- * a named namespace, proxied to the store, and 404 for every other path.
- * The full routes against Postgres and the disk store are in
+ * a named namespace, proxied to the store, and 404 for every other path,
+ * except that only the owner may push, since nothing would stop a push
+ * replacing `main`. The full routes against Postgres and the disk store are in
  * `git.postgres.test.ts`.
  */
 import { describe, expect, test } from 'bun:test';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
+import type { RepositoryRole } from '../namespace-roles.js';
 import type { CloudEnv } from '../types.js';
 import { type GitAccess, type GitHost, mountGitHost } from './git.js';
 
 const NAMESPACE = 'abcdefghijkl';
 const BASE = `http://localhost:8787/git/${NAMESPACE}/notes.git`;
 
-function mount({ host = 'objectless' }: { host?: 'objectless' | 'none' } = {}) {
+function mount({
+	host = 'objectless',
+	role = 'owner',
+}: {
+	host?: 'objectless' | 'none';
+	role?: RepositoryRole;
+} = {}) {
 	const served: string[] = [];
 	const access: GitAccess = {
 		async authorize(_c, { namespaceId }) {
 			return {
 				data: {
 					accountId: 'account',
-					role: 'owner',
+					role,
 					namespaceId,
 					repository: { id: 'repo1' },
 				},
@@ -109,6 +117,27 @@ describe('a store without objects answers as hosted Git did before the receiver'
 				expect((await response.json()) as unknown).toEqual(NOT_ROUTED);
 			}
 			expect(served).toEqual([]);
+		}
+	});
+
+	test('a role that may not rewrite main reads, but may not push', async () => {
+		for (const role of ['member', 'writer'] as const) {
+			const { app, served } = mount({ role });
+			const read = await app.request(
+				`${BASE}/info/refs?service=git-upload-pack`,
+			);
+			expect(await read.text()).toBe('from the store');
+			for (const [method, path] of [
+				['GET', '/info/refs?service=git-receive-pack'],
+				['POST', '/git-receive-pack'],
+			] as const) {
+				const response = await app.request(`${BASE}${path}`, {
+					method,
+					body: method === 'POST' ? 'pack' : undefined,
+				});
+				expect([role, path, response.status]).toEqual([role, path, 403]);
+			}
+			expect(served).toEqual(['repo1 git-upload-pack true']);
 		}
 	});
 });

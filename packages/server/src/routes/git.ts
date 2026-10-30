@@ -55,8 +55,10 @@
  * reaches it. A store with `objects` gets every push through the receiver,
  * and the files and LFS routes; LFS answers 503 until the deployment has an
  * LFS store. A store without `objects` serves pushes itself and answers
- * exactly as hosted Git did before the receiver: smart HTTP under a named
- * namespace, and 404 for every other path, `~` included.
+ * as hosted Git did before the receiver: smart HTTP under a named
+ * namespace, and 404 for every other path, `~` included. Since such a store
+ * cannot refuse a push that replaces `main`, it takes pushes only from a
+ * role that may rewrite (the owner).
  *
  * Refusals answer JSON `{ error, error_description }`:
  *   - 401 `invalid_token`        missing, unknown, expired, revoked, or another
@@ -66,7 +68,8 @@
  *   - 403 `insufficient_scope`   the token lacks the operation's scope;
  *   - 403 `forbidden`            the namespace is outside the grant, the account
  *                                is neither a member nor granted the repository,
- *                                or its role may not do this;
+ *                                or its role may not do this (without the
+ *                                receiver, only the owner pushes);
  *   - 404 `not_found`            a missing repository's advertisement, for a
  *                                role that may not push, or its upload-pack;
  *   - 413 `too_large`            a push over the store's `pushBytes` (64 MiB on disk);
@@ -607,6 +610,24 @@ export function mountGitHost(
 				403,
 				'forbidden',
 				`This account's role may not ${operation === 'push' ? 'write to' : 'read'} that namespace.`,
+				[
+					`Bearer resource_metadata="${protectedResourceMetadataUrl(audience)}"`,
+				],
+			);
+		// Without the receiver the store takes a push as it is, so nothing
+		// would stop one from replacing `main`: only a role that may rewrite
+		// it pushes.
+		if (
+			!host.objects &&
+			endpoint.kind === 'git' &&
+			endpoint.service === 'git-receive-pack' &&
+			!roleAllows(granted.role, 'rewrite')
+		)
+			return refuse(
+				c,
+				403,
+				'forbidden',
+				"Until this server's receiver is on, only the repository's owner may push to it.",
 				[
 					`Bearer resource_metadata="${protectedResourceMetadataUrl(audience)}"`,
 				],

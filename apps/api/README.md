@@ -7,8 +7,9 @@
 > (`LFS_BUCKET`, `LFS_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`;
 > `resolveArtifactsGitHost` in `worker/git-repositories.ts`). `wrangler.jsonc`
 > binds none, so deploying this line proxies every Git request to Artifacts
-> exactly as before the receiver, and the LFS, web write and `~` routes answer
-> 404. Binding them turns the receiver on, which refuses any file other than a
+> exactly as before the receiver, the LFS, web write and `~` routes answer
+> 404, and only a repository's owner may push (a write grant reads until the
+> receiver is on). Binding them turns the receiver on, which refuses any file other than a
 > `.md` note or a hidden path unless it is a stored Git LFS pointer. Before
 > binding: give the bucket a CORS rule for the registered app origins (PUT and
 > GET; headers `x-amz-checksum-sha256`, `if-none-match`, `content-type`), or
@@ -288,7 +289,8 @@ an id. It reaches
 with a token it mints and caches per repository and scope: 24 hours, renewed an
 hour early, `read` for a fetch and `write` for a push. The client's token never
 reaches Artifacts. Without R2 LFS bound (today), every Git request is
-forwarded as it was before the receiver, and the host has no `objects`.
+forwarded as it was before the receiver, the host has no `objects`, and
+only the owner may push, since nothing would refuse a push replacing `main`.
 Git LFS objects live in R2 when the Worker binds a bucket (`LFS_BUCKET`,
 `LFS_BUCKET_NAME`, and the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair
 that presigns transfers; `worker/lfs-store.ts`), and only then does the

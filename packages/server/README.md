@@ -154,7 +154,8 @@ terminal Git), 403 `insufficient_scope` or `forbidden`, 404 `not_found`,
 `git_unavailable` when the deployment has no store (or, for the LFS routes, no
 LFS store). A store without `objects` answers only Git's smart HTTP under a
 named namespace, as hosted Git did before the receiver; the files, LFS and `~`
-routes are 404 there.
+routes are 404 there, and since nothing would stop a push replacing `main`, only
+the owner may push (403 `forbidden` for a member or a write grant).
 Hosted Git takes no billing policy.
 
 `GitHost` is the replaceable part. It names a repository by its immutable id
