@@ -3,7 +3,8 @@
  *
  * - `openDevice(contract)`: a contract's typed client over the origin's
  *   private file system (OPFS), at the same paths a desktop folder holds,
- *   with the outbox of captures still to upload (`outboxOf`).
+ *   with the outbox of captures still to upload (`outboxOf`) and the cache
+ *   of files it uploaded (`cacheOf`).
  * - `openFolder({ tables })`: the legacy default local folder, kept in
  *   IndexedDB as a Git working tree. A blob's oid is its change stamp, and
  *   other tabs' saves arrive as hints.
@@ -29,6 +30,13 @@ import type { Fetched, FolderHost } from './storage.js';
 export * from './contract.js';
 export { DeviceError } from './device/opfs-store.js';
 export {
+	CACHE_DIRECTORY,
+	CACHE_LIMIT,
+	type Cache,
+	type CachedFile,
+} from './device/cache.js';
+export {
+	cacheOf,
 	type Capture,
 	type Outbox,
 	OutboxError,

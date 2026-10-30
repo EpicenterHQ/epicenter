@@ -76,7 +76,9 @@ export function nodeStore(
 			const put = await files.put(
 				path,
 				bytes,
-				expected === 'absent' ? 'absent' : { sha256: expected },
+				expected === 'absent' || expected === 'any'
+					? (expected as 'absent' | 'any')
+					: { sha256: expected },
 			);
 			if (put.error !== null)
 				return ClientError.Unavailable({ cause: put.error });

@@ -21,6 +21,13 @@ import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 
 export {
+	CACHE_DIRECTORY,
+	CACHE_LIMIT,
+	type Cache,
+	type CachedFile,
+} from './device/cache.js';
+export {
+	cacheOf,
 	type Capture,
 	type Outbox,
 	OutboxError,

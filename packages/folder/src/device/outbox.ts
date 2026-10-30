@@ -17,7 +17,9 @@
  * `@epicenter/folder/remote`) sends a capture as one write, records the
  * server's reply and the versions it sent here (`acknowledge`, as `sent`),
  * and only then deletes the device's copies (`finish`), each only at the
- * version sent. The capture id names the sidecar; the server never sees it.
+ * version sent; a file other than a note whose bytes landed at its path
+ * moves to the device's cache (`cache.ts`, decision 66) as it goes. The
+ * capture id names the sidecar; the server never sees it.
  * A write whose reply was lost goes again as the same write, which the
  * server judges like any other (decision 68). A file edited after it was
  * sent goes back in the outbox as an update over what landed.
@@ -40,6 +42,7 @@ import {
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
+import { type Cache, createCache, repositoryVersionOf } from './cache.js';
 import type { DeviceStore } from './store.js';
 
 /** Where a device keeps its outbox sidecars. */
@@ -161,8 +164,15 @@ const encodeCapture = (capture: Capture) =>
 export function createOutbox<TContract extends Contract>(
 	compiled: CompiledContract,
 	store: DeviceStore,
-	/** Told after each capture `add` records. */
-	added: (capture: Capture) => void = () => {},
+	{
+		cache = createCache(compiled, store),
+		added = () => {},
+	}: {
+		/** Where `finish` keeps the uploaded files it lets go of. */
+		cache?: ReturnType<typeof createCache>;
+		/** Told after each capture `add` records. */
+		added?: (capture: Capture) => void;
+	} = {},
 ) {
 	/** The capture `id` and its sidecar's version, or `NotFound`. */
 	async function read(
@@ -325,7 +335,10 @@ export function createOutbox<TContract extends Contract>(
 		 * version the upload sent, which the server's reply shows landed
 		 * (as written, merged into the note there, or as a conflict copy):
 		 * not the version `add` recorded, since an edit reverted to those
-		 * bytes while other bytes were in flight is not what landed.
+		 * bytes while other bytes were in flight is not what landed. A file
+		 * other than a note whose bytes the reply shows at its own path is
+		 * kept in the device's cache first; keeping it is best effort, since
+		 * the server holds the bytes either way.
 		 *
 		 * Every other file still on the device is `kept`, and never dropped:
 		 * it goes back in the outbox as a new pending capture (`queued`),
@@ -367,6 +380,11 @@ export function createOutbox<TContract extends Contract>(
 					kept[path] = held.data.version;
 					continue;
 				}
+				if (
+					receipt.blobs[path] ===
+					repositoryVersionOf(sent, held.data.bytes.byteLength)
+				)
+					await cache.keep(path, held.data.bytes);
 				const removed = await store.write(path, null, sent);
 				if (removed.error !== null) return removed;
 				if (removed.data === 'stale') {
@@ -425,6 +443,7 @@ export type DeviceParts = {
 	compiled: CompiledContract;
 	store: DeviceStore;
 	outbox: Outbox<Contract>;
+	cache: ReturnType<typeof createCache>;
 	/** Call `listener` after each new capture; returns the unsubscribe. */
 	onCapture(listener: () => void): () => void;
 };
@@ -437,13 +456,18 @@ export function registerDevice(
 	{ compiled, store }: { compiled: CompiledContract; store: DeviceStore },
 ) {
 	const listeners = new Set<() => void>();
-	const outbox = createOutbox(compiled, store, () => {
-		for (const listener of listeners) listener();
+	const cache = createCache(compiled, store);
+	const outbox = createOutbox(compiled, store, {
+		cache,
+		added: () => {
+			for (const listener of listeners) listener();
+		},
 	});
 	devices.set(device, {
 		compiled,
 		store,
 		outbox,
+		cache,
 		onCapture(listener) {
 			listeners.add(listener);
 			return () => listeners.delete(listener);
@@ -470,3 +494,21 @@ export function outboxOf<TContract extends Contract>(
 	return deviceParts(device).outbox as Outbox<TContract>;
 }
 
+/**
+ * The cache of a client `openDevice` returned: the files it uploaded, kept
+ * read only to play or read offline (`cache.ts`).
+ *
+ * @example
+ * ```ts
+ * const cached = await cacheOf(device).read(
+ *   { collection: 'audio', id, ext },
+ *   { version: row.version }, // the repository's, when online
+ * );
+ * const bytes = cached.data?.bytes ?? (await remote.audio.get({ id, ext })).data?.bytes;
+ * ```
+ */
+export function cacheOf<TContract extends Contract>(
+	device: Client<TContract>,
+): Cache<TContract> {
+	return deviceParts(device).cache as Cache<TContract>;
+}

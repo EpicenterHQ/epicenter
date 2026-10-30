@@ -152,20 +152,24 @@ async function read(path: string) {
 async function write(path: string, bytes: Uint8Array | null, expected: string) {
 	segmentsOf(path);
 	return navigator.locks.request(`epicenter-device:${path}`, async () => {
-		const current = await read(path);
+		// `'any'` (a cache) holds whatever is there, so nothing is read.
+		const current = expected === 'any' ? null : await read(path);
 		const holds =
-			expected === 'absent' ? current === null : current?.version === expected;
+			expected === 'any' ||
+			(expected === 'absent' ? current === null : current?.version === expected);
 		if (!holds) return 'stale';
 		if (bytes === null) {
 			const found = await fileAt(path);
 			if (found !== null) await found.parent.removeEntry(found.name);
 			return 'landed';
 		}
-		if (current !== null) {
+		if (current !== null || expected === 'any') {
 			const found = await fileAt(path);
-			if (found === null) return 'stale';
-			await writeWhole(found.handle, bytes);
-			return 'landed';
+			if (found !== null) {
+				await writeWhole(found.handle, bytes);
+				return 'landed';
+			}
+			if (current !== null) return 'stale';
 		}
 		const segments = segmentsOf(path);
 		const name = segments.pop()!;

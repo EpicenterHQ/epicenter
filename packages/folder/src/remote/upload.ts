@@ -12,7 +12,8 @@
  * 3. the server's reply is recorded in the capture's sidecar
  *    (`acknowledge`), with the version of each file sent;
  * 4. the device deletes each file only at the version it sent (`finish`),
- *    so an edit made since stays, and goes up as a new capture.
+ *    so an edit made since stays, and goes up as a new capture; a file
+ *    other than a note moves to the device's cache (`cacheOf`) as it goes.
  *
  * Each step is safe to repeat, so a crash anywhere resumes: after the PUT
  * the batch skips the stored object; after a write whose reply was lost the
@@ -32,7 +33,9 @@
  * when the browser comes back online, after each new capture, and again
  * after a failure, waiting longer each time. Uploading stops for good when
  * the account is retired (sign-out or another person signing in), so one
- * person's credential never uploads after another's arrives.
+ * person's credential never uploads after another's arrives; the files that
+ * account's uploads cached on the device go with it, once a run in flight
+ * ends.
  */
 
 import type { Client } from '@epicenter/definition/contract';
@@ -130,6 +133,10 @@ const UploadDiagnostic = defineErrors({
 		message: 'An upload run stopped early; it runs again later',
 		cause,
 	}),
+	CacheLeft: ({ cause }: { cause: unknown }) => ({
+		message: "A retired account's cached files stay on the device",
+		cause,
+	}),
 });
 
 /**
@@ -149,7 +156,7 @@ export function startUploading<TContract extends Contract>(
 	remote: Client<TContract>,
 	{ log = createLogger('folder/upload') }: { log?: Logger } = {},
 ): Uploader {
-	const { compiled, store, outbox, onCapture } = deviceParts(device);
+	const { compiled, store, outbox, cache, onCapture } = deviceParts(device);
 	const { account, wire, compiled: remoteContract } = remoteParts(remote);
 	if (compiled.name !== remoteContract.name)
 		throw new Error(
@@ -395,12 +402,22 @@ export function startUploading<TContract extends Contract>(
 		clearTimeout(retry);
 		unsubscribe();
 		globalThis.removeEventListener?.('online', wake);
-		account.signal.removeEventListener('abort', stop);
+		account.signal.removeEventListener('abort', retire);
 	}
 
-	if (account.signal.aborted) stop();
+	/** The account is gone: stop, and drop what its uploads cached. */
+	function retire() {
+		stop();
+		void (queued ?? running ?? Promise.resolve()).then(async () => {
+			const cleared = await cache.clear();
+			if (cleared.error !== null)
+				log.warn(UploadDiagnostic.CacheLeft({ cause: cleared.error }));
+		});
+	}
+
+	if (account.signal.aborted) retire();
 	else {
-		account.signal.addEventListener('abort', stop, { once: true });
+		account.signal.addEventListener('abort', retire, { once: true });
 		wake();
 	}
 

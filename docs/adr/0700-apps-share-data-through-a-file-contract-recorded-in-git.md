@@ -73,6 +73,15 @@ edited since land as two creates (a note gets at most one conflict block, a
 binary a conflict copy). Edits and deletes of repository files are online
 only.
 
+A file other than a note that the reply shows at its own path stays in the
+browser as a read-only cache (`.epicenter/cache/<path>`, `cacheOf(device)`),
+so an app can play or transcribe recent recordings offline. It is outside the
+contract, so nothing in it is ever sent. A read given the remote's version
+answers only with those bytes. The browser may evict it; past 32 files the
+first by file name go; it is cleared when the account that uploaded it is
+retired, or by the app. A note is never cached: it is the repository's to
+change.
+
 **The server translates writes and receives pushes; it holds no data of its
 own.** Both live in `mountGitHost` (`packages/server/src/routes/git.ts`):
 
@@ -160,8 +169,9 @@ the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
   count. R2 bytes of deleted files are not collected yet.
 - A front matter value that loses a race is visible only in history.
 - A version means sha256 on a device and a Git blob id on a remote. The
-  server's reply carries blob ids, and the outbox compares them with its own
-  bytes.
+  server's reply carries blob ids; a binary's is the blob of the LFS pointer
+  naming its sha256, which is how the device knows its cached bytes are the
+  repository's.
 - A reply lost and the file then changed, on the device or on `main`, before
   the resend gives one conflict block (or a conflict copy) instead of a clean
   update. Nothing is lost.
@@ -207,7 +217,7 @@ the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
 | [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | browser synchronization and "purging committed bytes requires a new repository": the owner may rewrite `main`. |
 | [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | web origins exchanging commits, the browser's Git transport, and `check` with `epicenter.json`: the web never syncs, and `check` takes a contract. |
 | [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | CLI `check` requiring root `epicenter.json`: `check` takes a contract. |
-| [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | the browser's unsent-edit map and publication bookkeeping: a browser holds only its own files and capture sidecars. |
+| [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | the browser's unsent-edit map and publication bookkeeping: a browser holds only its own files, capture sidecars, and a cache of the files it uploaded. |
 | [ADR-0620](0620-history-in-a-repository-only-grows.md) | "forced or not": the owner may replace `main`, kept at `refs/epicenter/replaced/<time>`; everyone else only moves it forward. |
 | [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | "binary files come later": every non-note file is Git LFS with bytes in R2. |
 | [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | the browser's sync states and recovery: a web app reports only files not uploaded yet. |

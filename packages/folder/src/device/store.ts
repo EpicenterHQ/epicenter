@@ -33,15 +33,16 @@ export type DeviceStore = {
 	>;
 	/**
 	 * Write `bytes` at `path`, or remove the file for null, only while the
-	 * path holds what `expected` says: nothing (`'absent'`), or bytes whose
-	 * sha256 is the version. `'stale'` when it does not, and nothing changed.
-	 * A new file appears whole, never empty first; missing parent
+	 * path holds what `expected` says: nothing (`'absent'`), bytes whose
+	 * sha256 is the version, or anything (`'any'`, for a cache: never stale,
+	 * and nothing is read first). `'stale'` when it does not, and nothing
+	 * changed. A new file appears whole, never empty first; missing parent
 	 * directories are made.
 	 */
 	write(
 		path: string,
 		bytes: Uint8Array | null,
-		expected: 'absent' | Version,
+		expected: 'absent' | 'any' | Version,
 	): Promise<Result<'landed' | 'stale', Unavailable>>;
 	/** Release what the store holds open; every later call is `Unavailable`. */
 	close?(): void;

@@ -156,7 +156,8 @@ replaces a file (`Occupied`). In the browser, one dedicated Worker owns the
 origin's private file system, with a Web Lock per path; a browser that gives
 the page no private storage answers `Unavailable` with a
 `DeviceError.StorageRefused` cause. The outbox records captures for upload
-as sidecars under `.epicenter/outbox/`. `/node` also exports `checkFiles`
+as sidecars under `.epicenter/outbox/`, and `cacheOf(device)` reads the
+files it uploaded, kept under `.epicenter/cache/` (below). `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. See
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
@@ -169,7 +170,8 @@ capture in the device's outbox, once signed in and online, and lets go of
 each file only at the version it sent, after the server's reply shows it
 landed. The server keeps nothing about a write, so after a lost reply the
 same write goes again and is judged like any write: bytes already there land
-as nothing, and a note edited meanwhile gains at most one conflict block:
+as nothing, and a note edited meanwhile gains at most one conflict block.
+A file other than a note moves into the device's cache as it goes:
 
 ```ts
 import { openRemote, startUploading } from '@epicenter/folder/remote';
@@ -181,6 +183,26 @@ const note = await remote.recordings.get({ id });
 if (note.error === null)
 	await remote.recordings.update({ id }, { title: 'Daily' }, { over: note.data.version });
 ```
+
+The cache (`src/device/cache.ts`) holds uploaded files other than notes at
+`.epicenter/cache/<path>`, read only and outside the contract, so nothing in
+it is ever sent. An app reads it before the remote, giving the remote's
+version when it has one, so a file the repository has since replaced is not
+answered:
+
+```ts
+import { cacheOf } from '@epicenter/folder/browser';
+
+const cached = await cacheOf(device).read(
+	{ collection: 'audio', id, ext },
+	{ version: listed.version }, // omit offline
+);
+const bytes = cached.data?.bytes ?? (await remote.audio.get({ id, ext })).data?.bytes;
+```
+
+The browser may evict it at any time; past `CACHE_LIMIT` (32) files, the
+first by file name go; `startUploading` clears it when the account is
+retired; `clear()` drops it on request.
 
 The web never syncs: edits and deletes of repository files need the server,
 and only files created on the device wait in the outbox. Uploading stops

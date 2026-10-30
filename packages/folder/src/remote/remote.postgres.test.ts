@@ -46,7 +46,7 @@ import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { startDisposablePostgres } from '../../../server/src/test-helpers/disposable-postgres.js';
 import { OAuthTestClient } from '../../../server/src/test-helpers/oauth-client.js';
-import { openDevice, outboxOf } from '../node.js';
+import { cacheOf, openDevice, outboxOf } from '../node.js';
 import { openRemote, startUploading } from '../remote.js';
 
 const recorder = defineContract({
@@ -258,6 +258,9 @@ async function capture(
 	return { id, bytes };
 }
 
+/** Where the device caches the audio of capture `id` once it is uploaded. */
+const cachedAudio = (id: string) => `.epicenter/cache/recordings/${id}.m4a`;
+
 /** Every file left in a device folder, hidden ones included. */
 async function filesIn(root: string) {
 	const entries = await readdir(root, { recursive: true, withFileTypes: true });
@@ -279,7 +282,8 @@ describe('upload', () => {
 
 		expect(report).toMatchObject({ uploaded: [id], interrupted: null });
 		expect(person.requests(WRITES)).toHaveLength(1);
-		expect(await filesIn(root)).toEqual([]);
+		// Only the audio stays, as a cache: the note is the repository's.
+		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
 		const note = expectOk(await remote.recordings.get({ id }));
 		expect(note).toMatchObject({ id, title: 'Standup', body: '' });
 		expect(note.version).toMatch(/^[0-9a-f]{40}$/);
@@ -288,6 +292,18 @@ describe('upload', () => {
 		expect(expectOk(await remote.audio.list()).items).toEqual([
 			{ id, ext: 'm4a', version: audio.version },
 		]);
+		// The cache answers for the repository's version, offline too.
+		const cache = cacheOf(device);
+		expect(expectOk(await cache.list()).items).toEqual([
+			{ collection: 'audio', id, ext: 'm4a' },
+		]);
+		const hit = expectOk(
+			await cache.read(
+				{ collection: 'audio', id, ext: 'm4a' },
+				{ version: audio.version },
+			),
+		);
+		expect(hit?.bytes).toEqual(bytes);
 	}, 30_000);
 
 	test('a plain resend after a lost reply lands as nothing: same commit, no new one', async () => {
@@ -310,7 +326,7 @@ describe('upload', () => {
 			outcomes: [{ outcome: 'unchanged' }, { outcome: 'unchanged' }],
 		});
 		expect(person.requests(WRITES)).toHaveLength(2);
-		expect(await filesIn(root)).toEqual([]);
+		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
 	}, 30_000);
 
 	test('a crash after the write keeps everything on the device, and the next page sends it again', async () => {
@@ -339,7 +355,7 @@ describe('upload', () => {
 			commit: (writes[0]?.body as { commit: string }).commit,
 			outcomes: [{ outcome: 'unchanged' }, { outcome: 'unchanged' }],
 		});
-		expect(await filesIn(root)).toEqual([]);
+		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
 		expect(expectOk(await remote.audio.get({ id, ext: 'm4a' })).bytes).toEqual(
 			bytes,
 		);
@@ -394,7 +410,7 @@ describe('upload', () => {
 			bytes,
 		);
 		// The device let go only of what the reply showed landed: everything.
-		expect(await filesIn(root)).toEqual([]);
+		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
 	}, 30_000);
 
 	test('a crash after the PUT resumes without uploading the bytes again', async () => {
@@ -419,7 +435,7 @@ describe('upload', () => {
 		expect(await uploader.drain()).toMatchObject({ uploaded: [id] });
 		expect(person.requests(PUTS)).toHaveLength(1);
 		expect(person.requests(WRITES)).toHaveLength(1);
-		expect(await filesIn(root)).toEqual([]);
+		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
 	}, 30_000);
 
 	test('a crash before the delete finishes on the next page, without writing again', async () => {
@@ -457,7 +473,7 @@ describe('upload', () => {
 		);
 		expect(await uploader.drain()).toMatchObject({ uploaded: [id] });
 		expect(person.requests(WRITES)).toHaveLength(1);
-		expect(await filesIn(root)).toEqual([]);
+		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
 	}, 30_000);
 
 	test('files no capture names are adopted and uploaded', async () => {
@@ -511,7 +527,7 @@ describe('upload', () => {
 	test('each capture is written once however many runs are asked for, and a new capture starts one', async () => {
 		const person = await signIn('single-flight');
 		const { root, device } = await deviceAt();
-		await capture(device, 'One');
+		const one = await capture(device, 'One');
 		using uploader = startUploading(
 			device,
 			openRemote(recorder, { account: person.account }),
@@ -520,12 +536,14 @@ describe('upload', () => {
 		expect(person.requests(WRITES)).toHaveLength(1);
 
 		// No drain is asked for: the capture itself starts a run.
-		await capture(device, 'Two');
+		const two = await capture(device, 'Two');
 		for (let i = 0; i < 100 && person.requests(WRITES).length < 2; i++)
 			await Bun.sleep(50);
 		await uploader.drain();
 		expect(person.requests(WRITES)).toHaveLength(2);
-		expect(await filesIn(root)).toEqual([]);
+		expect(await filesIn(root)).toEqual(
+			[cachedAudio(one.id), cachedAudio(two.id)].sort(),
+		);
 	}, 30_000);
 
 	test('retiring the account stops uploading for good', async () => {
@@ -537,7 +555,9 @@ describe('upload', () => {
 			openRemote(recorder, { account: person.account }),
 			{ log: createLogger('upload', sink) },
 		);
+		const { id } = await capture(device, 'Before sign-out');
 		await uploader.drain();
+		expect(await filesIn(root)).toEqual([cachedAudio(id)]);
 		const before = person.sent.length;
 
 		person.retire();
@@ -549,8 +569,16 @@ describe('upload', () => {
 		expect(report.interrupted?.name).toBe('Unavailable');
 		expect(person.sent).toHaveLength(before);
 		expect(events).toEqual([]);
-		// The capture waits on the device for the next person to sign in.
-		expect(await filesIn(root)).toHaveLength(3);
+		// The capture waits on the device for the next person to sign in, and
+		// what the retired account's uploads cached is gone.
+		const cachedNow = async () =>
+			(await filesIn(root)).some((path) => path.startsWith('.epicenter/cache/'));
+		for (let i = 0; i < 40 && (await cachedNow()); i++) await Bun.sleep(25);
+		const left = await filesIn(root);
+		expect(left).toHaveLength(3);
+		expect(left.some((path) => path.startsWith('.epicenter/cache/'))).toBe(
+			false,
+		);
 	}, 30_000);
 });
 
