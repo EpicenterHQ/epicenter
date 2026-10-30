@@ -33,12 +33,12 @@
  * - An acknowledged token is in a server text after every step, or in a device's unsent work (a rename's new file, held or not yet sent, after its delete went alone), and at quiescence every owed token is in a server text
  * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged, or what only its own unsent work held
  * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, unless it lost to an edit by someone else that it had not seen: then the edited file stays, and nothing typed is lost
- * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
+ * - No stale edit of a note merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
  * - None applied twice: at quiescence no token appears twice in a server text outside its conflict blocks, nor twice in any one side of a block (`versionsOf`), except tokens a person wrote twice on purpose (resolving blocks by keeping every side's lines)
  * - Held alone: once everyone is online and every upload is completed or refused, every file a device has not sent is held, with a reason of its own; nothing waits on another file
- * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
+ * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present, unless it is the pointer main gave it at that path; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
  *
  * Each suite reads its own environment, by prefix (B for the memory
  * suite, W for the wire): <P>_SEED=n replays one sequence, <P>_RUNS=n runs n
@@ -224,7 +224,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		if (request.type === 'push')
 			for (const file of request.commit.files) {
 				const pointer = file.text === null ? null : parsePointer(file.text);
-				if (pointer !== null && !marked.get(device)?.has(pointer.oid)) violations.push(`${device}: sent ${file.path} before its bytes were present`);
+				// Bytes this device heard are present, or the pointer `main` gave it at that path (its base): main admits a pointer only once the server holds its bytes.
+				const base = everyone.find((d) => d.name === device)?.replica.files().get(file.path)?.base ?? null;
+				if (pointer !== null && !marked.get(device)?.has(pointer.oid) && file.text !== base) violations.push(`${device}: sent ${file.path} before its bytes were present`);
 			}
 		if (request.type !== 'push' || reply.type !== 'answer') return;
 		const answer = reply.answer as PushAnswer;
@@ -238,7 +240,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		const from = chain.indexOf(commit.parent);
 		const before = chain.indexOf(merge.parents[0] ?? '');
 		for (const file of commit.files) {
-			if (file.text === null || from < 0 || before < 0) continue;
+			// Notes only: a blob never merges, it lands by compare-and-swap over the bytes its writer saw (a path deleted and made again with those bytes holds them).
+			if (file.text === null || !file.path.endsWith('.md') || from < 0 || before < 0) continue;
 			const then = states.get(commit.parent)?.get(file.path) ?? null;
 			const ours = states.get(chain[before] ?? '')?.get(file.path) ?? null;
 			let deleted = false;
@@ -296,8 +299,17 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				].join('\n'),
 			),
 		].join('\n');
-	/** What devices have not sent: the text each shows at a path it has not sent (held, or sending). */
-	const unsentText = (devices = everyone) => devices.flatMap((d) => d.replica.unsent().map((path) => d.replica.read(path) ?? '')).join('\n');
+	/** What devices have not sent and made themselves: the tokens each shows at a path it has not sent (held, or sending) that its base there does not hold. */
+	const unsentText = (devices = everyone) =>
+		devices
+			.flatMap((d) => {
+				const files = d.replica.files();
+				return d.replica.unsent().flatMap((path) => {
+					const base = tokensIn(files.get(path)?.base ?? null);
+					return [...tokensIn(d.replica.read(path))].filter((t) => !base.has(t));
+				});
+			})
+			.join('\n');
 	const check = (step: string, quiet: boolean) => {
 		const server = serverText();
 		const devices = quiet ? '' : deviceText();
