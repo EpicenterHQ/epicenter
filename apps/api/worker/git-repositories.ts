@@ -25,6 +25,8 @@ import {
 	FLUSH,
 	type GitHost,
 	pktLine,
+	RECEIVE_LIMITS,
+	type ReceiveLimits,
 	readCommandLines,
 } from '@epicenter/server';
 import {
@@ -41,6 +43,17 @@ const TOKEN_TTL_SECONDS = 24 * 60 * 60;
 const RENEW_BEFORE_MS = 60 * 60 * 1000;
 /** The most tokens one isolate keeps; the oldest go first. */
 const MAX_CACHED_TOKENS = 512;
+
+/**
+ * What one push may cost the Worker. Placing a push's stored commits reads
+ * `main`'s history from Artifacts, one subrequest per commit, and a Paid
+ * invocation may make 10,000: half is left for everything else the push
+ * reads.
+ */
+export const WORKER_RECEIVE_LIMITS: ReceiveLimits = {
+	...RECEIVE_LIMITS,
+	mainCommits: 5_000,
+};
 
 /** The message Artifacts gives each error this store handles. */
 const MESSAGES: Partial<Record<ArtifactsErrorCode, RegExp>> = {
@@ -227,6 +240,7 @@ export function createArtifactsGitHost({
 	if (!receiver) return host;
 	return {
 		...host,
+		receiveLimits: WORKER_RECEIVE_LIMITS,
 		objects(id) {
 			return createArtifactsObjects({
 				remote: `${upstream}/${id}.git`,

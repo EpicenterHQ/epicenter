@@ -246,6 +246,7 @@ describe('the receiver waits for an R2 LFS store', () => {
 		const requests = stubFetch(advertisement);
 		const { host } = scripted([], { receiver: true });
 		expect(host.objects).toBeFunction();
+		expect(host.receiveLimits?.mainCommits).toBe(5_000);
 		const served = await host.serve(ID, withProtocol());
 		expect(new Headers(requests[0]?.init.headers).get('git-protocol')).toBe(
 			null,

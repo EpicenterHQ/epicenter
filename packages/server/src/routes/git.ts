@@ -112,6 +112,7 @@ import {
 } from './lfs.js';
 import {
 	MAX_PUSH_BYTES,
+	type ReceiveLimits,
 	receiveAdvertisement,
 	receivePush,
 } from './receive.js';
@@ -157,6 +158,8 @@ export type GitHost = {
 	 * routes are not served (404), as before the receiver.
 	 */
 	objects?(id: string): GitObjects;
+	/** What one push may cost this store; the disk server's (`RECEIVE_LIMITS`) by default. */
+	receiveLimits?: ReceiveLimits;
 };
 
 /** What one request may do to one repository, as a deployment's access decided it. */
@@ -761,6 +764,7 @@ export function mountGitHost(
 						repositoryId,
 						body,
 						mayRewrite: roleAllows(role, 'rewrite'),
+						limits: host.receiveLimits,
 					});
 				}
 				case 'files':

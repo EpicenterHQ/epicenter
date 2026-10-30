@@ -16,7 +16,13 @@ import {
 	createGitSandbox,
 	type GitSandbox,
 } from '../test-helpers/sandbox-git.js';
-import { receiveAdvertisement, receivePush, replacedRef } from './receive.js';
+import {
+	RECEIVE_LIMITS,
+	type ReceiveLimits,
+	receiveAdvertisement,
+	receivePush,
+	replacedRef,
+} from './receive.js';
 
 let box: GitSandbox;
 let host: ReturnType<typeof createDiskGitHost>;
@@ -57,7 +63,16 @@ async function setup() {
 			old,
 			owner = false,
 			revs: extra = [],
-		}: { old?: string; owner?: boolean; revs?: string[] } = {},
+			via = objects,
+			limits,
+		}: {
+			old?: string;
+			owner?: boolean;
+			revs?: string[];
+			/** The objects the receiver reads, when a test counts its reads. */
+			via?: GitObjects;
+			limits?: ReceiveLimits;
+		} = {},
 	) => {
 		const current = old ?? (await main());
 		const revs = [
@@ -85,11 +100,12 @@ async function setup() {
 			pack,
 		]);
 		const response = await receivePush({
-			objects,
+			objects: via,
 			lfs,
 			repositoryId: id,
 			body,
 			mayRewrite: owner,
+			limits,
 		});
 		return new TextDecoder().decode(await response.arrayBuffer());
 	};
@@ -112,6 +128,87 @@ const pointerFor = (bytes: Uint8Array) => {
 		text: `version https://git-lfs.github.com/spec/v1\noid sha256:${oid}\nsize ${bytes.length}\n`,
 	};
 };
+
+/** `objects`, counting the commits it reads and every `isAncestor` asked of it. */
+function counting(objects: GitObjects) {
+	const counts = { commitReads: 0, isAncestor: 0 };
+	const counted: GitObjects = {
+		...objects,
+		read(oid, kind, options) {
+			if (kind === 'commit') counts.commitReads++;
+			return objects.read(oid, kind, options);
+		},
+		isAncestor(ancestor, descendant) {
+			counts.isAncestor++;
+			return objects.isAncestor(ancestor, descendant);
+		},
+	};
+	return { counts, objects: counted };
+}
+
+/**
+ * Store a `length`-commit history on `main` straight into the bare
+ * repository, as pushes before the receiver did: commit 3 adds raw audio,
+ * and every commit adds a note. Returns main's tip.
+ */
+async function storeLongHistory(
+	r: Awaited<ReturnType<typeof setup>>,
+	length: number,
+) {
+	const parts: string[] = [];
+	const data = (text: string) => `data ${Buffer.byteLength(text)}\n${text}\n`;
+	for (let n = 1; n <= length; n++) {
+		parts.push(
+			`commit refs/heads/main\ncommitter Ada <ada@example.invalid> ${1_700_000_000 + n} +0000\n`,
+			data(`capture ${n}`),
+			`M 100644 inline notes/n${n}.md\n`,
+			data(`note ${n}`),
+		);
+		if (n === 3)
+			parts.push('M 100644 inline rec/old.m4a\n', data('raw audio bytes'));
+	}
+	await box.ok(r.work, ['fast-import', '--quiet'], parts.join(''));
+	await box.ok(r.work, ['checkout', '--quiet', '-f', 'main']);
+	await box.ok(r.work, ['push', '--quiet', r.gitDir, 'main:main']);
+	return (await box.ok(r.work, ['rev-parse', 'main'])).trim();
+}
+
+describe('receivePush over a long history', () => {
+	test("a desktop offline for 600 captures pushes, reading main's history once, past raw bytes from before the receiver", async () => {
+		const r = await setup();
+		const tip = await storeLongHistory(r, 650);
+		// The desktop last synced 630 captures ago, recorded, then merged main.
+		await box.ok(r.work, ['checkout', '--quiet', '-b', 'desk', 'main~630']);
+		await r.commit({ 'desk.md': 'written offline\n' });
+		await box.ok(r.work, ['merge', '--quiet', '--no-edit', 'main']);
+		const merge = (await box.ok(r.work, ['rev-parse', 'HEAD'])).trim();
+
+		const { counts, objects } = counting(r.objects);
+		expect(await r.push(merge, { old: tip, via: objects })).toContain(
+			`ok ${MAIN}`,
+		);
+		expect(await r.main()).toBe(merge);
+		expect(counts.isAncestor).toBe(0);
+		// Main's commits down to the desktop's base, once, and a few more.
+		expect(counts.commitReads).toBeGreaterThan(600);
+		expect(counts.commitReads).toBeLessThan(700);
+	});
+
+	test('a stored commit beyond what the deployment may read of main is refused, and says why', async () => {
+		const r = await setup();
+		const tip = await storeLongHistory(r, 150);
+		await box.ok(r.work, ['checkout', '--quiet', '-b', 'desk', 'main~130']);
+		await r.commit({ 'desk.md': 'written offline\n' });
+		await box.ok(r.work, ['merge', '--quiet', '--no-edit', 'main']);
+		const merge = (await box.ok(r.work, ['rev-parse', 'HEAD'])).trim();
+		const refused = await r.push(merge, {
+			old: tip,
+			limits: { ...RECEIVE_LIMITS, mainCommits: 100 },
+		});
+		expect(refused).toContain("within main's last 100 commits");
+		expect(await r.main()).toBe(tip);
+	});
+});
 
 describe('receivePush', () => {
 	test('a fast-forward lands, and so does a merge commit', async () => {

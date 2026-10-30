@@ -79,6 +79,7 @@ export {
 	type RepositoryAccess,
 } from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
+export { RECEIVE_LIMITS, type ReceiveLimits } from './routes/receive.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS)
 // and returns the `Hono` every surface mounts onto. It takes one
