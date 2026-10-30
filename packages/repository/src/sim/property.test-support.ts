@@ -30,13 +30,13 @@
  * counts only where the server or a device keeps it as text.
  *
  * Key behaviors:
- * - An acknowledged token is in a server text after every step, and at quiescence every owed token is
- * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged
+ * - An acknowledged token is in a server text after every step, or in a device's unsent work (a rename's new file, held or not yet sent, after its delete went alone), and at quiescence every owed token is in a server text
+ * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged, or what only its own unsent work held
  * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, unless it lost to an edit by someone else that it had not seen: then the edited file stays, and nothing typed is lost
  * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
- * - None applied twice: at quiescence no token appears twice in a server text outside its conflict blocks, nor twice in any one side of a block (`versionsOf`)
+ * - None applied twice: at quiescence no token appears twice in a server text outside its conflict blocks, nor twice in any one side of a block (`versionsOf`), except tokens a person wrote twice on purpose (resolving blocks by keeping every side's lines)
  * - Held alone: once everyone is online and every upload is completed or refused, every file a device has not sent is held, with a reason of its own; nothing waits on another file
  * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
  *
@@ -177,8 +177,10 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const removed = new Set<string>();
 	/** Typed on a device lost before its commit was acknowledged: legitimately gone. */
 	const forgotten = new Set<string>();
-	/** Acknowledged tokens whose only copy was a held file on a device whose storage was then lost: the cost of each file going on its own. */
-	let lostWithHeld = 0;
+	/** Acknowledged tokens whose only copy was a device's unsent work when its storage was lost: the cost of each file going on its own. */
+	let lostWithUnsent = 0;
+	/** Tokens a person deliberately wrote twice: resolving a note's blocks by keeping every side's lines. */
+	const retyped = new Set<string>();
 	const removals: { device: string; path: string; base: string | null; position: string | null; at: number; landed: boolean; cancelled: boolean; step: string }[] = [];
 	const violations: string[] = [];
 	/** Bytes each device was told are present (its "epicenter/objects"), by device. */
@@ -294,15 +296,15 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				].join('\n'),
 			),
 		].join('\n');
-	/** What devices hold back, with a reason: each held file's text. */
-	const heldText = (devices = everyone) => devices.flatMap((d) => d.replica.held().map((h) => d.replica.read(h.path) ?? '')).join('\n');
+	/** What devices have not sent: the text each shows at a path it has not sent (held, or sending). */
+	const unsentText = (devices = everyone) => devices.flatMap((d) => d.replica.unsent().map((path) => d.replica.read(path) ?? '')).join('\n');
 	const check = (step: string, quiet: boolean) => {
 		const server = serverText();
 		const devices = quiet ? '' : deviceText();
-		const held = quiet ? '' : heldText();
-		// RULE: each file goes on its own, so a person's rename whose new file is held (it does not parse, say) deletes the old one from the server while the text waits in the held file, on their device, saying why.
+		const unsent = quiet ? '' : unsentText();
+		// RULE: each file goes on its own, so a person's rename whose new file cannot go yet (held: it does not parse, say) deletes the old one from the server while the text waits in the new file, on their device; once it can go, it is sent.
 		for (const t of acknowledged)
-			if (!removed.has(t) && !forgotten.has(t) && owed.has(t) && !server.includes(t) && !held.includes(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text and no held file`);
+			if (!removed.has(t) && !forgotten.has(t) && owed.has(t) && !server.includes(t) && !unsent.includes(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text and no unsent file`);
 		for (const [t, who] of owed)
 			if (!removed.has(t) && !forgotten.has(t) && !server.includes(t) && (quiet || !devices.includes(t))) violations.push(`${step}: lost ${t} (${who})`);
 		if (violations.length > 0) throw new Error(`seed ${seed}\n${[...new Set(violations)].join('\n')}\n--- steps\n${log.join('\n')}${tracing ? `\n--- devices\n${dump()}` : ''}`);
@@ -604,12 +606,12 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			1,
 			(d) => {
 				for (const [t, who] of owed) if (who === d.name && !acknowledged.has(t)) forgotten.add(t);
-				// Text this device moved into a file it holds, which the server no longer has elsewhere, goes with it: what a held file holds is on its device alone.
+				// Acknowledged text this device moved into a file it has not sent (a rename whose new file was held), which neither the server nor another device's unsent work has, goes with it.
 				const server = serverText();
-				const others = heldText(everyone.filter((other) => other !== d));
-				for (const t of tokensIn(heldText([d]))) if (acknowledged.has(t) && !server.includes(t) && !others.includes(t) && !forgotten.has(t)) {
+				const others = unsentText(everyone.filter((other) => other !== d));
+				for (const t of tokensIn(unsentText([d]))) if (acknowledged.has(t) && !server.includes(t) && !others.includes(t) && !forgotten.has(t)) {
 					forgotten.add(t);
-					lostWithHeld++;
+					lostWithUnsent++;
 				}
 				for (const r of removals) if (r.device === d.name && !r.landed) r.cancelled = true;
 				for (const a of attaches) if (a.device === d.name) a.settled = true;
@@ -727,6 +729,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				}
 				// Too many blocks: the person resolves them by keeping every side's lines, which removes nothing typed.
 				const unblocked = reason === REASONS['too-many-blocks'] ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
+				if (unblocked !== text) for (const t of tokensIn(text)) retyped.add(t);
 				const fixed = parses(unblocked) && !hasFiller(unblocked) ? unblocked : repair(unblocked);
 				if (fixed === text && text === world.server.read(path) && reason === undefined) continue;
 				save(d, { [path]: fixed }, []);
@@ -768,7 +771,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		for (const [version, written] of versionsOf(text)) {
 			const seen = new Map<string, number>();
 			for (const t of written.match(TOKEN) ?? []) seen.set(t, (seen.get(t) ?? 0) + 1);
-			for (const [t, n] of seen) if (n > 1) violations.push(`quiet: ${t} appears ${n} times in ${path} (${version})`);
+			for (const [t, n] of seen) if (n > 1 && !retyped.has(t)) violations.push(`quiet: ${t} appears ${n} times in ${path} (${version})`);
 		}
 	}
 	check('at quiescence', true);
@@ -782,7 +785,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const stats: Record<string, number> = {};
 	for (const d of everyone) for (const [key, value] of Object.entries(d.replica.stats())) stats[key] = (stats[key] ?? 0) + value;
 	const conflicts = [...server.values()].filter((text) => text?.includes('<<<<<<< ')).length;
-	return { world, requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.stats().refused, lostWithHeld };
+	return { world, requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.stats().refused, lostWithUnsent };
 }
 
 /**
@@ -835,7 +838,7 @@ export function definePropertySuite({
 					for (const [kind, n] of Object.entries(result.notices)) add(`notice:${kind}`, n);
 					add('conflicted files', result.conflicts);
 					add('agent refusals', result.agentRefusals);
-					add('acknowledged lost with a held file', result.lostWithHeld);
+					add('acknowledged lost with a device\'s unsent work', result.lostWithUnsent);
 				} finally {
 					await opened?.close();
 				}

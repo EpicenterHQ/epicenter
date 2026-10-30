@@ -21,6 +21,7 @@
  * - A refused upload holds every pointer naming those bytes, with the reason; a save of the path clears it, and saving the same bytes again owes them again
  * - Owed pointers survive a reopen, and count as busy and unsent
  * - A blob write over a blob that moved while its bytes were uploading is held with why, and never uploaded
+ * - A pointer saved over an owed pointer while a commit is out: the notes go, neither pointer before its bytes, and the newer once present
  */
 import { expect, test } from 'bun:test';
 import type { LiveCommit } from '../core/commit.js';
@@ -216,4 +217,30 @@ test('a blob written elsewhere while this one uploads holds this one with why, a
 	expect(alice.replica.read(AUDIO)).toBe(writePointer(a));
 	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
 	expect(alice.replica.owed()).toEqual([]);
+});
+
+test('a pointer saved over an owed pointer while a commit is out: the notes go, neither pointer before its bytes, and the newer once present (seeds 470249, 470282)', () => {
+	const { world, alice, settle, pushed } = setup();
+	const c = { oid: 'c'.repeat(64), size: 300 };
+	const d = { oid: 'd'.repeat(64), size: 400 };
+	world.upload(c.oid, c.size);
+	alice.replica.present(c.oid, c.size);
+	// A commit in flight whose reply is lost; while it is out, an owed pointer is saved with notes, then another over it.
+	alice.loseNextReply();
+	alice.replica.writeAll({ 'notes/b.md': note('b\n'), [AUDIO]: writePointer(c) });
+	world.net.runFor(5);
+	alice.replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/c.md': note('c\n'), [AUDIO]: writePointer(a) });
+	alice.replica.writeAll({ 'notes/a.md': note('a\nmore\n'), [AUDIO]: writePointer(d) });
+	settle();
+	// Each pointer sent, once however often its commit was sent again.
+	const sentPointers = () => [...new Set(pushed.flatMap(({ commit }) => commit.files.filter((file) => file.path === AUDIO).map((file) => file.text)))];
+	expect(sentPointers()).toEqual([writePointer(c)]);
+	expect(world.server.read('notes/a.md')).toBe(note('a\nmore\n'));
+	expect(world.server.read('notes/c.md')).toBe(note('c\n'));
+	expect(alice.replica.state(AUDIO)).toEqual(UPLOADING);
+	world.upload(d.oid, d.size);
+	alice.replica.present(d.oid, d.size);
+	settle();
+	expect(sentPointers()).toEqual([writePointer(c), writePointer(d)]);
+	expect(world.server.read(AUDIO)).toBe(writePointer(d));
 });
