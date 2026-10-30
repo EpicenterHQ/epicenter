@@ -54,6 +54,13 @@ const REMOTE_MAIN = 'refs/remotes/origin/main';
  */
 const REF_STATUS =
 	/^ ! \[(rejected|remote rejected)\] +\S+ -> \S+ \((.*)\)[ \t]*$/gm;
+/**
+ * Git's own report that the server refused this account a fetch or a push
+ * (HTTP 403): a read-only grant pushing, or a revoked one. Running again
+ * cannot help until the owner changes the grant.
+ */
+const FORBIDDEN =
+	/^fatal: unable to access '[^'\n]*': The requested URL returned error: 403$/m;
 /** A remote's reason that means it moved first: the receiver's own, or stock Git's on a lost ref race. */
 const MOVED_REASON =
 	/^(?:stale\b|non-fast-forward\b|fetch first\b|cannot lock ref\b|failed to update ref\b|failed to lock\b)/;
@@ -68,8 +75,9 @@ const MOVED_REASON =
  *   ref update); fetch, merge, and push again.
  * - `refused`: any other `[remote rejected]` reason: the remote's policy
  *   turned the push down (a raw file where an LFS pointer belongs, a ref
- *   other than `main`). Pushing again cannot help, so the round stops for a
- *   person or an agent.
+ *   other than `main`), or Git's own report that the server refused this
+ *   account the push (HTTP 403: a read-only or revoked grant). Pushing again
+ *   cannot help, so the round stops for a person or an agent.
  * - `failed`: no ref status at all, such as the network; run the round
  *   again later.
  */
@@ -81,7 +89,7 @@ export function classifyPush(stderr: string): 'moved' | 'refused' | 'failed' {
 			? ('moved' as const)
 			: ('refused' as const),
 	);
-	if (statuses.includes('refused')) return 'refused';
+	if (statuses.includes('refused') || FORBIDDEN.test(plain)) return 'refused';
 	if (statuses.includes('moved')) return 'moved';
 	return 'failed';
 }
@@ -328,7 +336,10 @@ async function round(
 			credential: auth,
 		});
 		if (fetched.code !== 0)
-			throw new Stop(`git fetch failed: ${fetched.stderr.trim()}`, 'retry');
+			throw new Stop(
+				`git fetch failed: ${fetched.stderr.trim()}`,
+				FORBIDDEN.test(fetched.stderr) ? 'stopped' : 'retry',
+			);
 		if (await has(root, REMOTE_MAIN)) await mergeRemote(root, auth, who, notes);
 		if (
 			(await has(root, REMOTE_MAIN)) &&

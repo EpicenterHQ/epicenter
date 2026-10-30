@@ -90,6 +90,21 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./sync/commands.ts')).mergeDriverCommand(positionals),
 	repos: async ({ json, grant }) =>
 		(await import('./repository-commands.ts')).repos(json, grant),
+	share: async ({ positionals: [target, person], options, json, grant }) =>
+		(await import('./repository-commands.ts')).share(
+			target as string,
+			person,
+			options,
+			json,
+			grant,
+		),
+	unshare: async ({ positionals: [target, person], json, grant }) =>
+		(await import('./repository-commands.ts')).unshare(
+			target as string,
+			person as string,
+			json,
+			grant,
+		),
 	'auth key': async ({ positionals: [action, connection], json }) => {
 		const [{ authKey }, { keychain }] = await Promise.all([
 			import('./ai-commands.ts'),
@@ -214,8 +229,21 @@ epicenter.folder list, and makes sync refuse it until init runs again. Its
 files, repository, and history stay.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the
 personal namespace first, then each group by title, as <namespace>/<name>.
-With --json, {"namespaces": [{"id", "title", "personal", "role",
+Your personal namespace's id is your handle, which others share with. With
+--json, {"namespaces": [{"id", "title", "personal", "role",
 "repositories": [{"id", "name", "url"}]}]}.`,
+	share: `Lets the person whose handle is <handle> (their personal namespace's id,
+from their epicenter repos) read one of your repositories with --read, or
+also push forward and write from the web with --write, replacing any access
+they had. Only you may rewrite main or share it on. They clone it as
+<owner>/<name>, your handle and its name. The repository is <owner>/<name>,
+~/<name> (quoted, so the shell leaves it), or a folder cloned from it. Without
+<handle>, lists who it is shared with. With --json, the grant
+{"person", "level"}, or {"grants": [...]}. Exits 2 when refused.`,
+	unshare: `Revokes the access of the person whose handle is <handle> to one of your
+repositories. Their next fetch or push is refused; the files they already
+have stay with them. With --json, {"person", "revoked"}. Exits 2 when
+refused.`,
 	sync: `Commits what changed in <dir> (only that folder's paths, through Git's LFS
 filters), fetches origin, checks that the remote main still contains the one
 this clone last saw, merges it, and pushes, retrying when the remote moved.
