@@ -1,9 +1,8 @@
 /**
  * Settling one path where two histories meet: the one producer of what
- * happened to a file, used by the server when it merges a commit and by a
- * device when it rebases its own unsent work. It returns the text, and
- * whether it wrote a conflict block (a merge that did is its own Git commit
- * at the next flush).
+ * happened to a file, used by the server when a web write lands on a moved
+ * `main` and by the desktop merge driver when `epicenter sync` merges. It
+ * returns the text, and whether it wrote a conflict block.
  *
  * Every conflict is text: overlaps are conflict blocks. A header key
  * both sides set takes the later write's value, `incoming`'s (the write
@@ -19,9 +18,12 @@
  *
  * A merge never breaks a key: the header merges key by key, each key's
  * block whole, and a body after no header is kept from reading as one (a
- * seeded property in `merge.test.ts`). Only typed text breaks a key, and a
+ * seeded property in `settle.properties.test.ts`). Only typed text breaks a key, and a
  * broken key costs only that key.
  */
+
+import { parseRowSource } from '../note/canonical.js';
+import { formatNote } from '../note/index.js';
 import {
 	block,
 	type Labels,
@@ -96,9 +98,11 @@ const utf8 = new TextEncoder();
 const SIBLING_SUFFIX = / \(conflict [0-9a-f]{7,64}\)$/;
 
 /**
- * RULE: where a losing blob write lands: `<stem> (conflict <hash>)<ext>`
- * beside `path`, from the original stem (a sibling's own suffix dropped)
- * and the first `chars` characters of the losing bytes' hash. The stem is
+ * RULE: where a losing blob write lands (decision 44, the same on the server
+ * and in desktop sync): `<stem> (conflict <hash7>)<ext>` beside `path`, from
+ * the original stem (a sibling's own suffix dropped) and the first `chars`
+ * characters of `oid`, the losing bytes' LFS oid (the sha256 its pointer
+ * names), so every writer names one losing write alike. The stem is
  * shortened, by whole characters, until the name fits 255 bytes and the
  * path `maxPath` bytes.
  */
@@ -127,32 +131,52 @@ export function conflictSibling(
 /**
  * Settle `incoming` (the writer's text) against `current` (what is there
  * now), both made from `base`.
+ *
+ * Whatever settle writes is in house style (decision 29): `keys`, the
+ * contract's field order, first, then any other key sorted. Without `keys`
+ * (the server, which holds no contract) a note keeps the key order the
+ * merge gave it, and only its values are formatted. A note whose header
+ * does not parse is left as merged, for a person to repair. Where nothing
+ * is written (`current` stands), `current` is returned as it was.
  */
 export function settle(
 	base: string | null,
 	current: string | null,
 	incoming: string | null,
-	{ parties }: { parties: Parties },
+	{ parties, keys }: { parties: Parties; keys?: readonly string[] },
 ): Settled {
 	if (incoming === current) return { text: current, blocks: false };
 	if (incoming === base) return { text: current, blocks: false };
-	if (current === base) return { text: incoming, blocks: false };
+	if (current === base) return written(incoming, false, keys);
 	// A delete against an edit it had not seen keeps the edit; an edit brings a deleted note back.
 	if (incoming === null) return { text: current, blocks: false };
-	if (current === null) return { text: incoming, blocks: false };
+	if (current === null) return written(incoming, false, keys);
 	// Two creates: another note.
 	const labels = labelled(parties, base, current, incoming);
 	if (base === null)
-		return {
-			text: withBlock(current, block({ current: '', incoming }, labels)),
-			blocks: true,
-		};
+		return written(
+			withBlock(current, block({ current: '', incoming }, labels)),
+			true,
+			keys,
+		);
 
 	const result = merge(base, current, incoming);
-	return {
-		text: withBlocks(result, labels) ?? current,
-		blocks: result.overlaps.some(
-			(o) => o.unit === 'body' || o.unit === 'block',
-		),
-	};
+	return written(
+		withBlocks(result, labels) ?? current,
+		result.overlaps.some((o) => o.unit === 'body' || o.unit === 'block'),
+		keys,
+	);
+}
+
+/** A text settle writes, in house style where its header parses. */
+function written(
+	text: string | null,
+	blocks: boolean,
+	keys: readonly string[] | undefined,
+): Settled {
+	if (text === null) return { text, blocks };
+	const parsed = parseRowSource(text);
+	if (parsed.error !== null) return { text, blocks };
+	const formatted = formatNote(text, keys ?? parsed.data.keyOrder);
+	return { text: formatted.error === null ? formatted.data : text, blocks };
 }

@@ -7,7 +7,7 @@
  * output never blends tokens, and each overlap is one well-formed block, never nested.
  *
  * Key behaviors:
- * - Neighboring line edits, separate sentence edits and same-point appends merge
+ * - Neighboring line edits and same-point appends merge; two edits of one line are one whole-line clash (decision 43)
  * - A true overlap is reported, never blended (cat/cart/coat)
  * - The header merges by top-level key, each value whole; a key both sides set takes the later write's (incoming, arriving now, over current, main's); a key's unseen delete loses; comments stay
  * - A top block that does not parse is body: a header written over it merges as added keys, never a duplicate
@@ -18,7 +18,7 @@
  *
  * Ported from `claude/repository-v2` `core/merge.test.ts` at `c32dd466`. Its
  * last section, seeded properties built with v2's Markdown writer, is
- * replaced by `merge.properties.test.ts`, which builds notes with the house
+ * replaced by `settle.properties.test.ts`, which builds notes with the house
  * style codec this package keeps.
  */
 import { describe, expect, test } from 'bun:test';
@@ -56,14 +56,20 @@ describe('examples', () => {
 		expect(r.overlaps).toHaveLength(0);
 	});
 
-	test('separate sentence edits in one paragraph both survive', () => {
+	test('edits of one line on both sides are one clash of the whole line, never merged by word (decision 43)', () => {
 		const r = merge(
 			'One. Two. Three.\n',
 			'One! Two. Three.\n',
 			'One. Two. Three!\n',
 		);
-		expect(r.text).toBe('One! Two. Three!\n');
-		expect(r.overlaps).toHaveLength(0);
+		expect(r.text).toBe('One! Two. Three.\n');
+		expect(spans(r.overlaps)).toMatchObject([
+			{
+				base: 'One. Two. Three.\n',
+				current: 'One! Two. Three.\n',
+				incoming: 'One. Two. Three!\n',
+			},
+		]);
 	});
 
 	test('simultaneous end bullets keep current then incoming', () => {
@@ -239,7 +245,7 @@ describe('examples', () => {
 		);
 		expect(r.text).toBe('---\na: 2\n---\ncart\n');
 		const [overlap] = spans(r.overlaps);
-		expect(r.text?.slice(overlap?.start, overlap?.end)).toBe('cart');
+		expect(r.text?.slice(overlap?.start, overlap?.end)).toBe('cart\n');
 		expect(withBlocks(r, labels)).toBe(
 			`---\na: 2\n---\n${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`,
 		);

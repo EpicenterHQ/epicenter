@@ -13,24 +13,21 @@
  * `../note`.
  */
 
+import { frameRowText } from '../note/frame.js';
+
 const OPEN = '---\n';
-const CLOSE = '\n---\n';
 
 /**
- * Where the header is, by position alone: the text starts with a `---`
- * line and a later line is exactly `---`. The door bounds the cost of
- * parsing this span before it is parsed; whether it parses is
- * `parseMarkdown`'s question.
+ * Where the header is, by position alone, by the same rule the codec reads
+ * (`frameRowText`): the text starts with a `---` line and a later line is
+ * exactly `---`. Whether it parses is the codec's question.
  */
 export function splitMarkdown(text: string) {
-	if (!text.startsWith(OPEN)) return { yaml: null, yamlStart: 0, bodyStart: 0 };
-	const close = `${text}\n`.indexOf(CLOSE, OPEN.length - 1);
-	if (close < 0) return { yaml: null, yamlStart: 0, bodyStart: 0 };
-	const yamlEnd = close + 1;
+	const frame = frameRowText(text);
+	if (frame.kind !== 'frontmatter') return { yaml: null, bodyStart: 0 };
 	return {
-		yaml: text.slice(OPEN.length, Math.max(OPEN.length, yamlEnd)),
-		yamlStart: OPEN.length,
-		bodyStart: Math.min(text.length, close + CLOSE.length),
+		yaml: text.slice(frame.yamlStart, frame.yamlEnd),
+		bodyStart: frame.bodyStart,
 	};
 }
 

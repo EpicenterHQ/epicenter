@@ -14,9 +14,11 @@
  *   holds). A key one side deleted keeps the other side's change, as a file
  *   does. Blocks are written as their side typed them, comments included;
  *   the server's house style formats the ones that parse.
- * - The body merges by line, so edits on neighboring lines do not conflict;
- *   lines both sides changed merge again by word, so letters never blend.
- *   Two insertions at one point are both kept, current first.
+ * - The body merges by line, so edits on neighboring lines do not conflict.
+ *   Lines both sides changed are one clash, written as one block of whole
+ *   lines (decision 43): a block never splits a sentence, and two edits of
+ *   one line never merge word by word. Two insertions at one point are both
+ *   kept, current first.
  * - Two creates at one path merge fields and keep both bodies.
  * - A delete against an edit returns the edit.
  *
@@ -43,7 +45,7 @@ import { emptyHeaderFor, readNote } from './note-parts.js';
 /** Something both sides changed, as the merge found it. */
 export type ContentOverlap =
 	/**
-	 * Lines or words both sides changed. `start` and `end` are offsets in the
+	 * Lines both sides changed. `start` and `end` are offsets in the
 	 * merged text, which holds `current` there.
 	 */
 	| {
@@ -223,13 +225,10 @@ function joinCreates(current: string, incoming: string) {
 	return `${current.replace(/\n+$/, '')}\n\n${incoming.replace(/^\n+/, '')}`;
 }
 
-/** A merged run, or a clash; `whole`: a clash of lines both sides moved there, never merged again by word. */
+/** A merged run of lines, or a clash of whole lines. */
 type Part =
 	| { text: string }
-	| {
-			overlap: { base: string; current: string; incoming: string };
-			whole?: true;
-	  };
+	| { overlap: { base: string; current: string; incoming: string } };
 
 function finish(
 	parts: Part[],
@@ -253,7 +252,7 @@ function finish(
 }
 
 // ============================================================================
-// Body: lines, then words within lines both sides changed
+// Body: by line, a clash always whole lines
 // ============================================================================
 
 /** Lines with their terminators; an existing marker block is one atomic line. */
@@ -277,7 +276,6 @@ function lines(text: string) {
 	return out;
 }
 
-const words = (text: string) => text.match(/\S+|\s+/g) ?? [];
 const hasBlock = (text: string) => text.includes('<<<<<<< ');
 
 /** A span's plain lines, and the conflict blocks in it, each whole. */
@@ -292,40 +290,40 @@ function splitBlocks(text: string) {
 	return { plain: plain.join(''), blocks };
 }
 
+/**
+ * RULE: two lines never become one, and a missing final newline is not an
+ * edit of the last line. Every line is merged terminated, so a side that
+ * appends after an unterminated last line inserts lines rather than
+ * changing that line. The result's last line then takes the ending of the
+ * side it came from; where both sides end on it, the ending merges as a
+ * value does, the later write winning a clash.
+ */
 function bodyParts(base: string, current: string, incoming: string): Part[] {
-	const parts: Part[] = [];
-	/** The line-level part emitted last ends mid-line: a side's last line, unterminated at the end of its file. */
-	let open = false;
-	for (const part of mergeSequence(
-		lines(base),
-		lines(current),
-		lines(incoming),
-		{ lines: true },
-	)) {
-		const { overlap } = 'text' in part ? { overlap: null } : part;
-		// Marker blocks stay atomic: never split, so never nested.
-		const emitted =
-			overlap === null ||
-			('whole' in part && part.whole) ||
-			[overlap.base, overlap.current, overlap.incoming].some(hasBlock)
-				? [part]
-				: mergeSequence(
-						words(overlap.base),
-						words(overlap.current),
-						words(overlap.incoming),
-					);
-		const content = emitted
-			.map((p) => ('text' in p ? p.text : p.overlap.current))
-			.join('');
-		// RULE: two lines never become one: a part that follows a line one side left unterminated starts on a line of its own.
-		if (open && content !== '') parts.push({ text: '\n' });
-		parts.push(...emitted);
-		const last = emitted.at(-1);
-		if (content !== '')
-			open = last !== undefined && 'text' in last && !last.text.endsWith('\n');
-	}
-	return parts;
+	const parts = mergeSequence(
+		lines(terminated(base)),
+		lines(terminated(current)),
+		lines(terminated(incoming)),
+	);
+	const last = parts.at(-1);
+	if (last === undefined || !('text' in last) || !last.text.endsWith('\n'))
+		return parts;
+	const line = lastLine(last.text);
+	const ends = (text: string) => text === '' || text.endsWith('\n');
+	const mine = lastLine(terminated(current)) === line;
+	const theirs = lastLine(terminated(incoming)) === line;
+	const [b, c, i] = [ends(base), ends(current), ends(incoming)];
+	const ended =
+		mine && theirs ? (c === i || i === b ? c : i) : mine ? c : theirs ? i : b;
+	if (ended) return parts;
+	return [...parts.slice(0, -1), { text: last.text.slice(0, -1) }];
 }
+
+/** `text` with a final newline, unless it is empty. */
+const terminated = (text: string) =>
+	text === '' || text.endsWith('\n') ? text : `${text}\n`;
+/** The last line of a terminated text, with its newline. */
+const lastLine = (text: string) =>
+	text.slice(text.lastIndexOf('\n', text.length - 2) + 1);
 
 /** One run of `base` (`start` to `end`) that `side` replaces with its own run (`sideStart` to `sideEnd`). */
 export type Hunk = {
@@ -336,12 +334,11 @@ export type Hunk = {
 };
 type SourcedHunk = Hunk & { source: 'current' | 'incoming' };
 
-/** Merge two edits of `base`, as lines (each with its terminator) or as words. */
+/** Merge two edits of `base`, as lines, each with its terminator. */
 function mergeSequence(
 	base: string[],
 	current: string[],
 	incoming: string[],
-	{ lines = false } = {},
 ): Part[] {
 	const edits: SourcedHunk[] = [
 		...diff(base, current).map((h) => ({ ...h, source: 'current' as const })),
@@ -351,7 +348,6 @@ function mergeSequence(
 		start: number;
 		end: number;
 		edits: SourcedHunk[];
-		shared?: true;
 	};
 	const groups: Group[] = [];
 	/** The lines a hunk writes, as its side has them. */
@@ -377,9 +373,8 @@ function mergeSequence(
 	for (const hunk of edits) {
 		const group = groups.at(-1);
 		// Shared boundaries are independent; insertions at one point group together.
-		// As lines, two sides' hunks that overlap or touch and write a line in common (both moved the same lines there) are one clash, kept whole.
+		// Two sides' hunks that overlap or touch and write a line in common (both moved the same lines there) are one clash.
 		const moved =
-			lines &&
 			group !== undefined &&
 			hunk.start <= group.end &&
 			group.edits.some(
@@ -392,7 +387,6 @@ function mergeSequence(
 					hunk.end === hunk.start &&
 					group.end === group.start) ||
 				moved);
-		if (joins && moved) group.shared = true;
 		if (joins) {
 			group.end = Math.max(group.end, hunk.end);
 			group.edits.push(hunk);
@@ -427,15 +421,8 @@ function mergeSequence(
 		if (sources.size === 1 || same(c, i))
 			parts.push({ text: (sources.has('current') ? c : i).join('') });
 		else if (b.length === 0 && group.edits.every((h) => h.start === h.end)) {
-			// Both inserted at one point (identical insertions were deduplicated above). RULE: as lines, current's last line ends before incoming's begins: one unterminated (only at the end of a file) is terminated, so two lines never become one.
-			const last = c.at(-1);
-			const ended =
-				lines && last !== undefined && !last.endsWith('\n')
-					? [...c.slice(0, -1), `${last}\n`]
-					: c;
-			parts.push({
-				text: (lines ? interleave(ended, i) : [...ended, ...i]).join(''),
-			});
+			// Both inserted at one point (identical insertions were deduplicated above).
+			parts.push({ text: interleave(c, i).join('') });
 		} else
 			parts.push({
 				overlap: {
@@ -443,7 +430,6 @@ function mergeSequence(
 					current: c.join(''),
 					incoming: i.join(''),
 				},
-				...(group.shared ? { whole: true as const } : {}),
 			});
 		at = group.end;
 	}
@@ -535,10 +521,11 @@ function matchRegion(
 }
 
 /**
- * The prototype's LCS table walk, over one region, weighted: a match of
- * whitespace counts less than a match of anything else. RULE: where a side
- * could match a word or the space beside it, it matches the word, so two
- * sides keeping one word anchor on that word and neither inserts it again.
+ * The prototype's LCS table walk, over one region, weighted: a match of a
+ * blank line counts less than a match of anything else. RULE: where a side
+ * could match a line of text or a blank line beside it, it matches the
+ * text, so two sides keeping one line anchor on it and neither inserts it
+ * again.
  */
 function tableMatches(
 	base: string[],

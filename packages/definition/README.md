@@ -6,8 +6,51 @@ an app's table schemas and related settings. The new browser engine accepts
 table schemas directly. See [shared vocabulary](../../docs/CONTEXT.md) for
 the chosen terminology; the existing package name and exports remain current.
 
-It is inert. Importing it acquires nothing, and it knows no storage. Its only
-dependencies are `typebox` and `wellcrafted`.
+It is inert. Importing it acquires nothing, and it knows no storage. Its
+dependencies are `typebox`, `wellcrafted`, `yaml` (the note codec) and
+`nanoid` (the name helpers).
+
+## The file contract
+
+The newer surface, which the folder, the CLI and the server share, lives in
+four subpaths. `defineTable` and `prepareDefinition` below stay as the legacy
+surface until each app moves to a contract.
+
+| Subpath | What it holds |
+| --- | --- |
+| `@epicenter/definition/contract` | `defineContract`, path templates (`fill`, `match`), `compileContract`, `checkContract`, and the `Client<T>` types every opener returns |
+| `@epicenter/definition/note` | The note codec and its house style, `formatNote` |
+| `@epicenter/definition/merge` | `settle`, the note merge the server and the merge driver run, plus conflict blocks, conflict copies and Git hashes |
+| `@epicenter/definition/ids` | `timeId()` and `nanoid()`, for naming files |
+
+```ts
+import { checkContract, defineContract } from '@epicenter/definition/contract';
+import { timeId } from '@epicenter/definition/ids';
+
+const recorder = defineContract({
+  name: 'wong/whispering',
+  collections: {
+    recordings: {
+      path: 'recordings/{id}.md',
+      fields: { title: { type: 'string' }, durationMs: { type: 'number' } },
+      required: ['title'],
+    },
+    audio: { path: 'recordings/{id}.{ext}' },
+  },
+});
+
+// An opener's client: create takes the placeholders and the value together.
+await device.recordings.create({ id: timeId(), title: 'Standup' });
+
+// What `epicenter check` reports: one issue per file that does not fit.
+checkContract(recorder, [{ path: 'recordings/a.md', text: '---\ntitle: 1\n---\n' }]);
+```
+
+A collection whose path ends in `.md` holds notes: front matter `fields` as
+JSON Schema properties, with JSON Schema's own `required`, plus a body. Any
+other path holds files. A note reads as `{ ...placeholders, ...fields, body,
+version }` and a file as `{ ...placeholders, bytes, version }`; every update
+and delete passes back the `version` it read as `over`.
 
 ```ts
 import { check, defineTable, field, prepareDefinition } from '@epicenter/definition';
