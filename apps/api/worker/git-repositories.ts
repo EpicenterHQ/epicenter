@@ -1,6 +1,9 @@
 /**
  * The hosted Git store on Cloudflare Artifacts, behind `mountGitHost`
- * (ADR-0546).
+ * (ADR-0546). Clone and fetch are proxied to Artifacts; pushes, web writes
+ * and LFS go through `@epicenter/server`'s receiver and translator over
+ * `objects` (`artifacts-objects.ts`), so Artifacts' own receive-pack is only
+ * ever called by this Worker.
  *
  * One Artifacts namespace per environment holds every repository, each named
  * by its immutable id (`repository.id`), so a rename or a move in Postgres
@@ -9,9 +12,22 @@
  * for one repository and one scope (`read` for a fetch, `write` for a push),
  * cached in the isolate, renewed an hour before it ends, and dropped when
  * Artifacts refuses it or the repository is deleted. The client's credential never crosses.
+ *
+ * Receipt refs (`refs/epicenter/captures/*`, decision 50) are hidden from
+ * clients: upload-pack is asked for protocol v0, whose one advertisement
+ * this proxy filters, instead of v2's `ls-refs`.
  */
 
-import type { GitHost } from '@epicenter/server';
+import {
+	FLUSH,
+	type GitHost,
+	pktLine,
+	readCommandLines,
+} from '@epicenter/server';
+import {
+	type ArtifactsReader,
+	createArtifactsObjects,
+} from './artifacts-objects.js';
 
 /** The slice of the Artifacts binding this store calls. */
 export type ArtifactsNamespace = Pick<Artifacts, 'get' | 'create' | 'delete'>;
@@ -42,6 +58,49 @@ function isArtifactsError(cause: unknown, code: ArtifactsErrorCode): boolean {
 }
 
 type CachedToken = { token: Promise<string>; renewAt: number };
+
+/** Refs no client sees: the translator's receipts. */
+const HIDDEN_REFS = 'refs/epicenter/captures/';
+
+/**
+ * A protocol v0 upload-pack advertisement without the hidden refs. The
+ * capabilities ride on the first ref line, so they move to the first line
+ * kept; with none kept, they ride on `capabilities^{}` as for an empty
+ * repository.
+ */
+export async function hideRefs(response: Response): Promise<Response> {
+	const body = new Uint8Array(await response.arrayBuffer());
+	const service = readCommandLines(body);
+	const advertised = readCommandLines(service.rest);
+	let capabilities: string | undefined;
+	const kept: string[] = [];
+	for (const [index, line] of advertised.lines.entries()) {
+		const [head = '', caps] = line.replace(/\n$/, '').split('\0');
+		if (index === 0) capabilities = caps;
+		const ref = head.split(' ')[1] ?? '';
+		if (ref.startsWith(HIDDEN_REFS) || ref === 'capabilities^{}') continue;
+		kept.push(head);
+	}
+	const lines = kept.map((head, index) =>
+		index === 0 && capabilities !== undefined
+			? `${head}\0${capabilities}\n`
+			: `${head}\n`,
+	);
+	if (lines.length === 0 && capabilities !== undefined)
+		lines.push(`${'0'.repeat(40)} capabilities^{}\0${capabilities}\n`);
+	const headers = new Headers(response.headers);
+	headers.delete('content-length');
+	headers.delete('content-encoding');
+	return new Response(
+		new Blob([
+			...service.lines.map((line) => pktLine(line)),
+			FLUSH,
+			...lines.map((line) => pktLine(line)),
+			FLUSH,
+		] as BlobPart[]),
+		{ status: response.status, statusText: response.statusText, headers },
+	);
+}
 
 export function createArtifactsGitHost({
 	artifacts,
@@ -98,12 +157,31 @@ export function createArtifactsGitHost({
 			tokens.delete(`read:${id}`);
 			tokens.delete(`write:${id}`);
 		},
+		objects(id) {
+			return createArtifactsObjects({
+				remote: `${upstream}/${id}.git`,
+				token: () => {
+					const value = token(id, 'write');
+					return {
+						value,
+						refused: () => {
+							if (tokens.get(`write:${id}`)?.token === value)
+								tokens.delete(`write:${id}`);
+						},
+					};
+				},
+				repository: async () =>
+					(await artifacts.get(id)) as unknown as ArtifactsReader,
+			});
+		},
 		async serve(id, { service, advertisement, headers, body, signal }) {
 			const scope = service === 'git-receive-pack' ? 'write' : 'read';
 			const pending = token(id, scope);
 			const credential = await pending;
 			const upstreamHeaders = new Headers(headers);
 			upstreamHeaders.set('authorization', `Basic ${btoa(`x:${credential}`)}`);
+			// Protocol v0, so the one advertisement can be filtered.
+			if (service === 'git-upload-pack') upstreamHeaders.delete('git-protocol');
 			const path = advertisement
 				? `/info/refs?service=${service}`
 				: `/${service}`;
@@ -122,7 +200,9 @@ export function createArtifactsGitHost({
 				tokens.get(key)?.token === pending
 			)
 				tokens.delete(key);
-			return response;
+			return service === 'git-upload-pack' && advertisement && response.ok
+				? hideRefs(response)
+				: response;
 		},
 	};
 }

@@ -39,7 +39,22 @@ export {
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 // Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
 export { createDb, type Db } from './db/create-db.js';
-export type { GitObjects } from './git/objects.js';
+// Git objects, for a store that implements `GitObjects` (Artifacts on the
+// Worker); the disk store is `@epicenter/server/bun`'s.
+export {
+	type ApplyOutcome,
+	type GitObjects,
+	makeObject,
+	type ObjectKind,
+	parseCommit,
+	parseTree,
+	type RefUpdate,
+	type TreeEntry,
+	treeObject,
+	ZERO_OID,
+} from './git/objects.js';
+export { writePack } from './git/pack.js';
+export { FLUSH, pktLine, readCommandLines } from './git/pkt.js';
 export type { LfsAction, LfsObject, LfsStore } from './lfs/lfs-store.js';
 export {
 	createR2LfsStore,
