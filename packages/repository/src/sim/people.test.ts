@@ -688,54 +688,55 @@ test('a file is one name: a write to any spelling of it merges into it, and it k
 	}
 });
 
-test('a case-only rename is a delete and a create in one save: the file keeps its text and takes the new spelling everywhere', () => {
+test("a file's capitalization is fixed at creation: a delete and a create of one name in one save is a write to that file, which keeps its spelling", () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
+	settle();
+	alice.replica.writeAll({
+		'notes/todo.md': null,
+		'notes/Todo.md': note('two\n', 'title: Todo'),
+	});
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/todo.md']);
+	expect(world.server.read('notes/todo.md')).toBe(note('two\n', 'title: Todo'));
+	for (const d of [alice, bob]) {
+		expect(d.replica.paths()).toEqual(['notes/todo.md']);
+		expect(d.replica.state('notes/todo.md')).toEqual({ status: 'synced' });
+	}
+});
+
+test("a delete and a create of one name made offline, before the delete lands, keep the file's old spelling", () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
+	settle();
+	alice.setOnline(false);
+	alice.replica.write('notes/todo.md', null);
+	alice.replica.write('notes/Todo.md', note('two\n', 'title: Todo'), {
+		over: null,
+	});
+	expect(alice.replica.paths()).toEqual(['notes/todo.md']);
+	alice.setOnline(true);
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual(['notes/todo.md']);
+	expect(world.server.read('notes/todo.md')).toBe(note('two\n', 'title: Todo'));
+	expect(bob.replica.paths()).toEqual(['notes/todo.md']);
+});
+
+test('to change a capitalization, delete the file, let the delete land, and create it again: every device then has the new spelling', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
 	settle();
 	const text = alice.replica.read('notes/todo.md');
-	alice.replica.writeAll({ 'notes/todo.md': null, 'notes/Todo.md': text });
+	alice.replica.write('notes/todo.md', null);
+	settle();
+	expect([...world.server.snapshot().keys()]).toEqual([]);
+	alice.replica.write('notes/Todo.md', text, { over: null });
 	settle();
 	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
 	expect(world.server.read('notes/Todo.md')).toBe(text);
 	for (const d of [alice, bob]) {
 		expect(d.replica.paths()).toEqual(['notes/Todo.md']);
 		expect(d.replica.state('notes/Todo.md')).toEqual({ status: 'synced' });
-	}
-});
-
-test('a case-only rename made as two saves offline, the delete first, goes as one rename', () => {
-	const { world, alice, bob, settle } = setup();
-	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
-	settle();
-	alice.setOnline(false);
-	const text = alice.replica.read('notes/todo.md');
-	alice.replica.write('notes/todo.md', null);
-	alice.replica.write('notes/Todo.md', text, { over: null });
-	expect(alice.replica.paths()).toEqual(['notes/Todo.md']);
-	alice.setOnline(true);
-	settle();
-	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
-	expect(world.server.read('notes/Todo.md')).toBe(text);
-	expect(bob.replica.paths()).toEqual(['notes/Todo.md']);
-});
-
-test('a case-only rename and an edit made at once both land: the edit merges into the renamed file', () => {
-	const { world, alice, bob, settle } = setup();
-	alice.replica.write('notes/todo.md', note('one\n', 'title: Todo'));
-	settle();
-	bob.setOnline(false);
-	bob.replica.edit('notes/todo.md', (text) => `${text ?? ''}bob\n`);
-	const text = alice.replica.read('notes/todo.md');
-	alice.replica.writeAll({ 'notes/todo.md': null, 'notes/Todo.md': text });
-	settle();
-	bob.setOnline(true);
-	settle();
-	expect([...world.server.snapshot().keys()]).toEqual(['notes/Todo.md']);
-	const merged = world.server.read('notes/Todo.md') ?? '';
-	expect(merged).toBe(note('one\nbob\n', 'title: Todo'));
-	for (const d of [alice, bob]) {
-		expect(d.replica.paths()).toEqual(['notes/Todo.md']);
-		expect(d.replica.read('notes/Todo.md')).toBe(merged);
 	}
 });
 

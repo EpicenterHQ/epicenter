@@ -316,7 +316,7 @@ export function openHistory(store: SqlDriver) {
 						'INSERT OR IGNORE INTO deletes (path, place) VALUES (?, ?)',
 						[path, place],
 					);
-					// Only this spelling's row: a rename writes the file's new spelling in the same commit.
+					// Only this spelling's row: a file's spelling never changes while it exists, so this is its only row.
 					store.run('DELETE FROM spellings WHERE folded = ? AND path = ?', [
 						fold(path),
 						path,

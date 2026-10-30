@@ -197,7 +197,6 @@ const CommitSchema = Type.Object(
 					path: Type.String(),
 					text: Type.Union([Type.String(), Type.Null()]),
 					over: Type.Optional(Type.Union([Type.String(), Type.Null()])),
-					rename: Type.Optional(Type.Literal(true)),
 				},
 				{ additionalProperties: false },
 			),

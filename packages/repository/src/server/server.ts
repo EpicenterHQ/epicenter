@@ -427,9 +427,11 @@ export function createServer({
 
 	/**
 	 * RULE: a file is one name: paths equal after NFC and case folding are
-	 * one path. Its spelling in `tree`: `main`'s spelling of it, or the one
-	 * given, whichever `tree` holds (a writer's parent may spell it as `main`
-	 * did before a rename); for a file `tree` lacks, `main`'s or the one given.
+	 * one path, and its spelling is fixed when it is created. Its spelling
+	 * in `tree`: `main`'s spelling of it, or the one given, whichever `tree`
+	 * holds (a writer's parent may hold a file since deleted and created
+	 * again in other letters); for a file `tree` lacks, `main`'s or the one
+	 * given.
 	 */
 	function spellingIn(tree: string, path: string) {
 		const named = history.spelling(path);
@@ -439,14 +441,9 @@ export function createServer({
 			path
 		);
 	}
-	/** `files` as they land in `tree`: each at its file's spelling there, a rename's file then taking the rename's spelling. */
+	/** `files` as they land in `tree`: each at its file's spelling there. */
 	const landIn = (tree: string, files: CommitFile[]): CommitFile[] =>
-		files.flatMap(({ rename, ...file }) => {
-			const at = spellingIn(tree, file.path);
-			return rename === true && file.text !== null && at !== file.path
-				? [{ path: at, text: null }, file]
-				: [{ ...file, path: at }];
-		});
+		files.map((file) => ({ ...file, path: spellingIn(tree, file.path) }));
 	/** RULE: a listing names each file once, by one spelling of its path: the one `tree` holds (it holds at most one), else the first given. */
 	function byName(paths: Iterable<string>, tree: string): string[] {
 		const named = new Map<string, string>();
@@ -790,15 +787,8 @@ export function createServer({
 		for (const sent of commit.files) {
 			// The file this write names, under the spelling `main` has for it.
 			const file = { ...sent, path: spellingIn(head.tree, sent.path) };
-			/** The write as it lands: at the file, which a rename then respells. */
-			const land = (text: string | null) =>
-				landIn(head.tree, [
-					{
-						path: sent.path,
-						text,
-						...(sent.rename === true ? { rename: true as const } : {}),
-					},
-				]);
+			/** The write as it lands: at the file, in the spelling it has. */
+			const land = (text: string | null) => [{ path: file.path, text }];
 			const ours = history.textIn(head.tree, file.path);
 			const base = textOf(parentTree, sent.path);
 			if (!isNote(file.path)) {

@@ -49,9 +49,7 @@
  *                         from it (the path after NFC and case folding:
  *                         paths equal after them are one file), `text` (mine, what the person sees), its `fields`
  *                         and `body` for the app's views, `base` and its
- *                         `hash`, `saved`, `held` (the reason), `unknown`,
- *                         and `renamed` (its spelling is a person's rename
- *                         not yet sent)
+ *                         `hash`, `saved`, `held` (the reason) and `unknown`
  *   "epicenter/unsent"    the unsent commit: per file (by `fold`), its text
  *                         (null deletes)
  *   "epicenter/inflight"  the commit sent and not yet answered, and how many
@@ -65,10 +63,11 @@
  *   "epicenter/objects"   blob bytes the server holds, by oid, at a size
  *   "epicenter/landed"    how each file this device sent last landed
  *
- * A file has the spelling `main` has for it, or the one it was made under
- * when `main` has none. A save through any spelling of its path is a save
- * of it, and leaves its spelling; only a rename changes it (a delete, then a
- * create under the new spelling), and goes to the server as one.
+ * A file's spelling is fixed when it is created: it has the spelling `main`
+ * has for it, or the one it was made under when `main` has none. A save
+ * through any spelling of its path is a save of it, and leaves its
+ * spelling, a delete and a create before the delete lands included. Only a
+ * file created after its delete landed takes a new spelling.
  *
  * A pointer this device made whose bytes the server does not hold is owed:
  * it stays in the unsent commit, out of every commit sent, `sending` with
@@ -255,8 +254,7 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	saved INTEGER NOT NULL DEFAULT 0,
 	held TEXT,
 	unknown INTEGER NOT NULL DEFAULT 0,
-	over TEXT,
-	renamed INTEGER NOT NULL DEFAULT 0
+	over TEXT
 ) STRICT;
 CREATE UNIQUE INDEX IF NOT EXISTS "epicenter/files/path" ON "epicenter/files" (path);
 CREATE TABLE IF NOT EXISTS "epicenter/unsent" (fold TEXT PRIMARY KEY, text TEXT, over TEXT) STRICT;
@@ -318,8 +316,19 @@ function migrate(driver: SqlDriver) {
 		// A catch-up staged before is gathered again at open: its table is made again with the fold.
 		if (!columnsOf('epicenter/staged').includes('fold'))
 			driver.run('DROP TABLE IF EXISTS "epicenter/staged"');
-		const files = columnsOf('epicenter/files');
-		if (files.length > 0 && !files.includes('renamed')) byName(driver);
+		// Files kept one row per spelling (before one row per name) were not keyed by their fold.
+		const keyed = driver
+			.all<{ name: string; pk: number }>('PRAGMA table_info("epicenter/files")')
+			.find((column) => column.name === 'fold');
+		if (
+			keyed !== undefined
+				? keyed.pk === 0
+				: columnsOf('epicenter/files').length > 0
+		)
+			byName(driver);
+		// A person's rename (one row per name, before a spelling was fixed at creation) is a write.
+		if (columnsOf('epicenter/files').includes('renamed'))
+			driver.run('ALTER TABLE "epicenter/files" DROP COLUMN renamed');
 		// The body a view reads is what follows the header, by position, whether or not it parses (phase 9g, then merge by kind): the generated column is made again.
 		const made = first<{ sql: string }>(
 			driver,
@@ -344,7 +353,6 @@ type FileColumns = {
 	held: string | null;
 	unknown: number;
 	over: string | null;
-	renamed: number;
 };
 const FILE_COLUMNS = [
 	'text',
@@ -354,7 +362,6 @@ const FILE_COLUMNS = [
 	'held',
 	'unknown',
 	'over',
-	'renamed',
 ] as const;
 
 /**
@@ -467,7 +474,6 @@ function byName(driver: SqlDriver) {
 			held: row.held ?? null,
 			unknown: row.unknown ?? 0,
 			over: row.over ?? null,
-			renamed: 0,
 		});
 	for (const u of unsent)
 		if (kept.get(fold(u.path))?.path === u.path)
@@ -507,8 +513,6 @@ type FileRecord = {
 	unknown?: true;
 	/** `mine`, a blob, was saved over this text, which moved since: the next cut sends it with this `over`. */
 	over?: string | null;
-	/** RULE: `spelling` is a person's rename `main` has not had: it goes with the file's next commit, as a rename, and `main`'s spelling does not replace it until that commit is answered. */
-	renamed?: true;
 };
 
 /** A file as the logic reads it: the stored record and, while its commit is in flight, the text it sent. */
@@ -518,7 +522,7 @@ type FileView = FileRecord & { sent?: Level };
 type Stored = FileRecord & { spelling: string; hash: string | null };
 
 /** One file's row and its unsent work, in one read. */
-const FILE_SQL = `SELECT f.path, f.text, f.base, f.hash, f.saved, f.held, f.unknown, f.over, f.renamed, u.fold IS NOT NULL AS committed, u.text AS committed_text, u.over AS committed_over
+const FILE_SQL = `SELECT f.path, f.text, f.base, f.hash, f.saved, f.held, f.unknown, f.over, u.fold IS NOT NULL AS committed, u.text AS committed_text, u.over AS committed_over
 	FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.fold = f.fold WHERE f.fold = ?`;
 type FileRow = {
 	path: string;
@@ -529,7 +533,6 @@ type FileRow = {
 	held: string | null;
 	unknown: number;
 	over: string | null;
-	renamed: number;
 	committed: number;
 	committed_text: string | null;
 	committed_over: string | null;
@@ -789,7 +792,6 @@ function createReplica({
 		if (row.saved === 1) f.saved = true;
 		if (row.held !== null) f.held = { reason: row.held };
 		if (row.unknown === 1) f.unknown = true;
-		if (row.renamed === 1) f.renamed = true;
 		if (row.over !== null)
 			f.over = (overOf(row.over) as { over: string | null }).over;
 		if (row.committed === 1)
@@ -863,7 +865,6 @@ function createReplica({
 			before.saved !== next.saved ||
 			before.held?.reason !== next.held?.reason ||
 			before.unknown !== next.unknown ||
-			before.renamed !== next.renamed ||
 			storedOver(before) !== storedOver(next);
 		if (row) {
 			changed.add(spelling);
@@ -886,7 +887,6 @@ function createReplica({
 				held: next.held?.reason ?? null,
 				unknown: next.unknown ? 1 : 0,
 				over: storedOver(next),
-				renamed: next.renamed ? 1 : 0,
 			});
 		}
 		if (
@@ -1136,8 +1136,7 @@ function createReplica({
 					: f.committed?.over !== undefined
 						? { over: f.committed.over }
 						: {};
-			// A rename goes even where the text is as it was.
-			if (f.mine === under && f.renamed === undefined) {
+			if (f.mine === under) {
 				const { committed: ___, ...clean } = unmarked;
 				set(path, clean);
 			} else set(path, { ...unmarked, committed: { text: f.mine, ...lost } });
@@ -1149,26 +1148,20 @@ function createReplica({
 	/**
 	 * Save one text, merged with `mine` where `mine` moved since `from`, the
 	 * text the caller started from (undefined: what this device shows).
-	 * RULE: a file is one name: a save through any spelling of its path is a
-	 * save of it, and leaves its spelling. A file saved where this device
-	 * shows none takes the spelling it is saved under; where that changes the
-	 * spelling of a file this device has (a delete, then a create), it is a
-	 * rename, and goes as one.
+	 * RULE: a file is one name, spelled as it was created: a save through any
+	 * spelling of its path is a save of it, and leaves its spelling, even
+	 * after a delete this device has not had answered. Only a file this
+	 * device has no row for (none, or its delete landed) takes the spelling
+	 * it is saved under.
 	 */
 	function save(given: string, text: string | null, from?: string | null) {
-		const { held: _, renamed: was, ...f } = record(given);
-		const named = given.normalize('NFC');
-		const spelling =
-			f.mine === null && text !== null ? named : (f.spelling ?? named);
-		const renamed =
-			text !== null &&
-			(was === true || (f.spelling !== undefined && spelling !== f.spelling));
-		const as = { spelling, ...(renamed ? { renamed: true as const } : {}) };
+		const { held: _, ...f } = record(given);
+		const as = { spelling: f.spelling ?? given.normalize('NFC') };
 		if (quiet > 0) savedAt.set(fold(given), now());
 		// A new save of a path forgets how its last one landed.
 		driver.run('DELETE FROM "epicenter/landed" WHERE fold = ?', [fold(given)]);
 		const over = from === undefined ? f.mine : from;
-		if (!isNote(spelling)) {
+		if (!isNote(as.spelling)) {
 			// A blob never merges: a write over a blob that moved since `over` lost, and goes with what it was made over, so the server puts it beside the other.
 			const swapped =
 				over === f.mine ? { text } : settlePointer(over, f.mine, text);
@@ -1347,9 +1340,6 @@ function createReplica({
 				path,
 				text: f.committed?.text ?? null,
 				...(f.committed?.over === undefined ? {} : { over: f.committed.over }),
-				...(f.renamed === true && f.committed?.text != null
-					? { rename: true as const }
-					: {}),
 			})),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
@@ -1381,18 +1371,9 @@ function createReplica({
 		const own = landed && f.sent !== undefined;
 		// A path in the commit awaiting its answer waits for that answer, which brings it.
 		if (f.sent !== undefined && !own) return;
-		/**
-		 * RULE: the file takes the spelling `main` has for it (`path`), unless
-		 * its person renamed it since: that rename stands until the commit that
-		 * carried it is answered, taken or not.
-		 */
-		const sentAs = own
-			? inflight?.files.find((sent) => fold(sent.path) === fold(path))?.path
-			: path;
-		const renamed = f.renamed === true && f.spelling !== sentAs;
-		const as: Pick<FileRecord, 'spelling' | 'renamed'> = {
-			spelling: renamed || text === null ? (f.spelling ?? path) : path,
-			...(renamed ? { renamed: true } : {}),
+		/** RULE: the file takes the spelling `main` has for it (`path`): `main` holds a file only under the spelling it was created with. */
+		const as: Pick<FileRecord, 'spelling'> = {
+			spelling: text === null ? (f.spelling ?? path) : path,
 		};
 		if (f.unknown) {
 			/**
@@ -1473,17 +1454,8 @@ function createReplica({
 			if (f.held !== undefined) next.held = f.held;
 			if (f.saved !== undefined) next.saved = true;
 		}
-		set(path, goes(next));
+		set(path, next);
 	}
-
-	/** A rename still to go goes with the file's next commit, even where its text is `main`'s. */
-	const goes = (next: FileRecord): FileRecord =>
-		next.renamed === true &&
-		next.committed === undefined &&
-		next.held === undefined &&
-		next.mine !== null
-			? { ...next, saved: true }
-			: next;
 
 	/**
 	 * A blob path's text on `main` is now `text`, and this device's work on it
@@ -1499,7 +1471,7 @@ function createReplica({
 		f: FileView,
 		text: string | null,
 		below: string | null,
-		as: Pick<FileRecord, 'spelling' | 'renamed'>,
+		as: Pick<FileRecord, 'spelling'>,
 	) {
 		let committed: Level | undefined;
 		/** What `mine` now sits on: the committed work if it still lands, else `main`. */
@@ -1549,7 +1521,7 @@ function createReplica({
 			if (over.over !== undefined && next.committed?.over === undefined)
 				next.over = over.over;
 		}
-		set(path, goes(next));
+		set(path, next);
 	}
 
 	/**

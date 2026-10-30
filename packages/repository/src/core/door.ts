@@ -61,6 +61,9 @@ const LONE_SURROGATE =
 export const PATH_TOO_LONG = 'the path is too long';
 /** A file whose name folds (NFC, case) to another file's: the repository holds one path for both. */
 export const TWIN = 'another file has this name in different letters';
+/** RULE: a file's spelling is set when it is created and never changes: a change of capitalization alone names a file that cannot exist. To change it, delete the file, let the delete land, and create it again. */
+export const CASE_FIXED =
+	"a file's capitalization can't change; delete it and create it again";
 /** A note whose bytes are not UTF-8 text. */
 export const NOT_UTF8 = 'not UTF-8 text';
 const NOT_TEXT = [
@@ -81,6 +84,7 @@ export function onlyAPersonFixes(path: string, reason: string) {
 		pathRefusal(path) !== null ||
 		reason === PATH_TOO_LONG ||
 		reason === TWIN ||
+		reason === CASE_FIXED ||
 		reason === NOT_UTF8 ||
 		NOT_TEXT.includes(reason) ||
 		Object.values<string>(COLLISIONS).includes(reason)

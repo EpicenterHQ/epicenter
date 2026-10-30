@@ -19,13 +19,6 @@ export type CommitFile = {
 	 * lands beside the other one (at a sibling) instead of over it.
 	 */
 	over?: string | null;
-	/**
-	 * A write's only: `path` is a rename of the file it names. A file is
-	 * one name (paths equal after NFC and case folding are one path), and a
-	 * write to any spelling of it lands under the spelling it has; this one
-	 * lands as a write to that file, which then takes `path`'s spelling.
-	 */
-	rename?: true;
 };
 
 /** Everything a commit id hashes. */
@@ -51,7 +44,6 @@ export function canonicalCommit({ parent, author, time, files }: CommitBody) {
 			f.path,
 			f.text,
 			...(f.over === undefined ? [] : [f.over]),
-			...(f.rename === true ? [{ rename: true }] : []),
 		]),
 	]);
 }

@@ -389,26 +389,22 @@ describe('a push behind live main', () => {
 		).toEqual([beside, 'audio/r.wav'].sort());
 	});
 
-	test('a push that renames a file to another spelling of its path renames it: the file keeps a live edit Git lacks', async () => {
-		const { server, git, store, path, old } = await flushedWorld();
-		expect(
-			save(server, bob, [{ path: 'notes/a.md', text: note('one\nbob\n') }]),
-		).toMatchObject({ kind: 'applied' });
+	test("a push that changes only a file's capitalization is refused: a file's capitalization can't change, and Git does not move", async () => {
+		const { server, git, old } = await flushedWorld();
 		const next = await commitOn(git, old, {
 			'notes/a.md': null,
 			'notes/A.md': note('one\n'),
 		});
 		expect(await receive(server, old, next)).toMatchObject({
-			kind: 'accepted',
-			main: next,
-			merged: true,
+			kind: 'refused',
+			path: 'notes/A.md',
+			reason:
+				"a file's capitalization can't change; delete it and create it again",
 		});
+		expect(await gitMain(git)).toBe(old);
 		expect(
 			[...server.snapshot().keys()].filter((p) => p.startsWith('notes/')),
-		).toEqual(['notes/A.md', 'notes/b.md']);
-		expect(server.read('notes/A.md')).toBe(note('one\nbob\n'));
-		expect(await server.flush()).toMatchObject({ kind: 'flushed' });
-		await expectExported(server, store, git, path, [{ old, next }]);
+		).toEqual(['notes/a.md', 'notes/b.md']);
 	});
 
 	test('a push that puts a file where live main has a folder, or beneath a live file, is refused at that file, and Git does not move', async () => {

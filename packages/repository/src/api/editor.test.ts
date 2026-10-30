@@ -484,12 +484,14 @@ test('closing the repository reports no typing that reached the worker, however 
 	expect(alice.replica.read('notes/two.md')).toBe(note('two!?'));
 });
 
-test('a note made again under another spelling of a deleted one takes that spelling, and opens under it', async () => {
+test('a note made again under another spelling once its delete landed takes that spelling, and opens under it', async () => {
 	const { alice, repo } = twoDevices(app);
 	alice.replica.write('notes/x.md', note('one'));
 	alice.sync();
 	await settled();
 	expectOk(await repo.notes.delete({ stem: 'x' }));
+	await settled();
+	alice.sync();
 	await settled();
 	const created = repo.notes.create(
 		{ stem: 'X' },
@@ -498,7 +500,7 @@ test('a note made again under another spelling of a deleted one takes that spell
 	const editor = expectOk(await repo.notes.openEditor({ stem: 'X' }));
 	expectOk(await created);
 	await settled();
-	// A delete, then a create under another spelling: the file takes the new spelling.
+	// The delete landed, so the create is a new file, with the new spelling.
 	expect(alice.replica.paths()).toEqual(['notes/X.md']);
 	expect(alice.replica.read('notes/x.md')).toBe(note('b\n', 'New'));
 	expect(editor.path).toBe('notes/X.md');
