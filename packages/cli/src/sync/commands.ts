@@ -50,11 +50,13 @@ function credentialFor(grant: GrantKind) {
 
 /** What init sets in each clone: the grant's credential and the deployment's helper. */
 async function initOptions(grant: GrantKind): Promise<InitOptions> {
-	const { resolveDeployment, shellQuote } = await import('../auth.ts');
+	const { gitHelperOrigin, resolveDeployment, shellQuote } = await import(
+		'../auth.ts'
+	);
 	return {
 		credential: credentialFor(grant),
 		helper: {
-			origin: resolveDeployment().audiences.git,
+			origin: gitHelperOrigin(resolveDeployment()),
 			command: `!${shellQuote(resolveAppPaths().commandLink)} auth git-credential`,
 		},
 	};

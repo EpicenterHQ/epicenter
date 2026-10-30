@@ -591,7 +591,7 @@ test("login makes this CLI Git's helper for the deployment's Git origin in the g
 			'--file',
 			join(home, '.gitconfig'),
 			'--get-all',
-			`credential.${audiences.git}.helper`,
+			`credential.${new URL(audiences.git).origin}.helper`,
 		],
 		{ env },
 	);

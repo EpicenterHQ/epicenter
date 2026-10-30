@@ -11,10 +11,14 @@
  * *    locks...          404: locking is not offered
  * ```
  *
- * The batch's actions point back at these routes, carrying no credential:
- * `git lfs` sends the remote's own (its credential helper, or
- * `http.<url>.extraHeader`), and a browser sends `account.fetch`'s. On R2
- * (phase 7) the actions become presigned URLs instead.
+ * The batch's actions point back at these routes, carrying no credential,
+ * and leave `authenticated` unset: that is what tells `git lfs` to find a
+ * credential for the action's URL (its credential helper, or
+ * `http.<url>.extraHeader`). `authenticated: true` would tell it none is
+ * needed, and it would retry the refused request without one forever. A
+ * browser sends `account.fetch`'s. On R2 (phase 7) the actions become
+ * presigned URLs, which carry their own authorization and should say
+ * `authenticated: true`.
  *
  * `git.ts` authorizes every request and resolves the repository first.
  */
@@ -87,7 +91,6 @@ export async function answerBatch(
 					: {
 							oid,
 							size,
-							authenticated: true,
 							actions: {
 								upload: { href, expires_in: EXPIRES_IN },
 								verify: {
@@ -100,7 +103,6 @@ export async function answerBatch(
 				? {
 						oid,
 						size,
-						authenticated: true,
 						actions: { download: { href, expires_in: EXPIRES_IN } },
 					}
 				: { oid, size, error: { code: 404, message: 'object not found' } };

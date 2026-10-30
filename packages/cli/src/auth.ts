@@ -956,6 +956,17 @@ export const shellQuote = (value: string) =>
 	`'${value.replaceAll("'", `'\\''`)}'`;
 
 /**
+ * Where Git looks for the helper of the deployment's Git audience: the
+ * audience's origin, not its URL. Git matches a `credential.<url>` key
+ * against the full remote URL, but Git LFS asks for a credential by protocol
+ * and host alone, so a key with a path (a local deployment's
+ * `http://localhost:8788/git`) is never asked for LFS. The helper still
+ * answers only for the audience (`isGitAudience`).
+ */
+export const gitHelperOrigin = (deployment: Deployment) =>
+	new URL(deployment.audiences.git).origin;
+
+/**
  * Make this CLI Git's credential helper for the deployment's Git audience in
  * the person's global configuration (ADR-0558). An empty helper first clears
  * the helpers a broader configuration set, so no other helper is asked to
@@ -970,7 +981,7 @@ export async function configureGitHelper(
 	command: readonly string[],
 	env: Record<string, string | undefined> = process.env,
 ): Promise<Result<string, string>> {
-	const key = `credential.${ctx.deployment.audiences.git}.helper`;
+	const key = `credential.${gitHelperOrigin(ctx.deployment)}.helper`;
 	const helper = `!${command.map(shellQuote).join(' ')} auth git-credential`;
 	const { runGit } = await import('@epicenter/folder/bun');
 	const run = async (args: string[]) => {

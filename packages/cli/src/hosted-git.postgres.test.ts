@@ -34,6 +34,7 @@ import {
 	createCloudContextMiddleware,
 	createDb,
 	createDiskGitHost,
+	createDiskLfsStore,
 	createServerApp,
 	mountAuthRoutes,
 	mountGitHost,
@@ -129,9 +130,11 @@ beforeAll(async () => {
 		serveAuthUiShell: (c) => c.html('<html>shell</html>'),
 	});
 	const host = createDiskGitHost({ root: join(scratch, 'store') });
+	const lfs = createDiskLfsStore({ root: join(scratch, 'lfs') });
 	mountGitHost(app, {
 		setup: createCloudContextMiddleware(context),
 		resolveHost: () => host,
+		resolveLfs: () => lfs,
 	});
 	const client = new OAuthTestClient(origin, sql, secret, async (url, init) =>
 		app.fetch(new Request(url, init)),
@@ -268,7 +271,7 @@ test('init, a remote added by hand, and sync create the repository; clone and sy
 	);
 
 	// Plain Git signs in through the helper `auth login` wrote.
-	expect(globalBefore).toContain(`${origin}/git`);
+	expect(globalBefore).toContain(`[credential "${origin}"]`);
 	expect((await git(scratch, 'ls-remote', url)).code).toBe(0);
 
 	const copy = join(scratch, 'Epicenter', 'notes');
@@ -299,3 +302,28 @@ test('a folder with a history of its own joins an existing repository on its fir
 	expect(await readFile(join(other, 'a.md'), 'utf8')).toBe('one\n');
 	expect((await git(other, 'cat-file', '-e', 'origin/main:z.md')).code).toBe(0);
 }, 60_000);
+
+test('a file stored with Git LFS goes up with sync and comes down with plain git lfs pull, through the helper', async () => {
+	const folder = join(scratch, 'voice');
+	await mkdir(join(folder, 'recordings'), { recursive: true });
+	const bytes = crypto.getRandomValues(new Uint8Array(4096));
+	await writeFile(join(folder, 'recordings', 'a.m4a'), bytes);
+	expect((await epicenter('init', folder)).code).toBe(0);
+	const url = `${origin}/git/${person.personal}/voice.git`;
+	await git(folder, 'remote', 'add', 'origin', url);
+	// Git LFS asks for a credential by host alone; the helper must answer it.
+	const pushed = await epicenter('sync', folder);
+	expect(pushed.code, pushed.stdout + pushed.stderr).toBe(0);
+
+	const copy = join(scratch, 'voice-copy');
+	expect(
+		(await epicenter('clone', `${person.personal}/voice`, copy)).code,
+	).toBe(0);
+	await rm(join(copy, 'recordings', 'a.m4a'));
+	await git(copy, 'checkout', '--', 'recordings/a.m4a');
+	const pulled = await git(copy, 'lfs', 'pull');
+	expect(pulled.code, pulled.stderr).toBe(0);
+	expect(
+		new Uint8Array(await readFile(join(copy, 'recordings', 'a.m4a'))),
+	).toEqual(bytes);
+}, 120_000);
