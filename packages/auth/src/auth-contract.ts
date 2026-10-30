@@ -18,6 +18,12 @@ export type AuthFetch = (
  */
 export type Account = AccountIdentity & {
 	readonly baseURL: string;
+	/**
+	 * Aborts when this Account is retired (sign-out or account replacement),
+	 * so work bound to it, such as an upload loop, can stop for good. A
+	 * `reauth-required` pause does not abort it.
+	 */
+	readonly signal: AbortSignal;
 	fetch: AuthFetch;
 	getProfile(): Promise<Result<Principal, AuthError>>;
 };

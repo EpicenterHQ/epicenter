@@ -178,6 +178,7 @@ export function createDesktopAccountAuth({
 			authorityId: descriptor.authorityId,
 			principalId: asPrincipalId(accountId),
 			baseURL: origin,
+			signal,
 			fetch: via(audience),
 			getProfile: () => getProfileVia(via('api'), origin),
 		});
@@ -219,7 +220,11 @@ export function createDesktopAccountAuth({
 			grantKey = key;
 			publish({
 				status: 'signed-in',
-				account: openAccount(origin, read.grant.accountId, read.grant.generation),
+				account: openAccount(
+					origin,
+					read.grant.accountId,
+					read.grant.generation,
+				),
 			});
 		})();
 		latestRefresh = pending;

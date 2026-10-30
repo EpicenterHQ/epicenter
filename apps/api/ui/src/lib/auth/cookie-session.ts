@@ -122,6 +122,7 @@ export function createCookieSessionAuth({
 			authorityId: 'epicenter-api',
 			principalId: principal.id,
 			baseURL: origin,
+			signal: lifetime.signal,
 			fetch: accountFetch,
 			getProfile: () => getProfileVia(accountFetch),
 		});

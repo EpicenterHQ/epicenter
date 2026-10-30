@@ -359,6 +359,7 @@ export function createBrowserOAuth({
 				authorityId,
 				principalId,
 				baseURL,
+				signal: lifetime.signal,
 				fetch: accountFetch,
 				getProfile: () => getProfileVia(accountFetch, baseURL),
 			}),

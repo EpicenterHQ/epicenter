@@ -7,7 +7,7 @@ import { expect, test } from 'bun:test';
 import { asPrincipalId } from '@epicenter/principal';
 import { createLogger, memorySink } from 'wellcrafted/logger';
 import { expectOk } from 'wellcrafted/testing';
-import { isCallbackAuthClient, type AuthState } from './auth-contract.js';
+import { type AuthState, isCallbackAuthClient } from './auth-contract.js';
 import { epicenterCloud } from './auth-server.js';
 import {
 	type CreateBrowserOAuthOptions,
@@ -370,6 +370,7 @@ test('an Account sends the token another tab renewed and survives the renewal', 
 		'Bearer token-2',
 	);
 	expect(second.getState().account).toBe(account);
+	expect(account.signal.aborted).toBe(false);
 	first[Symbol.dispose]();
 });
 
@@ -399,6 +400,7 @@ test('another person signing in from another tab retires the earlier Account', a
 
 	expect(second.getState().account?.principalId).toBe(asPrincipalId('bob'));
 	await expect(alice.fetch('/api/thing')).rejects.toBeDefined();
+	expect(alice.signal.aborted).toBe(true);
 	first[Symbol.dispose]();
 });
 

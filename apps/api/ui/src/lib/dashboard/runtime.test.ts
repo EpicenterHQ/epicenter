@@ -25,6 +25,7 @@ function setup(principalId: string) {
 		authorityId: 'test-authority',
 		principalId: asPrincipalId(principalId),
 		baseURL: 'https://api.example.test',
+		signal: new AbortController().signal,
 		fetch(input, init) {
 			const request = new Request(
 				input instanceof Request ? input : new URL(input, account.baseURL),

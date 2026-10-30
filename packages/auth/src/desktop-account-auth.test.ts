@@ -164,11 +164,14 @@ test('signing in again from Settings opens a new account; signing out retires th
 	const second = h.auth.getState().account!;
 	expect(second).not.toBe(first);
 	expect(first.fetch('/api/repos')).rejects.toThrow();
+	expect(first.signal.aborted).toBe(true);
+	expect(second.signal.aborted).toBe(false);
 
 	h.set({ origin, grant: null });
 	await h.auth.refresh();
 	expect(h.auth.getState().status).toBe('signed-out');
 	expect(second.fetch('/api/repos')).rejects.toThrow();
+	expect(second.signal.aborted).toBe(true);
 	expect(h.states).toEqual(['signed-in', 'signed-in', 'signed-out']);
 });
 
