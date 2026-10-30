@@ -10,13 +10,14 @@ Two rules shape everything a person sees:
 
 - **Every conflict is text.** When two people change the same lines, the
   server keeps one version in place and writes the other into the note as a
-  labelled conflict block. The header merges by top-level key, each value
-  whole: when two people set the same field, the write that reaches the
-  server later wins, and the other value stays in Git. Every line someone
+  labelled conflict block. The header merges key by key, each key whole:
+  when two people set the same field, the write that reaches the server
+  later wins, and the other value stays in Git. Every line someone
   saved is in the shared text, and every value is in Git.
 - **The repository repairs what it can represent.** A note is always
-  valid: one whose frontmatter does not parse is a note with no fields, its
-  whole text the body, and it syncs. A blob write that lost lands beside the
+  valid, and a broken key costs only that key: the note keeps its other
+  fields, the broken key is an issue, and it syncs. A patch replaces only
+  its key's lines, so the rest of the header stays as typed. A blob write that lost lands beside the
   other at a sibling the server names. A file that cannot go stays on the
   device with its reason, *waiting* (the system clears it) or *refused*
   (only a person can fix it). Nothing typed is dropped.

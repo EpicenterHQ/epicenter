@@ -85,15 +85,30 @@ that does not land leaves the file.
 
 **Every conflict is text.** `settle` runs the Epicenter merge (`core/merge.ts`):
 
-- A note is a header and a body: the header is the fenced block at the very
-  top when it parses; otherwise there is none and the whole text is body.
-  The header merges by top-level key, each value whole (a list or a map is
-  one value). When both sides set one key, the later arrival at the server
-  wins: in `merge`, `incoming` is the write arriving now and `current` is
-  `main`, so `incoming`'s value wins. Never a device clock. No block is
-  written; the value that lost stays in history. A delete of a key still
-  loses to an edit it had not seen. The header is written in house style
-  from `current`'s document, so its comments stay.
+- A note is a header and a body, by position: the header is the text
+  between a `---` first line and the next `---` line, whether or not it
+  parses; with no closing fence there is none, and the whole text is body.
+  Header merges with header and body with body: a header's lines never
+  move into the body.
+- The header is a list of key blocks, found by position, never by `yaml`'s
+  error recovery: a line at column 0 (not blank, not a comment, not a `- `
+  item) starts a key's block, which runs to the next one; comment lines
+  belong to the key below them. Each block is read on its own: **a broken
+  key costs only that key** (an issue on that key, like a schema issue), a
+  key held twice is an issue on that key, and every other key is a field.
+- The header merges by key, each key's block whole and compared as text,
+  whether or not it parses. When both sides change one key, the later
+  arrival at the server wins: in `merge`, `incoming` is the write arriving
+  now and `current` is `main`, so `incoming`'s block wins. Never a device
+  clock. No block is written; the value that lost stays in history. A key
+  deleted on one side and edited on the other keeps the edit.
+- A patch replaces the key's block (its value set in place where it
+  parses, so its comments stay), appends it, or removes it; every other
+  line stays as typed, so a patch works on a header that does not parse. A
+  note with no header gains one. House style prints each key that parses
+  and leaves a broken key exactly as typed. Merges, patches and house style
+  never break a key that parses, and never write a key twice (a seeded
+  property); only typed text breaks a key.
 - The body merges by line, so edits on neighboring lines do not conflict.
   Lines both sides changed merge again by word. What still overlaps is a
   conflict block.
@@ -162,12 +177,11 @@ a note past 1 MB (`merge-too-large`), and one that would leave more than
 `BLOCK_CAP` (20) conflict blocks in a note (`too-many-blocks`, "this note
 has unresolved conflicts; resolve some first"). The server reads no schema.
 
-**A note is always valid.** A text that does not open with parseable
-frontmatter (a YAML mapping between `---` fences) is a note with no fields,
-its whole text the body; an app's schema then reports its fields missing.
+**A note is always valid.** A broken key costs only that key: the note
+keeps every other field, its body is what follows the header, and an app's
+schema reports the broken key as an issue.
 Nothing refuses or holds a note for its frontmatter, and a merge of three
-notes writes a header that parses wherever both sides had one (a seeded
-property). A folder reads a note's CRLF line endings and byte order mark as
+notes never breaks a key that parses (a seeded property). A folder reads a note's CRLF line endings and byte order mark as
 LF with none, keeps the file's own hash in its record, and never writes the
 file back only to normalize it.
 
