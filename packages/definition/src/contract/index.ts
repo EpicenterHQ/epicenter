@@ -3,6 +3,7 @@
  * typed client it derives, the path functions every opener shares, and the
  * check `epicenter check` runs.
  */
+export { checkContract, type FileIssue } from './check.js';
 export {
 	type Client,
 	ClientError,
