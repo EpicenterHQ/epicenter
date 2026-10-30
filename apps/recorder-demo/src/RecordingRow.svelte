@@ -1,0 +1,97 @@
+<script lang="ts">
+	import { onDestroy } from 'svelte';
+	import { getDevice, getRemote } from './lib/context.ts';
+	import type { RecordingRow } from './lib/recordings.ts';
+	import { renameRecording } from './lib/save.ts';
+
+	const {
+		row,
+		onchange,
+	}: { row: RecordingRow; onchange: () => Promise<void> } = $props();
+
+	// A repository row exists only while signed in, under the remote's
+	// subtree. A row keeps its id and side for its life: rows are keyed by
+	// both, so an upload replaces the device row with a new repository one.
+	// svelte-ignore state_referenced_locally
+	const client = row.where === 'device' ? getDevice() : getRemote();
+
+	/** What the person typed and has not saved; null shows the note's title, however it changes. */
+	let draft = $state<string | null>(null);
+	let status = $state<string | null>(null);
+	let audioUrl = $state<string | null>(null);
+
+	onDestroy(() => {
+		if (audioUrl) URL.revokeObjectURL(audioUrl);
+	});
+
+	async function play() {
+		if (row.ext === null) return;
+		status = 'Loading…';
+		const audio = await client.audio.get({ id: row.id, ext: row.ext });
+		if (audio.error !== null) {
+			status = audio.error.message;
+			return;
+		}
+		if (audioUrl) URL.revokeObjectURL(audioUrl);
+		audioUrl = URL.createObjectURL(
+			new Blob([audio.data.bytes as Uint8Array<ArrayBuffer>]),
+		);
+		status = null;
+	}
+
+	async function save(event: SubmitEvent) {
+		event.preventDefault();
+		if (!row.note || draft === null) return;
+		status = 'Saving…';
+		const renamed = await renameRecording(client, {
+			id: row.id,
+			title: draft,
+			over: row.note.version,
+		});
+		if (renamed.error !== null) {
+			status = renamed.error.message;
+			return;
+		}
+		// Show the saved title from the listing, not the draft.
+		await onchange();
+		draft = null;
+		status = 'Saved';
+	}
+
+	const seconds = (ms: number) => `${(ms / 1000).toFixed(1)} s`;
+</script>
+
+<li data-id={row.id} data-where={row.where}>
+	{#if row.where === 'repository' && row.note}
+		<form class="row" onsubmit={save}>
+			<input
+				aria-label="Title"
+				value={draft ?? row.note.title}
+				oninput={(event) => (draft = event.currentTarget.value)}
+			/>
+			<button type="submit">Save title</button>
+		</form>
+	{:else}
+		<div class="row">
+			<strong data-testid="title">{row.note?.title ?? 'Untitled recording'}</strong>
+		</div>
+	{/if}
+	<div class="row meta">
+		{#if row.where === 'device'}
+			<span class="pending">not uploaded yet</span>
+		{/if}
+		{#if row.note}
+			<span>{new Date(row.note.recordedAt).toLocaleString()}</span>
+			<span data-testid="duration">{seconds(row.note.durationMs)}</span>
+		{/if}
+		{#if row.ext}
+			<button onclick={play}>Play</button>
+		{/if}
+		{#if status}
+			<span data-testid="status">{status}</span>
+		{/if}
+	</div>
+	{#if audioUrl}
+		<audio controls autoplay src={audioUrl}></audio>
+	{/if}
+</li>

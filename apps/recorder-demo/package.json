@@ -1,0 +1,35 @@
+{
+	"name": "@epicenter/recorder-demo",
+	"description": "A small recorder over the file contract: recordings land in the browser first and upload to the signed-in person's repository",
+	"private": true,
+	"version": "0.0.1",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"preview": "vite preview",
+		"demo": "bun e2e/stack.ts --demo",
+		"contract": "bun scripts/write-contract.ts",
+		"test": "bun test src",
+		"test:e2e": "playwright test -c playwright.config.ts",
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json"
+	},
+	"dependencies": {
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/definition": "workspace:*",
+		"@epicenter/folder": "workspace:*",
+		"wellcrafted": "catalog:"
+	},
+	"devDependencies": {
+		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@types/bun": "catalog:",
+		"drizzle-orm": "catalog:",
+		"playwright": "^1.61.1",
+		"svelte": "catalog:",
+		"svelte-check": "catalog:",
+		"typescript": "catalog:",
+		"vite": "catalog:"
+	},
+	"license": "AGPL-3.0-or-later"
+}

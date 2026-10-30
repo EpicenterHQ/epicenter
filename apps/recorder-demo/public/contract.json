@@ -1,0 +1,25 @@
+{
+	"name": "recorder-demo",
+	"description": "Voice recordings: a note per recording, and its audio beside it.",
+	"collections": {
+		"recordings": {
+			"path": "recordings/{id}.md",
+			"fields": {
+				"title": {
+					"type": "string"
+				},
+				"recordedAt": {
+					"type": "string"
+				},
+				"durationMs": {
+					"type": "integer",
+					"minimum": 0
+				}
+			},
+			"required": ["title", "recordedAt", "durationMs"]
+		},
+		"audio": {
+			"path": "recordings/{id}.{ext}"
+		}
+	}
+}
