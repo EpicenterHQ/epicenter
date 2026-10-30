@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url';
 import { APPS } from '@epicenter/constants/apps';
 // VAD fetches these files from `/vad/*` at runtime (they are not bundled). The
 // recorder package owns the VAD capability and resolves the asset source paths
@@ -33,16 +32,6 @@ export default defineConfig(
 		// CommonJS entry to ESM for browser dev mode.
 		optimizeDeps: {
 			exclude: ['onnxruntime-web', 'onnxruntime-web/wasm'],
-			include: ['buffer'],
-		},
-		resolve: {
-			alias: [
-				// isomorphic-git and its SHA-1 dependency expect Node's Buffer.
-				{
-					find: /^buffer$/,
-					replacement: fileURLToPath(import.meta.resolve('buffer/')),
-				},
-			],
 		},
 	}),
 );

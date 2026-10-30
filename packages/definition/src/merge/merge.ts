@@ -18,8 +18,8 @@
  *   lines both sides changed merge again by word, so edits of different
  *   words in one sentence both land with no block, and letters never blend.
  *   Where words clash, the clash is the whole lines involved (decision 43):
- *   a block never splits a sentence. Two insertions at one point are both
- *   kept, current first.
+ *   a block never splits a sentence. Two different insertions at one point,
+ *   of words or of lines, are a clash, as in diff3 (decision 15).
  * - Two creates at one path merge fields and keep both bodies.
  * - A delete against an edit returns the edit.
  *
@@ -399,7 +399,7 @@ function mergeSequence(
 	};
 	for (const hunk of edits) {
 		const group = groups.at(-1);
-		// Shared boundaries are independent; insertions at one point group together.
+		// Shared boundaries are independent; insertions at one point group together (and clash unless equal).
 		// As lines, two sides' hunks that overlap or touch and write a line in common (both moved the same lines there) are one clash, kept whole.
 		const moved =
 			lines &&
@@ -449,12 +449,9 @@ function mergeSequence(
 		const sources = new Set(group.edits.map((h) => h.source));
 		if (sources.size === 1 || same(c, i))
 			parts.push({ text: (sources.has('current') ? c : i).join('') });
-		else if (b.length === 0 && group.edits.every((h) => h.start === h.end)) {
-			// Both inserted at one point (identical insertions were deduplicated above).
-			parts.push({
-				text: (lines ? interleave(c, i) : [...c, ...i]).join(''),
-			});
-		} else
+		else if (b.length === 0 && group.edits.every((h) => h.start === h.end))
+			parts.push(...insertionClash(c, i, lines));
+		else
 			parts.push({
 				overlap: {
 					base: b.join(''),
@@ -470,24 +467,45 @@ function mergeSequence(
 }
 
 /**
- * RULE: two different insertions of lines at one point, aligned against
- * each other: lines both inserted are kept once, and where they differ,
- * current's lines come before incoming's. Two people pasting overlapping
- * text, or both moving the same lines (a frontmatter both broke), keep
- * one copy of what they share.
+ * RULE (decision 15, as in diff3): two different insertions at one point
+ * are a clash, never both kept: `Pay Alice` made `Pay Alice now` and `Pay
+ * Alice later` is one block, not `Pay Alice now later`. As lines, the lines
+ * both insertions start and end with are kept once outside the clash (Git's
+ * zealous diff3), so two people pasting overlapping text, or both moving
+ * the same lines (a frontmatter both broke), keep one copy of what they
+ * share. The clash is whole lines, never merged again by word, even where
+ * one side's remainder is empty.
  */
-function interleave(current: string[], incoming: string[]): string[] {
-	const out: string[] = [];
-	let at = 0;
-	for (const hunk of diff(current, incoming)) {
-		out.push(
-			...current.slice(at, hunk.end),
-			...incoming.slice(hunk.sideStart, hunk.sideEnd),
-		);
-		at = hunk.end;
+function insertionClash(
+	current: string[],
+	incoming: string[],
+	lines: boolean,
+): Part[] {
+	let head = 0;
+	let tail = 0;
+	if (lines) {
+		const most = Math.min(current.length, incoming.length);
+		while (head < most && current[head] === incoming[head]) head++;
+		while (
+			tail < most - head &&
+			current[current.length - 1 - tail] ===
+				incoming[incoming.length - 1 - tail]
+		)
+			tail++;
 	}
-	out.push(...current.slice(at));
-	return out;
+	const parts: Part[] = [];
+	if (head > 0) parts.push({ text: current.slice(0, head).join('') });
+	parts.push({
+		overlap: {
+			base: '',
+			current: current.slice(head, current.length - tail).join(''),
+			incoming: incoming.slice(head, incoming.length - tail).join(''),
+		},
+		whole: true,
+	});
+	if (tail > 0)
+		parts.push({ text: current.slice(current.length - tail).join('') });
+	return parts;
 }
 
 /** Above this many table cells a region is diffed by unique-line anchors instead. */

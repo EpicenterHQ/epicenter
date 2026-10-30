@@ -18,9 +18,13 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import {
+	REPOSITORY_ATTRIBUTES,
+	REPOSITORY_IGNORE,
+} from '@epicenter/definition/contract';
 import { resolveAppPaths } from '../app-paths.ts';
-import { withAttributesBlock } from './attributes.ts';
 import { config, configAll, git, must, type RemoteCredential } from './git.ts';
+import { withEpicenterBlock } from './managed-block.ts';
 
 /** Init would adopt a repository the folder sits inside, and was not told to. */
 export class Refused extends Error {}
@@ -132,29 +136,41 @@ export async function init(
 		changed.push(`epicenter.root = ${root}`);
 	}
 
-	// 2. Epicenter's block of the folder's committed attributes.
-	const path = join(folder, '.gitattributes');
-	const current = existsSync(path) ? await readFile(path, 'utf8') : null;
-	const wanted = withAttributesBlock(current);
-	if (current !== wanted) {
-		await writeFile(path, wanted);
-		changed.push('.gitattributes written');
+	// 2. Epicenter's blocks of the folder's committed attributes and ignore rules.
+	const managed = [
+		['.gitattributes', REPOSITORY_ATTRIBUTES],
+		['.gitignore', REPOSITORY_IGNORE],
+	] as const;
+	for (const [name, block] of managed) {
+		const path = join(folder, name);
+		const current = existsSync(path) ? await readFile(path, 'utf8') : null;
+		const wanted = withEpicenterBlock(current, block);
+		if (current !== wanted) {
+			await writeFile(path, wanted);
+			changed.push(`${name} written`);
+		}
 	}
-	const pending = await must(folder, [
-		'status',
-		'--porcelain',
-		'--',
-		'.gitattributes',
-	]);
-	if (pending.trim() !== '') {
-		await must(folder, ['add', '--', '.gitattributes']);
-		// Path-limited: commits only the attributes, whatever else is staged.
+	const names = managed.map(([name]) => name);
+	const pending = (
+		await must(folder, ['status', '--porcelain', '--', ...names])
+	).trim();
+	if (pending !== '') {
+		const touched = names.filter((name) => pending.includes(name));
+		await must(folder, ['add', '--', ...touched]);
+		// Path-limited: commits only these files, whatever else is staged.
 		await must(
 			folder,
-			['commit', '-q', '-m', 'epicenter: attributes', '--', '.gitattributes'],
+			[
+				'commit',
+				'-q',
+				'-m',
+				'epicenter: attributes and ignore rules',
+				'--',
+				...touched,
+			],
 			{ env: await identity(folder) },
 		);
-		changed.push('.gitattributes committed');
+		for (const name of touched) changed.push(`${name} committed`);
 	}
 
 	// 3. The per-clone merge driver.

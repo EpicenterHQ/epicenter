@@ -93,6 +93,7 @@ import type { CloudEnv } from '../types.js';
 import {
 	applyWrite,
 	listRepositoryFiles,
+	MAX_WRITE_BYTES,
 	readRepositoryFile,
 	readWriteRequest,
 } from './files.js';
@@ -349,8 +350,15 @@ function operationOf(
 	}
 }
 
-/** A push body, read whole: gunzipped when sent so, refused past `MAX_PUSH_BYTES`. */
-async function readPushBody(request: Request): Promise<Uint8Array | null> {
+/**
+ * A request body, read whole: gunzipped when sent so, and null as soon as
+ * it passes `maxBytes` (`MAX_PUSH_BYTES` for a push, `MAX_WRITE_BYTES` for
+ * a web write), so an oversized body is never held in memory.
+ */
+async function readBody(
+	request: Request,
+	maxBytes: number,
+): Promise<Uint8Array | null> {
 	if (request.body === null) return new Uint8Array();
 	const body: ReadableStream<Uint8Array> =
 		request.headers.get('content-encoding') === 'gzip'
@@ -368,7 +376,7 @@ async function readPushBody(request: Request): Promise<Uint8Array | null> {
 		const { done, value } = await reader.read();
 		if (done) break;
 		length += value.length;
-		if (length > MAX_PUSH_BYTES) {
+		if (length > maxBytes) {
 			await reader.cancel();
 			return null;
 		}
@@ -663,7 +671,7 @@ export function mountGitHost(
 				case 'git': {
 					if (endpoint.advertisement)
 						return await receiveAdvertisement(objects);
-					const body = await readPushBody(c.req.raw);
+					const body = await readBody(c.req.raw, MAX_PUSH_BYTES);
 					if (body === null)
 						return refuse(c, 413, 'too_large', 'A push may be at most 64 MiB.');
 					return await receivePush({
@@ -679,9 +687,19 @@ export function mountGitHost(
 				case 'file':
 					return await readRepositoryFile(objects, c.req.query('path'));
 				case 'writes': {
-					const request = readWriteRequest(
-						await c.req.json().catch(() => null),
-					);
+					const raw = await readBody(c.req.raw, MAX_WRITE_BYTES);
+					if (raw === null)
+						return refuse(
+							c,
+							413,
+							'too_large',
+							`A web write may be at most ${MAX_WRITE_BYTES / (1024 * 1024)} MiB; send fewer files at once.`,
+						);
+					let body: unknown = null;
+					try {
+						body = JSON.parse(new TextDecoder().decode(raw));
+					} catch {}
+					const request = readWriteRequest(body);
 					if ('status' in request)
 						return c.json(
 							{

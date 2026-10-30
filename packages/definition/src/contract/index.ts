@@ -28,17 +28,18 @@ export {
 	defineContract,
 } from './contract.js';
 export {
+	EPICENTER_BLOCK_BEGIN,
+	EPICENTER_BLOCK_END,
 	isHiddenPath,
+	isNotePath,
 	REPOSITORY_ATTRIBUTES,
-	REPOSITORY_ATTRIBUTES_BEGIN,
-	REPOSITORY_ATTRIBUTES_END,
+	REPOSITORY_IGNORE,
 	storedWithLfs,
 } from './storage.js';
 export {
 	compileTemplate,
 	fill,
 	isFilePath,
-	isNotePath,
 	isNoteTemplate,
 	match,
 	type Params,

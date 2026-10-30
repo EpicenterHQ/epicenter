@@ -7,7 +7,8 @@
  * output never blends tokens, and each overlap is one well-formed block, never nested.
  *
  * Key behaviors:
- * - Neighboring line edits, separate word edits on one line and same-point appends merge silently
+ * - Neighboring line edits and separate word edits on one line merge silently
+ * - Two different insertions at one point, of words or lines, are one clash (decision 15, as in diff3)
  * - Words both sides changed are one clash, written over the whole lines involved (decision 43)
  * - A true overlap is reported, never blended (cat/cart/coat)
  * - The header merges by top-level key, each value whole; a key both sides set takes the later write's (incoming, arriving now, over current, main's); a key's unseen delete loses; comments stay
@@ -85,27 +86,39 @@ describe('examples', () => {
 		]);
 	});
 
-	test('simultaneous end bullets keep current then incoming', () => {
+	test('different bullets added at the end are one clash, as in diff3 (decision 15)', () => {
 		const r = merge('- x\n', '- x\n- y\n', '- x\n- z\n');
-		expect(r.text).toBe('- x\n- y\n- z\n');
-		expect(r.overlaps).toHaveLength(0);
+		expect(r.text).toBe('- x\n- y\n');
+		expect(spans(r.overlaps)).toMatchObject([
+			{ base: '', current: '- y\n', incoming: '- z\n' },
+		]);
+		// The same bullet added by both is one bullet, with no clash.
+		expect(merge('- x\n', '- x\n- y\n', '- x\n- y\n')).toEqual({
+			text: '- x\n- y\n',
+			overlaps: [],
+		});
 	});
 
-	test('same-point additions after an unterminated line remain separate', () => {
+	test('same-point additions after an unterminated line are one clash of their own lines', () => {
 		const r = merge('a', 'a\nb', 'a\nc');
-		expect(r.text).toBe('a\nb\nc');
-		expect(r.overlaps).toHaveLength(0);
+		expect(withBlocks(r, labels)).toBe(
+			`a\n${OPEN}b\n${BASE}=======\nc\n${CLOSE}`,
+		);
+		expect(withBlocks(merge('', 'b', 'c\n'), labels)).toBe(
+			`${OPEN}b\n${BASE}=======\nc\n${CLOSE}`,
+		);
 	});
 
-	test('same-point additions where current ends unterminated stay on their own lines', () => {
-		expect(merge('', 'b', 'c\n').text).toBe('b\nc\n');
-		// An existing block current did not have lands on a line of its own, so it still reads as a block (property seed W 29).
+	test('an insertion beside an existing block whose current side is empty continues that side: one clash, one block (property seed W 29)', () => {
 		const head = '---\ntitle: a\n---\n';
 		const block =
 			'<<<<<<< current c - -\n||||||| base -\n=======\nold\n>>>>>>> incoming b - -\n';
 		const r = merge(head, `${head}t57z`, `${head}${block}`);
-		expect(r.text).toBe(`${head}t57z\n${block}`);
-		expect(findConflicts(r.text ?? '')).toHaveLength(1);
+		const marked = withBlocks(r, labels) ?? '';
+		expect(marked).toBe(
+			`${head}<<<<<<< current alice t1 c1\nt57z\n||||||| base -\n=======\nold\n>>>>>>> incoming b - -\n`,
+		);
+		expect(findConflicts(marked)).toHaveLength(1);
 	});
 
 	test('a word both sides kept is kept once: whitespace never anchors a side ahead of a word (property seed B 621772)', () => {
@@ -515,18 +528,21 @@ describe('properties', () => {
 });
 
 describe('two insertions at one point', () => {
-	test("lines both sides inserted are kept once, each side's own lines current first (property seeds B 910115, 910214)", () => {
-		// Both broke the same frontmatter (its lines moved to the body) and set a field: the moved lines are one copy.
-		const merged =
-			merge(
-				'---\ntitle: t1z\n---\n',
-				'---\n---\n---\nx: a\ntitle: t1z\n---\n',
-				'---\n---\n---\ny: b\ntitle: t1z\n---\n',
-			).text ?? '';
-		expect(merged.match(/t1z/g)).toHaveLength(1);
-		expect(merged).toBe('---\n---\n---\nx: a\ny: b\ntitle: t1z\n---\n');
-		// Nothing shared: both kept whole, current first, as before.
-		expect(merge('a\n', 'a\nb\n', 'a\nc\n').text).toBe('a\nb\nc\n');
+	test("lines both insertions start and end with are kept once outside the clash, as Git's zealous diff3 does (property seeds B 910115, 910214)", () => {
+		// Both broke the same frontmatter (its lines moved to the body) and set a field: the moved lines are one copy, the fields one clash.
+		const r = merge(
+			'---\ntitle: t1z\n---\n',
+			'---\n---\n---\nx: a\ntitle: t1z\n---\n',
+			'---\n---\n---\ny: b\ntitle: t1z\n---\n',
+		);
+		expect(r.text?.match(/t1z/g)).toHaveLength(1);
+		expect(withBlocks(r, labels)).toBe(
+			`---\n---\n---\n${OPEN}x: a\n${BASE}=======\ny: b\n${CLOSE}title: t1z\n---\n`,
+		);
+		// One insertion holding the other plus more is still a clash, of the extra lines alone.
+		expect(withBlocks(merge('a\n', 'a\nb\n', 'a\nb\nc\n'), labels)).toBe(
+			`a\nb\n${OPEN}${BASE}=======\nc\n${CLOSE}`,
+		);
 	});
 
 	test("an insertion that shares lines with the other side's change of the lines it abuts is one clash, its shared lines never copied twice (property seed B 910214)", () => {

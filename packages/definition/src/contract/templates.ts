@@ -19,6 +19,7 @@
  */
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
+import { isNotePath } from './storage.js';
 
 /**
  * The placeholder values a template takes, read from its source string:
@@ -81,9 +82,6 @@ function isUsableSegment(value: string) {
 /** Whether `path` is a usable file path: `/`-separated segments, none empty, hidden or relative. */
 export const isFilePath = (path: string) =>
 	path.split('/').every(isUsableSegment);
-
-/** Whether a path names a note: a Markdown file. Anything else is a file (decision 3). */
-export const isNotePath = (path: string) => path.endsWith('.md');
 
 const PLACEHOLDER = /\{([^{}]*)\}/g;
 

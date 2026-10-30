@@ -113,6 +113,70 @@ describe('settle', () => {
 	});
 });
 
+describe('decision 15: two different insertions at one spot are one clash, as in diff3', () => {
+	test('two words added at the end of one line are one whole-line block, never "now later"', () => {
+		const settled = settle(
+			'Pay Alice\n',
+			'Pay Alice now\n',
+			'Pay Alice later\n',
+			{
+				parties,
+			},
+		);
+		expect(settled.blocks).toBe(true);
+		expect(settled.text).not.toContain('now later');
+		const [conflict, ...more] = findConflicts(settled.text ?? '');
+		expect(more).toEqual([]);
+		expect(conflict).toMatchObject({
+			current: 'Pay Alice now\n',
+			base: 'Pay Alice\n',
+			incoming: 'Pay Alice later\n',
+		});
+		// With no final newline, the same.
+		const bare = settle('Pay Alice', 'Pay Alice now', 'Pay Alice later', {
+			parties,
+		});
+		expect(bare.blocks).toBe(true);
+		expect(findConflicts(bare.text ?? '')).toHaveLength(1);
+	});
+
+	test('two different lines appended after one line are one block', () => {
+		const settled = settle('a\n', 'a\nb\n', 'a\nc\n', { parties });
+		expect(settled.blocks).toBe(true);
+		const [conflict, ...more] = findConflicts(settled.text ?? '');
+		expect(more).toEqual([]);
+		expect(conflict).toMatchObject({
+			current: 'b\n',
+			base: '',
+			incoming: 'c\n',
+		});
+		expect(settled.text?.startsWith('a\n<<<<<<< ')).toBe(true);
+	});
+
+	test('identical insertions merge as one', () => {
+		expect(settle('a\n', 'a\nb\n', 'a\nb\n', { parties })).toEqual({
+			text: 'a\nb\n',
+			blocks: false,
+		});
+		expect(
+			settle('Pay Alice\n', 'Pay Alice now\n', 'Pay Alice now\n', { parties }),
+		).toEqual({ text: 'Pay Alice now\n', blocks: false });
+	});
+
+	test('edits of different, non-adjacent words on one line still merge with no block', () => {
+		expect(
+			settle(
+				'Pay Alice ten dollars today\n',
+				'Pay Bob ten dollars today\n',
+				'Pay Alice ten dollars tomorrow\n',
+				{
+					parties,
+				},
+			),
+		).toEqual({ text: 'Pay Bob ten dollars tomorrow\n', blocks: false });
+	});
+});
+
 describe('settlePointer: a blob write lands only over the blob its writer saw', () => {
 	const [a, b, c] = ['pointer a', 'pointer b', 'pointer c'];
 	test('create, replace and delete land where nothing moved', () => {
@@ -124,9 +188,11 @@ describe('settlePointer: a blob write lands only over the blob its writer saw', 
 		expect(settlePointer(null, b, a)).toEqual({ lost: true });
 		expect(settlePointer(null, a, a)).toEqual({ text: a });
 	});
-	test('a replace over a file that changed or went is lost', () => {
+	test('a replace over a file that changed is lost', () => {
 		expect(settlePointer(a, b, c)).toEqual({ lost: true });
-		expect(settlePointer(a, null, c)).toEqual({ lost: true });
+	});
+	test('a replace over a file that went brings it back: an edit beats a delete (decision 15)', () => {
+		expect(settlePointer(a, null, c)).toEqual({ text: c });
 	});
 	test('a delete that does not land leaves the file, with no refusal', () => {
 		expect(settlePointer(a, b, null)).toEqual({ text: b });

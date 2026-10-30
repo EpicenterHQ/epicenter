@@ -28,6 +28,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { isNotePath } from '@epicenter/definition/contract';
 import {
 	conflictSibling,
 	lfsOid,
@@ -47,24 +48,41 @@ import { driverCommand, identity, repositoryRoot } from './setup.ts';
 const LAST_SEEN = 'refs/epicenter/last-seen';
 const REMOTE_MAIN = 'refs/remotes/origin/main';
 /**
- * What a failed `git push` means for the round.
+ * A ref status line of `git push`'s report: ` ! [rejected] HEAD -> main
+ * (fetch first)` or ` ! [remote rejected] HEAD -> main (<reason>)`. Ref
+ * names hold no spaces, and the reason runs to the line's last `)`.
+ */
+const REF_STATUS =
+	/^ ! \[(rejected|remote rejected)\] +\S+ -> \S+ \((.*)\)[ \t]*$/gm;
+/** A remote's reason that means it moved first: the receiver's own, or stock Git's on a lost ref race. */
+const MOVED_REASON =
+	/^(?:stale\b|non-fast-forward\b|fetch first\b|cannot lock ref\b|failed to update ref\b|failed to lock\b)/;
+
+/**
+ * What a failed `git push` means for the round, read only from the ref
+ * status lines and their reasons, never from other text (which can hold
+ * paths, such as a refused file named `stale-notes.md`).
  *
- * - `moved`: the remote moved first (not a fast-forward, or a lost race on the
+ * - `moved`: the remote moved first (Git's own `[rejected]`, or a remote
+ *   reason that starts `stale`, `non-fast-forward`, or a lost race on the
  *   ref update); fetch, merge, and push again.
- * - `refused`: the remote's policy turned the push down (a raw file where an
- *   LFS pointer belongs, a ref other than `main`). Pushing again cannot help,
- *   so the round stops for a person or an agent.
- * - `failed`: anything else, such as the network; run the round again later.
+ * - `refused`: any other `[remote rejected]` reason: the remote's policy
+ *   turned the push down (a raw file where an LFS pointer belongs, a ref
+ *   other than `main`). Pushing again cannot help, so the round stops for a
+ *   person or an agent.
+ * - `failed`: no ref status at all, such as the network; run the round
+ *   again later.
  */
 export function classifyPush(stderr: string): 'moved' | 'refused' | 'failed' {
-	if (
-		/\[rejected\]|non-fast-forward|fetch first|cannot lock ref|failed to update ref|stale/.test(
-			stderr,
-		)
-	)
-		return 'moved';
-	if (/\[remote rejected\]|pre-receive hook declined/.test(stderr))
-		return 'refused';
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: color.push=always colors the report
+	const plain = stderr.replace(/\x1b\[[0-9;]*m/g, '');
+	const statuses = [...plain.matchAll(REF_STATUS)].map(([, kind, reason]) =>
+		kind === 'rejected' || MOVED_REASON.test(reason ?? '')
+			? ('moved' as const)
+			: ('refused' as const),
+	);
+	if (statuses.includes('refused')) return 'refused';
+	if (statuses.includes('moved')) return 'moved';
 	return 'failed';
 }
 
@@ -453,7 +471,7 @@ async function settleUnmerged(
 		} else if (
 			ours !== undefined &&
 			theirs !== undefined &&
-			!path.endsWith('.md')
+			!isNotePath(path)
 		) {
 			const blob = await git(root, ['cat-file', 'blob', ours.sha]);
 			const oid = parsePointer(blob.stdout)?.oid ?? (await lfsOid(blob.bytes));

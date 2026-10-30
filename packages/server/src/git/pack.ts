@@ -8,6 +8,11 @@
  * Both delta kinds resolve: `ofs-delta`, which the receiver advertises, and
  * a `ref-delta` whose base is in the same pack. A thin pack (a delta against
  * an object the server holds) is refused: the receiver advertises `no-thin`.
+ *
+ * What a pack inflates to is capped (`MAX_INFLATED_BYTES`): every entry's
+ * inflated bytes and every delta's result count against one budget, each
+ * checked before it is inflated or allocated, so a small pack that declares
+ * gigabytes of zeros is refused rather than read.
  */
 import { createHash } from 'node:crypto';
 import { deflateSync, inflateSync } from 'node:zlib';
@@ -27,6 +32,15 @@ const CODE_KIND: Record<number, ObjectKind> = {
 };
 const OFS_DELTA = 6;
 const REF_DELTA = 7;
+
+/**
+ * The most a pushed pack may inflate to, entries and delta results
+ * together. A push is at most 64 MiB compressed (`MAX_PUSH_BYTES`); notes
+ * compress about fourfold, so this admits any honest push of that size.
+ */
+export const MAX_INFLATED_BYTES = 256 * 1024 * 1024;
+
+const mib = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MiB`;
 
 function entryHeader(code: number, size: number): Uint8Array {
 	const out = [(code << 4) | (size & 15)];
@@ -65,7 +79,11 @@ export function packCount(pack: Uint8Array): number {
 	).readUInt32BE(8);
 }
 
-function applyDelta(base: Uint8Array, delta: Uint8Array): Uint8Array {
+function applyDelta(
+	base: Uint8Array,
+	delta: Uint8Array,
+	spend: (bytes: number) => void,
+): Uint8Array {
 	let at = 0;
 	const varint = () => {
 		let value = 0;
@@ -79,7 +97,9 @@ function applyDelta(base: Uint8Array, delta: Uint8Array): Uint8Array {
 		return value;
 	};
 	if (varint() !== base.length) throw new Error('delta base size mismatch');
-	const out = new Uint8Array(varint());
+	const size = varint();
+	spend(size);
+	const out = new Uint8Array(size);
 	let written = 0;
 	while (at < delta.length) {
 		const op = delta[at++] as number;
@@ -116,10 +136,25 @@ type Entry = {
 	resolved?: PackObject;
 };
 
-/** Every object in `pack`, by id. An empty input is an empty pack. */
-export function readPack(pack: Uint8Array): Map<string, PackObject> {
+/**
+ * Every object in `pack`, by id. An empty input is an empty pack. Throws
+ * when the pack is malformed, or inflates past `maxBytes`.
+ */
+export function readPack(
+	pack: Uint8Array,
+	{ maxBytes = MAX_INFLATED_BYTES }: { maxBytes?: number } = {},
+): Map<string, PackObject> {
 	const objects = new Map<string, PackObject>();
 	if (pack.length === 0) return objects;
+	let left = maxBytes;
+	const tooLarge = () =>
+		new Error(
+			`its objects inflate past ${mib(maxBytes)}; push fewer changes at once`,
+		);
+	const spend = (bytes: number) => {
+		if (bytes > left) throw tooLarge();
+		left -= bytes;
+	};
 	const buf = Buffer.from(pack.buffer, pack.byteOffset, pack.byteLength);
 	if (buf.length < 32 || buf.toString('ascii', 0, 4) !== 'PACK')
 		throw new Error('not a pack');
@@ -165,11 +200,21 @@ export function readPack(pack: Uint8Array): Map<string, PackObject> {
 			at += 20;
 		} else if (CODE_KIND[code] === undefined)
 			throw new Error(`unknown pack entry type ${code}`);
-		const inflated = inflateSync(buf.subarray(at, end), {
-			info: true,
-		}) as unknown as { buffer: Buffer; engine: { bytesWritten: number } };
+		// The declared size is checked first; the inflation is capped too, in case the header understates it.
+		if (size > left) throw tooLarge();
+		let inflated: { buffer: Buffer; engine: { bytesWritten: number } };
+		try {
+			inflated = inflateSync(buf.subarray(at, end), {
+				info: true,
+				maxOutputLength: Math.max(1, left),
+			}) as unknown as typeof inflated;
+		} catch (cause) {
+			if (cause instanceof RangeError) throw tooLarge();
+			throw cause;
+		}
 		if (inflated.buffer.length !== size)
 			throw new Error('pack entry size mismatch');
+		spend(size);
 		entry.data = inflated.buffer;
 		at += inflated.engine.bytesWritten;
 		entries.push(entry);
@@ -192,7 +237,7 @@ export function readPack(pack: Uint8Array): Map<string, PackObject> {
 				: (objects.get(entry.baseOid as string) ?? null);
 			if (base === null) return null;
 			kind = base.kind;
-			data = applyDelta(base.bytes, entry.data);
+			data = applyDelta(base.bytes, entry.data, spend);
 		}
 		const object = {
 			oid: objectId(kind as ObjectKind, data),

@@ -46,13 +46,27 @@ async function setup() {
 		return (await box.ok(work, ['rev-parse', 'HEAD'])).trim();
 	};
 	const main = async () => (await objects.refs()).get(MAIN) ?? ZERO_OID;
-	/** Push `next` over the server's `old` (default: main now), as `git push` would. */
+	/**
+	 * Push `next` over the server's `old` (default: main now), as `git push`
+	 * would. `revs` adds lines to the pack's rev list, as a crafted client
+	 * may: `<oid>` to carry more, `^<oid>` to leave some out.
+	 */
 	const push = async (
 		next: string,
-		{ old, owner = false }: { old?: string; owner?: boolean } = {},
+		{
+			old,
+			owner = false,
+			revs: extra = [],
+		}: { old?: string; owner?: boolean; revs?: string[] } = {},
 	) => {
 		const current = old ?? (await main());
-		const revs = current === ZERO_OID ? `${next}\n` : `${next}\n^${current}\n`;
+		const revs = [
+			next,
+			...(current === ZERO_OID ? [] : [`^${current}`]),
+			...extra,
+		]
+			.map((rev) => `${rev}\n`)
+			.join('');
 		const child = Bun.spawn(
 			['git', 'pack-objects', '--stdout', '--revs', '--delta-base-offset'],
 			{
@@ -190,6 +204,51 @@ describe('receivePush', () => {
 			'recordings/.cache/a.webm': new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
 		});
 		expect(await r.push(hidden)).toContain(`ok ${MAIN}`);
+	});
+
+	test('a commit the store holds but main does not reach is checked when a push reaches it (the two-push smuggle)', async () => {
+		const r = await setup();
+		const one = await r.commit({ 'a.md': 'x\n' });
+		await r.push(one);
+		// Z: an orphan commit holding raw audio, never itself pushed to main.
+		await box.ok(r.work, ['checkout', '--quiet', '--orphan', 'smuggle']);
+		const z = await r.commit({
+			'rec/a.m4a': new Uint8Array([0, 0, 0, 0x20, 0x66, 0x74, 0x79, 0x70]),
+		});
+		await box.ok(r.work, ['checkout', '--quiet', '-f', 'main']);
+		// Push 1: a valid fast-forward whose pack also carries Z.
+		const two = await r.commit({ 'b.md': 'y\n' });
+		expect(await r.push(two, { revs: [z] })).toContain(`ok ${MAIN}`);
+		// Push 2: N merges Z into main with Z's tree, and leaves Z out of the pack.
+		const zTree = (await box.ok(r.work, ['rev-parse', `${z}^{tree}`])).trim();
+		const n = (
+			await box.ok(r.work, [
+				'commit-tree',
+				zTree,
+				'-p',
+				z,
+				'-p',
+				two,
+				'-m',
+				'n',
+			])
+		).trim();
+		const refused = await r.push(n, { revs: [`^${z}`] });
+		expect(refused).toContain('rec/a.m4a in');
+		expect(refused).toContain('is not a Git LFS pointer');
+		expect(await r.main()).toBe(two);
+		// A commit main already reaches is not checked again: history is not walked past main.
+		const three = await r.commit({ 'c.md': 'z\n' });
+		expect(await r.push(three)).toContain(`ok ${MAIN}`);
+	});
+
+	test('a note is .md in any case: a raw .MD note lands, as a Mac clone commits it', async () => {
+		const r = await setup();
+		const one = await r.commit({
+			'notes/Shout.MD': 'raw text\n',
+			'notes/mixed.Md': 'raw text\n',
+		});
+		expect(await r.push(one)).toContain(`ok ${MAIN}`);
 	});
 
 	test('a pointer lands only once its object is uploaded', async () => {

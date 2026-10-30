@@ -24,7 +24,6 @@
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
-		"buffer": "^6.0.3",
 		"mode-watcher": "^1.1.0",
 		"openai": "^7.12.1",
 		"runed": "catalog:",

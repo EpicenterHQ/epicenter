@@ -1,5 +1,3 @@
-import { createRequire } from 'node:module';
-import { dirname, join } from 'node:path';
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import {
@@ -64,9 +62,6 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
  * - Shared code imports a folder contract from `@epicenter/folder`. The host
  *   build selects its Tauri entry. The portable build keeps the runtime choice
  *   so the same bytes can run in a browser or a hosted Epicenter window.
- * - isomorphic-git and its SHA-1 dependency expect Node's Buffer.
- *   `@epicenter/folder` owns that dependency, so `buffer` resolves from there.
- *   The replacement is the package directory, so `buffer/` resolves too.
  * - `import.meta.env.EPICENTER_HOST` is `'1'` in the host build, which
  *   each app's `src/routes/+layout.ts` reads to prerender every page.
  *
@@ -76,9 +71,6 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
  */
 export function hostAppViteConfig(app: { port: number }): UserConfig {
 	const host = isHostAppBuild();
-	// SvelteKit already requires the app folder as the working directory.
-	const fromApp = createRequire(join(process.cwd(), 'package.json'));
-	const fromFolder = createRequire(fromApp.resolve('@epicenter/folder'));
 	return mergeConfig(workspaceAppViteConfig(app), {
 		resolve: {
 			...(host && {
@@ -86,14 +78,17 @@ export function hostAppViteConfig(app: { port: number }): UserConfig {
 			}),
 			alias: [
 				...(host
-					? [{ find: /^@epicenter\/folder$/, replacement: '@epicenter/folder/tauri' }]
+					? [
+							{
+								find: /^@epicenter\/folder$/,
+								replacement: '@epicenter/folder/tauri',
+							},
+						]
 					: []),
-				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
 			],
 		},
 		define: {
 			'import.meta.env.EPICENTER_HOST': JSON.stringify(host ? '1' : ''),
 		},
-		optimizeDeps: { include: ['buffer'] },
 	} satisfies UserConfig);
 }
