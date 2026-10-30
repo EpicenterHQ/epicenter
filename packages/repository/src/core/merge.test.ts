@@ -377,6 +377,31 @@ describe('properties', () => {
 	});
 });
 
+describe('two insertions at one point', () => {
+	test("lines both sides inserted are kept once, each side's own lines current first (property seeds B 910115, 910214)", () => {
+		// Both broke the same frontmatter (its lines moved to the body) and set a field: the moved lines are one copy.
+		const merged = merge('---\ntitle: t1z\n---\n', '---\n---\n---\nx: a\ntitle: t1z\n---\n', '---\n---\n---\ny: b\ntitle: t1z\n---\n').text ?? '';
+		expect(merged.match(/t1z/g)).toHaveLength(1);
+		expect(merged).toBe('---\n---\n---\nx: a\ny: b\ntitle: t1z\n---\n');
+		// Nothing shared: both kept whole, current first, as before.
+		expect(merge('a\n', 'a\nb\n', 'a\nc\n').text).toBe('a\nb\nc\n');
+	});
+
+	test("an insertion that shares lines with the other side's change of the lines it abuts is one clash, its shared lines never copied twice (property seed B 910214)", () => {
+		const base = 'one\ntwo\n';
+		const current = 'moved\nshared\nONE\ntwo\n';
+		const incoming = 'moved\nshared\none\ntwo\nthree\n';
+		const result = merge(base, current, incoming);
+		// One clash, current's lines in the text and incoming's offered in the block: the shared lines once outside it.
+		expect(result.text).toBe('moved\nshared\nONE\ntwo\nthree\n');
+		expect(result.overlaps.filter((o) => o.unit === 'body')).toHaveLength(1);
+		const marked = withBlocks(result, labels) ?? '';
+		expect(findConflicts(marked)).toHaveLength(1);
+		// Sharing nothing, they stay independent: an insertion beside a neighbour's edit merges clean.
+		expect(merge(base, 'ONE\ntwo\n', 'zero\none\ntwo\n')).toEqual({ text: 'zero\nONE\ntwo\n', overlaps: [] });
+	});
+});
+
 describe('a merge never breaks a note', () => {
 	/** Whether a text's fences, if any, hold parseable frontmatter. */
 	const opensParsed = (text: string | null) => text === null || splitMarkdown(text).yaml === null || parseMarkdown(text).hasFrontmatter;

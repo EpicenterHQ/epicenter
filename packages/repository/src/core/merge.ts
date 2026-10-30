@@ -170,7 +170,8 @@ function joinCreates(current: string, incoming: string) {
 	return `${current.replace(/\n+$/, '')}\n\n${incoming.replace(/^\n+/, '')}`;
 }
 
-type Part = { text: string } | { overlap: { base: string; current: string; incoming: string } };
+/** A merged run, or a clash; `whole`: a clash of lines both sides moved there, never merged again by word. */
+type Part = { text: string } | { overlap: { base: string; current: string; incoming: string }; whole?: true };
 
 function finish(parts: Part[], fields: ContentOverlap[], header = ''): MergeResult {
 	let text = header;
@@ -232,7 +233,7 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 	for (const part of mergeSequence(lines(base), lines(current), lines(incoming), { lines: true })) {
 		const { overlap } = 'text' in part ? { overlap: null } : part;
 		// Marker blocks stay atomic: never split, so never nested.
-		const emitted = overlap === null || [overlap.base, overlap.current, overlap.incoming].some(hasBlock) ? [part] : mergeSequence(words(overlap.base), words(overlap.current), words(overlap.incoming));
+		const emitted = overlap === null || ('whole' in part && part.whole) || [overlap.base, overlap.current, overlap.incoming].some(hasBlock) ? [part] : mergeSequence(words(overlap.base), words(overlap.current), words(overlap.incoming));
 		const content = emitted.map((p) => ('text' in p ? p.text : p.overlap.current)).join('');
 		// RULE: two lines never become one: a part that follows a line one side left unterminated starts on a line of its own.
 		if (open && content !== '') parts.push({ text: '\n' });
@@ -253,15 +254,23 @@ function mergeSequence(base: string[], current: string[], incoming: string[], { 
 		...diff(base, current).map((h) => ({ ...h, source: 'current' as const })),
 		...diff(base, incoming).map((h) => ({ ...h, source: 'incoming' as const })),
 	].sort((a, b) => a.start - b.start || a.end - b.end);
-	type Group = { start: number; end: number; edits: SourcedHunk[] };
+	type Group = { start: number; end: number; edits: SourcedHunk[]; shared?: true };
 	const groups: Group[] = [];
+	/** The lines a hunk writes, as its side has them. */
+	const written = (hunk: SourcedHunk) => (hunk.source === 'current' ? current : incoming).slice(hunk.sideStart, hunk.sideEnd);
+	/** Whether two hunks write a line in common, blank lines aside. */
+	const share = (a: SourcedHunk, b: SourcedHunk) => {
+		const mine = new Set(written(a).filter((line) => line.trim() !== ''));
+		return written(b).some((line) => mine.has(line));
+	};
 	for (const hunk of edits) {
 		const group = groups.at(-1);
-		// Shared boundaries are independent; insertions at one point group together.
+		// Shared boundaries are independent; insertions at one point group together; and, as lines, two sides' hunks that touch and write a line in common are one clash (both moved the same lines there), never two copies.
+		const moved = lines && group !== undefined && hunk.start === group.end && group.edits.some((other) => other.source !== hunk.source && share(other, hunk));
 		const joins =
 			group !== undefined &&
-			(hunk.start < group.end ||
-				(hunk.start === group.start && hunk.end === hunk.start && group.end === group.start));
+			(hunk.start < group.end || (hunk.start === group.start && hunk.end === hunk.start && group.end === group.start) || moved);
+		if (joins && moved) group.shared = true;
 		if (joins) {
 			group.end = Math.max(group.end, hunk.end);
 			group.edits.push(hunk);
@@ -290,13 +299,31 @@ function mergeSequence(base: string[], current: string[], incoming: string[], { 
 			// Both inserted at one point (identical insertions were deduplicated above). RULE: as lines, current's last line ends before incoming's begins: one unterminated (only at the end of a file) is terminated, so two lines never become one.
 			const last = c.at(-1);
 			const ended = lines && last !== undefined && !last.endsWith('\n') ? [...c.slice(0, -1), `${last}\n`] : c;
-			parts.push({ text: [...ended, ...i].join('') });
+			parts.push({ text: (lines ? interleave(ended, i) : [...ended, ...i]).join('') });
 		}
-		else parts.push({ overlap: { base: b.join(''), current: c.join(''), incoming: i.join('') } });
+		else parts.push({ overlap: { base: b.join(''), current: c.join(''), incoming: i.join('') }, ...(group.shared ? { whole: true as const } : {}) });
 		at = group.end;
 	}
 	if (at < base.length) parts.push({ text: base.slice(at).join('') });
 	return parts;
+}
+
+/**
+ * RULE: two different insertions of lines at one point, aligned against
+ * each other: lines both inserted are kept once, and where they differ,
+ * current's lines come before incoming's. Two people pasting overlapping
+ * text, or both moving the same lines (a frontmatter both broke), keep
+ * one copy of what they share.
+ */
+function interleave(current: string[], incoming: string[]): string[] {
+	const out: string[] = [];
+	let at = 0;
+	for (const hunk of diff(current, incoming)) {
+		out.push(...current.slice(at, hunk.end), ...incoming.slice(hunk.sideStart, hunk.sideEnd));
+		at = hunk.end;
+	}
+	out.push(...current.slice(at));
+	return out;
 }
 
 /** Above this many table cells a region is diffed by unique-line anchors instead. */
