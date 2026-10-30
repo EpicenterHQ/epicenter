@@ -403,21 +403,56 @@ describe('hosted Git over the disk store', () => {
 		expect(await Bun.file(join(check, 'a.md')).text()).toBe('one\n');
 	}, 120_000);
 
-	test('unrelated history to an existing name is refused, even forced', async () => {
-		const { person, token } = await signedIn('unrelated');
-		const url = remote(person.personal, 'shared-name');
+	test("unrelated history is refused for a member, even forced; the owner's forced push lands and keeps the old main", async () => {
+		const owner = await signedIn('rewrite-owner');
+		const member = await signedIn('rewrite-member');
+		const group = await client.group(owner.person, 'Rewriters', 'owner');
+		await sql.query(
+			'insert into namespace_member (namespace_id, account_id, role) values ($1, $2, $3)',
+			[group, member.person.id, 'member'],
+		);
+		const url = remote(group, 'shared-name');
 		const first = await workingCopy('one', { 'a.md': 'one\n' });
-		expect((await git(first, token, 'push', url, 'HEAD:main')).code).toBe(0);
+		expect(
+			(await git(first, member.token, 'push', url, 'HEAD:main')).code,
+		).toBe(0);
+		const old = (await git(first, null, 'rev-parse', 'HEAD')).stdout.trim();
 		const other = await workingCopy('other', { 'z.md': 'other\n' });
-		const plain = await git(other, token, 'push', url, 'HEAD:main');
+		const plain = await git(other, member.token, 'push', url, 'HEAD:main');
 		expect(plain.code).not.toBe(0);
-		const forced = await git(other, token, 'push', '--force', url, 'HEAD:main');
+		const forced = await git(
+			other,
+			member.token,
+			'push',
+			'--force',
+			url,
+			'HEAD:main',
+		);
 		expect(forced.code).not.toBe(0);
+		expect(forced.stderr).toContain(
+			'only the repository owner may rewrite main',
+		);
 		// The repository still holds the first history.
 		const check = join(scratch, `check-${crypto.randomUUID().slice(0, 8)}`);
-		expect((await git(scratch, token, 'clone', url, check)).code).toBe(0);
+		expect((await git(scratch, member.token, 'clone', url, check)).code).toBe(
+			0,
+		);
 		expect(await Bun.file(join(check, 'a.md')).text()).toBe('one\n');
 		expect(await Bun.file(join(check, 'z.md')).exists()).toBe(false);
+
+		const owned = await git(
+			other,
+			owner.token,
+			'push',
+			'--force',
+			url,
+			'HEAD:main',
+		);
+		expect(owned.code).toBe(0);
+		const refs = (await git(other, owner.token, 'ls-remote', url)).stdout;
+		expect(refs).toMatch(
+			new RegExp(`^${old}\\trefs/epicenter/replaced/\\d{8}-\\d{9}Z$`, 'm'),
+		);
 	}, 120_000);
 
 	test('a non-member gets 403 and creates nothing', async () => {

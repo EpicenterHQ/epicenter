@@ -617,6 +617,7 @@
         "@better-auth/passkey": "catalog:",
         "@epicenter/auth": "workspace:*",
         "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/principal": "workspace:*",
         "@hono/standard-validator": "catalog:",
         "arktype": "catalog:",

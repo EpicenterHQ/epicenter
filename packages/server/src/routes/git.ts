@@ -1,19 +1,23 @@
 /**
  * Hosted Git (ADR-0546): a folder's remote is
- * `<git audience>/<namespace>/<name>.git`, and the first push creates it.
+ * `<git audience>/<namespace>/<name>.git`, and the first push or web write
+ * creates it. `<namespace>` may be `~`, the caller's personal namespace, so
+ * a web app reaches `<account>/<app>` (decision 46) from its token alone.
  *
  * ```txt
- * <git>/<namespace>/<name>.git/info/refs?service=…   GET    folders:read, read  (receive-pack: folders:write, push)
- * <git>/<namespace>/<name>.git/git-upload-pack       POST   folders:read, read
- * <git>/<namespace>/<name>.git/git-receive-pack      POST   folders:write, push; the first creates it
- * <api>/api/repos                                    GET    folders:read on the Git audience: the caller's repositories by namespace
+ * <git>/<ns>/<name>.git/info/refs?service=…        GET   folders:read, read  (receive-pack: folders:write, push)
+ * <git>/<ns>/<name>.git/git-upload-pack            POST  folders:read, read
+ * <git>/<ns>/<name>.git/git-receive-pack           POST  folders:write, push (rewrite: owner); the receiver, receive.ts
+ * <git>/<ns>/<name>.git/info/lfs/…                 Git LFS, lfs.ts
+ * <git>/<ns>/<name>.git/epicenter/{files,file,writes}   the write translator, files.ts
+ * <api>/api/repos                                  GET   folders:read on the Git audience: the caller's repositories by namespace
  * ```
  *
  * The Git audience is `https://git.epicenter.so` for the hosted cloud and
  * `<origin>/git` for any other deployment (`resolveOAuthAudiences`), so a
  * request is Git's when its host and path fall under that audience.
  *
- * Every Git request is decided by one statement (`authorizeResourceRequest`):
+ * Every request is decided by one statement (`authorizeResourceRequest`):
  * the access token, presented as a Bearer token or as the password of Basic
  * credentials, with its audience, scope, and grant target; the namespace
  * membership and its role; and `<namespace>/<name>` resolved through
@@ -21,26 +25,25 @@
  * repository keeps working. Nothing is cached, so a revoked token or a
  * removed member is refused on the next request.
  *
- * A name nobody has used is not a repository until something is pushed to
- * it. Its advertisement, for either service, answers a member whose role may
- * push as an empty repository would, so a sync that fetches before it pushes
- * finds nothing to fetch, and making that request creates nothing. Only
- * `POST git-receive-pack` creates, at its start and after the same
- * authorization: the storage (`GitHost.create`), then the row. Two first
- * pushes at once insert one row (the `(namespace_id, name)` unique key); the
- * one that loses pushes into the winner's repository, where its ref update
- * fails as any stale push does, after removing the empty storage it made. A
- * row that could not be inserted leaves its storage: the insert may have
+ * A name nobody has used is not a repository until something is written to
+ * it. Its advertisement answers a member whose role may push as an empty
+ * repository would, its file listing is empty, and reading creates nothing.
+ * Every writing request (a push, an LFS upload, a web write) creates it, at
+ * its start and after the same authorization: the storage
+ * (`GitHost.create`), then the row. Two first writes at once insert one row
+ * (the `(namespace_id, name)` unique key); the one that loses writes into
+ * the winner's repository, after removing the empty storage it made. A row
+ * that could not be inserted leaves its storage: the insert may have
  * committed and lost only its reply, so removing it could leave a row that
  * names no storage.
- * Unrelated history to an existing name is refused because it is not a
- * fast-forward, which the store enforces.
  *
  * The store (`GitHost`) is the replaceable part: Cloudflare Artifacts on the
  * Worker, bare repositories on disk for the Bun entry. It names a repository
  * by its immutable id, never by `<namespace>/<name>`, and receives only
  * requests this module already authorized; the client's credential never
- * reaches it.
+ * reaches it. A store with `objects` (disk) gets every push through the
+ * receiver; one without (Artifacts, until phase 7) serves pushes itself,
+ * and the files and LFS routes answer 503.
  *
  * Refusals answer JSON `{ error, error_description }`:
  *   - 401 `invalid_token`        missing, unknown, expired, revoked, or another
@@ -52,6 +55,7 @@
  *                                is not a member, or its role may not do this;
  *   - 404 `not_found`            a missing repository's advertisement, for a
  *                                role that may not push, or its upload-pack;
+ *   - 413 `too_large`            a push over 64 MiB;
  *   - 502 `store_failed`         storage failed or refused this server;
  *   - 503 `git_unavailable`      this deployment has no store, or its database
  *                                could not decide.
@@ -75,14 +79,37 @@ import {
 	authorizeResourceRequest,
 	protectedResourceMetadataUrl,
 	readAccessToken,
+	resolvePersonalNamespace,
 } from '../auth/resource-access.js';
-import { roleAllows } from '../namespace-roles.js';
+import type { GitObjects } from '../git/objects.js';
+import type { LfsStore } from '../lfs/lfs-store.js';
+import { type NamespaceRole, roleAllows } from '../namespace-roles.js';
 import {
 	createRepository,
 	listRepositories,
 	newRepositoryId,
 } from '../repositories.js';
 import type { CloudEnv } from '../types.js';
+import {
+	applyWrite,
+	listRepositoryFiles,
+	readRepositoryFile,
+	readWriteRequest,
+} from './files.js';
+import {
+	answerBatch,
+	getObject,
+	type LfsBatch,
+	lfsJson,
+	putObject,
+	readBatch,
+	verifyObject,
+} from './lfs.js';
+import {
+	MAX_PUSH_BYTES,
+	receiveAdvertisement,
+	receivePush,
+} from './receive.js';
 
 export type GitService = 'git-upload-pack' | 'git-receive-pack';
 
@@ -109,7 +136,7 @@ export type GitHost = {
 	serve(id: string, request: GitRequest): Promise<Response>;
 	/**
 	 * Make an empty repository `id`, whose default branch is `main`, at the
-	 * start of the first push to its name. Making one that exists is not an
+	 * start of the first write to its name. Making one that exists is not an
 	 * error.
 	 */
 	create(id: string): Promise<void>;
@@ -118,6 +145,13 @@ export type GitHost = {
 	 * that does not exist is not an error.
 	 */
 	delete(id: string): Promise<void>;
+	/**
+	 * Repository `id`'s objects and refs, for the push receiver and the
+	 * write translator; the caller closes the handle. A host without it
+	 * (Artifacts, until phase 7) serves pushes itself through `serve`, and
+	 * answers the files and LFS routes with 503.
+	 */
+	objects?(id: string): GitObjects;
 };
 
 const FORWARDED_HEADERS = [
@@ -152,16 +186,68 @@ const GitHostError = defineErrors({
 
 const log = createLogger('git');
 
+/** The caller's personal namespace, in a URL. */
+export const PERSONAL_NAMESPACE = '~';
+
+/** What a request under a repository asks for. */
+export type GitEndpoint =
+	| { kind: 'git'; service: GitService; advertisement: boolean }
+	| { kind: 'lfs-batch' }
+	| { kind: 'lfs-object'; oid: string; upload: boolean }
+	| { kind: 'lfs-verify' }
+	| { kind: 'lfs-locks' }
+	| { kind: 'files' }
+	| { kind: 'file' }
+	| { kind: 'writes' };
+
 /** A request under the Git audience, read from its URL. */
 export type GitTarget =
 	| {
 			kind: 'repository';
+			/** A namespace id, or `~` for the caller's personal namespace. */
 			namespaceId: string;
 			name: string;
-			service: GitService;
-			advertisement: boolean;
+			endpoint: GitEndpoint;
 	  }
 	| { kind: 'unknown' };
+
+function readEndpoint(
+	method: string,
+	rest: string,
+	url: URL,
+): GitEndpoint | undefined {
+	const params = [...url.searchParams];
+	if (rest === 'info/refs') {
+		const service = params[0]?.[0] === 'service' ? params[0][1] : undefined;
+		if (
+			method !== 'GET' ||
+			params.length !== 1 ||
+			(service !== 'git-upload-pack' && service !== 'git-receive-pack')
+		)
+			return undefined;
+		return { kind: 'git', service, advertisement: true };
+	}
+	if (rest === 'git-upload-pack' || rest === 'git-receive-pack')
+		return method === 'POST' && url.search === ''
+			? { kind: 'git', service: rest, advertisement: false }
+			: undefined;
+	if (rest === 'info/lfs/objects/batch')
+		return method === 'POST' ? { kind: 'lfs-batch' } : undefined;
+	if (rest === 'info/lfs/verify')
+		return method === 'POST' ? { kind: 'lfs-verify' } : undefined;
+	if (rest === 'info/lfs/locks' || rest.startsWith('info/lfs/locks/'))
+		return { kind: 'lfs-locks' };
+	const object = /^info\/lfs\/objects\/([0-9a-f]{64})$/.exec(rest)?.[1];
+	if (object !== undefined)
+		return method === 'PUT' || method === 'GET'
+			? { kind: 'lfs-object', oid: object, upload: method === 'PUT' }
+			: undefined;
+	if (rest === 'epicenter/files' && method === 'GET') return { kind: 'files' };
+	if (rest === 'epicenter/file' && method === 'GET') return { kind: 'file' };
+	if (rest === 'epicenter/writes' && method === 'POST')
+		return { kind: 'writes' };
+	return undefined;
+}
 
 /**
  * The request `url` makes under `gitAudience`, `{ kind: 'unknown' }` for any
@@ -182,44 +268,21 @@ export function readGitTarget(
 		!url.pathname.startsWith(`${prefix}/`)
 	)
 		return undefined;
-	const match =
-		/^\/([^/]+)\/([^/]+)\.git\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(
-			url.pathname.slice(prefix.length),
-		);
-	const [, namespaceId, name, endpoint] = match ?? [];
+	const match = /^\/([^/]+)\/([^/]+)\.git\/(.+)$/.exec(
+		url.pathname.slice(prefix.length),
+	);
+	const [, namespaceId, name, rest] = match ?? [];
 	if (
 		namespaceId === undefined ||
 		name === undefined ||
-		endpoint === undefined ||
-		!isNamespaceId(namespaceId) ||
+		rest === undefined ||
+		(namespaceId !== PERSONAL_NAMESPACE && !isNamespaceId(namespaceId)) ||
 		!isRepositoryName(name)
 	)
 		return { kind: 'unknown' };
-	if (endpoint === 'info/refs') {
-		const params = [...url.searchParams];
-		const service = params[0]?.[0] === 'service' ? params[0][1] : undefined;
-		if (
-			method !== 'GET' ||
-			params.length !== 1 ||
-			(service !== 'git-upload-pack' && service !== 'git-receive-pack')
-		)
-			return { kind: 'unknown' };
-		return {
-			kind: 'repository',
-			namespaceId,
-			name,
-			service,
-			advertisement: true,
-		};
-	}
-	if (method !== 'POST' || url.search !== '') return { kind: 'unknown' };
-	return {
-		kind: 'repository',
-		namespaceId,
-		name,
-		service: endpoint as GitService,
-		advertisement: false,
-	};
+	const endpoint = readEndpoint(method, rest, url);
+	if (endpoint === undefined) return { kind: 'unknown' };
+	return { kind: 'repository', namespaceId, name, endpoint };
 }
 
 /** One pkt-line (`gitprotocol-common`) holding `line`, which is ASCII. */
@@ -227,10 +290,8 @@ const pktLine = (line: string) =>
 	`${(line.length + 4).toString(16).padStart(4, '0')}${line}`;
 
 /**
- * Capabilities the empty advertisement offers. The push that follows goes to
- * the store, which receives only what the client chose from these, so the
- * list stays at what a push needs to stream and report its result: no
- * `ofs-delta`, `atomic`, or `object-format`, whose absence means SHA-1.
+ * Capabilities the empty advertisement offers, for a store that serves
+ * pushes itself: what a push needs to stream and report its result.
  */
 const EMPTY_CAPABILITIES: Record<GitService, string> = {
 	'git-upload-pack': 'agent=epicenter',
@@ -257,7 +318,7 @@ function emptyAdvertisement(service: GitService): Response {
 
 function refuse(
 	c: Context<CloudEnv>,
-	status: 401 | 403 | 404 | 502 | 503,
+	status: 400 | 401 | 403 | 404 | 413 | 502 | 503,
 	error: string,
 	description: string,
 	challenges: string[] = [],
@@ -266,6 +327,54 @@ function refuse(
 	for (const challenge of challenges)
 		response.headers.append('www-authenticate', challenge);
 	return response;
+}
+
+/** What `endpoint` does to the repository: read it, or write it. */
+function operationOf(
+	endpoint: GitEndpoint,
+	batch: LfsBatch | null,
+): 'read' | 'push' {
+	switch (endpoint.kind) {
+		case 'git':
+			return endpoint.service === 'git-receive-pack' ? 'push' : 'read';
+		case 'lfs-batch':
+			return batch?.operation === 'upload' ? 'push' : 'read';
+		case 'lfs-object':
+			return endpoint.upload ? 'push' : 'read';
+		case 'lfs-verify':
+		case 'writes':
+			return 'push';
+		default:
+			return 'read';
+	}
+}
+
+/** A push body, read whole: gunzipped when sent so, refused past `MAX_PUSH_BYTES`. */
+async function readPushBody(request: Request): Promise<Uint8Array | null> {
+	if (request.body === null) return new Uint8Array();
+	const body: ReadableStream<Uint8Array> =
+		request.headers.get('content-encoding') === 'gzip'
+			? request.body.pipeThrough(
+					new DecompressionStream('gzip') as unknown as ReadableWritablePair<
+						Uint8Array,
+						Uint8Array
+					>,
+				)
+			: request.body;
+	const chunks: Uint8Array[] = [];
+	let length = 0;
+	const reader = body.getReader();
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		length += value.length;
+		if (length > MAX_PUSH_BYTES) {
+			await reader.cancel();
+			return null;
+		}
+		chunks.push(value);
+	}
+	return Buffer.concat(chunks);
 }
 
 /**
@@ -278,15 +387,19 @@ export function mountGitHost(
 	{
 		setup,
 		resolveHost,
+		resolveLfs = () => null,
 	}: {
 		setup: MiddlewareHandler<CloudEnv>;
 		/** `null` answers 503 `git_unavailable` on every Git request. */
 		resolveHost: (env: CloudEnv['Bindings']) => GitHost | null;
+		/** Where LFS objects live; `null` answers the LFS routes with 503. */
+		resolveLfs?: (env: CloudEnv['Bindings']) => LfsStore | null;
 	},
 ): void {
 	const serve = createMiddleware<CloudEnv>(async (c) => {
 		const audience = c.var.audiences.git;
-		const target = readGitTarget(c.req.method, new URL(c.req.url), audience);
+		const url = new URL(c.req.url);
+		const target = readGitTarget(c.req.method, url, audience);
 		if (target?.kind !== 'repository')
 			return refuse(
 				c,
@@ -294,6 +407,10 @@ export function mountGitHost(
 				'not_found',
 				'Not a Git request this server answers.',
 			);
+		const { endpoint } = target;
+		// Locking is not offered; `git lfs` carries on without it.
+		if (endpoint.kind === 'lfs-locks')
+			return lfsJson({ message: 'Git LFS locking is not supported.' }, 404);
 		const host = resolveHost(c.env);
 		if (!host)
 			return refuse(
@@ -302,14 +419,40 @@ export function mountGitHost(
 				'git_unavailable',
 				'This server does not host Git repositories.',
 			);
-		const push = target.service === 'git-receive-pack';
+		const lfs = resolveLfs(c.env);
+		const needsObjects = endpoint.kind !== 'git';
+		if (
+			(needsObjects && !host.objects) ||
+			(endpoint.kind.startsWith('lfs') && !lfs)
+		)
+			return refuse(
+				c,
+				503,
+				'git_unavailable',
+				'This server does not take web writes or Git LFS yet.',
+			);
+
+		let batch: LfsBatch | null = null;
+		if (endpoint.kind === 'lfs-batch') {
+			const read = readBatch(await c.req.json().catch(() => null));
+			if (typeof read === 'string') return lfsJson({ message: read }, 422);
+			batch = read;
+		}
+		const operation = operationOf(endpoint, batch);
+		const token = readAccessToken(c.req.header('authorization'));
+
 		let decided: Awaited<ReturnType<typeof authorizeResourceRequest>>;
 		try {
+			const namespaceId =
+				target.namespaceId === PERSONAL_NAMESPACE
+					? ((await resolvePersonalNamespace(c.var.db, token)) ??
+						PERSONAL_NAMESPACE)
+					: target.namespaceId;
 			decided = await authorizeResourceRequest(c.var.db, {
-				token: readAccessToken(c.req.header('authorization')),
+				token,
 				audience,
-				scope: push ? 'folders:write' : 'folders:read',
-				namespaceId: target.namespaceId,
+				scope: operation === 'push' ? 'folders:write' : 'folders:read',
+				namespaceId,
 				repository: target.name,
 			});
 		} catch (cause) {
@@ -335,31 +478,49 @@ export function mountGitHost(
 			]);
 		}
 		const access = decided.data;
-		if (!roleAllows(access.role, push ? 'push' : 'read'))
+		if (!roleAllows(access.role, operation))
 			return refuse(
 				c,
 				403,
 				'forbidden',
-				`This account's role may not ${push ? 'push to' : 'read'} that namespace.`,
+				`This account's role may not ${operation === 'push' ? 'write to' : 'read'} that namespace.`,
 				[
 					`Bearer resource_metadata="${protectedResourceMetadataUrl(audience)}"`,
 				],
 			);
+		/** The remote as the client named it, ending `.git`. */
+		const remote = `${url.origin}${url.pathname.slice(0, url.pathname.indexOf('.git/') + 4)}`;
 
 		let repository = access.repository;
 		if (repository === null) {
-			// Reading a name nobody holds creates nothing: one who may push to it
-			// sees an empty repository, and anyone else a missing one.
-			if (target.advertisement && roleAllows(access.role, 'push'))
-				return emptyAdvertisement(target.service);
-			if (!push)
-				return refuse(
-					c,
-					404,
-					'not_found',
-					`No repository is named ${target.namespaceId}/${target.name}.`,
-				);
-			// The first push. Storage comes first, so no row ever names a
+			// Reading a name nobody holds creates nothing: one who may write to
+			// it sees an empty repository, and anyone else a missing one.
+			if (operation === 'read' || endpoint.kind === 'git') {
+				if (endpoint.kind === 'git' && endpoint.advertisement) {
+					if (!roleAllows(access.role, 'push'))
+						return refuse(
+							c,
+							404,
+							'not_found',
+							`No repository is named ${target.namespaceId}/${target.name}.`,
+						);
+					return endpoint.service === 'git-receive-pack' && host.objects
+						? receiveAdvertisement(null)
+						: emptyAdvertisement(endpoint.service);
+				}
+				if (endpoint.kind === 'files')
+					return c.json({ commit: null, files: [] });
+				if (endpoint.kind === 'lfs-batch' && lfs && batch)
+					return answerBatch(lfs, null, batch, remote);
+				if (operation === 'read')
+					return refuse(
+						c,
+						404,
+						'not_found',
+						`No repository is named ${target.namespaceId}/${target.name}.`,
+					);
+			}
+			// The first write. Storage comes first, so no row ever names a
 			// repository that has none.
 			const id = newRepositoryId();
 			try {
@@ -387,13 +548,28 @@ export function mountGitHost(
 					'The repository could not be created.',
 				);
 			}
-			// Another first push inserted the row, so this push goes into that
+			// Another first write inserted the row, so this one goes into that
 			// repository, and the storage made for `id` is certainly unnamed.
 			if (repository.id !== id)
 				await host.delete(id).catch((cause) => {
 					log.error(GitHostError.DeleteFailed({ id, cause }).error);
 				});
 		}
+
+		if (
+			endpoint.kind !== 'git' ||
+			(endpoint.service === 'git-receive-pack' && host.objects)
+		)
+			return serveObjects(c, {
+				host,
+				lfs,
+				repositoryId: repository.id,
+				endpoint,
+				batch,
+				remote,
+				accountId: access.accountId,
+				role: access.role,
+			});
 
 		const headers = new Headers();
 		for (const header of FORWARDED_HEADERS) {
@@ -403,10 +579,10 @@ export function mountGitHost(
 		let upstream: Response;
 		try {
 			upstream = await host.serve(repository.id, {
-				service: target.service,
-				advertisement: target.advertisement,
+				service: endpoint.service,
+				advertisement: endpoint.advertisement,
 				headers,
-				body: target.advertisement ? null : c.req.raw.body,
+				body: endpoint.advertisement ? null : c.req.raw.body,
 				signal: c.req.raw.signal,
 				accountId: access.accountId,
 			});
@@ -441,6 +617,112 @@ export function mountGitHost(
 			headers: responseHeaders,
 		});
 	});
+
+	/** The receiver, the translator and LFS, over the store's objects. */
+	async function serveObjects(
+		c: Context<CloudEnv>,
+		{
+			host,
+			lfs,
+			repositoryId,
+			endpoint,
+			batch,
+			remote,
+			accountId,
+			role,
+		}: {
+			host: GitHost;
+			lfs: LfsStore | null;
+			repositoryId: string;
+			endpoint: GitEndpoint;
+			batch: LfsBatch | null;
+			remote: string;
+			accountId: string;
+			role: NamespaceRole;
+		},
+	): Promise<Response> {
+		if (lfs) {
+			if (endpoint.kind === 'lfs-batch' && batch)
+				return answerBatch(lfs, repositoryId, batch, remote);
+			if (endpoint.kind === 'lfs-object')
+				return endpoint.upload
+					? putObject(lfs, repositoryId, endpoint.oid, c.req.raw)
+					: getObject(lfs, repositoryId, endpoint.oid);
+			if (endpoint.kind === 'lfs-verify')
+				return verifyObject(
+					lfs,
+					repositoryId,
+					await c.req.json().catch(() => null),
+				);
+		}
+		const objects = host.objects?.(repositoryId);
+		if (!objects)
+			return refuse(c, 503, 'git_unavailable', 'This store has no objects.');
+		try {
+			switch (endpoint.kind) {
+				case 'git': {
+					if (endpoint.advertisement)
+						return await receiveAdvertisement(objects);
+					const body = await readPushBody(c.req.raw);
+					if (body === null)
+						return refuse(c, 413, 'too_large', 'A push may be at most 64 MiB.');
+					return await receivePush({
+						objects,
+						lfs,
+						repositoryId,
+						body,
+						mayRewrite: roleAllows(role, 'rewrite'),
+					});
+				}
+				case 'files':
+					return await listRepositoryFiles(objects, c.req.query('root'));
+				case 'file':
+					return await readRepositoryFile(objects, c.req.query('path'));
+				case 'writes': {
+					const request = readWriteRequest(
+						await c.req.json().catch(() => null),
+					);
+					if ('status' in request)
+						return c.json(
+							{
+								error: request.error,
+								error_description: request.message,
+								path: request.path,
+							},
+							request.status,
+						);
+					return await applyWrite({
+						objects,
+						lfs,
+						repositoryId,
+						request,
+						author: {
+							name: 'Epicenter (web)',
+							email: `${accountId}@accounts.epicenter.invalid`,
+						},
+					});
+				}
+				default:
+					return refuse(
+						c,
+						404,
+						'not_found',
+						'Not a Git request this server answers.',
+					);
+			}
+		} catch (cause) {
+			log.error(GitHostError.ServeFailed({ cause }).error);
+			return refuse(
+				c,
+				502,
+				'store_failed',
+				'The repository could not be reached.',
+			);
+		} finally {
+			objects.close();
+		}
+	}
+
 	const handleGit = every(setup, serve);
 	app.use('*', async (c, next) => {
 		const target = readGitTarget(
