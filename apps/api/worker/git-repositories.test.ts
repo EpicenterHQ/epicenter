@@ -4,10 +4,11 @@
  * the create it absorbs, the tokens it mints and caches, and the exact
  * upstream request.
  */
-import { afterEach, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import {
 	type ArtifactsNamespace,
 	createArtifactsGitHost,
+	resolveArtifactsGitHost,
 } from './git-repositories.js';
 
 const realFetch = globalThis.fetch;
@@ -21,7 +22,10 @@ function artifactsError(code: ArtifactsErrorCode) {
 	return Object.assign(new Error(code), { name: 'ArtifactsError', code });
 }
 
-function scripted(creates: ('created' | Error)[] = []) {
+function scripted(
+	creates: ('created' | Error)[] = [],
+	{ receiver = false }: { receiver?: boolean } = {},
+) {
 	const calls: string[] = [];
 	const minted: [string | undefined, number | undefined][] = [];
 	let serial = 0;
@@ -58,6 +62,7 @@ function scripted(creates: ('created' | Error)[] = []) {
 		artifacts,
 		accountId: 'account123',
 		namespace: 'epicenter-test',
+		receiver,
 		now: () => clock,
 	});
 	return {
@@ -70,14 +75,14 @@ function scripted(creates: ('created' | Error)[] = []) {
 	};
 }
 
-function stubFetch() {
+function stubFetch(answer: () => Response = () => new Response('ok')) {
 	const requests: { url: string; init: RequestInit }[] = [];
 	globalThis.fetch = (async (
 		url: string | URL | Request,
 		init?: RequestInit,
 	) => {
 		requests.push({ url: String(url), init: init! });
-		return new Response('ok');
+		return answer();
 	}) as typeof fetch;
 	return requests;
 }
@@ -203,4 +208,78 @@ test('the namespace var names the same namespace as the Artifacts binding', asyn
 	);
 	expect(binding?.namespace).toBe(config.vars.ARTIFACTS_NAMESPACE!);
 	expect(config.secrets.required).toContain('ARTIFACTS_ACCOUNT_ID');
+});
+
+describe('the receiver waits for an R2 LFS store', () => {
+	const pkt = (line: string) =>
+		`${(line.length + 4).toString(16).padStart(4, '0')}${line}`;
+	const advertisement = () =>
+		new Response(
+			[
+				pkt('# service=git-upload-pack\n'),
+				'0000',
+				pkt(`${'a'.repeat(40)} HEAD\0multi_ack\n`),
+				pkt(`${'b'.repeat(40)} refs/epicenter/captures/cap-1\n`),
+				pkt(`${'a'.repeat(40)} refs/heads/main\n`),
+				'0000',
+			].join(''),
+		);
+	const withProtocol = () => {
+		const sent = request('git-upload-pack', true);
+		sent.headers.set('git-protocol', 'version=2');
+		return sent;
+	};
+
+	test('without one, the host has no objects and proxies every Git request as before the receiver', async () => {
+		const requests = stubFetch(advertisement);
+		const { host } = scripted([], { receiver: false });
+		expect(host.objects).toBeUndefined();
+		const served = await host.serve(ID, withProtocol());
+		// Protocol v2 is asked for, and the advertisement comes back untouched.
+		expect(new Headers(requests[0]?.init.headers).get('git-protocol')).toBe(
+			'version=2',
+		);
+		expect(await served.text()).toBe(await advertisement().text());
+	});
+
+	test('with one, pushes and web writes go through the receiver, and receipt refs are hidden', async () => {
+		const requests = stubFetch(advertisement);
+		const { host } = scripted([], { receiver: true });
+		expect(host.objects).toBeFunction();
+		expect(host.receiveLimits).toEqual({
+			pushBytes: 24 * 1024 * 1024,
+			heldBytes: 24 * 1024 * 1024,
+			mainCommits: 5_000,
+		});
+		const served = await host.serve(ID, withProtocol());
+		expect(new Headers(requests[0]?.init.headers).get('git-protocol')).toBe(
+			null,
+		);
+		expect(await served.text()).not.toContain('refs/epicenter/captures/');
+	});
+
+	test('the deployment gets the receiver only when every R2 LFS binding is there', () => {
+		const artifacts = {} as ArtifactsNamespace;
+		const base = {
+			ARTIFACTS: artifacts,
+			ARTIFACTS_ACCOUNT_ID: 'account123',
+			ARTIFACTS_NAMESPACE: 'epicenter-test',
+		};
+		const lfs = {
+			LFS_BUCKET: {} as never,
+			LFS_BUCKET_NAME: 'epicenter-lfs',
+			R2_ACCESS_KEY_ID: 'key',
+			R2_SECRET_ACCESS_KEY: 'secret',
+		};
+		expect(resolveArtifactsGitHost({})).toBeNull();
+		// Production today: Artifacts bound, no LFS bucket.
+		expect(resolveArtifactsGitHost(base)?.objects).toBeUndefined();
+		for (const missing of Object.keys(lfs)) {
+			const partial = { ...base, ...lfs, [missing]: undefined };
+			expect(resolveArtifactsGitHost(partial)?.objects).toBeUndefined();
+		}
+		expect(
+			resolveArtifactsGitHost({ ...base, ...lfs })?.objects,
+		).toBeFunction();
+	});
 });

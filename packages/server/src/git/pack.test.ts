@@ -78,8 +78,77 @@ describe('readPack', () => {
 				const bytes = new Uint8Array(
 					await new Response(child.stdout).arrayBuffer(),
 				);
-				expect(Buffer.from(object.bytes).equals(Buffer.from(bytes))).toBe(true);
+				expect(
+					Buffer.from(object.bytes as Uint8Array).equals(Buffer.from(bytes)),
+				).toBe(true);
 			}
+		});
+
+	test('a blob over keepBlobBytes is read for its id and size, and its bytes let go', () => {
+		const small = makeObject('blob', 'version https://git-lfs\n');
+		const big = makeObject('blob', 'x'.repeat(4096));
+		const tree = treeObject([
+			{ mode: '100644', name: 'a.md', oid: big.oid },
+			{ mode: '100644', name: 'b.m4a', oid: small.oid },
+		]);
+		const objects = readPack(writePack([small, big, tree]), {
+			keepBlobBytes: 512,
+		});
+		expect(objects.get(big.oid)).toEqual({
+			oid: big.oid,
+			kind: 'blob',
+			size: 4096,
+			bytes: null,
+		});
+		expect(objects.get(small.oid)?.bytes).toEqual(small.bytes);
+		expect(objects.get(tree.oid)?.bytes).toEqual(tree.bytes);
+	});
+
+	test('holds at most maxHeldBytes at once: blobs it lets go never add up', () => {
+		const blobs = Array.from({ length: 12 }, (_, n) =>
+			makeObject('blob', new Uint8Array(1024 * 1024).fill(n)),
+		);
+		const packed = writePack(blobs);
+		const held = { maxHeldBytes: 3 * 1024 * 1024 };
+		expect(readPack(packed, { ...held, keepBlobBytes: 512 }).size).toBe(12);
+		expect(() => readPack(packed, held)).toThrow(/3 MiB in memory at once/);
+		// One object larger than the whole allowance is refused before it is inflated.
+		expect(() =>
+			readPack(writePack([makeObject('blob', new Uint8Array(4 << 20))]), {
+				...held,
+				keepBlobBytes: 512,
+			}),
+		).toThrow(/3 MiB in memory at once/);
+	});
+
+	for (const [label, flags] of [
+		['ofs-delta', ['--delta-base-offset']],
+		['ref-delta', []],
+	] as const)
+		test(`a ${label} over a blob it lets go still resolves, within a small allowance`, async () => {
+			const dir = await twoCommits();
+			const objects = readPack(await gitPack(dir, 'HEAD\n', [...flags]), {
+				keepBlobBytes: 512,
+				maxHeldBytes: 64 * 1024,
+			});
+			const notes = (
+				await box.ok(dir, ['rev-parse', 'HEAD:a.md', 'HEAD~1:a.md'])
+			)
+				.trim()
+				.split('\n');
+			for (const oid of notes) {
+				const size = Number(
+					(await box.ok(dir, ['cat-file', '-s', oid])).trim(),
+				);
+				expect(objects.get(oid)).toEqual({
+					oid,
+					kind: 'blob',
+					size,
+					bytes: null,
+				});
+			}
+			const head = (await box.ok(dir, ['rev-parse', 'HEAD'])).trim();
+			expect(objects.get(head)?.bytes).not.toBeNull();
 		});
 
 	test('refuses a thin pack, whose delta base is outside it', async () => {

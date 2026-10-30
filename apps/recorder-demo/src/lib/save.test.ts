@@ -6,7 +6,7 @@ import { timeId } from '@epicenter/definition/ids';
 import { openDevice, outboxOf } from '@epicenter/folder/node';
 import { expectOk } from 'wellcrafted/testing';
 import { recorder } from '../contract.ts';
-import { renameRecording, saveRecording } from './save.ts';
+import { saveRecording } from './save.ts';
 
 const scratch = await mkdtemp(join(tmpdir(), 'recorder-demo-'));
 afterAll(() => rm(scratch, { recursive: true, force: true }));
@@ -45,37 +45,22 @@ test('a saved recording is its audio, its note and one capture naming both', asy
 	});
 });
 
-test('a rename over a note changed since it was read keeps the other change', async () => {
+test('a save that stopped partway runs again to the end, from the same recording', async () => {
 	const { device: opened } = await device();
 	const id = timeId();
-	expectOk(await saveRecording(opened, recording(id)));
-	const seen = expectOk(await opened.recordings.get({ id }));
-	// Someone else changes another field after the person read the note.
+	const saving = recording(id);
+	// The first attempt kept the audio, then failed before the note.
 	expectOk(
-		await opened.recordings.update(
-			{ id },
-			{ durationMs: 4242 },
-			{ over: seen.version },
-		),
+		await opened.audio.create({ id, ext: saving.ext, bytes: saving.bytes }),
 	);
 
-	const renamed = expectOk(
-		await renameRecording(opened, { id, title: 'Retro', over: seen.version }),
+	expectOk(await saveRecording(opened, saving));
+	const { items } = expectOk(await outboxOf(opened).list());
+	expect(items.map(({ id }) => id)).toEqual([id]);
+	expect(Object.keys(items[0]?.paths ?? {}).sort()).toEqual(
+		[`recordings/${id}.m4a`, `recordings/${id}.md`].sort(),
 	);
-	expect(renamed).toMatchObject({ title: 'Retro', durationMs: 4242 });
-});
-
-test('a rename of a deleted note is a conflict, not a re-creation', async () => {
-	const { device: opened } = await device();
-	const id = timeId();
-	expectOk(await saveRecording(opened, recording(id)));
-	const seen = expectOk(await opened.recordings.get({ id }));
-	expectOk(await opened.recordings.delete({ id }, { over: seen.version }));
-
-	const renamed = await renameRecording(opened, {
-		id,
-		title: 'Gone',
-		over: seen.version,
-	});
-	expect(renamed.error?.name).toBe('Conflict');
+	// Run once more, as a second retry would: nothing changes, nothing fails.
+	expectOk(await saveRecording(opened, saving));
+	expect(expectOk(await outboxOf(opened).list()).items).toHaveLength(1);
 });

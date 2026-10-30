@@ -65,18 +65,24 @@ recordings then stay on it and upload only when the parameter is gone.
 ## Tests
 
 ```sh
-bun run --cwd apps/recorder-demo test         # unit tests: format, list merge, save and rename
+bun run --cwd apps/recorder-demo test         # unit tests: format, list merge, save
 bun run --cwd apps/recorder-demo typecheck
 bun x playwright test -c apps/recorder-demo/playwright.config.ts                    # both engines
 bun x playwright test -c apps/recorder-demo/playwright.config.ts --project=webkit   # one
 ```
 
 The Playwright suite (`e2e/demo.spec.ts`) starts the same environment as
-`demo` (`e2e/stack.ts`) and walks one person through five steps per engine:
+`demo` (`e2e/stack.ts`) and walks one person through six steps per engine:
 record signed out; sign in and upload, with the first reply lost so the
 browser must keep its files until a receipt arrives; clone and
 `git lfs pull` on the desktop, comparing the audio's sha256 and running
-`epicenter check`; a desktop title edit shown on the web; and a web rename
-racing a desktop edit of other fields, both kept. Chromium records from its
-fake capture device and WebKit from the tone; both use persistent profiles,
-the only kind in which WebKit opens OPFS.
+`epicenter check`; a desktop title edit shown on the web; a web rename
+over a note the desktop changed meanwhile, which the client refuses as
+`Conflict`: the row keeps the draft, and saving again lands it beside the
+desktop's edit; and `epicenter share` with a second person, whose own
+signed-in browser shows and plays the recording. In WebKit a seventh step
+opens an ephemeral context, which refuses OPFS as Safari's private windows
+do: a recording the device cannot keep stays in the page, with "Save again"
+and "Download it". Chromium records from its fake capture device and WebKit
+from the tone; both use persistent profiles, the only kind in which WebKit
+opens OPFS.

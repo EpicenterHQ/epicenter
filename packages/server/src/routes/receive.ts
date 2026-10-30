@@ -18,8 +18,11 @@
  *   rule covers every commit `next` reaches that `main` does not
  *   (`rev-list next --not main`), read from the pack or the store, so a
  *   commit an earlier pack carried but nothing checked cannot be merged in
- *   later. Only entries a commit changes against its first parent are
- *   checked. Symlinks and submodules are refused.
+ *   later. Which stored commits `main` reaches comes from one walk of its
+ *   history per push, only as deep as the push's stored commits lie, and
+ *   at most `ReceiveLimits.mainCommits` deep. Only entries a commit changes
+ *   against its first parent are checked. Symlinks and submodules are
+ *   refused.
  *
  * The advertisement shows `main` alone, offers `ofs-delta`, and asks for
  * no thin packs, so the pack can be read without the server's objects.
@@ -33,21 +36,45 @@ import {
 	type GitObjects,
 	MAIN,
 	type ObjectKind,
-	type PackObject,
 	parseCommit,
 	parseTree,
 	TREE_MODE,
 	type TreeEntry,
 	ZERO_OID,
 } from '../git/objects.js';
-import { readPack } from '../git/pack.js';
+import { type PackedObject, readPack } from '../git/pack.js';
 import { FLUSH, pktLine, readCommandLines } from '../git/pkt.js';
 import { LFS_OID, type LfsStore } from '../lfs/lfs-store.js';
 
 const CAPABILITIES =
 	'report-status side-band-64k ofs-delta no-thin agent=epicenter';
-/** The largest push body read; Artifacts caps a push at 64 MiB too. */
-export const MAX_PUSH_BYTES = 64 * 1024 * 1024;
+/** What one push may cost the deployment that receives it. */
+export type ReceiveLimits = {
+	/** The largest push body read, after any gzip; Artifacts caps a push at 64 MiB. */
+	pushBytes: number;
+	/**
+	 * The most of the pack's inflated objects held at once. The receiver
+	 * keeps commits, trees and blobs up to a pointer's size, and lets other
+	 * blobs go once read, so this bounds what a push of many notes holds.
+	 */
+	heldBytes: number;
+	/**
+	 * The most of `main`'s commits read to place a push's stored commits,
+	 * one store read each (a subrequest on the Worker). A push whose stored
+	 * commits lie deeper is refused.
+	 */
+	mainCommits: number;
+};
+
+/** The disk server's limits; a host with tighter ones names its own (`GitHost.receiveLimits`). */
+export const RECEIVE_LIMITS: ReceiveLimits = {
+	pushBytes: 64 * 1024 * 1024,
+	heldBytes: 256 * 1024 * 1024,
+	mainCommits: 100_000,
+};
+
+/** How many of `main`'s commits one step of its walk reads at once. */
+const MAIN_WALK_WIDTH = 16;
 const resultHeaders = {
 	'content-type': 'application/x-git-receive-pack-result',
 	'cache-control': 'no-cache',
@@ -96,16 +123,17 @@ function report(ref: string, outcome: string, sideBand: boolean): Response {
 }
 
 /** Reads an object from the pushed pack first, then from the store. */
-function objectSource(objects: GitObjects, pushed: Map<string, PackObject>) {
+function objectSource(objects: GitObjects, pushed: Map<string, PackedObject>) {
 	return async (oid: string, kind: ObjectKind, maxBytes?: number) => {
 		const inPack = pushed.get(oid);
+		// A blob the pack let go is larger than any `maxBytes` the receiver asks.
 		if (inPack)
 			return inPack.kind !== kind
 				? null
 				: {
-						size: inPack.bytes.length,
+						size: inPack.size,
 						bytes:
-							maxBytes !== undefined && inPack.bytes.length > maxBytes
+							maxBytes !== undefined && inPack.size > maxBytes
 								? null
 								: inPack.bytes,
 					};
@@ -122,7 +150,7 @@ function objectSource(objects: GitObjects, pushed: Map<string, PackObject>) {
  * `next` to `current`.
  */
 export function extendsMain(
-	pushed: Map<string, PackObject>,
+	pushed: Map<string, PackedObject>,
 	current: string,
 	next: string,
 ): boolean {
@@ -135,7 +163,7 @@ export function extendsMain(
 		if (seen.has(oid)) continue;
 		seen.add(oid);
 		const object = pushed.get(oid);
-		if (object?.kind === 'commit')
+		if (object?.kind === 'commit' && object.bytes)
 			queue.push(...parseCommit(object.bytes).parents);
 	}
 	return false;
@@ -144,22 +172,61 @@ export function extendsMain(
 type Checked = { problem: string } | { pointers: Map<string, string> };
 
 /**
+ * Whether `main` (at `tip`) reaches a commit, from one walk of its history
+ * per push. The walk reads breadth first from the tip, and only as far as
+ * the questions asked need: each answer continues from where the last one
+ * stopped, so a push whose stored commits sit near `main` reads only the
+ * commits above them, and the walk never reads a commit twice. Answers
+ * `'unknown'` once `limit` commits are read without finding it.
+ */
+function mainReach(
+	read: ReturnType<typeof objectSource>,
+	tip: string,
+	limit: number,
+) {
+	const reached = new Set(tip === ZERO_OID ? [] : [tip]);
+	const unread = [...reached];
+	let reads = 0;
+	return async (oid: string): Promise<boolean | 'unknown'> => {
+		while (!reached.has(oid)) {
+			if (unread.length === 0) return false;
+			if (reads >= limit) return 'unknown';
+			const step = unread.splice(0, Math.min(MAIN_WALK_WIDTH, limit - reads));
+			reads += step.length;
+			const found = await Promise.all(step.map((at) => read(at, 'commit')));
+			for (const commit of found) {
+				if (!commit?.bytes) continue;
+				for (const parent of parseCommit(commit.bytes).parents) {
+					if (reached.has(parent)) continue;
+					reached.add(parent);
+					unread.push(parent);
+				}
+			}
+		}
+		return true;
+	};
+}
+
+/**
  * Check every entry that each commit `next` brings to `main` changes
  * against its first parent: the LFS pointer rule, and no symlink or
  * submodule. The commits are every one `next` reaches and `current` does
  * not, from the pack or from the store: an object an earlier push stored
  * without its commit reaching `main` is checked the first time a push
  * reaches it. Commits in the pack are checked as they are; the walk stops
- * at a stored commit `current` reaches. Returns the pointers to verify, by
- * LFS oid, with a path that names each.
+ * at a stored commit `current` reaches, which one walk of `main`'s history
+ * answers (`mainReach`, at most `mainCommits` reads). Returns the pointers
+ * to verify, by LFS oid, with a path that names each.
  */
 export async function checkPushedTrees(
 	objects: GitObjects,
-	pushed: Map<string, PackObject>,
+	pushed: Map<string, PackedObject>,
 	next: string,
 	current: string,
+	{ mainCommits }: Pick<ReceiveLimits, 'mainCommits'> = RECEIVE_LIMITS,
 ): Promise<Checked> {
 	const read = objectSource(objects, pushed);
+	const onMain = mainReach(read, current, mainCommits);
 	const treeEntries = async (
 		oid: string | null,
 	): Promise<TreeEntry[] | null> => {
@@ -233,12 +300,14 @@ export async function checkPushedTrees(
 		const oid = stack.pop() as string;
 		if (visited.has(oid)) continue;
 		visited.add(oid);
-		if (
-			!pushed.has(oid) &&
-			current !== ZERO_OID &&
-			(await objects.isAncestor(oid, current))
-		)
-			continue;
+		if (!pushed.has(oid)) {
+			const reached = await onMain(oid);
+			if (reached === true) continue;
+			if (reached === 'unknown') {
+				problem = `stored commit ${oid.slice(0, 8)} is not within main's last ${mainCommits} commits; rebase onto main and push again`;
+				break;
+			}
+		}
 		const object = await read(oid, 'commit');
 		if (!object?.bytes) {
 			problem = `commit ${oid.slice(0, 8)} is missing`;
@@ -286,6 +355,7 @@ export async function receivePush({
 	repositoryId,
 	body,
 	mayRewrite,
+	limits = RECEIVE_LIMITS,
 	now = () => new Date(),
 }: {
 	objects: GitObjects;
@@ -293,6 +363,7 @@ export async function receivePush({
 	repositoryId: string;
 	body: Uint8Array;
 	mayRewrite: boolean;
+	limits?: ReceiveLimits;
 	now?: () => Date;
 }): Promise<Response> {
 	let parsed: ReturnType<typeof readCommandLines>;
@@ -325,9 +396,12 @@ export async function receivePush({
 	const current = (await objects.refs()).get(MAIN) ?? ZERO_OID;
 	if (old !== current) return reply(MAIN, 'stale (main moved; fetch first)');
 
-	let pushed: Map<string, PackObject>;
+	let pushed: Map<string, PackedObject>;
 	try {
-		pushed = readPack(parsed.rest);
+		pushed = readPack(parsed.rest, {
+			maxHeldBytes: limits.heldBytes,
+			keepBlobBytes: MAX_POINTER_BYTES,
+		});
 	} catch (cause) {
 		return reply(
 			MAIN,
@@ -340,7 +414,13 @@ export async function receivePush({
 			MAIN,
 			'non-fast-forward: only the repository owner may rewrite main; fetch, merge and push again',
 		);
-	const checked = await checkPushedTrees(objects, pushed, next, current);
+	const checked = await checkPushedTrees(
+		objects,
+		pushed,
+		next,
+		current,
+		limits,
+	);
 	if ('problem' in checked) return reply(MAIN, `refused (${checked.problem})`);
 	if (checked.pointers.size > 0) {
 		const unverified = await Promise.all(
@@ -361,6 +441,8 @@ export async function receivePush({
 			);
 	}
 
+	// What the pack inflated to is no longer needed; only its bytes go on.
+	pushed.clear();
 	const updates = [{ ref: MAIN, old: current, next }];
 	if (!fastForward && current !== ZERO_OID)
 		updates.push({ ref: replacedRef(now()), old: ZERO_OID, next: current });

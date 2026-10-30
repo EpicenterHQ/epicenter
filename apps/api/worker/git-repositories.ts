@@ -1,9 +1,12 @@
 /**
  * The hosted Git store on Cloudflare Artifacts, behind `mountGitHost`
- * (ADR-0546). Clone and fetch are proxied to Artifacts; pushes, web writes
- * and LFS go through `@epicenter/server`'s receiver and translator over
- * `objects` (`artifacts-objects.ts`), so Artifacts' own receive-pack is only
- * ever called by this Worker.
+ * (ADR-0546). Clone and fetch are proxied to Artifacts. With the receiver
+ * (`receiver: true`, which `resolveArtifactsGitHost` sets only when an R2
+ * LFS store is bound), pushes, web writes and LFS go through
+ * `@epicenter/server`'s receiver and translator over `objects`
+ * (`artifacts-objects.ts`), so Artifacts' own receive-pack is only ever
+ * called by this Worker. Without it, every Git request is proxied as before
+ * the receiver, and the host has no `objects`.
  *
  * One Artifacts namespace per environment holds every repository, each named
  * by its immutable id (`repository.id`), so a rename or a move in Postgres
@@ -13,21 +16,23 @@
  * cached in the isolate, renewed an hour before it ends, and dropped when
  * Artifacts refuses it or the repository is deleted. The client's credential never crosses.
  *
- * Receipt refs (`refs/epicenter/captures/*`, decision 50) are hidden from
- * clients: upload-pack is asked for protocol v0, whose one advertisement
- * this proxy filters, instead of v2's `ls-refs`.
+ * With the receiver, receipt refs (`refs/epicenter/captures/*`, decision
+ * 50) are hidden from clients: upload-pack is asked for protocol v0, whose
+ * one advertisement this proxy filters, instead of v2's `ls-refs`.
  */
 
 import {
 	FLUSH,
 	type GitHost,
 	pktLine,
+	type ReceiveLimits,
 	readCommandLines,
 } from '@epicenter/server';
 import {
 	type ArtifactsReader,
 	createArtifactsObjects,
 } from './artifacts-objects.js';
+import { type LfsBindings, resolveR2Lfs } from './lfs-store.js';
 
 /** The slice of the Artifacts binding this store calls. */
 export type ArtifactsNamespace = Pick<Artifacts, 'get' | 'create' | 'delete'>;
@@ -37,6 +42,21 @@ const TOKEN_TTL_SECONDS = 24 * 60 * 60;
 const RENEW_BEFORE_MS = 60 * 60 * 1000;
 /** The most tokens one isolate keeps; the oldest go first. */
 const MAX_CACHED_TOKENS = 512;
+
+/**
+ * What one push may cost the Worker, whose isolate has 128 MB shared by
+ * every request it serves. Reading a body holds up to twice `pushBytes`
+ * while its chunks are joined; then the body and at most `heldBytes` of
+ * inflated objects; then the body and the copy sent to Artifacts. One push
+ * so peaks near 48 MiB. Placing a push's stored commits reads `main`'s
+ * history from Artifacts, one subrequest per commit, and a Paid invocation
+ * may make 10,000: half is left for everything else the push reads.
+ */
+export const WORKER_RECEIVE_LIMITS: ReceiveLimits = {
+	pushBytes: 24 * 1024 * 1024,
+	heldBytes: 24 * 1024 * 1024,
+	mainCommits: 5_000,
+};
 
 /** The message Artifacts gives each error this store handles. */
 const MESSAGES: Partial<Record<ArtifactsErrorCode, RegExp>> = {
@@ -102,15 +122,43 @@ export async function hideRefs(response: Response): Promise<Response> {
 	);
 }
 
+/** The bindings hosted Git reads: Artifacts, and the R2 LFS store. */
+export type GitBindings = LfsBindings & {
+	ARTIFACTS?: ArtifactsNamespace;
+	ARTIFACTS_NAMESPACE?: string;
+};
+
+/**
+ * The deployment's Artifacts host, or null when Artifacts is not bound
+ * (the local dev launcher removes it, and hosted Git answers 503). The
+ * receiver comes only with an R2 LFS store (`resolveR2Lfs`): without one,
+ * it would refuse every push that holds a file other than a note, so the
+ * host proxies every request as before the receiver until all four LFS
+ * bindings are there.
+ */
+export function resolveArtifactsGitHost(env: GitBindings): GitHost | null {
+	const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } = env;
+	if (!ARTIFACTS || !ARTIFACTS_ACCOUNT_ID || !ARTIFACTS_NAMESPACE) return null;
+	return createArtifactsGitHost({
+		artifacts: ARTIFACTS,
+		accountId: ARTIFACTS_ACCOUNT_ID,
+		namespace: ARTIFACTS_NAMESPACE,
+		receiver: resolveR2Lfs(env) !== null,
+	});
+}
+
 export function createArtifactsGitHost({
 	artifacts,
 	accountId,
 	namespace,
+	receiver,
 	now = Date.now,
 }: {
 	artifacts: ArtifactsNamespace;
 	accountId: string;
 	namespace: string;
+	/** Whether pushes, web writes and LFS go through the receiver (`objects`). */
+	receiver: boolean;
 	now?: () => number;
 }): GitHost {
 	const upstream = `https://${accountId}.artifacts.cloudflare.net/git/${namespace}`;
@@ -142,7 +190,7 @@ export function createArtifactsGitHost({
 		return minted;
 	}
 
-	return {
+	const host: GitHost = {
 		async create(id) {
 			try {
 				await artifacts.create(id, { setDefaultBranch: 'main' });
@@ -157,23 +205,6 @@ export function createArtifactsGitHost({
 			tokens.delete(`read:${id}`);
 			tokens.delete(`write:${id}`);
 		},
-		objects(id) {
-			return createArtifactsObjects({
-				remote: `${upstream}/${id}.git`,
-				token: () => {
-					const value = token(id, 'write');
-					return {
-						value,
-						refused: () => {
-							if (tokens.get(`write:${id}`)?.token === value)
-								tokens.delete(`write:${id}`);
-						},
-					};
-				},
-				repository: async () =>
-					(await artifacts.get(id)) as unknown as ArtifactsReader,
-			});
-		},
 		async serve(id, { service, advertisement, headers, body, signal }) {
 			const scope = service === 'git-receive-pack' ? 'write' : 'read';
 			const pending = token(id, scope);
@@ -181,7 +212,8 @@ export function createArtifactsGitHost({
 			const upstreamHeaders = new Headers(headers);
 			upstreamHeaders.set('authorization', `Basic ${btoa(`x:${credential}`)}`);
 			// Protocol v0, so the one advertisement can be filtered.
-			if (service === 'git-upload-pack') upstreamHeaders.delete('git-protocol');
+			if (receiver && service === 'git-upload-pack')
+				upstreamHeaders.delete('git-protocol');
 			const path = advertisement
 				? `/info/refs?service=${service}`
 				: `/${service}`;
@@ -200,9 +232,34 @@ export function createArtifactsGitHost({
 				tokens.get(key)?.token === pending
 			)
 				tokens.delete(key);
-			return service === 'git-upload-pack' && advertisement && response.ok
+			return receiver &&
+				service === 'git-upload-pack' &&
+				advertisement &&
+				response.ok
 				? hideRefs(response)
 				: response;
+		},
+	};
+	if (!receiver) return host;
+	return {
+		...host,
+		receiveLimits: WORKER_RECEIVE_LIMITS,
+		objects(id) {
+			return createArtifactsObjects({
+				remote: `${upstream}/${id}.git`,
+				token: () => {
+					const value = token(id, 'write');
+					return {
+						value,
+						refused: () => {
+							if (tokens.get(`write:${id}`)?.token === value)
+								tokens.delete(`write:${id}`);
+						},
+					};
+				},
+				repository: async () =>
+					(await artifacts.get(id)) as unknown as ArtifactsReader,
+			});
 		},
 	};
 }

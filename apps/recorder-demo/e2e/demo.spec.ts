@@ -11,11 +11,15 @@
  *    recorded, and `epicenter check` passes against the published contract.
  * 4. A title edited on the desktop and synced shows on the web after a
  *    reload.
- * 5. A web rename and a desktop edit of other fields race on one note: both
- *    land.
+ * 5. A web rename over a note the desktop changed meanwhile is refused as
+ *    `Conflict`; the draft stays, and saving again lands it beside the
+ *    desktop's edit.
  * 6. Shared read only with a second person (`epicenter share`), the
  *    recording shows and plays in their own signed-in browser, opened with
  *    `?repository=<owner>/recorder-demo`.
+ * 7. WebKit only, in an ephemeral context (no OPFS, as in Safari's private
+ *    windows): a recording the device cannot keep stays in the page, to
+ *    save again or download.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -302,7 +306,7 @@ test('4. a title edited on the desktop shows on the web', async ({
 	);
 });
 
-test('5. a web rename and a desktop edit of other fields race, and both land', async ({
+test('5. a web rename over a desktop edit is refused, keeps its draft, and both land on a second save', async ({
 	stack,
 	person,
 }) => {
@@ -316,15 +320,19 @@ test('5. a web rename and a desktop edit of other fields race, and both land', a
 	const title = row('repository').getByLabel('Title');
 	await title.fill('Web title');
 
-	await Promise.all([
-		(async () => {
-			await row('repository')
-				.getByRole('button', { name: 'Save title' })
-				.click();
-			await expect(row('repository').getByTestId('status')).toHaveText('Saved');
-		})(),
-		sync(stack, person, clone),
-	]);
+	// The desktop's edit lands first, so the title the web shows is stale.
+	await sync(stack, person, clone);
+	const status = row('repository').getByTestId('status');
+	const save = row('repository').getByRole('button', { name: 'Save title' });
+	await save.click();
+	// The client refuses a write over a note that moved since it was read
+	// (`Conflict`); the row says so, shows the note as it is now, and keeps
+	// the draft, so saving again writes the title over that version.
+	await expect(status).toHaveText(/^Changed elsewhere/);
+	await expect(title).toHaveValue('Web title');
+	await expect(row('repository').getByTestId('duration')).toHaveText('4.2 s');
+	await save.click();
+	await expect(status).toHaveText('Saved');
 
 	// The desktop brings in whatever landed after its own push.
 	await sync(stack, person, clone);
@@ -394,5 +402,39 @@ test('6. shared with a second person, the recording shows and plays in their bro
 	} finally {
 		await guestContext.close();
 		await rm(guestProfile, { recursive: true, force: true });
+	}
+});
+
+test('7. where the browser keeps no files, a recording is not lost: it stays in memory to save again or download', async ({
+	stack,
+	browserName,
+	playwright,
+}) => {
+	// WebKit's ephemeral contexts reject `getDirectory()`, as Safari's
+	// private windows do; Chromium has no such context to test with.
+	test.skip(browserName !== 'webkit', 'only WebKit refuses OPFS here');
+	const ephemeral = await playwright.webkit.launch();
+	try {
+		const tab = await ephemeral.newPage();
+		await tab.goto(`${stack.app}/?fixture=tone`);
+		await tab.getByRole('button', { name: 'Record' }).click();
+		await expect(tab.getByRole('button', { name: 'Stop' })).toBeVisible();
+		await tab.waitForTimeout(1000);
+		await tab.getByRole('button', { name: 'Stop' }).click();
+
+		const unsaved = tab.getByTestId('unsaved');
+		await expect(unsaved).toContainText('not kept on this device');
+		const download = unsaved.getByRole('link', { name: 'Download it' });
+		const bytes = await tab.evaluate(
+			async (href) => (await (await fetch(href)).arrayBuffer()).byteLength,
+			(await download.getAttribute('href')) as string,
+		);
+		expect(bytes).toBeGreaterThan(0);
+		// Saving again fails the same way here, and the recording stays.
+		await unsaved.getByRole('button', { name: 'Save again' }).click();
+		await expect(unsaved).toContainText('not kept on this device');
+		await expect(download).toBeVisible();
+	} finally {
+		await ephemeral.close();
 	}
 });

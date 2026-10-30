@@ -5,14 +5,14 @@
  *
  * One run drains the device's outbox, oldest capture first. For each:
  *
- * 1. its files' bytes go up as Git LFS objects (batch, PUT, verify), notes
+ * 1. its files' bytes go up as Git LFS objects (batch, then PUT), notes
  *    as text;
  * 2. one write carries the capture's id, so the server makes one commit and
  *    keeps a receipt; a resend after a lost reply gets that first receipt
  *    back (decision 50) instead of a second commit;
  * 3. the receipt is recorded in the capture's sidecar (`acknowledge`);
- * 4. the device deletes each file only at the version the capture recorded
- *    (`finish`), so an edit made since stays, and goes up as a new capture.
+ * 4. the device deletes each file only at the version it sent (`finish`),
+ *    so an edit made since stays, and goes up as a new capture.
  *
  * Each step is safe to repeat, so a crash anywhere resumes: after the PUT
  * the batch skips the stored object, after the write the resend gets the
@@ -212,6 +212,8 @@ export function startUploading<TContract extends Contract>(
 			| FileWrite
 			| { path: string; bytes: Uint8Array; base?: Version }
 		)[] = [];
+		/** The version of each file sent: only these may be let go. */
+		const sent: Record<string, Version> = {};
 		for (const path of Object.keys(capture.paths)) {
 			if (compiled.claim(path) === null)
 				return Ok({
@@ -221,6 +223,7 @@ export function startUploading<TContract extends Contract>(
 			if (read.error !== null) return read;
 			// Deleted on the device before it went up: nothing to send.
 			if (read.data === null) continue;
+			sent[path] = read.data.version;
 			const base = capture.bases[path] as Version | undefined;
 			if (storedWithLfs(path)) {
 				files.push({ path, bytes: read.data.bytes, base });
@@ -262,16 +265,20 @@ export function startUploading<TContract extends Contract>(
 			return Ok({ refused: refusal });
 		}
 		const { commit, paths, blobs, replayed } = answer.receipt;
-		const acknowledged = await outbox.acknowledge(id, {
-			commit,
-			paths,
-			blobs: Object.fromEntries(
-				Object.entries(blobs).filter(
-					(entry): entry is [string, string] => entry[1] !== null,
+		const acknowledged = await outbox.acknowledge(
+			id,
+			{
+				commit,
+				paths,
+				blobs: Object.fromEntries(
+					Object.entries(blobs).filter(
+						(entry): entry is [string, string] => entry[1] !== null,
+					),
 				),
-			),
-			replayed: replayed === true,
-		});
+				replayed: replayed === true,
+			},
+			sent,
+		);
 		if (acknowledged.error?.name === 'Unavailable')
 			return { data: null, error: acknowledged.error };
 		if (acknowledged.error !== null)

@@ -5,6 +5,7 @@
  * the real ones (spike-scratch/deployed-spike-8).
  */
 import { afterEach, describe, expect, test } from 'bun:test';
+import { randomBytes } from 'node:crypto';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import {
 	type CloudEnv,
@@ -14,6 +15,7 @@ import {
 	mountGitHost,
 	parseCommit,
 	pktLine,
+	type ReceiveLimits,
 	readCommandLines,
 	treeObject,
 	writePack,
@@ -102,6 +104,94 @@ function objectsOver(reader: ArtifactsReader, refused: string[] = []) {
 		}),
 		repository: async () => reader,
 	});
+}
+
+/** A commit as a client packs it. */
+const commitObject = (tree: string, parents: string[]) =>
+	makeObject(
+		'commit',
+		`tree ${tree}\n${parents.map((p) => `parent ${p}\n`).join('')}author Ada <ada@example.invalid> 1793371154 +0000\ncommitter Ada <ada@example.invalid> 1793371154 +0000\n\nm\n`,
+	);
+
+/**
+ * `mountGitHost` with the receiver over `reader`, Artifacts' Git endpoint
+ * stubbed with `main` at `main`. `push` sends a pack over `main` and answers
+ * the report; `applied` collects the commands that reached Artifacts.
+ */
+function receiverOver(
+	reader: ArtifactsReader,
+	main: string,
+	receiveLimits?: ReceiveLimits,
+) {
+	const applied: string[] = [];
+	globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+		if (String(input).endsWith('/info/refs?service=git-receive-pack'))
+			return new Response(
+				pkts(
+					'# service=git-receive-pack\n',
+					null,
+					`${main} refs/heads/main\0report-status atomic ofs-delta\n`,
+					null,
+				),
+			);
+		const { lines } = readCommandLines(
+			new Uint8Array(await new Response(init?.body).arrayBuffer()),
+		);
+		applied.push(...lines);
+		return new Response(pkts('unpack ok\n', 'ok refs/heads/main\n', null));
+	}) as unknown as typeof fetch;
+
+	const access: GitAccess = {
+		async authorize(_c, { namespaceId }) {
+			return {
+				data: {
+					accountId: 'owner',
+					role: 'owner',
+					namespaceId,
+					repository: { id: 'repo1' },
+				},
+				error: null,
+			};
+		},
+		async create() {
+			return { id: 'repo1' };
+		},
+	};
+	const app = new Hono<CloudEnv>();
+	app.use('*', async (c, next) => {
+		c.set('audiences', resolveOAuthAudiences(new URL(c.req.url).origin));
+		await next();
+	});
+	mountGitHost(app, {
+		setup: createMiddleware<CloudEnv>(async (_c, next) => next()),
+		access,
+		resolveHost: () => ({
+			serve: async () => new Response(null, { status: 500 }),
+			create: async () => {},
+			delete: async () => {},
+			objects: () => objectsOver(reader),
+			receiveLimits,
+		}),
+	});
+	const push = async (next: Packed, ...more: Packed[]) => {
+		const body = new Blob([
+			pktLine(`${main} ${next.oid} refs/heads/main\0report-status\n`),
+			FLUSH,
+			writePack([next, ...more]),
+		] as BlobPart[]);
+		const response = await app.request(
+			'http://localhost:8787/git/~/notes.git/git-receive-pack',
+			{
+				method: 'POST',
+				headers: {
+					'content-type': 'application/x-git-receive-pack-request',
+				},
+				body,
+			},
+		);
+		return `${response.status} ${await response.text()}`;
+	};
+	return { push, applied };
 }
 
 describe('Artifacts GitObjects', () => {
@@ -306,82 +396,7 @@ describe('Artifacts GitObjects', () => {
 				[audio.oid, audio.bytes],
 			]),
 		});
-		const applied: string[] = [];
-		globalThis.fetch = (async (
-			input: RequestInfo | URL,
-			init?: RequestInit,
-		) => {
-			if (String(input).endsWith('/info/refs?service=git-receive-pack'))
-				return new Response(
-					pkts(
-						'# service=git-receive-pack\n',
-						null,
-						`${M} refs/heads/main\0report-status atomic ofs-delta\n`,
-						null,
-					),
-				);
-			const { lines } = readCommandLines(
-				new Uint8Array(await new Response(init?.body).arrayBuffer()),
-			);
-			applied.push(...lines);
-			return new Response(pkts('unpack ok\n', 'ok refs/heads/main\n', null));
-		}) as unknown as typeof fetch;
-
-		const access: GitAccess = {
-			async authorize(_c, { namespaceId }) {
-				return {
-					data: {
-						accountId: 'owner',
-						role: 'owner',
-						namespaceId,
-						repository: { id: 'repo1' },
-					},
-					error: null,
-				};
-			},
-			async create() {
-				return { id: 'repo1' };
-			},
-		};
-		const app = new Hono<CloudEnv>();
-		app.use('*', async (c, next) => {
-			c.set('audiences', resolveOAuthAudiences(new URL(c.req.url).origin));
-			await next();
-		});
-		mountGitHost(app, {
-			setup: createMiddleware<CloudEnv>(async (_c, next) => next()),
-			access,
-			resolveHost: () => ({
-				serve: async () => new Response(null, { status: 500 }),
-				create: async () => {},
-				delete: async () => {},
-				objects: () => objectsOver(reader),
-			}),
-		});
-		const push = async (next: Packed, ...more: Packed[]) => {
-			const body = new Blob([
-				pktLine(`${M} ${next.oid} refs/heads/main\0report-status\n`),
-				FLUSH,
-				writePack([next, ...more]),
-			] as BlobPart[]);
-			const response = await app.request(
-				'http://localhost:8787/git/~/notes.git/git-receive-pack',
-				{
-					method: 'POST',
-					headers: {
-						'content-type': 'application/x-git-receive-pack-request',
-					},
-					body,
-				},
-			);
-			return response.text();
-		};
-		const commitObject = (tree: string, parents: string[]) =>
-			makeObject(
-				'commit',
-				`tree ${tree}\n${parents.map((p) => `parent ${p}\n`).join('')}author Ada <ada@example.invalid> 1793371154 +0000\ncommitter Ada <ada@example.invalid> 1793371154 +0000\n\nm\n`,
-			);
-
+		const { push, applied } = receiverOver(reader, M);
 		// X merges S into main but keeps main's tree, so X itself changes
 		// nothing; only S, read from Artifacts by kind, holds the raw audio.
 		const refused = await push(commitObject(t0.oid, [M, S]));
@@ -402,6 +417,92 @@ describe('Artifacts GitObjects', () => {
 		expect(await push(y, t2)).toContain('ok refs/heads/main');
 		expect(reads).not.toContain(`commit ${S}`);
 		expect(applied[0]).toStartWith(`${M} ${y.oid} refs/heads/main`);
+	});
+	test("a desktop offline for 600 captures pushes in one read of main's history, past raw audio from before the receiver", async () => {
+		// Main: 650 commits. Commit 3 added raw audio (pushed before the
+		// receiver existed); every later commit keeps that tree.
+		const note = makeObject('blob', 'x\n');
+		const audio = makeObject('blob', new Uint8Array([0, 0, 0, 0x20, 0x66]));
+		const t0 = treeObject([{ mode: '100644', name: 'a.md', oid: note.oid }]);
+		const t1 = treeObject([
+			{ mode: '100644', name: 'a.md', oid: note.oid },
+			{ mode: '100644', name: 'a.m4a', oid: audio.oid },
+		]);
+		const id = (n: number) => n.toString(16).padStart(40, '0');
+		const commits = new Map<string, ArtifactsCommit>();
+		for (let n = 1; n <= 650; n++)
+			commits.set(id(n), {
+				...commit(id(n), n === 1 ? [] : [id(n - 1)]),
+				treeHash: n < 3 ? t0.oid : t1.oid,
+			});
+		const entries = (...files: [string, string][]): ArtifactsTreeEntry[] =>
+			files.map(([name, hash]) => ({ name, mode: '100644', hash }));
+		const { reader, reads } = handle({
+			commits,
+			trees: new Map([
+				[t0.oid, entries(['a.md', note.oid])],
+				[t1.oid, entries(['a.md', note.oid], ['a.m4a', audio.oid])],
+			]),
+			blobs: new Map([
+				[note.oid, note.bytes],
+				[audio.oid, audio.bytes],
+			]),
+		});
+		const { push, applied } = receiverOver(reader, id(650));
+
+		// The desktop last synced at commit 20, wrote a note, and merged main.
+		const desk = makeObject('blob', 'offline\n');
+		const t2 = treeObject([
+			{ mode: '100644', name: 'a.md', oid: note.oid },
+			{ mode: '100644', name: 'a.m4a', oid: audio.oid },
+			{ mode: '100644', name: 'desk.md', oid: desk.oid },
+		]);
+		const written = commitObject(t2.oid, [id(20)]);
+		const merge = commitObject(t2.oid, [written.oid, id(650)]);
+		expect(await push(merge, written, t2, desk)).toContain(
+			'ok refs/heads/main',
+		);
+		expect(applied[0]).toStartWith(`${id(650)} ${merge.oid} refs/heads/main`);
+		const commitReads = reads.filter((read) => read.startsWith('commit '));
+		// Main's history from its tip down to commit 20, once, and no more.
+		expect(commitReads.length).toBeGreaterThan(600);
+		expect(commitReads.length).toBeLessThan(700);
+		expect(reads).not.toContain(`blob ${audio.oid}`);
+	});
+	test("a push past the Worker's allowance is refused with a reason, before or while it is read", async () => {
+		const { reader } = handle();
+		const MiB = 1024 * 1024;
+		const limits = (pushBytes: number, heldBytes: number): ReceiveLimits => ({
+			pushBytes,
+			heldBytes,
+			mainCommits: 5_000,
+		});
+		const noise = (bytes: number) => makeObject('blob', randomBytes(bytes));
+		const tree = (blob: Packed) =>
+			treeObject([{ mode: '100644', name: 'a.md', oid: blob.oid }]);
+
+		// A body over `pushBytes` is not read.
+		const big = noise(2 * MiB);
+		const tooLong = receiverOver(reader, A, limits(1 * MiB, 24 * MiB));
+		const refused = await tooLong.push(
+			commitObject(tree(big).oid, [A]),
+			tree(big),
+			big,
+		);
+		expect(refused).toStartWith('413 ');
+		expect(refused).toContain('A push may be at most 1 MiB');
+		expect(tooLong.applied).toEqual([]);
+
+		// A pack that needs more than `heldBytes` at once is refused as it is read.
+		const wide = noise(1.5 * MiB);
+		const tooWide = receiverOver(reader, A, limits(8 * MiB, 1 * MiB));
+		const held = await tooWide.push(
+			commitObject(tree(wide).oid, [A]),
+			tree(wide),
+			wide,
+		);
+		expect(held).toContain('refused (pack: its objects need more than 1 MiB');
+		expect(tooWide.applied).toEqual([]);
 	});
 });
 

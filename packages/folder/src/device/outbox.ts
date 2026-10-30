@@ -15,9 +15,10 @@
  * capture was recorded; `bases`, for a file the server already holds, the
  * Git blob id there it replaces. The upload (`startUploading` in
  * `@epicenter/folder/remote`) sends a capture as one write carrying its id,
- * records the server's receipt here (`acknowledge`), and only then deletes
- * the device's copies (`finish`), each only at its recorded version and
- * only when the receipt shows those bytes landed. A resend after a lost
+ * records the server's receipt and the versions it sent here (`acknowledge`,
+ * as `sent`), and only then deletes the device's copies (`finish`), each
+ * only at the version sent and only when the receipt shows those bytes
+ * landed. A resend after a lost
  * reply carries the same id, and the server answers with the first
  * receipt; a file edited since, or not on the server as the device holds
  * it, goes back in the outbox as an update over what landed.
@@ -73,6 +74,12 @@ export type Capture = {
 	/** `pending` until the server's receipt is recorded, then `acknowledged`. */
 	state: 'pending' | 'acknowledged';
 	receipt: Receipt | null;
+	/**
+	 * The version of each file the upload read and sent, recorded with the
+	 * receipt. A file may have changed between `add` and the upload, and
+	 * again while the write was in flight; only these bytes landed.
+	 */
+	sent?: Record<string, Version>;
 };
 
 /** One file of a capture, as a create returned it: its collection, placeholders and version. */
@@ -121,11 +128,12 @@ function parseCapture(bytes: Uint8Array): Capture | null {
 		return null;
 	}
 	if (!isRecord(value) || !isRecord(value.paths)) return null;
-	const { id, paths, state, receipt, bases = {} } = value;
+	const { id, paths, state, receipt, bases = {}, sent = {} } = value;
 	if (typeof id !== 'string' || !CAPTURE_ID.test(id)) return null;
 	const strings = (record: Record<string, unknown>) =>
 		Object.values(record).every((version) => typeof version === 'string');
 	if (!strings(paths) || !isRecord(bases) || !strings(bases)) return null;
+	if (!isRecord(sent) || !strings(sent)) return null;
 	const capture = {
 		id,
 		paths: paths as Capture['paths'],
@@ -139,7 +147,12 @@ function parseCapture(bytes: Uint8Array): Capture | null {
 		typeof receipt.commit === 'string' &&
 		isRecord(receipt.blobs)
 	)
-		return { ...capture, state, receipt: receipt as Receipt };
+		return {
+			...capture,
+			state,
+			receipt: receipt as Receipt,
+			sent: sent as Record<string, Version>,
+		};
 	return null;
 }
 
@@ -279,10 +292,14 @@ export function createOutbox<TContract extends Contract>(
 			}
 			return Ok({ items, invalid });
 		},
-		/** Record the server's receipt for capture `id`: the files may now go. */
+		/**
+		 * Record the server's receipt for capture `id`, and the version of
+		 * each file the upload sent: the files may now go, at those versions.
+		 */
 		async acknowledge(
 			id: string,
 			receipt: Receipt,
+			sent: Record<string, Version>,
 		): Promise<Result<Capture, NotFound | Conflict | Invalid | Unavailable>> {
 			const found = await read(id);
 			if (found.error !== null) return found;
@@ -290,6 +307,7 @@ export function createOutbox<TContract extends Contract>(
 				...found.data.capture,
 				state: 'acknowledged',
 				receipt,
+				sent,
 			};
 			const path = sidecarPath(id);
 			const written = await store.write(
@@ -305,9 +323,11 @@ export function createOutbox<TContract extends Contract>(
 		/**
 		 * Let go of an acknowledged capture: delete each file the server now
 		 * holds as the device does, then the sidecar. A file is deleted only
-		 * while it holds its recorded version, and only when the receipt
-		 * shows those bytes landed: a first landing (merged or not), or a
-		 * replayed receipt whose blob there is the file's own.
+		 * while it holds the version the upload sent (not the one `add`
+		 * recorded: an edit reverted to those bytes while other bytes were in
+		 * flight is not what landed), and only when the receipt shows those
+		 * bytes landed: a first landing (merged or not), or a replayed
+		 * receipt whose blob there is the file's own.
 		 *
 		 * Every other file still on the device is `kept`, and never dropped:
 		 * it goes back in the outbox as a new pending capture (`queued`),
@@ -340,19 +360,20 @@ export function createOutbox<TContract extends Contract>(
 				return removeSidecar(id, version, { kept: [], queued: null });
 			}
 			const kept: Record<string, Version> = {};
-			for (const [path, recorded] of Object.entries(capture.paths)) {
+			for (const path of Object.keys(capture.paths)) {
 				const held = await store.read(path);
 				if (held.error !== null) return held;
 				if (held.data === null) continue;
+				const sent = capture.sent?.[path];
 				const landed =
-					held.data.version === recorded &&
+					held.data.version === sent &&
 					(!receipt.replayed ||
-						receipt.blobs[path] === blobOf(path, held.data.bytes, recorded));
+						receipt.blobs[path] === blobOf(path, held.data.bytes, sent));
 				if (!landed) {
 					kept[path] = held.data.version;
 					continue;
 				}
-				const removed = await store.write(path, null, recorded);
+				const removed = await store.write(path, null, sent);
 				if (removed.error !== null) return removed;
 				if (removed.data === 'stale') {
 					// Edited between the read and the delete.

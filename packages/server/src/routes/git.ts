@@ -52,9 +52,11 @@
  * Worker, bare repositories on disk for the Bun entry. It names a repository
  * by its immutable id, never by `<namespace>/<name>`, and receives only
  * requests this module already authorized; the client's credential never
- * reaches it. A store with `objects` (disk) gets every push through the
- * receiver; one without serves pushes itself, and the files and LFS routes
- * answer 503.
+ * reaches it. A store with `objects` gets every push through the receiver,
+ * and the files and LFS routes; LFS answers 503 until the deployment has an
+ * LFS store. A store without `objects` serves pushes itself and answers
+ * exactly as hosted Git did before the receiver: smart HTTP under a named
+ * namespace, and 404 for every other path, `~` included.
  *
  * Refusals answer JSON `{ error, error_description }`:
  *   - 401 `invalid_token`        missing, unknown, expired, revoked, or another
@@ -67,7 +69,7 @@
  *                                or its role may not do this;
  *   - 404 `not_found`            a missing repository's advertisement, for a
  *                                role that may not push, or its upload-pack;
- *   - 413 `too_large`            a push over 64 MiB;
+ *   - 413 `too_large`            a push over the store's `pushBytes` (64 MiB on disk);
  *   - 502 `store_failed`         storage failed or refused this server;
  *   - 503 `git_unavailable`      this deployment has no store, or its database
  *                                could not decide.
@@ -126,7 +128,8 @@ import {
 	verifyObject,
 } from './lfs.js';
 import {
-	MAX_PUSH_BYTES,
+	RECEIVE_LIMITS,
+	type ReceiveLimits,
 	receiveAdvertisement,
 	receivePush,
 } from './receive.js';
@@ -168,10 +171,12 @@ export type GitHost = {
 	/**
 	 * Repository `id`'s objects and refs, for the push receiver and the
 	 * write translator; the caller closes the handle. A host without it
-	 * serves pushes itself through `serve`, and answers the files and LFS
-	 * routes with 503.
+	 * serves pushes itself through `serve`, and the files, LFS and `~`
+	 * routes are not served (404), as before the receiver.
 	 */
 	objects?(id: string): GitObjects;
+	/** What one push may cost this store; the disk server's (`RECEIVE_LIMITS`) by default. */
+	receiveLimits?: ReceiveLimits;
 };
 
 /** What one request may do to one repository, as a deployment's access decided it. */
@@ -188,7 +193,7 @@ export type RepositoryAccess = {
 /**
  * Who may do what to which repository. The hosted cloud decides from the
  * database (`databaseGitAccess`, the default); a deployment with no database
- * (the Cloudflare spike Worker) injects its own. Every rule after the
+ * (deployed spike 8's bearer-token Worker) injects its own. Every rule after the
  * decision (roles, first writes, the receiver, the translator, LFS) is
  * this module's, so each deployment runs the same routes.
  */
@@ -458,7 +463,7 @@ function operationOf(
 
 /**
  * A request body, read whole: gunzipped when sent so, and null as soon as
- * it passes `maxBytes` (`MAX_PUSH_BYTES` for a push, `MAX_WRITE_BYTES` for
+ * it passes `maxBytes` (`ReceiveLimits.pushBytes` for a push, `MAX_WRITE_BYTES` for
  * a web write), so an oversized body is never held in memory.
  */
 async function readBody(
@@ -526,10 +531,23 @@ export function mountGitHost(
 				'Not a Git request this server answers.',
 			);
 		const { endpoint } = target;
+		const host = resolveHost(c.env);
+		// A store without objects answers what hosted Git answered before
+		// the receiver: Git's smart HTTP under a named namespace, and nothing
+		// else, so a deployment gains the new routes only with the receiver.
+		if (
+			!host?.objects &&
+			(endpoint.kind !== 'git' || target.namespaceId === PERSONAL_NAMESPACE)
+		)
+			return refuse(
+				c,
+				404,
+				'not_found',
+				'Not a Git request this server answers.',
+			);
 		// Locking is not offered; `git lfs` carries on without it.
 		if (endpoint.kind === 'lfs-locks')
 			return lfsJson({ message: 'Git LFS locking is not supported.' }, 404);
-		const host = resolveHost(c.env);
 		if (!host)
 			return refuse(
 				c,
@@ -538,16 +556,12 @@ export function mountGitHost(
 				'This server does not host Git repositories.',
 			);
 		const lfs = resolveLfs(c.env);
-		const needsObjects = endpoint.kind !== 'git';
-		if (
-			(needsObjects && !host.objects) ||
-			(endpoint.kind.startsWith('lfs') && !lfs)
-		)
+		if (endpoint.kind.startsWith('lfs') && !lfs)
 			return refuse(
 				c,
 				503,
 				'git_unavailable',
-				'This server does not take web writes or Git LFS yet.',
+				'This server does not take Git LFS objects yet.',
 			);
 
 		let batch: LfsBatch | null = null;
@@ -759,15 +773,22 @@ export function mountGitHost(
 				case 'git': {
 					if (endpoint.advertisement)
 						return await receiveAdvertisement(objects);
-					const body = await readBody(c.req.raw, MAX_PUSH_BYTES);
+					const limits = host.receiveLimits ?? RECEIVE_LIMITS;
+					const body = await readBody(c.req.raw, limits.pushBytes);
 					if (body === null)
-						return refuse(c, 413, 'too_large', 'A push may be at most 64 MiB.');
+						return refuse(
+							c,
+							413,
+							'too_large',
+							`A push may be at most ${limits.pushBytes / (1024 * 1024)} MiB; push fewer changes at once.`,
+						);
 					return await receivePush({
 						objects,
 						lfs,
 						repositoryId,
 						body,
 						mayRewrite: roleAllows(role, 'rewrite'),
+						limits,
 					});
 				}
 				case 'files':
