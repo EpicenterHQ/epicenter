@@ -20,6 +20,11 @@
  * patterns case-sensitively unless `core.ignorecase` is set, so the note
  * line spells out both cases (`*.[mM][dD]`) to agree with `isNotePath`
  * everywhere.
+ *
+ * `REPOSITORY_IGNORE` is init's marked block of `.gitignore`, between the
+ * same markers: hidden paths stay outside the LFS rule, but operating
+ * system clutter (`.DS_Store`) and a device's own state (`.epicenter/`, the
+ * outbox's sidecars) are never committed at all.
  */
 
 /** Whether a path names a note: a Markdown file, `.md` in any case. Anything else is a file (decision 3). */
@@ -33,17 +38,24 @@ export const isHiddenPath = (path: string) =>
 export const storedWithLfs = (path: string) =>
 	!isHiddenPath(path) && !isNotePath(path);
 
-/** The line that opens `REPOSITORY_ATTRIBUTES`, matched as a prefix. */
-export const REPOSITORY_ATTRIBUTES_BEGIN = '# BEGIN epicenter';
-/** The line that closes `REPOSITORY_ATTRIBUTES`. */
-export const REPOSITORY_ATTRIBUTES_END = '# END epicenter';
+/** The line that opens a block Epicenter manages (`REPOSITORY_ATTRIBUTES`, `REPOSITORY_IGNORE`), matched as a prefix. */
+export const EPICENTER_BLOCK_BEGIN = '# BEGIN epicenter';
+/** The line that closes a block Epicenter manages. */
+export const EPICENTER_BLOCK_END = '# END epicenter';
 
-export const REPOSITORY_ATTRIBUTES = `${REPOSITORY_ATTRIBUTES_BEGIN} (managed by Epicenter; edit outside this block)
+export const REPOSITORY_ATTRIBUTES = `${EPICENTER_BLOCK_BEGIN} (managed by Epicenter; edit outside this block)
 # Notes merge by Epicenter's rules; every other file except hidden paths is Git LFS.
 * filter=lfs diff=lfs merge=lfs -text
 *.[mM][dD] !filter !diff merge=epicenter text
 .* !filter !diff !merge !text
 .*/** !filter !diff !merge !text
 **/.*/** !filter !diff !merge !text
-${REPOSITORY_ATTRIBUTES_END}
+${EPICENTER_BLOCK_END}
+`;
+
+export const REPOSITORY_IGNORE = `${EPICENTER_BLOCK_BEGIN} (managed by Epicenter; edit outside this block)
+# Operating system clutter and each device's own Epicenter state never travel.
+.DS_Store
+.epicenter/
+${EPICENTER_BLOCK_END}
 `;

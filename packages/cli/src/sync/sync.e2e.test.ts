@@ -196,6 +196,7 @@ describe('epicenter sync over stock git', () => {
 			for (const step of [
 				'git init',
 				'.gitattributes committed',
+				'.gitignore committed',
 				'merge.epicenter.driver set',
 				'git lfs install --local',
 				'registered',
@@ -244,8 +245,34 @@ describe('epicenter sync over stock git', () => {
 				`${NOTE}: merge: epicenter`,
 			]);
 
+			// Operating system clutter and the device outbox never travel (decision 58 keeps hidden paths raw, not ignored).
+			write(A, '.DS_Store', new Uint8Array([0, 0, 0, 1, 66, 117, 100, 49]));
+			write(A, 'notes/.DS_Store', new Uint8Array([0, 1, 2]));
+			write(A, '.epicenter/outbox/c1.json', '{"state":"pending"}\n');
+			expect(
+				(
+					await quiet(
+						A,
+						'check-ignore',
+						'.DS_Store',
+						'notes/.DS_Store',
+						'.epicenter/outbox/c1.json',
+						'.obsidian/workspace.json',
+					)
+				).split('\n'),
+			).toEqual(['.DS_Store', 'notes/.DS_Store', '.epicenter/outbox/c1.json']);
+
 			const pushed = await syncJson(A);
 			expect(pushed.code).toBe(0);
+			expect(
+				await quiet(
+					A,
+					'ls-files',
+					'.DS_Store',
+					'notes/.DS_Store',
+					'.epicenter',
+				),
+			).toBe('');
 			expect(pushed.status.status).toBe('synced');
 			expect(pushed.status.head).toBe(await quiet(REMOTE, 'rev-parse', 'main'));
 
@@ -314,7 +341,11 @@ describe('epicenter sync over stock git', () => {
 				.split('\n')
 				.filter(Boolean)
 				.sort();
-			expect(committed).toEqual(['data/.gitattributes', 'data/note.md']);
+			expect(committed).toEqual([
+				'data/.gitattributes',
+				'data/.gitignore',
+				'data/note.md',
+			]);
 			expect((await git(OUTER, 'status', '--porcelain')).stdout).toBe(
 				' M tracked.txt\n?? secret.txt\n',
 			);

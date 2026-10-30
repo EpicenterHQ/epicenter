@@ -157,12 +157,15 @@ desktop committer (decision 31): apps write files, and sync commits them
 with real `git add`, so Git LFS's filters run.
 
 - `init [<dir>]` sets up or repairs a data folder and says what it changed:
-  `git init` when needed; Epicenter's block in the folder's committed
-  `.gitattributes` (`src/sync/attributes.ts`: `.md` notes merge with
-  `merge=epicenter`, every other file is LFS, dotfiles and dot directories
-  are exempt; the block is `REPOSITORY_ATTRIBUTES` from
+  `git init` when needed; Epicenter's blocks in the folder's committed
+  `.gitattributes` and `.gitignore` (`src/sync/managed-block.ts`). The
+  attributes block is `REPOSITORY_ATTRIBUTES` from
   `@epicenter/definition/contract`, which the server writes in a
-  repository's first commit); `merge.epicenter.driver`, the command link (`~/.local/bin/
+  repository's first commit: `.md` notes (in any case) merge with
+  `merge=epicenter`, every other file is LFS, and dotfiles and dot
+  directories are exempt. The ignore block is `REPOSITORY_IGNORE`:
+  `.DS_Store` and `.epicenter/` (a device's outbox) are never committed.
+  Then `merge.epicenter.driver`, the command link (`~/.local/bin/
   epicenter merge-driver %O %A %B %P`, ADR-0566); `git lfs install --local`;
   `git lfs pull` for files checked out as pointers; the deployment's
   credential helper per clone; and the folder in the global, multi-valued
