@@ -9,7 +9,8 @@
  * Key behaviors:
  * - Neighboring line edits, separate sentence edits and same-point appends merge
  * - A true overlap is reported, never blended (cat/cart/coat)
- * - Frontmatter merges by parsed key; a clash keeps current, a key's unseen delete loses
+ * - The header merges by top-level key, each value whole; a key both sides set takes the later write's (incoming, arriving now, over current, main's); a key's unseen delete loses; comments stay
+ * - A top block that does not parse is body: a header written over it merges as added keys, never a duplicate
  * - Two creates merge fields and keep both bodies; both they and delete versus edit are reported
  * - An edit of lines a block offers as a side continues that side: one clash is one block, however many writes follow
  * - Any other overlap touching an existing block adds a separate, adjacent block; blocks never nest
@@ -17,7 +18,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts, type Labels } from './conflict.js';
-import { formatMarkdown, parseMarkdown, splitMarkdown, writeMarkdown } from './markdown.js';
+import { formatMarkdown, parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
 import { type ContentOverlap, merge, withBlocks } from './merge.js';
 
 const labels: Labels = {
@@ -93,19 +94,20 @@ describe('examples', () => {
 		expect(r.text).not.toContain('coart');
 	});
 
-	test('a frontmatter clash keeps current and reports a field overlap', () => {
+	test("a key both sides set takes the later write's value: incoming, arriving now, over current, main's; no clash", () => {
 		const r = merge(
 			'---\ntitle: Old\ntags: a\n---\nBody\n',
 			'---\ntitle: Current\ntags: a\n---\nBody\n',
 			'---\ntitle: Incoming\ntags: b\n---\nBody\n',
 		);
-		expect(r.text).toBe('---\ntitle: Current\ntags: b\n---\nBody\n');
-		expect(r.overlaps).toEqual([{ unit: 'field', key: 'title', base: 'Old', current: 'Current', incoming: 'Incoming' }]);
+		expect(r.text).toBe('---\ntitle: Incoming\ntags: b\n---\nBody\n');
+		expect(r.overlaps).toEqual([]);
 	});
 
 	test('frontmatter compares parsed values, so formatting is not a clash', () => {
 		const r = merge('---\na: 1\nb: x\n---\n', "---\na: 1\nb: 'x'  # quoted\n---\n", '---\na: 2\nb: x\n---\n');
-		expect(r.text).toBe("---\na: 2\nb: 'x'  # quoted\n---\n");
+		// Written in house style: the comment keeps its place, one space from its value.
+		expect(r.text).toBe("---\na: 2\nb: 'x' # quoted\n---\n");
 		expect(r.overlaps).toEqual([]);
 	});
 
@@ -124,10 +126,10 @@ describe('examples', () => {
 		// Probe: current's unseen delete used to win, unlike the file-level rule.
 		const r = merge('---\nstatus: a\ntitle: t\n---\nx\n', '---\ntitle: t\n---\nx\n', '---\nstatus: b\ntitle: t\n---\nx\n');
 		expect(r.text).toBe('---\ntitle: t\nstatus: b\n---\nx\n');
-		expect(r.overlaps).toEqual([{ unit: 'field', key: 'status', base: 'a', incoming: 'b' }]);
+		expect(r.overlaps).toEqual([]);
 		const other = merge('---\nstatus: a\ntitle: t\n---\nx\n', '---\nstatus: c\ntitle: t\n---\nx\n', '---\ntitle: t\n---\nx\n');
 		expect(other.text).toBe('---\nstatus: c\ntitle: t\n---\nx\n');
-		expect(other.overlaps).toEqual([{ unit: 'field', key: 'status', base: 'a', current: 'c' }]);
+		expect(other.overlaps).toEqual([]);
 	});
 
 	test('two offline creates merge fields, keep both bodies and report the clash', () => {
@@ -136,14 +138,10 @@ describe('examples', () => {
 		expect(r.overlaps).toEqual([{ unit: 'file', clash: 'created' }]);
 	});
 
-	test('two creates with a clashing field keep current and report both', () => {
-		// Probe: these used to merge with no overlap, so a 'refuse' peer was not refused.
+	test("two creates with a clashing field take the later write's value and report the create", () => {
 		const r = merge(null, '---\nstatus: a\n---\nbody c\n', '---\nstatus: b\n---\nbody i\n');
-		expect(r.text).toBe('---\nstatus: a\n---\nbody c\n\nbody i\n');
-		expect(r.overlaps).toEqual([
-			{ unit: 'file', clash: 'created' },
-			{ unit: 'field', key: 'status', current: 'a', incoming: 'b' },
-		]);
+		expect(r.text).toBe('---\nstatus: b\n---\nbody c\n\nbody i\n');
+		expect(r.overlaps).toEqual([{ unit: 'file', clash: 'created' }]);
 	});
 
 	test('two identical creates are one file', () => {
@@ -406,6 +404,46 @@ describe('two insertions at one point', () => {
 	});
 });
 
+describe('the header merges by top-level key, each value whole', () => {
+	const note = (yaml: string, body = 'x\n') => `---\n${yaml}---\n${body}`;
+	const fieldsOf = (text: string | null) => parseMarkdown(text ?? '').fields;
+
+	test("a list both sides changed is one value: [a] / [a, b] / [a, c] is the later write's, incoming's [a, c]", () => {
+		const r = merge(note('tags: [a]\n'), note('tags: [a, b]\n'), note('tags: [a, c]\n'));
+		expect(r.text).toBe(note('tags: [a, c]\n'));
+		expect(r.overlaps).toEqual([]);
+	});
+
+	test("a map both sides changed is one value: incoming's whole, never merged by its keys", () => {
+		const r = merge(note('meta:\n  x: 1\n'), note('meta:\n  x: 1\n  y: 2\n'), note('meta:\n  x: 1\n  z: 3\n'));
+		expect(fieldsOf(r.text)).toEqual({ meta: { x: 1, z: 3 } });
+		expect(r.overlaps).toEqual([]);
+	});
+
+	test("comments in the header survive the merge, each side's own", () => {
+		const base = note('# about this note\ntitle: t # the title\ntags: [a]\n');
+		const current = note('# about this note\ntitle: t # the title\ntags: [a, b] # topics\n');
+		const incoming = note('# about this note\ntitle: t # the title\ntags: [a]\n# how it went\nmood: ok # for now\n');
+		const r = merge(base, current, incoming);
+		expect(r.text).toBe(note('# about this note\ntitle: t # the title\ntags: [a, b] # topics\n# how it went\nmood: ok # for now\n'));
+		// A key's value taken from incoming keeps the key's own comment, and brings the value's.
+		const won = merge(base, current, note('# about this note\ntitle: u # renamed\ntags: [a]\n'));
+		expect(won.text).toBe(note('# about this note\ntitle: u # renamed\ntags: [a, b] # topics\n'));
+	});
+
+	test("a header that does not parse is body: two headers written over it at once are one header, holding the later write's value", () => {
+		const broken = '---\na: [\n---\nbody\n';
+		const r = merge(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { done: false } }));
+		expect(r.text).toBe(`---\ndone: false\n---\n${broken}`);
+		expect(r.overlaps).toEqual([]);
+	});
+
+	test('a side that breaks its header drops it: the broken block is its body, and no empty header is left', () => {
+		const r = merge(note('title: A\n', 'one\nbob\n'), note('title: A\n', 'one\nBOB\n'), `---\ntitle: A\ntitle: B\n---\nONE\nbob\n`);
+		expect(r.text).toBe('---\ntitle: A\ntitle: B\n---\nONE\nBOB\n');
+	});
+});
+
 describe('a merge never breaks a note', () => {
 	/** Whether a text's fences, if any, hold parseable frontmatter. */
 	const opensParsed = (text: string | null) => text === null || splitMarkdown(text).yaml === null || parseMarkdown(text).hasFrontmatter;
@@ -442,19 +480,28 @@ describe('a merge never breaks a note', () => {
 		return out;
 	}
 
-	test('three inputs whose frontmatter parses merge to a text whose frontmatter parses, blocks written included', () => {
-		let checked = 0;
+	/**
+	 * What a merge keeps of the header, blocks written or not: a header where
+	 * both sides had one, and every key both sides hold with one value. A header
+	 * that came out unparseable reads as none, so it fails both. (A text whose
+	 * top block does not parse is a note with no header, not a broken one.)
+	 */
+	const keepsHeader = (current: string, incoming: string, text: string | null) => {
+		if (text === null) return true;
+		const [merged, c, i] = [parseMarkdown(text), parseMarkdown(current), parseMarkdown(incoming)];
+		if (c.hasFrontmatter && i.hasFrontmatter && !merged.hasFrontmatter) return false;
+		return Object.keys(c.fields).every((key) => !Object.hasOwn(i.fields, key) || !sameValue(c.fields[key], i.fields[key]) || sameValue(merged.fields[key], c.fields[key]));
+	};
+
+	test('a merge keeps the header: where both sides had one it has one, holding every key both sides agree on, blocks written included', () => {
 		for (let k = 0; k < 20_000; k++) {
 			const base = next() < 0.15 ? null : writeMarkdown(null, { fields: fields(), body: body() });
 			const current = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
 			const incoming = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
-			if (![base, current, incoming].every(opensParsed)) continue;
-			checked++;
 			const result = merge(base, current, incoming);
 			const marked = withBlocks(result, labels);
-			if (!opensParsed(result.text) || !opensParsed(marked)) throw new Error(`a merge broke a note: ${JSON.stringify({ base, current, incoming, merged: result.text, marked })}`);
+			if (!keepsHeader(current, incoming, result.text) || !keepsHeader(current, incoming, marked)) throw new Error(`a merge lost the header: ${JSON.stringify({ base, current, incoming, merged: result.text, marked })}`);
 		}
-		expect(checked).toBeGreaterThan(10_000);
 	});
 
 	test('house style is idempotent, and merges commute with it: merging formatted texts formats to what merging the texts does', () => {

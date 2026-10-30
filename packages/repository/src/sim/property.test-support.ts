@@ -26,7 +26,9 @@
  * commit holding it was answered applied or merged. It stops being owed when
  * a person removes a copy of it from what their editor showed and saved
  * (deleting the word, the file, or overwriting the field; a rename moves it):
- * a deliberate removal, whoever typed it. Notices hold no values: a value
+ * a deliberate removal, whoever typed it. A header value a later write of
+ * its key superseded on main is gone from the text too, and stays in
+ * history: the header merges by key, the later arrival winning. Notices hold no values: a value
  * counts only where the server or a device keeps it as text.
  *
  * Key behaviors:
@@ -205,9 +207,22 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	/** Who wrote each commit on the chain, and the paths it changed. */
 	const writers: { user: string; paths: Set<string> }[] = [{ user: '', paths: new Set() }];
 	let lastMerge: Committed | null = null;
+	/**
+	 * Header values a later write of their key replaced on main: the header
+	 * merges by key, the later arrival winning, so such a value leaves the
+	 * text and stays in history. Judged commit by commit, from the key's
+	 * value before and after.
+	 */
+	const superseded = new Set<string>();
 	world.onCommit((committed) => {
 		const state = new Map(states.get(committed.parents[0] ?? '') ?? []);
 		for (const file of committed.files) {
+			const before = state.get(file.path);
+			if (before !== undefined && file.after !== null) {
+				const [was, is] = [parseMarkdown(before).fields, parseMarkdown(file.after).fields];
+				for (const key of Object.keys(was))
+					if (Object.hasOwn(is, key)) for (const t of tokensIn(JSON.stringify(was[key]))) if (!tokensIn(JSON.stringify(is[key])).has(t)) superseded.add(t);
+			}
 			if (file.after !== null && file.after.length > 1024 * 1024) violations.push(`server: ${file.path} is ${file.after.length} bytes`);
 			// A removal is done once its path is absent on the server after it, whoever's commit did it.
 			if (file.after === null) for (const r of removals) if (r.path === file.path && !r.cancelled) r.landed = true;
@@ -327,9 +342,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		const unsent = quiet ? '' : unsentText();
 		// RULE: each file goes on its own, so a person's rename whose new file cannot go yet (held: it does not parse, say) deletes the old one from the server while the text waits in the new file, on their device; once it can go, it is sent.
 		for (const t of acknowledged)
-			if (!removed.has(t) && !forgotten.has(t) && owed.has(t) && !server.includes(t) && !unsent.includes(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text and no unsent file`);
+			if (!removed.has(t) && !forgotten.has(t) && owed.has(t) && !server.includes(t) && !unsent.includes(t) && !superseded.has(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text and no unsent file`);
 		for (const [t, who] of owed)
-			if (!removed.has(t) && !forgotten.has(t) && !server.includes(t) && (quiet || !devices.includes(t))) violations.push(`${step}: lost ${t} (${who})`);
+			if (!removed.has(t) && !forgotten.has(t) && !server.includes(t) && (quiet || !devices.includes(t)) && !superseded.has(t)) violations.push(`${step}: lost ${t} (${who})`);
 		if (violations.length > 0) throw new Error(`seed ${seed}\n${[...new Set(violations)].join('\n')}\n--- steps\n${log.join('\n')}${tracing ? `\n--- devices\n${dump()}` : ''}`);
 	};
 

@@ -8,7 +8,7 @@
  * frontmatter (a YAML mapping between `---` fences) is a note with no fields,
  * and its whole text is the body.
  */
-import { type Document, isMap, isScalar, parseDocument, stringify } from 'yaml';
+import { Document, isMap, isScalar, parseDocument, stringify } from 'yaml';
 
 /** Values are written out in full: an alias would break when its anchor's key is removed. */
 const PLAIN = { aliasDuplicateObjects: false } as const;
@@ -62,8 +62,15 @@ export function parseMarkdown(text: string): ParsedMarkdown {
 	return { fields: front.fields, body: text.slice(front.bodyStart), hasFrontmatter: true };
 }
 
-/** The frontmatter YAML read as a mapping (an empty one has no fields), or null when it is not one. */
-function readYaml(yaml: string) {
+/** A note as its header, a `yaml` document of its own (null when it has none), and its body. */
+export function readNote(text: string): { document: Document | null; fields: Record<string, unknown>; body: string } {
+	const front = frontmatter(text);
+	if (front === null) return { document: null, fields: {}, body: text };
+	return { document: front.document, fields: front.fields, body: text.slice(front.bodyStart) };
+}
+
+/** YAML read as a mapping (an empty one has no fields), or null when it is not one. */
+export function readYaml(yaml: string) {
 	const document = parseDocument(yaml, { prettyErrors: false, uniqueKeys: true });
 	if (document.errors.length > 0) return null;
 	const contents = document.contents;
@@ -121,9 +128,6 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 			yaml = reads(rewritten) ? (rewritten as string) : Object.keys(expected).length === 0 ? '' : stringify(expected, PLAIN);
 		}
 	}
-	// A closing fence at the very end with no newline stays that way.
-	const isBareClose = front.bodyStart === source.length && !source.endsWith('\n');
-	if (isBareClose && body === '') return `${OPEN}${yaml}---`;
 	return `${OPEN}${yaml}---\n${body}`;
 }
 
@@ -131,25 +135,35 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 const HOUSE = { lineWidth: 0, flowCollectionPadding: false } as const;
 
 /**
+ * RULE: a header in house style: `yaml`'s printer over the document as it
+ * stands, so comments, key order and each scalar's quoting are kept, between
+ * fences. Null when the printing would not read back as `fields`.
+ */
+export function houseHeader(document: Document, fields: Record<string, unknown>): string | null {
+	let printed: string;
+	try {
+		printed = document.toString(HOUSE);
+	} catch {
+		return null;
+	}
+	const header = `${OPEN}${printed === 'null\n' || printed === '{}\n' ? '' : printed}---\n`;
+	return sameValue(frontmatter(header)?.fields, fields) ? header : null;
+}
+
+/** A header holding `fields` alone, in house style: what a document that cannot print as itself is written as. */
+export const plainHeader = (fields: Record<string, unknown>) => houseHeader(new Document(fields, PLAIN), fields) ?? `${OPEN}${stringify(fields, PLAIN)}---\n`;
+
+/**
  * RULE: the house style, which the server applies to every note that lands:
- * the frontmatter printed one way (`yaml`'s printer over the document as
- * written, so comments, key order and each scalar's quoting are kept), and
- * the body never touched. Deterministic and idempotent; a text with no
- * parseable frontmatter is left as it is, and so is one whose printing
- * would read differently.
+ * the header printed by `houseHeader`, and the body never touched.
+ * Deterministic and idempotent; a text with no parseable frontmatter is
+ * left as it is, and so is one whose printing would read differently.
  */
 export function formatMarkdown(text: string): string {
 	const front = frontmatter(text);
 	if (front === null) return text;
-	let printed: string;
-	try {
-		printed = front.document.toString(HOUSE);
-	} catch {
-		return text;
-	}
-	const yaml = printed === 'null\n' || printed === '{}\n' ? '' : printed;
-	const formatted = `${OPEN}${yaml}---\n${text.slice(front.bodyStart)}`;
-	return sameValue(frontmatter(formatted)?.fields, front.fields) ? formatted : text;
+	const header = houseHeader(front.document, front.fields);
+	return header === null ? text : header + text.slice(front.bodyStart);
 }
 
 /** A text's body: what follows its frontmatter, or the whole text when it has none. */
@@ -169,9 +183,11 @@ export function withBody(text: string, body: string) {
 	return guardBody(header, body);
 }
 
-/** A body after an empty header must not itself read as frontmatter. */
+/** RULE: a body after no header must not itself read as one: it gets an empty header. */
+export const emptyHeaderFor = (body: string) => (frontmatter(body) === null ? '' : `${OPEN}---\n`);
+
 function guardBody(header: string, body: string) {
-	return header === '' && frontmatter(body) !== null ? `${OPEN}---\n${body}` : header + body;
+	return `${header === '' ? emptyHeaderFor(body) : header}${body}`;
 }
 
 /**

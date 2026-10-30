@@ -128,8 +128,8 @@ describe('write', () => {
 		expect(parseMarkdown(out).body).toBe('---\na: 1\n---\n');
 	});
 
-	test('a closing fence at the end stays bare', () => {
-		expect(writeMarkdown('---\na: 1\n---', { fields: { a: 2 } })).toBe('---\na: 2\n---');
+	test('a closing fence at the end is closed as house style closes it, and a body after it starts on a line of its own', () => {
+		expect(writeMarkdown('---\na: 1\n---', { fields: { a: 2 } })).toBe('---\na: 2\n---\n');
 		expect(writeMarkdown('---\na: 1\n---', { body: 'B' })).toBe('---\na: 1\n---\nB');
 	});
 

@@ -4,8 +4,8 @@
  * The closing people review's probes P1 to P12, each the sequence a person
  * would notice, with what they should see after the phase 0a decisions:
  * a stale edit across a delete or a second create appends whole as one
- * conflict block (D3); a field clash keeps main's value and writes the other
- * as a conflict block (D2); a merge of notes whose frontmatter parses writes frontmatter that parses (D4); there are no
+ * conflict block (D3); a field both sides set takes the later arrival's
+ * value at the server, with no block; a merge of notes whose frontmatter parses writes frontmatter that parses (D4); there are no
  * stored notices: what contested is a block in the text, and whatever of a
  * person's the shared text does not hold stays held on their device with a
  * reason (a refusal, a delete that lost to an edit); an editor's save merges
@@ -286,7 +286,7 @@ test('P12: a blob write lands only over the blob its writer saw; one that lost l
 	expect(bob.replica.state(beside(a))).toEqual({ status: 'synced' });
 });
 
-test('a field both sides set keeps main\'s value in the frontmatter and writes the other as a conflict block (D2)', () => {
+test("a field both sides set takes the later arrival's value at the server, with no block (the header merges by key)", () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/a.md';
 	alice.replica.write(path, note('one\n'));
@@ -297,10 +297,9 @@ test('a field both sides set keeps main\'s value in the frontmatter and writes t
 	settle();
 	bob.setOnline(true);
 	settle();
-	const text = world.server.read(path) ?? '';
-	expect(text.startsWith('---\ntitle: A\nmood: calm\n---\n')).toBe(true);
-	expect(text).toContain('mood: busy');
-	expect(findConflicts(text)).toHaveLength(1);
+	// Bob's write reaches the server after Alice's: his value wins, and hers stays in history.
+	expect(world.server.read(path)).toBe(note('one\n', 'title: A\nmood: busy'));
+	expect(alice.replica.read(path)).toBe(note('one\n', 'title: A\nmood: busy'));
 });
 
 test('a pending delete and an offline rename survive a flush and the window passing', async () => {
