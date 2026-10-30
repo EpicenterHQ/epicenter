@@ -1,5 +1,4 @@
 {
-	"legacyConfig": "{\"homes\":{\"epicenter\":\"/elsewhere/records\"},\"folders\":[\"relative/keep\"]}",
 	"cases": [
 		{
 			"name": "a missing root and records child are created",

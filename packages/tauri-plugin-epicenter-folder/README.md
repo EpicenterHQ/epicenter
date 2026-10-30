@@ -18,7 +18,7 @@ bound to the calling WebView's label
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), the fixed app defaults (`library.rs`), and bookmarks (`bookmarks.rs`). No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), and the fixed app defaults (`library.rs`). No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
@@ -93,14 +93,7 @@ any directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
 anything is made. Native and CLI records admission run the same cases from
-`fixtures/records-default.json`, each with an earlier build's `folders.json`
-present that neither reads.
-
-`bookmarks` is the machine's remembered folders: a JSON array of path
-strings in `<AppData>/bookmarks.json`, changed under the exclusive lock
-`.bookmarks.json.epicenter-save-lock` by native shells and the CLI alike. A
-bookmark is a shortcut, never a permission or a default. Contents in another
-shape are reported and left as they are.
+`fixtures/records-default.json`.
 
 `Directory::create(path)` prepares a fixed default computed by the shell,
 creating it and its parents when missing and retaining its canonical root.

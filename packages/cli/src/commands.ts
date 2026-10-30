@@ -40,35 +40,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 			'query saved Markdown documents for the desktop editor, SQL on stdin',
 	},
 	{
-		path: ['folders', 'pin'],
-		args: '<directory>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary: 'pin an existing folder in the Folders window',
-	},
-	{
-		path: ['folders', 'unpin'],
-		args: '<directory>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary: 'unpin a folder without changing its files',
-	},
-	{
-		path: ['folders', 'list'],
-		args: '',
-		minArgs: 0,
-		maxArgs: 0,
-		summary: 'list pinned and recent folders and their availability',
-	},
-	{
-		path: ['folders', 'remove-recent'],
-		args: '<directory>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary: 'remove a folder from Recent without changing its files',
-	},
-
-	{
 		path: ['check'],
 		args: '<contract> [<dir>]',
 		minArgs: 1,

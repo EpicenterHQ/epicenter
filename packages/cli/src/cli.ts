@@ -45,18 +45,6 @@ const HANDLERS: Record<string, Run> = {
 			directory as string,
 			json,
 		),
-	'folders pin': async ({ positionals: [directory], json }) =>
-		(await import('./navigation.js')).foldersCommand('pin', directory, json),
-	'folders remove-recent': async ({ positionals: [directory], json }) =>
-		(await import('./navigation.js')).foldersCommand(
-			'remove-recent',
-			directory,
-			json,
-		),
-	'folders list': async ({ positionals: [directory], json }) =>
-		(await import('./navigation.js')).foldersCommand('list', directory, json),
-	'folders unpin': async ({ positionals: [directory], json }) =>
-		(await import('./navigation.js')).foldersCommand('unpin', directory, json),
 	check: async ({ positionals: [contract, dir], json }) =>
 		(await import('./contract-commands.ts')).check(
 			contract as string,

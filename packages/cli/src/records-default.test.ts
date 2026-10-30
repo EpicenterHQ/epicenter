@@ -2,8 +2,7 @@
  * The records folder is admitted by the same filesystem cases as the native
  * `library::open_default(RECORDS)` (`records-default.json`). A noncreating
  * read makes nothing; a creating one makes or reuses `<root>/so.epicenter`.
- * Refused locations are left as they were, an earlier build's `folders.json`
- * changes nothing, and no configuration is written.
+ * Refused locations are left as they were, and no configuration is written.
  */
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -58,8 +57,6 @@ for (const scenario of fixture.cases as RecordsCase[]) {
 				await symlink(join(base, target), join(base, alias), 'dir');
 			}
 			await mkdir(dataDir, { recursive: true });
-			const legacy = join(dataDir, 'folders.json');
-			await writeFile(legacy, fixture.legacyConfig);
 			const candidate = join(folderDir, 'so.epicenter');
 			const existed = await present(candidate);
 			const rootExisted = existsSync(folderDir);
@@ -78,8 +75,7 @@ for (const scenario of fixture.cases as RecordsCase[]) {
 				await expect(epicenterDirectory(paths, true)).rejects.toThrow();
 				expect(await present(candidate)).toBe(existed);
 			}
-			expect(await readdir(dataDir)).toEqual(['folders.json']);
-			expect(await readFile(legacy, 'utf8')).toBe(fixture.legacyConfig);
+			expect(await readdir(dataDir)).toEqual([]);
 			for (const file of scenario.files ?? [])
 				expect(await readFile(join(base, file), 'utf8')).toBe('keep');
 		} finally {

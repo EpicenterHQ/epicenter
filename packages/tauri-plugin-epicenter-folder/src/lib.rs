@@ -41,8 +41,8 @@ use tauri::plugin::TauriPlugin;
 use tauri::{Manager, RunEvent, Runtime, WindowEvent};
 
 pub use epicenter_folder_core::directory::{Directory, DirectoryError};
+pub use epicenter_folder_core::library;
 pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
-pub use epicenter_folder_core::{library, navigation};
 
 mod command_names;
 mod commands;
