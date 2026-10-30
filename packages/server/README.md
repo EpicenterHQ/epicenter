@@ -19,9 +19,10 @@ its own host and any other deployment's under its origin.
 
 Epicenter hosts no MCP server
 ([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)):
-agents on a machine use files, Git, and the `epicenter` CLI. It hosts no
-blobs either: a recording's audio stays on the machine that made it
-([ADR-0577](../../docs/adr/0577-audio-stays-on-the-machine-that-recorded-it.md)).
+agents on a machine use files, Git, and the `epicenter` CLI. The only bytes
+it keeps beside Git are a hosted repository's Git LFS objects: in R2 on the
+Worker, on disk on Bun
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
 ## The surfaces
 
@@ -67,7 +68,8 @@ elsewhere (`resolveOAuthAudiences`).
 | `GET /api/repos` | `folders:read` on the Git audience |
 
 `<namespace>` may be `~`, the caller's personal namespace, so a web app reaches
-`<account>/<app>` from its token alone (decision 46 of the file contract).
+`<account>/<app>` from its token alone; `openRemote` in `@epicenter/folder/remote`
+uses it.
 
 With a store that has `objects` (the disk store), every push goes to the
 receiver (`src/routes/receive.ts`), never the store's own receive-pack. It
@@ -85,6 +87,24 @@ binary written beside its target as a conflict copy, the standard
 kept under `refs/epicenter/captures/<id>`, moved with `main` in one transaction
 and hidden from clients. Both use the `GitObjects` port (`src/git/objects.ts`):
 refs, object reads, ancestry, and an atomic compare-and-swap `apply`.
+
+A web write names each file with the Git blob id it read as `base`; without
+one it is a create. A file other than a note names an LFS object already
+uploaded through the batch API:
+
+```txt
+POST <git audience>/~/recorder-demo.git/epicenter/writes
+{ "captureId": "2026-10-31T01-00-05-123Z-k3x9a2f8",
+  "files": [
+    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.md", "text": "---\ntitle: Standup\n---\n" },
+    { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.m4a", "lfs": { "oid": "<sha256>", "size": 48213 } } ] }
+-> 200 { "commit", "paths", "blobs": { "<path>": "<blob id>" }, "outcomes": [{ "path", "landed", "outcome" }] }
+```
+
+An outcome is `written`, `merged`, `conflict`, `conflict-copy`, `unchanged`,
+`deleted`, or `kept`. A replay of the same capture returns the same receipt; a
+replay with other content is 409 `CaptureMismatch`, carrying the original
+receipt. A body over 16 MiB is 413 `too_large`.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,

@@ -4,7 +4,7 @@
 read or rewrite a folder against it; a folder holds no `epicenter.json` for
 them. `query` still requires declared table schemas in a legacy root
 `epicenter.json`, and `schema export` and `schema import` exchange those
-schemas explicitly. See [portable declarations](../folder/README.md#portable-schemas-and-generic-documents)
+schemas explicitly. See [portable declarations](../folder/README.md#helpers)
 and [shared vocabulary](../../docs/CONTEXT.md).
 
 The `epicenter` command. Each command is a thin wrapper over a function in a
@@ -17,6 +17,15 @@ is deleted. ADR-0611 describes the planned reduction.
 ```sh
 bun run epicenter check path/to/contract.json path/to/folder   # from the repository root
 bun packages/cli/src/bin.ts query path/to/folder 'SELECT stem FROM posts'
+```
+
+`init`, `clone`, `sync`, `status`, and `forget` keep a data folder's history
+with stock `git` and `git-lfs`
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)):
+
+```sh
+epicenter clone <namespace>/recorder-demo ~/Epicenter/recorder-demo
+epicenter sync ~/Epicenter/recorder-demo   # 0 synced, 1 run again, 2 stopped
 ```
 
 The desktop app compiles `src/bin.ts` into the one binary it ships (`bun run
@@ -129,7 +138,7 @@ A hosted folder's remote is `<git origin>/<namespace>/<name>.git`
 cloud and `<origin>/git` for any other deployment, and `<namespace>` is the
 owner's 12-character id (`epicenter repos` lists them).
 
-- A folder connects with plain `git remote add origin <url>` (decision 39).
+- A folder connects with plain `git remote add origin <url>`.
   The server answers a name nobody holds as an empty repository, so the
   first sync's fetch finds nothing to take, and its push creates the
   repository. Any `git` the CLI runs against one of the deployment's hosted
@@ -153,7 +162,7 @@ in-memory keychain with a signed-in grant through `EPICENTER_TEST_SECRETS`'s
 `init`, `sync`, `clone`, `forget`, `status`, and the hidden `merge-driver`
 live in `src/sync/` and run the system `git` through `runGit` in
 `@epicenter/folder/bun`, which runs no hooks. `epicenter sync` is the only
-desktop committer (decision 31): apps write files, and sync commits them
+desktop committer: apps write files, and sync commits them
 with real `git add`, so Git LFS's filters run.
 
 - `init [<dir>]` sets up or repairs a data folder and says what it changed:
@@ -166,7 +175,8 @@ with real `git add`, so Git LFS's filters run.
   directories are exempt. The ignore block is `REPOSITORY_IGNORE`:
   `.DS_Store` and `.epicenter/` (a device's outbox) are never committed.
   Then `merge.epicenter.driver`, the command link (`~/.local/bin/
-  epicenter merge-driver %O %A %B %P`, ADR-0566); `git lfs install --local`;
+  epicenter merge-driver %O %A %B %P`, the link `install-command` keeps);
+  `git lfs install --local`;
   `git lfs pull` for files checked out as pointers; the deployment's
   credential helper per clone; and the folder in the global, multi-valued
   `epicenter.folder`. A folder inside another repository is refused unless
@@ -178,11 +188,11 @@ with real `git add`, so Git LFS's filters run.
   repository `init` did not adopt, an unfinished merge or rebase, unmerged
   entries, or a clone without the driver and LFS filters; stages and commits
   only the folder's own paths; fetches `origin`; stops if the remote `main`
-  no longer contains `refs/epicenter/last-seen` (a rewrite, decision 33);
+  no longer contains `refs/epicenter/last-seen` (an owner rewrote `main`);
   stops with `retry` if another program holds `index.lock`; merges
   `origin/main` (unrelated histories only on first contact); keeps the
   edited side of an edit/delete; lands a binary both sides replaced as
-  `<stem> (conflict <hash7>)<ext>` beside the remote's (decision 44); runs
+  `<stem> (conflict <hash7>)<ext>` beside the remote's; runs
   `git lfs push`, then pushes, fetching and merging again when the push is
   rejected, up to five times. `--json` prints one `{"sync": {"folder",
   "status", "head", "notes", "message"}}` line per folder per round. Exit
@@ -195,7 +205,8 @@ with real `git add`, so Git LFS's filters run.
   another registered folder shares the repository.
 - `merge-driver` runs `settle` on a note: the later arrival at the server
   wins a front matter key (`%A` under a merge, `%B` under a rebase), and the
-  body merges by line with one conflict block per clash.
+  body merges by line, then by word; two changes at the same spot give one
+  conflict block of whole lines.
 
 `src/sync/sync.e2e.test.ts` runs spike 7's cases against a bare remote and
 a small LFS server in a sandbox (its own `HOME`, `GIT_CONFIG_GLOBAL`, and

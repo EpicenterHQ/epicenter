@@ -71,8 +71,9 @@ and every resource it serves accepts only its opaque access tokens: `/v1/*`
 takes the API audience and `ai`, Git requests the Git audience with
 `folders:read` or `folders:write` and a namespace role, and `GET /api/repos`
 the Git audience with `folders:read`. Epicenter hosts no MCP server
-([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)) and no blobs
-([ADR-0577](../../docs/adr/0577-audio-stays-on-the-machine-that-recorded-it.md)). An app reads who signed in from Better Auth's
+([ADR-0578](../../docs/adr/0578-epicenter-hosts-no-mcp-server.md)). The only
+bytes it keeps beside Git are hosted repositories' Git LFS objects, in R2
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)). An app reads who signed in from Better Auth's
 `/auth/oauth2/userinfo`, which needs `openid`, and answers the email only
 with `email`. Browser
 apps get a token by authorization code with PKCE as their own client; the
@@ -290,7 +291,13 @@ file other than a note is refused. The Bun entry keeps bare repositories under `
 (`<root>/<id>.git`; clone and fetch through `git http-backend`, every push
 through the forward-only receiver, web writes through the translator at
 `<repo>.git/epicenter/writes`) and Git LFS objects under `LFS_STORE_ROOT`
-(`<root>/<id>/<aa>/<bb>/<oid>`); without them those routes answer 503.
+(`<root>/<id>/<aa>/<bb>/<oid>`); without them those routes answer 503:
+
+```sh
+# with DATABASE_URL and the variables in .env.example set
+GIT_STORE_ROOT=/tmp/epicenter/git LFS_STORE_ROOT=/tmp/epicenter/lfs bun run dev:bun
+```
+
 Hosted Git is unmetered. The hosted cloud also needs `git.epicenter.so` routed
 to this Worker; that is a deploy step, not in this repository's config.
 

@@ -1,5 +1,11 @@
 # @epicenter/folder
 
+Two surfaces open an app's files. The contract openers, `openDevice` and
+`openRemote`, return the typed client an app's file contract derives
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md));
+see [Contract openers](#contract-openers). The legacy `openFolder` below serves
+the apps that have not moved to a contract.
+
 A Folder mirrors the files that storage last returned or accepted. It owns a
 root, a serial write queue, and table views over Markdown files at
 `<table>/<id>.md`. A table schema interprets rows; it does not limit what a
@@ -12,9 +18,11 @@ landed storage.
 | Import | Purpose |
 | --- | --- |
 | `@epicenter/folder` | Open this browser origin's default folder or the directory bound to this Tauri window. Apps may alias this exact specifier to one platform entry at build time. |
-| `@epicenter/folder/browser` | Open the fixed IndexedDB folder in a web page. Refuses inside Tauri. |
+| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, `closeDevice`, and `outboxOf`; and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
+| `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), `outboxOf`, and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
+| `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository, and `startUploading(device, remote)`. |
 | `@epicenter/folder/tauri` | Open the directory that the shell bound to this window. Refuses outside Tauri. |
-| `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration and Git history tools. |
+| `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration tools, `holdingFileLock`, and the system `git` runner. |
 | `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
 | `@epicenter/folder/file-browser` | Pure path, tree, text classification, and newline helpers. |
 | `@epicenter/folder/documents` | Interpret saved Markdown files for the generic editor and SQL reader. |
@@ -106,8 +114,8 @@ receives the same `Saved` answer after the mirror shows what landed, or a
 write wins on the same unit: an `update({ fields })` sets its named fields, an
 `update({ body })` sets the body while keeping storage's frontmatter, and a
 whole-file `write` or `replace` replaces the file. A whole-file write queued
-after a field update can overwrite that field. Git sync retains its separate
-three-way merge and conditional storage rules.
+after a field update can overwrite that field. A Folder runs no Git merge:
+`epicenter sync` merges with `settle` from `@epicenter/definition/merge`.
 
 **Composition.** Files are the only durable authority. A collaboration layer (for example a Yjs document) is a session over text units only, the body, and persists through Folder instructions like any editor. Fields are never collaborative; they stay last-write-wins per field. No layer writes files except through the Folder. Agents may write files directly or issue the same Folder instructions through Epicenter; either way their changes reach editors through the Folder copy.
 
@@ -152,6 +160,28 @@ as sidecars under `.epicenter/outbox/`. `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. See
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
+
+`openRemote(contract, { account })` returns the same client over the
+signed-in person's repository for the app, `<git audience>/~/<contract
+name>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
+remote version is the Git blob id on `main`. `startUploading` sends each
+capture in the device's outbox, once signed in and online, and deletes the
+local copy only at the version the server's receipt shows landed:
+
+```ts
+import { openRemote, startUploading } from '@epicenter/folder/remote';
+
+const remote = openRemote(recorder, { account });
+using uploader = startUploading(device, remote); // Symbol.dispose stops it
+
+const note = await remote.recordings.get({ id });
+if (note.error === null)
+	await remote.recordings.update({ id }, { title: 'Daily' }, { over: note.data.version });
+```
+
+The web never syncs: edits and deletes of repository files need the server,
+and only files created on the device wait in the outbox. Uploading stops
+when the account is retired. See `src/remote/`.
 
 ## Browser storage
 
@@ -215,9 +245,10 @@ chooses at call time and loads only the chosen engine. The
 | `src/folder.ts`, `storage.ts`, `patch.ts`, `write-refusal.ts` | Mirror, host contract, canonical patches, and write refusals. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `testing.ts` | Public and test entries. |
 | `src/device/` | `openDevice`: the contract client, its Bun and OPFS stores, the outbox, and `check`/`format`. |
+| `src/remote/` | `openRemote`, its wire to the server, and the uploader. |
 | `src/browser/` | The legacy IndexedDB repository behind `openFolder`. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
-| `src/shared/` | Markdown reading and Git sync content merge rules. |
+| `src/shared/` | Markdown reading, rows, and the legacy engine's file content types; its three-way `merge` has no caller outside its own test. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
 | `src/git/raw-objects.ts` | Git objects for the browser repository. |
 | `write.ts` | A guarded put whose lost reply is read back. |

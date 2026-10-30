@@ -1,10 +1,12 @@
 # @epicenter/definition
 
-Schema helpers and preparation used by the current `@epicenter/folder`
-implementation. The exported `Definition` type is the current API name for
-an app's table schemas and related settings. The new browser engine accepts
-table schemas directly. See [shared vocabulary](../../docs/CONTEXT.md) for
-the chosen terminology; the existing package name and exports remain current.
+An app's file contract and the pure rules every Epicenter tool applies to it:
+the layout, the note codec, and the merge
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+`@epicenter/folder`'s openers, the `epicenter` CLI, and the server all import
+these. The root entry also keeps the legacy table schemas (`defineTable`,
+`prepareDefinition`) that `openFolder` still reads; see
+[One type, written and prepared](#one-type-written-and-prepared).
 
 It is inert. Importing it acquires nothing, and it knows no storage. Its
 dependencies are `typebox`, `wellcrafted`, `yaml` (the note codec) and
@@ -12,9 +14,9 @@ dependencies are `typebox`, `wellcrafted`, `yaml` (the note codec) and
 
 ## The file contract
 
-The newer surface, which the folder, the CLI and the server share, lives in
-four subpaths. `defineTable` and `prepareDefinition` below stay as the legacy
-surface until each app moves to a contract.
+The contract surface lives in four subpaths. `defineTable` and
+`prepareDefinition` stay as the legacy surface until each app moves to a
+contract.
 
 | Subpath | What it holds |
 | --- | --- |
@@ -55,6 +57,55 @@ JSON Schema properties, with JSON Schema's own `required`, plus a body. Any
 other path holds files. A note reads as `{ ...placeholders, ...fields, body,
 version }` and a file as `{ ...placeholders, bytes, version }`; every update
 and delete passes back the `version` it read as `over`.
+
+### Merging a note
+
+`settle(base, current, incoming, { parties })` is the one note merge. The
+server runs it when a web write lands on a moved `main`, and
+`epicenter merge-driver` runs it for `git merge`. `incoming` is the later
+arrival:
+
+```ts
+import { settle } from '@epicenter/definition/merge';
+
+const base = '---\ntitle: Standup\n---\nPay Alice\n';
+const current = '---\ntitle: Daily\n---\nPay Alice now\n';
+const incoming = '---\ntitle: Weekly\n---\nPay Alice later\n';
+const parties = {
+  current: { author: 'desktop', time: '2026-10-31T01:00:00Z' },
+  incoming: { author: 'web', time: '2026-10-31T01:00:05Z' },
+};
+settle(base, current, incoming, { parties }); // { text, blocks: true }
+```
+
+```md
+---
+title: Weekly
+---
+<<<<<<< current desktop 2026-10-31T01:00:00Z 5b643f5
+Pay Alice now
+||||||| base 946457d
+Pay Alice
+=======
+Pay Alice later
+>>>>>>> incoming web 2026-10-31T01:00:05Z cfa4e0a
+```
+
+A front matter key both sides set goes to the later arrival. The body merges
+by line, then by word within a line both sides changed; two different changes
+at the same spot make one conflict block of whole lines. An edit beats a
+delete. A binary file never merges: `settlePointer` lands it, or names a
+conflict copy `<stem> (conflict <hash7>).<ext>` with `conflictSibling`.
+Whatever `settle` writes is in house style.
+
+### How a folder is stored in Git
+
+`storedWithLfs(path)` (`/contract`) is true for every path that is neither a
+`.md` note (in any case) nor hidden (a segment starting with `.`): those files
+are Git LFS pointers. `REPOSITORY_ATTRIBUTES` is the `.gitattributes` block
+that says so, with `merge=epicenter` on notes; `epicenter init` commits it and
+the server writes it in a repository's first commit. `REPOSITORY_IGNORE` keeps
+`.DS_Store` and `.epicenter/` out of Git.
 
 ```ts
 import { check, defineTable, field, prepareDefinition } from '@epicenter/definition';
