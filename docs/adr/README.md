@@ -895,4 +895,4 @@ When you add an ADR, add its row here.
 | [0689](0689-an-edit-shows-what-you-typed-the-queue-carries-it-the-folder-shows-what-landed.md) | An edit shows what you typed; the queue carries it; the folder shows what landed | Proposed (implemented; supersedes the working-document model) |
 | [0690](0690-merges-happen-only-where-history-records-the-common-ancestor.md) | Merges happen only where history records the common ancestor | Proposed |
 | [0691](0691-offline-reopening-keeps-the-sites-https-origin.md) | Offline reopening keeps the site's HTTPS origin | Proposed (renumbered from 0689) |
-| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Accepted (supersedes 0545, 0622, 0623, and 0628; amends 23 records; grants, secrets, the Tauri opener, notify, the deep link, and Whispering unbuilt) |
+| [0700](0700-apps-share-data-through-a-file-contract-recorded-in-git.md) | Apps share data through a file contract recorded in Git | Proposed (would supersede 0545, 0622, 0623, and 0628; amends 23 records; grants, secrets, the Tauri opener, notify, the deep link, and Whispering unbuilt) |
