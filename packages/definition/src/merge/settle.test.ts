@@ -8,7 +8,7 @@
  * - a change against an unchanged base lands as is; a repeat lands as nothing
  * - a delete loses to an edit it had not seen; an edit brings a deleted note back
  * - a field both sides set takes the later write's value (incoming, arriving now, over main's), with no block
- * - a path created twice keeps current and appends incoming whole (D3); a recreated note merges by content
+ * - a path created twice keeps current and appends incoming whole (D3), unless both are one note in house style; a recreated note merges by content
  * - an identical block is never written twice
  *
  * Ported from `claude/repository-v2` `core/settle.test.ts` at `c32dd466`;
@@ -93,6 +93,13 @@ describe('settle', () => {
 				sides: { incoming: { author: 'alice/laptop', time: 't2' } },
 			},
 		]);
+		// The same note created twice, in another formatting, is one note: a resend lands as nothing.
+		const stored = `---\ntitle: One\nat: "2026-10-31"\n---\nbody\n`;
+		const resent = `---\nat: '2026-10-31'\ntitle: One\n---\nbody\n`;
+		expect(settle(null, stored, resent, { parties })).toEqual({
+			text: stored,
+			blocks: false,
+		});
 		// Nothing tells a note made again from the one a base names: it merges as an edit of it (the accepted oddity).
 		const reused = settle(note('Old'), note('New'), note('Old', 'edit\n'), {
 			parties,

@@ -135,6 +135,14 @@ export function settle(
 	// A delete against an edit it had not seen keeps the edit; an edit brings a deleted note back.
 	if (incoming === null) return { text: current, blocks: false };
 	if (current === null) return written(incoming, false, keys);
+	// Two creates of one note (a resend after a lost reply, decision 68):
+	// equal in house style, in one key order, so current stands.
+	if (base === null) {
+		const parsed = parseRowSource(current);
+		const order = keys ?? (parsed.error === null ? parsed.data.keyOrder : []);
+		if (written(current, false, order).text === written(incoming, false, order).text)
+			return { text: current, blocks: false };
+	}
 	// Two creates: another note.
 	const labels = labelled(parties, base, current, incoming);
 	if (base === null)
