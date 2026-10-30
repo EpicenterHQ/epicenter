@@ -753,7 +753,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		}
 		let saved = false;
 		for (const d of everyone) {
-			const held = new Map(d.replica.notSent().map((h) => [h.path, h.reason]));
+			// What its person fixes or discards: a file still uploading is the upload track's, not theirs.
+			const held = new Map(d.replica.notSent().filter((h) => h.reason !== UPLOADING).map((h) => [h.path, h.reason]));
 			for (const path of new Set([...d.replica.paths(), ...held.keys()])) {
 				const text = d.replica.read(path);
 				const reason = held.get(path);
