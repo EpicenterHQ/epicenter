@@ -8,10 +8,12 @@ flushes it into Git, so `git clone` reads the same files.
 
 Two rules shape everything a person sees:
 
-- **Every conflict is text.** When two people change the same lines, or the
-  same field, the server keeps one version in place and writes the other into
-  the note as a labelled conflict block. Every value someone saved is in the
-  shared text, and in Git.
+- **Every conflict is text.** When two people change the same lines, the
+  server keeps one version in place and writes the other into the note as a
+  labelled conflict block. The header merges by top-level key, each value
+  whole: when two people set the same field, the write that reaches the
+  server later wins, and the other value stays in Git. Every line someone
+  saved is in the shared text, and every value is in Git.
 - **The repository repairs what it can represent.** A note is always
   valid: one whose frontmatter does not parse is a note with no fields, its
   whole text the body, and it syncs. A blob write that lost lands beside the
@@ -312,8 +314,8 @@ if (opened.error === null) {
 
 - Every change is written at once, as the exact text over the text it was
   typed on, and the worker applies the writes in order, merging each with
-  whatever reached it meanwhile: a field set elsewhere merges by key, and one
-  clash is one conflict block, however many keystrokes follow it. Nothing
+  whatever reached it meanwhile: a field set elsewhere merges by key (the
+  later write winning a field both set), and one clash is one conflict block, however many keystrokes follow it. Nothing
   waits for the person to choose; a clash is text, resolved by editing it.
 - While writes are in flight the views keep the typing; once the last is
   answered they show what the worker holds, through changes the cursor maps

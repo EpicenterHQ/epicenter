@@ -85,9 +85,15 @@ that does not land leaves the file.
 
 **Every conflict is text.** `settle` runs the Epicenter merge (`core/merge.ts`):
 
-- Frontmatter merges by key. When both sides set one key, the current value
-  stays in the frontmatter, and the incoming value is written into the body
-  as a labelled conflict block.
+- A note is a header and a body: the header is the fenced block at the very
+  top when it parses; otherwise there is none and the whole text is body.
+  The header merges by top-level key, each value whole (a list or a map is
+  one value). When both sides set one key, the later arrival at the server
+  wins: in `merge`, `incoming` is the write arriving now and `current` is
+  `main`, so `incoming`'s value wins. Never a device clock. No block is
+  written; the value that lost stays in history. A delete of a key still
+  loses to an edit it had not seen. The header is written in house style
+  from `current`'s document, so its comments stay.
 - The body merges by line, so edits on neighboring lines do not conflict.
   Lines both sides changed merge again by word. What still overlaps is a
   conflict block.
@@ -160,7 +166,7 @@ has unresolved conflicts; resolve some first"). The server reads no schema.
 frontmatter (a YAML mapping between `---` fences) is a note with no fields,
 its whole text the body; an app's schema then reports its fields missing.
 Nothing refuses or holds a note for its frontmatter, and a merge of three
-notes whose frontmatter parses writes frontmatter that parses (a seeded
+notes writes a header that parses wherever both sides had one (a seeded
 property). A folder reads a note's CRLF line endings and byte order mark as
 LF with none, keeps the file's own hash in its record, and never writes the
 file back only to normalize it.
@@ -337,8 +343,8 @@ another repository, server or account is refused (`BoundElsewhere`).
   that lost lands beside the one that won. Two people
   typing in the same words at once produce one block, which stays in the
   note and in Git until someone edits it away.
-- Every value someone saved is in the shared text and in Git history,
-  including the one that lost a field clash.
+- Every line someone saved is in the shared text and in Git history. A
+  field value that lost to a later write of its key is in Git history.
 - A stale edit to a path that was deleted and reused lands in the new note
   as a block. Nothing is lost; it is visible and repairable, as in Git,
   which has no notion of a different note at one path.
@@ -381,7 +387,13 @@ another repository, server or account is refused (`BoundElsewhere`).
   delete:** every conflict is text, and the only device states are
   `waiting` and `refused`.
 - **The current value winning a field clash, with the loser only reported:**
-  the loser would reach no one else and no history.
+  replaced by the later arrival winning, with no report and no block: the
+  loser is `main`'s earlier value, already in history.
+- **The current value winning a field clash, with the loser written into the
+  body as a block (this record's rule until the header merged by key):** a
+  field's block could not be continued except by matching text, and two
+  headers written at once over a note whose header did not parse merged as
+  lines into duplicate keys.
 - **Refusing a note whose frontmatter does not parse, and holding it on its
   device:** a note half typed could not sync, and two repairs of one never
   met; a note is always valid instead, and a merge of three notes whose
