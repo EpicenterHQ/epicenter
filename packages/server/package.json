@@ -23,6 +23,7 @@
 		"@epicenter/principal": "workspace:*",
 		"@hono/standard-validator": "catalog:",
 		"arktype": "catalog:",
+		"aws4fetch": "^1.0.20",
 		"better-auth": "catalog:",
 		"drizzle-orm": "catalog:",
 		"hono": "catalog:",

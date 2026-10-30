@@ -13,8 +13,9 @@
  *
  * The batch's actions point back at these routes, carrying no credential:
  * `git lfs` sends the remote's own (its credential helper, or
- * `http.<url>.extraHeader`), and a browser sends `account.fetch`'s. On R2
- * (phase 7) the actions become presigned URLs instead.
+ * `http.<url>.extraHeader`), and a browser sends `account.fetch`'s. A store
+ * that presigns (R2) gets presigned upload and download actions instead,
+ * whose headers the client sends as given; `verify` stays on this server.
  *
  * `git.ts` authorizes every request and resolves the repository first.
  */
@@ -80,7 +81,23 @@ export async function answerBatch(
 			const { oid, size } = object;
 			const stored =
 				repositoryId !== null && (await store.verified(repositoryId, object));
-			const href = `${remote}/info/lfs/objects/${oid}`;
+			const verify = {
+				href: `${remote}/info/lfs/verify`,
+				expires_in: EXPIRES_IN,
+			};
+			const action = async (direction: 'upload' | 'download') => {
+				if (!store.presign || repositoryId === null)
+					return {
+						href: `${remote}/info/lfs/objects/${oid}`,
+						expires_in: EXPIRES_IN,
+					};
+				const { href, header, expiresIn } = await store.presign(
+					repositoryId,
+					object,
+					direction,
+				);
+				return { href, header, expires_in: expiresIn };
+			};
 			if (operation === 'upload')
 				return stored
 					? { oid, size }
@@ -88,20 +105,14 @@ export async function answerBatch(
 							oid,
 							size,
 							authenticated: true,
-							actions: {
-								upload: { href, expires_in: EXPIRES_IN },
-								verify: {
-									href: `${remote}/info/lfs/verify`,
-									expires_in: EXPIRES_IN,
-								},
-							},
+							actions: { upload: await action('upload'), verify },
 						};
 			return stored
 				? {
 						oid,
 						size,
 						authenticated: true,
-						actions: { download: { href, expires_in: EXPIRES_IN } },
+						actions: { download: await action('download') },
 					}
 				: { oid, size, error: { code: 404, message: 'object not found' } };
 		}),
