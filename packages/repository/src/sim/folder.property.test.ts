@@ -180,8 +180,11 @@ async function run(seed: number, steps: number) {
 				const before = folder.disk.text(path);
 				if (before !== null) folder.disk.write(backup, encoder.encode(before));
 				save(path, text, 'in-place', fresh);
-				// `set backup` keeps the copy; otherwise it goes.
-				if (random.chance(0.5)) later(QUIET / 2, () => folder.disk.unlink(backup));
+				// `set backup` keeps the copy; otherwise it goes, if it is still this save's copy (a later save may have put its own backup there).
+				if (random.chance(0.5) && before !== null)
+					later(QUIET / 2, () => {
+						if (folder.disk.text(backup) === before) folder.disk.unlink(backup);
+					});
 				return;
 			}
 			case 'jetbrains': {
