@@ -12,9 +12,12 @@ Two rules shape everything a person sees:
   same field, the server keeps one version in place and writes the other into
   the note as a labelled conflict block. Every value someone saved is in the
   shared text, and in Git.
-- **Typing that the shared text does not hold stays on the device.** A note
-  whose frontmatter does not parse, or that the server refuses, is saved here
-  and *held*, with its reason, until it can go. Nothing typed is dropped.
+- **The repository repairs what it can represent.** A note is always
+  valid: one whose frontmatter does not parse is a note with no fields, its
+  whole text the body, and it syncs. A blob write that lost lands beside the
+  other at a sibling the server names. A file that cannot go stays on the
+  device with its reason, *waiting* (the system clears it) or *refused*
+  (only a person can fix it). Nothing typed is dropped.
 
 ## Layers
 
@@ -23,7 +26,7 @@ Two rules shape everything a person sees:
 | `src/core/` | Pure code: hashes, trees, commit ids, the three-way merge and conflict blocks, Markdown frontmatter, the door rules every file must pass, templates and lenses (`defineApp`). |
 | `src/server/` | The server as a state machine over ports (`Store`, `GitObjects`, a timer): live history, pushes answered as applied, merged or refused, catch-up, and the flush into Git. |
 | `src/wire/` | HTTP and one WebSocket per device: commits, catch-ups and their answers, and every change event, in one ordered sequence. |
-| `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text, the position, the commit in flight, held work; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blob bytes on the device (`blobs.ts`), put and opened (`bytes.ts`), and the upload track (`uploads.ts`). |
+| `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text, the position, the commit in flight, work waiting or refused, and how each sent file landed; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blob bytes on the device (`blobs.ts`), put and opened (`bytes.ts`), and the upload track (`uploads.ts`). |
 | `src/hosts/browser/` | The browser host: a replica in this origin's private storage (`.epicenter/replicas/<id>/`), owned by one tab's worker under a Web Lock. |
 | `src/folder/` | The folder engine, host-free: a folder on disk as a projection of one replica (`engine.ts`), over the folder port (`fs.ts`) whose writes never destroy a save. |
 | `src/bun/` | Bun adapters: SQLite, a Git store on disk, blob bytes on disk (a device's and a server's), the development server, the folder port over `node:fs`, and `epicenter sync` (`folder.ts`, `folder-commands.ts`). |
@@ -117,7 +120,7 @@ keep or drop.
 ```ts
 const todos = repo.todos.all(); // every note, ordered by path; the same array until one changes
 const milk = repo.todos.get({ stem: 'milk' });
-if (milk?.valid) console.log(milk.fields.title, milk.body, milk.state.status); // 'synced' | 'sending' | 'held'
+if (milk?.valid) console.log(milk.fields.title, milk.body, milk.state.status); // 'synced' | 'sending' | 'waiting' | 'refused'
 else if (milk) console.log(milk.issues); // its fields as written, and why they do not fit
 
 const day = await repo.journal.read({ stem: '2026-10-29' }); // memory: false
@@ -161,7 +164,8 @@ repository, in a collection or none.
 
 ```ts
 const listed = await repo.files.list(); // [{ path, state }], ordered by path
-const waiting = await repo.files.waiting(); // only those not yet synced: sending, or held with why
+const waiting = await repo.files.waiting(); // only those not yet synced: sending, waiting or refused with why
+const outcomes = await repo.files.outcomes(); // how each file this device sent landed: landed, blocks, sibling (with its path), delete-did-not-take
 const readme = await repo.files.read('README.md'); // { path, text, state } or null, by any spelling of the path
 await repo.files.create('plans/trip.md', 'Go north\n');
 await repo.files.write('plans/trip.md', next, { over: before });
@@ -176,10 +180,14 @@ await repo.commit((batch) => {
 **The file is the unit.** `repo.commit` stores its writes on this device in
 one transaction (every path checked and every blob sealed first, so all of
 it is stored or none is), and from there each file goes to the server on
-its own. A file that cannot go yet (held with a reason, or a pointer owed
-its bytes) waits alone; nothing waits for it. So a rename whose new file is
-held lands its delete while the text waits, held, in the new file on this
-device. There are no commit messages: history names who wrote each change.
+its own, once its text has been quiet for 1.5 s (`SEND_QUIET`; a pause,
+never a hold). A file that cannot go yet (waiting or refused with a reason,
+or a pointer owed its bytes) stays alone; nothing waits for it. So a rename
+whose new name is refused lands its delete while the text stays, refused,
+in the new file on this device; there is no rename pairing. There are no
+commit messages: history names who wrote each change. The server formats
+every landing note's frontmatter in one house style (the body untouched),
+and a device's `time` is only a label (Git's author date).
 
 At a path that is not a note, `files.create` and `files.write` take a pointer (a blob moved by
 writing its pointer) or answer `BlobError.NotPointer` at once; bytes are
@@ -230,11 +238,12 @@ const { data: photo } = await repo.files.open('photos/beach.png');
 only where the path still holds the blob its writer saw, which the engine
 takes from the commit's parent; apps never pass it. A create expects no
 file (`Exists` at once if this device shows one), a replace expects one
-(`NotFound` if not). A create or replace that does not land is held with
-why ("a file with this name was just added elsewhere", "this file changed
-on another device"): its person keeps theirs under another name or
-discards it. A delete that does not land leaves the file, as a lost delete
-of a note does.
+(`NotFound` if not). A create or replace that does not land lands beside
+the other at a sibling the server names, `<stem> (conflict <hash7>).<ext>`,
+from the original stem and its bytes' hash; the answer names it, and the
+file's outcome says so. A device that knows its write lost sends what it
+was made over (`over`); it never names the sibling. A delete that does not
+land leaves the file, as a lost delete of a note does.
 
 **A pointer waits alone for its bytes** (ADR-0698, proposed). A note saved
 in one `repo.commit` with a new blob goes at once; the pointer goes once its
@@ -313,7 +322,7 @@ if (opened.error === null) {
   session is open, or after a failed write (`failed`, with `retry()`): it is
   shown, and written once a session opens or `retry` asks. A write lost with
   its session goes again over the text the worker holds, when that is one
-  the editor sent. A list shows a note whose editor failed as held, with
+  the editor sent. A list shows a note whose editor failed as waiting, with
   why, never as sending.
 - A delete made here (a collection's, one in a batch, or a write of no text)
   ends the note's editor and drops its draft, so nothing brings the note back.
@@ -353,7 +362,7 @@ scan, the scan after a dropped event, the periodic scan and `sync --once`
 run it over different paths. The saves one reconcile finds go to the
 replica in one transaction, and each goes to the server on its own: a
 rename is a delete and a create, so a new name the repository cannot take
-is held while the delete lands.
+is refused while the delete lands.
 
 Events are hints. A file whose hash equals the record is nothing, so the
 engine's own writes never come back as saves. A file modified within the
@@ -388,11 +397,13 @@ names a person could not mean (`DROPPINGS`): `name~`, `4913`, `#name#`,
 `~$name`, JetBrains' `___jb_tmp___` and `___jb_old___`, `.part`,
 `.crdownload`. Nor are symlinks and other files that are not regular: they
 are never followed, sent or written over. A save the repository cannot take
-is handed to the replica as refused, with why, and held alone at its path
-like any held file: a `.md` file that is not UTF-8, bytes the device store
-could not keep, and a twin (below). A valid text the door refuses goes in
-and is held with the door's reason. Either way `replica.held()` names it,
-with one meaning: a save waiting for its writer, holding nothing else.
+is handed to the replica as refused where it was found, with why, alone at
+its path: a `.md` file that is not UTF-8 or a twin (below) is `refused`,
+bytes the device store could not keep `waiting`. A text the door refuses
+goes in and waits or is refused with the door's reason. Either way
+`replica.notSent()` names it, holding nothing else. A note read with CRLF
+endings or a byte order mark goes in as LF with none; the record keeps the
+file's own hash, so the file is never written back only to normalize it.
 
 **Spellings.** The repository folds paths (NFC and case); a case-sensitive
 disk does not. A file whose path folds to another file's in the folder is a
@@ -444,8 +455,8 @@ ignored.
 
 | Exit | Line (`--json`: one JSON value per line) | Meaning |
 | --- | --- | --- |
-| 0 | `{"stopped": true}` | Everything was sent and landed |
-| 2 | `{"held": [{"path", "reason"}]}` | These files are held, each alone with why; everything else was sent |
+| 0 | `{"landed": [{"path", "outcome"}]}`, then `{"stopped": true}` | Everything was sent and landed; each file says how (`landed`, `blocks`, `sibling` with `at`, `delete-did-not-take`) |
+| 2 | `{"waiting": [{"path", "reason"}]}`, `{"refused": [{"path", "reason"}]}` | These files are not sent, each alone with why: waiting clears itself, refused needs a person; everything else was sent |
 | 2 | `{"pending": "<id>" \| null}` | Offline, or not answered yet; `<id>` is the commit in flight; the next `sync` sends it, once |
 | 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy, an `--agent` other than the folder's |
 
