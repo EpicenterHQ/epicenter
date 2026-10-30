@@ -130,6 +130,14 @@ type Look =
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const encoder = new TextEncoder();
 
+/**
+ * RULE: a note's bytes are read as LF text with no byte order mark, as the
+ * repository holds notes. The record keeps the bytes' own hash, so the file
+ * is never written back only to normalize it; a change from elsewhere is
+ * written as the repository holds it.
+ */
+const readNote = (buffer: Uint8Array) => decoder.decode(buffer).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+
 async function hashOf(bytes: Blob) {
 	const hasher = createHasher();
 	const reader = bytes.stream().getReader();
@@ -312,7 +320,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			const buffer = new Uint8Array(await bytes.arrayBuffer());
 			let text: string;
 			try {
-				text = decoder.decode(buffer);
+				text = readNote(buffer);
 			} catch {
 				return { path, kind: 'unreadable', reason: 'not UTF-8 text' };
 			}
@@ -581,7 +589,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		let text: string;
 		if (isNote(path)) {
 			try {
-				text = decoder.decode(new Uint8Array(await bytes.arrayBuffer()));
+				text = readNote(new Uint8Array(await bytes.arrayBuffer()));
 			} catch {
 				return setAside('not UTF-8 text');
 			}

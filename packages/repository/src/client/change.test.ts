@@ -63,13 +63,20 @@ test('exact source and a delete apply over the text they name; a stale exact sou
 test('a batch is one transaction: a change that cannot apply stores none of it', () => {
 	const replica = open();
 	replica.write(PATH, note('one\n'));
-	replica.write('notes/broken.md', '---\ntitle: A\ntitle: B\n---\nheld\n');
 	const before = replica.revision();
 	expectErr(replica.change([{ kind: 'patch', path: PATH, fields: { title: 'Z' } }, { kind: 'patch', path: 'notes/gone.md', fields: { title: 'Z' } }]));
-	expect(expectErr(replica.change([{ kind: 'patch', path: 'notes/broken.md', fields: { title: 'Z' } }])).name).toBe('Unparseable');
 	expect(expectErr(replica.change([{ kind: 'patch', path: 'notes/gone.md', fields: { title: 'Z' } }])).name).toBe('NotFound');
 	expect(replica.read(PATH)).toBe(note('one\n'));
 	expect(replica.revision()).toBe(before);
+});
+
+test('a patch on a note whose frontmatter does not parse gives it a header before its whole text', () => {
+	const replica = open();
+	const broken = '---\ntitle: A\ntitle: B\n---\nbody\n';
+	replica.write('notes/broken.md', broken);
+	expectOk(replica.change([{ kind: 'patch', path: 'notes/broken.md', fields: { title: 'Z' } }]));
+	expect(replica.read('notes/broken.md')).toBe(`---\ntitle: Z\n---\n${broken}`);
+	expect(replica.held()).toEqual([]);
 });
 
 test('later changes in a batch apply over earlier ones, and the batch is one revision its watchers hear', () => {

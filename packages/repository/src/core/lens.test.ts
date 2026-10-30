@@ -139,12 +139,12 @@ describe('views', () => {
 	});
 });
 
-test('app.check reports parsing, then the named schema', () => {
+test('app.check reports the named schema: a note whose frontmatter does not parse has no fields, so they are missing', () => {
 	const app = sampleApp();
-	expect(app.check('---\ntitle: [\n---\n')).toMatchObject({ parses: false, line: 3 });
-	expect(app.check('---\ntitle: A\ndone: false\n---\n')).toEqual({ parses: true, matches: null });
-	expect(app.check('---\ntitle: A\ndone: false\n---\n', { as: 'tasks' })).toEqual({ parses: true, matches: true });
-	expect(app.check('---\ntitle: A\n---\n', { as: 'tasks' })).toMatchObject({ parses: true, matches: false });
+	expect(app.check('---\ntitle: A\ndone: false\n---\n')).toEqual({ matches: null });
+	expect(app.check('---\ntitle: A\ndone: false\n---\n', { as: 'tasks' })).toEqual({ matches: true });
+	expect(app.check('---\ntitle: A\n---\n', { as: 'tasks' })).toMatchObject({ matches: false });
+	expect(app.check('---\ntitle: [\n---\n', { as: 'tasks' })).toMatchObject({ matches: false });
 	// @ts-expect-error a blob name is not a note name
 	app.check('', { as: 'photos' });
 });

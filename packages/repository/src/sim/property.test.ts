@@ -7,7 +7,7 @@
  * B_RUNS=n, B_FROM=n, B_SEED=n, B_STEPS=n, B_TOTALS=1.
  *
  * Key behaviors:
- * - nothing typed and acknowledged is lost; every shared note parses; every device converges; hostile writes are refused or bounded
+ * - nothing typed and acknowledged is lost; every device converges; hostile writes are refused or bounded
  * - once the last flush is done, Git's main is the server's main
  *
  * See also:

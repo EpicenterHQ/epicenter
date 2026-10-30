@@ -3,8 +3,8 @@
  * the server and a GitHub Action all run, so a text the door would refuse
  * is held on the device before it is ever sent.
  *
- * Enforced: every note (`.md`, in any case) parses, is LF-only with no byte
- * order mark, is at most 1 MB and is never an LFS pointer, and its
+ * Enforced: every note (`.md`, in any case) is LF-only with no byte order
+ * mark, is at most 1 MB and is never an LFS pointer, and its
  * frontmatter is cheap to parse (at most `FRONTMATTER_KEYS` keys and
  * `FRONTMATTER_VALUES` scalars, nested at most `FRONTMATTER_NESTING` deep); every text is
  * valid UTF-8 with no NUL; every other file is a blob, kept as a canonical
@@ -26,7 +26,7 @@
  */
 import { CST, Lexer } from 'yaml';
 import { findConflicts } from './conflict.js';
-import { parsePointer, parses, splitMarkdown } from './markdown.js';
+import { parsePointer, splitMarkdown } from './markdown.js';
 
 const encoder = new TextEncoder();
 const bytes = (text: string) => encoder.encode(text).length;
@@ -85,10 +85,7 @@ export function admissible(path: string, text: string | null): string | null {
 		if (text.startsWith('\uFEFF')) return 'a note may not start with a byte order mark';
 		if (text.includes('\r')) return 'a note must use LF line endings';
 		if (bytes(text) > MAX_FILE_BYTES) return 'a note may be at most 1 MB';
-		const cost = frontmatterRefusal(text);
-		if (cost !== null) return cost;
-		if (!parses(text)) return 'does not parse';
-		return null;
+		return frontmatterRefusal(text);
 	}
 	if (pointer === null) return 'a file other than a note goes through Git LFS';
 	if (pointer.size > MAX_BLOB_BYTES) return 'a file may be at most 2 GiB';

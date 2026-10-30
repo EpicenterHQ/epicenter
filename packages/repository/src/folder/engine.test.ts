@@ -216,6 +216,27 @@ test("a stopped folder's scan sends every difference; nothing differing sends no
 	expect(folder.replica.stats().pushes).toBe(pushes);
 });
 
+test('a note read with CRLF endings or a byte order mark lands normalized, and the file is never written back', async () => {
+	const { world, folder, other } = await setup();
+	const windows = encoder.encode(`\uFEFF${note('one\ntwo\n').replaceAll('\n', '\r\n')}`);
+	folder.disk.write('notes/w.md', windows);
+	await runFor(world, 2_000);
+	expect(world.server.read('notes/w.md')).toBe(note('one\ntwo\n'));
+	expect(folder.replica.held()).toEqual([]);
+	expect(folder.replica.state('notes/w.md')).toEqual({ status: 'synced' });
+	// Recorded as read: a scan finds nothing to send, and the file keeps its bytes.
+	const before = folder.replica.stats().pushes;
+	await runFor(world, 5_000);
+	await until(world, folder.engine.scan());
+	await runFor(world, 2_000);
+	expect(folder.replica.stats().pushes).toBe(before);
+	expect(folder.disk.bytes('notes/w.md')).toEqual(windows);
+	// A change from elsewhere is written as the repository holds it.
+	other.replica.write('notes/w.md', note('one\ntwo\nthree\n'));
+	await runFor(world, 2_000);
+	expect(folder.disk.text('notes/w.md')).toBe(note('one\ntwo\nthree\n'));
+});
+
 test('a .md file that is not UTF-8 is held: never sent, never overwritten; dot paths and droppings are never sent', async () => {
 	const { world, folder, other } = await setup();
 	folder.disk.write('notes/bad.md', new Uint8Array([0xff, 0xfe, 0x41]));
@@ -427,11 +448,12 @@ async function deciding({ invalid }: { invalid: boolean }) {
 	// The agent edits while no sync runs.
 	await agent.crash({ watch: false });
 	agent.disk.write('notes/plan.md', encoder.encode(note('one\nTWO by the agent\nthree\n')));
-	agent.disk.write('notes/summary.md', encoder.encode(invalid ? '---\ntitle: [\n---\nsummary\n' : note('summary\n')));
+	agent.disk.write('notes/summary.md', invalid ? new Uint8Array([0xff, 0xfe, 0x41]) : encoder.encode(note('summary\n')));
 	agent.disk.write('media/chart.png', encoder.encode('chart bytes'));
 	await runFor(world, 1_000);
 	await until(world, agent.engine.scan());
-	expect(agent.replica.unsent()).toEqual(['media/chart.png', 'notes/plan.md', 'notes/summary.md']);
+	// A note that is not UTF-8 is refused where it is found: held, never unsent.
+	expect(agent.replica.unsent()).toEqual(invalid ? ['media/chart.png', 'notes/plan.md'] : ['media/chart.png', 'notes/plan.md', 'notes/summary.md']);
 	// The person autosaves the same lines every 2 s while the agent's commit is out.
 	let typed = 0;
 	const autosave = () => {
@@ -452,7 +474,7 @@ async function deciding({ invalid }: { invalid: boolean }) {
 
 test('the deciding scenario: an invalid note is held alone; the other note lands merged with the typing, the blob once uploaded, and the fixed note once', async () => {
 	const { world, agent } = await deciding({ invalid: true });
-	expect(agent.replica.held()).toEqual([{ path: 'notes/summary.md', reason: 'does not parse' }]);
+	expect(agent.replica.held()).toEqual([{ path: 'notes/summary.md', reason: 'not UTF-8 text' }]);
 	expect(world.server.read('notes/summary.md')).toBeNull();
 	expect(world.server.read('media/chart.png')).not.toBeNull();
 	const plan = world.server.read('notes/plan.md') ?? '';

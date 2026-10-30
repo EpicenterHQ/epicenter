@@ -34,7 +34,7 @@ describe('settle', () => {
 	test('a field both sides set keeps current and writes incoming as a block (D2)', () => {
 		const settled = settle(note('Base'), note('Mine'), note('Theirs'), { parties });
 		expect(settled.blocks).toBe(true);
-		expect(parseMarkdown(settled.text ?? '').data?.fields).toEqual({ title: 'Mine' });
+		expect(parseMarkdown(settled.text ?? '').fields).toEqual({ title: 'Mine' });
 		expect(settled.text).toContain('title: Theirs');
 		expect(findConflicts(settled.text ?? '')).toHaveLength(1);
 	});
@@ -43,7 +43,7 @@ describe('settle', () => {
 		const first = settle(note('Base'), note('Mine'), note('Theirs'), { parties }).text ?? '';
 		const second = settle(note('Theirs'), first, note('Theirs again'), { parties: { ...parties, incoming: { author: 'alice/laptop', time: 't3' } } });
 		expect(second.blocks).toBe(true);
-		expect(parseMarkdown(second.text ?? '').data?.fields).toEqual({ title: 'Mine' });
+		expect(parseMarkdown(second.text ?? '').fields).toEqual({ title: 'Mine' });
 		expect(findConflicts(second.text ?? '')).toMatchObject([{ current: 'title: Mine\n', base: 'title: Base\n', incoming: 'title: Theirs again\n', sides: { incoming: { time: 't3' } } }]);
 	});
 

@@ -62,7 +62,7 @@ test('K1 against a remote same-line edit, then K2, K3 and a field patch while K1
 	const blocks = findConflicts(text);
 	expect(blocks).toHaveLength(1);
 	expect(blocks[0]).toMatchObject({ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' });
-	expect(parseMarkdown(text).data?.fields).toEqual({ title: 'Remote', pinned: true });
+	expect(parseMarkdown(text).fields).toEqual({ title: 'Remote', pinned: true });
 	expect(editor.draft()).toBe(text);
 	expect(editor.state()).toEqual({ status: 'saved' });
 	expect(repo.notes.get({ stem: 'plan' })?.text).toBe(text);
@@ -495,11 +495,11 @@ test('a list shows a note held or failed as held with why, never as sending', as
 	editor.retry();
 	await settled();
 	await settled();
-	// Text whose frontmatter does not parse is held by the replica; typing more keeps it held, not sending.
-	editor.update('---\ntitle: [Broken\n---\none');
+	// Text the door refuses (CRLF endings) is held by the replica; typing more keeps it held, not sending.
+	editor.update('---\r\ntitle: Plan\r\n---\r\none');
 	await settled();
 	await settled();
 	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('held');
-	editor.update('---\ntitle: [Broken\n---\none more');
+	editor.update('---\r\ntitle: Plan\r\n---\r\none more');
 	expect(repo.notes.get({ stem: 'plan' })?.state.status).toBe('held');
 });

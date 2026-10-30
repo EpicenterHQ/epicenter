@@ -3,7 +3,8 @@
  *
  * A file keeps the formatting its writer gave it; only the edited span
  * changes. These tests pin the frontmatter split (shared with the SQL body
- * column), refusal of unparseable frontmatter, in-place field edits, and the
+ * column), a note whose frontmatter does not parse (no fields, its whole
+ * text the body), in-place field edits, and the
  * LFS pointer format.
  *
  * Key behaviors:
@@ -11,18 +12,17 @@
  * - Changing one field leaves other keys, comments and quoting byte-identical
  * - New keys append; removed keys disappear with their lines
  * - Pointers parse strictly and round-trip
- * - Replacing a body keeps the frontmatter byte for byte, parsing or not
+ * - Replacing a body keeps the frontmatter byte for byte
+ * - A text that does not open with parseable frontmatter has no fields, and its whole text is the body
  */
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
-import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	BODY_SQL,
 	bodyOf,
 	withBody,
 	parseMarkdown,
 	parsePointer,
-	splitMarkdown,
 	writeMarkdown,
 	writePointer,
 } from './markdown.js';
@@ -45,31 +45,32 @@ const samples = [
 describe('split', () => {
 	test('the JS split and BODY_SQL agree', () => {
 		const db = new Database(':memory:');
-		const query = db.query<{ body: string }, [string]>(
-			`SELECT ${BODY_SQL} AS body FROM (SELECT ? AS text)`,
+		const query = db.query<{ body: string }, [string, string | null]>(
+			`SELECT ${BODY_SQL} AS body FROM (SELECT ?1 AS text, ?2 AS fields)`,
 		);
-		for (const text of samples)
-			expect(query.get(text)?.body).toBe(text.slice(splitMarkdown(text).bodyStart));
+		// The replica stores `fields` only for a text with frontmatter (`fieldsOf`).
+		for (const text of [...samples, '---\na: [\n---\nB\n', '---\n- a\n---\n'])
+			expect(query.get(text, parseMarkdown(text).hasFrontmatter ? '{}' : null)?.body).toBe(bodyOf(text));
 	});
 
 	test('parse reads fields and body', () => {
-		expect(expectOk(parseMarkdown('---\ntitle: A\ntags: [x, y]\n---\nBody\n'))).toEqual({
+		expect(parseMarkdown('---\ntitle: A\ntags: [x, y]\n---\nBody\n')).toEqual({
 			fields: { title: 'A', tags: ['x', 'y'] },
 			body: 'Body\n',
 			hasFrontmatter: true,
 		});
-		expect(expectOk(parseMarkdown('just text'))).toEqual({
+		expect(parseMarkdown('just text')).toEqual({
 			fields: {},
 			body: 'just text',
 			hasFrontmatter: false,
 		});
-		expect(expectOk(parseMarkdown('---\n---\nB')).fields).toEqual({});
+		expect(parseMarkdown('---\n---\nB').fields).toEqual({});
 	});
 
-	test('unparseable frontmatter is refused', () => {
-		expect(expectErr(parseMarkdown('---\na: [\n---\n')).name).toBe('Unparseable');
-		expect(expectErr(parseMarkdown('---\n- a\n- b\n---\n')).name).toBe('Unparseable');
-		expect(expectErr(parseMarkdown('---\na: 1\na: 2\n---\n')).name).toBe('Unparseable');
+	test('a text that does not open with parseable frontmatter is a note with no fields, its whole text the body', () => {
+		for (const text of ['---\na: [\n---\nB\n', '---\n- a\n- b\n---\n', '---\na: 1\na: 2\n---\n', '---\na: {b\n---', '---\na: *missing\n---\nB\n'])
+			expect(parseMarkdown(text)).toEqual({ fields: {}, body: text, hasFrontmatter: false });
+		expect(bodyOf('---\na: [\n---\nB\n')).toBe('---\na: [\n---\nB\n');
 	});
 });
 
@@ -87,59 +88,66 @@ describe('write', () => {
 	].join('\n');
 
 	test('changing one field leaves every other byte alone', () => {
-		const out = expectOk(writeMarkdown(source, { fields: { mood: 'great' } }));
+		const out = writeMarkdown(source, { fields: { mood: 'great' } });
 		expect(out).toBe(source.replace("mood: 'ok'", 'mood: great'));
 	});
 
 	test('changing a block value replaces only that pair', () => {
-		const out = expectOk(writeMarkdown(source, { fields: { tags: ['c'] } }));
+		const out = writeMarkdown(source, { fields: { tags: ['c'] } });
 		expect(out).toBe(source.replace('tags:\n  - a\n  - b\n', 'tags:\n  - c\n'));
 	});
 
 	test('an unchanged value is not rewritten', () => {
-		expect(expectOk(writeMarkdown(source, { fields: { title: 'Hello' } }))).toBe(source);
+		expect(writeMarkdown(source, { fields: { title: 'Hello' } })).toBe(source);
 	});
 
 	test('a new key is appended after the existing ones', () => {
-		const out = expectOk(writeMarkdown(source, { fields: { due: '2026-11-01' } }));
+		const out = writeMarkdown(source, { fields: { due: '2026-11-01' } });
 		expect(out).toBe(source.replace("mood: 'ok'\n", "mood: 'ok'\ndue: 2026-11-01\n"));
-		expect(expectOk(parseMarkdown(out)).fields.due).toBe('2026-11-01');
+		expect(parseMarkdown(out).fields.due).toBe('2026-11-01');
 	});
 
 	test('a removed key disappears with its line and trailing comment', () => {
-		const out = expectOk(writeMarkdown(source, { fields: { title: undefined } }));
+		const out = writeMarkdown(source, { fields: { title: undefined } });
 		expect(out).toBe(source.replace('title:   "Hello"   # keep me\n', ''));
 	});
 
 	test('the body changes without touching the frontmatter', () => {
-		const out = expectOk(writeMarkdown(source, { body: 'New\n' }));
+		const out = writeMarkdown(source, { body: 'New\n' });
 		expect(out).toBe(source.replace('Body text\n', 'New\n'));
 	});
 
 	test('fields on a file without frontmatter add a header', () => {
-		expect(expectOk(writeMarkdown('Body\n', { fields: { a: 1 } }))).toBe('---\na: 1\n---\nBody\n');
-		expect(expectOk(writeMarkdown(null, { fields: { a: 1 }, body: 'B' }))).toBe('---\na: 1\n---\nB');
+		expect(writeMarkdown('Body\n', { fields: { a: 1 } })).toBe('---\na: 1\n---\nBody\n');
+		expect(writeMarkdown(null, { fields: { a: 1 }, body: 'B' })).toBe('---\na: 1\n---\nB');
 	});
 
 	test('a body that looks like frontmatter is guarded on a header-less file', () => {
-		const out = expectOk(writeMarkdown('x', { body: '---\na: 1\n---\n' }));
-		expect(expectOk(parseMarkdown(out)).body).toBe('---\na: 1\n---\n');
+		const out = writeMarkdown('x', { body: '---\na: 1\n---\n' });
+		expect(parseMarkdown(out).body).toBe('---\na: 1\n---\n');
 	});
 
 	test('a closing fence at the end stays bare', () => {
-		expect(expectOk(writeMarkdown('---\na: 1\n---', { fields: { a: 2 } }))).toBe('---\na: 2\n---');
-		expect(expectOk(writeMarkdown('---\na: 1\n---', { body: 'B' }))).toBe('---\na: 1\n---\nB');
+		expect(writeMarkdown('---\na: 1\n---', { fields: { a: 2 } })).toBe('---\na: 2\n---');
+		expect(writeMarkdown('---\na: 1\n---', { body: 'B' })).toBe('---\na: 1\n---\nB');
 	});
 
 	test('a key needing quotes is written so it reads back', () => {
-		const out = expectOk(writeMarkdown('---\na: 1\n---\n', { fields: { 'b: c': 'd: e' } }));
-		expect(expectOk(parseMarkdown(out)).fields).toEqual({ a: 1, 'b: c': 'd: e' });
+		const out = writeMarkdown('---\na: 1\n---\n', { fields: { 'b: c': 'd: e' } });
+		expect(parseMarkdown(out).fields).toEqual({ a: 1, 'b: c': 'd: e' });
 	});
 
-	test('a write over unparseable frontmatter is refused', () => {
-		expect(expectErr(writeMarkdown('---\na: [\n---\n', { fields: { a: 1 } })).name).toBe(
-			'Unparseable',
-		);
+	test('fields set on a note whose frontmatter does not parse go in a new header, and its text stays the body', () => {
+		const broken = '---\na: [\n---\nB\n';
+		const out = writeMarkdown(broken, { fields: { a: 1 } });
+		expect(out).toBe(`---\na: 1\n---\n${broken}`);
+		expect(parseMarkdown(out)).toEqual({ fields: { a: 1 }, body: broken, hasFrontmatter: true });
+	});
+
+	test('a body typed over a note whose frontmatter does not parse is the whole text, and reads back as typed', () => {
+		const broken = '---\na: [\n---\nB\n';
+		for (const body of ['---\na: [\n---\nC\n', 'plain\n', '---\na: 1\n---\nlooks like frontmatter\n'])
+			expect(bodyOf(withBody(broken, body))).toBe(body);
 	});
 });
 

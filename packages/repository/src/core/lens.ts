@@ -171,17 +171,15 @@ function appOver<const TDefs extends Definitions>(definitions: TDefs, lenses: Le
 			});
 		},
 		/**
-		 * Whether `text` parses and, `as` a note name, whether its fields
-		 * match that name's schema. Pure: it reads no repository, so an
+		 * `as` a note name, whether `text`'s fields match that name's schema
+		 * (a text with no parseable frontmatter has none). Pure: it reads no repository, so an
 		 * editor or a CLI can check a text before it is written.
 		 */
 		check(text: string, { as }: { as?: NoteName<TDefs> } = {}): TextStatus {
-			const parsed = parseMarkdown(text);
-			if (parsed.error !== null) return { parses: false, line: parsed.error.line, message: parsed.error.reason };
 			const lens = as === undefined ? undefined : lenses.find((candidate) => candidate.name === as);
-			if (lens?.kind !== 'note') return { parses: true, matches: null };
-			const issues = schemaIssues(lens.schema, parsed.data.fields);
-			return issues.length === 0 ? { parses: true, matches: true } : { parses: true, matches: false, issues };
+			if (lens?.kind !== 'note') return { matches: null };
+			const issues = schemaIssues(lens.schema, parseMarkdown(text).fields);
+			return issues.length === 0 ? { matches: true } : { matches: false, issues };
 		},
 	};
 }
@@ -237,15 +235,11 @@ function viewSql(name: string, template: Template, columns: string[]) {
 }
 
 /**
- * Whether a file's text parses, and, checked against a note name, whether
- * its fields match that name's schema. `line` counts from 1, the opening
- * `---`; `matches` is null when no name was given.
+ * Checked against a note name, whether a text's fields match that name's
+ * schema: a field the text lacks is an issue. `matches` is null when no
+ * name was given.
  */
-export type TextStatus =
-	| { parses: false; line: number; message: string }
-	| { parses: true; matches: null }
-	| { parses: true; matches: true }
-	| { parses: true; matches: false; issues: string[] };
+export type TextStatus = { matches: null } | { matches: true } | { matches: false; issues: string[] };
 
 /** How `fields` fails `schema`, one line per issue; none when they match. */
 export function schemaIssues(schema: TSchema, fields: Record<string, unknown>): string[] {

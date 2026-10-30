@@ -298,7 +298,7 @@ describe('POST /commits', () => {
 
 	test('a note the door refuses is 422, naming the path', async () => {
 		const { server, post } = setup();
-		const response = await post(make(server, [{ path: 'n/a.md', text: '---\ntitle: [\n---\n' }]));
+		const response = await post(make(server, [{ path: 'n/a.md', text: '---\r\ntitle: A\r\n---\r\n' }]));
 		expect(response.status).toBe(422);
 		expect(await response.json()).toMatchObject({ kind: 'refused', path: 'n/a.md' });
 	});
@@ -533,7 +533,7 @@ describe("the device's socket", () => {
 		await post(make(server, [{ path: 'n/a.md', text: note('one\n') }]));
 		alice.socket.send({ type: 'push', rid: 1, commit: make(server, [{ path: 'n/z.md', text: note('two\n') }], { parent: base }) });
 		rita.socket.send({ type: 'push', rid: 2, commit: make(server, [{ path: 'n/b.md', text: note('b\n') }], { user: 'rita' }) });
-		alice.socket.send({ type: 'push', rid: 3, commit: make(server, [{ path: 'n/c.md', text: '---\ntitle: [\n---\n' }]) });
+		alice.socket.send({ type: 'push', rid: 3, commit: make(server, [{ path: 'n/c.md', text: '---\r\ntitle: C\r\n---\r\n' }]) });
 		alice.socket.send({ type: 'catch-up', rid: 4, from: base });
 		await alice.socket.ping();
 		await rita.socket.ping();

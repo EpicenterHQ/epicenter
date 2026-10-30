@@ -7,7 +7,7 @@
  * against spike 3's pathological notes, and the conflict-block grammar.
  *
  * Key behaviors:
- * - notes parse, are LF-only, have no BOM, are at most 1 MB and are never pointers
+ * - notes are LF-only, have no BOM, are at most 1 MB and are never pointers
  * - every other file is a canonical LFS pointer of at most 2 GiB, at any path
  * - `ATTRIBUTES` sends every file but a note (and itself) through LFS
  * - paths are portable, and Epicenter's control files are refused
@@ -38,14 +38,15 @@ import {
 const note = (yaml: string, body = 'body\n') => `---\n${yaml}\n---\n${body}`;
 
 describe('admissible', () => {
-	test('a note that parses is admitted, and a delete of a good path always is', () => {
+	test('a note is admitted whether its frontmatter parses or not, and a delete of a good path always is', () => {
 		expect(admissible('notes/a.md', note('title: A'))).toBeNull();
+		expect(admissible('notes/a.md', note('title: [unclosed'))).toBeNull();
+		expect(admissible('notes/a.md', note('- a list'))).toBeNull();
 		expect(admissible('notes/a.md', null)).toBeNull();
 		expect(admissible('notes/a.MD', 'plain\n')).toBeNull();
 	});
 
 	test('a note is refused for what would break it as a shared note', () => {
-		expect(admissible('a.md', note('title: [unclosed'))).toBe('does not parse');
 		expect(admissible('a.md', '\uFEFFhello\n')).not.toBeNull();
 		expect(admissible('a.md', 'line\r\n')).not.toBeNull();
 		expect(admissible('a.md', 'x'.repeat(MAX_FILE_BYTES + 1))).not.toBeNull();

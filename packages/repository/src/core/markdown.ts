@@ -3,28 +3,24 @@
  * frontmatter with `yaml`, and change fields by editing the YAML text in place
  * so untouched keys, their order, quoting and comments stay as their writer
  * left them. Also the Git LFS pointer format, which is how a blob's file reads.
+ *
+ * A note is always valid: a text that does not open with parseable
+ * frontmatter (a YAML mapping between `---` fences) is a note with no fields,
+ * and its whole text is the body.
  */
-import { defineErrors, type InferErrors } from 'wellcrafted/error';
-import { Ok, type Result } from 'wellcrafted/result';
 import { type Document, isMap, isScalar, parseDocument, stringify } from 'yaml';
 
-export const MarkdownError = defineErrors({
-	/** The frontmatter is not YAML, or not a mapping. `line` is the file's line, from 1, where it goes wrong. */
-	Unparseable: ({ reason, line }: { reason: string; line: number }) => ({
-		message: `The frontmatter does not parse (line ${line}): ${reason}`,
-		reason,
-		line,
-	}),
-});
-export type MarkdownError = InferErrors<typeof MarkdownError>;
+/** Values are written out in full: an alias would break when its anchor's key is removed. */
+const PLAIN = { aliasDuplicateObjects: false } as const;
 
 const OPEN = '---\n';
 const CLOSE = '\n---\n';
 
 /**
- * Where the frontmatter and body are. Frontmatter exists when the text starts
- * with a `---` line and a later line is exactly `---`. This is the same rule as
- * `BODY_SQL`, so the body a view reads is the body this codec writes.
+ * Where the `---` fences are, by syntax alone: the text starts with a `---`
+ * line and a later line is exactly `---`. The door bounds the cost of
+ * parsing this span before it is parsed; whether it is frontmatter is
+ * `parseMarkdown`'s question.
  */
 export function splitMarkdown(text: string) {
 	if (!text.startsWith(OPEN)) return { yaml: null, yamlStart: 0, bodyStart: 0 };
@@ -38,8 +34,12 @@ export function splitMarkdown(text: string) {
 	};
 }
 
-/** The body as a plain SQL expression over a `text` column; see `splitMarkdown`. */
-export const BODY_SQL = `CASE WHEN substr(text, 1, 4) = '---' || char(10) AND instr(substr(text || char(10), 4), char(10) || '---' || char(10)) > 0 THEN substr(text, instr(substr(text || char(10), 4), char(10) || '---' || char(10)) + 8) ELSE text END`;
+/**
+ * The body as SQL over a row's `text` and `fields`, where `fields` is
+ * non-null exactly when the text has frontmatter (the replica's
+ * `fieldsOf`): the same body `bodyOf` reads.
+ */
+export const BODY_SQL = `CASE WHEN fields IS NOT NULL AND substr(text, 1, 4) = '---' || char(10) AND instr(substr(text || char(10), 4), char(10) || '---' || char(10)) > 0 THEN substr(text, instr(substr(text || char(10), 4), char(10) || '---' || char(10)) + 8) ELSE text END`;
 
 export type ParsedMarkdown = {
 	fields: Record<string, unknown>;
@@ -47,31 +47,35 @@ export type ParsedMarkdown = {
 	hasFrontmatter: boolean;
 };
 
-export function parseMarkdown(text: string): Result<ParsedMarkdown, MarkdownError> {
+/** A text's frontmatter, parsed: null when it does not open with a YAML mapping between fences. */
+function frontmatter(text: string) {
 	const parts = splitMarkdown(text);
-	const body = text.slice(parts.bodyStart);
-	if (parts.yaml === null) return Ok({ fields: {}, body, hasFrontmatter: false });
-	const document = readYaml(parts.yaml);
-	if (document.error !== null) return document;
-	return Ok({ fields: document.data.fields, body, hasFrontmatter: true });
+	if (parts.yaml === null) return null;
+	const read = readYaml(parts.yaml);
+	return read === null ? null : { yaml: parts.yaml, bodyStart: parts.bodyStart, ...read };
 }
 
-/** Whether a text's frontmatter parses: a file without frontmatter does. */
-export const parses = (text: string) => parseMarkdown(text).error === null;
+/** A note's fields and body: with no parseable frontmatter, no fields and the whole text. */
+export function parseMarkdown(text: string): ParsedMarkdown {
+	const front = frontmatter(text);
+	if (front === null) return { fields: {}, body: text, hasFrontmatter: false };
+	return { fields: front.fields, body: text.slice(front.bodyStart), hasFrontmatter: true };
+}
 
-/** The frontmatter YAML read as a mapping. Error lines count from the file's first line, the opening fence. */
+/** The frontmatter YAML read as a mapping (an empty one has no fields), or null when it is not one. */
 function readYaml(yaml: string) {
 	const document = parseDocument(yaml, { prettyErrors: false, uniqueKeys: true });
-	const lineAt = (offset: number) => 2 + (yaml.slice(0, offset).match(/\n/g)?.length ?? 0);
-	const [first] = document.errors;
-	if (first !== undefined) return MarkdownError.Unparseable({ reason: first.message, line: lineAt(first.pos[0]) });
+	if (document.errors.length > 0) return null;
 	const contents = document.contents;
 	if (contents === null || (isScalar(contents) && contents.value === null))
-		return Ok({ document, fields: {} as Record<string, unknown> });
-	if (!isMap(contents))
-		return MarkdownError.Unparseable({ reason: 'the frontmatter is not a mapping', line: lineAt(contents.range?.[0] ?? 0) });
-	const fields = document.toJS() as Record<string, unknown>;
-	return Ok({ document, fields });
+		return { document, fields: {} as Record<string, unknown> };
+	if (!isMap(contents)) return null;
+	try {
+		return { document, fields: document.toJS() as Record<string, unknown> };
+	} catch {
+		// An alias with no anchor, or more aliases than `yaml` expands: a mapping that has no fields to read.
+		return null;
+	}
 }
 
 export type MarkdownChange = {
@@ -82,57 +86,59 @@ export type MarkdownChange = {
 
 /**
  * Apply a change to a file's text (null for a new file). Only keys whose value
- * changes are rewritten; new keys are appended after the existing ones.
+ * changes are rewritten; new keys are appended after the existing ones. A
+ * text with no parseable frontmatter gains a header before its whole text.
  */
-export function writeMarkdown(
-	previous: string | null,
-	change: MarkdownChange,
-): Result<string, MarkdownError> {
+export function writeMarkdown(previous: string | null, change: MarkdownChange): string {
 	const source = previous ?? '';
-	const parts = splitMarkdown(source);
-	const body = change.body ?? source.slice(parts.bodyStart);
+	const front = frontmatter(source);
+	const body = change.body ?? source.slice(front?.bodyStart ?? 0);
 	const changes = Object.entries(change.fields ?? {});
 
-	if (parts.yaml === null) {
+	if (front === null) {
 		const added = changes.filter(([, value]) => value !== undefined);
-		if (added.length === 0) return Ok(guardBody('', body));
-		return Ok(`${OPEN}${stringify(Object.fromEntries(added))}---\n${body}`);
+		if (added.length === 0) return guardBody('', body);
+		return `${OPEN}${stringify(Object.fromEntries(added), PLAIN)}---\n${body}`;
 	}
 
-	const read = readYaml(parts.yaml);
-	if (read.error !== null) return read;
-	const { document, fields } = read.data;
+	const { document, fields } = front;
 	const pending = changes.filter(([key, value]) =>
 		value === undefined ? Object.hasOwn(fields, key) : !sameValue(fields[key], value),
 	);
-	let yaml = parts.yaml;
+	let yaml = front.yaml;
 	if (pending.length > 0) {
 		const expected = { ...fields };
 		for (const [key, value] of pending) {
 			if (value === undefined) delete expected[key];
 			else expected[key] = value;
 		}
-		const spliced = spliceYaml(parts.yaml, document, pending);
-		yaml =
-			spliced !== null && sameValue(readYaml(spliced).data?.fields, expected)
-				? spliced
-				: rewriteYaml(document, pending);
+		const reads = (candidate: string | null) => candidate !== null && sameValue(readYaml(candidate)?.fields, expected);
+		const spliced = spliceYaml(front.yaml, document, pending);
+		if (reads(spliced)) yaml = spliced as string;
+		else {
+			const rewritten = rewriteYaml(document, pending);
+			// A document whose aliases the change broke is written as its fields alone.
+			yaml = reads(rewritten) ? (rewritten as string) : Object.keys(expected).length === 0 ? '' : stringify(expected, PLAIN);
+		}
 	}
 	// A closing fence at the very end with no newline stays that way.
-	const isBareClose = parts.bodyStart === source.length && !source.endsWith('\n');
-	if (isBareClose && body === '') return Ok(`${OPEN}${yaml}---`);
-	return Ok(`${OPEN}${yaml}---\n${body}`);
+	const isBareClose = front.bodyStart === source.length && !source.endsWith('\n');
+	if (isBareClose && body === '') return `${OPEN}${yaml}---`;
+	return `${OPEN}${yaml}---\n${body}`;
 }
 
 /** A text's body: what follows its frontmatter, or the whole text when it has none. */
-export const bodyOf = (text: string) => text.slice(splitMarkdown(text).bodyStart);
+export const bodyOf = (text: string) => text.slice(frontmatter(text)?.bodyStart ?? 0);
+
+/** A text's frontmatter with its fences, byte for byte: empty when it has none. */
+export const headerOf = (text: string) => text.slice(0, frontmatter(text)?.bodyStart ?? 0);
 
 /**
  * `text` with its body replaced by `body`, its frontmatter kept byte for
- * byte whether it parses or not, so an editor's body never touches a field.
+ * byte, so an editor's body never touches a field.
  */
 export function withBody(text: string, body: string) {
-	const header = text.slice(0, splitMarkdown(text).bodyStart);
+	const header = headerOf(text);
 	// A closing fence at the very end has no newline after it yet.
 	if (header !== '' && !header.endsWith('\n') && body !== '') return `${header}\n${body}`;
 	return guardBody(header, body);
@@ -140,7 +146,7 @@ export function withBody(text: string, body: string) {
 
 /** A body after an empty header must not itself read as frontmatter. */
 function guardBody(header: string, body: string) {
-	return header === '' && splitMarkdown(body).yaml !== null ? `${OPEN}---\n${body}` : header + body;
+	return header === '' && frontmatter(body) !== null ? `${OPEN}---\n${body}` : header + body;
 }
 
 /**
@@ -160,7 +166,7 @@ function spliceYaml(
 	let appended = '';
 	for (const [key, value] of changes) {
 		const pair = items.find((item) => isScalar(item.key) && String(item.key.value) === key);
-		const rendered = stringify({ [key]: value });
+		const rendered = stringify({ [key]: value }, PLAIN);
 		if (pair === undefined) {
 			if (value !== undefined) appended += rendered;
 			continue;
@@ -189,14 +195,18 @@ function spliceYaml(
 	return out;
 }
 
-/** The fallback: change the parsed document and print it whole. */
+/** The fallback: change the parsed document and print it whole; null when it cannot be printed (an alias whose anchor went). */
 function rewriteYaml(document: Document, changes: [string, unknown][]) {
 	for (const [key, value] of changes) {
 		if (value === undefined) document.delete(key);
 		else document.set(key, value);
 	}
-	const printed = document.toString();
-	return printed === '{}\n' || printed === 'null\n' ? '' : printed;
+	try {
+		const printed = document.toString();
+		return printed === '{}\n' || printed === 'null\n' ? '' : printed;
+	} catch {
+		return null;
+	}
 }
 
 /** Deep equality over plain JSON-like values. */

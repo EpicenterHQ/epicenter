@@ -10,10 +10,9 @@
  * review's probes live in `people.test.ts`.
  *
  * Key behaviors:
- * - A text that would break a parsing note is held, never committed; a repair commits exactly the repaired text
+ * - A note whose frontmatter does not parse is a note: it syncs, with no fields, and merges by line
  * - A file saved where someone made a folder (or beneath someone's file) is held with why at that file; nothing on main is lost, and a rename sends it
- * - Held text survives a change from elsewhere (rebased) and a restart; held text a merge made parse is published only by its person's save
- * - Held text over a remote delete stays held (a missing file below must parse)
+ * - Held text survives a change from elsewhere (rebased) and a restart, and over a remote delete; a repair commits exactly the repaired text
  * - A lost reply is answered by sending the same commit again, which lands once, with its outcome brought up to now; typing since never conflicts with itself
  * - A commit meeting a moved `main` is merged by the server in one push; the device never sends an edit made elsewhere back as its own
  * - Changed (D3): an edit made before a delete, landing after the note was brought back or replaced, is one block in the note there
@@ -24,7 +23,7 @@
  * - A held call holds only its own work: an earlier unsent commit below it goes alone, even when the held call has a message and saved the same text there
  */
 import { expect, test } from 'bun:test';
-import { parses, writePointer } from '../core/markdown.js';
+import { writePointer } from '../core/markdown.js';
 import { findConflicts } from '../core/conflict.js';
 import { BLOCK_CAP } from '../core/settle.js';
 import { createTestServer, createWorld, EPOCH, QUIET, STAMP, writer } from './harness.js';
@@ -35,8 +34,11 @@ import { commitId, type LiveCommit } from '../core/commit.js';
 
 const PATH = 'notes/a.md';
 const note = (body: string, title = 'A') => `---\ntitle: ${title}\n---\n${body}`;
-/** Frontmatter that does not parse: a key given twice. */
+/** Frontmatter that does not parse: a key given twice. A note all the same, with no fields. */
 const broken = (body: string, title = 'A') => `---\ntitle: ${title}\ntitle: B\n---\n${body}`;
+/** A note with CRLF line endings, which the door refuses (a folder normalizes them as it reads; a programmatic writer is held). */
+const crlf = (body: string, title = 'A') => note(body, title).replaceAll('\n', '\r\n');
+const LF = 'a note must use LF line endings';
 
 function setup(names = ['alice', 'bob']) {
 	const world = createWorld({ latency: { min: 20, max: 20 } });
@@ -60,30 +62,45 @@ function setup(names = ['alice', 'bob']) {
 // Held text (held.test.ts)
 // ============================================================================
 
-test('a text that would break a note that parses is held: never committed, never sent', () => {
-	const { world, alice, sent, settle } = setup();
+test('a note whose frontmatter does not parse is a note: it syncs like any text, with no fields', () => {
+	const { world, alice, bob, settle } = setup();
 	alice.replica.write(PATH, note('one\n'));
 	settle();
 	alice.replica.write(PATH, broken('one\n'));
 	settle();
-	expect(alice.replica.read(PATH)).toBe(broken('one\n'));
-	expect(alice.replica.held()).toEqual([{ path: PATH, reason: 'does not parse' }]);
-	expect(world.server.read(PATH)).toBe(note('one\n'));
-	expect(sent('alice', PATH).every((text) => text === null || parses(text))).toBe(true);
+	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
+	expect(alice.replica.held()).toEqual([]);
+	expect(world.server.read(PATH)).toBe(broken('one\n'));
+	expect(bob.replica.read(PATH)).toBe(broken('one\n'));
+});
+
+test('a note whose frontmatter does not parse merges by line with an edit elsewhere', () => {
+	const { world, alice, bob, settle } = setup();
+	alice.replica.write(PATH, note('one\n.\n.\nbob\n'));
+	settle();
+	alice.setOnline(false);
+	alice.replica.write(PATH, broken('ONE\n.\n.\nbob\n'));
+	bob.replica.edit(PATH, () => note('one\n.\n.\nBOB\n'));
+	settle();
+	alice.setOnline(true);
+	settle();
+	for (const text of [world.server.read(PATH), alice.replica.read(PATH), bob.replica.read(PATH)]) expect(text).toBe(broken('ONE\n.\n.\nBOB\n'));
 });
 
 test('held text survives a change from elsewhere and a restart, and a repair commits exactly the repaired text', () => {
 	const { world, alice, bob, pushes, settle } = setup();
 	alice.replica.write(PATH, note('one\n.\n.\nbob\n'));
 	settle();
-	alice.replica.write(PATH, broken('ONE\n.\n.\nbob\n'));
+	alice.replica.write(PATH, crlf('ONE\n.\n.\nbob\n'));
 	bob.replica.edit(PATH, () => note('one\n.\n.\nBOB\n'));
 	settle();
-	expect(alice.replica.read(PATH)).toBe(broken('ONE\n.\n.\nBOB\n'));
+	// Rebased over main's LF text, it is LF now, and still held: it goes only with its person's save.
+	expect(alice.replica.read(PATH)).toBe(note('ONE\n.\n.\nBOB\n'));
 	alice.restart();
 	settle();
-	expect(alice.replica.read(PATH)).toBe(broken('ONE\n.\n.\nBOB\n'));
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'does not parse' });
+	expect(alice.replica.read(PATH)).toBe(note('ONE\n.\n.\nBOB\n'));
+	expect(world.server.read(PATH)).toBe(note('one\n.\n.\nBOB\n'));
+	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: LF });
 	const before = pushes.length;
 	alice.replica.edit(PATH, () => note('ONE\n.\n.\nBOB\n', 'B'));
 	settle();
@@ -91,41 +108,21 @@ test('held text survives a change from elsewhere and a restart, and a repair com
 	expect(world.server.read(PATH)).toBe(note('ONE\n.\n.\nBOB\n', 'B'));
 });
 
-test('held text over a remote delete stays held, because a missing file below counts as one that must parse', () => {
+test('held text over a remote delete stays held until its person saves it', () => {
 	const { world, alice, bob, settle } = setup();
 	alice.replica.write(PATH, note('one\n'));
 	settle();
 	alice.setOnline(false);
-	alice.replica.write(PATH, broken('one\n'));
+	alice.replica.write(PATH, crlf('one\n'));
 	bob.replica.write(PATH, null);
 	settle();
 	alice.setOnline(true);
 	settle();
 	expect(world.server.read(PATH)).toBeNull();
-	expect(alice.replica.held()).toEqual([{ path: PATH, reason: 'does not parse' }]);
+	expect(alice.replica.held()).toEqual([{ path: PATH, reason: LF }]);
 	alice.replica.edit(PATH, () => note('one\nkept\n'));
 	settle();
 	expect(world.server.read(PATH)).toBe(note('one\nkept\n'));
-});
-
-test('changed: held text that a merge made parse is published only by its person\'s save', () => {
-	const { world, alice, bob, settle } = setup();
-	alice.replica.write(PATH, note('one\n'));
-	settle();
-	alice.replica.write(PATH, broken('one\n'));
-	// Bob removes the title Alice gave twice, which leaves hers once.
-	bob.replica.edit(PATH, () => '---\n---\none\n');
-	settle();
-	expect(alice.replica.read(PATH)).toBe('---\ntitle: B\n---\none\n');
-	// Still held, under the reason it was held for: it goes only with a save of this path.
-	expect(alice.replica.state(PATH)).toEqual({ status: 'held', reason: 'does not parse' });
-	// Saving another note does not publish it.
-	alice.replica.write('notes/other.md', note('other\n'));
-	settle();
-	expect(world.server.read(PATH)).toBe('---\n---\none\n');
-	alice.replica.edit(PATH, (text) => text);
-	settle();
-	expect(world.server.read(PATH)).toBe('---\ntitle: B\n---\none\n');
 });
 
 // ============================================================================
@@ -286,7 +283,7 @@ test('the server refuses a commit with no parent, a bad id, or a path named twic
 		kind: 'rejected',
 		code: 'path-twice',
 	});
-	expect(server.push(make([{ path: PATH, text: broken('one\n') }]), session)).toMatchObject({ kind: 'refused', code: 'inadmissible', reason: 'does not parse', path: PATH });
+	expect(server.push(make([{ path: PATH, text: crlf('one\n') }]), session)).toMatchObject({ kind: 'refused', code: 'inadmissible', reason: LF, path: PATH });
 	expect(server.snapshot()).toEqual(new Map([[PATH, note('one\n')]]));
 });
 
@@ -447,14 +444,14 @@ test('a held blob holds only itself: the note saved with it goes, and the device
 
 test('a later save the door refuses holds only that file: the unsent commit below it goes, and so does what was saved with it', () => {
 	const { world, alice, settle } = setup();
-	// While a commit is in flight, two paths saved together are committed; then one of them is saved again, broken.
+	// While a commit is in flight, two paths saved together are committed; then one of them is saved again with CRLF endings.
 	alice.replica.write('notes/x.md', note('x\n'));
 	alice.replica.writeAll({ [PATH]: note('one\n'), 'notes/b.md': note('two\n') });
-	alice.replica.write(PATH, broken('one\n'));
+	alice.replica.write(PATH, crlf('one\n'));
 	settle();
 	expect(world.server.read(PATH)).toBe(note('one\n'));
 	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
-	expect(alice.replica.held()).toEqual([{ path: PATH, reason: 'does not parse' }]);
+	expect(alice.replica.held()).toEqual([{ path: PATH, reason: LF }]);
 	expect(alice.replica.state('notes/b.md')).toEqual({ status: 'synced' });
 });
 
@@ -462,14 +459,14 @@ test("a rename whose new file is held: the delete goes alone, an older re-creati
 	const { world, alice, settle } = setup();
 	alice.replica.write(PATH, note('one\n'));
 	settle();
-	// The delete goes; while it is in flight the note is created again (an unsent commit), then renamed to a path whose text is held.
+	// The delete goes; while it is in flight the note is created again (an unsent commit), then renamed to a name the repository cannot take.
 	alice.replica.write(PATH, null);
 	alice.replica.write(PATH, note('two\n'));
-	alice.replica.writeAll({ [PATH]: null, 'notes/b.md': broken('two\n') });
+	alice.replica.writeAll({ [PATH]: null, 'notes/b?.md': note('two\n') });
 	settle();
-	expect(alice.replica.held()).toEqual([{ path: 'notes/b.md', reason: 'does not parse' }]);
-	// The person repairs the held half: the rename goes, and the older re-creation never does.
-	alice.replica.write('notes/b.md', note('two\n'));
+	expect(alice.replica.held()).toEqual([{ path: 'notes/b?.md', reason: 'a name may not hold < > : " \\ | ? * or control characters' }]);
+	// The person renames the held file again: it goes, and the older re-creation never does.
+	alice.replica.writeAll({ 'notes/b?.md': null, 'notes/b.md': note('two\n') });
 	settle();
 	expect(world.server.read('notes/b.md')).toBe(note('two\n'));
 	expect(world.server.read(PATH)).toBeNull();

@@ -29,7 +29,7 @@ import type { BlobStoreError, Sealed } from '../client/blobs.js';
 import { BlobError, type BlobPut, type Put, type PutError } from '../client/bytes.js';
 import type { Change, Changed, ChangeError, FileStatus } from '../client/replica.js';
 import { type App, type BlobName, type Definitions, type Lens, type NoteName, schemaIssues } from '../core/lens.js';
-import { bodyOf, parseMarkdown, parsePointer, splitMarkdown, writeMarkdown } from '../core/markdown.js';
+import { bodyOf, headerOf, parseMarkdown, parsePointer, writeMarkdown } from '../core/markdown.js';
 import { fold, isNote } from '../core/door.js';
 import { buildPath, type Params, type TemplateError } from '../core/templates.js';
 import type { SqlValue } from '../sql.js';
@@ -96,7 +96,7 @@ type NoteParts<TPath extends string> = {
 };
 /** A note whose fields fit its schema. */
 export type ValidNote<TPath extends string = string, TNoteSchema extends TSchema = TSchema> = NoteParts<TPath> & { valid: true; fields: Static<TNoteSchema> };
-/** A note whose frontmatter does not parse or does not fit its schema: its fields as written, and why. */
+/** A note whose fields do not fit its schema (a note with no parseable frontmatter has none): its fields as written, and why. */
 export type InvalidNote<TPath extends string = string> = NoteParts<TPath> & { valid: false; fields: Record<string, unknown>; issues: string[] };
 /** A note as a page reads it: narrow on `valid` once. */
 export type Note<TPath extends string = string, TNoteSchema extends TSchema = TSchema> = ValidNote<TPath, TNoteSchema> | InvalidNote<TPath>;
@@ -264,7 +264,6 @@ export type Repository<TDefs extends Definitions> = { [K in NoteName<TDefs>]: Co
 
 type NoteLens = Extract<Lens, { kind: 'note' }>;
 type BlobLens = Extract<Lens, { kind: 'blob' }>;
-const headerOf = (text: string) => text.slice(0, splitMarkdown(text).bodyStart);
 const byPath = (a: Note, b: Note) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 /** Where `path` is in a list ordered by path, or -1. */
 function indexOf(list: Note[], path: string) {
@@ -290,7 +289,7 @@ function project(text: string | null, change: Change): string | null {
 		case 'delete':
 			return null;
 		case 'patch':
-			return text === null ? null : (writeMarkdown(text, { fields: change.fields }).data ?? text);
+			return text === null ? null : writeMarkdown(text, { fields: change.fields });
 	}
 }
 
@@ -363,13 +362,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 
 	function toNote(lens: NoteLens, path: string, params: Record<string, string>, text: string, fields: string | null | undefined, state: FileStatus): Note {
 		const base = { path, params, text, body: bodyOf(text), state };
-		let read: Record<string, unknown> | null;
-		if (fields !== undefined && fields !== null) read = JSON.parse(fields) as Record<string, unknown>;
-		else {
-			const parsed = parseMarkdown(text);
-			if (parsed.error !== null) return { ...base, valid: false, fields: {}, issues: [parsed.error.message] } as Note;
-			read = parsed.data.fields;
-		}
+		const read = fields === undefined || fields === null ? parseMarkdown(text).fields : (JSON.parse(fields) as Record<string, unknown>);
 		const issues = schemaIssues(lens.schema, read);
 		return (issues.length === 0 ? { ...base, valid: true, fields: read } : { ...base, valid: false, fields: read, issues }) as Note;
 	}
@@ -561,7 +554,7 @@ export function openRepository<TDefs extends Definitions>({ app, host }: { app: 
 		};
 		return {
 			pathOf,
-			create: (path: string, input: NoteInput<TSchema> = {}): Change => ({ kind: 'create', path, text: writeMarkdown(null, input as { fields?: Record<string, unknown>; body?: string }).data ?? input.body ?? '' }),
+			create: (path: string, input: NoteInput<TSchema> = {}): Change => ({ kind: 'create', path, text: writeMarkdown(null, input as { fields?: Record<string, unknown>; body?: string }) }),
 			patch: (path: string, fields: Record<string, unknown>): Change => ({ kind: 'patch', path, fields }),
 			delete: (path: string): Change => ({ kind: 'delete', path }),
 			write: (path: string, text: string | null, { over }: { over?: string | null } = {}): Change => (over === undefined ? { kind: 'write', path, text } : { kind: 'write', path, text, over }),

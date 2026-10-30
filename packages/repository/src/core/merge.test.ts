@@ -17,6 +17,7 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts, type Labels } from './conflict.js';
+import { parseMarkdown, splitMarkdown, writeMarkdown } from './markdown.js';
 import { type ContentOverlap, merge, withBlocks } from './merge.js';
 
 const labels: Labels = {
@@ -373,5 +374,57 @@ describe('properties', () => {
 			expect(r.overlaps).toHaveLength(0);
 			for (const token of [`c${trial}`, `d${trial}`, `i${trial}`]) expect(count(r.text ?? '', token)).toBe(1);
 		}
+	});
+});
+
+describe('a merge never breaks a note', () => {
+	/** Whether a text's fences, if any, hold parseable frontmatter. */
+	const opensParsed = (text: string | null) => text === null || splitMarkdown(text).yaml === null || parseMarkdown(text).hasFrontmatter;
+	let state = 0x9e3779b9;
+	const next = () => {
+		state ^= state << 13;
+		state ^= state >>> 17;
+		state ^= state << 5;
+		return (state >>> 0) / 2 ** 32;
+	};
+	const choose = <T>(items: readonly T[]) => items[Math.floor(next() * items.length)] as T;
+	/** Body lines that look like frontmatter, fences or blocks, beside ordinary ones. */
+	const LINES = ['---', 'a: 1', 'title: x', '- item', 'plain words', '', '<<<<<<< x', '=======', '"open', 'k: [1, 2]'] as const;
+	const VALUES = [1, 'two', [1, 2], { n: 1 }, null, 'a: b', '---'] as const;
+	const fields = () => Object.fromEntries(['title', 'a', 'mood', 'tags'].filter(() => next() < 0.5).map((key) => [key, choose(VALUES)]));
+	const body = () => Array.from({ length: Math.floor(next() * 5) }, () => `${choose(LINES)}\n`).join('');
+	/** A side's edit of `text`: fields set or removed, frontmatter added or dropped, body lines inserted (at the top, often) or removed. */
+	function edit(text: string) {
+		let out = text;
+		for (let n = Math.floor(next() * 3); n >= 0; n--) {
+			const roll = next();
+			const parsed = parseMarkdown(out);
+			if (roll < 0.3) out = writeMarkdown(out, { fields: { [choose(['title', 'a', 'mood', 'tags', 'new'])]: next() < 0.3 ? undefined : choose(VALUES) } });
+			else if (roll < 0.4) out = parsed.body;
+			else if (roll < 0.5) out = writeMarkdown(null, { fields: fields(), body: out });
+			else {
+				const lines = parsed.body.split(/(?<=\n)/).filter((line) => line !== '');
+				const at = next() < 0.5 ? 0 : Math.floor(next() * (lines.length + 1));
+				if (next() < 0.3 && lines.length > 0) lines.splice(Math.min(at, lines.length - 1), 1);
+				else lines.splice(at, 0, `${choose(LINES)}\n`);
+				out = writeMarkdown(out, { body: lines.join('') });
+			}
+		}
+		return out;
+	}
+
+	test('three inputs whose frontmatter parses merge to a text whose frontmatter parses, blocks written included', () => {
+		let checked = 0;
+		for (let k = 0; k < 20_000; k++) {
+			const base = next() < 0.15 ? null : writeMarkdown(null, { fields: fields(), body: body() });
+			const current = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
+			const incoming = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
+			if (![base, current, incoming].every(opensParsed)) continue;
+			checked++;
+			const result = merge(base, current, incoming);
+			const marked = withBlocks(result, labels);
+			if (!opensParsed(result.text) || !opensParsed(marked)) throw new Error(`a merge broke a note: ${JSON.stringify({ base, current, incoming, merged: result.text, marked })}`);
+		}
+		expect(checked).toBeGreaterThan(10_000);
 	});
 });

@@ -326,10 +326,17 @@ test("the app's views read what the person sees, held text included, and a watch
 	expect(heard).toEqual([[PATH], [PATH]]);
 	expect(replica.state(PATH)).toEqual({ status: 'synced' });
 
+	// Frontmatter that does not parse: a note with no fields, its whole text the body, and it goes.
+	const broken = `---\ntitle: A\ntitle: B\n---\ntwo\n`;
+	replica.write(PATH, broken);
+	expect(replica.state(PATH).status).toBe('sending');
+	expect(replica.query('SELECT title, body FROM notes')).toEqual([{ title: null, body: broken }]);
+	link.deliver();
 	// Text the door refuses is held, and still what the person sees.
-	replica.write(PATH, `---\ntitle: A\ntitle: B\n---\ntwo\n`);
+	const crlf = note('two\n').replaceAll('\n', '\r\n');
+	replica.write(PATH, crlf);
 	expect(replica.state(PATH).status).toBe('held');
-	expect(replica.query<{ body: string }>('SELECT body FROM notes')).toEqual([{ body: 'two\n' }]);
+	expect(replica.query<{ body: string }>('SELECT body FROM notes')).toEqual([{ body: crlf }]);
 	expect(replica.query('SELECT path, held IS NOT NULL AS held FROM "epicenter/files"')).toEqual([{ path: PATH, held: 1 }]);
 	expect(() => replica.query('DELETE FROM "epicenter/files"')).toThrow();
 });
@@ -395,7 +402,7 @@ test('a held file holds only itself: what was saved with it goes', () => {
 	replica.attach(null);
 	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\nmore\n') });
 	// A later save of a alone that the door refuses holds a, and only a.
-	replica.write('notes/a.md', '---\ntitle: [\n---\n');
+	replica.write('notes/a.md', 'a\r\n');
 	expect(replica.state('notes/a.md').status).toBe('held');
 	expect(replica.state('notes/b.md')).toEqual({ status: 'sending' });
 	replica.attach(link.sent.push.bind(link.sent));

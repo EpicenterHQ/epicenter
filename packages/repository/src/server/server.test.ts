@@ -549,9 +549,9 @@ describe('the Git receive path', () => {
 
 	test('every pushed commit is checked, not only the tip', async () => {
 		const { head, commitOn, receive, git, server } = await flushed();
-		const broken = await commitOn(head, { 'n/a.md': '---\ntitle: [\n---\n' });
+		const broken = await commitOn(head, { 'n/a.md': '---\r\ntitle: A\r\n---\r\n' });
 		const repaired = await commitOn(broken, { 'n/a.md': note('fixed\n') });
-		expect(await receive(repaired)).toMatchObject({ kind: 'refused', code: 'file', reason: 'does not parse', commit: broken, path: 'n/a.md' });
+		expect(await receive(repaired)).toMatchObject({ kind: 'refused', code: 'file', reason: 'a note must use LF line endings', commit: broken, path: 'n/a.md' });
 		expect(await git.readRef(MAIN)).toBe(head);
 		expect(server.read('n/a.md')).toBe(note('a\n'));
 	});

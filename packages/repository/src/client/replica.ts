@@ -125,7 +125,7 @@ export type Hello = { repository: string; server: string; user: string; main: st
 export type Change =
 	/** A new note. A path that holds a note already keeps it and gets this one as one conflict block, as two creates do. */
 	| { kind: 'create'; path: string; text: string }
-	/** Set fields on the note as it is now (a field set to undefined is removed): its other keys, their formatting and its body stay. */
+	/** Set fields on the note as it is now (a field set to undefined is removed): its other keys, their formatting and its body stay; a note with no parseable frontmatter gains a header before its whole text. */
 	| { kind: 'patch'; path: string; fields: Record<string, unknown> }
 	| { kind: 'delete'; path: string }
 	/** Exact source: `text`, made from `over`; where the file moved since `over`, the two are merged. Without `over`, the caller asserts it started from what this device shows now. */
@@ -137,8 +137,6 @@ export type Changed = { texts: Record<string, string | null>; revision: number }
 export const ChangeError = defineErrors({
 	/** A patch named a path this device shows no file at. */
 	NotFound: ({ path }: { path: string }) => ({ message: `There is no note at ${path}`, path }),
-	/** A patch named a note whose frontmatter does not parse, so it has no fields to set. */
-	Unparseable: ({ path, reason }: { path: string; reason: string }) => ({ message: `The frontmatter of ${path} does not parse: ${reason}`, path, reason }),
 });
 export type ChangeError = InferErrors<typeof ChangeError>;
 
@@ -279,13 +277,13 @@ const APPLY_PAGE = 512;
 /** Texts whose hash is remembered, so a level is hashed once, not at every notification. */
 const HASHED = 4_096;
 
-/** What a view reads of a text: a note's frontmatter, or a pointer's oid and size, as JSON. */
+/** What a view reads of a text: a note's frontmatter (null with none, so `BODY_SQL` reads the whole text), or a pointer's oid and size, as JSON. */
 function fieldsOf(text: string | null): string | null {
 	if (text === null) return null;
 	const pointer = parsePointer(text);
 	if (pointer !== null) return JSON.stringify(pointer);
 	const parsed = parseMarkdown(text);
-	return parsed.error === null ? JSON.stringify(parsed.data.fields) : null;
+	return parsed.hasFrontmatter ? JSON.stringify(parsed.fields) : null;
 }
 
 const encoder = new TextEncoder();
@@ -733,9 +731,7 @@ function createReplica({
 						break;
 					case 'patch': {
 						if (current === null) return ChangeError.NotFound({ path });
-						const patched = writeMarkdown(current, { fields: c.fields });
-						if (patched.error !== null) return ChangeError.Unparseable({ path, reason: patched.error.reason });
-						texts[path] = patched.data;
+						texts[path] = writeMarkdown(current, { fields: c.fields });
 						if (!(path in over)) over[path] = current;
 						break;
 					}

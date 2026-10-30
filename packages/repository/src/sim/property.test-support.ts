@@ -5,7 +5,7 @@
  * Three people and one agent edit a few notes over a lossy, reordering
  * network whose messages sometimes stall past a request's timeout, through
  * seeded random steps: typing in the body and the frontmatter, breaking and
- * repairing frontmatter, setting one field from several devices, a stale
+ * repairing frontmatter (a broken one syncs as it is), setting one field from several devices, a stale
  * editor buffer saved late, a note too large to store, renames (delete plus
  * write), deletes, deleting a path and creating it again (sometimes with the
  * very text it had before), an agent's saves (several notes in one
@@ -18,7 +18,7 @@
  * deleting them, and the upload track's steps out of order and across
  * disconnects (the server receiving bytes, a device hearing they are
  * present, an upload failing, an upload refused).
- * Then everyone comes online, repairs and saves what they hold back, and the
+ * Then everyone comes online, repairs what does not fit and saves what they hold back, and the
  * network goes quiet.
  *
  * Every step is a word token (`t<n>z`), so the test can say exactly what was
@@ -34,7 +34,7 @@
  * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged, or what only its own unsent work held
  * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, unless it lost to an edit by someone else that it had not seen: then the edited file stays, and nothing typed is lost
  * - No stale edit of a note merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block; a blob write lands in a merge only over the bytes its writer saw, or bytes equal to its own (compare-and-swap)
- * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
+ * - Every server Markdown file is at most 1 MB (one whose frontmatter does not parse is a note with no fields, and syncs); hostile writes (forged author, non-member, oversized, CRLF endings, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
  * - None applied twice: at quiescence no token appears twice in a server text outside its conflict blocks, nor twice in any one side of a block (`versionsOf`), except tokens a person wrote twice on purpose (resolving blocks by keeping every side's lines)
  * - Held alone: once everyone is online and every upload is completed or refused, every file a device has not sent is held, with a reason of its own; nothing waits on another file
@@ -46,7 +46,7 @@
  * A failure names its seed and the steps.
  */
 import { expect, test } from 'bun:test';
-import { parsePointer, parses, splitMarkdown, writeMarkdown, writePointer } from '../core/markdown.js';
+import { parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../core/markdown.js';
 import type { MemoryGitStore } from '../server/memory-git.js';
 import type { Server } from '../server/server.js';
 import { type Device, STAMP, type World, createWorld } from './harness.js';
@@ -104,6 +104,8 @@ const TOKEN = /t\d+z/g;
 const FILLER = `big ${'x'.repeat(1_100_000)}`;
 /** `hasFiller(text)` is pathologically slow in JavaScriptCore on a long text of x's, so look for it this way. */
 const hasFiller = (text: string) => /x{1000}/.test(text);
+/** Whether a text's fences, if any, hold parseable frontmatter. A text where they do not is a note all the same, with no fields. */
+const opensParsed = (text: string) => splitMarkdown(text).yaml === null || parseMarkdown(text).hasFrontmatter;
 /** Pushes a member makes in one burst; the server's admission limit must hold a flood below the bound. */
 const FLOOD = 60;
 const FLOOD_BOUND = 30;
@@ -140,10 +142,10 @@ const counts = (texts: (string | null)[]) => {
 	return out;
 };
 
-/** Make a text parse and fit without losing a token: close the quotes this test opens, drop the filler, then move frontmatter lines that still fail into the body. */
+/** Make a text's frontmatter parse and the text fit without losing a token: close the quotes this test opens, drop the filler, then move frontmatter lines that still fail into the body. */
 function repair(text: string) {
 	let fixed = text.replaceAll(': "open\n', ': "shut"\n').replace(/x{1000,}/g, '');
-	for (let guard = 0; !parses(fixed) && guard < 200; guard++) {
+	for (let guard = 0; !opensParsed(fixed) && guard < 200; guard++) {
 		const { yaml, bodyStart } = splitMarkdown(fixed);
 		if (yaml === null) break;
 		const lines = yaml.split('\n').filter((line) => line !== '');
@@ -204,8 +206,6 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	world.onCommit((committed) => {
 		const state = new Map(states.get(committed.parents[0] ?? '') ?? []);
 		for (const file of committed.files) {
-			if (file.path.endsWith('.md') && file.after !== null && !parses(file.after))
-				violations.push(`server: ${file.path} does not parse after a commit by ${committed.author.user}`);
 			if (file.after !== null && file.after.length > 1024 * 1024) violations.push(`server: ${file.path} is ${file.after.length} bytes`);
 			// A removal is done once its path is absent on the server after it, whoever's commit did it.
 			if (file.after === null) for (const r of removals) if (r.path === file.path && !r.cancelled) r.landed = true;
@@ -352,8 +352,8 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			return 'mallory pushes an oversized note';
 		},
 		() => {
-			if (accepted(hostile('mallory', [{ path: 'notes/m.md', text: '---\ntitle: [\n---\nbroken\n' }]))) violations.push('server: accepted a note that does not parse');
-			return 'mallory pushes a note that does not parse';
+			if (accepted(hostile('mallory', [{ path: 'notes/m.md', text: '---\r\ntitle: M\r\n---\r\nm\r\n' }]))) violations.push('server: accepted a note with CRLF endings');
+			return 'mallory pushes a note with CRLF endings';
 		},
 		() => {
 			// Appended to what is there, so it removes nothing a person typed.
@@ -503,11 +503,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			(d) => {
 				const path = random.pick(PATHS);
 				const text = d.replica.read(path);
-				if (text === null || !parses(text)) return null;
+				if (text === null) return null;
 				const t = token();
-				const written = writeMarkdown(text, { fields: { mood: t } });
-				if (written.error !== null) return null;
-				save(d, { [path]: written.data }, [t]);
+				save(d, { [path]: writeMarkdown(text, { fields: { mood: t } }) }, [t]);
 				return `${d.name} sets mood ${t} in ${path}`;
 			},
 		],
@@ -519,7 +517,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				if (open === undefined) {
 					const path = random.pick(PATHS);
 					const text = d.replica.read(path);
-					if (text === null || !parses(text)) return null;
+					if (text === null) return null;
 					editors.set(d.name, { path, text });
 					return `${d.name} opens an editor on ${path}`;
 				}
@@ -535,7 +533,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			(d) => {
 				const path = random.pick(PATHS);
 				const text = d.replica.read(path);
-				if (text === null || !text.startsWith('---\n') || !parses(text)) return null;
+				if (text === null || !text.startsWith('---\n') || !opensParsed(text)) return null;
 				const t = token();
 				save(d, { [path]: `---\nx${t}: "open\n${text.slice(4)}` }, [t]);
 				return `${d.name} breaks ${path} (${t})`;
@@ -553,13 +551,13 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				return `${d.name} pastes more than 1 MB into ${path} (${t})`;
 			},
 		],
-		// Repair what does not parse or does not fit.
+		// Repair frontmatter that does not parse, or a note that does not fit.
 		[
 			2,
 			(d) => {
 				const path = random.pick(PATHS);
 				const text = d.replica.read(path);
-				if (text === null || (parses(text) && !hasFiller(text))) return null;
+				if (text === null || (opensParsed(text) && !hasFiller(text))) return null;
 				save(d, { [path]: repair(text) }, []);
 				return `${d.name} repairs ${path}`;
 			},
@@ -726,7 +724,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		check(`after step ${n}`, false);
 	}
 
-	// Quiescence: everyone online; each person repairs what does not parse or fit, and saves what they hold.
+	// Quiescence: everyone online; each person repairs what does not fit, and saves what they hold. A note whose frontmatter does not parse syncs as it is.
 	world.calm();
 	for (const d of everyone) d.setOnline(true);
 	for (let round = 0; round < 6; round++) {
@@ -766,7 +764,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				// Too many blocks: the person resolves them by keeping every side's lines, which removes nothing typed.
 				const unblocked = reason === REASONS['too-many-blocks'] ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
 				if (unblocked !== text) for (const t of tokensIn(text)) retyped.add(t);
-				const fixed = parses(unblocked) && !hasFiller(unblocked) ? unblocked : repair(unblocked);
+				const fixed = hasFiller(unblocked) ? repair(unblocked) : unblocked;
 				if (fixed === text && text === world.server.read(path) && reason === undefined) continue;
 				save(d, { [path]: fixed }, []);
 				log.push(`quiet: ${d.name} saves ${path}${reason === undefined ? '' : ` (${reason})`}`);

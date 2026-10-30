@@ -5,8 +5,7 @@
 	person types; this view shows where that stands.
 	A clash with a change made elsewhere is a conflict block in the text.
 	A failed save keeps the typing, with Try again. Given a `check`, the
-	status says as the person types whether the frontmatter parses and the
-	note fits its schema; given the note's `state`, it says when the text is
+	status says as the person types whether the note's fields fit its schema; given the note's `state`, it says when the text is
 	saved here but held, not sent, and why.
 
 	The caller opens the editor and closes it, so it decides what to do with
@@ -34,7 +33,7 @@
 		class: className = '',
 	}: {
 		editor: Editor;
-		/** Whether the note's exact text parses and fits its schema, shown as the person types. */
+		/** Whether the note's fields fit its schema, shown as the person types. */
 		check?: (text: string) => TextStatus;
 		/** The note's state as the repository lists it: a held note says why it is not sent. */
 		state?: FileStatus;

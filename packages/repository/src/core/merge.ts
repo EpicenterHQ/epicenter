@@ -22,7 +22,7 @@
  * unsent work over what arrived, and an editor's write all reach it here.
  */
 import { block, findConflicts, type Labels, sideOffering, withSide } from './conflict.js';
-import { parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
+import { headerOf, parseMarkdown, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
 
 /** Something both sides changed, as the merge found it. */
 export type ContentOverlap =
@@ -99,30 +99,38 @@ export function merge(
 	};
 }
 
+/** A text that opens with `---` fences whose span is not a YAML mapping: a note with no fields, whose fences are body. */
+const fencedBody = (text: string) => splitMarkdown(text).yaml !== null && !parseMarkdown(text).hasFrontmatter;
+
 function markdown(base: string | null, current: string, incoming: string): MergeResult {
+	const created: ContentOverlap[] = base === null && current !== incoming ? [{ unit: 'file', clash: 'created' }] : [];
+	// Fences that hold no frontmatter on any side (a person halfway through typing it, say): merge the whole text as body, so its lines merge as lines.
+	if (fencedBody(current) || fencedBody(incoming) || (base !== null && fencedBody(base))) {
+		return finish(bodyParts(base ?? '', current, incoming), created);
+	}
 	const b = base === null ? null : parseMarkdown(base);
 	const c = parseMarkdown(current);
 	const i = parseMarkdown(incoming);
-	const created: ContentOverlap[] = base === null && current !== incoming ? [{ unit: 'file', clash: 'created' }] : [];
-	// Unparseable frontmatter on any side: merge the whole text as body.
-	if (c.error !== null || i.error !== null || b?.error) {
-		return finish(bodyParts(base ?? '', current, incoming), created);
-	}
-	const baseFields = b?.data.fields ?? {};
-	const { chosen, clashes } = chooseFields(baseFields, c.data.fields, i.data.fields);
-	const parts: Part[] =
-		b === null
-			? [{ text: joinCreates(c.data.body, i.data.body) }]
-			: bodyParts(b.data.body, c.data.body, i.data.body);
+	const { chosen, clashes } = chooseFields(b?.fields ?? {}, c.fields, i.fields);
+	const parts: Part[] = b === null ? [{ text: joinCreates(c.body, i.body) }] : bodyParts(b.body, c.body, i.body);
 	const mergedBody = parts.map((part) => ('text' in part ? part.text : part.overlap.current)).join('');
 	const changed: Record<string, unknown> = {};
-	for (const key of new Set([...Object.keys(c.data.fields), ...Object.keys(chosen)]))
-		if (!sameValue(c.data.fields[key], chosen[key])) changed[key] = chosen[key];
-	const written = writeMarkdown(current, { fields: changed, body: mergedBody });
-	// Current parsed, so writing its own fields back cannot fail.
-	if (written.error !== null) return finish(bodyParts(base ?? '', current, incoming), created);
-	const header = written.data.slice(0, splitMarkdown(written.data).bodyStart);
-	return finish(parts, [...created, ...clashes], header);
+	for (const key of new Set([...Object.keys(c.fields), ...Object.keys(chosen)]))
+		if (!sameValue(c.fields[key], chosen[key])) changed[key] = chosen[key];
+	const header = headerOf(writeMarkdown(current, { fields: changed, body: mergedBody }));
+	const result = finish(parts, [...created, ...clashes], header);
+	return header === '' ? guarded(result) : result;
+}
+
+/** An empty header before the body: a merged body that opens with fences (two bodies joined, say) is kept as body behind an empty frontmatter, so no body line becomes a field or a fence. */
+const EMPTY_HEADER = '---\n---\n';
+function guarded(result: MergeResult): MergeResult {
+	if (result.text === null || splitMarkdown(result.text).yaml === null) return result;
+	const shift = EMPTY_HEADER.length;
+	return {
+		text: EMPTY_HEADER + result.text,
+		overlaps: result.overlaps.map((overlap) => (isSpan(overlap) ? { ...overlap, start: overlap.start + shift, end: overlap.end + shift } : overlap)),
+	};
 }
 
 function chooseFields(

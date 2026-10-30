@@ -67,15 +67,17 @@ export async function sync(options: FolderOptions & { once?: boolean; stop?: Pro
 		if (link !== null) await until(() => replica.position() !== null && !replica.busy(), 10_000);
 		print({ 'caught-up': replica.position() });
 		await engine.start({ watch: options.once !== true });
+		/** Print what is held; whether anything is. */
 		const report = () => {
 			const held = replica.held();
 			if (held.length > 0) print({ held });
+			return held.length > 0;
 		};
 		if (options.once === true) {
 			await engine.idle();
 			if (link !== null) await until(() => !replica.busy() && replica.owed().length === 0, 30_000);
-			report();
-			if (replica.unsent().length > 0) {
+			const held = report();
+			if (held || replica.unsent().length > 0) {
 				print({ pending: replica.sent()?.id ?? null });
 				return 2;
 			}

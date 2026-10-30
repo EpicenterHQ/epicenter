@@ -5,7 +5,7 @@
  * would notice, with what they should see after the phase 0a decisions:
  * a stale edit across a delete or a second create appends whole as one
  * conflict block (D3); a field clash keeps main's value and writes the other
- * as a conflict block (D2); every written note parses (D4); there are no
+ * as a conflict block (D2); a merge of notes whose frontmatter parses writes frontmatter that parses (D4); there are no
  * stored notices: what contested is a block in the text, and whatever of a
  * person's the shared text does not hold stays held on their device with a
  * reason (a refusal, a delete that lost to an edit); an editor's save merges
@@ -13,9 +13,9 @@
  *
  * Key behaviors:
  * - P1, P2: an offline edit of a note deleted and created again lands as one block in the new note
- * - P3, P4, P7: a second create at a path, a rename onto it, or a held draft meeting it: one block, nothing glued silently, a held draft not published
+ * - P3, P4, P7: a second create at a path, a rename onto it, or a half-typed draft meeting it: one block, nothing glued silently
  * - P5: a rename racing an edit of the old path keeps both
- * - P6: a note that does not parse is refused at the door, so two repairs never meet one
+ * - P6: a note whose frontmatter does not parse is a note: it lands, and two repairs of it merge by line
  * - P8: a delete that lost to an edit stays held on the deleting device, across a lost reply and a flush, until saved again
  * - P9: a forged author is refused, a note over 1 MB is refused, forged conflict labels are text
  * - P10: a refusal of a person's own text leaves it held with the reason
@@ -135,29 +135,37 @@ test('P5: a rename racing an offline edit of the old path keeps both', () => {
 	expect(world.server.read('notes/lisbon-trip.md')).toBe(note('pack\n', 'title: Trip'));
 });
 
-test('P6: a note that does not parse is refused at the door, so two repairs of one never meet', () => {
-	const { world, alice } = setup();
+test('P6: a note whose frontmatter does not parse is a note: it lands, and two repairs of it merge by line', () => {
+	const { world, alice, bob, settle } = setup();
 	const body = { parent: world.server.main(), author: { user: 'alice', device: 'ci' }, time: STAMP, files: [{ path: 'notes/x.md', text: '---\ntitle: "open\n---\nbody\n' }] };
-	expect(world.server.push({ id: commitId(body), ...body }, writer('alice'))).toMatchObject({ kind: 'refused', path: 'notes/x.md' });
-	expect(world.server.read('notes/x.md')).toBeNull();
-	alice.replica.write('notes/x.md', '---\ntitle: "open\n---\nbody\n', { over: null });
-	expect(alice.replica.held()).toEqual([{ path: 'notes/x.md', reason: 'does not parse' }]);
+	expect(world.server.push({ id: commitId(body), ...body }, writer('alice'))).toMatchObject({ kind: 'applied' });
+	settle();
+	expect(alice.replica.read('notes/x.md')).toBe('---\ntitle: "open\n---\nbody\n');
+	expect(alice.replica.held()).toEqual([]);
+	// Both repair it at once: the two repairs merge by line, as text does.
+	alice.setOnline(false);
+	alice.replica.edit('notes/x.md', (text) => (text ?? '').replace('"open', '"open"'));
+	bob.replica.edit('notes/x.md', (text) => (text ?? '').replace('body', 'body!'));
+	settle();
+	alice.setOnline(true);
+	settle();
+	expect(world.server.read('notes/x.md')).toBe('---\ntitle: "open"\n---\nbody!\n');
 });
 
-test('P7: a held draft meeting a remote create at its path stays unpublished until its person saves, then lands as one block', () => {
+test('P7: a half-typed draft meeting a remote create at its path lands beside it as one block, nothing glued', () => {
 	const { world, alice, bob, settle } = setup();
 	const path = 'notes/new.md';
+	alice.setOnline(false);
 	alice.replica.write(path, '---\ntitle: "Half typed\n---\nmy draft\n', { over: null });
 	bob.replica.write(path, note('bob body\n', 'title: Bob note'), { over: null });
 	settle();
-	expect(world.server.read(path)).toBe(note('bob body\n', 'title: Bob note'));
-	expect(alice.replica.read(path)).toContain('my draft');
-	alice.replica.edit(path, (text) => (text ?? '').replace('"Half typed', 'Half typed'));
+	alice.setOnline(true);
 	settle();
 	const text = world.server.read(path) ?? '';
-	expect(text.startsWith(note('bob body\n', 'title: Bob note'))).toBe(true);
-	expect(text).toContain('my draft');
+	expect(text).toContain('bob body\n');
+	expect(text).toContain('my draft\n');
 	expect(text).toContain('<<<<<<< ');
+	expect(alice.replica.read(path)).toBe(text);
 });
 
 test('P8 (changed): a delete that lost to an edit leaves the edited note on the deleting device, across a lost reply and a flush; deleting again sends it', async () => {
@@ -360,7 +368,6 @@ test('changed: a field removal that lost to an edit leaves the edited field, and
 
 test('the door refuses what would break a clone, the same on the device and the server', () => {
 	for (const [path, text, reason] of [
-		['Notes.MD', '---\n: : bad\n---\n', 'does not parse'],
 		['notes/a.md', '---\r\ntitle: X\r\n---\r\nbody\r\n', 'a note must use LF line endings'],
 		['notes/a.md', '\uFEFF---\ntitle: X\n---\n', 'a note may not start with a byte order mark'],
 		['notes/a.md', writePointer({ oid: 'a'.repeat(64), size: 1 }), 'a note may not be an LFS pointer'],
