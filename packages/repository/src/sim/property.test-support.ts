@@ -733,6 +733,14 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	// Quiescence: everyone online; each person repairs what does not fit, and saves what they hold. A note whose frontmatter does not parse syncs as it is.
 	world.calm();
 	for (const d of everyone) d.setOnline(true);
+	/** Held alone: with everyone online and every upload done or refused, what a device has not sent waits or is refused, each file with a reason of its own (none still uploading); nothing waits on another file. */
+	const heldAlone = () => {
+		for (const d of everyone) {
+			const held = new Map(d.replica.notSent().filter((h) => h.reason !== UPLOADING).map((h) => [h.path, h.reason]));
+			for (const [path, reason] of held) if (reason.trim() === '') violations.push(`quiet: ${d.name} holds ${path} with no reason`);
+			for (const path of d.replica.unsent()) if (!held.has(path)) violations.push(`quiet: ${d.name}'s ${path} is not sent and not held (${JSON.stringify(d.replica.state(path))})`);
+		}
+	};
 	for (let round = 0; round < 6; round++) {
 		// Every upload completes, or is refused.
 		for (const d of everyone)
@@ -745,12 +753,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				hear(d, bytes);
 			}
 		if (!(await world.settle())) throw new Error(`seed ${seed}: never went idle\n${log.join('\n')}`);
-		// Held alone: with everyone online and every upload done or refused, what a device has not sent waits or is refused, each file with a reason of its own (none still uploading); nothing waits on another file.
-		for (const d of everyone) {
-			const held = new Map(d.replica.notSent().filter((h) => h.reason !== UPLOADING).map((h) => [h.path, h.reason]));
-			for (const [path, reason] of held) if (reason.trim() === '') violations.push(`quiet: ${d.name} holds ${path} with no reason`);
-			for (const path of d.replica.unsent()) if (!held.has(path)) violations.push(`quiet: ${d.name}'s ${path} is not sent and not held (${JSON.stringify(d.replica.state(path))})`);
-		}
+		// Bytes that became owed while settling (a pointer that stopped being `main`'s, say) go in the next round before anything is judged.
+		const owing = everyone.some((d) => owedBy(d).length > 0);
+		if (!owing) heldAlone();
 		let saved = false;
 		for (const d of everyone) {
 			// What its person fixes or discards: a file still uploading is the upload track's, not theirs.
@@ -778,9 +783,10 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				saved = true;
 			}
 		}
-		if (!saved) break;
+		if (!saved && !owing) break;
 	}
 	await world.settle();
+	heldAlone();
 	check('at quiescence', true);
 	const server = world.server.snapshot();
 	for (const d of everyone) {
