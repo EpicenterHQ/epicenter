@@ -416,7 +416,10 @@ writes such a pair itself; it waits until the other file is gone. On a
 case-insensitive file system the two spellings are one file, named by the
 spelling the engine knows. The replica keeps one row per folded path,
 spelled as `main` spells it, so the folder takes `main`'s spelling as the
-engine projects.
+engine projects. A rename to another spelling of the same path (a delete,
+then a create under the new spelling, before the delete lands) goes to the
+server as a rename: the file keeps its text and history, and takes the new
+spelling everywhere.
 
 ### Identity and place
 

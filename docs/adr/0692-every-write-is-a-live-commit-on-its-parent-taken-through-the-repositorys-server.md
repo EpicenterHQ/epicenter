@@ -162,9 +162,7 @@ macOS, and keep each segment within 255 bytes; Epicenter alone writes
 `.gitattributes` (`ATTRIBUTES`: every file through LFS, notes and the file
 itself as text), `.lfsconfig`, `.gitmodules` and `.epicenter/`, and no
 folder takes one of those names. `lint`
-only warns: unresolved or malformed conflict blocks, a path over 260 bytes. Paths equal after
-NFC and case folding (`fold`) are one path, and a write goes to the spelling
-`main` has. A name is a file or a folder, never both: a file written where a
+only warns: unresolved or malformed conflict blocks, a path over 260 bytes. A name is a file or a folder, never both: a file written where a
 folder still holds files is refused at that file as `is-a-folder` ("a folder
 already has this name"), and one written beneath a file as `under-a-file` ("a
 file already has this name"), checked over the commit's parent and over what
@@ -176,6 +174,28 @@ exceptions refuse a text writer because of someone else: a merge that would grow
 a note past 1 MB (`merge-too-large`), and one that would leave more than
 `BLOCK_CAP` (20) conflict blocks in a note (`too-many-blocks`, "this note
 has unresolved conflicts; resolve some first"). The server reads no schema.
+
+**A file is one name.** Paths equal after NFC and case folding (`fold`)
+are one file, stored once under its folded path: on the server as `main`'s
+spelling of it, on a device as one replica row with its spelling as a
+column. On disk and in Git a path stays as written. A write to any
+spelling of a file is a write to that file: its text merges like any
+other write, and the file keeps its spelling. Only a rename changes a
+spelling: a commit file marked `rename` lands as a write to the file its
+path names, which then takes that spelling, and a `git push` that removes
+one spelling and adds another is such a rename. A device sends one when
+its person deletes a file and creates it under another spelling before the
+delete has landed (in one save, or offline); once it has, the create is a
+new file. A write made before a rename,
+under the old spelling, merges into the renamed file. Every listing (an
+answer, a notification, a catch-up) names a file once, in `main`'s
+spelling, so a device takes `main`'s spelling as it takes its text,
+unless its own rename has not been answered yet. A folder keeps its
+records per spelling on its disk, where a case-sensitive file system can
+hold two; it refuses the second until a person renames one. Nothing tells
+a note deleted and made again under another spelling from the same note:
+a stale write under the old spelling merges into the new one, a visible
+and repairable result.
 
 **A note is always valid.** A broken key costs only that key: the note
 keeps every other field, its body is what follows the header, and an app's
@@ -412,6 +432,15 @@ another repository, server or account is refused (`BoundElsewhere`).
   device:** a note half typed could not sync, and two repairs of one never
   met; a note is always valid instead, and a merge of three notes whose
   frontmatter parses writes frontmatter that parses.
+- **A row per spelling on the device, moved to `main`'s spelling as it
+  arrived:** a catch-up of another spelling made a second row, and work
+  saved over a create in flight under another spelling went over `main`
+  unseen; with one row per name neither can happen, and the moving rule
+  (`respell`) is gone. A case-only rename could not be expressed.
+- **A generation per path, bumped at each delete and create, so a note made
+  again at a path is another note:** the owner accepted a stale write
+  merging into a note made again at its path as a visible, repairable
+  result, and a generation would be kept for every path forever.
 - **Holding a blob write that lost, with why:** its writer had to keep the
   bytes under another name by hand; the server names a sibling instead.
 - **Refusing a commit dated ahead of the server's clock:** a device's clock
