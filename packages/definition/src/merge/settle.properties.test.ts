@@ -10,6 +10,7 @@
  * - The output always parses, and is in house style
  * - No field is lost: each key ends as the per-key rule says (one side's change lands, the later arrival wins a clash, an edit beats a delete)
  * - Conflict blocks are only in the body, are whole lines of each side, and number at most one per clash
+ * - Edits of different words on one line merge with no block (decision 43 shapes a block, it adds none)
  * - Two creates keep the first note's fields and the second note whole in one block
  *
  * See also:
@@ -61,7 +62,11 @@ const LINES = [
 	'# Heading',
 	'<<<<<<< x',
 	'=======',
+	'alpha beta gamma delta',
+	'one two three',
 ];
+/** Words a word edit writes into a line. */
+const WORDS = ['alpha', 'beta', 'zeta', 'two', 'four', 'x:'];
 
 let state = 0x9e3779b9;
 const next = () => {
@@ -99,7 +104,13 @@ function edited(note: Note): Note {
 		const at = Math.floor(next() * (lines.length + 1));
 		if (roll < 0.25) fields[choose(KEYS)] = choose(VALUES);
 		else if (roll < 0.35) delete fields[choose(KEYS)];
-		else if (roll < 0.65) lines.splice(at, 0, choose(LINES));
+		else if (roll < 0.5 && lines.length > 0) {
+			// A word edit: one word of a line replaced, the rest of the line kept.
+			const index = Math.min(at, lines.length - 1);
+			const words = (lines[index] ?? '').split(' ');
+			words[Math.floor(next() * words.length)] = choose(WORDS);
+			lines[index] = words.join(' ');
+		} else if (roll < 0.65) lines.splice(at, 0, choose(LINES));
 		else if (lines.length > 0 && roll < 0.8)
 			lines.splice(Math.min(at, lines.length - 1), 1);
 		else if (lines.length > 0)
@@ -226,6 +237,39 @@ describe('settle over random edits', () => {
 			expect(settle(b, c, i, { parties })).toEqual(
 				settle(b, c, i, { parties }),
 			);
+		}
+	});
+
+	test('edits of different words on one line merge with no block', () => {
+		for (let k = 0; k < ROUNDS; k++) {
+			const words = Array.from(
+				{ length: 2 + Math.floor(next() * 6) },
+				(_, n) => `w${n}`,
+			);
+			const [j, m] = [
+				Math.floor(next() * words.length),
+				Math.floor(next() * words.length),
+			];
+			if (j === m) continue;
+			const around = randomNote();
+			const at = Math.floor(next() * (around.lines.length + 1));
+			const withLine = (line: string[]): Note => ({
+				fields: around.fields,
+				lines: around.lines.toSpliced(at, 0, line.join(' ')),
+			});
+			const mine = words.with(j, 'mine');
+			const theirs = words.with(m, 'theirs');
+			const settled = settle(
+				write(withLine(words)),
+				write(withLine(mine)),
+				write(withLine(theirs)),
+				{ parties, keys: KEYS },
+			);
+			const both = words.with(j, 'mine').with(m, 'theirs').join(' ');
+			if (settled.blocks || !bodyOf(settled.text ?? '').includes(`${both}\n`))
+				throw new Error(
+					`a clean word merge made a block or lost an edit: ${JSON.stringify({ words, j, m, text: settled.text })}`,
+				);
 		}
 	});
 });

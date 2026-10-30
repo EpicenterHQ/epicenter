@@ -14,10 +14,11 @@
  *   holds). A key one side deleted keeps the other side's change, as a file
  *   does. Blocks are written as their side typed them, comments included;
  *   the server's house style formats the ones that parse.
- * - The body merges by line, so edits on neighboring lines do not conflict.
- *   Lines both sides changed are one clash, written as one block of whole
- *   lines (decision 43): a block never splits a sentence, and two edits of
- *   one line never merge word by word. Two insertions at one point are both
+ * - The body merges by line, so edits on neighboring lines do not conflict;
+ *   lines both sides changed merge again by word, so edits of different
+ *   words in one sentence both land with no block, and letters never blend.
+ *   Where words clash, the clash is the whole lines involved (decision 43):
+ *   a block never splits a sentence. Two insertions at one point are both
  *   kept, current first.
  * - Two creates at one path merge fields and keep both bodies.
  * - A delete against an edit returns the edit.
@@ -225,10 +226,13 @@ function joinCreates(current: string, incoming: string) {
 	return `${current.replace(/\n+$/, '')}\n\n${incoming.replace(/^\n+/, '')}`;
 }
 
-/** A merged run of lines, or a clash of whole lines. */
+/** A merged run, or a clash of whole lines; `whole`: a clash of lines both sides moved there, never merged again by word. */
 type Part =
 	| { text: string }
-	| { overlap: { base: string; current: string; incoming: string } };
+	| {
+			overlap: { base: string; current: string; incoming: string };
+			whole?: true;
+	  };
 
 function finish(
 	parts: Part[],
@@ -252,7 +256,7 @@ function finish(
 }
 
 // ============================================================================
-// Body: by line, a clash always whole lines
+// Body: by line, then by word within lines both sides changed; a clash is whole lines
 // ============================================================================
 
 /** Lines with their terminators; an existing marker block is one atomic line. */
@@ -276,6 +280,7 @@ function lines(text: string) {
 	return out;
 }
 
+const words = (text: string) => text.match(/\S+|\s+/g) ?? [];
 const hasBlock = (text: string) => text.includes('<<<<<<< ');
 
 /** A span's plain lines, and the conflict blocks in it, each whole. */
@@ -303,7 +308,8 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 		lines(terminated(base)),
 		lines(terminated(current)),
 		lines(terminated(incoming)),
-	);
+		{ lines: true },
+	).map(byWord);
 	const last = parts.at(-1);
 	if (last === undefined || !('text' in last) || !last.text.endsWith('\n'))
 		return parts;
@@ -316,6 +322,25 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 		mine && theirs ? (c === i || i === b ? c : i) : mine ? c : theirs ? i : b;
 	if (ended) return parts;
 	return [...parts.slice(0, -1), { text: last.text.slice(0, -1) }];
+}
+
+/**
+ * RULE (decision 43): lines both sides changed merge again by word, and
+ * where no word clashes they land as one run of text, with no block. Where
+ * a word clashes, the clash stays the whole lines both sides changed, so a
+ * block never splits a sentence. Lines both sides moved there, and lines
+ * holding a block (atomic, so blocks never nest), are never merged by word.
+ */
+function byWord(part: Part): Part {
+	if ('text' in part || part.whole) return part;
+	const { base, current, incoming } = part.overlap;
+	if ([base, current, incoming].some(hasBlock)) return part;
+	const merged = mergeSequence(words(base), words(current), words(incoming));
+	if (!merged.every((run): run is { text: string } => 'text' in run))
+		return part;
+	const text = merged.map((run) => run.text).join('');
+	// A merge of whole lines is whole lines; anything else stays the clash.
+	return text === '' || text.endsWith('\n') ? { text } : part;
 }
 
 /** `text` with a final newline, unless it is empty. */
@@ -334,11 +359,12 @@ export type Hunk = {
 };
 type SourcedHunk = Hunk & { source: 'current' | 'incoming' };
 
-/** Merge two edits of `base`, as lines, each with its terminator. */
+/** Merge two edits of `base`, as lines (each with its terminator) or as words. */
 function mergeSequence(
 	base: string[],
 	current: string[],
 	incoming: string[],
+	{ lines = false } = {},
 ): Part[] {
 	const edits: SourcedHunk[] = [
 		...diff(base, current).map((h) => ({ ...h, source: 'current' as const })),
@@ -348,6 +374,7 @@ function mergeSequence(
 		start: number;
 		end: number;
 		edits: SourcedHunk[];
+		shared?: true;
 	};
 	const groups: Group[] = [];
 	/** The lines a hunk writes, as its side has them. */
@@ -373,8 +400,9 @@ function mergeSequence(
 	for (const hunk of edits) {
 		const group = groups.at(-1);
 		// Shared boundaries are independent; insertions at one point group together.
-		// Two sides' hunks that overlap or touch and write a line in common (both moved the same lines there) are one clash.
+		// As lines, two sides' hunks that overlap or touch and write a line in common (both moved the same lines there) are one clash, kept whole.
 		const moved =
+			lines &&
 			group !== undefined &&
 			hunk.start <= group.end &&
 			group.edits.some(
@@ -387,6 +415,7 @@ function mergeSequence(
 					hunk.end === hunk.start &&
 					group.end === group.start) ||
 				moved);
+		if (joins && moved) group.shared = true;
 		if (joins) {
 			group.end = Math.max(group.end, hunk.end);
 			group.edits.push(hunk);
@@ -422,7 +451,9 @@ function mergeSequence(
 			parts.push({ text: (sources.has('current') ? c : i).join('') });
 		else if (b.length === 0 && group.edits.every((h) => h.start === h.end)) {
 			// Both inserted at one point (identical insertions were deduplicated above).
-			parts.push({ text: interleave(c, i).join('') });
+			parts.push({
+				text: (lines ? interleave(c, i) : [...c, ...i]).join(''),
+			});
 		} else
 			parts.push({
 				overlap: {
@@ -430,6 +461,7 @@ function mergeSequence(
 					current: c.join(''),
 					incoming: i.join(''),
 				},
+				...(group.shared ? { whole: true as const } : {}),
 			});
 		at = group.end;
 	}
@@ -521,11 +553,11 @@ function matchRegion(
 }
 
 /**
- * The prototype's LCS table walk, over one region, weighted: a match of a
- * blank line counts less than a match of anything else. RULE: where a side
- * could match a line of text or a blank line beside it, it matches the
- * text, so two sides keeping one line anchor on it and neither inserts it
- * again.
+ * The prototype's LCS table walk, over one region, weighted: a match of
+ * whitespace (a space, or a blank line) counts less than a match of anything
+ * else. RULE: where a side could match a word or the space beside it, it
+ * matches the word, so two sides keeping one word anchor on that word and
+ * neither inserts it again.
  */
 function tableMatches(
 	base: string[],

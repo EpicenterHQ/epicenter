@@ -7,7 +7,8 @@
  * output never blends tokens, and each overlap is one well-formed block, never nested.
  *
  * Key behaviors:
- * - Neighboring line edits and same-point appends merge; two edits of one line are one whole-line clash (decision 43)
+ * - Neighboring line edits, separate word edits on one line and same-point appends merge silently
+ * - Words both sides changed are one clash, written over the whole lines involved (decision 43)
  * - A true overlap is reported, never blended (cat/cart/coat)
  * - The header merges by top-level key, each value whole; a key both sides set takes the later write's (incoming, arriving now, over current, main's); a key's unseen delete loses; comments stay
  * - A top block that does not parse is body: a header written over it merges as added keys, never a duplicate
@@ -56,18 +57,30 @@ describe('examples', () => {
 		expect(r.overlaps).toHaveLength(0);
 	});
 
-	test('edits of one line on both sides are one clash of the whole line, never merged by word (decision 43)', () => {
+	test('separate sentence edits in one paragraph both survive, with no block', () => {
 		const r = merge(
 			'One. Two. Three.\n',
 			'One! Two. Three.\n',
 			'One. Two. Three!\n',
 		);
-		expect(r.text).toBe('One! Two. Three.\n');
+		expect(r.text).toBe('One! Two. Three!\n');
+		expect(r.overlaps).toHaveLength(0);
+	});
+
+	test('a word both sides changed makes the whole line one clash, even beside a clean word edit (decision 43)', () => {
+		const r = merge(
+			'One. Two. Three.\nNext line.\n',
+			'One! Two. Three.\nNext line.\n',
+			'One? Two. Three!\nNext line.\n',
+		);
+		expect(r.text).toBe('One! Two. Three.\nNext line.\n');
 		expect(spans(r.overlaps)).toMatchObject([
 			{
 				base: 'One. Two. Three.\n',
 				current: 'One! Two. Three.\n',
-				incoming: 'One. Two. Three!\n',
+				incoming: 'One? Two. Three!\n',
+				start: 0,
+				end: 'One! Two. Three.\n'.length,
 			},
 		]);
 	});
