@@ -117,6 +117,7 @@ the door's rules.** `admit` (`server/server.ts`) checks, in order:
 | A path at most 512 bytes | `path-too-long` |
 | `admissible(path, text)` (`core/door.ts`), below | `inadmissible`, with the door's reason |
 | A pointer's bytes present at its size; a blob write lands only over the blob its writer saw | `blob-missing`, `blob-changed` |
+| A name is a file or a folder, never both, over the commit's parent and over what `main` becomes (`collision`, `core/tree.ts`) | `is-a-folder`, `under-a-file` |
 
 `admissible` is one pure predicate the device, the server and a GitHub
 Action share. A note (`.md` in any case) parses, uses LF with no byte order
@@ -127,10 +128,18 @@ UTF-8 with no NUL, and every file that is not a note is a canonical LFS
 pointer naming at most 2 GiB (`MAX_BLOB_BYTES`). Paths are NFC, hold no `.git` component, are legal on Windows and
 macOS, and keep each segment within 255 bytes; Epicenter alone writes
 `.gitattributes` (`ATTRIBUTES`: every file through LFS, notes and the file
-itself as text), `.lfsconfig`, `.gitmodules` and `.epicenter/`. `lint`
+itself as text), `.lfsconfig`, `.gitmodules` and `.epicenter/`, and no
+folder takes one of those names. `lint`
 only warns: unresolved or malformed conflict blocks, a path over 260 bytes. Paths equal after
 NFC and case folding (`fold`) are one path, and a write goes to the spelling
-`main` has. A merge result passes `admissible` too, and two named
+`main` has. A name is a file or a folder, never both: a file written where a
+folder still holds files is refused at that file as `is-a-folder` ("a folder
+already has this name"), and one written beneath a file as `under-a-file` ("a
+file already has this name"), checked over the commit's parent and over what
+`main` would become, so a stale writer is refused too. A delete names only a
+file. Only a person renaming one can fix such a refusal, so the device holds
+it like an inadmissible name, and a tree update that meets a collision
+throws rather than drop either side. A merge result passes `admissible` too, and two named
 exceptions refuse a text writer because of someone else: a merge that would grow
 a note past 1 MB (`merge-too-large`), and one that would leave more than
 `BLOCK_CAP` (20) conflict blocks in a note (`too-many-blocks`, "this note
@@ -288,8 +297,9 @@ another repository, server or account is refused (`BoundElsewhere`).
   9 ms and 0.2 MB of heap in Bun; a full catch-up of 100,000 notes took
   2.3 s.
 - No text writer, person or agent, is refused because of someone else,
-  except at 1 MB, at 20 blocks, and in HTTP's conditional file write; a
-  blob write is refused when the blob it replaces moved. Two people
+  except at 1 MB, at 20 blocks, in HTTP's conditional file write, and
+  where someone made a file or a folder of the same name; a blob write is
+  refused when the blob it replaces moved. Two people
   typing in the same words at once produce one block, which stays in the
   note and in Git until someone edits it away.
 - Every value someone saved is in the shared text and in Git history,
