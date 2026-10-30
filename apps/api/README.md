@@ -1,15 +1,20 @@
 # Epicenter API (Hosted Personal Cloud)
 
 > [!CAUTION]
-> **Do not deploy the `api` Worker from this line yet.** Its Artifacts host
-> now has `objects` (`worker/git-repositories.ts`), so every push goes
-> through the receiver, which refuses any file other than a `.md` note or a
-> hidden path unless it is a Git LFS pointer whose object is stored. `api`
-> binds no LFS bucket (`wrangler.jsonc` has no `LFS_BUCKET`, and
-> `resolveR2Lfs` returns null), so those pushes would be refused and the LFS
-> routes would answer 503. Deploy only after an R2 bucket (`LFS_BUCKET`,
-> `LFS_BUCKET_NAME`) and an R2 S3 key pair (`R2_ACCESS_KEY_ID`,
-> `R2_SECRET_ACCESS_KEY`) are bound. See [Hosted Git](#hosted-git).
+> **The receiver is off on the hosted cloud until R2 LFS is bound; do not
+> bind it casually.** The Artifacts host gets `objects` (pushes through the
+> receiver, web writes, Git LFS) only when all four R2 LFS bindings are there
+> (`LFS_BUCKET`, `LFS_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`;
+> `resolveArtifactsGitHost` in `worker/git-repositories.ts`). `wrangler.jsonc`
+> binds none, so deploying this line proxies every Git request to Artifacts
+> exactly as before the receiver, and the LFS, web write and `~` routes answer
+> 404. Binding them turns the receiver on, which refuses any file other than a
+> `.md` note or a hidden path unless it is a stored Git LFS pointer. Before
+> binding: give the bucket a CORS rule for the registered app origins (PUT and
+> GET; headers `x-amz-checksum-sha256`, `if-none-match`, `content-type`), or
+> browser uploads and downloads fail, and decide how capture refs
+> (`refs/epicenter/captures/*`) are pruned, since every web write and fetch
+> reads all of them. See [Hosted Git](#hosted-git).
 
 Epicenter Cloud Worker. Handles authentication, hosted Git, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
@@ -124,8 +129,8 @@ Cloudflare Workers
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/repos             the caller's repositories, by namespace
-│   ├── git audience /:namespace/:name.git/*  Git smart HTTP (clone and fetch forwarded to Artifacts;
-│   │                          pushes through the receiver), web writes, Git LFS
+│   ├── git audience /:namespace/:name.git/*  Git smart HTTP forwarded to Artifacts; with R2 LFS
+│   │                          bound, pushes through the receiver, web writes, Git LFS
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
@@ -213,7 +218,7 @@ There are three layers, each with a different URL source:
 
 ```bash
 bun dev              # Local dev server (uses local Postgres)
-bun deploy           # Deploy to Cloudflare Workers (not until LFS is bound; see the caution at the top)
+bun deploy           # Deploy to Cloudflare Workers (the receiver stays off until LFS is bound; see the caution at the top)
 bun run typecheck    # Type check
 bun run test         # Run tests, each file isolated
 ```
@@ -279,18 +284,20 @@ an id. It reaches
 `https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<id>.git`
 with a token it mints and caches per repository and scope: 24 hours, renewed an
 hour early, `read` for a fetch and `write` for a push. The client's token never
-reaches Artifacts. Clone and fetch are forwarded (protocol v0, with receipt refs
-filtered out of the advertisement); every push goes through the receiver and
-every web write through the translator, over `worker/artifacts-objects.ts`.
+reaches Artifacts. Without R2 LFS bound (today), every Git request is
+forwarded as it was before the receiver, and the host has no `objects`.
 Git LFS objects live in R2 when the Worker binds a bucket (`LFS_BUCKET`,
 `LFS_BUCKET_NAME`, and the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair
-that presigns transfers; `worker/lfs-store.ts`). `wrangler.jsonc` binds none
-yet, so on the hosted cloud the LFS routes answer 503 and a push carrying any
-file other than a note is refused. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
+that presigns transfers; `worker/lfs-store.ts`), and only then does the
+receiver come on (`resolveArtifactsGitHost`): clone and fetch are forwarded
+over protocol v0, with receipt refs filtered out of the advertisement; every
+push goes through the receiver and every web write through the translator,
+over `worker/artifacts-objects.ts`. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
 (`<root>/<id>.git`; clone and fetch through `git http-backend`, every push
 through the forward-only receiver, web writes through the translator at
 `<repo>.git/epicenter/writes`) and Git LFS objects under `LFS_STORE_ROOT`
-(`<root>/<id>/<aa>/<bb>/<oid>`); without them those routes answer 503.
+(`<root>/<id>/<aa>/<bb>/<oid>`); without `GIT_STORE_ROOT` hosted Git answers
+503, and without `LFS_STORE_ROOT` the LFS routes do.
 Hosted Git is unmetered. The hosted cloud also needs `git.epicenter.so` routed
 to this Worker; that is a deploy step, not in this repository's config.
 

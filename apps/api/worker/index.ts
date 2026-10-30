@@ -40,7 +40,10 @@ import {
 	chargeOpenAiTranscriptionCredits,
 } from './billing/policies.js';
 import { mountBillingApi } from './billing/routes.js';
-import { createArtifactsGitHost } from './git-repositories.js';
+import {
+	type GitBindings,
+	resolveArtifactsGitHost,
+} from './git-repositories.js';
 import { type LfsBindings, resolveR2Lfs } from './lfs-store.js';
 import { buildFirstPartyClients } from './oauth-registrations.js';
 import { buildEpicenterTrustedOrigins } from './trusted-origins.js';
@@ -159,23 +162,14 @@ const accountSession = every(cloudContext, requireSessionCookie());
 // the access token and the namespace membership (`authorizeResourceRequest`),
 // and the listing from a Git-audience token, so they take no guard here.
 // Unmetered. The local dev launcher removes the Artifacts binding and required account secret, so the
-// store resolves to null and hosted Git answers 503. Pushes, web writes and
-// LFS go through the receiver and the translator; LFS objects need an R2
-// bucket (`resolveR2Lfs`), which this configuration does not bind yet, so the
-// LFS routes answer 503 and a push with a non-note file is refused.
-const resolveGitHost = (env: ServerBindings) => {
-	const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } =
-		env as Partial<Cloudflare.Env>;
-	if (!ARTIFACTS || !ARTIFACTS_ACCOUNT_ID || !ARTIFACTS_NAMESPACE) return null;
-	return createArtifactsGitHost({
-		artifacts: ARTIFACTS,
-		accountId: ARTIFACTS_ACCOUNT_ID,
-		namespace: ARTIFACTS_NAMESPACE,
-	});
-};
+// store resolves to null and hosted Git answers 503. The receiver (pushes,
+// web writes and LFS through `@epicenter/server`) comes only with an R2 LFS
+// store (`LFS_BUCKET`, `LFS_BUCKET_NAME`, `R2_ACCESS_KEY_ID`,
+// `R2_SECRET_ACCESS_KEY`), which this configuration does not bind yet; until
+// then every Git request is proxied to Artifacts as before the receiver.
 mountGitHost(app, {
 	setup: cloudContext,
-	resolveHost: resolveGitHost,
+	resolveHost: (env) => resolveArtifactsGitHost(env as GitBindings),
 	resolveLfs: (env) => resolveR2Lfs(env as LfsBindings),
 });
 mountInferenceApp(app, {

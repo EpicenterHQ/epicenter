@@ -42,9 +42,11 @@
  * Worker, bare repositories on disk for the Bun entry. It names a repository
  * by its immutable id, never by `<namespace>/<name>`, and receives only
  * requests this module already authorized; the client's credential never
- * reaches it. A store with `objects` (disk) gets every push through the
- * receiver; one without serves pushes itself, and the files and LFS routes
- * answer 503.
+ * reaches it. A store with `objects` gets every push through the receiver,
+ * and the files and LFS routes; LFS answers 503 until the deployment has an
+ * LFS store. A store without `objects` serves pushes itself and answers
+ * exactly as hosted Git did before the receiver: smart HTTP under a named
+ * namespace, and 404 for every other path, `~` included.
  *
  * Refusals answer JSON `{ error, error_description }`:
  *   - 401 `invalid_token`        missing, unknown, expired, revoked, or another
@@ -151,8 +153,8 @@ export type GitHost = {
 	/**
 	 * Repository `id`'s objects and refs, for the push receiver and the
 	 * write translator; the caller closes the handle. A host without it
-	 * serves pushes itself through `serve`, and answers the files and LFS
-	 * routes with 503.
+	 * serves pushes itself through `serve`, and the files, LFS and `~`
+	 * routes are not served (404), as before the receiver.
 	 */
 	objects?(id: string): GitObjects;
 };
@@ -508,10 +510,23 @@ export function mountGitHost(
 				'Not a Git request this server answers.',
 			);
 		const { endpoint } = target;
+		const host = resolveHost(c.env);
+		// A store without objects answers what hosted Git answered before
+		// the receiver: Git's smart HTTP under a named namespace, and nothing
+		// else, so a deployment gains the new routes only with the receiver.
+		if (
+			!host?.objects &&
+			(endpoint.kind !== 'git' || target.namespaceId === PERSONAL_NAMESPACE)
+		)
+			return refuse(
+				c,
+				404,
+				'not_found',
+				'Not a Git request this server answers.',
+			);
 		// Locking is not offered; `git lfs` carries on without it.
 		if (endpoint.kind === 'lfs-locks')
 			return lfsJson({ message: 'Git LFS locking is not supported.' }, 404);
-		const host = resolveHost(c.env);
 		if (!host)
 			return refuse(
 				c,
@@ -520,16 +535,12 @@ export function mountGitHost(
 				'This server does not host Git repositories.',
 			);
 		const lfs = resolveLfs(c.env);
-		const needsObjects = endpoint.kind !== 'git';
-		if (
-			(needsObjects && !host.objects) ||
-			(endpoint.kind.startsWith('lfs') && !lfs)
-		)
+		if (endpoint.kind.startsWith('lfs') && !lfs)
 			return refuse(
 				c,
 				503,
 				'git_unavailable',
-				'This server does not take web writes or Git LFS yet.',
+				'This server does not take Git LFS objects yet.',
 			);
 
 		let batch: LfsBatch | null = null;

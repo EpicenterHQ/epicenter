@@ -109,8 +109,10 @@ Refusals answer `{ error, error_description }`: 401 `invalid_token` with
 `WWW-Authenticate` naming `resource_metadata` (and a Basic challenge for
 terminal Git), 403 `insufficient_scope` or `forbidden`, 404 `not_found`,
 413 `too_large` for a push over 64 MiB, 502 `store_failed`, 503
-`git_unavailable` when the deployment has no store (or, for the files and LFS
-routes, no `objects` or LFS store).
+`git_unavailable` when the deployment has no store (or, for the LFS routes, no
+LFS store). A store without `objects` answers only Git's smart HTTP under a
+named namespace, as hosted Git did before the receiver; the files, LFS and `~`
+routes are 404 there.
 Hosted Git takes no billing policy.
 
 `GitHost` is the replaceable part. It names a repository by its immutable id
