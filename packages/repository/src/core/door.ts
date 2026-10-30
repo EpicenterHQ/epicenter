@@ -1,7 +1,8 @@
 /**
  * The door: one pure predicate, `admissible(path, text)`, that the device,
  * the server and a GitHub Action all run, so a text the door would refuse
- * is held on the device before it is ever sent.
+ * waits or is refused on the device (`onlyAPersonFixes`) before it is ever
+ * sent.
  *
  * Enforced: every note (`.md`, in any case) is LF-only with no byte order
  * mark, is at most 1 MB and is never an LFS pointer, and its
