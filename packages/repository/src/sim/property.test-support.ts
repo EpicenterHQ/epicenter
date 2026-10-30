@@ -47,6 +47,7 @@
  */
 import { expect, test } from 'bun:test';
 import { parseMarkdown, parsePointer, splitMarkdown, writeMarkdown, writePointer } from '../core/markdown.js';
+import { conflictSibling } from '../core/settle.js';
 import type { MemoryGitStore } from '../server/memory-git.js';
 import type { Server } from '../server/server.js';
 import { type Device, STAMP, type World, createWorld } from './harness.js';
@@ -245,8 +246,10 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			const ours = states.get(chain[before] ?? '')?.get(file.path) ?? null;
 			// A blob never merges: it lands by compare-and-swap over the bytes its writer saw (a path deleted and made again with those bytes holds them).
 			if (!file.path.endsWith('.md')) {
+				// What its writer saw: `over` when it said, else the commit's parent. One that lost lands beside it.
+				const saw = file.over !== undefined ? file.over : then;
 				const landed = states.get(merge.id)?.get(file.path) === file.text;
-				if (landed && ours !== then && ours !== file.text) violations.push(`server: ${device}'s write of ${file.path} landed over bytes it had not seen`);
+				if (landed && ours !== saw && ours !== file.text) violations.push(`server: ${device}'s write of ${file.path} landed over bytes it had not seen`);
 				continue;
 			}
 			let deleted = false;
@@ -273,7 +276,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			for (const r of removals) if (r.device === d.name && r.path === path && text !== null) r.cancelled = true;
 			// A removal claims a note the device had from the server, not one it created and never sent,
 			const known = d.replica.files().get(path)?.base ?? null;
-			if (text === null && showed(path) !== null && known !== null)
+			// A blob's delete removes what it deletes over: the device's own unsent bytes, if it shows them (a write that may have lost, which the delete then withdraws), else main's.
+			const blobOverOwn = !path.endsWith('.md') && showed(path) !== known;
+			if (text === null && showed(path) !== null && known !== null && !blobOverOwn)
 				removals.push({
 					device: d.name,
 					path,
@@ -795,7 +800,12 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		if (from < 0) for (from = r.at - 1; from > 0 && (states.get(chain[from] ?? '')?.get(r.path) ?? null) !== r.base; ) from--;
 		return writers.slice(from + 1).some((w) => w.user !== r.device && w.paths.has(r.path));
 	};
-	for (const a of attaches) if (!a.settled && !onMain.has(`${a.path}\0${a.text}`)) violations.push(`quiet: ${a.device}'s attach at ${a.path} never landed`);
+	// An attach that lost landed beside its path, at a sibling named from its bytes.
+	const landedAt = (a: (typeof attaches)[number]) => {
+		const oid = parsePointer(a.text)?.oid ?? '';
+		return [a.path, ...Array.from({ length: 58 }, (_, n) => conflictSibling(a.path, oid, n + 7))].some((at) => onMain.has(`${at}\0${a.text}`));
+	};
+	for (const a of attaches) if (!a.settled && !landedAt(a)) violations.push(`quiet: ${a.device}'s attach at ${a.path} never landed`);
 	for (const r of removals)
 		if (!r.cancelled && !r.landed && server.has(r.path) && !lostToEdit(r))
 			violations.push(`quiet: ${r.device}'s removal of ${r.path} (${r.step}) never took effect, and no edit it had not seen beat it`);

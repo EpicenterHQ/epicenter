@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS buckets (user TEXT PRIMARY KEY, tokens REAL NOT NULL,
 CREATE TABLE IF NOT EXISTS uploads (oid TEXT PRIMARY KEY, size INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS flushes (n INTEGER PRIMARY KEY, oid TEXT NOT NULL, tree TEXT NOT NULL, through INTEGER NOT NULL, message TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS journal (n INTEGER PRIMARY KEY, state TEXT NOT NULL, plan TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS received (next TEXT PRIMARY KEY, merged INTEGER NOT NULL, at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS received (next TEXT PRIMARY KEY, merged INTEGER NOT NULL, at INTEGER NOT NULL, siblings TEXT);
 `;
 
 /** One commit as history keeps it. `place` is its index on `main`, null for a device's commit a merge took in. */
@@ -78,6 +78,8 @@ export function openHistory(store: SqlDriver) {
 	// Presence before sizes were recorded (phase 8) admits nothing at a size, so it starts again.
 	if (store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'oid') && !store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'size')) store.exec('DROP TABLE uploads');
 	store.exec(SCHEMA);
+	// Where a pushed blob that lost landed (phase 9g), so a retry's answer names it too.
+	if (!store.all<{ name: string }>('PRAGMA table_info(received)').some((column) => column.name === 'siblings')) store.exec('ALTER TABLE received ADD COLUMN siblings TEXT');
 
 	// Tree nodes: cached once read or written, stored once.
 	const cache = new Map<string, Map<string, TreeEntry>>();

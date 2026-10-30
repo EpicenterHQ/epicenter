@@ -15,13 +15,13 @@
  * a side continues that side (`merge`'s rule, applied to a field's block
  * here). A blob never merges: `settlePointer` is its rule, compare-and-swap.
  *
- * No fallback for a merge that does not parse (D4, which deleted that rule):
- * the door admits only notes that parse, so base, current and incoming all
- * parse; `merge` then writes the frontmatter from current's YAML plus the
- * chosen fields (read back, or rewritten with `stringify`), keeps a body
- * after an empty header from reading as frontmatter, and puts markers and
- * D2 blocks only in the body, which never decides whether a note parses.
- * 242,652 fuzzed triples and 1,000 property seeds never reached it.
+ * A merge never breaks a note: where base, current and incoming each open
+ * with frontmatter that parses (or none), `merge` writes the frontmatter
+ * from current's YAML plus the chosen fields (read back, or rewritten with
+ * `stringify`), keeps a body after an empty header from reading as
+ * frontmatter, and puts markers and D2 blocks only in the body (a seeded
+ * property in `merge.test.ts`). A side whose fences hold no frontmatter is
+ * a note with no fields, merged as whole text.
  */
 import { stringify } from 'yaml';
 import { block, findConflicts, type Labels, type Party, sideOffering, unlabelled, versionOf, withBlock, withSide } from './conflict.js';
@@ -53,27 +53,44 @@ export function appendBlock(current: string, incoming: string, parties: Parties)
 	return withBlock(current, block({ current: '', incoming }, labelled(parties, null, current, incoming)));
 }
 
-/** Why a blob write did not land, by what its writer saw at the path. */
-export const POINTER_REFUSALS = {
-	/** The writer saw no file there. */
-	added: 'a file with this name was just added elsewhere',
-	/** The writer saw a file there, and it changed or went since. */
-	changed: 'this file changed on another device',
-} as const;
-
 /**
  * Settle a blob path (every file that is not a note) by compare-and-swap:
  * `incoming` lands only where `current` is still `base`, the blob its
  * writer saw (null: none, for a create). Create, replace and delete are the
- * one rule. A create or replace that does not land is refused with why, and
- * its writer holds it; a delete that does not land leaves the file, as a
- * delete that lost to an edit of a note does. Writing what is already
- * there lands as nothing, so two writes of the same bytes are one file.
+ * one rule. A create or replace that does not land is `lost`: the server
+ * puts it beside the other at a sibling (`conflictSibling`), so both are
+ * kept; a delete that does not land leaves the file, as a delete that lost
+ * to an edit of a note does. Writing what is already there lands as
+ * nothing, so two writes of the same bytes are one file.
  */
-export function settlePointer(base: string | null, current: string | null, incoming: string | null): { text: string | null } | { refused: string } {
+export function settlePointer(base: string | null, current: string | null, incoming: string | null): { text: string | null } | { lost: true } {
 	if (incoming === current || incoming === base || current === base) return { text: incoming === base ? current : incoming };
 	if (incoming === null) return { text: current };
-	return { refused: base === null ? POINTER_REFUSALS.added : POINTER_REFUSALS.changed };
+	return { lost: true };
+}
+
+const utf8 = new TextEncoder();
+/** A sibling's own suffix, so a sibling of a sibling is named from the original stem. */
+const SIBLING_SUFFIX = / \(conflict [0-9a-f]{7,64}\)$/;
+
+/**
+ * RULE: where a losing blob write lands: `<stem> (conflict <hash>)<ext>`
+ * beside `path`, from the original stem (a sibling's own suffix dropped)
+ * and the first `chars` characters of the losing bytes' hash. The stem is
+ * shortened, by whole characters, until the name fits 255 bytes and the
+ * path `maxPath` bytes.
+ */
+export function conflictSibling(path: string, oid: string, chars = 7, maxPath = Number.POSITIVE_INFINITY) {
+	const slash = path.lastIndexOf('/');
+	const folder = path.slice(0, slash + 1);
+	const name = path.slice(slash + 1);
+	const dot = name.lastIndexOf('.');
+	const ext = dot > 0 ? name.slice(dot) : '';
+	const suffix = ` (conflict ${oid.slice(0, chars)})${ext}`;
+	let stem = [...(dot > 0 ? name.slice(0, dot) : name).replace(SIBLING_SUFFIX, '')];
+	const fits = () => utf8.encode(stem.join('') + suffix).length <= 255 && utf8.encode(folder + stem.join('') + suffix).length <= maxPath;
+	while (stem.length > 0 && !fits()) stem = stem.slice(0, -1);
+	return `${folder}${stem.join('')}${suffix}`;
 }
 
 /**

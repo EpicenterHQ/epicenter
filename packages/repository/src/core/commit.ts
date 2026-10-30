@@ -12,6 +12,13 @@ export type CommitFile = {
 	path: string;
 	/** The file's new text, or null to delete it. */
 	text: string | null;
+	/**
+	 * A blob's only: the text its writer made this write over (null: no
+	 * file), when that is not what the commit's parent holds there. The
+	 * server judges the write over it, so a write its writer knew had lost
+	 * lands beside the other one (at a sibling) instead of over it.
+	 */
+	over?: string | null;
 };
 
 /** Everything a commit id hashes. */
@@ -28,7 +35,7 @@ export type LiveCommit = CommitBody & { id: string };
 
 /** The canonical form a commit id hashes: a JSON array in a fixed order. */
 export function canonicalCommit({ parent, author, time, files }: CommitBody) {
-	return JSON.stringify([parent, author.user, author.device, time, files.map((f) => [f.path, f.text])]);
+	return JSON.stringify([parent, author.user, author.device, time, files.map((f) => (f.over === undefined ? [f.path, f.text] : [f.path, f.text, f.over]))]);
 }
 
 /** A commit's id: the Git blob id of its canonical form. */

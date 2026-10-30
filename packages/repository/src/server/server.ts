@@ -44,7 +44,7 @@ import { findConflicts } from '../core/conflict.js';
 import { admissible, fold, isNote, MAX_BLOB_BYTES, MAX_FILE_BYTES } from '../core/door.js';
 import { gitBlobHash } from '../core/hash.js';
 import { parsePointer } from '../core/markdown.js';
-import { BLOCK_CAP, POINTER_REFUSALS, settle, settlePointer } from '../core/settle.js';
+import { BLOCK_CAP, conflictSibling, settle, settlePointer } from '../core/settle.js';
 import { COLLISIONS } from '../core/tree.js';
 import { first, type SqlDriver } from '../sql.js';
 import { createFlusher, type FlushStep, type Join } from './flush.js';
@@ -97,6 +97,8 @@ export type PushAnswer =
 			/** The commits on `main` after the commit's parent, so the device drops those notifications. */
 			commits: string[];
 			files: FileState[];
+			/** Blob writes that lost and landed beside their file instead: the path written, and where its bytes are (`conflictSibling`). */
+			siblings?: { path: string; at: string }[];
 	  }
 	/**
 	 * The commit landed earlier and its answer has left the retention window
@@ -124,13 +126,11 @@ export type PushAnswer =
 
 /**
  * Why the door refused a file's text. `inadmissible`'s reason is the door's
- * own (core/door). `blob-changed`: a blob write did not land over the blob
- * its writer saw (core/settle's `settlePointer`, whose reason it carries).
- * `is-a-folder` and `under-a-file`: the file would be written where a
+ * own (core/door). `is-a-folder` and `under-a-file`: the file would be written where a
  * folder has files, or beneath a file (core/tree's `collision`); like an
  * inadmissible name, only a person renaming one fixes it.
  */
-export type TextCode = 'path-too-long' | 'inadmissible' | 'blob-missing' | 'blob-changed' | 'merge-too-large' | 'too-many-blocks' | keyof typeof COLLISIONS;
+export type TextCode = 'path-too-long' | 'inadmissible' | 'blob-missing' | 'merge-too-large' | 'too-many-blocks' | keyof typeof COLLISIONS;
 
 /** Why a request was not taken. */
 export type RequestCode =
@@ -153,7 +153,6 @@ export type RequestCode =
 export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, string> = {
 	'path-too-long': 'the path is too long',
 	'blob-missing': "the file's bytes are not on the server",
-	'blob-changed': POINTER_REFUSALS.changed,
 	'merge-too-large': 'the merge would grow the note past 1 MB',
 	'too-many-blocks': 'this note has unresolved conflicts; resolve some first',
 	...COLLISIONS,
@@ -342,6 +341,31 @@ export function createServer({
 	};
 
 	/** RULE: a name is a file or a folder, never both: the file `files` would put over a folder, or beneath a file, in `tree` is refused. */
+	/**
+	 * RULE: where a blob write that lost lands: beside its file, at the first
+	 * `conflictSibling` name, with more of its bytes' hash each time, that
+	 * already holds these bytes (equal bytes are one file: nothing is
+	 * written) or is free in the tree the merge makes (no other file there,
+	 * in `main` or in this merge, no other spelling of it, no file above it
+	 * and nothing under it). Null: no name fits the path bound.
+	 */
+	function besideIt(path: string, text: string, out: CommitFile[], tree: string): { at: string; write: boolean } | null {
+		const oid = parsePointer(text)?.oid ?? gitBlobHash(text);
+		for (let chars = 7; chars <= oid.length; chars++) {
+			const at = conflictSibling(path, oid, chars, limits.path);
+			if (bytes(at) > limits.path || admissible(at, text) !== null) return null;
+			const written = out.find((f) => fold(f.path) === fold(at));
+			const spelling = history.spelling(at);
+			const there = written !== undefined ? (written.path === at ? written.text : undefined) : spelling === null || spelling === at ? history.textIn(tree, at) : undefined;
+			if (there === text) return { at, write: false };
+			if (there !== null) continue;
+			if (trees.collision(tree, changes([{ path: at, text }])) !== null) continue;
+			if (out.some((f) => f.path.startsWith(`${at}/`) || at.startsWith(`${f.path}/`))) continue;
+			return { at, write: true };
+		}
+		return null;
+	}
+
 	const collides = (tree: string, files: CommitFile[], head: string): PushAnswer | null => {
 		const found = trees.collision(tree, changes(files));
 		return found === null ? null : refusal(found.code, found.path, head);
@@ -428,10 +452,10 @@ export function createServer({
 	}
 
 	/** Fill an answer's files (everything changed since the commit's parent, and what it touched) and keep it for a resend. */
-	function record(commit: LiveCommit, kind: 'applied' | 'merged', mainId: string, { from, tree }: { from: number; tree: string }, spelled: string[]): PushAnswer {
-		const touched = [...new Set([...commit.files.map((f) => f.path), ...spelled])];
+	function record(commit: LiveCommit, kind: 'applied' | 'merged', mainId: string, { from, tree }: { from: number; tree: string }, spelled: string[], siblings: { path: string; at: string }[] = []): PushAnswer {
+		const touched = [...new Set([...commit.files.map((f) => f.path), ...spelled, ...siblings.map((s) => s.at)])];
 		const paths = new Set([...trees.diff(tree, main().tree), ...touched]);
-		const answer: PushAnswer = { kind, main: mainId, commits: history.idsAfter(from), files: [...paths].sort().map((path) => state(path, from)) };
+		const answer: PushAnswer = { kind, main: mainId, commits: history.idsAfter(from), files: [...paths].sort().map((path) => state(path, from)), ...(siblings.length === 0 ? {} : { siblings }) };
 		const now = clock();
 		store.run('INSERT OR REPLACE INTO outcomes (id, at, place, answer, paths) VALUES (?, ?, ?, ?, ?)', [commit.id, now, history.top(), JSON.stringify(answer), JSON.stringify(touched)]);
 		store.run('INSERT OR REPLACE INTO seen (id, at, paths) VALUES (?, ?, ?)', [commit.id, now, JSON.stringify(touched)]);
@@ -471,7 +495,9 @@ export function createServer({
 		// The commit must be one tree over what its writer stood on (on `main`, that is the check), and its merge one tree over `main`, below.
 		const clash = collides(base.tree, commit.files, head.id);
 		if (clash !== null) return clash;
-		if (commit.parent === head.id) {
+		/** What a file was written over: a blob's `over` when its writer said, else what the commit's parent holds there. */
+		const over = (file: CommitFile) => (file.over !== undefined && !isNote(file.path) ? file.over : history.textIn(base.tree, file.path));
+		if (commit.parent === head.id && commit.files.every((file) => over(file) === history.textIn(head.tree, file.path))) {
 			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false }, commit.files);
 			return record(commit, 'applied', commit.id, base, spelled);
 		}
@@ -479,14 +505,21 @@ export function createServer({
 		// Merge where the commit's history and main's meet, path by path.
 		const parentTree = base.tree;
 		const out: CommitFile[] = [];
+		const siblings: { path: string; at: string }[] = [];
 		let blocks = false;
 		for (const file of commit.files) {
 			const ours = history.textIn(head.tree, file.path);
 			const base = history.textIn(parentTree, file.path);
 			if (!isNote(file.path)) {
-				// A blob lands only over the blob its writer saw: compare-and-swap, never a merge.
-				const swapped = settlePointer(base, ours, file.text);
-				if ('refused' in swapped) return refusal('blob-changed', file.path, head.id, swapped.refused);
+				// A blob lands only over the blob its writer saw: compare-and-swap, never a merge. One that lost lands beside it.
+				const swapped = settlePointer(over(file), ours, file.text);
+				if ('lost' in swapped) {
+					const placed = besideIt(file.path, file.text as string, out, head.tree);
+					if (placed === null) return refusal('path-too-long', file.path, head.id);
+					siblings.push({ path: file.path, at: placed.at });
+					if (placed.write) out.push({ path: placed.at, text: file.text });
+					continue;
+				}
 				out.push({ path: file.path, text: swapped.text });
 				continue;
 			}
@@ -527,7 +560,7 @@ export function createServer({
 			commit.files,
 		);
 		advance({ id, parents: [head.id, commit.id], author, time: mergeTime, blocks }, out);
-		return record(commit, 'merged', id, base, spelled);
+		return record(commit, 'merged', id, base, spelled, siblings);
 	}
 
 	/**

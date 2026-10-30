@@ -15,7 +15,7 @@
  * - Another device opens the audio, fetched and verified, then again offline from its own store
  * - An upload cut off mid-PUT stores nothing on the server; the next track sends it again from the sealed bytes
  * - A pointer to bytes nobody has is held with why, and deleting it clears it; an attach past the blob limit is refused before sealing, and an upload past the quota is held with why
- * - Two devices recording at one path: one lands, the other is held with why; a stale replace is held with why
+ * - Two devices recording at one path: one lands, the other beside it at a sibling named from its bytes; a stale replace too; nothing is held
  * - A `git push` that replaces a binary passes; one whose bytes are missing is refused
  */
 import { afterEach, expect, test } from 'bun:test';
@@ -36,7 +36,6 @@ import { connectSocket } from '../client/socket.js';
 import { UPLOAD_REFUSALS } from '../client/uploads.js';
 import { defineApp } from '../core/lens.js';
 import { parsePointer, writePointer } from '../core/markdown.js';
-import { POINTER_REFUSALS } from '../core/settle.js';
 import { MAIN } from '../server/git-store.js';
 import { createMemoryGitStore } from '../server/memory-git.js';
 import { createMemoryLfsStore } from '../server/memory-lfs-store.js';
@@ -236,33 +235,35 @@ test('a pointer to bytes nobody has is held, and its delete clears it; past the 
 	expect([alice.replica.state('recordings/one.webm'), alice.replica.state('recordings/two.webm')]).toContainEqual({ status: 'held', reason: UPLOAD_REFUSALS[507] });
 });
 
-test('two devices recording at one path: one lands, the other is held with why; a stale replace is held with why', async () => {
+test('two devices recording at one path: one lands, the other lands beside it at a sibling; a stale replace too; nothing is held', async () => {
 	const { server, device } = await setup();
 	const alice = device('alice');
 	const bob = device('bob');
 	await until(() => alice.repo.status().status === 'open' && bob.repo.status().status === 'open');
 	alice.setOnline(false);
-	expectOk(await alice.repo.audio.create({ stem: 'r1' }, webm(6, MB)));
+	const alices = expectOk(await alice.repo.audio.create({ stem: 'r1' }, webm(6, MB)));
 	const bobs = expectOk(await bob.repo.audio.create({ stem: 'r1' }, webm(7, MB)));
 	await until(() => server.read('recordings/r1.webm') !== null);
 	alice.setOnline(true);
-	await until(() => alice.replica.state('recordings/r1.webm').status === 'held', 'alice is held');
-	expect(alice.replica.state('recordings/r1.webm')).toEqual({ status: 'held', reason: POINTER_REFUSALS.added });
+	const beside = `recordings/r1 (conflict ${alices.oid.slice(0, 7)}).webm`;
+	await until(() => server.read(beside) !== null && alice.replica.read(beside) !== null && bob.replica.read(beside) !== null, 'both see both');
 	expect(server.read('recordings/r1.webm')).toBe(writePointer(bobs));
-	// Alice keeps hers under another name, and discards the held one.
-	const mine = expectOk(await alice.repo.audio.open({ stem: 'r1' }));
-	expectOk(await alice.repo.audio.create({ stem: 'r1-alice' }, mine));
-	expectOk(await alice.repo.files.write('recordings/r1.webm', writePointer(bobs)));
-	await until(() => server.read('recordings/r1-alice.webm') !== null && alice.replica.held().length === 0);
+	expect(server.read(beside)).toBe(writePointer(alices));
+	for (const d of [alice, bob]) {
+		expect(d.replica.read('recordings/r1.webm')).toBe(writePointer(bobs));
+		expect(d.replica.held()).toEqual([]);
+	}
 
 	// A stale replace.
 	alice.setOnline(false);
-	expectOk(await alice.repo.audio.replace({ stem: 'r1' }, webm(8, MB)));
+	const stale = expectOk(await alice.repo.audio.replace({ stem: 'r1' }, webm(8, MB)));
 	const newer = expectOk(await bob.repo.audio.replace({ stem: 'r1' }, webm(9, MB)));
 	await until(() => server.read('recordings/r1.webm') === writePointer(newer));
 	alice.setOnline(true);
-	await until(() => alice.replica.state('recordings/r1.webm').status === 'held', 'alice is held again');
-	expect(alice.replica.state('recordings/r1.webm')).toEqual({ status: 'held', reason: POINTER_REFUSALS.changed });
+	const again = `recordings/r1 (conflict ${stale.oid.slice(0, 7)}).webm`;
+	await until(() => server.read(again) !== null && alice.replica.read('recordings/r1.webm') === writePointer(newer), 'the stale replace is beside it');
+	expect(server.read(again)).toBe(writePointer(stale));
+	expect(alice.replica.held()).toEqual([]);
 });
 
 test('a git push that replaces a binary passes; one whose bytes are missing is refused', async () => {

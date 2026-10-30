@@ -21,7 +21,6 @@ import { type CommitFile, commitId, type LiveCommit } from '../core/commit.js';
 import { findConflicts } from '../core/conflict.js';
 import { gitBlobHash } from '../core/hash.js';
 import { writePointer } from '../core/markdown.js';
-import { POINTER_REFUSALS } from '../core/settle.js';
 import { type GitObjects, MAIN } from './git-store.js';
 import { createMemoryGitStore } from './memory-git.js';
 import { createLogger, memorySink } from 'wellcrafted/logger';
@@ -383,26 +382,78 @@ describe('blobs', () => {
 		return world;
 	}
 
-	test('two creates at one path: the first lands, the second is refused with why; the same bytes twice are one file', () => {
+	/** Where a losing write of `bytes` at `path` lands: the original stem, the losing bytes' hash (seven characters), the extension. */
+	const sibling = (bytes: { oid: string }, at = path) => at.replace(/(\.[^./]+)?$/, ` (conflict ${bytes.oid.slice(0, 7)})$1`);
+
+	test('two creates at one path: the first lands, the second lands beside it at a sibling named from its bytes; the same bytes twice are one file', () => {
 		const { server } = landed();
 		const parent = server.main();
 		expect(server.push(make(server, [{ path, text: writePointer(a) }], { parent }), alice).kind).toBe('applied');
-		expect(server.push(make(server, [{ path, text: writePointer(b) }], { parent }), alice)).toMatchObject({ kind: 'refused', code: 'blob-changed', reason: POINTER_REFUSALS.added, path });
+		const second = make(server, [{ path, text: writePointer(b) }], { parent });
+		const answer = server.push(second, alice);
+		expect(answer).toMatchObject({ kind: 'merged', siblings: [{ path, at: sibling(b) }] });
+		expect(sibling(b)).toBe('recordings/r1 (conflict bbbbbbb).webm');
+		expect(server.read(path)).toBe(writePointer(a));
+		expect(server.read(sibling(b))).toBe(writePointer(b));
+		// Sent again, the same answer; the same bytes again from another writer, the same sibling and nothing new.
+		expect(server.push(second, alice)).toMatchObject({ kind: 'merged', siblings: [{ path, at: sibling(b) }] });
+		const before = server.main();
+		expect(server.push(make(server, [{ path, text: writePointer(b) }], { parent, time: new Date(EPOCH + 2).toISOString() }), alice)).toMatchObject({ siblings: [{ path, at: sibling(b) }] });
+		expect(server.snapshot().size).toBe(2);
 		expect(server.push(make(server, [{ path, text: writePointer(a) }], { parent, time: new Date(EPOCH + 1).toISOString() }), alice).kind).toBe('merged');
 		expect(server.read(path)).toBe(writePointer(a));
+		expect(before).not.toBe('');
 	});
 
-	test('a stale replace is refused; a stale delete leaves the file; a fresh one of each lands', () => {
+	test('a stale replace lands at a sibling; a stale delete leaves the file; a fresh one of each lands', () => {
 		const { server } = landed();
 		server.push(make(server, [{ path, text: writePointer(a) }]), alice);
 		const saw = server.main();
 		server.push(make(server, [{ path, text: writePointer(b) }]), alice);
-		expect(server.push(make(server, [{ path, text: writePointer(c) }], { parent: saw }), alice)).toMatchObject({ kind: 'refused', code: 'blob-changed', reason: POINTER_REFUSALS.changed });
+		expect(server.push(make(server, [{ path, text: writePointer(c) }], { parent: saw }), alice)).toMatchObject({ kind: 'merged', siblings: [{ path, at: sibling(c) }] });
+		expect(server.read(sibling(c))).toBe(writePointer(c));
 		expect(server.push(make(server, [{ path, text: null }], { parent: saw }), alice).kind).toBe('merged');
 		expect(server.read(path)).toBe(writePointer(b));
 		expect(server.push(make(server, [{ path, text: writePointer(c) }]), alice).kind).toBe('applied');
 		expect(server.push(make(server, [{ path, text: null }]), alice).kind).toBe('applied');
 		expect(server.read(path)).toBeNull();
+	});
+
+	test('a write that says what its writer saw (`over`) is judged over that, on main too', () => {
+		const { server } = landed();
+		server.push(make(server, [{ path, text: writePointer(a) }]), alice);
+		server.push(make(server, [{ path, text: writePointer(b) }]), alice);
+		// Made over `a`, sent on today's main: it lost to `b`.
+		expect(server.push(make(server, [{ path, text: writePointer(c), over: writePointer(a) }]), alice)).toMatchObject({ kind: 'merged', siblings: [{ path, at: sibling(c) }] });
+		expect(server.read(path)).toBe(writePointer(b));
+		// Made over what main holds: it lands where it was written.
+		expect(server.push(make(server, [{ path, text: writePointer(a), over: writePointer(b) }]), alice)).toMatchObject({ kind: 'applied' });
+		expect(server.read(path)).toBe(writePointer(a));
+		// The id hashes `over`: the same file without it is another commit.
+		const body = make(server, [{ path, text: writePointer(c), over: null }]);
+		expect(body.id).not.toBe(make(server, [{ path, text: writePointer(c) }]).id);
+	});
+
+	test('a race at a sibling makes another sibling of the original stem; a sibling name taken by other bytes, a folder or another spelling takes more of the hash', () => {
+		const { server } = landed();
+		const d = { oid: `${'c'.repeat(7)}d${'0'.repeat(56)}`, size: 9 };
+		server.upload(d.oid, d.size);
+		const parent = server.main();
+		server.push(make(server, [{ path, text: writePointer(a) }], { parent }), alice);
+		server.push(make(server, [{ path, text: writePointer(b) }], { parent }), alice);
+		// A stale write at the sibling itself lands at a sibling of the original stem.
+		const atSibling = server.main();
+		server.push(make(server, [{ path: sibling(b), text: writePointer(a) }]), alice);
+		expect(server.push(make(server, [{ path: sibling(b), text: writePointer(c) }], { parent: atSibling }), alice)).toMatchObject({ siblings: [{ path: sibling(b), at: sibling(c) }] });
+		expect(server.read(sibling(c))).toBe(writePointer(c));
+		// Bytes whose hash starts as c's does: their seven-character sibling holds other bytes, so they take eight.
+		expect(server.push(make(server, [{ path, text: writePointer(d) }], { parent }), alice)).toMatchObject({ siblings: [{ path, at: 'recordings/r1 (conflict cccccccd).webm' }] });
+		// A folder, or another spelling, at the name: more of the hash.
+		const { server: other } = landed();
+		const first = other.main();
+		other.push(make(other, [{ path, text: writePointer(a) }, { path: `${sibling(b)}/x.webm`, text: writePointer(c) }, { path: 'recordings/r1 (CONFLICT ccccccc).webm', text: writePointer(a) }], { parent: first }), alice);
+		expect(other.push(make(other, [{ path, text: writePointer(b) }], { parent: first }), alice)).toMatchObject({ siblings: [{ path, at: 'recordings/r1 (conflict bbbbbbbb).webm' }] });
+		expect(other.push(make(other, [{ path, text: writePointer(c) }], { parent: first }), alice)).toMatchObject({ siblings: [{ path, at: 'recordings/r1 (conflict cccccccc).webm' }] });
 	});
 
 	test('a delete then a create at one path are two writes that each pass', () => {

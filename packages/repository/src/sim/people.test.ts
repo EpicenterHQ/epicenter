@@ -20,7 +20,7 @@
  * - P9: a forged author is refused, a note over 1 MB is refused, forged conflict labels are text
  * - P10: a refusal of a person's own text leaves it held with the reason
  * - P11: an editor's save over a stale buffer merges with what changed under it
- * - P12: a blob write lands only over the blob its writer saw (compare-and-swap): a concurrent create and a stale replace are held with why, a stale delete leaves the file
+ * - P12: a blob write lands only over the blob its writer saw (compare-and-swap); a concurrent create or a stale replace lands beside it at a sibling, nothing held; a stale delete leaves the file
  * - The door: portable paths, LF-only notes, control files; paths equal after folding are one path; a merge growing a note past 1 MB is held
  * - A flush writes one Git commit per merge that wrote a block; pending deletes and renames survive a flush; a Git push is fast-forward only (D1)
  */
@@ -234,31 +234,29 @@ test('P11: an editor saving over a stale buffer merges with what changed under i
 	expect(world.server.read(path)).toBe(note('line one\nbob added this\nalice types\n', 'title: N\nstatus: done'));
 });
 
-test('P12: a blob write lands only over the blob its writer saw: a concurrent create and a stale replace are held with why, a stale delete leaves the file', () => {
+test('P12: a blob write lands only over the blob its writer saw; one that lost lands beside it at a sibling named from its bytes, and a stale delete leaves the file', () => {
 	const { world, alice, bob, settle } = setup();
 	const blob = (x: string, size: number) => ({ oid: x.repeat(64), size });
-	const [a, b, c, d] = [blob('a', 1000), blob('b', 1001), blob('c', 1002), blob('d', 1003)] as const;
+	const [a, b, c, d, e] = [blob('a', 1000), blob('b', 1001), blob('c', 1002), blob('d', 1003), blob('e', 1004)] as const;
 	// Every byte is on the server, and both devices' upload tracks have heard so.
-	for (const p of [a, b, c, d]) {
+	for (const p of [a, b, c, d, e]) {
 		world.upload(p.oid, p.size);
 		for (const device of [alice, bob]) device.replica.present(p.oid, p.size);
 	}
 	const path = 'recordings/2026-10-28T12-00-00Z.webm';
-	// Concurrent creates: bob's lands, alice's is held with why; the same bytes from both would be one file.
+	const beside = (p: { oid: string }) => `recordings/2026-10-28T12-00-00Z (conflict ${p.oid.slice(0, 7)}).webm`;
+	// Concurrent creates: bob's lands at the path, alice's beside it; both devices see both, and nothing is held.
 	alice.setOnline(false);
 	alice.replica.write(path, writePointer(a), { over: null });
 	bob.replica.write(path, writePointer(b), { over: null });
 	settle();
 	alice.setOnline(true);
 	settle();
-	expect(world.server.read(path)).toBe(writePointer(b));
-	expect(alice.replica.read(path)).toBe(writePointer(a));
-	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
-	// Alice keeps hers under another name; her held write goes when she discards it.
-	alice.replica.writeAll({ 'recordings/mine.webm': writePointer(a), [path]: writePointer(b) });
-	settle();
-	expect(world.server.read('recordings/mine.webm')).toBe(writePointer(a));
-	expect(alice.replica.state(path)).toEqual({ status: 'synced' });
+	for (const reader of [world.server, alice.replica, bob.replica]) {
+		expect(reader.read(path)).toBe(writePointer(b));
+		expect(reader.read(beside(a))).toBe(writePointer(a));
+	}
+	expect(alice.replica.held()).toEqual([]);
 	// A stale replace: bob replaces while alice, offline, replaces what she saw.
 	alice.setOnline(false);
 	alice.replica.write(path, writePointer(c));
@@ -267,17 +265,25 @@ test('P12: a blob write lands only over the blob its writer saw: a concurrent cr
 	alice.setOnline(true);
 	settle();
 	expect(world.server.read(path)).toBe(writePointer(d));
-	expect(alice.replica.state(path)).toEqual({ status: 'held', reason: 'this file changed on another device' });
+	expect(world.server.read(beside(c))).toBe(writePointer(c));
+	expect(alice.replica.read(path)).toBe(writePointer(d));
+	// A save made over bytes this device has since replaced (a folder's file, read late): it says what it saw, and lands beside.
+	alice.replica.write(path, writePointer(e), { over: writePointer(b) });
+	settle();
+	expect(world.server.read(path)).toBe(writePointer(d));
+	expect(world.server.read(beside(e))).toBe(writePointer(e));
+	expect(alice.replica.read(path)).toBe(writePointer(d));
+	expect(alice.replica.held()).toEqual([]);
 	// A stale delete: the file stays, with no notice.
 	bob.setOnline(false);
-	bob.replica.write('recordings/mine.webm', null);
-	alice.replica.write('recordings/mine.webm', writePointer(c));
+	bob.replica.write(beside(a), null);
+	alice.replica.write(beside(a), writePointer(c));
 	settle();
 	bob.setOnline(true);
 	settle();
-	expect(world.server.read('recordings/mine.webm')).toBe(writePointer(c));
-	expect(bob.replica.read('recordings/mine.webm')).toBe(writePointer(c));
-	expect(bob.replica.state('recordings/mine.webm')).toEqual({ status: 'synced' });
+	expect(world.server.read(beside(a))).toBe(writePointer(c));
+	expect(bob.replica.read(beside(a))).toBe(writePointer(c));
+	expect(bob.replica.state(beside(a))).toEqual({ status: 'synced' });
 });
 
 test('a field both sides set keeps main\'s value in the frontmatter and writes the other as a conflict block (D2)', () => {

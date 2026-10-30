@@ -14,7 +14,7 @@
 import { describe, expect, test } from 'bun:test';
 import { findConflicts } from './conflict.js';
 import { parseMarkdown } from './markdown.js';
-import { POINTER_REFUSALS, settle, settlePointer } from './settle.js';
+import { conflictSibling, settle, settlePointer } from './settle.js';
 
 const parties = { current: { author: 'main', time: 't1' }, incoming: { author: 'alice/laptop', time: 't2' } };
 const note = (title: string, body = 'body\n') => `---\ntitle: ${title}\n---\n${body}`;
@@ -80,13 +80,13 @@ describe('settlePointer: a blob write lands only over the blob its writer saw', 
 		expect(settlePointer(a, a, b)).toEqual({ text: b });
 		expect(settlePointer(a, a, null)).toEqual({ text: null });
 	});
-	test('a create over a file added elsewhere is refused, unless it is the same bytes', () => {
-		expect(settlePointer(null, b, a)).toEqual({ refused: POINTER_REFUSALS.added });
+	test('a create over a file added elsewhere is lost, unless it is the same bytes', () => {
+		expect(settlePointer(null, b, a)).toEqual({ lost: true });
 		expect(settlePointer(null, a, a)).toEqual({ text: a });
 	});
-	test('a replace over a file that changed or went is refused', () => {
-		expect(settlePointer(a, b, c)).toEqual({ refused: POINTER_REFUSALS.changed });
-		expect(settlePointer(a, null, c)).toEqual({ refused: POINTER_REFUSALS.changed });
+	test('a replace over a file that changed or went is lost', () => {
+		expect(settlePointer(a, b, c)).toEqual({ lost: true });
+		expect(settlePointer(a, null, c)).toEqual({ lost: true });
 	});
 	test('a delete that does not land leaves the file, with no refusal', () => {
 		expect(settlePointer(a, b, null)).toEqual({ text: b });
@@ -94,6 +94,17 @@ describe('settlePointer: a blob write lands only over the blob its writer saw', 
 	test('a delete then a create at one path are two writes that each pass', () => {
 		expect(settlePointer(a, a, null)).toEqual({ text: null });
 		expect(settlePointer(null, null, b)).toEqual({ text: b });
+	});
+	test('a lost write is named beside its file from the original stem and its bytes, the stem shortened to fit', () => {
+		const oid = 'abcdef0123'.repeat(6).slice(0, 64);
+		expect(conflictSibling('photos/cat.png', oid)).toBe('photos/cat (conflict abcdef0).png');
+		expect(conflictSibling('photos/cat (conflict 1234567).png', oid)).toBe('photos/cat (conflict abcdef0).png');
+		expect(conflictSibling('README', oid, 8)).toBe('README (conflict abcdef01)');
+		expect(conflictSibling('.env.local', oid)).toBe('.env (conflict abcdef0).local');
+		const long = conflictSibling(`a/${'é'.repeat(200)}.webm`, oid);
+		expect(new TextEncoder().encode(long.slice(2)).length).toBeLessThanOrEqual(255);
+		expect(long.endsWith(' (conflict abcdef0).webm')).toBe(true);
+		expect(new TextEncoder().encode(conflictSibling(`${'d'.repeat(480)}/x.webm`, oid, 7, 512)).length).toBeLessThanOrEqual(512);
 	});
 	test('a path the writer did not change keeps what is there', () => {
 		expect(settlePointer(a, b, a)).toEqual({ text: b });

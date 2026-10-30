@@ -458,7 +458,7 @@ test('a refusal arriving after its path was saved again holds nothing: the newer
 	expect(world.server.read(PATH)).toContain('uno\n');
 });
 
-test('a held blob holds only itself: the note saved with it goes, and the device keeps taking in changes from elsewhere (seed 1475)', () => {
+test('a blob write that lost lands beside its file: the note saved with it goes, and the device keeps taking in changes from elsewhere (seed 1475)', () => {
 	const { world, alice, bob, settle } = setup();
 	const pointer = (c: string) => writePointer({ oid: c.repeat(64), size: 3 });
 	for (const c of ['a', 'b', 'c']) {
@@ -467,12 +467,14 @@ test('a held blob holds only itself: the note saved with it goes, and the device
 	}
 	alice.replica.write('img/z.png', pointer('a'));
 	settle();
-	// While a commit is in flight, a note and new bytes at a blob path are committed together; other bytes land at that path first, so hers are held, and the note goes without them.
+	// While a commit is in flight, a note and new bytes at a blob path are committed together; other bytes land at that path first, so hers land beside them, and the note goes too.
 	alice.replica.write('notes/x.md', note('x\n'));
 	alice.replica.writeAll({ [PATH]: note('one\n'), 'img/z.png': pointer('b') });
 	bob.replica.write('img/z.png', pointer('c'));
 	settle();
-	expect(alice.replica.state('img/z.png')).toEqual({ status: 'held', reason: 'this file changed on another device' });
+	expect(world.server.read('img/z.png')).toBe(pointer('c'));
+	expect(world.server.read(`img/z (conflict ${'b'.repeat(7)}).png`)).toBe(pointer('b'));
+	expect(alice.replica.state('img/z.png')).toEqual({ status: 'synced' });
 	expect(alice.replica.state(PATH)).toEqual({ status: 'synced' });
 	expect(world.server.read(PATH)).toBe(note('one\n'));
 	bob.replica.write('notes/c.md', note('bob\n'));

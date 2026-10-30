@@ -57,7 +57,8 @@ export const DIVERGED = "Git's main moved outside Epicenter; flushes stop until 
  * `main` waits for an operator before it moves.
  */
 export type ReceiveAnswer =
-	| { kind: 'accepted'; main: string; head: string | null; merged: boolean; published: boolean }
+	/** `siblings`: pushed blobs that lost to a live write, and where each landed beside its file (Git's `main` holds the pushed bytes at the path until the join is flushed). */
+	| { kind: 'accepted'; main: string; head: string | null; merged: boolean; published: boolean; siblings?: { path: string; at: string }[] }
 	| { kind: 'refused'; code: ReceiveCode; reason: string; commit?: string; path?: string };
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -157,10 +158,12 @@ export function createReceiver({
 
 	/** The answer to a push already taken: Git's `main` holds it once its row is finished. */
 	async function taken(next: string, merged: boolean): Promise<ReceiveAnswer> {
-		if (flusher.diverged() !== null) return { kind: 'accepted', main: next, head: meta.get('git_head') || null, merged, published: false };
-		if (first(store, 'SELECT 1 FROM journal LIMIT 1') !== undefined && (await flusher.finish()).kind === 'diverged')
-			return { kind: 'accepted', main: next, head: meta.get('git_head') || null, merged, published: false };
-		return { kind: 'accepted', main: next, head: meta.get('git_head') || null, merged, published: true };
+		const stored = first<{ siblings: string | null }>(store, 'SELECT siblings FROM received WHERE next = ?', [next])?.siblings ?? null;
+		const siblings = stored === null ? {} : { siblings: JSON.parse(stored) as { path: string; at: string }[] };
+		const answer = (published: boolean): ReceiveAnswer => ({ kind: 'accepted', main: next, head: meta.get('git_head') || null, merged, published, ...siblings });
+		if (flusher.diverged() !== null) return answer(false);
+		if (first(store, 'SELECT 1 FROM journal LIMIT 1') !== undefined && (await flusher.finish()).kind === 'diverged') return answer(false);
+		return answer(true);
 	}
 
 	async function receiveInside({ ref, old, next }: { ref: string; old: string | null; next: string }, session: Session): Promise<ReceiveAnswer> {
@@ -228,7 +231,7 @@ export function createReceiver({
 			const join: Join | undefined = merged ? { old, base, oid: next, tree: pushed, place: history.top(), side: id } : undefined;
 			// Applied on Git's `main` with nothing waiting, Git holds all of live history; merged, it holds the push, not the live edits it was merged over.
 			flusher.journalPushed({ old, next, tree, through: merged ? flushed : history.top(), staging, user: session.user, at, ...(join === undefined ? {} : { join }) });
-			store.run('INSERT INTO received (next, merged, at) VALUES (?, ?, ?)', [next, merged ? 1 : 0, at]);
+			store.run('INSERT INTO received (next, merged, at, siblings) VALUES (?, ?, ?, ?)', [next, merged ? 1 : 0, at, landed.siblings === undefined ? null : JSON.stringify(landed.siblings)]);
 		});
 		if (live.kind !== 'applied' && live.kind !== 'merged') {
 			await git.deleteRef(staging, next);

@@ -12,7 +12,7 @@
  * Key behaviors:
  * - a push behind live main is merged; Git's main is the pushed commit and the journal claims no live edit Git lacks
  * - a save that lands during the push's Git checks is merged, not a refusal
- * - a stale blob replace refuses the whole push with its path; Git does not move
+ * - a stale blob replace lands beside the live one at a sibling the answer names; the rest of the push lands
  * - a push that puts a file where live main has a folder, or beneath a live file, is refused at that file; Git does not move and nothing live is lost
  * - conflict cuts and a labelled commit made before the push stay in Git's history
  * - a second push from the first pushed commit, before the export, merges against the first push's tree
@@ -224,7 +224,7 @@ describe('a push behind live main', () => {
 		await expectExported(server, store, git, path, [{ old, next }]);
 	});
 
-	test('a stale blob replace refuses the whole push with its path, and Git does not move', async () => {
+	test('a stale blob replace lands beside the live one at a sibling, the answer names it, and the rest of the push lands', async () => {
 		const w = await world();
 		const v1 = { oid: '1'.repeat(64), size: 3 };
 		const v2 = { oid: '2'.repeat(64), size: 3 };
@@ -235,15 +235,18 @@ describe('a push behind live main', () => {
 		const old = await gitMain(w.git);
 		expect(save(w.server, bob, [{ path: 'audio/r.wav', text: writePointer(v2) }])).toMatchObject({ kind: 'applied' });
 		const next = await commitOn(w.git, old, { 'audio/r.wav': writePointer(v3), 'notes/c.md': note('c\n') });
-		expect(await receive(w.server, old, next)).toMatchObject({ kind: 'refused', code: 'live', path: 'audio/r.wav' });
-		expect(await gitMain(w.git)).toBe(old);
+		const beside = `audio/r (conflict ${v3.oid.slice(0, 7)}).wav`;
+		expect(await receive(w.server, old, next)).toMatchObject({ kind: 'accepted', merged: true, siblings: [{ path: 'audio/r.wav', at: beside }] });
+		// Live main keeps the live write at the path and the pushed bytes beside it, with the rest of the push.
 		expect(w.server.read('audio/r.wav')).toBe(writePointer(v2));
-		expect(w.server.read('notes/c.md')).toBeNull();
-		// A push that leaves the blob alone lands.
-		const other = await commitOn(w.git, old, { 'notes/c.md': note('c\n') });
-		expect(await receive(w.server, old, other)).toMatchObject({ kind: 'accepted', merged: true });
+		expect(w.server.read(beside)).toBe(writePointer(v3));
+		expect(w.server.read('notes/c.md')).toBe(note('c\n'));
+		// A retry is answered the same, siblings named.
+		expect(await receive(w.server, old, next)).toMatchObject({ kind: 'accepted', siblings: [{ path: 'audio/r.wav', at: beside }] });
 		await w.server.flush();
-		await expectExported(w.server, w.store, w.git, w.path, [{ old, next: other }]);
+		const flushed = await gitMain(w.git);
+		const tree = await w.git.readTree((await w.git.readCommit(flushed ?? ''))?.tree ?? '');
+		expect([...tree.keys()].filter((path) => path.startsWith('audio/')).sort()).toEqual([beside, 'audio/r.wav'].sort());
 	});
 
 	test('a push that puts a file where live main has a folder, or beneath a live file, is refused at that file, and Git does not move', async () => {

@@ -14,17 +14,17 @@
  * Key behaviors:
  * - An owed pointer waits alone for its bytes: the note saved with it goes at once, the pointer once its bytes are present
  * - Two notes and a new blob saved at once, with a delayed upload across typing elsewhere: the notes land, merged with the typing, and the blob once uploaded
- * - A refused upload, or a blob write that lost on the server, holds only its pointer, with why
+ * - A refused upload holds only its pointer, with why; a blob write that lost on the server lands beside its file, at a sibling
  * - A person's separate attach never blocks a note
  * - A pointer deleted before its upload sends nothing, and its bytes are no longer owed
  * - Two devices with the same bytes at one path: one upload, one file
  * - A refused upload holds every pointer naming those bytes, with the reason; a save of the path clears it, and saving the same bytes again owes them again
  * - Owed pointers survive a reopen, and count as busy and unsent
- * - A blob write over a blob that moved while its bytes were uploading is held with why, and never uploaded
+ * - A blob write over a blob that moved while its bytes were uploading is uploaded still, and lands beside it
  * - A pointer saved over an owed pointer while a commit is out: the notes go, neither pointer before its bytes, and the newer once present
  * - `main`'s own pointer saved while a change to its path is in flight is not `main`'s once that change lands, so it never goes before its bytes, even under a later save
  * - A blob replace made over bytes deleted and attached again since lands: compare-and-swap is on the bytes
- * - A note saved beside a held blob goes on its own; new bytes over the held blob go only once present
+ * - A note saved with a blob that lost goes on its own; the blob lands beside, and new bytes go only once present
  */
 import { expect, test } from 'bun:test';
 import type { LiveCommit } from '../core/commit.js';
@@ -35,6 +35,8 @@ import type { FileStatus } from './replica.js';
 const note = (body: string, fields = 'title: R1') => `---\n${fields}\n---\n${body}`;
 const AUDIO = 'recordings/r1.webm';
 const NOTE = 'recordings/r1.md';
+/** Where a write of `bytes` at AUDIO that lost lands. */
+const beside = (bytes: { oid: string }) => `recordings/r1 (conflict ${bytes.oid.slice(0, 7)}).webm`;
 const a = { oid: 'a'.repeat(64), size: 3_145_728 };
 const b = { oid: 'b'.repeat(64), size: 1_000 };
 const UPLOADING: FileStatus = { status: 'sending', reason: 'its bytes are uploading' };
@@ -115,7 +117,7 @@ test('a refused upload holds only its pointer, with why; the note saved with it 
 	expect(alice.replica.busy()).toBe(false);
 });
 
-test('a blob write that lost on the server holds only itself; the note saved with it lands', () => {
+test('a blob write that lost on the server lands beside its file; the note saved with it lands', () => {
 	const { world, alice, bob, settle } = setup();
 	world.upload(a.oid, a.size);
 	world.upload(b.oid, b.size);
@@ -128,8 +130,10 @@ test('a blob write that lost on the server holds only itself; the note saved wit
 	alice.setOnline(true);
 	settle();
 	expect(world.server.read(AUDIO)).toBe(writePointer(b));
-	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
-	expect(alice.replica.state(NOTE)).toEqual({ status: 'synced' });
+	expect(world.server.read(beside(a))).toBe(writePointer(a));
+	expect(alice.replica.read(beside(a))).toBe(writePointer(a));
+	expect(alice.replica.state(AUDIO)).toEqual({ status: 'synced' });
+	expect(alice.replica.held()).toEqual([]);
 	expect(world.server.read(NOTE)).not.toBeNull();
 });
 
@@ -206,7 +210,7 @@ test('owed pointers survive a reopen, and count as busy and unsent', () => {
 	expect(alice.replica.busy()).toBe(false);
 });
 
-test('a blob written elsewhere while this one uploads holds this one with why, and its bytes are not uploaded', () => {
+test('a blob written elsewhere while this one uploads: this one is uploaded still, and lands beside it', () => {
 	const { world, alice, bob, settle } = setup();
 	world.upload(b.oid, b.size);
 	alice.setOnline(false);
@@ -218,8 +222,15 @@ test('a blob written elsewhere while this one uploads holds this one with why, a
 	settle();
 	expect(world.server.read(AUDIO)).toBe(writePointer(b));
 	expect(alice.replica.read(AUDIO)).toBe(writePointer(a));
-	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
-	expect(alice.replica.owed()).toEqual([]);
+	expect(alice.replica.state(AUDIO)).toEqual(UPLOADING);
+	expect(alice.replica.owed()).toEqual([a]);
+	world.upload(a.oid, a.size);
+	alice.replica.present(a.oid, a.size);
+	settle();
+	expect(world.server.read(AUDIO)).toBe(writePointer(b));
+	expect(world.server.read(beside(a))).toBe(writePointer(a));
+	expect(alice.replica.read(AUDIO)).toBe(writePointer(b));
+	expect(alice.replica.busy()).toBe(false);
 });
 
 test('a pointer saved over an owed pointer while a commit is out: the notes go, neither pointer before its bytes, and the newer once present (seeds 470249, 470282)', () => {
@@ -290,7 +301,7 @@ test('a blob replace made over bytes that were deleted and attached again since 
 	for (const device of [alice, bob]) expect(device.replica.state(AUDIO)).toEqual({ status: 'synced' });
 });
 
-test('a note saved beside a held blob goes on its own, and new bytes over the held blob go only once present (W seed 211163)', () => {
+test('a note saved with a blob that lost goes on its own; the blob lands beside, and new bytes over what she then sees go only once present (W seed 211163)', () => {
 	const { world, alice, bob, settle, pushed } = setup();
 	const c = { oid: 'c'.repeat(64), size: 10 };
 	for (const bytes of [a, b]) world.upload(bytes.oid, bytes.size);
@@ -299,26 +310,27 @@ test('a note saved beside a held blob goes on its own, and new bytes over the he
 	settle();
 	pushed.length = 0;
 	alice.setOnline(false);
-	// One save of the note and a blob; someone replaces the blob, so at catch-up her blob write is held.
+	// One save of the note and a blob; someone replaces the blob, so at catch-up her blob write has lost, and goes saying what it was made over.
 	alice.replica.writeAll({ [NOTE]: note('two\n'), [AUDIO]: writePointer(a) });
 	bob.replica.write(AUDIO, writePointer(b));
 	settle();
 	alice.restart();
 	alice.setOnline(true);
 	settle();
-	expect(alice.replica.state(AUDIO).status).toBe('held');
 	expect(world.server.read(NOTE)).toBe(note('two\n'));
-	// Her new bytes over the held blob owe their upload; the note's next save goes without them.
+	expect(world.server.read(beside(a))).toBe(writePointer(a));
+	expect(alice.replica.read(AUDIO)).toBe(writePointer(b));
+	// Her new bytes over what she sees owe their upload; the note's next save goes without them.
 	alice.replica.write(AUDIO, writePointer(c));
 	alice.replica.write(NOTE, note('three\n'));
 	settle();
 	expect(world.server.read(NOTE)).toBe(note('three\n'));
 	expect(alice.replica.owed()).toEqual([c]);
 	const sentAudio = () => pushed.filter(({ device }) => device === 'alice').flatMap(({ commit }) => commit.files.filter((f) => f.path === AUDIO).map((f) => f.text));
-	expect(sentAudio()).toEqual([]);
+	expect(sentAudio()).toEqual([writePointer(a)]);
 	world.upload(c.oid, c.size);
 	alice.replica.present(c.oid, c.size);
 	settle();
-	expect(sentAudio()).toEqual([writePointer(c)]);
+	expect(sentAudio()).toEqual([writePointer(a), writePointer(c)]);
 	expect(world.server.read(AUDIO)).toBe(writePointer(c));
 });

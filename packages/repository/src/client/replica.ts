@@ -172,9 +172,10 @@ CREATE TABLE IF NOT EXISTS "epicenter/files" (
 	hash TEXT,
 	saved INTEGER NOT NULL DEFAULT 0,
 	held TEXT,
-	unknown INTEGER NOT NULL DEFAULT 0
+	unknown INTEGER NOT NULL DEFAULT 0,
+	over TEXT
 ) STRICT;
-CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT) STRICT;
+CREATE TABLE IF NOT EXISTS "epicenter/unsent" (path TEXT PRIMARY KEY, text TEXT, over TEXT) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/inflight" (id TEXT PRIMARY KEY, commit_json TEXT NOT NULL, attempts INTEGER NOT NULL) STRICT;
 CREATE TABLE IF NOT EXISTS "epicenter/refused" (path TEXT PRIMARY KEY, fold TEXT NOT NULL, reason TEXT NOT NULL) STRICT;
 CREATE INDEX IF NOT EXISTS "epicenter/refused/fold" ON "epicenter/refused" (fold);
@@ -225,11 +226,25 @@ function migrate(driver: SqlDriver) {
 		for (const [table, column] of [['files', 'call'], ['unsent', 'call'], ['refused', 'call'], ['inflight', 'calls']] as const)
 			if (columnsOf(`epicenter/${table}`).includes(column)) driver.run(`ALTER TABLE "epicenter/${table}" DROP COLUMN ${column}`);
 		for (const table of ['calls', 'groups', 'messages']) driver.run(`DROP TABLE IF EXISTS "epicenter/${table}"`);
+		// A blob write's `over` (phase 9g), on the saved and the unsent level.
+		for (const table of ['files', 'unsent'])
+			if (columnsOf(`epicenter/${table}`).length > 0 && !columnsOf(`epicenter/${table}`).includes('over')) driver.run(`ALTER TABLE "epicenter/${table}" ADD COLUMN over TEXT`);
+		// The body a view reads is the whole text of a note with no frontmatter (phase 9g): the generated column is made again.
+		const made = first<{ sql: string }>(driver, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'epicenter/files'`)?.sql;
+		if (made !== undefined && !made.includes(BODY_SQL)) {
+			driver.run('ALTER TABLE "epicenter/files" DROP COLUMN body');
+			driver.run(`ALTER TABLE "epicenter/files" ADD COLUMN body TEXT GENERATED ALWAYS AS (${BODY_SQL}) VIRTUAL`);
+		}
 	});
 }
 
-/** A level of a file: its text, null for no file. */
-type Level = { text: string | null };
+/**
+ * A level of a file: its text, null for no file. `over`: a blob write
+ * made over a text that is no longer what it would land on (it lost, as its
+ * writer knows): the server judges it over that and puts it beside the
+ * other write (core/commit's `over`).
+ */
+type Level = { text: string | null; over?: string | null };
 
 type FileRecord = {
 	base: string | null;
@@ -242,6 +257,8 @@ type FileRecord = {
 	held?: { reason: string };
 	/** RULE: this work's commit got `outcome-unknown`: the next catch-up puts it beside what is there, never merged blindly. */
 	unknown?: true;
+	/** `mine`, a blob, was saved over this text, which moved since: the next cut sends it with this `over`. */
+	over?: string | null;
 };
 
 /** A file as the logic reads it: the stored record and, while its commit is in flight, the text it sent. */
@@ -251,7 +268,7 @@ type FileView = FileRecord & { sent?: Level };
 type Stored = FileRecord & { hash: string | null };
 
 /** One file's row and its unsent work, in one read. */
-const FILE_SQL = `SELECT f.text, f.base, f.hash, f.saved, f.held, f.unknown, u.path IS NOT NULL AS committed, u.text AS committed_text
+const FILE_SQL = `SELECT f.text, f.base, f.hash, f.saved, f.held, f.unknown, f.over, u.path IS NOT NULL AS committed, u.text AS committed_text, u.over AS committed_over
 	FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?`;
 type FileRow = {
 	text: string | null;
@@ -260,9 +277,15 @@ type FileRow = {
 	saved: number;
 	held: string | null;
 	unknown: number;
+	over: string | null;
 	committed: number;
 	committed_text: string | null;
+	committed_over: string | null;
 };
+
+/** `over` as stored: absent is NULL, any other value its JSON (so `null`, over no file, is the text `null`). */
+const overOf = (stored: string | null) => (stored === null ? {} : { over: JSON.parse(stored) as string | null });
+const storedOver = (level: { over?: string | null } | undefined) => (level?.over === undefined ? null : JSON.stringify(level.over));
 
 /** Texts a catch-up's pages name that this device lacks: not its base at that path, nor read already. RULE: only the paths a catch-up names, so its cost follows what it names, not the repository; a text held at another path is read. */
 const LACKING_SQL = `FROM "epicenter/staged" s LEFT JOIN "epicenter/files" f ON f.path = s.path
@@ -402,7 +425,7 @@ function createReplica({
 		const flight = first<{ commit_json: string; attempts: number }>(driver, 'SELECT commit_json, attempts FROM "epicenter/inflight"');
 		inflight = flight === undefined ? null : (JSON.parse(flight.commit_json) as LiveCommit);
 		attempts = flight?.attempts ?? 0;
-		sentWork = new Map(inflight?.files.map((f) => [f.path, { text: f.text }]));
+		sentWork = new Map(inflight?.files.map((f) => [f.path, { text: f.text, ...(f.over === undefined ? {} : { over: f.over }) }]));
 		position = meta.get('position');
 		next = Number(meta.get('next') ?? 1);
 		passedN = first<{ n: number | null }>(driver, 'SELECT MAX(n) AS n FROM "epicenter/passed"')?.n ?? 0;
@@ -425,7 +448,7 @@ function createReplica({
 		for (const path of [...before, ...(commit?.files.map((f) => f.path) ?? [])]) changed.add(path);
 		inflight = commit;
 		attempts = commit === null ? 0 : 1;
-		sentWork = new Map(commit?.files.map((f) => [f.path, { text: f.text }]));
+		sentWork = new Map(commit?.files.map((f) => [f.path, { text: f.text, ...(f.over === undefined ? {} : { over: f.over }) }]));
 		driver.run('DELETE FROM "epicenter/inflight"');
 		if (commit !== null) driver.run('INSERT INTO "epicenter/inflight" (id, commit_json, attempts) VALUES (?, ?, ?)', [commit.id, JSON.stringify(commit), attempts]);
 		// A file whose only level was the text it sent goes with it.
@@ -454,7 +477,8 @@ function createReplica({
 		if (row.saved === 1) f.saved = true;
 		if (row.held !== null) f.held = { reason: row.held };
 		if (row.unknown === 1) f.unknown = true;
-		if (row.committed === 1) f.committed = { text: row.committed_text };
+		if (row.over !== null) f.over = (overOf(row.over) as { over: string | null }).over;
+		if (row.committed === 1) f.committed = { text: row.committed_text, ...overOf(row.committed_over) };
 		return f;
 	}
 	const sentOf = (path: string): Level | undefined => sentWork.get(path);
@@ -484,7 +508,7 @@ function createReplica({
 	/** Store a file's record (its `sent` level lives in the commit in flight). */
 	function set(path: string, { sent: _, ...next }: FileView) {
 		const before = stored(path);
-		const empty = next.base === null && next.mine === null && next.committed === undefined && next.held === undefined && next.saved === undefined && !sentWork.has(path);
+		const empty = next.base === null && next.mine === null && next.committed === undefined && next.held === undefined && next.saved === undefined && next.over === undefined && !sentWork.has(path);
 		if (empty) {
 			if (before === undefined) return;
 			changed.add(path);
@@ -498,27 +522,28 @@ function createReplica({
 			before.mine !== next.mine ||
 			before.saved !== next.saved ||
 			before.held?.reason !== next.held?.reason ||
-			before.unknown !== next.unknown;
+			before.unknown !== next.unknown ||
+			storedOver(before) !== storedOver(next);
 		if (row) {
 			changed.add(path);
 			const hash = before !== undefined && before.base === next.base ? before.hash : next.base === null ? null : gitBlobHash(next.base);
 			const fields = before !== undefined && before.mine === next.mine ? undefined : fieldsOf(next.mine);
-			const values: SqlValue[] = [path, fold(path), next.mine, next.base, hash, next.saved ? 1 : 0, next.held?.reason ?? null, next.unknown ? 1 : 0];
+			const values: SqlValue[] = [path, fold(path), next.mine, next.base, hash, next.saved ? 1 : 0, next.held?.reason ?? null, next.unknown ? 1 : 0, storedOver(next)];
 			if (fields === undefined)
 				driver.run(
-					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown',
+					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, over) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, over = excluded.over',
 					values,
 				);
 			else
 				driver.run(
-					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, fields = excluded.fields',
+					'INSERT INTO "epicenter/files" (path, fold, text, base, hash, saved, held, unknown, over, fields) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (path) DO UPDATE SET text = excluded.text, base = excluded.base, hash = excluded.hash, saved = excluded.saved, held = excluded.held, unknown = excluded.unknown, over = excluded.over, fields = excluded.fields',
 					[...values, fields],
 				);
 		}
-		if (before?.committed?.text !== next.committed?.text || (before?.committed === undefined) !== (next.committed === undefined)) {
+		if (before?.committed?.text !== next.committed?.text || (before?.committed === undefined) !== (next.committed === undefined) || storedOver(before?.committed) !== storedOver(next.committed)) {
 			changed.add(path);
 			if (next.committed === undefined) driver.run('DELETE FROM "epicenter/unsent" WHERE path = ?', [path]);
-			else driver.run('INSERT OR REPLACE INTO "epicenter/unsent" (path, text) VALUES (?, ?)', [path, next.committed.text]);
+			else driver.run('INSERT OR REPLACE INTO "epicenter/unsent" (path, text, over) VALUES (?, ?, ?)', [path, next.committed.text, storedOver(next.committed)]);
 		}
 	}
 
@@ -698,10 +723,13 @@ function createReplica({
 				continue;
 			}
 			const under = (f.sent ?? { text: f.base }).text;
+			// A save that continues a write that lost continues its `over`.
+			const { over, ...unmarked } = rest;
+			const lost = over !== undefined ? { over } : f.committed?.over !== undefined ? { over: f.committed.over } : {};
 			if (f.mine === under) {
-				const { committed: ___, ...clean } = rest;
+				const { committed: ___, ...clean } = unmarked;
 				set(path, clean);
-			} else set(path, { ...rest, committed: { text: f.mine } });
+			} else set(path, { ...unmarked, committed: { text: f.mine, ...lost } });
 		}
 		stats.commits++;
 		pump();
@@ -737,9 +765,9 @@ function createReplica({
 				const { held: _, ...f } = record(path);
 				const from = over === undefined || !(given in over) ? f.mine : (over[given] ?? null);
 				if (!isNote(path)) {
-					// A blob never merges: a write over a blob that moved since `over` is held with why.
+					// A blob never merges: a write over a blob that moved since `over` lost, and goes with what it was made over, so the server puts it beside the other.
 					const swapped = from === f.mine ? { text } : settlePointer(from, f.mine, text);
-					set(path, 'refused' in swapped ? { ...f, mine: text, held: { reason: swapped.refused } } : { ...f, mine: swapped.text, saved: true });
+					set(path, 'lost' in swapped ? { ...f, mine: text, saved: true, over: from } : { ...f, mine: swapped.text, saved: true });
 					continue;
 				}
 				const next = from === f.mine ? text : settle(from, f.mine, text, { parties: parties() }).text;
@@ -839,7 +867,7 @@ function createReplica({
 			parent,
 			author: { user, device },
 			time: new Date(now()).toISOString(),
-			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null })),
+			files: going.map(([path, f]) => ({ path, text: f.committed?.text ?? null, ...(f.committed?.over === undefined ? {} : { over: f.committed.over }) })),
 		};
 		const sent: LiveCommit = { id: commitId(body), ...body };
 		setInflight(sent);
@@ -933,37 +961,51 @@ function createReplica({
 	 * A blob path's text on `main` is now `text`, and this device's work on it
 	 * was made over `below`. A blob never merges: work lands only where it is
 	 * still over what it was made on, as the server's compare-and-swap
-	 * answers it (core/settle). A create or replace over a blob that moved is
-	 * held with why; a delete over one that moved is dropped, and the file
-	 * stays.
+	 * answers it (core/settle). A create or replace over a blob that moved
+	 * lost: it stays this device's work, marked with what it was made over
+	 * (`over`), and goes so; the server puts it beside the other write. A
+	 * delete over one that moved is dropped, and the file stays.
 	 */
 	function integratePointer(path: string, f: FileView, text: string | null, below: string | null) {
-		let held = f.held;
-		let committed: string | null | undefined;
+		let committed: Level | undefined;
 		/** What `mine` now sits on: the committed work if it still lands, else `main`. */
 		let under = text;
+		/** What `mine` was made over, if it lost. */
+		let over: { over?: string | null } = f.over === undefined ? {} : { over: f.over };
 		if (f.committed !== undefined) {
-			const swapped = settlePointer(below, text, f.committed.text);
-			if ('refused' in swapped) held = { reason: swapped.refused };
+			const made = f.committed.over !== undefined ? f.committed.over : below;
+			const swapped = settlePointer(made, text, f.committed.text);
+			if ('lost' in swapped) committed = { text: f.committed.text, over: made };
 			else {
 				under = swapped.text;
-				if (swapped.text !== text) committed = swapped.text;
+				if (swapped.text !== text) committed = { text: swapped.text };
 			}
 		}
 		let mine: string | null;
 		// `mine` is the committed work itself: it shares that work's outcome.
-		if (f.committed !== undefined && f.mine === f.committed.text) mine = held === undefined ? under : f.mine;
-		else {
+		if (f.committed !== undefined && f.mine === f.committed.text) mine = committed?.over !== undefined ? f.mine : under;
+		else if (committed?.over !== undefined) {
+			// Saved over committed work that lost: it continues that write.
+			mine = f.mine;
+			over = {};
+		} else {
 			// Saved over what it was made on (the committed work, or `below`): settled by the same rule.
-			const typed = settlePointer(f.committed !== undefined ? f.committed.text : below, under, f.mine);
-			if ('refused' in typed) held = { reason: typed.refused };
-			mine = 'refused' in typed ? f.mine : typed.text;
+			const made = f.over !== undefined ? f.over : f.committed !== undefined ? f.committed.text : below;
+			const typed = settlePointer(made, under, f.mine);
+			if ('lost' in typed) {
+				mine = f.mine;
+				over = { over: made };
+			} else {
+				mine = typed.text;
+				over = {};
+			}
 		}
 		const next: FileRecord = { base: text, mine };
 		if (mine !== text) {
-			if (f.committed !== undefined && committed !== undefined) next.committed = { text: committed };
-			if (held !== undefined) next.held = held;
+			if (committed !== undefined) next.committed = committed;
+			if (f.held !== undefined) next.held = f.held;
 			else if (f.saved !== undefined) next.saved = true;
+			if (over.over !== undefined && next.committed?.over === undefined) next.over = over.over;
 		}
 		set(path, next);
 	}
