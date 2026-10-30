@@ -258,15 +258,17 @@ function mergeSequence(base: string[], current: string[], incoming: string[], { 
 	const groups: Group[] = [];
 	/** The lines a hunk writes, as its side has them. */
 	const written = (hunk: SourcedHunk) => (hunk.source === 'current' ? current : incoming).slice(hunk.sideStart, hunk.sideEnd);
-	/** Whether two hunks write a line in common, blank lines aside. */
+	/** Whether two hunks write a line in common that the base they replace does not have (lines both moved there), blank lines aside. */
 	const share = (a: SourcedHunk, b: SourcedHunk) => {
-		const mine = new Set(written(a).filter((line) => line.trim() !== ''));
+		const had = new Set(base.slice(Math.min(a.start, b.start), Math.max(a.end, b.end)).map((line) => line.replace(/\n$/, '')));
+		const mine = new Set(written(a).filter((line) => line.trim() !== '' && !had.has(line.replace(/\n$/, ''))));
 		return written(b).some((line) => mine.has(line));
 	};
 	for (const hunk of edits) {
 		const group = groups.at(-1);
-		// Shared boundaries are independent; insertions at one point group together; and, as lines, two sides' hunks that touch and write a line in common are one clash (both moved the same lines there), never two copies.
-		const moved = lines && group !== undefined && hunk.start === group.end && group.edits.some((other) => other.source !== hunk.source && share(other, hunk));
+		// Shared boundaries are independent; insertions at one point group together.
+		// As lines, two sides' hunks that overlap or touch and write a line in common (both moved the same lines there) are one clash, kept whole.
+		const moved = lines && group !== undefined && hunk.start <= group.end && group.edits.some((other) => other.source !== hunk.source && share(other, hunk));
 		const joins =
 			group !== undefined &&
 			(hunk.start < group.end || (hunk.start === group.start && hunk.end === hunk.start && group.end === group.start) || moved);

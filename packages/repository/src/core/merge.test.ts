@@ -397,6 +397,10 @@ describe('two insertions at one point', () => {
 		expect(result.overlaps.filter((o) => o.unit === 'body')).toHaveLength(1);
 		const marked = withBlocks(result, labels) ?? '';
 		expect(findConflicts(marked)).toHaveLength(1);
+		// Overlapping, not only touching: the same (property seed W 400031).
+		const overlapping = merge('---\ntitle: t11z\n---\na\n', '---\n---\ntitle: t11z\nX\na c\n', '---\n---\ntitle: t11z\na b\n');
+		expect(overlapping.text?.match(/t11z/g)).toHaveLength(1);
+		expect(overlapping.overlaps.filter((o) => o.unit === 'body')).toHaveLength(1);
 		// Sharing nothing, they stay independent: an insertion beside a neighbour's edit merges clean.
 		expect(merge(base, 'ONE\ntwo\n', 'zero\none\ntwo\n')).toEqual({ text: 'zero\nONE\ntwo\n', overlaps: [] });
 	});
