@@ -12,6 +12,7 @@
  * - catch-up is a tree diff in pages; the change feed names each commit, its parents and changed paths with hashes
  * - a fresh instance over the same Store answers as the first did
  * - the Git receive path checks every pushed commit and refuses merges, broken notes, other file modes, Epicenter's files and other refs; a live commit that lands meanwhile is merged with the push (receive.test.ts covers push-as-merge)
+ * - a file and a folder never share a name: a write over a folder, or beneath a file, is refused at that file, stale or fresh, and nothing on main is lost; a stale delete beneath a file leaves the file, and one of what became a folder leaves the folder
  * - blobs: a pointer is admitted only once its bytes are here at its size; a blob write lands only over the blob its writer saw (compare-and-swap); the blob limit and the quota refuse uploads; a `git push` may replace, move or delete a binary whose bytes are here
  */
 import { describe, expect, test } from 'bun:test';
@@ -297,6 +298,64 @@ describe('storage', () => {
 		expect(server.read('n/a.md')).toBe(text(199));
 		expect(server.catchUp({ from: null }).files).toHaveLength(4);
 		expect(server.fetch([gitBlobHash(text(199))])).toEqual({ [gitBlobHash(text(199))]: text(199) });
+	});
+});
+
+describe('a file and a folder never share a name', () => {
+	const photo = { oid: 'e'.repeat(64), size: 4 };
+	function uploaded() {
+		const world = setup();
+		world.server.upload(photo.oid, photo.size);
+		return world;
+	}
+
+	test('a file over a folder is refused at that file, stale or fresh, and the folder keeps its files', () => {
+		const { server } = uploaded();
+		const parent = server.main();
+		expect(server.push(make(server, [{ path: 'album/a.md', text: note('a\n') }]), alice).kind).toBe('applied');
+		const over = { path: 'album', text: writePointer(photo) };
+		expect(server.push(make(server, [over], { parent }), alice)).toMatchObject({ kind: 'refused', code: 'is-a-folder', reason: 'a folder already has this name', path: 'album' });
+		expect(server.push(make(server, [over]), alice)).toMatchObject({ kind: 'refused', code: 'is-a-folder', path: 'album' });
+		expect(server.read('album/a.md')).toBe(note('a\n'));
+		expect(server.read('album')).toBeNull();
+	});
+
+	test('a file beneath a file is refused at that file, stale or fresh, and the file stays', () => {
+		const { server } = uploaded();
+		const parent = server.main();
+		expect(server.push(make(server, [{ path: 'album', text: writePointer(photo) }]), alice).kind).toBe('applied');
+		const under = { path: 'album/a.md', text: note('a\n') };
+		expect(server.push(make(server, [under], { parent }), alice)).toMatchObject({ kind: 'refused', code: 'under-a-file', reason: 'a file already has this name', path: 'album/a.md' });
+		expect(server.push(make(server, [under]), alice)).toMatchObject({ kind: 'refused', code: 'under-a-file', path: 'album/a.md' });
+		expect(server.read('album')).toBe(writePointer(photo));
+		expect(server.read('album/a.md')).toBeNull();
+	});
+
+	test('one commit may turn a folder into a file, or a file into a folder', () => {
+		const { server } = uploaded();
+		server.push(make(server, [{ path: 'album/a.md', text: note('a\n') }]), alice);
+		expect(server.push(make(server, [{ path: 'album', text: writePointer(photo) }, { path: 'album/a.md', text: null }]), alice).kind).toBe('applied');
+		expect(server.read('album')).toBe(writePointer(photo));
+		expect(server.push(make(server, [{ path: 'album', text: null }, { path: 'album/a.md', text: note('a\n') }]), alice).kind).toBe('applied');
+		expect(server.read('album/a.md')).toBe(note('a\n'));
+	});
+
+	test('a stale delete beneath what became a file leaves the file', () => {
+		const { server } = uploaded();
+		server.push(make(server, [{ path: 'album/a.md', text: note('a\n') }]), alice);
+		const saw = server.main();
+		server.push(make(server, [{ path: 'album', text: writePointer(photo) }, { path: 'album/a.md', text: null }]), alice);
+		expect(server.push(make(server, [{ path: 'album/a.md', text: null }], { parent: saw }), alice).kind).toBe('merged');
+		expect(server.read('album')).toBe(writePointer(photo));
+	});
+
+	test('a stale delete of what became a folder leaves the folder', () => {
+		const { server } = uploaded();
+		server.push(make(server, [{ path: 'album', text: writePointer(photo) }]), alice);
+		const saw = server.main();
+		server.push(make(server, [{ path: 'album', text: null }, { path: 'album/a.md', text: note('a\n') }]), alice);
+		expect(server.push(make(server, [{ path: 'album', text: null }], { parent: saw }), alice).kind).toBe('merged');
+		expect(server.read('album/a.md')).toBe(note('a\n'));
 	});
 });
 

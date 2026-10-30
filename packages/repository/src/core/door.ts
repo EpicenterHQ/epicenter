@@ -12,13 +12,14 @@
  * Markdown merges, everything else is bytes by LFS); paths are portable
  * (NFC, no `.git` component, names legal on Windows and macOS, segments at
  * most 255 bytes); Epicenter owns `.gitattributes`, `.lfsconfig` and
- * `.gitmodules`.
+ * `.gitmodules`, as files and as folders.
  *
  * Warned only (`lint`): malformed or unresolved conflict blocks, a long
  * total path.
  *
  * The server adds what needs the tree: paths equal after NFC and case
- * folding are one path, a pointer's bytes are present at its size, a blob
+ * folding are one path, a name is a file or a folder, never both
+ * (core/tree's `collision`), a pointer's bytes are present at its size, a blob
  * write lands only over the blob its writer saw (core/settle,
  * `settlePointer`), and a merge may not grow a note past 1 MB or past `BLOCK_CAP` conflict
  * blocks (core/settle, which also never writes an identical block twice).
@@ -67,7 +68,8 @@ export function pathRefusal(path: string): string | null {
 		if (bytes(segment) > 255) return 'a name may be at most 255 bytes';
 	}
 	if (segments[0]?.toLowerCase() === '.epicenter') return 'Epicenter owns this file';
-	if (CONTROL.has((segments.at(-1) ?? '').toLowerCase())) return 'Epicenter owns this file';
+	// A control file's name is Epicenter's as a folder too: Git's tree has a file there.
+	if (segments.some((segment) => CONTROL.has(segment.toLowerCase()))) return 'Epicenter owns this file';
 	return null;
 }
 

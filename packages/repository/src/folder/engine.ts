@@ -809,6 +809,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			pending.delete(path);
 			if (entry?.kind === 'directory') {
 				for await (const inside of fs.walk(path, ignored)) if (inside.kind !== 'directory') ready.push(inside.path);
+				// A file the directory took the place of is gone, as a scan finds it.
+				if (recorded(path) !== null) ready.push(path);
 			} else ready.push(path);
 			// A directory that moved or went: every record under it.
 			for (const { path: under } of driver.all<{ path: string }>('SELECT path FROM "epicenter/disk" WHERE path >= ? AND path < ?', [`${path}/`, `${path}0`])) ready.push(under);

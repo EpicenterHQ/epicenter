@@ -13,6 +13,7 @@
  * - a push behind live main is merged; Git's main is the pushed commit and the journal claims no live edit Git lacks
  * - a save that lands during the push's Git checks is merged, not a refusal
  * - a stale blob replace refuses the whole push with its path; Git does not move
+ * - a push that puts a file where live main has a folder, or beneath a live file, is refused at that file; Git does not move and nothing live is lost
  * - conflict cuts and a labelled commit made before the push stay in Git's history
  * - a second push from the first pushed commit, before the export, merges against the first push's tree
  * - a retry of an accepted push is answered accepted and is not applied twice
@@ -243,6 +244,24 @@ describe('a push behind live main', () => {
 		expect(await receive(w.server, old, other)).toMatchObject({ kind: 'accepted', merged: true });
 		await w.server.flush();
 		await expectExported(w.server, w.store, w.git, w.path, [{ old, next: other }]);
+	});
+
+	test('a push that puts a file where live main has a folder, or beneath a live file, is refused at that file, and Git does not move', async () => {
+		const w = await world();
+		const photo = { oid: 'e'.repeat(64), size: 4 };
+		w.server.upload(photo.oid, photo.size);
+		save(w.server, alice, [{ path: 'notes/a.md', text: note('one\n') }]);
+		await w.server.flush();
+		const old = await gitMain(w.git);
+		// Live edits Git does not hold yet: a folder `album`, and a file `cover`.
+		expect(save(w.server, bob, [{ path: 'album/a.md', text: note('a\n') }, { path: 'cover', text: writePointer(photo) }])).toMatchObject({ kind: 'applied' });
+		const over = await commitOn(w.git, old, { album: writePointer(photo) });
+		expect(await receive(w.server, old, over)).toMatchObject({ kind: 'refused', code: 'live', reason: 'a folder already has this name', path: 'album' });
+		const under = await commitOn(w.git, old, { 'cover/b.md': note('b\n') });
+		expect(await receive(w.server, old, under)).toMatchObject({ kind: 'refused', code: 'live', reason: 'a file already has this name', path: 'cover/b.md' });
+		expect(await gitMain(w.git)).toBe(old);
+		expect(w.server.read('album/a.md')).toBe(note('a\n'));
+		expect(w.server.read('cover')).toBe(writePointer(photo));
 	});
 
 	test('a stale old value is refused as main-moved, and nothing is taken', async () => {

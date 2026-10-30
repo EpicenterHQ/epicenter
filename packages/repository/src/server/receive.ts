@@ -41,7 +41,8 @@ import type { Limits, PushAnswer, Session } from './server.js';
  * old value, the commits' shape (not a fast-forward, too many, a merge,
  * missing), one commit's file (`commit` and `path` name it), or the door's
  * refusal of the live commit the change became (`path` names a file the
- * merge refused, such as a blob changed since the push's old value).
+ * merge refused, such as a blob changed since the push's old value, or a
+ * file where live `main` has a folder of its name).
  */
 export type ReceiveCode = 'not-member' | 'reader' | 'not-main' | 'diverged' | 'main-moved' | 'history' | 'file' | 'live';
 

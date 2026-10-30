@@ -17,6 +17,8 @@
  * - A `.md` file that is not UTF-8 is held, never sent, never overwritten; dot paths and editor droppings are never sent
  * - Two files whose names differ only in letters (a case-sensitive file system) are held, and the repository takes neither; the engine never writes such a pair itself
  * - A blob in the folder is sealed, uploaded, and lands; one from elsewhere is fetched before its file is written
+ * - A file made offline where another device made a folder is held with why; the folder's files are never erased, and once the person renames the file both land
+ * - A file replaced by a folder of its name between two looks is a delete and the folder's files, one group
  */
 import { expect, test } from 'bun:test';
 import { findConflicts } from '../core/conflict.js';
@@ -359,6 +361,51 @@ test("a blob saved in the folder is sealed, uploaded and lands; one from elsewhe
 	if (sealed !== null) other.replica.present(sealed.oid, sealed.size);
 	await runFor(world, 2_000);
 	expect(folder.disk.text('media/b.webm')).toBe('webm bytes');
+});
+
+test('a file replaced by a folder of its name between two looks is a delete and the folder\'s files', async () => {
+	const { world, folder } = await setup();
+	folder.disk.write('album', encoder.encode('cover bytes'));
+	await runFor(world, 1_000);
+	await until(world, folder.upload());
+	await runFor(world, 2_000);
+	expect(world.server.read('album')).toContain('oid sha256:');
+	folder.disk.unlink('album');
+	folder.disk.write('album/a.md', encoder.encode(note('a\n')));
+	await runFor(world, 2_000);
+	expect(folder.replica.held()).toEqual([]);
+	expect(world.server.read('album')).toBeNull();
+	expect(world.server.read('album/a.md')).toBe(note('a\n'));
+});
+
+test('a file made offline where another device made a folder is held with why: the folder keeps its files, and a rename lands both', async () => {
+	const { world, lfs, folder } = await setup();
+	const cy = createFolderDevice(world, 'cy', { lfs });
+	await until(world, cy.start());
+	await runFor(world, 1_000);
+	cy.device.setOnline(false);
+	cy.disk.write('album', encoder.encode('cover bytes'));
+	await runFor(world, 1_000);
+	await until(world, cy.upload());
+	folder.disk.write('album/a.md', encoder.encode(note('a\n')));
+	await runFor(world, 2_000);
+	expect(world.server.read('album/a.md')).toBe(note('a\n'));
+	cy.device.setOnline(true);
+	await runFor(world, 5_000);
+	expect(cy.replica.held()).toEqual([{ path: 'album', reason: 'a folder already has this name' }]);
+	expect(world.server.read('album/a.md')).toBe(note('a\n'));
+	expect(world.server.read('album')).toBeNull();
+	expect(folder.disk.text('album/a.md')).toBe(note('a\n'));
+	expect(cy.disk.text('album')).toBe('cover bytes');
+	// The person renames their file: it lands, and the folder's file reaches their disk.
+	cy.disk.rename('album', 'album.png');
+	await runFor(world, 5_000);
+	expect(cy.replica.held()).toEqual([]);
+	expect(world.server.read('album.png')).toContain('oid sha256:');
+	expect(cy.disk.text('album/a.md')).toBe(note('a\n'));
+	expect(folder.disk.text('album.png')).toBe('cover bytes');
+	expect(folder.disk.violations).toEqual([]);
+	expect(cy.disk.violations).toEqual([]);
 });
 
 /**

@@ -11,6 +11,7 @@
  *
  * Key behaviors:
  * - A text that would break a parsing note is held, never committed; a repair commits exactly the repaired text
+ * - A file saved where someone made a folder (or beneath someone's file) is held with why at that file; nothing on main is lost, and a rename sends it
  * - Held text survives a change from elsewhere (rebased) and a restart; held text a merge made parse is published only by its person's save
  * - Held text over a remote delete stays held (a missing file below must parse)
  * - A lost reply is answered by sending the same commit again, which lands once, with its outcome brought up to now; typing since never conflicts with itself
@@ -370,6 +371,30 @@ test("a person's merge past the block cap, caused by other people's blocks, is h
 	expect(alice.replica.read(PATH)).toContain('ONE\n');
 	expect(findConflicts(world.server.read(PATH) ?? '')).toHaveLength(BLOCK_CAP);
 	expect(world.server.read(PATH)).toContain('uno\n');
+});
+
+test('a file saved offline where someone made a folder is held with why; the folder keeps its files, and a rename sends the file', () => {
+	const { world, alice, bob, settle } = setup();
+	const cover = { oid: 'c'.repeat(64), size: 5 };
+	world.server.upload(cover.oid, cover.size);
+	alice.setOnline(false);
+	alice.replica.write('album', writePointer(cover));
+	alice.replica.present(cover.oid, cover.size);
+	bob.replica.write('album/a.md', note('a\n'));
+	settle();
+	alice.setOnline(true);
+	settle();
+	expect(alice.replica.state('album')).toEqual({ status: 'held', reason: 'a folder already has this name' });
+	expect(world.server.read('album/a.md')).toBe(note('a\n'));
+	expect(world.server.read('album')).toBeNull();
+	expect(alice.replica.read('album/a.md')).toBe(note('a\n'));
+	expect(bob.replica.read('album/a.md')).toBe(note('a\n'));
+	// She renames her file: it goes, and nothing stays held.
+	alice.replica.writeAll({ album: null, 'album.png': writePointer(cover) });
+	settle();
+	expect(alice.replica.held()).toEqual([]);
+	expect(world.server.read('album.png')).toBe(writePointer(cover));
+	expect(world.server.read('album/a.md')).toBe(note('a\n'));
 });
 
 test('a refusal arriving after its path was saved again holds nothing: the newer save goes (seed 1475)', () => {

@@ -16,7 +16,9 @@
  * the id must hash the commit; request bytes, files, path length and pushes
  * per member are bounded; every file written, and every merge result, is
  * `admissible` (the predicate the device runs too); and the tree rules hold:
- * paths equal after NFC and case folding are one path, a pointer's bytes
+ * paths equal after NFC and case folding are one path, a name is a file or
+ * a folder, never both (core/tree's `collision`, against the commit's own
+ * parent and against what `main` would become), a pointer's bytes
  * are present at its size (`uploads`, written only once the bytes are
  * durable), a blob write lands only over the blob its writer saw (the
  * commit's parent: `settlePointer`, compare-and-swap, never a merge), and
@@ -43,6 +45,7 @@ import { admissible, fold, isNote, MAX_BLOB_BYTES, MAX_FILE_BYTES } from '../cor
 import { gitBlobHash } from '../core/hash.js';
 import { parsePointer } from '../core/markdown.js';
 import { BLOCK_CAP, POINTER_REFUSALS, settle, settlePointer } from '../core/settle.js';
+import { COLLISIONS } from '../core/tree.js';
 import { first, type SqlDriver } from '../sql.js';
 import { createFlusher, type FlushStep, type Join } from './flush.js';
 import { type GitObjects, MAIN } from './git-store.js';
@@ -119,9 +122,15 @@ export type PushAnswer =
 	/** RULE: the commit's parent is older than the retention window, and the server has no record of it: it cannot say what happened. */
 	| { kind: 'outcome-unknown'; main: string };
 
-/** Why the door refused a file's text. `inadmissible`'s reason is the door's own (core/door). */
-/** `blob-changed`: a blob write did not land over the blob its writer saw (core/settle's `settlePointer`, whose reason it carries). */
-export type TextCode = 'path-too-long' | 'inadmissible' | 'blob-missing' | 'blob-changed' | 'merge-too-large' | 'too-many-blocks';
+/**
+ * Why the door refused a file's text. `inadmissible`'s reason is the door's
+ * own (core/door). `blob-changed`: a blob write did not land over the blob
+ * its writer saw (core/settle's `settlePointer`, whose reason it carries).
+ * `is-a-folder` and `under-a-file`: the file would be written where a
+ * folder has files, or beneath a file (core/tree's `collision`); like an
+ * inadmissible name, only a person renaming one fixes it.
+ */
+export type TextCode = 'path-too-long' | 'inadmissible' | 'blob-missing' | 'blob-changed' | 'merge-too-large' | 'too-many-blocks' | keyof typeof COLLISIONS;
 
 /** Why a request was not taken. */
 export type RequestCode =
@@ -147,6 +156,7 @@ export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, st
 	'blob-changed': POINTER_REFUSALS.changed,
 	'merge-too-large': 'the merge would grow the note past 1 MB',
 	'too-many-blocks': 'this note has unresolved conflicts; resolve some first',
+	...COLLISIONS,
 	'no-session': 'no session',
 	'not-member': 'not a member',
 	reader: 'a reader may not write',
@@ -167,6 +177,9 @@ export const REASONS: Record<Exclude<TextCode, 'inadmissible'> | RequestCode, st
 export const rejection = (code: RequestCode, main: string, files?: FileState[]): PushAnswer => ({ kind: 'rejected', code, reason: REASONS[code], main, ...(files === undefined ? {} : { files }) });
 /** A text refusal, as an answer: the door's own reason for `inadmissible`. */
 const refusal = (code: TextCode, path: string, main: string, reason = REASONS[code as Exclude<TextCode, 'inadmissible'>]): PushAnswer => ({ kind: 'refused', code, reason, path, main });
+/** `files` as core/tree's changes: each path's segments, and what it becomes (null deletes); a collision asks only whether a file is written, so the text stands in unless `hash` is given. */
+const changes = (files: CommitFile[], hash: (text: string) => string = (text) => text): [string[], string | null][] =>
+	files.map((f) => [f.path.split('/'), f.text === null ? null : hash(f.text)]);
 
 /**
  * A one-file precondition (HTTP's `If-Match` and `If-None-Match: *`),
@@ -328,6 +341,12 @@ export function createServer({
 		return { path, text, hash, ...(from !== undefined && history.deletedSince(from, path) ? { deleted: true as const } : {}) };
 	};
 
+	/** RULE: a name is a file or a folder, never both: the file `files` would put over a folder, or beneath a file, in `tree` is refused. */
+	const collides = (tree: string, files: CommitFile[], head: string): PushAnswer | null => {
+		const found = trees.collision(tree, changes(files));
+		return found === null ? null : refusal(found.code, found.path, head);
+	};
+
 	/**
 	 * RULE: drop commits older than the window (never `main` itself), and
 	 * answers older than the window once `main` at their landing is in Git;
@@ -450,6 +469,9 @@ export function createServer({
 		}
 		const author = { user: session?.user ?? commit.author.user, device: commit.author.device };
 		const said = commit.message === undefined ? {} : { message: commit.message };
+		// The commit must be one tree over what its writer stood on (on `main`, that is the check), and its merge one tree over `main`, below.
+		const clash = collides(base.tree, commit.files, head.id);
+		if (clash !== null) return clash;
 		if (commit.parent === head.id) {
 			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false, ...said }, commit.files);
 			return record(commit, 'applied', commit.id, base, spelled);
@@ -487,6 +509,8 @@ export function createServer({
 			out.push({ path: file.path, text: settled.text });
 			if (settled.blocks) blocks = true;
 		}
+		const merged = collides(head.tree, out, head.id);
+		if (merged !== null) return merged;
 		// The device's commit stays a real commit: the merge's second parent.
 		const mergeTime = time();
 		const id = commitId({ parent: `${head.id} ${commit.id}`, author: SERVER, time: mergeTime, files: out });
@@ -497,7 +521,7 @@ export function createServer({
 				author,
 				time: commit.time,
 				at: clock(),
-				tree: trees.update(parentTree, commit.files.map((f) => [f.path.split('/'), f.text === null ? null : gitBlobHash(f.text)])),
+				tree: trees.update(parentTree, changes(commit.files, gitBlobHash)),
 				blocks: false,
 				...said,
 			},

@@ -81,7 +81,7 @@ describe('admissible', () => {
 	});
 
 	test('paths are portable and control files belong to Epicenter', () => {
-		for (const path of ['', '/a.md', 'a//b.md', '../a.md', '.git/config', 'a/CON.md', 'a/b?.md', 'a /b.md', 'x/.gitattributes', '.epicenter/x', 'e\u0301.md'])
+		for (const path of ['', '/a.md', 'a//b.md', '../a.md', '.git/config', 'a/CON.md', 'a/b?.md', 'a /b.md', 'x/.gitattributes', '.gitattributes/x.md', '.LFSConfig/x.md', '.epicenter/x', 'e\u0301.md'])
 			expect(pathRefusal(path)).not.toBeNull();
 		expect(pathRefusal('notes/Café.md')).toBeNull();
 		expect(fold('Notes/CAFE\u0301.md')).toBe(fold('notes/café.md'));
