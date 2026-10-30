@@ -3,7 +3,7 @@
  * repository through the real server and prints `git log --graph`.
  *
  * Alice and Bob type (Bob's stale edit writes a conflict block, Alice
- * resolves it, Bob saves a labelled commit), an agent pushes over those
+ * resolves it, Bob saves another note), an agent pushes over those
  * unexported edits, typing goes on, the agent pushes again from its own
  * pushed commit before any flush, a flush joins them, then the agent
  * fetches and pushes once more on a quiet repository.
@@ -33,9 +33,9 @@ let now = EPOCH;
 const server = createServer({ store: openBunSqlite(), git, clock: () => now });
 const encoder = new TextEncoder();
 
-function save(server: Server, who: Session, files: CommitFile[], { parent = server.main(), message }: { parent?: string; message?: string } = {}) {
+function save(server: Server, who: Session, files: CommitFile[], { parent = server.main() }: { parent?: string } = {}) {
 	now += 60_000;
-	const body = { parent, author: { user: who.user, device: 'laptop' }, time: new Date(now).toISOString(), files, ...(message === undefined ? {} : { message }) };
+	const body = { parent, author: { user: who.user, device: 'laptop' }, time: new Date(now).toISOString(), files };
 	return server.push({ id: commitId(body), ...body }, who);
 }
 async function commitOn(parent: string, changes: Record<string, string | null>, message: string) {
@@ -59,7 +59,7 @@ const base = server.main();
 save(server, alice, [{ path: 'notes/plan.md', text: note('Ship on Monday.\n') }]);
 save(server, bob, [{ path: 'notes/plan.md', text: note('Ship on Tuesday.\n') }], { parent: base });
 save(server, alice, [{ path: 'notes/plan.md', text: note('Ship on Tuesday.\n') }]);
-save(server, bob, [{ path: 'notes/todo.md', text: note('- write docs\n- review\n') }], { message: 'Add review to the list' });
+save(server, bob, [{ path: 'notes/todo.md', text: note('- write docs\n- review\n') }]);
 
 const p1 = await commitOn(g0, { 'agent/log.md': note('Ran the tests.\n'), 'agent/scratch.md': note('temp\n') }, 'agent: run the tests\n');
 console.log('push 1:', JSON.stringify(await server.receive({ ref: MAIN, old: g0, next: p1 }, agent)));

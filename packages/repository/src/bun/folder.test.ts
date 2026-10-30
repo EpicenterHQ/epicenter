@@ -1,14 +1,13 @@
 /**
  * Folder Commands Tests
  *
- * `epicenter sync` and `epicenter commit` (`folder-commands.ts`) over real
+ * `epicenter sync` (`folder-commands.ts`) over real
  * folders in a temporary directory and a repository served in this
  * process, through the socket, the upload track and the Bun folder port.
  *
  * Key behaviors:
  * - `sync --join` makes the folder's identity, and a save in one folder reaches another through the server
- * - `commit -m` lands every difference as one commit with its message; again with nothing new it is `unchanged`; a note the door refuses holds the whole group, exit 2, and fixing it and committing again lands it once
- * - `commit` reports its own call only, and a file the repository cannot take (a note that is not UTF-8) holds it whole, wherever the refusal is found; with nothing new it reports the real outcome of a commit an earlier run left unsent
+ * - `sync --once` sends now: every difference that can go lands; a note the door refuses and a file the repository cannot take are each held alone, exit 2, and fixed, the next run lands them
  * - A second engine over a folder whose replica is held (another process) is refused; a copy of a folder is refused until `--join` makes it new
  * - A folder that is not empty joining a repository that is not empty: an equal file is only recorded; a different one meets the note as a create (one conflict block)
  */
@@ -19,8 +18,7 @@ import { join } from 'node:path';
 import { findConflicts } from '../core/conflict.js';
 import { createTestServer } from '../sim/harness.js';
 import { authenticateBearer } from '../wire/wire.js';
-import { commit, type Line, sync } from './folder-commands.js';
-import { openFolderEngine } from './folder.js';
+import { type Line, sync } from './folder-commands.js';
 import { serveRepository } from './serve.js';
 
 const roots: string[] = [];
@@ -71,90 +69,29 @@ test('sync --join makes the identity, and a save in one folder reaches another t
 	expect(await running).toBe(0);
 }, 30_000);
 
-test('commit lands every difference as one commit with its message; then unchanged; a refused note holds the group until fixed', async () => {
+test('sync --once sends now: what can go lands; a refused note and a file the repository cannot take are each held alone, exit 2, until fixed', async () => {
 	const { server, served, folder, print, base, lines } = setup();
 	const dir = folder('agent');
 	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
 	writeFileSync(join(dir, 'a.md'), note('a\n'));
-	writeFileSync(join(dir, 'b.md'), note('b\n'));
 	writeFileSync(join(dir, 'c.png'), 'png bytes');
-	const pushes: string[] = [];
-	server.subscribe((event) => pushes.push(event.commit));
-	lines.length = 0;
-	expect(await commit({ ...base, dir, message: 'Three files' }, print)).toBe(0);
-	expect(lines.at(-1)).toMatchObject({ landed: expect.stringMatching(/^[0-9a-f]{40}$/), conflicts: [] });
+	expect(await sync({ ...base, dir, once: true }, print)).toBe(0);
 	expect(server.read('a.md')).toBe(note('a\n'));
 	expect(server.read('c.png')).toContain('oid sha256:');
-	expect(await commit({ ...base, dir, message: 'Again' }, print)).toBe(0);
-	expect(lines.at(-1)).toEqual({ unchanged: true });
-	// One note the door refuses: nothing lands, the group and its message wait.
+	// A note the door refuses and one that is not UTF-8: each is held alone, and the rest lands.
 	writeFileSync(join(dir, 'a.md'), note('a\nmore\n'));
 	writeFileSync(join(dir, 'bad.md'), '---\ntitle: [\n---\n');
-	expect(await commit({ ...base, dir, message: 'Broken', wait: 3_000 }, print)).toBe(2);
-	expect(lines.at(-1)).toMatchObject({ held: [{ path: 'bad.md', reason: expect.any(String) }] });
-	expect(server.read('a.md')).toBe(note('a\n'));
-	writeFileSync(join(dir, 'bad.md'), note('fixed\n'));
-	expect(await commit({ ...base, dir, message: 'Fixed' }, print)).toBe(0);
+	writeFileSync(join(dir, 'binary.md'), new Uint8Array([0xff, 0xfe, 0x41]));
+	lines.length = 0;
+	expect(await sync({ ...base, dir, once: true }, print)).toBe(2);
+	expect(lines).toContainEqual({ held: [{ path: 'bad.md', reason: 'does not parse' }, { path: 'binary.md', reason: 'not UTF-8 text' }] });
 	expect(server.read('a.md')).toBe(note('a\nmore\n'));
-	expect(server.read('bad.md')).toBe(note('fixed\n'));
-}, 30_000);
-
-test('commit reports its own call only: a file held from an earlier call neither stops it nor is named in its verdict', async () => {
-	const { server, served, folder, print, base, lines } = setup();
-	const dir = folder('agent');
-	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
-	writeFileSync(join(dir, 'old.md'), '---\ntitle: [\n---\n');
-	expect(await commit({ ...base, dir, message: 'Old', wait: 3_000 }, print)).toBe(2);
-	expect(lines.at(-1)).toEqual({ held: [{ path: 'old.md', reason: expect.any(String) }] });
-	// A new call lands although old.md is still held.
-	writeFileSync(join(dir, 'good.md'), note('good\n'));
-	lines.length = 0;
-	expect(await commit({ ...base, dir, message: 'Good' }, print)).toBe(0);
-	expect(lines.at(-1)).toMatchObject({ landed: expect.stringMatching(/^[0-9a-f]{40}$/), conflicts: [] });
-	expect(server.read('good.md')).toBe(note('good\n'));
-	// A new call held on its own file names that file, not old.md.
-	writeFileSync(join(dir, 'new.md'), '---\ntitle: ]\n---\n');
-	writeFileSync(join(dir, 'good.md'), note('good\nbetter\n'));
-	lines.length = 0;
-	expect(await commit({ ...base, dir, message: 'New', wait: 3_000 }, print)).toBe(2);
-	expect(lines.at(-1)).toEqual({ held: [{ path: 'new.md', reason: expect.any(String) }] });
-	expect(server.read('good.md')).toBe(note('good\n'));
-}, 30_000);
-
-test('commit with a file the repository cannot take is held whole, exit 2: nothing of it lands until the file is fixed', async () => {
-	const { server, served, folder, print, base, lines } = setup();
-	const dir = folder('agent');
-	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
-	writeFileSync(join(dir, 'a.md'), note('a\n'));
-	writeFileSync(join(dir, 'bad.md'), new Uint8Array([0xff, 0xfe, 0x41]));
-	lines.length = 0;
-	expect(await commit({ ...base, dir, message: 'Two notes', wait: 3_000 }, print)).toBe(2);
-	expect(lines).toEqual([{ held: [{ path: 'bad.md', reason: 'not UTF-8 text' }] }]);
-	expect(server.read('a.md')).toBeNull();
+	expect(server.read('bad.md')).toBeNull();
 	writeFileSync(join(dir, 'bad.md'), note('fixed\n'));
-	expect(await commit({ ...base, dir, message: 'Two notes, fixed' }, print)).toBe(0);
-	expect(server.read('a.md')).toBe(note('a\n'));
+	writeFileSync(join(dir, 'binary.md'), note('text now\n'));
+	expect(await sync({ ...base, dir, once: true }, print)).toBe(0);
 	expect(server.read('bad.md')).toBe(note('fixed\n'));
-}, 30_000);
-
-test('commit with nothing new reports the real outcome of a commit an earlier run left unsent', async () => {
-	const { server, served, folder, print, base, lines } = setup();
-	const dir = folder('agent');
-	expect(await sync({ ...base, dir, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
-	// An earlier run saved its call and stopped before it connected.
-	writeFileSync(join(dir, 'a.md'), note('a\n'));
-	const opened = await openFolderEngine({ ...base, dir });
-	if (opened.error !== null) throw new Error(opened.error.message);
-	await opened.data.engine.commit('Earlier');
-	await opened.data.engine.stop();
-	opened.data.close();
-	const landedHere: string[] = [];
-	server.subscribe((event) => landedHere.push(event.commit));
-	lines.length = 0;
-	expect(await commit({ ...base, dir, message: 'Nothing new' }, print)).toBe(0);
-	expect(server.read('a.md')).toBe(note('a\n'));
-	// The earlier call's own commit, which landed on this run (main had not moved, so it became main).
-	expect(lines.at(-1)).toEqual({ landed: landedHere[0] ?? 'none', conflicts: [], kept: [] });
+	expect(server.read('binary.md')).toBe(note('text now\n'));
 }, 30_000);
 
 test('--agent names who writes from the folder on every run: one that differs from the folder\'s label is refused, never ignored', async () => {
@@ -163,13 +100,14 @@ test('--agent names who writes from the folder on every run: one that differs fr
 	expect(await sync({ ...base, dir: person, join: { repository: 'me/home', server: served.url }, once: true }, print)).toBe(0);
 	writeFileSync(join(person, 'a.md'), note('a\n'));
 	lines.length = 0;
-	expect(await commit({ ...base, dir: person, message: 'As an agent', agent: 'claude' }, print)).toBe(1);
+	expect(await sync({ ...base, dir: person, agent: 'claude', once: true }, print)).toBe(1);
 	expect(lines).toEqual([{ error: expect.stringContaining('claude') }]);
 	expect(server.read('a.md')).toBeNull();
 	const agent = folder('agent');
 	expect(await sync({ ...base, dir: agent, join: { repository: 'me/home', server: served.url }, agent: 'claude', once: true }, print)).toBe(0);
 	writeFileSync(join(agent, 'b.md'), note('b\n'));
-	expect(await commit({ ...base, dir: agent, message: 'As claude', agent: 'claude' }, print)).toBe(0);
+	expect(await sync({ ...base, dir: agent, agent: 'claude', once: true }, print)).toBe(0);
+	expect(server.read('b.md')).toBe(note('b\n'));
 	expect(await sync({ ...base, dir: agent, agent: 'codex', once: true }, print)).toBe(1);
 }, 30_000);
 
@@ -183,12 +121,12 @@ test('a second engine over a held replica is refused, and a copy is refused unti
 	const first = new TextDecoder().decode((await reader.read()).value);
 	expect(first).toContain('HELD');
 	lines.length = 0;
-	expect(await commit({ ...base, dir, message: 'x' }, print)).toBe(1);
-	expect(lines.at(-1)).toMatchObject({ error: expect.stringContaining('is kept by another engine (a running epicenter sync, or another commit)') });
+	expect(await sync({ ...base, dir, once: true }, print)).toBe(1);
+	expect(lines.at(-1)).toMatchObject({ error: expect.stringContaining('is kept by another engine (a running epicenter sync)') });
 	holder.kill();
 	await holder.exited;
 	// A crash releases it.
-	expect(await commit({ ...base, dir, message: 'x' }, print)).toBe(0);
+	expect(await sync({ ...base, dir, once: true }, print)).toBe(0);
 	const copy = join(root, 'copy');
 	cpSync(dir, copy, { recursive: true });
 	lines.length = 0;

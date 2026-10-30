@@ -319,7 +319,7 @@ test('a blob collection creates, replaces, opens and deletes bytes at named path
 	expect(replica.held()).toEqual([]);
 });
 
-test('a batch of two notes and a new blob, with a delayed upload, lands as one commit; a refused upload holds the whole batch', async () => {
+test('a batch of two notes and a new blob is stored at once; the notes go, and the blob alone waits for its upload; a refused upload holds only the blob', async () => {
 	const recordings = defineApp({
 		notes: { path: 'recordings/{stem}.md', schema: Type.Object({ title: Type.String() }) },
 		audio: { path: 'recordings/{stem}.webm', blob: true },
@@ -341,20 +341,21 @@ test('a batch of two notes and a new blob, with a delayed upload, lands as one c
 	const pointer = alice.replica.read('recordings/r1.webm');
 	const sealed = pointer === null ? null : parsePointer(pointer);
 	if (sealed === null) throw new Error('no pointer stored');
-	// Typing elsewhere while the bytes upload; nothing of the batch goes.
+	// Typing elsewhere while the bytes upload; the notes go, merged with it, and the blob waits.
 	bob.replica.edit('recordings/r2.md', (text) => `${text}bob\n`);
 	bob.sync();
 	alice.sync();
-	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One\n---\n');
-	expect(events).toEqual([['recordings/r2.md']]);
+	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One, heard\n---\n');
+	expect(server.read('recordings/r2.md')).toBe('---\ntitle: Two, heard\n---\nbob\n');
+	expect(server.read('recordings/r1.webm')).toBeNull();
+	expect(events.flat()).not.toContain('recordings/r1.webm');
 	server.upload(sealed.oid, sealed.size);
 	alice.replica.present(sealed.oid, sealed.size);
 	alice.sync();
-	expect(events.slice(1)).toEqual([['recordings/r1.md', 'recordings/r1.webm', 'recordings/r2.md']]);
-	expect(server.read('recordings/r2.md')).toBe('---\ntitle: Two, heard\n---\nbob\n');
+	expect(events.at(-1)).toEqual(['recordings/r1.webm']);
 	expect(server.read('recordings/r1.webm')).toBe(pointer);
 
-	// A refused upload holds the whole batch, and a batch whose change cannot apply stores no file: its bytes stay sealed on this device, named by nothing.
+	// A refused upload holds only its blob, and a batch whose change cannot apply stores no file: its bytes stay sealed on this device, named by nothing.
 	expectOk(
 		await repo.commit((batch) => {
 			batch.notes.patch({ stem: 'r1' }, { title: 'One, again' });
@@ -365,40 +366,13 @@ test('a batch of two notes and a new blob, with a delayed upload, lands as one c
 	if (three === null) throw new Error('no pointer stored');
 	alice.replica.refused(three.oid, 'over the quota');
 	alice.sync();
-	expect(alice.replica.state('recordings/r1.md')).toEqual({ status: 'held', reason: 'saved with recordings/r3.webm, which is held' });
-	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One, heard\n---\n');
+	expect(alice.replica.state('recordings/r3.webm')).toEqual({ status: 'held', reason: 'over the quota' });
+	expect(alice.replica.state('recordings/r1.md')).toEqual({ status: 'synced' });
+	expect(server.read('recordings/r1.md')).toBe('---\ntitle: One, again\n---\n');
 	const failed = await repo.commit((batch) => {
 		batch.notes.patch({ stem: 'none' }, { title: 'x' });
 		batch.audio.create({ stem: 'r4' }, new Blob(['take four']));
 	});
 	expect(expectErr(failed).name).toBe('NotFound');
 	expect(alice.replica.read('recordings/r4.webm')).toBeNull();
-});
-
-test('repo.commit with a message is a commit of its own that carries it, never amended by a later save', async () => {
-	const { alice, repo } = twoDevices(app);
-	await settled();
-	alice.sync();
-	expectOk(
-		await repo.commit(
-			(batch) => {
-				batch.todos.create({ stem: 'milk' }, { fields: { title: 'Milk', done: false } });
-				batch.todos.create({ stem: 'eggs' }, { fields: { title: 'Eggs', done: false } });
-			},
-			{ message: 'Plan the week' },
-		),
-	);
-	expectOk(await repo.todos.patch({ stem: 'milk' }, { done: true }));
-	await settled();
-	// The commit with the message went first, as it was said: the later patch is not in it.
-	const sent = alice.replica.sent();
-	expect(sent?.message).toBe('Plan the week');
-	expect(sent?.files.map((f) => [f.path, f.text])).toEqual([
-		['todos/milk.md', todo('Milk')],
-		['todos/eggs.md', todo('Eggs')],
-	]);
-	alice.sync();
-	expect(alice.replica.sent()).toBeNull();
-	expect(alice.replica.read('todos/milk.md')).toBe(todo('Milk', true));
-	expect(alice.replica.unsent()).toEqual([]);
 });

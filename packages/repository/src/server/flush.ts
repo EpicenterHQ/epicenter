@@ -129,16 +129,9 @@ export function createFlusher({
 		const from = Math.max(flushed + 1, history.offset());
 		const waiting = joins();
 		const joined = new Map(waiting.map((join) => [join.place, join]));
-		// A merge that wrote a conflict block ends a Git commit; a commit with a message is a Git commit alone, so what came before it ends one too.
+		// A merge that wrote a conflict block ends a Git commit.
 		const cut = new Set<number>([top]);
-		for (let i = from; i <= top; i++) {
-			const commit = history.at(i);
-			if (commit.blocks) cut.add(i);
-			if (commit.message !== undefined) {
-				if (i > from) cut.add(i - 1);
-				cut.add(i);
-			}
-		}
+		for (let i = from; i <= top; i++) if (history.at(i).blocks) cut.add(i);
 		// A join is a Git commit of its own, and the live state it merged into ends the side chain's commit before it.
 		for (const { place } of waiting) {
 			if (place < from) continue;
@@ -189,7 +182,7 @@ export function createFlusher({
 				parents = side && previousOid !== null ? [join.oid, previousOid] : [join.oid];
 				against = join.tree;
 			} else if (tree === previousTree) {
-				// RULE: a cut that changes nothing is no Git commit, a message's included: Git records changes, and an unchanged tree has none to describe (the live commit keeps the message while it is kept).
+				// RULE: a cut that changes nothing is no Git commit: Git records changes, and an unchanged tree has none to describe.
 				continue;
 			}
 			const changed = trees.diff(against, tree);
@@ -206,16 +199,12 @@ export function createFlusher({
 							: `Edit ${paths[0] ?? 'main'} and ${paths.length - 1} others`;
 			const trailers = [
 				`Epicenter-Live: ${short(range[0]?.id ?? '')}..${short(cut.id)} (${range.length} commits)`,
-				// Who said it: the writer's label (an agent's name, or a device's id), which conflict blocks name too.
-				...(cut.message === undefined ? [] : [`Epicenter-Device: ${cut.author.device}`]),
 				...[...counts.keys()].sort().map((user) => {
 					const { name, email } = signatureOf(user);
 					return `Co-authored-by: ${name} <${email}>`;
 				}),
 			];
-			// RULE: a commit with a message keeps its writer's words as the Git message, the paths and trailers after them.
-			const said = cut.message?.trim();
-			const message = said === undefined || said === '' ? `${subject}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n` : `${said}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n`;
+			const message = `${subject}\n\n${paths.join('\n')}\n\n${trailers.join('\n')}\n`;
 			// RULE: a join is Epicenter's commit, not its pusher's: the pushed commit is the push, and the join is the live edits merged into it.
 			const most = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
 			const author = join !== undefined || most === undefined ? COMMITTER : signatureOf(most);

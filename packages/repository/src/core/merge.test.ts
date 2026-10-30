@@ -63,6 +63,28 @@ describe('examples', () => {
 		expect(r.overlaps).toHaveLength(0);
 	});
 
+	test('same-point additions where current ends unterminated stay on their own lines', () => {
+		expect(merge('', 'b', 'c\n').text).toBe('b\nc\n');
+		// An existing block current did not have lands on a line of its own, so it still reads as a block (property seed W 29).
+		const head = '---\ntitle: a\n---\n';
+		const block = '<<<<<<< current c - -\n||||||| base -\n=======\nold\n>>>>>>> incoming b - -\n';
+		const r = merge(head, `${head}t57z`, `${head}${block}`);
+		expect(r.text).toBe(`${head}t57z\n${block}`);
+		expect(findConflicts(r.text ?? '')).toHaveLength(1);
+	});
+
+	test('a word both sides kept is kept once: whitespace never anchors a side ahead of a word (property seed B 621772)', () => {
+		// Current drops the leading space; incoming replaces it with a line. Both keep "a".
+		const r = merge(' a', 'a b', 'c\na d');
+		expect((r.text ?? '').match(/\ba\b/g)).toHaveLength(1);
+		expect(r.text).not.toContain('ac');
+	});
+
+	test('a line one side ends unterminated stays its own line when the other side adds after it', () => {
+		// Incoming rewrites the last line and leaves it unterminated; current adds a line after it (property seed B 601077).
+		expect(merge('agent\n', 'agent\nadded\n', 'changed\nt58z').text).toBe('changed\nt58z\nadded\n');
+	});
+
 	test('cat/cart/coat reports a whole-word overlap without coart', () => {
 		const r = merge('cat\n', 'cart\n', 'coat\n');
 		expect(r.overlaps).toHaveLength(1);

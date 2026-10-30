@@ -400,18 +400,13 @@ test('paths equal after NFC and case folding are one path: concurrent creates of
 
 test('paths equal after NFC and case folding are one path: a create waiting to go meets main\'s spelling when it arrives, and merges', () => {
 	const { world, alice, bob, settle } = setup();
-	// Bob's todo.md waits to go: it was saved with a blob whose bytes are not uploaded yet.
-	const pointer = 'version https://git-lfs.github.com/spec/v1\noid sha256:' + 'a'.repeat(64) + '\nsize 3\n';
-	bob.replica.change([
-		{ kind: 'create', path: 'notes/todo.md', text: note('bob\n', 'title: Todo') },
-		{ kind: 'create', path: 'notes/todo.png', text: pointer },
-	]);
-	settle();
-	// Meanwhile alice's Todo.md lands, and bob hears of it.
+	// Bob's todo.md waits to go: he is offline.
+	bob.setOnline(false);
+	bob.replica.change([{ kind: 'create', path: 'notes/todo.md', text: note('bob\n', 'title: Todo') }]);
+	// Meanwhile alice's Todo.md lands; bob hears of it when he is back.
 	alice.replica.write('notes/Todo.md', note('alice\n', 'title: Todo'), { over: null });
 	settle();
-	world.server.upload('a'.repeat(64), 3);
-	bob.replica.present('a'.repeat(64), 3);
+	bob.setOnline(true);
 	settle();
 	expect([...world.server.snapshot().keys()].filter((path) => path.endsWith('.md'))).toEqual(['notes/Todo.md']);
 	const text = world.server.read('notes/Todo.md') ?? '';

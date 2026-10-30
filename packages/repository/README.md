@@ -26,7 +26,7 @@ Two rules shape everything a person sees:
 | `src/client/` | The replica (`openReplica`): per-file base, hash and unsent text, the position, the commit in flight, held work; its socket (`connectSocket`); the page server a worker runs (`page.ts`); blob bytes on the device (`blobs.ts`), put and opened (`bytes.ts`), and the upload track (`uploads.ts`). |
 | `src/hosts/browser/` | The browser host: a replica in this origin's private storage (`.epicenter/replicas/<id>/`), owned by one tab's worker under a Web Lock. |
 | `src/folder/` | The folder engine, host-free: a folder on disk as a projection of one replica (`engine.ts`), over the folder port (`fs.ts`) whose writes never destroy a save. |
-| `src/bun/` | Bun adapters: SQLite, a Git store on disk, blob bytes on disk (a device's and a server's), the development server, the folder port over `node:fs`, and `epicenter sync` and `epicenter commit` (`folder.ts`, `folder-commands.ts`). |
+| `src/bun/` | Bun adapters: SQLite, a Git store on disk, blob bytes on disk (a device's and a server's), the development server, the folder port over `node:fs`, and `epicenter sync` (`folder.ts`, `folder-commands.ts`). |
 | `src/api/` | The app API: `defineApp`, the repository handle, the editor. The package root exports it. |
 | `src/sim/` | The property test and scenario tests, over the real modules, in memory and over the real wire. |
 
@@ -143,7 +143,7 @@ await repo.todos.delete({ stem: 'milk' });
 await repo.commit((batch) => {
 	batch.todos.patch({ stem: 'milk' }, { done: false });
 	batch.todos.delete({ stem: 'bread' });
-}); // one transaction, one group: it lands in one commit or is held whole
+}); // stored here as one transaction; each file goes to the server on its own
 ```
 
 On a collection held in memory, a write shows at once: it is projected over
@@ -170,14 +170,18 @@ const opened = await repo.files.openEditor('README.md'); // the one editor of it
 await repo.commit((batch) => {
 	batch.files.write('plans/journey.md', text);
 	batch.files.delete('plans/trip.md');
-}); // a rename: one transaction
-await repo.commit((batch) => batch.files.write('plans/trip.md', plan), { message: 'Plan the trip' });
+}); // a rename: a delete and a create, stored here in one transaction
 ```
 
-A call with a message is a commit of its own that carries the message into
-history (the flushed Git commit's message), and a later save never amends
-it; `epicenter commit -m` is the same call from a folder. At a path that is
-not a note, `files.create` and `files.write` take a pointer (a blob moved by
+**The file is the unit.** `repo.commit` stores its writes on this device in
+one transaction (every path checked and every blob sealed first, so all of
+it is stored or none is), and from there each file goes to the server on
+its own. A file that cannot go yet (held with a reason, or a pointer owed
+its bytes) waits alone; nothing waits for it. So a rename whose new file is
+held lands its delete while the text waits, held, in the new file on this
+device. There are no commit messages: history names who wrote each change.
+
+At a path that is not a note, `files.create` and `files.write` take a pointer (a blob moved by
 writing its pointer) or answer `BlobError.NotPointer` at once; bytes are
 written as a `Blob`.
 
@@ -232,20 +236,18 @@ on another device"): its person keeps theirs under another name or
 discards it. A delete that does not land leaves the file, as a lost delete
 of a note does.
 
-**A call's group lands whole** ([ADR-0697](../../docs/adr/0697-all-text-merges-from-everyone.md)).
-What one call saves goes in one commit or not at all, blobs included: a
-note saved in one `repo.commit` with a new blob waits for its upload, and is
-held with it if the blob is refused. A person attaching an image and then
-naming it in a note makes two calls, so the note goes at once. A blob
-rename (a delete plus a write of the same pointer, in one batch) is atomic
-and waits on nothing, since the bytes are already there.
+**A pointer waits alone for its bytes** (ADR-0698, proposed). A note saved
+in one `repo.commit` with a new blob goes at once; the pointer goes once its
+upload is done, and a refused upload holds only the pointer, with why. A
+blob rename (a delete plus a write of the same pointer) waits on nothing,
+since the bytes are already there.
 
 ```ts
 await repo.commit((batch) => {
 	batch.recordings.patch({ stem }, { title: 'Heard' });
 	batch.audio.create({ stem }, blob); // sealed before the batch is stored
 	batch.files.create('photos/beach.png', picked);
-}); // one group: in one commit once every byte is on the server
+}); // the note goes now; each pointer once its bytes are on the server
 ```
 
 A `git push` is taken only while Git holds every live edit, so it saw the
@@ -255,7 +257,7 @@ current bytes of every blob it adds, replaces, moves or deletes.
 
 | Level | What holds |
 | --- | --- |
-| Device | `put` checks the size against the server's blob limit (from its hello), seals the bytes into this device's store (hashed while written), and only then stores the pointer. A pointer whose bytes the server does not hold yet is *owed*: saved here, out of every commit, `sending` with "its bytes are uploading". |
+| Device | `put` checks the size against the server's blob limit (from its hello), seals the bytes into this device's store (hashed while written), and only then stores the pointer. A pointer whose bytes the server does not hold yet is *owed*: saved here, out of every commit, `sending` with "its bytes are uploading", and nothing else waits for it. |
 | Upload track | `startUploads` sends owed bytes through the LFS batch API, beside the commit flow: bytes the server holds are marked present, an upload action PUTs the store's `Blob`, then the pointer goes in the next commit. A refusal holds every pointer naming those bytes, with why (too large, over the quota, or on neither side); failures go again after a doubling wait. It runs in the browser's worker and in `openLocalRepository` (given an `lfs` client). |
 | Server | Presence (`uploads`, oid and size) is recorded only once the bytes are durable in its byte store; a pointer is admitted only at its size (`blob-missing`). Uploads are bounded by `limits.blob` (2 GiB) and `limits.quota` (10 GB). |
 
@@ -346,17 +348,12 @@ A folder is the desktop's front end of the same engine the browser runs
   file a blob write (sealed into the device store, uploaded by the upload
   track) expecting the pointer it last wrote, a missing file a delete.
 
-Both are one function, `reconcile(paths, call)`. Watcher events, the
-startup scan, the scan after a dropped event, the periodic scan and
-`epicenter commit` run it over different paths. `call` says only how the
-saves it finds are grouped:
-
-- `'each'`: each save is its own call, so a note never waits on someone
-  else's upload. A vanished path and an appeared one with equal bytes are
-  one rename, one group.
-- a message (`commit -m`): every save is one group with the message. It
-  lands in one commit or is held whole (ADR-0697), including when a file of
-  it is one the repository cannot take.
+Both are one function, `reconcile(paths)`. Watcher events, the startup
+scan, the scan after a dropped event, the periodic scan and `sync --once`
+run it over different paths. The saves one reconcile finds go to the
+replica in one transaction, and each goes to the server on its own: a
+rename is a delete and a create, so a new name the repository cannot take
+is held while the delete lands.
 
 Events are hints. A file whose hash equals the record is nothing, so the
 engine's own writes never come back as saves. A file modified within the
@@ -391,12 +388,11 @@ names a person could not mean (`DROPPINGS`): `name~`, `4913`, `#name#`,
 `~$name`, JetBrains' `___jb_tmp___` and `___jb_old___`, `.part`,
 `.crdownload`. Nor are symlinks and other files that are not regular: they
 are never followed, sent or written over. A save the repository cannot take
-is handed to the replica as refused, with why, in the call that found it,
-and holds that call whole like any held file: a `.md` file that is not
-UTF-8, bytes the device store could not keep, and a twin (below). A valid
-text the door refuses goes in and is held with the door's reason. Either
-way `replica.held()` names it, with one meaning: a save waiting for its
-writer, which holds its call.
+is handed to the replica as refused, with why, and held alone at its path
+like any held file: a `.md` file that is not UTF-8, bytes the device store
+could not keep, and a twin (below). A valid text the door refuses goes in
+and is held with the door's reason. Either way `replica.held()` names it,
+with one meaning: a save waiting for its writer, holding nothing else.
 
 **Spellings.** The repository folds paths (NFC and case); a case-sensitive
 disk does not. A file whose path folds to another file's in the folder is a
@@ -420,7 +416,7 @@ engine projects.
 Support/so.epicenter`, as the desktop resolves it. The replica lives
 outside the folder, so a folder inside a file-syncing service never syncs
 a live SQLite file, and a folder may be moved or renamed. One engine holds
-a replica: a second (a running `sync`, another `commit`) is refused, and a
+a replica: a second (a running `sync`) is refused, and a
 crash releases it. A folder that is a copy of another (same replica id,
 the original still there) is refused until `--join` makes it new. The
 identity holds no secret: the token is `--token` or `EPICENTER_TOKEN`.
@@ -428,44 +424,38 @@ identity holds no secret: the token is `--token` or `EPICENTER_TOKEN`.
 (else `~/Epicenter`) that hold an identity. Others, the desktop's
 reverse-DNS app folders among them, are left alone.
 
-### `epicenter sync` and `epicenter commit`
+### `epicenter sync`
 
 ```sh
 bun run epicenter -- sync ~/Epicenter/home --join me/home --server http://127.0.0.1:8787/ --token ada
 bun run epicenter -- sync ~/Epicenter/home            # later: the identity says what it is
 bun run epicenter -- sync /work/home --join wong/home --server https://... --agent claude --once
-bun run epicenter -- commit /work/home -m "Summarize October's notes"
 ```
 
 `sync` catches up, scans, then watches until a signal, letting what is in
-flight finish (5 s). With `--once` it sends everything and exits. `commit
--m` runs before connecting: every difference from the record goes to the
-replica as one call carrying the message. Then it connects and waits for
-what the replica says became of that call: landed, held or pending. With
-nothing new, it reports the commits earlier runs left unsent instead. A
-commit with a message is never amended by a later save.
-`--agent <name>` only labels the author: it is the commit's device, so
-conflict blocks read `alice/claude`, and the flushed Git commit names it
-in `Epicenter-Device`. It is recorded when the folder joins, since a
-replica names one writer for good; a later run that names another is an
-error, never ignored.
+flight finish (5 s). With `--once` it sends now: it catches up, reads every
+difference from the record, sends what can go, and exits. There is no
+separate `commit`: with no message and no group, sending now is all a
+commit would do. `--agent <name>` only labels the author: it is the
+commit's device, so conflict blocks read `alice/claude` and live history
+names it. It is recorded when the folder joins, since a replica names one
+writer for good; a later run that names another is an error, never
+ignored.
 
 | Exit | Line (`--json`: one JSON value per line) | Meaning |
 | --- | --- | --- |
-| 0 | `{"landed": "<id>", "conflicts": [...], "kept": [...]}` | The call's commit (or `main`, when nothing of it needed sending); `conflicts` names files where a merge of its work wrote a conflict block, `kept` files whose delete did not take (an edit beat it) |
-| 0 | `{"unchanged": true}` | Nothing differed from the record, and no earlier commit is unsent |
-| 2 | `{"held": [{"path", "reason"}]}` | Nothing landed; the call and its message are held by these files of it; the files are as left |
-| 2 | `{"pending": "<id>" \| null}` | Offline, or no outcome yet; `<id>` is the commit in flight carrying it; the next `commit` or `sync` sends it, once |
+| 0 | `{"stopped": true}` | Everything was sent and landed |
+| 2 | `{"held": [{"path", "reason"}]}` | These files are held, each alone with why; everything else was sent |
+| 2 | `{"pending": "<id>" \| null}` | Offline, or not answered yet; `<id>` is the commit in flight; the next `sync` sends it, once |
 | 1 | `{"error": "..."}` | Usage or environment: not a folder, held by another engine, a copy, an `--agent` other than the folder's |
 
-`sync` also prints `joined`, `caught-up`, `held` (everything the replica
-holds) and `stopped`.
+`sync` also prints `joined` and `caught-up`.
 
 ### The desktop, later
 
 The desktop's `epicenter` sidecar runs one `epicenter sync` per folder
 under the root (`listRepositoryFolders`), from `@epicenter/repository/bun`
-(`openFolderEngine`, `syncFolder`, `commitFolder`). Its windows reach the
+(`openFolderEngine`, `syncFolder`). Its windows reach the
 same replica through that process with the page protocol `servePage`
 speaks (`api/local.ts` is the in-process form), never a second engine over
 the same folder: the replica's lock refuses one. That change replaces

@@ -2,7 +2,9 @@
  * The folder commands over this package's engine (`src/bun/folder-commands.ts`):
  *
  *   bun run epicenter -- sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]
- *   bun run epicenter -- commit <dir> -m <message> [--token <t>] [--agent <name>] [--json]
+ *
+ * `--once` sends now and exits: what can go goes, and what cannot is
+ * reported held, each file alone.
  *
  * `--agent` names who writes: recorded when a folder joins, and an error on
  * a later run that names another writer than the folder's.
@@ -11,7 +13,7 @@
  * `packages/cli`'s Git commands with these in one change (see the README).
  */
 import { parseArgs } from 'node:util';
-import { commit, type Line, plain, sync } from '../src/bun/folder-commands.js';
+import { type Line, plain, sync } from '../src/bun/folder-commands.js';
 
 const { values, positionals } = parseArgs({
 	args: Bun.argv.slice(2),
@@ -23,13 +25,12 @@ const { values, positionals } = parseArgs({
 		agent: { type: 'string' },
 		once: { type: 'boolean', default: false },
 		json: { type: 'boolean', default: false },
-		message: { type: 'string', short: 'm' },
 	},
 });
 const print = (line: Line) => console.log(values.json ? JSON.stringify(line) : plain(line));
 const [command, dir] = positionals;
 const usage = () => {
-	console.error('Usage: epicenter sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]\n       epicenter commit <dir> -m <message> [--token <t>] [--agent <name>] [--json]');
+	console.error('Usage: epicenter sync <dir> [--join <owner>/<name> --server <url>] [--token <t>] [--agent <name>] [--once] [--json]');
 	process.exit(1);
 };
 if (dir === undefined) usage();
@@ -50,8 +51,5 @@ if (command === 'sync') {
 		process.once('SIGTERM', () => resolve());
 	});
 	code = await sync({ ...options, once: values.once, stop }, print);
-} else if (command === 'commit') {
-	if (values.message === undefined || values.message === '') usage();
-	code = await commit({ ...options, message: values.message as string }, print);
 } else code = (usage(), 1);
 process.exit(code);

@@ -6,10 +6,10 @@
  *
  * Prints, as JSON: a cold startup scan (no records: every file hashed and
  * saved to the replica), a warm one (records match), the peak RSS, the
- * database's size with the record's texts, and `commit` over `--commit`
- * changed notes against a repository served in this process (the time to
- * the group, and whether it landed in one commit or was held intact as
- * oversized). Refuses to run with less than 4 GB free.
+ * database's size with the record's texts, and a send of `--commit`
+ * changed notes against a repository served in this process (the scan that
+ * hands them to the replica, then the time until nothing is left to send,
+ * and how many requests that took). Refuses to run with less than 4 GB free.
  */
 import { mkdirSync, mkdtempSync, rmSync, statSync, statfsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -76,7 +76,11 @@ try {
 	if (joined.error !== null) throw new Error(joined.error.message);
 	await joined.data.engine.start({ watch: false });
 	for (let i = 0; i < CHANGED; i++) writeFileSync(join(small, `c${i}.md`), body(i));
-	const group = await time(() => joined.data.engine.commit(`Bench ${CHANGED}`));
+	// A scan reads a file only once it has been still for the quiet window, as an editor's in-place save needs.
+	await Bun.sleep(500);
+	const group = await time(() => joined.data.engine.scan());
+	const saved = joined.data.replica.unsent().length;
+	const pushesBefore = joined.data.replica.stats().pushes;
 	const link = joined.data.connect();
 	const sent = await time(async () => {
 		for (let i = 0; i < 600; i++) {
@@ -85,7 +89,8 @@ try {
 		}
 	});
 	const held = joined.data.replica.held();
-	const landed = server.read('c0.md') !== null;
+	const landed = Array.from({ length: CHANGED }, (_, i) => server.read(`c${i}.md`)).filter((text) => text !== null).length;
+	const pushes = joined.data.replica.stats().pushes - pushesBefore;
 	link?.close();
 	await joined.data.engine.stop();
 	joined.data.close();
@@ -101,7 +106,7 @@ try {
 				warmScanAfterRestartMs: warmAfterRestart.ms,
 				peakRssMB: Math.round(Math.max(peak, coldPeak) / 1024 ** 2),
 				databaseMB: Math.round((database / 1024 ** 2) * 10) / 10,
-				commit: { files: CHANGED, toGroupMs: group.ms, saved: group.value.saved.length, answerMs: sent.ms, landed, held: held.slice(0, 2), heldCount: held.length },
+				send: { files: CHANGED, scanMs: group.ms, saved, sentMs: sent.ms, pushes, landed, held: held.slice(0, 2), heldCount: held.length },
 			},
 			null,
 			'\t',

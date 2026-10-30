@@ -19,15 +19,13 @@
  *   there, any other file a blob write (sealed into the device store first)
  *   expecting the pointer the engine last wrote, a missing file a delete.
  *
- * Both are one function, `reconcile(paths, call)`: read and hash each file,
+ * Both are one function, `reconcile(paths)`: read and hash each file,
  * compare it with the record and with the replica's `mine`, hand the
- * replica the saves it finds, then project what `mine` became. `call` says
- * only how those saves are grouped: `'each'` (live hints and scans) makes
- * each save its own call, except a vanished path and an appeared one with
- * the same bytes, a rename, which go together; a message (`epicenter
- * commit -m`) makes every save one call that carries it. Events are only
- * hints naming paths to look at; a file whose hash equals the record is
- * nothing, so the engine's own writes never echo.
+ * replica the saves it finds (one transaction; each file goes on its own,
+ * so a rename is a delete and a create, independent), then project what
+ * `mine` became. Events are only hints naming paths to look at; a file
+ * whose hash equals the record is nothing, so the engine's own writes
+ * never echo.
  *
  * The record, `"epicenter/disk"` in the replica's database: per path (as
  * the engine writes it, the replica's spelling), the bytes' SHA-256, their
@@ -44,8 +42,8 @@
  * Paths whose any segment starts with `.` are neither read nor written, nor
  * are the editor droppings `DROPPINGS` names, nor symlinks and other files
  * that are not regular (never followed). A save the repository cannot take
- * is handed to the replica as refused, with why, in the call it was found
- * in, which it holds whole like any held file: a `.md` file that is not
+ * is handed to the replica as refused, with why, held alone at its path
+ * like any held file: a `.md` file that is not
  * UTF-8, bytes the device store could not keep, and a file whose path
  * equals another file's after NFC and case folding (the repository folds
  * paths, a case-sensitive disk does not), until the person renames one.
@@ -152,9 +150,6 @@ function hashOfMine(path: string, text: string) {
 	if (isNote(path)) return hashText(text);
 	return parsePointer(text)?.oid ?? hashText(text);
 }
-
-/** How the saves one reconcile finds are grouped: each its own call (a rename's two halves together), or all one call with a message. */
-export type Call = 'each' | { message: string };
 
 type FolderEngineOptions = {
 	fs: FolderFs;
@@ -339,9 +334,6 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	/** What a reconcile found at one path: a save, and the replica's word on a save refused there (why, or null: it can be taken again). */
 	type Found = { path: string; save?: Save; was: string | null; refused?: string | null };
 
-	/** What `reconcile` found and did: the paths whose saves went to the replica, and the calls they went in. */
-	type Reconciled = { saved: string[]; calls: number[] };
-
 	/** Seal a blob's bytes into the device store: its pointer, null when the file vanished meanwhile, or why the store could not keep them. */
 	async function seal(seen: Extract<Look, { kind: 'blob' }>): Promise<Sealed | null | { refused: string }> {
 		const bytes = await fs.read(seen.path);
@@ -385,63 +377,41 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		if (stopped) throw new Error('the folder engine has stopped');
 	}
 
-	/** Hand the replica one call: its saves, with their records, and its refused saves, in one transaction. The call, or null when there was nothing to hand. */
-	function hand(found: Found[], message?: string): number | null {
+	/**
+	 * Hand the replica what one reconcile found: its saves, with their
+	 * records, and its refused saves, in one transaction, so a scan's
+	 * hundreds of saves cost one write to disk, not one each.
+	 */
+	function hand(found: Found[]) {
 		live();
-		if (found.length === 0) return null;
+		if (found.length === 0) return;
 		const saves = found.flatMap((f) => (f.save === undefined ? [] : [f.save]));
-		return driver.transaction(() => {
+		driver.transaction(() => {
 			for (const save of saves) setRecord(save.path, save.record);
-			const { call } = replica.writeAll(Object.fromEntries(saves.map((save) => [save.path, save.text])), {
+			replica.writeAll(Object.fromEntries(saves.map((save) => [save.path, save.text])), {
 				over: Object.fromEntries(saves.map((save) => [save.path, save.over])),
 				refused: Object.fromEntries(found.flatMap((f) => (f.refused === undefined ? [] : [[f.path, f.refused]]))),
-				...(message === undefined ? {} : { message }),
 			});
 			for (const save of saves) if (save.refuse !== undefined && save.record !== null) replica.refused(save.record.hash, save.refuse);
-			return call;
 		});
 	}
 
 	/**
-	 * Group `each`-mode finds into calls: each its own, except a vanished
-	 * path and an appeared one with the same bytes, found in one reconcile,
-	 * which are one rename.
-	 */
-	function groupFound(found: Found[]): Found[][] {
-		const calls: Found[][] = [];
-		const vanished = found.filter((f) => f.save?.text === null && f.was !== null);
-		const paired = new Set<Found>();
-		for (const appeared of found) {
-			const save = appeared.save;
-			if (save === undefined || save.text === null || appeared.was !== null || save.record === null) continue;
-			const half = vanished.find((v) => !paired.has(v) && v.was === save.record?.hash);
-			if (half === undefined) continue;
-			paired.add(half);
-			paired.add(appeared);
-			calls.push([half, appeared]);
-		}
-		for (const f of found) if (!paired.has(f)) calls.push([f]);
-		return calls;
-	}
-
-	/**
 	 * Reconcile `paths` (as on disk): every difference from the record is a
-	 * save, grouped by `call`; then what the replica shows is projected.
+	 * save; then what the replica shows is projected.
 	 */
-	async function reconcile(paths: Iterable<string>, call: Call): Promise<Reconciled> {
+	async function reconcile(paths: Iterable<string>) {
 		const found: Found[] = [];
 		const looked: string[] = [];
 		const given = [...new Set(paths)].filter((path) => !ignored(path));
 		const listed = listings();
 		for (const named of given) {
 			const { path, twin } = await spellingAt(named, listed);
-			// RULE: a file modified within the last quiet window may be half written (an in-place save between its truncate and its bytes): it is read once it has been still for one. A commit reads the disk as it is: its timing is its caller's.
-			if (call === 'each') {
-				const still = await fs.stat(path);
-				if (still?.kind === 'file' && now() - still.mtime < quiet) {
-					hint([named]);
-					continue;
-				}
+			// RULE: a file modified within the last quiet window may be half written (an in-place save between its truncate and its bytes): it is read once it has been still for one.
+			const still = await fs.stat(path);
+			if (still?.kind === 'file' && now() - still.mtime < quiet) {
+				hint([named]);
+				continue;
 			}
 			const seen = await look(path);
 			// RULE: a symlink or other file that is not regular is left alone like a dot path: never read, refused, sent or written over.
@@ -450,7 +420,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			const record = recorded(path);
 			const was = record?.hash ?? null;
 			const disk = hashLooked(seen);
-			/** RULE: a save refused where it was found holds its call; one found refused again for the same reason is nothing new, and a file that can be taken now ends it, with its save. */
+			/** RULE: a save refused where it was found is held at its path; one found refused again for the same reason is nothing new, and a file that can be taken now ends it, with its save. */
 			const standing = refusedAt(path);
 			const refuse = (reason: string) => {
 				if (standing !== reason) found.push({ path, was, refused: reason });
@@ -487,17 +457,8 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			if ('refused' in save) refuse(save.refused);
 			else found.push({ path, save, was, ...release });
 		}
-		const grouped = call === 'each' ? groupFound(found) : [found];
-		const calls: number[] = [];
-		// Each call is its own group, and all of them commit to the database at once, cut into the unsent commit once: one write to disk per reconcile, not per save.
-		replica.batch(() => {
-			for (const saves of grouped) {
-				const made = hand(saves, call === 'each' ? undefined : call.message);
-				if (made !== null) calls.push(made);
-			}
-		});
+		hand(found);
 		for (const path of looked) await project(path, listed);
-		return { saved: found.flatMap((f) => (f.save === undefined ? [] : [f.path])), calls };
 	}
 
 	// --------------------------------------------------------------------------
@@ -609,7 +570,7 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 	async function ingestScratch(name: string, path: string, hash: string | null, over: string | null, bytes: Blob) {
 		const { hash: held, size } = await hashOf(bytes);
 		if (held === hash) return;
-		/** Bytes the repository cannot take stay in scratch, named, for the person, and the replica holds the save refused, its own call. */
+		/** Bytes the repository cannot take stay in scratch, named, for the person, and the replica holds the save refused at its path. */
 		const setAside = (why: string) => {
 			live();
 			driver.transaction(() => {
@@ -735,17 +696,17 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		yield* owedProjection();
 	}
 
-	/** Scan the whole folder: each save found is its own call. */
+	/** Scan the whole folder. */
 	async function scan() {
 		let batch: string[] = [];
 		for await (const path of scanned()) {
 			batch.push(path);
 			if (batch.length >= BATCH) {
-				await reconcile(batch, 'each');
+				await reconcile(batch);
 				batch = [];
 			}
 		}
-		await reconcile(batch, 'each');
+		await reconcile(batch);
 	}
 
 	// --------------------------------------------------------------------------
@@ -815,14 +776,14 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 			// A directory that moved or went: every record under it.
 			for (const { path: under } of driver.all<{ path: string }>('SELECT path FROM "epicenter/disk" WHERE path >= ? AND path < ?', [`${path}/`, `${path}0`])) ready.push(under);
 		}
-		if (ready.length > 0) await reconcile(ready, 'each');
+		if (ready.length > 0) await reconcile(ready);
 		if (pending.size > 0) arm(quiet);
 	}
 
 	// What the replica changes is projected: the paths go through the same reconcile.
 	const unwatch = replica.watch((paths) => {
 		const owed = paths.filter((path) => !ignored(path) && mineAt(path) !== (recorded(path)?.text ?? null));
-		if (owed.length > 0) void enqueue(() => reconcile(owed, 'each'));
+		if (owed.length > 0) void enqueue(() => reconcile(owed));
 	});
 
 	let unwatchFs: (() => void) | null = null;
@@ -853,22 +814,6 @@ export function createFolderEngine({ fs, replica, driver, store, fetch, after, n
 		scan: () => enqueue(scan),
 		/** Hints from outside the watch (a test, a host that learns of a change another way). */
 		hint,
-		/**
-		 * Every difference from the record as one call carrying `message`:
-		 * that call (null: nothing differed), whose outcome the replica
-		 * reports, and the paths it saved.
-		 */
-		async commit(message: string): Promise<{ call: number | null; saved: string[] }> {
-			let made: { call: number | null; saved: string[] } = { call: null, saved: [] };
-			await enqueue(async () => {
-				await recover();
-				const paths: string[] = [];
-				for await (const path of scanned()) paths.push(path);
-				const reconciled = await reconcile(paths, { message });
-				made = { call: reconciled.calls[0] ?? null, saved: reconciled.saved };
-			});
-			return made;
-		},
 		/** Resolves once nothing hinted, queued or captured is left to do. */
 		async idle() {
 			for (;;) {

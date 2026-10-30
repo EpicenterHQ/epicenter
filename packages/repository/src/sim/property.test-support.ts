@@ -8,8 +8,9 @@
  * repairing frontmatter, setting one field from several devices, a stale
  * editor buffer saved late, a note too large to store, renames (delete plus
  * write), deletes, deleting a path and creating it again (sometimes with the
- * very text it had before), an agent's batches (several notes in one
- * save, sometimes with a new blob, merged by the same rule as everyone's),
+ * very text it had before), an agent's saves (several notes in one
+ * transaction, sometimes with a new blob, each file going on its own and
+ * merged by the same rule as everyone's),
  * lost replies, offline periods, restarts, flushes, idle periods longer than
  * the retention window, catch-ups in pages of two paths, a device whose storage
  * is lost for good, a hostile member writing directly to the server, and
@@ -29,14 +30,15 @@
  * counts only where the server or a device keeps it as text.
  *
  * Key behaviors:
- * - An acknowledged token is in a server text after every step, and at quiescence every owed token is
- * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged
+ * - An acknowledged token is in a server text after every step, or in a device's unsent work (a rename's new file, held or not yet sent, after its delete went alone), and at quiescence every owed token is in a server text
+ * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged, or what only its own unsent work held
  * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, unless it lost to an edit by someone else that it had not seen: then the edited file stays, and nothing typed is lost
- * - No stale note edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block; a blob write lands in a merge only over the bytes its writer saw, or bytes equal to its own (compare-and-swap)
+ * - No stale edit of a note merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block; a blob write lands in a merge only over the bytes its writer saw, or bytes equal to its own (compare-and-swap)
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
- * - An agent's batch lands in one commit or is held whole: no commit on main brings some of a batch's tokens without the rest, nor without the blob saved with them (unless its writer since replaced it, or the bytes were already there: in the writer's commit in flight there when it saved, else its base, or on main since)
- * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
+ * - None applied twice: at quiescence no token appears twice in a server text outside its conflict blocks, nor twice in any one side of a block (`versionsOf`), except tokens a person wrote twice on purpose (resolving blocks by keeping every side's lines)
+ * - Held alone: once everyone is online and every upload is completed or refused, every file a device has not sent is held, with a reason of its own; nothing waits on another file
+ * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present, unless it is the pointer main gave it at that path; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
  *
  * Each suite reads its own environment, by prefix (B for the memory
  * suite, W for the wire): <P>_SEED=n replays one sequence, <P>_RUNS=n runs n
@@ -48,7 +50,7 @@ import { parsePointer, parses, splitMarkdown, writeMarkdown, writePointer } from
 import type { MemoryGitStore } from '../server/memory-git.js';
 import type { Server } from '../server/server.js';
 import { type Device, STAMP, type World, createWorld } from './harness.js';
-import { escapeLines } from '../core/conflict.js';
+import { escapeLines, findConflicts } from '../core/conflict.js';
 import { createRandom } from './net.js';
 import { commitId, type LiveCommit } from '../core/commit.js';
 import { MAIN } from '../server/git-store.js';
@@ -107,6 +109,31 @@ const FLOOD = 60;
 const FLOOD_BOUND = 30;
 
 const tokensIn = (text: string | null) => new Set(text?.match(TOKEN) ?? []);
+
+/**
+ * The texts in which no token may appear twice: a file's text outside its
+ * conflict blocks, and each side of each block, read the same way (a side
+ * may hold blocks of its own, escaped). A block's base section repeats the
+ * base by design and is not counted; nor are two sides counted together, or
+ * a side with the text around it: the core merge keeps an existing block
+ * whole beside a new one, and keeps both bodies of two creates, so a block's
+ * side repeats lines the text around it has (both by design, `core/merge.ts`).
+ */
+export function versionsOf(text: string, where = 'outside blocks'): [string, string][] {
+	const blocks = findConflicts(text);
+	let outside = '';
+	let at = 0;
+	for (const block of blocks) {
+		outside += text.slice(at, block.from);
+		at = block.to;
+	}
+	outside += text.slice(at);
+	return [
+		[where, outside],
+		...blocks.flatMap((block) => [...versionsOf(block.current, `block at line ${block.line}, current`), ...versionsOf(block.incoming, `block at line ${block.line}, incoming`)]),
+	];
+}
+
 const counts = (texts: (string | null)[]) => {
 	const out = new Map<string, number>();
 	for (const text of texts) for (const t of text?.match(TOKEN) ?? []) out.set(t, (out.get(t) ?? 0) + 1);
@@ -150,6 +177,10 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const removed = new Set<string>();
 	/** Typed on a device lost before its commit was acknowledged: legitimately gone. */
 	const forgotten = new Set<string>();
+	/** Acknowledged tokens whose only copy was a device's unsent work when its storage was lost: the cost of each file going on its own. */
+	let lostWithUnsent = 0;
+	/** Tokens a person deliberately wrote twice: resolving a note's blocks by keeping every side's lines. */
+	const retyped = new Set<string>();
 	const removals: { device: string; path: string; base: string | null; position: string | null; at: number; landed: boolean; cancelled: boolean; step: string }[] = [];
 	const violations: string[] = [];
 	/** Bytes each device was told are present (its "epicenter/objects"), by device. */
@@ -161,10 +192,6 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	/** Every blob text main has held, by path. */
 	const onMain = new Set<string>();
 	const honestIds: string[] = [];
-	/** Each agent batch's tokens not yet on main, and the step that saved it: a batch lands in one commit or is held whole. */
-	const batches: { step: string; tokens: Set<string>; blob?: (typeof attaches)[number]; at: number }[] = [];
-	/** Every token main has held. */
-	const everOnMain = new Set<string>();
 	let next = 1;
 	const token = () => `t${next++}z`;
 
@@ -176,20 +203,6 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	let lastMerge: Committed | null = null;
 	world.onCommit((committed) => {
 		const state = new Map(states.get(committed.parents[0] ?? '') ?? []);
-		// A batch's tokens reach main in one commit, or none of them has yet.
-		const arrived = new Set(committed.files.flatMap((file) => [...tokensIn(file.after)].filter((t) => !everOnMain.has(t))));
-		for (const t of arrived) everOnMain.add(t);
-		for (const batch of batches) {
-			const landed = [...batch.tokens].filter((t) => arrived.has(t));
-			if (landed.length === 0) continue;
-			const missing = [...batch.tokens].filter((t) => !arrived.has(t));
-			if (missing.length > 0) violations.push(`server: agent's batch (${batch.step}) landed ${landed.join(' ')} without ${missing.join(' ')}`);
-			const blob = batch.blob;
-			const there = blob !== undefined && chain.slice(batch.at).some((id) => states.get(id)?.get(blob.path) === blob.text);
-			if (blob !== undefined && !blob.settled && !there && !committed.files.some((file) => file.path === blob.path && file.after === blob.text))
-				violations.push(`server: agent's batch (${batch.step}) landed without its blob at ${blob.path}`);
-			batch.tokens.clear();
-		}
 		for (const file of committed.files) {
 			if (file.path.endsWith('.md') && file.after !== null && !parses(file.after))
 				violations.push(`server: ${file.path} does not parse after a commit by ${committed.author.user}`);
@@ -211,7 +224,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		if (request.type === 'push')
 			for (const file of request.commit.files) {
 				const pointer = file.text === null ? null : parsePointer(file.text);
-				if (pointer !== null && !marked.get(device)?.has(pointer.oid)) violations.push(`${device}: sent ${file.path} before its bytes were present`);
+				// Bytes this device heard are present, or the pointer `main` gave it at that path (its base): main admits a pointer only once the server holds its bytes.
+				const base = everyone.find((d) => d.name === device)?.replica.files().get(file.path)?.base ?? null;
+				if (pointer !== null && !marked.get(device)?.has(pointer.oid) && file.text !== base) violations.push(`${device}: sent ${file.path} before its bytes were present`);
 			}
 		if (request.type !== 'push' || reply.type !== 'answer') return;
 		const answer = reply.answer as PushAnswer;
@@ -228,6 +243,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			if (file.text === null || from < 0 || before < 0) continue;
 			const then = states.get(commit.parent)?.get(file.path) ?? null;
 			const ours = states.get(chain[before] ?? '')?.get(file.path) ?? null;
+			// A blob never merges: it lands by compare-and-swap over the bytes its writer saw (a path deleted and made again with those bytes holds them).
 			if (!file.path.endsWith('.md')) {
 				const landed = states.get(merge.id)?.get(file.path) === file.text;
 				if (landed && ours !== then && ours !== file.text) violations.push(`server: ${device}'s write of ${file.path} landed over bytes it had not seen`);
@@ -288,11 +304,24 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				].join('\n'),
 			),
 		].join('\n');
+	/** What devices have not sent and made themselves: the tokens each shows at a path it has not sent (held, or sending) that its base there does not hold. */
+	const unsentText = (devices = everyone) =>
+		devices
+			.flatMap((d) => {
+				const files = d.replica.files();
+				return d.replica.unsent().flatMap((path) => {
+					const base = tokensIn(files.get(path)?.base ?? null);
+					return [...tokensIn(d.replica.read(path))].filter((t) => !base.has(t));
+				});
+			})
+			.join('\n');
 	const check = (step: string, quiet: boolean) => {
 		const server = serverText();
 		const devices = quiet ? '' : deviceText();
+		const unsent = quiet ? '' : unsentText();
+		// RULE: each file goes on its own, so a person's rename whose new file cannot go yet (held: it does not parse, say) deletes the old one from the server while the text waits in the new file, on their device; once it can go, it is sent.
 		for (const t of acknowledged)
-			if (!removed.has(t) && owed.has(t) && !server.includes(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text`);
+			if (!removed.has(t) && !forgotten.has(t) && owed.has(t) && !server.includes(t) && !unsent.includes(t)) violations.push(`${step}: acknowledged ${t} (${owed.get(t)}) is in no server text and no unsent file`);
 		for (const [t, who] of owed)
 			if (!removed.has(t) && !forgotten.has(t) && !server.includes(t) && (quiet || !devices.includes(t))) violations.push(`${step}: lost ${t} (${who})`);
 		if (violations.length > 0) throw new Error(`seed ${seed}\n${[...new Set(violations)].join('\n')}\n--- steps\n${log.join('\n')}${tracing ? `\n--- devices\n${dump()}` : ''}`);
@@ -460,7 +489,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				const { bodyStart } = splitMarkdown(text);
 				const lines = text.slice(bodyStart).split('\n');
 				const at = random.int(0, lines.length - 1);
-				if (random.chance(0.5)) lines.splice(at, 1, `${lines[at] ?? ''} ${t}`.trim());
+				// A person types words on a line of text, never onto a conflict block's delimiter line (which would end the block, so its sides read as plain text).
+				const delimiter = /^\\*(<<<<<<<|\|{7}|={7}|>>>>>>>)/.test(lines[at] ?? '');
+				if (random.chance(0.5) && !delimiter) lines.splice(at, 1, `${lines[at] ?? ''} ${t}`.trim());
 				else lines.splice(at, 0, t);
 				save(d, { [path]: text.slice(0, bodyStart) + lines.join('\n') }, [t]);
 				return `${d.name} types ${t} in ${path}`;
@@ -610,6 +641,13 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			1,
 			(d) => {
 				for (const [t, who] of owed) if (who === d.name && !acknowledged.has(t)) forgotten.add(t);
+				// Acknowledged text this device moved into a file it has not sent (a rename whose new file was held), which neither the server nor another device's unsent work has, goes with it.
+				const server = serverText();
+				const others = unsentText(everyone.filter((other) => other !== d));
+				for (const t of tokensIn(unsentText([d]))) if (acknowledged.has(t) && !server.includes(t) && !others.includes(t) && !forgotten.has(t)) {
+					forgotten.add(t);
+					lostWithUnsent++;
+				}
 				for (const r of removals) if (r.device === d.name && !r.landed) r.cancelled = true;
 				for (const a of attaches) if (a.device === d.name) a.settled = true;
 				marked.delete(d.name);
@@ -622,7 +660,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	];
 	const total = steps.reduce((sum, [weight]) => sum + weight, 0);
 
-	/** The agent: a writer whose step is one batch of several notes saved at once, through the same replica and merge rule as everyone. */
+	/** The agent: a writer whose step saves several notes at once (one transaction, each file going on its own), through the same replica and merge rule as everyone. */
 	const agentBatch = () => {
 		const picked = PATHS.filter(() => random.chance(0.5));
 		const paths = picked.length === 0 ? [random.pick(PATHS)] : picked;
@@ -649,10 +687,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		save(agent, changes, typed);
 		const blob = withBlob ? { device: agent.name, path: blobPath, text: pointer, settled: !sends } : undefined;
 		if (blob !== undefined) attaches.push(blob);
-		const at = chain.length - 1;
-		const step = `agent saves ${paths.map((path, i) => `${typed[i]} in ${path}`).join(', ')}${blob === undefined ? '' : ` and ${parsePointer(pointer)?.oid.slice(0, 1)} at ${blobPath}`} at once`;
-		batches.push({ step, tokens: new Set(typed), at, ...(blob === undefined ? {} : { blob }) });
-		return step;
+		return `agent saves ${paths.map((path, i) => `${typed[i]} in ${path}`).join(', ')}${blob === undefined ? '' : ` and ${parsePointer(pointer)?.oid.slice(0, 1)} at ${blobPath}`} at once`;
 	};
 	/** The upload track's steps that act on one device (hearing bytes are present, a failed or refused upload), for the agent too. */
 	const trackSteps = blobSteps.slice(4);
@@ -706,6 +741,12 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				hear(d, bytes);
 			}
 		if (!(await world.settle())) throw new Error(`seed ${seed}: never went idle\n${log.join('\n')}`);
+		// Held alone: with everyone online and every upload done or refused, what a device has not sent is held, each file with a reason of its own; nothing waits on another file.
+		for (const d of everyone) {
+			const held = new Map(d.replica.held().map((h) => [h.path, h.reason]));
+			for (const [path, reason] of held) if (reason.trim() === '') violations.push(`quiet: ${d.name} holds ${path} with no reason`);
+			for (const path of d.replica.unsent()) if (!held.has(path)) violations.push(`quiet: ${d.name}'s ${path} is not sent and not held (${JSON.stringify(d.replica.state(path))})`);
+		}
 		let saved = false;
 		for (const d of everyone) {
 			const held = new Map(d.replica.held().map((h) => [h.path, h.reason]));
@@ -724,6 +765,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				}
 				// Too many blocks: the person resolves them by keeping every side's lines, which removes nothing typed.
 				const unblocked = reason === REASONS['too-many-blocks'] ? text.split('\n').filter((line) => !/^(<<<<<<< |\|\|\|\|\|\|\| base$|=======$|>>>>>>> )/.test(line)).join('\n') : text;
+				if (unblocked !== text) for (const t of tokensIn(text)) retyped.add(t);
 				const fixed = parses(unblocked) && !hasFiller(unblocked) ? unblocked : repair(unblocked);
 				if (fixed === text && text === world.server.read(path) && reason === undefined) continue;
 				save(d, { [path]: fixed }, []);
@@ -759,6 +801,15 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	for (const r of removals)
 		if (!r.cancelled && !r.landed && server.has(r.path) && !lostToEdit(r))
 			violations.push(`quiet: ${r.device}'s removal of ${r.path} (${r.step}) never took effect, and no edit it had not seen beat it`);
+	// None applied twice.
+	for (const [path, text] of server) {
+		if (text === null || !path.endsWith('.md')) continue;
+		for (const [version, written] of versionsOf(text)) {
+			const seen = new Map<string, number>();
+			for (const t of written.match(TOKEN) ?? []) seen.set(t, (seen.get(t) ?? 0) + 1);
+			for (const [t, n] of seen) if (n > 1 && !retyped.has(t)) violations.push(`quiet: ${t} appears ${n} times in ${path} (${version})`);
+		}
+	}
 	check('at quiescence', true);
 	const notices: Record<string, number> = {};
 	for (const line of log) {
@@ -770,7 +821,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 	const stats: Record<string, number> = {};
 	for (const d of everyone) for (const [key, value] of Object.entries(d.replica.stats())) stats[key] = (stats[key] ?? 0) + value;
 	const conflicts = [...server.values()].filter((text) => text?.includes('<<<<<<< ')).length;
-	return { world, requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.stats().refused };
+	return { world, requests: world.counts(), notices, stats, conflicts, agentRefusals: agent.replica.stats().refused, lostWithUnsent };
 }
 
 /**
@@ -823,6 +874,7 @@ export function definePropertySuite({
 					for (const [kind, n] of Object.entries(result.notices)) add(`notice:${kind}`, n);
 					add('conflicted files', result.conflicts);
 					add('agent refusals', result.agentRefusals);
+					add('acknowledged lost with a device\'s unsent work', result.lostWithUnsent);
 				} finally {
 					await opened?.close();
 				}

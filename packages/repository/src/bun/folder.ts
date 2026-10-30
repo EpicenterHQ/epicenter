@@ -18,7 +18,7 @@
  * inside a file-syncing service never syncs a live SQLite file, and a
  * folder may be moved or renamed freely. The database is held with
  * `PRAGMA locking_mode = EXCLUSIVE`: a second engine over the same replica
- * (a running `sync`, another `commit`) is refused, and a crash releases it.
+ * (a running `sync`) is refused, and a crash releases it.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -74,7 +74,7 @@ export const FolderError = defineErrors({
 		repository,
 	}),
 	NoToken: () => ({ message: 'This folder syncs with a server: pass --token or set EPICENTER_TOKEN' }),
-	Held: ({ dir }: { dir: string }) => ({ message: `${dir} is kept by another engine (a running epicenter sync, or another commit)`, dir }),
+	Held: ({ dir }: { dir: string }) => ({ message: `${dir} is kept by another engine (a running epicenter sync)`, dir }),
 	Copy: ({ dir, original }: { dir: string; original: string }) => ({ message: `this folder is a copy of ${original}; use --join to make it a new folder`, dir, original }),
 	Unreachable: ({ server, reason }: { server: string; reason: string }) => ({ message: `${server} could not be reached: ${reason}`, server, reason }),
 	Bound: ({ reason }: { reason: string }) => ({ message: reason, reason }),

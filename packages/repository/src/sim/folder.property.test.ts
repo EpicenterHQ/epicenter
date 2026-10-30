@@ -19,7 +19,7 @@
  *   note that is not UTF-8, frontmatter that does not parse;
  * - blobs written, replaced, deleted and renamed here and on bo's device,
  *   with uploads completing, failing, refused or late;
- * - the engine live or stopped, and a stopped folder's `commit -m`;
+ * - the engine live or stopped, and a stopped folder sending now (`sync --once`);
  * - crashes at any step boundary (the engine's calls in progress never finish).
  *
  * Every step is a word token (`t<n>z`) on a line of its own. A token is
@@ -30,7 +30,8 @@
  * Key behaviors (after every step, and at quiescence):
  * - No save lost: every owed token is in the folder (scratch included), an editor's write in progress, a replica, or the server; at quiescence, in the server's text or in a held file
  * - None applied twice: at quiescence no token appears twice in a server text or a file outside its conflict blocks, nor twice in any one side of a block (read the same way); a base section is never counted
- * - A commit is one group: no push first sent after a commit, without its message, lands the text that commit read at one of its paths before the commit lands (unless this device had committed that text there before the commit, which is that earlier commit's work, or a writer made the path hold that text again since: a copy, a delete, a blob moved back), and each message lands in at most one commit
+ * - No pointer sent before its bytes: every pointer a device pushes names bytes the server holds at that size
+ * - Held alone: at quiescence every file the replica has not sent is held, with a reason of its own, and nothing waits on another file
  * - Own writes never echo: once quiet, a further idle period and a scan send nothing
  * - Convergence: at quiescence every file equals the replica's `mine` and `mine` equals the server's, except held files; every file the repository cannot take is held
  * - Ignored stays ignored: the server never holds a dot path or a dropping, and the engine never writes or removes one
@@ -43,13 +44,13 @@
  * where a token is, and F_LOG=n how many steps are shown.
  */
 import { expect, test } from 'bun:test';
-import { parsePointer, writePointer } from '../core/markdown.js';
-import { findConflicts } from '../core/conflict.js';
+import { parsePointer } from '../core/markdown.js';
 import { fold } from '../core/door.js';
 import { ignored, TWIN } from '../folder/engine.js';
 import { createWorld, type Device } from './harness.js';
 import { createRandom, type Random } from './net.js';
 import { createFolderDevice, type FolderDevice, type Lfs, oidOf, runFor, until, uploadBlob } from './folder.test-support.js';
+import { versionsOf } from './property.test-support.js';
 
 const env = (name: string) => process.env[`F_${name}`];
 const SEED = env('SEED');
@@ -68,30 +69,6 @@ const decoder = new TextDecoder();
 const tokensIn = (text: string | null) => new Set(text === null ? [] : (text.match(TOKEN) ?? []));
 const note = (lines: string[]) => `---\ntitle: N\n---\n${lines.map((line) => `${line}\n`).join('')}`;
 const appended = (text: string | null, token: string) => (text === null || text === '' ? note([token]) : `${text.endsWith('\n') ? text : `${text}\n`}${token}\n`);
-
-/**
- * The texts in which no token may appear twice: a file's text outside its
- * conflict blocks, and each side of each block, read the same way (a side
- * may hold blocks of its own, escaped). A block's base section repeats the
- * base by design and is not counted; nor are two sides counted together, or
- * a side with the text around it: the core merge keeps an existing block
- * whole beside a new one, and keeps both bodies of two creates, so a block's
- * side repeats lines the text around it has (both by design, `core/merge.ts`).
- */
-function versionsOf(text: string, where = 'outside blocks'): [string, string][] {
-	const blocks = findConflicts(text);
-	let outside = '';
-	let at = 0;
-	for (const block of blocks) {
-		outside += text.slice(at, block.from);
-		at = block.to;
-	}
-	outside += text.slice(at);
-	return [
-		[where, outside],
-		...blocks.flatMap((block) => [...versionsOf(block.current, `block at line ${block.line}, current`), ...versionsOf(block.incoming, `block at line ${block.line}, incoming`)]),
-	];
-}
 
 async function run(seed: number, steps: number) {
 	const random = createRandom(seed * 7919 + 17);
@@ -118,49 +95,6 @@ async function run(seed: number, steps: number) {
 	/** A stale buffer an editor loaded earlier, saved later over whatever is there. */
 	const stale = new Map<string, string>();
 	const staleTokens = new Map<string, string>();
-	/** Paths of each message's group, until its commit lands. */
-	/** Each message's group, until its commit lands: the text the replica took for each path (what the commit says), and when. */
-	const groups = new Map<string, { paths: Set<string>; texts: Map<string, string | null>; at: number }>();
-	const landedMessages = new Map<string, Set<string>>();
-	/** What writers in the folder made each path hold, and when: a delete is null, a blob its pointer. A later push of the same text there may be that writer's save, not a group's. */
-	const made = new Map<string, { at: number; text: string | null }[]>();
-	const contentOf = (p: string, bytes: Uint8Array | null) => (bytes === null ? null : p.endsWith('.md') ? decoder.decode(bytes) : writePointer(oidOf(bytes)));
-	const make = (p: string, bytes: Uint8Array | null) => {
-		const list = made.get(fold(p)) ?? [];
-		list.push({ at: world.net.now(), text: contentOf(p, bytes) });
-		made.set(fold(p), list);
-	};
-	const madeSince = (p: string, text: string | null, at: number) => (made.get(p) ?? []).some((m) => m.at >= at && m.text === text);
-	{
-		const disk = folder.disk;
-		const [write, unlink, rename, writeInode] = [disk.write, disk.unlink, disk.rename, disk.writeInode];
-		disk.write = (p, bytes) => {
-			const done = write(p, bytes);
-			if (done) make(p, bytes);
-			return done;
-		};
-		disk.unlink = (p) => {
-			const done = unlink(p);
-			if (done) make(p, null);
-			return done;
-		};
-		disk.rename = (from, to) => {
-			const moving = disk.paths().filter((p) => p === from || p.startsWith(`${from}/`));
-			const done = rename(from, to);
-			if (done) for (const p of moving) {
-				make(p, null);
-				const there = `${to}${p.slice(from.length)}`;
-				make(there, disk.bytes(there));
-			}
-			return done;
-		};
-		disk.writeInode = (ino, bytes) => {
-			const at = disk.paths().filter((p) => disk.inodeOf(p) === ino);
-			const done = writeInode(ino, bytes);
-			for (const p of at) make(p, bytes);
-			return done;
-		};
-	}
 	let live = true;
 
 	// ------------------------------------------------------------------------
@@ -562,28 +496,15 @@ async function run(seed: number, steps: number) {
 			3,
 			async () => {
 				if (live) return null;
-				const message = `Commit ${token()}`;
+				// A stopped folder sends now (`epicenter sync --once`): one scan, online for a while, then stopped again.
 				await folder.crash({ watch: false });
-				// What this device committed before this call at each path, unsent or in flight: a save equal to it is that earlier commit's work, which goes on its own unless this call is cut over it (the replica's rule), so it is not this commit's.
-				const before = new Map<string, string | null>();
-				for (const { commit } of folder.replica.query<{ commit: string }>('SELECT commit_json AS "commit" FROM "epicenter/inflight"', [])) {
-					const sent = JSON.parse(commit) as { id: string; files: { path: string; text: string | null }[] };
-					// The commit in flight was sent before this call, though the server may not have seen it yet (every send lost): it cannot carry this call's work.
-					if (!firstSent.has(sent.id)) firstSent.set(sent.id, world.net.now());
-					for (const file of sent.files) before.set(file.path, file.text);
-				}
-				for (const { path, text } of folder.replica.query<{ path: string; text: string | null }>('SELECT path, text FROM "epicenter/unsent"', [])) before.set(path, text);
-				const { saved } = await until(world, folder.engine.commit(message));
-				if (process.env.F_TRACE) log.push(`   (commit at ${world.net.now()}: ${saved.join(', ')}; held ${JSON.stringify(folder.replica.held())}; unsent ${folder.replica.unsent().join(', ')})`);
-				// Only files with work of this commit's own: a save that changed nothing beyond what this device committed before it, or else the file as the server has it, says nothing.
-				const files = folder.replica.files();
-				const working = saved.filter((p) => files.get(p)?.mine !== (before.has(p) ? before.get(p) : files.get(p)?.base));
-				if (working.length > 0) groups.set(message, { paths: new Set(working.map((p) => fold(p))), texts: new Map(working.map((p) => [fold(p), folder.replica.read(p)])), at: world.net.now() });
+				await until(world, folder.engine.scan());
+				if (process.env.F_TRACE) log.push(`   (sent now at ${world.net.now()}: held ${JSON.stringify(folder.replica.held())}; unsent ${folder.replica.unsent().join(', ')})`);
 				folder.device.setOnline(true);
 				await runFor(world, random.int(0, 3_000));
 				folder.engine.kill();
 				folder.device.setOnline(false);
-				return `ada commits ${saved.length} files: "${message}"`;
+				return 'ada sends now';
 			},
 		],
 		[
@@ -609,27 +530,14 @@ async function run(seed: number, steps: number) {
 	// Checks
 	// ------------------------------------------------------------------------
 
-	/** When each of ada's commits was first sent, as the server saw it or, earlier, as in flight when a call was made: one sent before a group was made (a resend of earlier work) cannot split it. */
-	const firstSent = new Map<string, number>();
 	world.onRequest((device, request, reply) => {
-		if (device !== 'ada' || request.type !== 'push' || reply.type !== 'answer') return;
-		if (!firstSent.has(request.commit.id)) firstSent.set(request.commit.id, world.net.now());
-		if (process.env.F_TRACE) log.push(`   [${world.net.now()} push ${request.commit.id.slice(0, 7)} ${JSON.stringify(request.commit.message ?? null)} ${request.commit.files.map((f) => f.path).join(',')} -> ${reply.answer.kind}]`);
-		if (reply.answer.kind !== 'applied' && reply.answer.kind !== 'merged') return;
-		const message = request.commit.message;
-		const paths = request.commit.files.map((f) => fold(f.path));
-		if (message !== undefined) {
-			const ids = landedMessages.get(message) ?? new Set();
-			ids.add(request.commit.id);
-			landedMessages.set(message, ids);
-			if (ids.size > 1) violations.push(`"${message}" landed in ${ids.size} commits`);
-			groups.delete(message);
-			// A held group a later commit joined lands under that commit's message: the earlier one is settled with it.
-			for (const [said, group] of groups) if (group.at <= (groups.get(message)?.at ?? world.net.now()) && paths.some((p) => group.paths.has(p))) groups.delete(said);
-			return;
+		if (request.type !== 'push') return;
+		if (process.env.F_TRACE && device === 'ada' && reply.type === 'answer') log.push(`   [${world.net.now()} push ${request.commit.id.slice(0, 7)} ${request.commit.files.map((f) => f.path).join(',')} -> ${reply.answer.kind}]`);
+		// No pointer sent before its bytes: the server holds every pointer's bytes when a device sends it.
+		for (const file of request.commit.files) {
+			const pointer = file.text === null ? null : parsePointer(file.text);
+			if (pointer !== null && world.server.uploaded(pointer.oid) !== pointer.size) violations.push(`${device} sent ${file.path} before its bytes were on the server (${pointer.oid.slice(0, 8)})`);
 		}
-		const sent = new Map(request.commit.files.map((f) => [fold(f.path), f.text]));
-		for (const [said, { paths: group, texts, at }] of groups) for (const p of paths) if (group.has(p) && sent.get(p) === texts.get(p) && !madeSince(p, texts.get(p) ?? null, at) && (firstSent.get(request.commit.id) ?? 0) > at) violations.push(`${p} of "${said}"'s group landed without its message before it did (at ${world.net.now()}, commit ${request.commit.id.slice(0, 7)} of ${paths.join(', ')})`);
 	});
 
 	/** Saves the replica holds refused where the engine found them, by path as found. */
@@ -672,7 +580,7 @@ async function run(seed: number, steps: number) {
 		if (did !== null) log.push(`${i}: ${did}`);
 		if (process.env.F_WATCH !== undefined) {
 			const w = process.env.F_WATCH;
-			log.push(`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.path IS NOT NULL AS committed, f.call, u.call AS committed_call, (SELECT message FROM "epicenter/calls" c WHERE c.id = f.call) AS said FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?', [w]))}}`);
+			log.push(`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.path IS NOT NULL AS committed FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?', [w]))}}`);
 		}
 		await runFor(world, random.int(0, 600));
 		checkStep(did ?? `step ${i}`);
@@ -727,6 +635,12 @@ async function run(seed: number, steps: number) {
 	const held = new Set(folder.replica.held().map((h) => h.path));
 	const found = refusedWhereFound();
 	const heldText = (p: string) => (found.has(p) ? folder.disk.text(p) : folder.replica.read(p));
+	// Held alone: what a replica has not sent is held, each file with a reason of its own; nothing waits on another file.
+	for (const [who, replica] of [['ada', folder.replica], ['bo', bo.replica]] as const) {
+		const heldHere = new Map(replica.held().map((h) => [h.path, h.reason]));
+		for (const [p, reason] of heldHere) if (reason.trim() === '') violations.push(`${who} holds ${p} with no reason`);
+		for (const p of replica.unsent()) if (!heldHere.has(p)) violations.push(`${who}'s ${p} is not sent and not held (${JSON.stringify(replica.state(p))})`);
+	}
 	for (const [p, text] of folder.disk.texts()) {
 		if (ignored(p)) continue;
 		const mine = folder.replica.read(p);

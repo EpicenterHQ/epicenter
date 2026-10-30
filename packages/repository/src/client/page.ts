@@ -117,10 +117,10 @@ export function servePage(
 		read,
 		query: replica.query,
 		/** Apply changes over what the replica shows now: stored, or not at all, and said so before anything is acknowledged. */
-		change(changes: Change[], token?: number, message?: string): Result<Changed, ChangeError | SaveError> {
+		change(changes: Change[], token?: number): Result<Changed, ChangeError | SaveError> {
 			making = token;
 			try {
-				return replica.change(changes, message === undefined ? {} : { message });
+				return replica.change(changes);
 			} catch (cause) {
 				return failed(cause);
 			} finally {

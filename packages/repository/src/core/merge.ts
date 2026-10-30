@@ -219,18 +219,18 @@ function splitBlocks(text: string) {
 
 function bodyParts(base: string, current: string, incoming: string): Part[] {
 	const parts: Part[] = [];
-	for (const part of mergeSequence(lines(base), lines(current), lines(incoming))) {
-		if ('text' in part) {
-			parts.push(part);
-			continue;
-		}
-		const { overlap } = part;
+	/** The line-level part emitted last ends mid-line: a side's last line, unterminated at the end of its file. */
+	let open = false;
+	for (const part of mergeSequence(lines(base), lines(current), lines(incoming), { lines: true })) {
+		const { overlap } = 'text' in part ? { overlap: null } : part;
 		// Marker blocks stay atomic: never split, so never nested.
-		if ([overlap.base, overlap.current, overlap.incoming].some(hasBlock)) {
-			parts.push(part);
-			continue;
-		}
-		parts.push(...mergeSequence(words(overlap.base), words(overlap.current), words(overlap.incoming)));
+		const emitted = overlap === null || [overlap.base, overlap.current, overlap.incoming].some(hasBlock) ? [part] : mergeSequence(words(overlap.base), words(overlap.current), words(overlap.incoming));
+		const content = emitted.map((p) => ('text' in p ? p.text : p.overlap.current)).join('');
+		// RULE: two lines never become one: a part that follows a line one side left unterminated starts on a line of its own.
+		if (open && content !== '') parts.push({ text: '\n' });
+		parts.push(...emitted);
+		const last = emitted.at(-1);
+		if (content !== '') open = last !== undefined && 'text' in last && !last.text.endsWith('\n');
 	}
 	return parts;
 }
@@ -239,7 +239,8 @@ function bodyParts(base: string, current: string, incoming: string): Part[] {
 export type Hunk = { start: number; end: number; sideStart: number; sideEnd: number };
 type SourcedHunk = Hunk & { source: 'current' | 'incoming' };
 
-function mergeSequence(base: string[], current: string[], incoming: string[]): Part[] {
+/** Merge two edits of `base`, as lines (each with its terminator) or as words. */
+function mergeSequence(base: string[], current: string[], incoming: string[], { lines = false } = {}): Part[] {
 	const edits: SourcedHunk[] = [
 		...diff(base, current).map((h) => ({ ...h, source: 'current' as const })),
 		...diff(base, incoming).map((h) => ({ ...h, source: 'incoming' as const })),
@@ -277,9 +278,12 @@ function mergeSequence(base: string[], current: string[], incoming: string[]): P
 		const i = sideFor(group, 'incoming', incoming);
 		const sources = new Set(group.edits.map((h) => h.source));
 		if (sources.size === 1 || same(c, i)) parts.push({ text: (sources.has('current') ? c : i).join('') });
-		else if (b.length === 0 && group.edits.every((h) => h.start === h.end))
-			// Both inserted at one point (identical insertions were deduplicated above).
-			parts.push({ text: [...c, ...i].join('') });
+		else if (b.length === 0 && group.edits.every((h) => h.start === h.end)) {
+			// Both inserted at one point (identical insertions were deduplicated above). RULE: as lines, current's last line ends before incoming's begins: one unterminated (only at the end of a file) is terminated, so two lines never become one.
+			const last = c.at(-1);
+			const ended = lines && last !== undefined && !last.endsWith('\n') ? [...c.slice(0, -1), `${last}\n`] : c;
+			parts.push({ text: [...ended, ...i].join('') });
+		}
 		else parts.push({ overlap: { base: b.join(''), current: c.join(''), incoming: i.join('') } });
 		at = group.end;
 	}
@@ -342,7 +346,12 @@ function matchRegion(
 	out.push(...tail);
 }
 
-/** The prototype's LCS table walk, over one region. */
+/**
+ * The prototype's LCS table walk, over one region, weighted: a match of
+ * whitespace counts less than a match of anything else. RULE: where a side
+ * could match a word or the space beside it, it matches the word, so two
+ * sides keeping one word anchor on that word and neither inserts it again.
+ */
 function tableMatches(
 	base: string[],
 	side: string[],
@@ -356,16 +365,21 @@ function tableMatches(
 	const m = bHi - bLo;
 	const table = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
 	const at = (i: number, j: number) => table[i]?.[j] ?? 0;
+	const weight = (token: string) => (token.trim() === '' ? 1 : 2);
 	for (let i = n - 1; i >= 0; i--) {
 		const row = table[i];
 		if (row === undefined) continue;
-		for (let j = m - 1; j >= 0; j--)
-			row[j] = base[aLo + i] === side[bLo + j] ? at(i + 1, j + 1) + 1 : Math.max(at(i + 1, j), at(i, j + 1));
+		for (let j = m - 1; j >= 0; j--) {
+			const token = base[aLo + i] ?? '';
+			const skip = Math.max(at(i + 1, j), at(i, j + 1));
+			row[j] = token === side[bLo + j] ? Math.max(at(i + 1, j + 1) + weight(token), skip) : skip;
+		}
 	}
 	let i = 0;
 	let j = 0;
 	while (i < n && j < m) {
-		if (base[aLo + i] === side[bLo + j]) {
+		const token = base[aLo + i] ?? '';
+		if (token === side[bLo + j] && at(i, j) === at(i + 1, j + 1) + weight(token)) {
 			out.push([aLo + i, bLo + j]);
 			i++;
 			j++;

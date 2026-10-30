@@ -30,8 +30,7 @@ CREATE TABLE IF NOT EXISTS commits (
 	at INTEGER NOT NULL,
 	tree TEXT NOT NULL,
 	blocks INTEGER NOT NULL,
-	merged_into TEXT,
-	message TEXT
+	merged_into TEXT
 );
 CREATE TABLE IF NOT EXISTS deletes (path TEXT NOT NULL, place INTEGER NOT NULL, PRIMARY KEY (path, place));
 CREATE INDEX IF NOT EXISTS deletes_by_place ON deletes (place);
@@ -57,11 +56,9 @@ export type Stored = {
 	tree: string;
 	/** A merge that wrote a conflict block: a Git commit of its own at the next flush. */
 	blocks: boolean;
-	/** Its writer's message (a merge carries the message of the commit it takes in): a Git commit of its own at the next flush, with this as its message. */
-	message?: string;
 };
 
-type Row = { id: string; place: number | null; parents: string; user: string; device: string; time: string; at: number; tree: string; blocks: number; message: string | null };
+type Row = { id: string; place: number | null; parents: string; user: string; device: string; time: string; at: number; tree: string; blocks: number };
 
 const fromRow = (row: Row): Stored => ({
 	id: row.id,
@@ -72,7 +69,6 @@ const fromRow = (row: Row): Stored => ({
 	at: row.at,
 	tree: row.tree,
 	blocks: row.blocks === 1,
-	...(row.message === null ? {} : { message: row.message }),
 });
 
 /** Whether the server holds a pointer's bytes, at its size: a pointer is admitted only then. */
@@ -82,8 +78,6 @@ export function openHistory(store: SqlDriver) {
 	// Presence before sizes were recorded (phase 8) admits nothing at a size, so it starts again.
 	if (store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'oid') && !store.all<{ name: string }>('PRAGMA table_info(uploads)').some((column) => column.name === 'size')) store.exec('DROP TABLE uploads');
 	store.exec(SCHEMA);
-	// A store made before commits carried a message gets the column.
-	if (!store.all<{ name: string }>('PRAGMA table_info(commits)').some((column) => column.name === 'message')) store.exec('ALTER TABLE commits ADD COLUMN message TEXT');
 
 	// Tree nodes: cached once read or written, stored once.
 	const cache = new Map<string, Map<string, TreeEntry>>();
@@ -129,7 +123,7 @@ export function openHistory(store: SqlDriver) {
 	};
 	const top = () => meta.number('top');
 	const insert = (stored: Stored, mergedInto: string | null = null) =>
-		store.run('INSERT OR REPLACE INTO commits (id, place, parents, user, device, time, at, tree, blocks, merged_into, message) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+		store.run('INSERT OR REPLACE INTO commits (id, place, parents, user, device, time, at, tree, blocks, merged_into) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
 			stored.id,
 			stored.place,
 			JSON.stringify(stored.parents),
@@ -140,7 +134,6 @@ export function openHistory(store: SqlDriver) {
 			stored.tree,
 			stored.blocks ? 1 : 0,
 			mergedInto,
-			stored.message ?? null,
 		]);
 
 	const textIn = (tree: string, path: string) => {
