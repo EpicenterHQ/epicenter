@@ -1,25 +1,26 @@
 # Browser folder engine
 
-The browser saves one current folder as an immutable Git tree. Two separate
-commit references let sync distinguish the last incorporated server state from
-an exact send whose outcome may be unknown. Unchanged files share objects:
+This is the engine behind the legacy `openFolder({ tables })` from
+`@epicenter/folder/browser`: one current folder per origin, saved in IndexedDB
+as an immutable Git tree. Unchanged files share objects. Files and table
+views expose no commits, roots, history, or collection controls; rows remain
+views of Markdown files. Opening and saving require no account, network, or
+declaration file. The Folder mirror drains queued writes before releasing
+storage.
 
-```text
-workingTree --------------------> tree --+
-remoteBase ------> commit ------> tree --+--> shared trees and file bytes
-pendingCommit ---> commit ------> tree --+
-```
-
-Applications reach this engine through `openFolder({ tables })` from
-`@epicenter/folder`. Files and table views expose no commits, roots, history,
-collection controls, or sync scheduling. Rows remain views of Markdown files.
-Opening and offline saving require no account, network, or declaration file.
-The Folder mirror drains queued writes before releasing storage.
+**The browser no longer exchanges Git.** Its sync (`prepareCommit`,
+`createSync`, the isomorphic-git transport) is deleted: the web never syncs
+(file contract decisions 11 and 12). A browser keeps its own files and
+uploads new ones through the server. [ADR-0623](../../../../docs/adr/0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md)
+is superseded, and [ADR-0684](../../../../docs/adr/0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md)
+and [ADR-0685](../../../../docs/adr/0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md)
+are rejected. New apps open a contract's files with `openDevice(contract)`,
+over this origin's private file system ([`src/device/`](../device/)). This
+engine stays until Whispering, Todos, Honeycrisp, Capture, and Vocab move to
+that opener.
 
 [ADR-0650](../../../../docs/adr/0650-a-browsers-current-folder-is-one-immutable-tree.md)
-records the working-tree decision. The
-[save-to-sync review](../../evidence/browser-engine/working-tree/REVIEW.md)
-inventories the owners, methods, temporary maps, and lifecycle states.
+records the working-tree decision.
 
 ## Stored data
 
@@ -34,9 +35,9 @@ Existing older databases and OPFS files are not opened or changed.
 | `objects` | Git object hash | Immutable `{ type, bytes }` with inflated commit, tree, or blob contents |
 
 `workingTree` always names a valid tree, including Git's canonical empty tree.
-`remoteBase` is undefined before the first successful observation, null after
-observing an empty remote, or an incorporated commit hash. `pendingCommit` is
-null or the exact prepared commit. `retiredBytes` conservatively schedules
+`remoteBase` and `pendingCommit` were sync's checkpoints. Nothing writes them
+now; a database that holds them from before keeps their closures alive until
+this engine retires. `retiredBytes` conservatively schedules
 collection; it is neither an exact garbage count nor a physical storage limit.
 An IndexedDB index on object `type` is database-maintained, not another ledger.
 
@@ -56,19 +57,18 @@ The engine hashes the submitted file and
 rewrites its ancestor directories. A write transaction compares captured W,
 then publishes the new objects and root together. A changed root retries the
 operation. Other tabs' B/P changes do not invalidate a local file save, and the
-save preserves the latest sync metadata and collection accounting.
+save preserves the stored checkpoints and collection accounting.
 
 A point capture reads only the path's ancestor trees and blob. Prefix lists
 walk matching directories without loading file bytes. Row lists load immediate
 Markdown rows. `capture([])` walks all trees without blobs; an omitted scope
 captures all current files; `capture('sync')` includes W and both checkpoint
-closures. Captured objects stay in an operation-local map so a later save or
+closures, which retention still honors. Captured objects stay in an operation-local map so a later save or
 collection cannot change the inputs of an in-progress computation.
 
 Public saves compare no prior file content and perform no content merge.
-The last publication wins. Sync separately merges Markdown by frontmatter
-field and body region, and other UTF-8 files by text region. The Svelte editor draft retains typed input through outside observations and
-failures until its own save answers.
+The last publication wins. The Svelte editor draft retains typed input
+through outside observations and failures until its own save answers.
 
 Native names, untouched modes, symlinks, gitlinks, and directory occupancy
 survive tree rewriting. File/directory replacements require a witnessed
@@ -76,61 +76,10 @@ removal before reusing the path. A gitlink stays a structural leaf and is not
 reported as a readable or successfully deleted file. Raw writes retain BOM and
 binary content; mutable caller buffers are copied before awaits.
 
-Only a changed W notifies subscribers. Local saves name their paths; a sync
-adoption can invalidate all paths. Checkpoint-only changes and collection do
+Only a changed W notifies subscribers. Local saves name their paths. Checkpoint-only changes and collection do
 not notify file views. Failed publication reports `StorageFailed`, including
 the browser's reason, without replacing the old root. No-op engine saves notify
 nobody; the public Folder still announces a successful explicit publication.
-
-## Preparing and settling a send
-
-`prepareCommit(storage, author)` belongs to sync. Storage's `checkpoint()`
-captures metadata and, when preparation is needed, W/B trees and regular
-`.gitignore` blobs in one transaction. Other file payloads are not loaded.
-
-Before a successful remote observation it does nothing. An existing P is
-returned unchanged. Otherwise, preparation removes ignored untracked paths from W to derive the
-send tree. Paths already in B stay tracked. A different send tree creates one
-commit with B as parent and atomically installs P under a W/B/P guard. Ignored
-files remain in W, so W differing from B alone does not mean work is unsent. The current
-pre-fetch preparation timing is preserved.
-
-`createSync(repository, options).run()` is an internal bounded attempt. Concurrent
-calls on one instance share its running promise. Different tabs may overlap;
-there is no cross-tab leader or lock. A successful result does not promise that
-all newer saves have been sent. Persisted attachment, optional authentication,
-and automatic app scheduling remain unbuilt.
-
-After fetch, sync recaptures current inputs while retaining the starting
-capture's bytes. The transport can reuse those bytes even if another tab has
-replaced and collected them. A fetch anchored to an obsolete B
-is discarded. If the server still holds B, it retries exact P. If the server
-contains P, it merges only newer P-to-W changes. Missing ancestry is unknown,
-not rejection; one full-history recovery fetch can establish the outcome.
-All parents participate in ancestry proofs.
-
-Sync selects source against P while it is unsettled, otherwise B. It never
-unions their tracked membership: a path deleted by P is no longer tracked even
-when B contains it. The selected tree is temporary, not a fourth checkpoint.
-After merging shared contents, sync restores W's ignored local additions. An
-incoming file or directory occupying one of those paths, including a spelling
-that collides on disk, returns `LocalFileInTheWay` and preserves the captured
-state. A Folder read keeps those bytes accessible for repair. A newer rule does
-not rewrite P or cancel a send whose outcome is still unknown.
-
-A proven rejection needs two local generations. First remove entries deleted
-between P and W from P, producing transient D. Rebase B/remote/D, then apply
-D-to-W changes. This prevents a later deletion from resurrecting rejected text
-while preserving a later reversal. Raw names are compared as bytes. Adoption
-publishes only the retained snapshots under a W/B/P guard; a concurrent save
-leaves the candidate unpublished for a later attempt. Push acknowledgement
-checks exact B/P and preserves the latest W.
-
-Equal snapshots carry equal change intent. Deleting a folder's files,
-temporarily replacing it, and restoring identical contents leaves no hidden
-prefix tombstone. Independent remote fields therefore survive that canceled
-operation. An undo across a real P checkpoint still matters when W differs
-from P. Native-server regressions cover both cases.
 
 ## Collection and costs
 
@@ -153,37 +102,16 @@ backlogs no longer force each point read to load all saved edits. The
 [prototype measurements](../../evidence/browser-engine/working-tree-prototype/RESULTS.md)
 show that tradeoff; they are not a timing guarantee for this implementation.
 
-The isomorphic-git adapter is a separate cost. Each fetch and push seeds an
-isolated in-memory bare repository through `writeObject`, recompressing known
-inflated objects. Scratch files copy writes; Git maintains pack/index/cache
-buffers; fetched objects are inflated, copied, and hash-verified; outgoing
-request chunks are joined into a contiguous buffer. Sync's maps usually share
-object byte references, but these encoding and transport steps copy bytes.
-Recovery can temporarily hold much more history than the current folder.
-
-Keep this adapter's ordinary smart-HTTP negotiation, delta decoding, shallow
-push, server report handling, and interrupted-response checks. A custom
-transport would take ownership of all of them. No peak-memory benchmark yet
-justifies that replacement. Transfer workspaces and readers are released per
-call; there is no persistent Git index, pack cache, or checkout.
-
-## Verification and remaining work
+## Verification
 
 From the repository root:
 
 ```sh
 bun run --cwd packages/folder typecheck
-bun run --cwd packages/folder test
-bun run --cwd packages/folder smoke:local
-bun run --cwd packages/folder smoke:sync:local
+bun run --cwd packages/folder test:engine
 ```
 
 [Working-tree evidence](../../evidence/browser-engine/working-tree/RESULTS.md)
-records native Git, concurrency, collection, lost replies, and full-profile
-reopening. Browser runs use disposable profiles and loopback native servers.
-
-Desktop evidence does not establish phone latency, browser eviction, forced
-termination, real-device quota behavior, or hosted-service conditional updates.
-The internal trigger has no retry scheduler or network deadline. Future
-scheduling must respect `Retry-After`. These are release and integration work,
-not alternate storage modes or migration requirements.
+records the engine's concurrency, collection, and full-profile reopening as
+they stood with sync. The browser smoke for the contract opener is
+`bun run --cwd packages/folder smoke:device`.

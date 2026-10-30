@@ -21,7 +21,6 @@ import {
 	writeTree,
 } from '../git/raw-objects.js';
 import { type LocalRepository, openRepository } from './repository.js';
-import { prepareCommit } from './sync.js';
 
 const encoder = new TextEncoder();
 const author = {
@@ -138,20 +137,15 @@ test('gitlinks stay structural leaves a file delete leaves alone, and can be exp
 		expect(expectOk(await captureFile(repository, 'vendor'))).toBeUndefined();
 		expectOk(await repository.put('vendor', null));
 		expectOk(await repository.put('plain.md', 'changed\n'));
-		const pending = (await prepareCommit(repository.storage, author))!;
 		expect(
 			(await repository.storage.capture([])).files.get('vendor')?.mode,
 		).toBe('160000');
-		expect(
-			await repository.storage.acknowledge(pending.base, pending.head),
-		).toBe(true);
 		repository.close();
 		repository = await openRepository(id);
 		expect(
 			(await repository.storage.capture([])).files.get('vendor')?.mode,
 		).toBe('160000');
 		expectOk(await repository.put('vendor', 'regular file\n'));
-		await prepareCommit(repository.storage, author);
 		expect(
 			(await repository.storage.capture([])).files.get('vendor')?.mode,
 		).toBe('100644');
@@ -174,7 +168,6 @@ test('subset capture omits unrelated blobs and preserves opaque directories and 
 			expectErr(await repository.put('docs', 'replace unseen names')).name,
 		).toBe('Occupied');
 		expectOk(await repository.put('plain.md', 'changed\n'));
-		await prepareCommit(repository.storage, author);
 		const after = await repository.storage.capture([]);
 		const entries = readTree(
 			after.objects.get(after.state.workingTree!)!.bytes,
@@ -195,7 +188,6 @@ test('row deletion keeps adjacent native names without decoding or rewriting the
 	try {
 		const native = await nativeFixture(repository);
 		expectOk(await repository.put('notes/one.md', null));
-		await prepareCommit(repository.storage, author);
 		const snapshot = await repository.storage.capture([]);
 		expect(snapshot.files.has('notes/one.md')).toBe(false);
 		const notes = readTree(

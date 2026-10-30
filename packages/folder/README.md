@@ -155,11 +155,10 @@ browser opener in Playwright Chromium and WebKit.
 
 ## Browser storage
 
-The [browser repository engine](src/browser/README.md) stores the current
-folder as an immutable Git working tree in IndexedDB. Local saves create no
-Git commit. The older OPFS and IndexedDB stores are not opened or changed.
-Browser Git exchange remains an independent engine feature; a Folder exposes
-no sync or history controls.
+The [browser repository engine](src/browser/README.md) behind the legacy
+`openFolder` stores the current folder as an immutable Git working tree in
+IndexedDB. Local saves create no Git commit. The browser no longer exchanges
+Git: the web never syncs, and new apps use `openDevice` instead.
 
 ## Native directories
 
@@ -216,7 +215,7 @@ chooses at call time and loads only the chosen engine. The
 | `src/folder.ts`, `storage.ts`, `patch.ts`, `write-refusal.ts` | Mirror, host contract, canonical patches, and write refusals. |
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `testing.ts` | Public and test entries. |
 | `src/device/` | `openDevice`: the contract client, its Bun and OPFS stores, the outbox, and `check`/`format`. |
-| `src/browser/` | IndexedDB repository and independent Git exchange. |
+| `src/browser/` | The legacy IndexedDB repository behind `openFolder`. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
 | `src/shared/` | Markdown reading and Git sync content merge rules. |
 | `src/git/`, `history-wire.ts`, `write.ts` | History requests and Git publication. |

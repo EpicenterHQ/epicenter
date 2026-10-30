@@ -19,8 +19,6 @@
 		"typecheck": "tsc --noEmit -p tsconfig.json",
 		"test": "bun test --isolate",
 		"test:engine": "bun test --isolate src/browser/ src/shared/",
-		"smoke:local": "bun smoke/local.ts",
-		"smoke:sync:local": "bun smoke/sync.ts",
 		"smoke:device": "bun smoke/device.ts",
 		"gen:vectors": "bun src/git/commit-subject-vectors.ts",
 		"schema:generate": "bun src/declaration/generate-schema.ts"
@@ -28,7 +26,6 @@
 	"dependencies": {
 		"@epicenter/definition": "workspace:*",
 		"@tauri-apps/api": "catalog:",
-		"buffer": "^6.0.3",
 		"diff": "^8.0.4",
 		"ignore": "^7.0.5",
 		"isomorphic-git": "1.38.5",

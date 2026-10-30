@@ -1,8 +1,15 @@
 import { createLogger } from 'wellcrafted/logger';
 import { type GitObject, readCommit, readTree } from '../git/raw-objects.js';
 import { snapshotObjects } from './git/closure.js';
-import { isIgnoreFile } from './git/publication.js';
 import { emptyTree, readSnapshot } from './git/snapshot.js';
+
+/** Rule files are regular files; Git does not follow a symlinked .gitignore. */
+function isIgnoreFile(path: string, mode: string) {
+	return (
+		(path === '.gitignore' || path.endsWith('/.gitignore')) &&
+		(mode === '100644' || mode === '100755')
+	);
+}
 
 /** One saved folder and the two checkpoints needed to settle Git exchange. */
 export type RepositoryState = {

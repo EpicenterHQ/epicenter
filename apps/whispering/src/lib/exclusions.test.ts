@@ -1,8 +1,8 @@
 /**
  * App-maintained exclusions over real native and IndexedDB folders.
  * Startup installs root defaults without overriding authored rules, preserves
- * source bytes, and publishes whole rule files. Native Git and browser commits
- * honor customizations; unreadable content and save failures remain visible.
+ * source bytes, and publishes whole rule files. Native Git honors
+ * customizations; unreadable content and save failures remain visible.
  */
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
@@ -11,10 +11,6 @@ import { readdir } from 'node:fs/promises';
 import { openFolder as openBrowserFolder } from '@epicenter/folder/browser';
 import { Err } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { readSnapshot } from '../../../../packages/folder/src/browser/git/snapshot.js';
-import { openRepository } from '../../../../packages/folder/src/browser/repository.js';
-import { prepareCommit } from '../../../../packages/folder/src/browser/sync.js';
-import { readCommit } from '../../../../packages/folder/src/git/raw-objects.js';
 import { whisperingTables } from './definition.js';
 import { maintainExclusions } from './exclusions.js';
 import type { WhisperingFolder } from './folder.js';
@@ -81,10 +77,7 @@ test('an empty folder gets only an ordinary .gitignore, and another startup writ
 test.each([
 	['# another app\n/private/', `${rules}# another app\n/private/`],
 	['!*.wav\n', `${rules}!*.wav\n`],
-	[
-		'﻿# café\r\n/cache/',
-		`﻿${rules.replaceAll('\n', '\r\n')}# café\r\n/cache/`,
-	],
+	['﻿# café\r\n/cache/', `﻿${rules.replaceAll('\n', '\r\n')}# café\r\n/cache/`],
 ])(
 	'adds the Markdown-only rules while preserving %j',
 	async (before, after) => {
@@ -273,61 +266,4 @@ test('native Git honors root and nested customizations while retaining tracked f
 	expect(expectOk(await files.read('recordings/new.wav'))).toEqual(
 		new Uint8Array([4, 5, 6]),
 	);
-});
-
-test('browser Git honors root and nested customizations while preserving offline bytes and an exact pending send', async () => {
-	const files = await openBrowser();
-	const audio = new Uint8Array([0, 255, 1]);
-	expectOk(await files.write('.gitignore', '/private/\nnode_modules/\n'));
-	expectOk(await files.write('recordings/take.wav', audio));
-	expectOk(await files.write('recordings/take.WEBM', audio));
-	expectOk(await files.write('recordings/take.md', 'Recording\n'));
-	expectOk(
-		await files.write('recordings/attachment.pdf', new Uint8Array([1, 2])),
-	);
-	expectOk(await files.write('notes/one.md', 'Offline note\n'));
-	expectOk(await files.write('notes/nested/two.md', 'Nested note\n'));
-	expectOk(await files.write('private/secret.md', 'Private note\n'));
-	expectOk(await files.write('node_modules/pkg/README.md', 'Package\n'));
-	expectOk(await files.write('notes/nested/hidden.md', 'Hidden note\n'));
-	expectOk(await files.write('notes/nested/shared.wav', audio));
-	expectOk(await files.write('notes/nested/image.png', audio));
-	expectOk(await files.write('notes/nested/.gitignore', '!*.wav\nhidden.md\n'));
-	expectOk(await maintainExclusions(files));
-	// The browser folder's own repository, where sync prepares its commits.
-	const repository = await openRepository('default');
-	cleanups.push(() => repository.close());
-	const { storage } = repository;
-	// A simulated first observation of an empty remote, not a network call.
-	const { state } = await storage.capture([]);
-	expect(
-		await storage.publish({
-			expected: state,
-			refs: { remoteBase: null, pendingCommit: null },
-		}),
-	).toBe(true);
-	const author = { name: 'Test', email: 'test@example.com', timestamp: 1 };
-	const pending = (await prepareCommit(storage, author))!;
-	const captured = await storage.capture('sync');
-	const commit = readCommit(captured.objects.get(pending.head)!.bytes);
-	const tree = await readSnapshot(
-		commit.tree,
-		async (oid) => captured.objects.get(oid)!,
-	);
-	expect([...tree.files.keys()].sort()).toEqual([
-		'.gitignore',
-		'notes/nested/.gitignore',
-		'notes/nested/shared.wav',
-		'notes/nested/two.md',
-		'notes/one.md',
-		'recordings/take.md',
-	]);
-	expect(expectOk(await files.read('recordings/take.wav'))).toEqual(audio);
-	expect(expectOk(await files.read('notes/nested/image.png'))).toEqual(audio);
-	expectOk(await files.write('.gitignore', '# changed after preparing\n'));
-	expectOk(await maintainExclusions(files));
-	expect(await prepareCommit(storage, { ...author, timestamp: 2 })).toEqual(
-		pending,
-	);
-	expect((await storage.capture([])).state.remoteBase).toBeNull();
 });

@@ -836,7 +836,7 @@ When you add an ADR, add its row here.
 | [0620](0620-history-in-a-repository-only-grows.md) | History in a repository only grows | Accepted (supersedes 0595; amends 0546 and 0592) |
 | [0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | Epicenter's library writes only text to a repository in v1 | Accepted (supersedes 0544 and 0577; amends 0592) |
 | [0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) | A losing edit stays a parent of the merge commit | Accepted (supersedes 0576; amends 0591) |
-| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Accepted (amends 0529; amended by 0633) |
+| [0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) | Each web origin keeps local data in IndexedDB | Superseded 2026-10-30 (the web never syncs; file contract decisions 11 and 12) |
 | [0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | Local data reports its synchronization state | Accepted (amends 0592; amended by 0633) |
 | [0626](0626-an-app-reaches-a-repository-only-through-open.md) | An app opens local data with its own schemas | Accepted (amends 0585 and 0608; amended by 0632, 0633, and 0636) |
 | [0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | Every change to the data model is checked against nine principles | Accepted (supersedes 0590; amended by 0632, 0633, 0634, and 0635) |
@@ -887,8 +887,8 @@ When you add an ADR, add its row here.
 | [0681](0681-portable-capability-packages-follow-the-resource-they-own.md) | Portable capability packages follow the resource they own | Proposed (`@epicenter/sqlite` and `@epicenter/secrets` as separate homes; no umbrella runtime package) |
 | [0682](0682-secrets-use-one-persistent-api-and-a-shared-tauri-plugin.md) | Secrets use one persistent API and a shared Tauri plugin | Proposed (localStorage browser adapter; reusable native plugin and Specta bindings unbuilt) |
 | [0683](0683-hosted-requests-use-a-resource-bound-account-fetch.md) | Hosted requests use a resource-bound Account fetch | Accepted (Whispering desktop caller implemented) |
-| [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Proposed |
-| [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Proposed |
+| [0684](0684-browser-folders-submit-frozen-file-changes-instead-of-running-git.md) | Browser folders submit frozen file changes instead of running Git | Rejected 2026-10-30 (the web never syncs; file contract decisions 11 and 12) |
+| [0685](0685-hosted-git-records-browser-publication-receipts-in-a-protected-ref.md) | Hosted Git records browser publication receipts in a protected ref | Rejected 2026-10-30 (the web never syncs; file contract decisions 11 and 12) |
 | [0686](0686-one-https-site-is-one-portable-release-and-one-data-area.md) | One HTTPS site is one portable release and one data area | Accepted |
 | [0687](0687-opening-a-site-url-opens-its-derived-folder.md) | Opening a site URL opens its derived folder | Proposed |
 | [0688](0688-one-folder-owned-text-document-per-path.md) | One Folder-owned text document per path | Superseded by 0689 |

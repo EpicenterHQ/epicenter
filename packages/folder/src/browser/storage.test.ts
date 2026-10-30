@@ -2,7 +2,6 @@
  * Atomic working-tree publication across IndexedDB connections.
  * Root guards reject stale candidates, exact acknowledgement retains newer
  * saves, and failed batches or maintenance cannot misreport durable work.
- * Real-browser transaction and reopening checks live in smoke/local.ts.
  */
 import { captureFile } from './repository.test-support.js';
 import 'fake-indexeddb/auto';
@@ -12,7 +11,6 @@ import { type GitObject, hashObject, writeCommit } from '../git/raw-objects.js';
 import { changeSnapshot, emptyTree } from './git/snapshot.js';
 import { openRepository } from './repository.js';
 import { openStorage, snapshotContent, snapshotObject } from './storage.js';
-import { prepareCommit } from './sync.js';
 
 async function fixture() {
 	const id = crypto.randomUUID();
@@ -192,8 +190,6 @@ test('checkpoint-only publication and collection do not notify file subscribers'
 			expected: snapshot.state,
 			refs: { remoteBase: null, pendingCommit: null },
 		});
-		const pending = (await prepareCommit(repository.storage, author))!;
-		await repository.storage.acknowledge(pending.base, pending.head);
 		await repository.storage.collect();
 		expect(changes).toBe(1);
 	} finally {
@@ -258,20 +254,12 @@ test('quota failure collects once and retries without replacing a root on a seco
 	}
 });
 
-test('preparation reads only ignore blobs and collection reads no blob payloads', async () => {
+test('collection reads no blob payloads', async () => {
 	const repository = await openRepository(crypto.randomUUID());
 	const get = IDBObjectStore.prototype.get;
 	try {
 		expectOk(await repository.put('notes/one.md', 'base'));
-		expectOk(await repository.put('.gitignore', '/audio/\n'));
 		expectOk(await repository.put('audio/take.wav', Uint8Array.of(0, 255)));
-		const snapshot = await repository.storage.capture();
-		await repository.storage.publish({
-			expected: snapshot.state,
-			refs: { remoteBase: null, pendingCommit: null },
-		});
-		const base = (await prepareCommit(repository.storage, author))!;
-		await repository.storage.acknowledge(base.base, base.head);
 		expectOk(await repository.put('notes/one.md', 'newer'));
 		const saved = await repository.storage.capture('sync');
 		const blobs = new Set(
@@ -279,18 +267,11 @@ test('preparation reads only ignore blobs and collection reads no blob payloads'
 				.filter(([, object]) => object.type === 'blob')
 				.map(([oid]) => oid),
 		);
-		const ignoreBlob = saved.files.get('.gitignore')!.oid;
-		const dataBlobs = new Set([...blobs].filter((oid) => oid !== ignoreBlob));
 		const reads: IDBValidKey[] = [];
 		IDBObjectStore.prototype.get = function (key: IDBValidKey | IDBKeyRange) {
 			if (this.name === 'objects' && typeof key === 'string') reads.push(key);
 			return get.call(this, key);
 		};
-		await prepareCommit(repository.storage, { ...author, timestamp: 2 });
-		expect(reads).toContain(base.head);
-		expect(reads).toContain(ignoreBlob);
-		expect(reads.some((key) => dataBlobs.has(String(key)))).toBe(false);
-		reads.length = 0;
 		await repository.storage.collect();
 		expect(reads.some((key) => blobs.has(String(key)))).toBe(false);
 	} finally {
