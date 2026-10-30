@@ -28,6 +28,11 @@ export {
 	defineContract,
 } from './contract.js';
 export {
+	isHiddenPath,
+	REPOSITORY_ATTRIBUTES,
+	storedWithLfs,
+} from './storage.js';
+export {
 	compileTemplate,
 	fill,
 	isFilePath,

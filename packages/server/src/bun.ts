@@ -6,6 +6,9 @@
  * Postgres. This is the main barrel plus the modules a Worker cannot bundle.
  */
 
-// Bare repositories on disk behind `git http-backend`, the Bun entry's store.
+// Bare repositories on disk (clone and fetch through `git http-backend`;
+// pushes and web writes through the receiver and translator), and Git LFS
+// objects on disk: the Bun entry's stores.
 export { createDiskGitHost } from './git-disk-store.js';
 export * from './index.js';
+export { createDiskLfsStore } from './lfs/disk-lfs-store.js';

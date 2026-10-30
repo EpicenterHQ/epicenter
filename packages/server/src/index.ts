@@ -38,6 +38,8 @@ export {
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
 // Cloud database handles: Hyperdrive uses a per-request client; Bun uses a pool.
 export { createDb, type Db } from './db/create-db.js';
+export type { GitObjects } from './git/objects.js';
+export type { LfsStore } from './lfs/lfs-store.js';
 // Protected mounts: an access token for a resource, and the session cookie for
 // account management on the authorization server's own pages (ADR-0549).
 export {

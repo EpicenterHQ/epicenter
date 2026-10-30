@@ -30,7 +30,7 @@ choice and any deployment policy.
 
 | Mount | Source | Notes |
 | --- | --- | --- |
-| `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`, push-to-create, and `GET /api/repos`; the deployment supplies the store (`GitHost`). |
+| `mountGitHost` | `src/routes/git.ts` | Hosted Git at `<git audience>/<namespace>/<name>.git`: clone and fetch, the forward-only receiver, Git LFS, the web write translator, write-to-create, and `GET /api/repos`; the deployment supplies the stores (`GitHost`, `LfsStore`). |
 | `mountInferenceApp` | `src/routes/inference.ts` | Provider-backed inference. |
 | `mountTranscriptionApp` | `src/routes/transcription.ts` | Provider-backed speech to text. |
 | `mountAuthRoutes` | `src/routes/auth.ts` | Public auth shells (sign-in, consent, device approval), discovery metadata, and Better Auth's endpoints, including the authorization server. |
@@ -59,8 +59,32 @@ elsewhere (`resolveOAuthAudiences`).
 | Request | Needs |
 | --- | --- |
 | `GET info/refs?service=git-upload-pack`, `POST git-upload-pack` | `folders:read`, the `read` role |
-| `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role |
+| `GET info/refs?service=git-receive-pack`, `POST git-receive-pack` | `folders:write`, the `push` role; a push that replaces `main`, the `rewrite` role (owner) |
+| `POST info/lfs/objects/batch` | download: `folders:read`, `read`; upload: `folders:write`, `push` |
+| `PUT`/`GET info/lfs/objects/<oid>`, `POST info/lfs/verify` | upload and verify: `push`; download: `read` |
+| `GET epicenter/files?root=`, `GET epicenter/file?path=` | `folders:read`, the `read` role |
+| `POST epicenter/writes` | `folders:write`, the `push` role |
 | `GET /api/repos` | `folders:read` on the Git audience |
+
+`<namespace>` may be `~`, the caller's personal namespace, so a web app reaches
+`<account>/<app>` from its token alone (decision 46 of the file contract).
+
+With a store that has `objects` (the disk store), every push goes to the
+receiver (`src/routes/receive.ts`), never the store's own receive-pack. It
+accepts `refs/heads/main` alone, decides fast-forward from the pushed commits,
+accepts merge commits, and requires every changed file other than a `.md` note
+or a hidden path (any segment starting with `.`) to be a Git LFS pointer whose
+object is stored, whatever `.gitattributes` says (`storedWithLfs` in
+`@epicenter/definition/contract`). Only the owner may
+replace `main`; the replaced commit is kept as `refs/epicenter/replaced/<time>`.
+Web writes go to the translator (`src/routes/files.ts`): one commit per
+request, notes merged with `@epicenter/definition/merge`'s `settle`, a losing
+binary written beside its target as a conflict copy, the standard
+`.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first commit, and
+`captureId` receipts
+kept under `refs/epicenter/captures/<id>`, moved with `main` in one transaction
+and hidden from clients. Both use the `GitObjects` port (`src/git/objects.ts`):
+refs, object reads, ancestry, and an atomic compare-and-swap `apply`.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,
@@ -68,23 +92,25 @@ and grant target; the namespace membership and role; and `<namespace>/<name>`
 resolved through `repository`, then `repository_alias`. A repository that has
 moved is checked against the namespace it lives in now. Nothing is cached.
 
-A name nobody holds is not a repository until something is pushed to it.
+A name nobody holds is not a repository until something is written to it.
 Reading it creates nothing: a member whose role may push gets the empty
 advertisement of a repository with no refs, for either service, so a sync that
-fetches before it pushes finds nothing to take; anyone else gets 404. Only
-`POST git-receive-pack` creates, at its start and after the same authorization:
+fetches before it pushes finds nothing to take, and an empty file listing;
+anyone else gets 404. Every writing request (a push, an LFS upload, a web
+write) creates, at its start and after the same authorization:
 the storage (`GitHost.create`) under a new id, then the row
 (`createRepository`), so no row names a repository without storage. Two first
 pushes at once insert one row, through the `(namespace_id, name)` unique key;
-the one that loses pushes into the winner's repository, where its ref update
-fails as a stale push does, and leaves an empty store entry that no row names.
-Unrelated history pushed to an existing name is refused because the store
-refuses anything but a fast-forward.
+the one that loses writes into the winner's repository, and leaves an empty
+store entry that no row names. Unrelated history pushed to an existing name
+is refused, unless the owner forces it.
 
 Refusals answer `{ error, error_description }`: 401 `invalid_token` with
 `WWW-Authenticate` naming `resource_metadata` (and a Basic challenge for
 terminal Git), 403 `insufficient_scope` or `forbidden`, 404 `not_found`,
-502 `store_failed`, 503 `git_unavailable` when the deployment has no store.
+413 `too_large` for a push over 64 MiB, 502 `store_failed`, 503
+`git_unavailable` when the deployment has no store (or, for the files and LFS
+routes, no `objects` or LFS store).
 Hosted Git takes no billing policy.
 
 `GitHost` is the replaceable part. It names a repository by its immutable id
@@ -95,6 +121,9 @@ the route already authorized, never the client's credential:
 type GitHost = {
   serve(id: string, request: GitRequest): Promise<Response>;
   create(id: string): Promise<void>;
+  delete(id: string): Promise<void>;
+  /** The receiver's and translator's port; Artifacts gains it in phase 7. */
+  objects?(id: string): GitObjects;
 };
 ```
 
@@ -106,9 +135,13 @@ an id where ADR-0546 sketches `(namespace, name)`, and has no `list`: a rename
 or a move is a row update and an alias, with no storage call. `apps/api` binds
 Cloudflare Artifacts (`worker/git-repositories.ts`); the Bun entry binds
 `createDiskGitHost` from `@epicenter/server/bun` (`src/git-disk-store.ts`):
-bare repositories at `<root>/<repository id>.git`, served by
-`git http-backend` with no hook run, from the repository or anywhere else, a
-clean environment, and every non-fast-forward and branch deletion refused.
+bare repositories at `<root>/<repository id>.git`, cloned and fetched through
+`git http-backend` (receive-pack off, capture receipts hidden), written through
+`index-pack` and one `update-ref --stdin` transaction, with no hook run, from
+the repository or anywhere else, and a clean environment. Its LFS objects come
+from `createDiskLfsStore` (`src/lfs/disk-lfs-store.ts`), at
+`<root>/<repository id>/<aa>/<bb>/<oid>`, admitted only when their sha256
+matches.
 
 `renameRepository` and `moveRepository` (`src/repositories.ts`) are the
 `manage` role's rename and move, each leaving an alias for the old

@@ -222,6 +222,29 @@ export async function authorizeResourceRequest(
 	});
 }
 
+/**
+ * The personal namespace of the account `token` acts for, or null when the
+ * token is unknown. A request may name the namespace `~` (decision 46: a
+ * repository is `<account>/<app>`); it is resolved here, and the request is
+ * then decided by {@link authorizeResourceRequest} like any other.
+ */
+export async function resolvePersonalNamespace(
+	db: Db,
+	token: string | null,
+): Promise<string | null> {
+	const hash = token
+		? await hashPrefixedToken(token, TOKEN_PREFIX.access)
+		: null;
+	if (!hash) return null;
+	const { rows } = await db.execute<{ id: string }>(sql`
+		select n.id
+		from oauth_access_token t
+		join namespace n on n.personal_account_id = t.user_id
+		where t.token = ${hash}
+	`);
+	return rows[0]?.id ?? null;
+}
+
 type AccountRow = {
 	account_id: string;
 	client_id: string;

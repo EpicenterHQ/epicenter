@@ -268,7 +268,10 @@ an id. It reaches
 with a token it mints and caches per repository and scope: 24 hours, renewed an
 hour early, `read` for a fetch and `write` for a push. The client's token never
 reaches Artifacts. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
-(`<root>/<id>.git`, served by `git http-backend`); without it Git answers 503.
+(`<root>/<id>.git`; clone and fetch through `git http-backend`, every push
+through the forward-only receiver, web writes through the translator at
+`<repo>.git/epicenter/writes`) and Git LFS objects under `LFS_STORE_ROOT`
+(`<root>/<id>/<aa>/<bb>/<oid>`); without them those routes answer 503.
 Hosted Git is unmetered. The hosted cloud also needs `git.epicenter.so` routed
 to this Worker; that is a deploy step, not in this repository's config.
 
