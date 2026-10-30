@@ -219,18 +219,18 @@ function splitBlocks(text: string) {
 
 function bodyParts(base: string, current: string, incoming: string): Part[] {
 	const parts: Part[] = [];
+	/** The line-level part emitted last ends mid-line: a side's last line, unterminated at the end of its file. */
+	let open = false;
 	for (const part of mergeSequence(lines(base), lines(current), lines(incoming), { lines: true })) {
-		if ('text' in part) {
-			parts.push(part);
-			continue;
-		}
-		const { overlap } = part;
+		const { overlap } = 'text' in part ? { overlap: null } : part;
 		// Marker blocks stay atomic: never split, so never nested.
-		if ([overlap.base, overlap.current, overlap.incoming].some(hasBlock)) {
-			parts.push(part);
-			continue;
-		}
-		parts.push(...mergeSequence(words(overlap.base), words(overlap.current), words(overlap.incoming)));
+		const emitted = overlap === null || [overlap.base, overlap.current, overlap.incoming].some(hasBlock) ? [part] : mergeSequence(words(overlap.base), words(overlap.current), words(overlap.incoming));
+		const content = emitted.map((p) => ('text' in p ? p.text : p.overlap.current)).join('');
+		// RULE: two lines never become one: a part that follows a line one side left unterminated starts on a line of its own.
+		if (open && content !== '') parts.push({ text: '\n' });
+		parts.push(...emitted);
+		const last = emitted.at(-1);
+		if (content !== '') open = last !== undefined && 'text' in last && !last.text.endsWith('\n');
 	}
 	return parts;
 }

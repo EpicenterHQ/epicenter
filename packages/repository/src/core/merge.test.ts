@@ -73,6 +73,11 @@ describe('examples', () => {
 		expect(findConflicts(r.text ?? '')).toHaveLength(1);
 	});
 
+	test('a line one side ends unterminated stays its own line when the other side adds after it', () => {
+		// Incoming rewrites the last line and leaves it unterminated; current adds a line after it (property seed B 601077).
+		expect(merge('agent\n', 'agent\nadded\n', 'changed\nt58z').text).toBe('changed\nt58z\nadded\n');
+	});
+
 	test('cat/cart/coat reports a whole-word overlap without coart', () => {
 		const r = merge('cat\n', 'cart\n', 'coat\n');
 		expect(r.overlaps).toHaveLength(1);
