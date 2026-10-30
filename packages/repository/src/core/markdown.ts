@@ -69,8 +69,8 @@ export function readNote(text: string): { document: Document | null; fields: Rec
 	return { document: front.document, fields: front.fields, body: text.slice(front.bodyStart) };
 }
 
-/** YAML read as a mapping (an empty one has no fields), or null when it is not one. */
-export function readYaml(yaml: string) {
+/** The frontmatter YAML read as a mapping (an empty one has no fields), or null when it is not one. */
+function readYaml(yaml: string) {
 	const document = parseDocument(yaml, { prettyErrors: false, uniqueKeys: true });
 	if (document.errors.length > 0) return null;
 	const contents = document.contents;
