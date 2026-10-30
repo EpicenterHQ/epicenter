@@ -48,6 +48,7 @@
 
 import { createHash } from 'node:crypto';
 import {
+	isNotePath,
 	REPOSITORY_ATTRIBUTES,
 	storedWithLfs,
 } from '@epicenter/definition/contract';
@@ -418,7 +419,7 @@ export async function applyWrite({
 				landedBlobs[file.path] = current?.oid ?? null;
 			};
 
-			if ('lfs' in file || !file.path.endsWith('.md')) {
+			if ('lfs' in file || !isNotePath(file.path)) {
 				// Every file that is not a note: compare-and-swap, never a merge.
 				const incoming =
 					'lfs' in file

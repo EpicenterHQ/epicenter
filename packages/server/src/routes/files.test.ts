@@ -178,6 +178,27 @@ describe('POST writes', () => {
 		expect(await own.show('.gitattributes')).toBe('*.bin filter=lfs\n');
 	});
 
+	test('a .MD path is a note in any case: it takes text and merges by line', async () => {
+		const repo = await repository();
+		const seeded = await repo.write({
+			files: [{ path: 'n/Shout.MD', text: 'one\ntwo\n' }],
+		});
+		expect(seeded.status).toBe(200);
+		const base = seeded.body.blobs['n/Shout.MD'] as string;
+		await repo.write({
+			files: [{ path: 'n/Shout.MD', base, text: 'ONE\ntwo\n' }],
+		});
+		const raced = await repo.write({
+			files: [{ path: 'n/Shout.MD', base, text: 'one\nTWO\n' }],
+		});
+		expect(raced.body.outcomes[0]?.outcome).toBe('merged');
+		expect(await repo.show('n/Shout.MD')).toBe('ONE\nTWO\n');
+		const lfsWrite = readWriteRequest({
+			files: [{ path: 'n/a.MD', lfs: { oid: 'a'.repeat(64), size: 1 } }],
+		});
+		expect('status' in lfsWrite && lfsWrite.status).toBe(400);
+	});
+
 	test('a hidden path takes text, being outside the contract (decision 58)', async () => {
 		const repo = await repository();
 		const written = await repo.write({

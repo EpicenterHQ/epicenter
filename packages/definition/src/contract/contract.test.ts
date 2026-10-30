@@ -186,4 +186,8 @@ test('pathOf fills a file path, and refuses an extension that would name a note'
 	expect(expectErr(audio!.pathOf({ id: 'a', ext: 'md' })).name).toBe(
 		'InvalidValue',
 	);
+	// `.MD` names a note too: a Mac checkout reads it as one.
+	expect(expectErr(audio!.pathOf({ id: 'a', ext: 'MD' })).name).toBe(
+		'InvalidValue',
+	);
 });

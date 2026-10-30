@@ -29,6 +29,7 @@ export {
 } from './contract.js';
 export {
 	isHiddenPath,
+	isNotePath,
 	REPOSITORY_ATTRIBUTES,
 	REPOSITORY_ATTRIBUTES_BEGIN,
 	REPOSITORY_ATTRIBUTES_END,
@@ -38,7 +39,6 @@ export {
 	compileTemplate,
 	fill,
 	isFilePath,
-	isNotePath,
 	isNoteTemplate,
 	match,
 	type Params,

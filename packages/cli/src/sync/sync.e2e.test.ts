@@ -260,6 +260,29 @@ describe('epicenter sync over stock git', () => {
 	);
 
 	test(
+		'a .MD note is a note: committed as text, merged by the driver on both clones',
+		async () => {
+			const LOUD = 'notes/Loud.MD';
+			write(A, LOUD, 'one\ntwo\n');
+			expect((await syncJson(A)).status.status).toBe('synced');
+			expect((await syncJson(B)).status.status).toBe('synced');
+			expect(await quiet(A, 'cat-file', '-p', `HEAD:${LOUD}`)).toBe('one\ntwo');
+			expect(await quiet(A, 'check-attr', 'filter', 'merge', '--', LOUD)).toBe(
+				`${LOUD}: filter: unspecified\n${LOUD}: merge: epicenter`,
+			);
+			edit(A, LOUD, 'one', 'ONE');
+			edit(B, LOUD, 'two', 'TWO');
+			expect((await syncJson(A)).status.status).toBe('synced');
+			const merged = await syncJson(B);
+			expect(merged.status.status).toBe('synced');
+			expect((await syncJson(A)).status.status).toBe('synced');
+			expect(read(A, LOUD)).toBe('ONE\nTWO\n');
+			expect(read(B, LOUD)).toBe('ONE\nTWO\n');
+		},
+		LONG,
+	);
+
+	test(
 		'T0: an enclosing repository is adopted only on purpose, and sync commits only the data folder',
 		async () => {
 			const OUTER = join(BOX, 'outer');

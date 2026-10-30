@@ -24,11 +24,11 @@ import { Err, Ok, type Result } from 'wellcrafted/result';
 import type { ConformanceIssue } from '../declaration.js';
 import { isJsonSafe } from '../json.js';
 import { schemaProblem } from '../prepare.js';
+import { isNotePath } from './storage.js';
 import {
 	compileTemplate,
 	fill,
 	IDENTIFIER,
-	isNotePath,
 	isNoteTemplate,
 	match,
 	type Template,

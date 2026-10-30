@@ -242,6 +242,15 @@ describe('receivePush', () => {
 		expect(await r.push(three)).toContain(`ok ${MAIN}`);
 	});
 
+	test('a note is .md in any case: a raw .MD note lands, as a Mac clone commits it', async () => {
+		const r = await setup();
+		const one = await r.commit({
+			'notes/Shout.MD': 'raw text\n',
+			'notes/mixed.Md': 'raw text\n',
+		});
+		expect(await r.push(one)).toContain(`ok ${MAIN}`);
+	});
+
 	test('a pointer lands only once its object is uploaded', async () => {
 		const r = await setup();
 		const audio = new TextEncoder().encode('opus bytes');

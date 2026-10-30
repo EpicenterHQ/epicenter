@@ -28,6 +28,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { isNotePath } from '@epicenter/definition/contract';
 import {
 	conflictSibling,
 	lfsOid,
@@ -470,7 +471,7 @@ async function settleUnmerged(
 		} else if (
 			ours !== undefined &&
 			theirs !== undefined &&
-			!path.endsWith('.md')
+			!isNotePath(path)
 		) {
 			const blob = await git(root, ['cat-file', 'blob', ours.sha]);
 			const oid = parsePointer(blob.stdout)?.oid ?? (await lfsOid(blob.bytes));
