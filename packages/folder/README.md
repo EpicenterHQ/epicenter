@@ -219,7 +219,7 @@ chooses at call time and loads only the chosen engine. The
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
 | `src/shared/` | Markdown reading and Git sync content merge rules. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
-| `src/git/raw-objects.ts`, `scope.ts`, `tree-merge.ts` | Git objects, ignore rules, and tree merge for the browser repository. |
+| `src/git/raw-objects.ts` | Git objects for the browser repository. |
 | `write.ts` | A guarded put whose lost reply is read back. |
 | `src/declaration/`, `declaration.ts`, `directory-documents.ts` | Portable schemas and generic document reads. |
 | `evidence/`, `smoke/` | Bundle checks and browser smoke runs. |

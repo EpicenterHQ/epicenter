@@ -26,7 +26,6 @@
 		"@epicenter/definition": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"diff": "^8.0.4",
-		"ignore": "^7.0.5",
 		"isomorphic-git": "1.38.5",
 		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
