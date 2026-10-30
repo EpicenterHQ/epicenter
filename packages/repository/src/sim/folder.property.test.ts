@@ -566,8 +566,12 @@ async function run(seed: number, steps: number) {
 				await folder.crash({ watch: false });
 				// What this device committed before this call at each path, unsent or in flight: a save equal to it is that earlier commit's work, which goes on its own unless this call is cut over it (the replica's rule), so it is not this commit's.
 				const before = new Map<string, string | null>();
-				for (const { commit } of folder.replica.query<{ commit: string }>('SELECT commit_json AS "commit" FROM "epicenter/inflight"', []))
-					for (const file of (JSON.parse(commit) as { files: { path: string; text: string | null }[] }).files) before.set(file.path, file.text);
+				for (const { commit } of folder.replica.query<{ commit: string }>('SELECT commit_json AS "commit" FROM "epicenter/inflight"', [])) {
+					const sent = JSON.parse(commit) as { id: string; files: { path: string; text: string | null }[] };
+					// The commit in flight was sent before this call, though the server may not have seen it yet (every send lost): it cannot carry this call's work.
+					if (!firstSent.has(sent.id)) firstSent.set(sent.id, world.net.now());
+					for (const file of sent.files) before.set(file.path, file.text);
+				}
 				for (const { path, text } of folder.replica.query<{ path: string; text: string | null }>('SELECT path, text FROM "epicenter/unsent"', [])) before.set(path, text);
 				const { saved } = await until(world, folder.engine.commit(message));
 				if (process.env.F_TRACE) log.push(`   (commit at ${world.net.now()}: ${saved.join(', ')}; held ${JSON.stringify(folder.replica.held())}; unsent ${folder.replica.unsent().join(', ')})`);
@@ -605,7 +609,7 @@ async function run(seed: number, steps: number) {
 	// Checks
 	// ------------------------------------------------------------------------
 
-	/** When each of ada's commits was first sent: one sent before a group was made (a resend of earlier work) cannot split it. */
+	/** When each of ada's commits was first sent, as the server saw it or, earlier, as in flight when a call was made: one sent before a group was made (a resend of earlier work) cannot split it. */
 	const firstSent = new Map<string, number>();
 	world.onRequest((device, request, reply) => {
 		if (device !== 'ada' || request.type !== 'push' || reply.type !== 'answer') return;

@@ -32,10 +32,10 @@
  * - An acknowledged token is in a server text after every step, and at quiescence every owed token is
  * - Before it is acknowledged, a token is in a server text or on a surviving device; a lost device loses only what was never acknowledged
  * - A person's removal (a delete, or a rename's old path) makes the path absent on the server, by their commit or another's, unless it lost to an edit by someone else that it had not seen: then the edited file stays, and nothing typed is lost
- * - No stale edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block
+ * - No stale note edit merges silently across a delete: if the path was deleted, or created by someone else, since the commit's parent, the edit lands whole in a conflict block; a blob write lands in a merge only over the bytes its writer saw, or bytes equal to its own (compare-and-swap)
  * - Every server Markdown file parses and is at most 1 MB; hostile writes (forged author, non-member, oversized, unparseable, replayed id with other files, a flood of stale-parent commits) are refused or bounded
  * - At quiescence every device's mine and base equal the server's text for every path
- * - An agent's batch lands in one commit or is held whole: no commit on main brings some of a batch's tokens without the rest, nor without the blob saved with them (unless its writer since replaced it, or the bytes were already there: in the writer's base when it saved, or on main since)
+ * - An agent's batch lands in one commit or is held whole: no commit on main brings some of a batch's tokens without the rest, nor without the blob saved with them (unless its writer since replaced it, or the bytes were already there: in the writer's commit in flight there when it saved, else its base, or on main since)
  * - Blobs: the server's main never holds a pointer whose bytes it lacks at that size; no device sends a pointer before it marked its bytes present; at quiescence, with every upload completed or refused, every attach not replaced, deleted or discarded by its person landed
  *
  * Each suite reads its own environment, by prefix (B for the memory
@@ -219,7 +219,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		const commit = request.commit;
 		honestIds.push(commit.id);
 		for (const file of commit.files) for (const t of tokensIn(file.text)) acknowledged.add(t);
-		// No silent merge across a delete, judged by the test's own history.
+		// No silent merge across a delete, judged by the test's own history; a blob, which never merges, by compare-and-swap on its bytes.
 		const merge = lastMerge as Committed | null;
 		if (answer.kind !== 'merged' || merge === null || merge.parents[1] !== commit.id) return;
 		const from = chain.indexOf(commit.parent);
@@ -228,6 +228,11 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 			if (file.text === null || from < 0 || before < 0) continue;
 			const then = states.get(commit.parent)?.get(file.path) ?? null;
 			const ours = states.get(chain[before] ?? '')?.get(file.path) ?? null;
+			if (!file.path.endsWith('.md')) {
+				const landed = states.get(merge.id)?.get(file.path) === file.text;
+				if (landed && ours !== then && ours !== file.text) violations.push(`server: ${device}'s write of ${file.path} landed over bytes it had not seen`);
+				continue;
+			}
 			let deleted = false;
 			for (let i = from + 1; i <= before; i++) if (!states.get(chain[i] ?? '')?.has(file.path)) deleted = true;
 			// Two creates of the same text (two notes from the template) are one text: nothing to keep apart.
@@ -387,6 +392,24 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 				if (d.replica.read(path) === null) return null;
 				save(d, { [path]: null }, []);
 				return `${d.name} deletes ${path}`;
+			},
+		],
+		// Replace a blob `main` has, change back to `main`'s bytes, and replace it again with bytes not yet present, in three calls before any answer: `main`'s bytes, saved over the first replace in flight, are new again, and the last save sits over them (seeds 470249, 470282).
+		[
+			1,
+			(d) => {
+				const path = random.pick(BLOB_PATHS);
+				const base = d.replica.files().get(path)?.base ?? null;
+				const unmarked = (text: string) => !marked.get(d.name)?.has(parsePointer(text)?.oid ?? '');
+				if (base === null || d.replica.read(path) !== base || !unmarked(base)) return null;
+				const others = BYTES.map(writePointer).filter((text) => text !== base);
+				const pending = others.filter(unmarked);
+				if (pending.length === 0) return null;
+				const [first, last] = [random.pick(others), random.pick(pending)];
+				for (const text of [first, base, last]) save(d, { [path]: text }, []);
+				attaches.push({ device: d.name, path, text: last, settled: false });
+				const short = (text: string) => parsePointer(text)?.oid.slice(0, 1);
+				return `${d.name} replaces ${path} with ${short(first)}, back to ${short(base)}, then ${short(last)}`;
 			},
 		],
 		// The upload track, out of order: the server receives bytes; a device hears they are present (only once the server has them); an upload fails and will retry; an upload is refused.
@@ -615,8 +638,9 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		const blobPath = random.pick(BLOB_PATHS);
 		const pointer = writePointer(random.pick(BYTES));
 		const withBlob = random.chance(0.35) && agent.replica.read(blobPath) !== pointer;
-		// Bytes already in the agent's base there: the write sends nothing, so the batch owes no blob.
-		const sends = agent.replica.files().get(blobPath)?.base !== pointer;
+		// Bytes the server has there before this batch, as the agent knows it (its commit in flight there, else its base): the write sends nothing, so the batch owes no blob.
+		const flying = agent.replica.sent()?.files.find((file) => file.path === blobPath);
+		const sends = (flying === undefined ? agent.replica.files().get(blobPath)?.base : flying.text) !== pointer;
 		const first = paths[0] as string;
 		if (withBlob) {
 			changes[blobPath] = pointer;
@@ -631,7 +655,7 @@ async function run(seed: number, makeWorld: (options: WorldOptions) => PropertyW
 		return step;
 	};
 	/** The upload track's steps that act on one device (hearing bytes are present, a failed or refused upload), for the agent too. */
-	const trackSteps = blobSteps.slice(3);
+	const trackSteps = blobSteps.slice(4);
 	const agentSteps: [number, () => string | null | Promise<string | null>][] = [
 		[6, agentBatch],
 		...trackSteps.map(([weight, act]): [number, () => string | null | Promise<string | null>] => [weight, () => act(agent)]),
