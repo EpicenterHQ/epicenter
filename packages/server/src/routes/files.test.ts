@@ -467,6 +467,74 @@ describe('POST writes', () => {
 		).toBe('2');
 	});
 
+	test('a capture resent with other bytes is refused with the receipt of what landed (review finding 2)', async () => {
+		const repo = await repository();
+		const first = {
+			captureId: 'cap-edit',
+			files: [{ path: 'c/x.md', text: 'first take\n' }],
+		};
+		const landed = await repo.write(first);
+		expect(landed.status).toBe(200);
+		// The reply was lost; the person edited the still-pending note and the device resends under the same id.
+		const edited = await repo.write({
+			captureId: 'cap-edit',
+			files: [{ path: 'c/x.md', text: 'second take\n' }],
+		});
+		expect(edited.status).toBe(409);
+		const body = edited.body as unknown as {
+			error: string;
+			receipt: Receipt;
+		};
+		expect(body.error).toBe('CaptureMismatch');
+		// The original receipt: the device requeues its edit as an update over these blobs.
+		expect(body.receipt).toMatchObject({
+			commit: landed.body.commit,
+			paths: ['c/x.md'],
+			blobs: landed.body.blobs,
+			replayed: true,
+		});
+		expect(await repo.main()).toBe(landed.body.commit);
+		expect(await repo.show('c/x.md')).toBe('first take\n');
+		// That update lands as an ordinary write.
+		const update = await repo.write({
+			files: [
+				{
+					path: 'c/x.md',
+					base: body.receipt.blobs['c/x.md'] as string,
+					text: 'second take\n',
+				},
+			],
+		});
+		expect(update.body.outcomes[0]?.outcome).toBe('written');
+		expect(await repo.show('c/x.md')).toBe('second take\n');
+		// A matching replay still returns the stored receipt, while its commit is on main.
+		const replay = await repo.write(first);
+		expect(replay.status).toBe(200);
+		expect(replay.body).toMatchObject({
+			commit: landed.body.commit,
+			blobs: landed.body.blobs,
+			replayed: true,
+		});
+	});
+
+	test('a capture id reused for other paths is refused, and lands nothing', async () => {
+		const repo = await repository();
+		const morning = await repo.write({
+			captureId: 'cap-2026-10-31',
+			files: [{ path: 'c/morning.md', text: 'morning\n' }],
+		});
+		const reused = await repo.write({
+			captureId: 'cap-2026-10-31',
+			files: [{ path: 'c/evening.md', text: 'evening\n' }],
+		});
+		expect(reused.status).toBe(409);
+		expect(reused.body.error).toBe('CaptureMismatch');
+		expect(
+			(reused.body as unknown as { receipt: Receipt }).receipt.paths,
+		).toEqual(['c/morning.md']);
+		expect(await repo.main()).toBe(morning.body.commit);
+	});
+
 	test('a receipt whose commit left main lands the capture again (decision 50)', async () => {
 		const repo = await repository();
 		await repo.write({ files: [{ path: 'seed.md', text: 'seed\n' }] });

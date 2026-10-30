@@ -32,11 +32,20 @@
  *
  * The reply is the receipt `{ commit, paths, blobs, outcomes }`. A write
  * with a `captureId` moves `refs/epicenter/captures/<id>` with `main`, in
- * one transaction; a replay returns the original receipt while its commit
- * is still on `main`, and otherwise lands the capture again as a create
- * (decision 50), which is nothing when its files are already there.
+ * one transaction, and its commit records the request's fingerprint (each
+ * path and its content: `requestDigest`). While that commit is on `main`, a
+ * replay of the same files with the same content returns the original
+ * receipt, and a replay with other files or content (an edit made after a
+ * lost reply, an id reused) is refused, 409 `CaptureMismatch`, carrying the
+ * original receipt: the landed paths and their blob ids, over which the
+ * device sends its edit as an ordinary update. A capture whose commit left
+ * `main` lands again as a create (decision 50), which is nothing when its
+ * files are already there. A capture ref at a commit that records no
+ * fingerprint (a capture that changed nothing) is no receipt: the request
+ * runs as a write.
  */
 
+import { createHash } from 'node:crypto';
 import {
 	REPOSITORY_ATTRIBUTES,
 	storedWithLfs,
@@ -230,13 +239,41 @@ async function readText(
 		: null;
 }
 
-/** The receipt a capture's commit records, read back from its trailers. */
+/**
+ * A request's fingerprint: each path with its content (a text's Git blob
+ * id, an LFS object's oid and size, or a delete), in path order. Two
+ * requests with one fingerprint would land the same bytes at the same paths.
+ */
+export function requestDigest(files: FileWrite[]): string {
+	const lines = files
+		.map((file) => {
+			const content =
+				'delete' in file
+					? 'delete'
+					: 'lfs' in file
+						? `lfs ${file.lfs.oid} ${file.lfs.size}`
+						: `blob ${makeObject('blob', file.text).oid}`;
+			return `${file.path}\0${content}`;
+		})
+		.sort();
+	return createHash('sha256').update(lines.join('\n')).digest('hex');
+}
+
+/**
+ * The receipt a capture's commit records, read back from its trailers, with
+ * the fingerprint of the request that landed it; null when the commit
+ * records none.
+ */
 async function receiptOf(
 	objects: GitObjects,
 	commit: string,
-): Promise<Receipt | null> {
+): Promise<{ receipt: Receipt; digest: string } | null> {
 	const found = await readCommit(objects, commit);
 	if (!found) return null;
+	const digest = found.message.match(
+		/^Epicenter-Request: ([0-9a-f]{64})$/m,
+	)?.[1];
+	if (digest === undefined) return null;
 	const paths = [...found.message.matchAll(/^Epicenter-Path: (.+)$/gm)].map(
 		(m) => m[1] as string,
 	);
@@ -244,15 +281,18 @@ async function receiptOf(
 	for (const path of paths)
 		blobs[path] = (await lookup(objects, found.tree, path))?.oid ?? null;
 	return {
-		commit,
-		paths,
-		blobs,
-		outcomes: paths.map((path) => ({
-			path,
-			landed: path,
-			outcome: 'unchanged',
-		})),
-		replayed: true,
+		digest,
+		receipt: {
+			commit,
+			paths,
+			blobs,
+			outcomes: paths.map((path) => ({
+				path,
+				landed: path,
+				outcome: 'unchanged',
+			})),
+			replayed: true,
+		},
 	};
 }
 
@@ -302,6 +342,7 @@ export async function applyWrite({
 				);
 		}
 	const capture = request.captureId ? captureRef(request.captureId) : null;
+	const digest = capture === null ? null : requestDigest(request.files);
 
 	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
 		const refs = await objects.refs();
@@ -309,11 +350,21 @@ export async function applyWrite({
 		const receipt = capture ? refs.get(capture) : undefined;
 		if (
 			receipt !== undefined &&
+			digest !== null &&
 			main !== ZERO_OID &&
 			(await objects.isAncestor(receipt, main))
 		) {
 			const original = await receiptOf(objects, receipt);
-			if (original) return json(original);
+			if (original?.digest === digest) return json(original.receipt);
+			if (original)
+				return json(
+					{
+						error: 'CaptureMismatch',
+						message: `capture ${request.captureId} already landed other files or bytes; write the change as an update over the receipt's blobs`,
+						receipt: original.receipt,
+					},
+					409,
+				);
 		}
 		if (attempt === 1) await hold?.();
 		const root =
@@ -482,7 +533,10 @@ export async function applyWrite({
 				const trailers = [
 					...paths.map((p) => `Epicenter-Path: ${p}`),
 					...(request.captureId
-						? [`Epicenter-Capture: ${request.captureId}`]
+						? [
+								`Epicenter-Capture: ${request.captureId}`,
+								`Epicenter-Request: ${digest}`,
+							]
 						: []),
 				];
 				const commit = commitObject({
