@@ -18,7 +18,12 @@
  * - **`isAncestor`** walks parents from the descendant a level at a time, up
  *   to `MAX_WALK` commits, each a binding round trip. Beyond that it answers
  *   no; the translator then lands a replayed capture again as a create, which
- *   changes nothing when its files are still there.
+ *   changes nothing when its files are still there. The receiver asks it of
+ *   each stored commit its walk meets (`checkPushedTrees`); a pushed tip's
+ *   parent is `main` itself and answers at once, but a wrong no makes the
+ *   walk check commits `main` already reaches: never unsafe, only slower,
+ *   one walk per commit on a long side history. The binding's undocumented
+ *   `log()` (deployed spike 8) might replace this walk; it is not used.
  */
 import {
 	type ApplyOutcome,
