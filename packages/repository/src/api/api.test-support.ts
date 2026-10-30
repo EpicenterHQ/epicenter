@@ -39,9 +39,9 @@ function holding(inner: Host) {
 		if (wrapped === undefined) {
 			wrapped = {
 				...session,
-				change(changes, token, message) {
+				change(changes, token) {
 					// Applied now, in order, as the worker applies it; only its answer waits.
-					const answered = session.change(changes, token, message);
+					const answered = session.change(changes, token);
 					if (!holdingAnswers) return answered;
 					// A held answer that rejects (its session ended) is the caller's once released, not an unhandled rejection meanwhile.
 					answered.catch(() => {});

@@ -449,9 +449,8 @@ export function createServer({
 			if (!holds) return rejection('file-moved', head.id, [state(path)]);
 		}
 		const author = { user: session?.user ?? commit.author.user, device: commit.author.device };
-		const said = commit.message === undefined ? {} : { message: commit.message };
 		if (commit.parent === head.id) {
-			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false, ...said }, commit.files);
+			advance({ id: commit.id, parents: [commit.parent], author, time: commit.time, blocks: false }, commit.files);
 			return record(commit, 'applied', commit.id, base, spelled);
 		}
 
@@ -499,13 +498,11 @@ export function createServer({
 				at: clock(),
 				tree: trees.update(parentTree, commit.files.map((f) => [f.path.split('/'), f.text === null ? null : gitBlobHash(f.text)])),
 				blocks: false,
-				...said,
 			},
 			id,
 			commit.files,
 		);
-		// The merge that takes a commit with a message in carries it: it is the commit Git readers meet.
-		advance({ id, parents: [head.id, commit.id], author, time: mergeTime, blocks, ...said }, out);
+		advance({ id, parents: [head.id, commit.id], author, time: mergeTime, blocks }, out);
 		return record(commit, 'merged', id, base, spelled);
 	}
 

@@ -36,10 +36,10 @@ function sessionOver(page: PageServer, bytes: Bytes, alive: () => boolean): Sess
 		files: () => answer(() => page.files()),
 		waiting: () => answer(() => page.waiting()),
 		query: (sql, params) => answer(() => page.query(sql, params)),
-		change(changes, token, message) {
+		change(changes, token) {
 			if (!alive()) return ended();
 			// Applied when called, in order, as a worker applies messages in order; answered after the changes it made are heard.
-			const result = page.change(changes, token, message);
+			const result = page.change(changes, token);
 			return Promise.resolve().then(() => (alive() ? result : ended()));
 		},
 		watch(listener) {
@@ -49,7 +49,7 @@ function sessionOver(page: PageServer, bytes: Bytes, alive: () => boolean): Sess
 				}),
 			);
 		},
-		put: (blobs, changes, token, message) => (alive() ? bytes.put(blobs, changes, token, message).then((result) => (alive() ? result : ended())) : ended()),
+		put: (blobs, changes, token) => (alive() ? bytes.put(blobs, changes, token).then((result) => (alive() ? result : ended())) : ended()),
 		open: (path) => (alive() ? bytes.open(path).then((result) => (alive() ? result : ended())) : ended()),
 	};
 }

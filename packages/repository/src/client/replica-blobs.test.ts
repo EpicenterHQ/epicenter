@@ -7,21 +7,20 @@
  * bytes present. Owed is derived, never stored: a file whose text is a
  * pointer this device made, whose oid is neither present nor refused.
  *
- * A pointer joins the group of the call that saved it: a group goes in one
- * commit, so it waits for every byte it names and is held whole when any of
- * it is refused. Separate calls are separate groups.
+ * Each file goes on its own: an owed pointer waits alone for its bytes, and
+ * a refused upload or a blob write that lost holds only that pointer. A
+ * note saved with it never waits for it.
  *
  * Key behaviors:
- * - An owed pointer is never sent, nor the note saved with it in one call; both go in one commit once its bytes are present
- * - A batch of two notes and a new blob, with a delayed upload across typing elsewhere, lands as one commit
- * - A refused upload, or a blob write that lost on the server, holds the whole group it was saved with
- * - A person's separate attach never blocks a note: the note saved in its own call goes at once
+ * - An owed pointer waits alone for its bytes: the note saved with it goes at once, the pointer once its bytes are present
+ * - Two notes and a new blob saved at once, with a delayed upload across typing elsewhere: the notes land, merged with the typing, and the blob once uploaded
+ * - A refused upload, or a blob write that lost on the server, holds only its pointer, with why
+ * - A person's separate attach never blocks a note
  * - A pointer deleted before its upload sends nothing, and its bytes are no longer owed
  * - Two devices with the same bytes at one path: one upload, one file
  * - A refused upload holds every pointer naming those bytes, with the reason; a save of the path clears it, and saving the same bytes again owes them again
  * - Owed pointers survive a reopen, and count as busy and unsent
  * - A blob write over a blob that moved while its bytes were uploading is held with why, and never uploaded
- * - A blob refusal that no held text stands under (a later save over it took `main`'s blob) joins no calls, so a message lands in one commit
  */
 import { expect, test } from 'bun:test';
 import type { LiveCommit } from '../core/commit.js';
@@ -53,17 +52,18 @@ function setup(names = ['alice', 'bob']) {
 	return { world, alice, bob, settle, sent, pushed };
 }
 
-test('an owed pointer is never sent, nor the note saved with it in one call; both go in one commit once its bytes are present', () => {
+test('an owed pointer waits alone for its bytes: the note saved with it goes at once, the pointer once its bytes are present', () => {
 	const { world, alice, settle, sent, pushed } = setup();
 	alice.setOnline(false);
 	alice.replica.writeAll({ [NOTE]: note('', `title: R1\naudio: ${AUDIO}`), [AUDIO]: writePointer(a) });
 	expect(alice.replica.state(AUDIO)).toEqual(UPLOADING);
-	expect(alice.replica.state(NOTE)).toEqual({ status: 'sending', reason: `saved with ${AUDIO}, whose bytes are uploading` });
+	expect(alice.replica.state(NOTE)).toEqual({ status: 'sending' });
 	expect(alice.replica.owed()).toEqual([a]);
 	alice.setOnline(true);
 	settle();
-	expect(sent(NOTE) || sent(AUDIO)).toBe(false);
-	expect(world.server.read(NOTE)).toBeNull();
+	expect(sent(AUDIO)).toBe(false);
+	expect(world.server.read(NOTE)).not.toBeNull();
+	expect(alice.replica.state(NOTE)).toEqual({ status: 'synced' });
 	expect(alice.replica.busy()).toBe(true);
 	// The upload track: the bytes reach the server, then this device marks them present.
 	world.upload(a.oid, a.size);
@@ -71,13 +71,12 @@ test('an owed pointer is never sent, nor the note saved with it in one call; bot
 	expect(alice.replica.owed()).toEqual([]);
 	settle();
 	expect(world.server.read(AUDIO)).toBe(writePointer(a));
-	expect(world.server.read(NOTE)).not.toBeNull();
-	expect(pushed.map(({ commit }) => commit.files.map((f) => f.path).sort())).toEqual([[NOTE, AUDIO].sort()]);
+	expect(pushed.map(({ commit }) => commit.files.map((f) => f.path))).toEqual([[NOTE], [AUDIO]]);
 	for (const path of [NOTE, AUDIO]) expect(alice.replica.state(path)).toEqual({ status: 'synced' });
 });
 
-test('a batch of two notes and a new blob, with a delayed upload across typing elsewhere, lands as one commit', () => {
-	const { world, alice, bob, settle, pushed } = setup();
+test('two notes and a new blob saved at once, with a delayed upload across typing elsewhere: the notes land, merged with the typing, and the blob once uploaded', () => {
+	const { world, alice, bob, settle } = setup();
 	bob.replica.writeAll({ 'notes/one.md': note('one\n'), 'notes/two.md': note('two\n') });
 	settle();
 	alice.replica.writeAll({ 'notes/one.md': note('one\nagent\n'), 'notes/two.md': note('agent\ntwo\n'), [AUDIO]: writePointer(a) });
@@ -86,34 +85,34 @@ test('a batch of two notes and a new blob, with a delayed upload across typing e
 		bob.replica.edit('notes/one.md', (text) => `${text}${word}\n`);
 		settle();
 	}
+	expect(world.server.read('notes/two.md')).toBe(note('agent\ntwo\n'));
 	expect(world.server.read(AUDIO)).toBeNull();
 	world.upload(a.oid, a.size);
 	alice.replica.present(a.oid, a.size);
 	settle();
-	const mine = pushed.filter(({ device }) => device === 'alice').map(({ commit }) => commit.files.map((f) => f.path).sort());
-	expect(mine).toEqual([['notes/one.md', 'notes/two.md', AUDIO].sort()]);
 	for (const word of ['agent', 'x', 'y', 'z']) expect(world.server.read('notes/one.md')).toContain(`${word}\n`);
-	expect(world.server.read('notes/two.md')).toBe(note('agent\ntwo\n'));
 	expect(world.server.read(AUDIO)).toBe(writePointer(a));
 });
 
-test('a refused upload holds the whole group it was saved with; a save of the blob lets the rest go', () => {
+test('a refused upload holds only its pointer, with why; the note saved with it goes', () => {
 	const { world, alice, settle, sent } = setup();
 	alice.replica.writeAll({ [NOTE]: note('', `title: R1\naudio: ${AUDIO}`), [AUDIO]: writePointer(a) });
 	alice.replica.refused(a.oid, 'over the quota');
 	settle();
 	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'over the quota' });
-	expect(alice.replica.state(NOTE)).toEqual({ status: 'held', reason: `saved with ${AUDIO}, which is held` });
-	expect(sent(NOTE)).toBe(false);
-	// Its person drops the recording: the note goes.
+	expect(alice.replica.state(NOTE)).toEqual({ status: 'synced' });
+	expect(world.server.read(NOTE)).not.toBeNull();
+	expect(sent(AUDIO)).toBe(false);
+	// Its person drops the recording.
 	alice.replica.write(AUDIO, null);
 	settle();
-	expect(world.server.read(NOTE)).not.toBeNull();
+	expect(alice.replica.held()).toEqual([]);
 	expect(world.server.read(AUDIO)).toBeNull();
+	expect(alice.replica.busy()).toBe(false);
 });
 
-test('a blob write that lost on the server holds the whole group it was saved with', () => {
-	const { world, alice, bob, settle, sent } = setup();
+test('a blob write that lost on the server holds only itself; the note saved with it lands', () => {
+	const { world, alice, bob, settle } = setup();
 	world.upload(a.oid, a.size);
 	world.upload(b.oid, b.size);
 	for (const device of [alice, bob]) device.replica.present(b.oid, b.size);
@@ -126,12 +125,11 @@ test('a blob write that lost on the server holds the whole group it was saved wi
 	settle();
 	expect(world.server.read(AUDIO)).toBe(writePointer(b));
 	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
-	expect(alice.replica.state(NOTE)).toEqual({ status: 'held', reason: `saved with ${AUDIO}, which is held` });
-	expect(world.server.read(NOTE)).toBeNull();
-	expect(sent(NOTE) && world.server.read(NOTE) !== null).toBe(false);
+	expect(alice.replica.state(NOTE)).toEqual({ status: 'synced' });
+	expect(world.server.read(NOTE)).not.toBeNull();
 });
 
-test("a person's separate attach never blocks a note: the note saved in its own call goes at once", () => {
+test("a person's separate attach never blocks a note", () => {
 	const { world, alice, settle } = setup();
 	alice.replica.write(AUDIO, writePointer(a));
 	alice.replica.write(NOTE, note('', `title: R1\naudio: ${AUDIO}`));
@@ -218,35 +216,4 @@ test('a blob written elsewhere while this one uploads holds this one with why, a
 	expect(alice.replica.read(AUDIO)).toBe(writePointer(a));
 	expect(alice.replica.state(AUDIO)).toEqual({ status: 'held', reason: 'a file with this name was just added elsewhere' });
 	expect(alice.replica.owed()).toEqual([]);
-});
-
-test('a blob refusal that does not stand joins no calls: a message lands in one commit when a later save over its blob is dropped (seed 1300099)', () => {
-	const { world, alice, bob, settle } = setup();
-	const c = { oid: 'c'.repeat(64), size: 10 };
-	/** Alice's commits the server took, in order. */
-	const landed: LiveCommit[] = [];
-	world.onRequest((device, request, reply) => {
-		if (device === 'alice' && request.type === 'push' && reply.type === 'answer' && (reply.answer.kind === 'applied' || reply.answer.kind === 'merged')) landed.push(request.commit);
-	});
-	for (const bytes of [a, b, c]) world.upload(bytes.oid, bytes.size);
-	for (const device of [alice, bob]) for (const bytes of [a, b, c]) device.replica.present(bytes.oid, bytes.size);
-	alice.replica.write(AUDIO, writePointer(b));
-	settle();
-	landed.length = 0;
-	alice.setOnline(false);
-	// A call with a message, then a later save without one over its blob: the later save waits for that commit.
-	alice.replica.writeAll({ [NOTE]: note('said\n'), [AUDIO]: writePointer(a) }, { message: 'Said' });
-	alice.replica.writeAll({ [AUDIO]: null, 'recordings/r2.webm': writePointer(a) });
-	// Someone replaces the blob; alice catches up before she sends: the message's write is refused there, and the later delete over it is dropped.
-	bob.replica.write(AUDIO, writePointer(c));
-	settle();
-	alice.restart();
-	alice.setOnline(true);
-	settle();
-	expect(landed.map((commit) => [commit.message ?? null, commit.files.map((f) => f.path).sort()])).toEqual([
-		['Said', [NOTE]],
-		[null, ['recordings/r2.webm']],
-	]);
-	expect(alice.replica.read(AUDIO)).toBe(writePointer(c));
-	expect(alice.replica.busy()).toBe(false);
 });

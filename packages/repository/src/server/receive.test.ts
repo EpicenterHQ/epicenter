@@ -67,8 +67,8 @@ async function world() {
 }
 
 /** A live save by `session` on `parent` (main by default). */
-function save(server: Server, session: Session, files: CommitFile[], { parent = server.main(), message }: { parent?: string; message?: string } = {}) {
-	const body = { parent, author: { user: session.user, device: 'laptop' }, time: new Date(EPOCH).toISOString(), files, ...(message === undefined ? {} : { message }) };
+function save(server: Server, session: Session, files: CommitFile[], { parent = server.main() }: { parent?: string } = {}) {
+	const body = { parent, author: { user: session.user, device: 'laptop' }, time: new Date(EPOCH).toISOString(), files };
 	return server.push({ id: commitId(body), ...body }, session);
 }
 
@@ -256,7 +256,7 @@ describe('a push behind live main', () => {
 });
 
 describe('history', () => {
-	test('conflict cuts and a labelled commit made before the push stay in Git; the push overlapping a note merges into a block', async () => {
+	test('conflict cuts made before the push stay in Git; the push overlapping a note merges into a block', async () => {
 		const { server, git, store, path, old, open } = await flushedWorld();
 		const base = server.main();
 		expect(save(server, alice, [{ path: 'notes/a.md', text: note('two\n') }])).toMatchObject({ kind: 'applied' });
@@ -264,7 +264,7 @@ describe('history', () => {
 		const blocked = server.read('notes/a.md') as string;
 		expect(findConflicts(blocked)).toHaveLength(1);
 		expect(save(server, alice, [{ path: 'notes/a.md', text: note('two\nthree\n') }])).toMatchObject({ kind: 'applied' });
-		expect(save(server, bob, [{ path: 'notes/b.md', text: note('b, labelled\n') }], { message: 'Bob labels b' })).toMatchObject({ kind: 'applied' });
+		expect(save(server, bob, [{ path: 'notes/b.md', text: note('b\n') }])).toMatchObject({ kind: 'applied' });
 
 		// The push changes a.md's line (which people changed too) and adds an independent file; a save lands during its checks.
 		const next = await commitOn(git, old, { 'notes/a.md': note('one, pushed\n'), 'notes/c.md': note('c\n') });
@@ -293,7 +293,6 @@ describe('history', () => {
 		const texts = await Promise.all([...all.keys()].map((oid) => textsAt(git, oid)));
 		// The block bob's stale edit wrote is a Git commit of its own, on the side chain.
 		expect(texts.some((t) => t.get('notes/a.md') === blocked)).toBe(true);
-		expect([...all.values()].some((info) => info.message.startsWith('Bob labels b\n'))).toBe(true);
 		const graph = graphOf(path);
 		expect(graph).toContain('Merge live edits into');
 	});
@@ -399,20 +398,24 @@ describe('a join waiting past the window', () => {
 
 describe('a flush', () => {
 	test('makes the same few Git requests however many commits it writes, one of them the pack', async () => {
-		const requests = async (labelled: number) => {
+		const requests = async (blocked: number) => {
 			const { git, open, old } = await flushedWorld();
 			const calls: string[] = [];
 			const counted = Object.fromEntries(
 				Object.entries(git).map(([name, fn]) => [name, (...args: unknown[]) => (calls.push(name), (fn as (...a: unknown[]) => unknown)(...args))]),
 			) as unknown as GitObjects;
 			const server = open(undefined, counted);
-			// Each labelled save is a Git commit of its own; a merged push adds a side chain and a join.
-			for (let i = 0; i < labelled; i++) expect(save(server, bob, [{ path: `notes/n${i}.md`, text: note(`${i}\n`) }], { message: `label ${i}` })).toMatchObject({ kind: 'applied' });
+			// Each merge that writes a conflict block is a Git commit of its own; a merged push adds a side chain and a join.
+			for (let i = 0; i < blocked; i++) {
+				const base = server.main();
+				expect(save(server, alice, [{ path: `notes/n${i}.md`, text: note('a\n') }])).toMatchObject({ kind: 'applied' });
+				expect(save(server, bob, [{ path: `notes/n${i}.md`, text: note('b\n') }], { parent: base })).toMatchObject({ kind: 'merged' });
+			}
 			const next = await commitOn(git, old, { 'agent/log.md': note('step 1\n') });
 			expect(await receive(server, old, next)).toMatchObject({ kind: 'accepted', merged: true });
 			calls.length = 0;
 			const flushed = await server.flush();
-			expect(flushed.kind === 'flushed' && flushed.commits.length).toBeGreaterThan(labelled);
+			expect(flushed.kind === 'flushed' && flushed.commits.length).toBeGreaterThan(blocked);
 			return calls;
 		};
 		const few = await requests(1);

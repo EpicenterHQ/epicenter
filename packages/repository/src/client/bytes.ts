@@ -2,7 +2,7 @@
  * A replica's blobs as a page reaches them, wherever the replica runs (a
  * browser's worker, or the same process in Bun): `put` seals bytes into
  * this device's store and only then stores the pointer (with any other
- * changes of the same call, in one transaction: one group), and `open` answers
+ * changes of the same call, in one transaction), and `open` answers
  * a blob's bytes from this device, or downloads, verifies and seals them
  * first. One path for every size: the bytes are a `Blob` the store reads as
  * a stream, never a buffer.
@@ -11,9 +11,9 @@
  * `settlePointer`): a create expects no file at the path, a replace
  * expects one, and the replica's next commit names the blob it saw, so the
  * server takes it only if that is still there. A put is refused at once,
- * before anything is sealed, for bytes past the server's blob limit. What a
- * put stores is one group: its pointers and its other changes go in one
- * commit, once every byte is on the server, or not at all.
+ * before anything is sealed, for bytes past the server's blob limit. Each
+ * file a put stores goes on its own: a pointer waits alone until its bytes
+ * are on the server, and the other changes do not wait for it.
  *
  * Nothing evicts yet: owed bytes must stay until the server holds them, so
  * an eviction policy (a later phase) must skip every oid the replica owes.
@@ -92,10 +92,10 @@ export function serveBytes({
 	return {
 		/**
 		 * Seal each blob, then store a pointer to it at its path together with
-		 * `changes`, in one change made with `token`: one group. Nothing is
+		 * `changes`, in one change made with `token`. Nothing is
 		 * stored unless every blob was sealed and every change applies.
 		 */
-		async put(blobs: BlobPut[], changes: Change[] = [], token?: number, message?: string): Promise<Result<Put, PutError>> {
+		async put(blobs: BlobPut[], changes: Change[] = [], token?: number): Promise<Result<Put, PutError>> {
 			const misplaced = (path: string, replace: boolean) => ((replica.read(path) !== null) === replace ? null : replace ? BlobError.NotFound({ path }) : BlobError.Exists({ path }));
 			const limit = replica.blobLimit();
 			for (const { path, blob, replace } of blobs) {
@@ -116,7 +116,7 @@ export function serveBytes({
 				if (refusal !== null) return refusal;
 			}
 			const pointers = blobs.map(({ path }): Change => ({ kind: 'write', path, text: writePointer(sealed[path] as Sealed) }));
-			const changed = replica.change([...changes, ...pointers], token, message);
+			const changed = replica.change([...changes, ...pointers], token);
 			if (changed.error !== null) return changed;
 			return Ok({ ...changed.data, sealed });
 		},

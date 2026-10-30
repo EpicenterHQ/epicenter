@@ -72,7 +72,7 @@ function connect(replica: Replica, server: Server) {
 
 const bytes = (commit: LiveCommit) => new TextEncoder().encode(JSON.stringify(commit)).length;
 
-test("commits fit the server's bounds from the hello: saves split into several, a group saved together kept whole", () => {
+test("commits fit the server's bounds from the hello: saves split into several", () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));
 	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
@@ -86,43 +86,12 @@ test("commits fit the server's bounds from the hello: saves split into several, 
 	link.deliver();
 	expect(link.pushes.length).toBeGreaterThan(2);
 	for (const commit of link.pushes) expect(bytes(commit)).toBeLessThanOrEqual(3_000);
-	const together = link.pushes.find((commit) => commit.files.some((f) => f.path === 'notes/e.md'));
-	expect(together?.files.map((f) => f.path).sort()).toEqual(['notes/e.md', 'notes/f.md']);
 	expect(replica.held()).toEqual([]);
 	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
 	expect(replica.busy()).toBe(false);
 });
 
-test('saves made in a batch keep their own groups and are cut once, as the same commit saves made one by one make', () => {
-	const each = (batched: boolean) => {
-		const server = createTestServer();
-		const replica = unwrap(open(openBunSqlite()));
-		expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-		const link = connect(replica, server);
-		link.deliver();
-		replica.attach(null);
-		const before = replica.stats().commits;
-		const save = () => {
-			replica.writeAll({ 'notes/a.md': note('a\n') });
-			replica.writeAll({ 'notes/b.md': note('b\n'), 'notes/c.md': note('c\n') });
-			replica.writeAll({ 'notes/d.md': note('d\n') });
-		};
-		if (batched) replica.batch(save);
-		else save();
-		const cuts = replica.stats().commits - before;
-		replica.attach(link.sent.push.bind(link.sent));
-		link.deliver();
-		return { cuts, pushed: link.pushes.map((commit) => commit.files.map((f) => f.path).sort()), server: server.snapshot() };
-	};
-	const one = each(false);
-	const batched = each(true);
-	expect(one.cuts).toBe(3);
-	expect(batched.cuts).toBe(1);
-	expect(batched.pushed).toEqual(one.pushed);
-	expect(batched.server).toEqual(one.server);
-});
-
-test('a commit rejected as too large is split between groups; a group too large alone is held whole, its text kept, until less is saved', () => {
+test('a commit rejected as too large is split in half; one file too large alone is held with why, its text kept, and the rest goes', () => {
 	const server = createTestServer({ limits: { request: 3_000 } });
 	const replica = unwrap(open(openBunSqlite()));
 	const link = connect(replica, server);
@@ -133,25 +102,17 @@ test('a commit rejected as too large is split between groups; a group too large 
 	link.deliver();
 	expect(replica.held()).toEqual([]);
 	expect(server.read('notes/d.md')).toBe(note(`${'d'.repeat(900)}\n`));
-	const big = { 'notes/x.md': note(`${'x'.repeat(1_600)}\n`), 'notes/y.md': note(`${'y'.repeat(1_600)}\n`) };
-	replica.writeAll(big);
+	// Saved together: x is too large to go even alone, y is not.
+	const big = note(`${'x'.repeat(3_200)}\n`);
+	replica.writeAll({ 'notes/x.md': big, 'notes/y.md': note('y\n') });
 	link.deliver();
-	const reason = 'request too large: what was saved together goes together; save less at once';
-	expect(replica.held().map((h) => [h.path, h.reason])).toEqual([
-		['notes/x.md', reason],
-		['notes/y.md', reason],
-	]);
-	expect(replica.read('notes/x.md')).toBe(big['notes/x.md']);
-	// Saved again alone, x still waits with y: the group is never split.
-	replica.write('notes/x.md', big['notes/x.md']);
+	expect(replica.held()).toEqual([{ path: 'notes/x.md', reason: 'request too large' }]);
+	expect(replica.read('notes/x.md')).toBe(big);
+	expect(server.read('notes/y.md')).toBe(note('y\n'));
+	// Saved smaller, x goes.
+	replica.write('notes/x.md', note('x\n'));
 	link.deliver();
-	expect(server.read('notes/x.md')).toBeNull();
-	expect(replica.state('notes/x.md')).toEqual({ status: 'held', reason: 'saved with notes/y.md, which is held' });
-	// Less saved: y dropped, x goes.
-	replica.write('notes/y.md', null);
-	link.deliver();
-	expect(server.read('notes/x.md')).toBe(big['notes/x.md']);
-	expect(server.read('notes/y.md')).toBeNull();
+	expect(server.read('notes/x.md')).toBe(note('x\n'));
 	expect(replica.held()).toEqual([]);
 });
 
@@ -423,14 +384,14 @@ test('a database made before the fold column opens, the column filled from each 
 	expect(replica.query('SELECT body FROM "epicenter/files"')).toEqual([{ body: 'one\n' }]);
 });
 
-test('a file with nothing left to send leaves its group: a later hold on it never stops what was saved with it', () => {
+test('a held file holds only itself: what was saved with it goes', () => {
 	const server = createTestServer();
 	const replica = unwrap(open(openBunSqlite()));
 	const link = connect(replica, server);
 	link.deliver();
 	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\n') });
 	link.deliver();
-	// One call saves a with nothing changed and b changed, offline: a has nothing to send, so it is in no group.
+	// One save of a with nothing changed and b changed, offline.
 	replica.attach(null);
 	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\nmore\n') });
 	// A later save of a alone that the door refuses holds a, and only a.
@@ -440,139 +401,4 @@ test('a file with nothing left to send leaves its group: a later hold on it neve
 	replica.attach(link.sent.push.bind(link.sent));
 	link.deliver();
 	expect(server.read('notes/b.md')).toBe(note('b\nmore\n'));
-});
-
-test('a call saved with a message is a commit alone that carries it, never amended: a later save of its file goes in a commit after it', () => {
-	const server = createTestServer();
-	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-	const link = connect(replica, server);
-	link.deliver();
-	replica.attach(null);
-	replica.write('notes/live.md', note('live\n'));
-	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\n') }, { message: 'Summarize October' });
-	// Saved again offline: the commit with the message keeps what it said.
-	replica.write('notes/a.md', note('a again\n'));
-	replica.attach(link.sent.push.bind(link.sent));
-	link.deliver();
-	expect(link.pushes.map((commit) => [commit.message ?? null, commit.files.map((f) => f.path).sort()])).toEqual([
-		[null, ['notes/live.md']],
-		['Summarize October', ['notes/a.md', 'notes/b.md']],
-		[null, ['notes/a.md']],
-	]);
-	expect(link.pushes[1]?.files.find((f) => f.path === 'notes/a.md')?.text).toBe(note('a\n'));
-	expect(server.read('notes/a.md')).toBe(note('a again\n'));
-	expect(replica.busy()).toBe(false);
-	// Every call's work is done: no file is in one.
-	expect(replica.query('SELECT path FROM "epicenter/files" WHERE call IS NOT NULL UNION SELECT path FROM "epicenter/unsent"')).toEqual([]);
-});
-
-test('a group held with a message keeps it, and its writer saving the held file again sends the whole group once, with the newest message', () => {
-	const server = createTestServer();
-	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-	const link = connect(replica, server);
-	link.deliver();
-	replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/bad.md': '---\ntitle: [\n---\n' }, { message: 'First try' });
-	link.deliver();
-	expect(replica.held().map((h) => h.path)).toEqual(['notes/bad.md']);
-	expect(replica.state('notes/a.md')).toEqual({ status: 'held', reason: 'saved with notes/bad.md, which is held' });
-	expect(server.read('notes/a.md')).toBeNull();
-	replica.writeAll({ 'notes/bad.md': note('fixed\n') }, { message: 'Second try' });
-	link.deliver();
-	expect(link.pushes.map((commit) => [commit.message, commit.files.map((f) => f.path).sort()])).toEqual([['Second try', ['notes/a.md', 'notes/bad.md']]]);
-	expect(replica.held()).toEqual([]);
-	expect(replica.busy()).toBe(false);
-});
-
-test('a commit with a message that comes back unsent (a lost answer, then outcome unknown) goes again with its message', () => {
-	const server = createTestServer();
-	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-	const link = connect(replica, server);
-	link.deliver();
-	replica.writeAll({ 'notes/a.md': note('a\n') }, { message: 'Said once' });
-	const [push] = link.sent.splice(0);
-	expect(push?.type).toBe('push');
-	// The server never saw it, and says it cannot tell (its parent left the window).
-	if (push?.type === 'push') replica.reply({ type: 'answer', rid: push.rid, answer: { kind: 'outcome-unknown', main: server.main() } });
-	link.deliver();
-	expect(link.pushes.map((commit) => commit.message)).toEqual(['Said once']);
-	expect(server.read('notes/a.md')).toBe(note('a\n'));
-});
-
-test('a save with a message over an unsent commit without one amends it, and the commit carries the message', () => {
-	const server = createTestServer();
-	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-	const link = connect(replica, server);
-	link.deliver();
-	replica.attach(null);
-	replica.write('notes/a.md', note('live\n'));
-	replica.writeAll({ 'notes/a.md': note('live\nsaid\n') }, { message: 'Say it' });
-	replica.attach(link.sent.push.bind(link.sent));
-	link.deliver();
-	expect(link.pushes.map((commit) => [commit.message, commit.files.map((f) => f.text)])).toEqual([['Say it', [note('live\nsaid\n')]]]);
-});
-
-test('a call reports its own outcome: pending until sent, landed in its commit, or held by its own file; an earlier held call never touches it', () => {
-	const server = createTestServer();
-	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-	const link = connect(replica, server);
-	link.deliver();
-	replica.attach(null);
-	const held = replica.writeAll({ 'notes/bad.md': '---\ntitle: [\n---\n' }, { message: 'Broken' }).call;
-	const good = replica.writeAll({ 'notes/a.md': note('a\n'), 'notes/b.md': note('b\n') }, { message: 'Two notes' }).call;
-	expect(replica.outcome(held)).toEqual({ kind: 'held', held: [{ path: 'notes/bad.md', reason: 'does not parse' }] });
-	expect(replica.outcome(good)).toEqual({ kind: 'pending', commit: null });
-	replica.attach(link.sent.push.bind(link.sent));
-	const sending = replica.outcome(good);
-	expect(sending).toEqual({ kind: 'pending', commit: replica.sent()?.id ?? 'none' });
-	link.deliver();
-	expect(replica.outcome(good)).toEqual({ kind: 'landed', commit: link.pushes.at(-1)?.id ?? 'none', conflicts: [], kept: [] });
-	expect(link.pushes.at(-1)?.message).toBe('Two notes');
-	// Fixing the held file joins its call: the earlier id now reports the call it joined.
-	const fixed = replica.writeAll({ 'notes/bad.md': note('fixed\n') }, { message: 'Fixed' }).call;
-	link.deliver();
-	expect(replica.outcome(held)).toEqual(replica.outcome(fixed));
-	expect(replica.outcome(fixed)).toMatchObject({ kind: 'landed', commit: link.pushes.at(-1)?.id });
-	expect(link.pushes.at(-1)?.message).toBe('Fixed');
-});
-
-test("a call's outcome names a delete that did not take and the paths where a merge wrote conflict blocks", () => {
-	const server = createTestServer();
-	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-	const link = connect(replica, server);
-	link.deliver();
-	replica.write('notes/a.md', note('one\n'));
-	replica.write('notes/b.md', note('one\n'));
-	link.deliver();
-	replica.attach(null);
-	// Offline: a delete of a.md and an edit of b.md's line, while someone else edits both.
-	const call = replica.writeAll({ 'notes/a.md': null, 'notes/b.md': note('mine\n') }).call;
-	const other = server.main();
-	const theirs = { parent: other, author: { user: 'bob', device: 'b' }, time: STAMP, files: [{ path: 'notes/a.md', text: note('one\nbob\n') }, { path: 'notes/b.md', text: note('theirs\n') }] };
-	expect(server.push({ id: commitId(theirs), ...theirs }, writer('bob')).kind).toBe('applied');
-	replica.attach(link.sent.push.bind(link.sent));
-	for (let round = 0; round < 4; round++) link.deliver();
-	const outcome = replica.outcome(call);
-	expect(outcome).toMatchObject({ kind: 'landed', kept: ['notes/a.md'], conflicts: ['notes/b.md'] });
-	expect(replica.read('notes/a.md')).toBe(note('one\nbob\n'));
-	expect(findConflicts(replica.read('notes/b.md') ?? '')).toHaveLength(1);
-});
-
-test('a call that joined a held call keeps reporting it, however many calls come after', () => {
-	const server = createTestServer();
-	const replica = unwrap(open(openBunSqlite()));
-	expectOk(replica.hello({ ...BINDING, server: SERVER, main: server.main(), user: 'alice', limits: server.sizing() }));
-	const link = connect(replica, server);
-	link.deliver();
-	replica.attach(null);
-	const first = replica.writeAll({ 'notes/bad.md': '---\ntitle: [\n---\n' }, { message: 'First try' }).call;
-	// Saved again, still broken: the first call joins the second, which is held.
-	replica.writeAll({ 'notes/bad.md': '---\ntitle: ]\n---\n' }, { message: 'Second try' });
-	for (let n = 0; n < 4_400; n++) replica.write('notes/busy.md', note(`${n}\n`));
-	expect(replica.outcome(first)).toEqual({ kind: 'held', held: [{ path: 'notes/bad.md', reason: 'does not parse' }] });
 });
