@@ -61,7 +61,7 @@ README and build or start the app with `VITE_EPICENTER_SERVER` set to it.
 ## Tests
 
 ```sh
-bun run --cwd apps/recorder-demo test         # unit tests: format, list merge, save and rename
+bun run --cwd apps/recorder-demo test         # unit tests: format, list merge, save
 bun run --cwd apps/recorder-demo typecheck
 bun x playwright test -c apps/recorder-demo/playwright.config.ts                    # both engines
 bun x playwright test -c apps/recorder-demo/playwright.config.ts --project=webkit   # one
@@ -73,6 +73,8 @@ record signed out; sign in and upload, with the first reply lost so the
 browser must keep its files until a receipt arrives; clone and
 `git lfs pull` on the desktop, comparing the audio's sha256 and running
 `epicenter check`; a desktop title edit shown on the web; and a web rename
-racing a desktop edit of other fields, both kept. Chromium records from its
+over a note the desktop changed meanwhile, which the client refuses as
+`Conflict`: the row keeps the draft, and saving again lands it beside the
+desktop's edit. Chromium records from its
 fake capture device and WebKit from the tone; both use persistent profiles,
 the only kind in which WebKit opens OPFS.

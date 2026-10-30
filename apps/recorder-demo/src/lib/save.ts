@@ -1,8 +1,8 @@
 /**
- * The demo's two writes, kept out of the components so they can be tested
- * against a real device client.
+ * The demo's save of a recording, kept out of the components so it can be
+ * tested against a real device client.
  */
-import type { Client, Version } from '@epicenter/definition/contract';
+import type { Client } from '@epicenter/definition/contract';
 import { outboxOf } from '@epicenter/folder/browser';
 import type { Recorder } from '../contract.ts';
 
@@ -40,31 +40,4 @@ export async function saveRecording(
 			{ collection: 'recordings', ...note.data },
 		],
 	});
-}
-
-/**
- * Rename a recording, over the version the person saw. The patch names only
- * `title`, so when the note changed meanwhile (a desktop edit of another
- * field) it is applied again over the current version: both edits stay, and
- * of two titles the later arrival wins, as on the server (decision 28).
- */
-export async function renameRecording(
-	client: Client<Recorder>,
-	{ id, title, over }: { id: string; title: string; over: Version },
-) {
-	let version = over;
-	for (let attempt = 1; ; attempt++) {
-		const updated = await client.recordings.update(
-			{ id },
-			{ title },
-			{ over: version },
-		);
-		if (
-			updated.error?.name !== 'Conflict' ||
-			updated.error.current === null ||
-			attempt === 3
-		)
-			return updated;
-		version = updated.error.current;
-	}
 }

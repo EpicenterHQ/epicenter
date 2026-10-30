@@ -6,7 +6,7 @@ import { timeId } from '@epicenter/definition/ids';
 import { openDevice, outboxOf } from '@epicenter/folder/node';
 import { expectOk } from 'wellcrafted/testing';
 import { recorder } from '../contract.ts';
-import { renameRecording, saveRecording } from './save.ts';
+import { saveRecording } from './save.ts';
 
 const scratch = await mkdtemp(join(tmpdir(), 'recorder-demo-'));
 afterAll(() => rm(scratch, { recursive: true, force: true }));
@@ -43,39 +43,4 @@ test('a saved recording is its audio, its note and one capture naming both', asy
 		title: 'Standup',
 		durationMs: 1500,
 	});
-});
-
-test('a rename over a note changed since it was read keeps the other change', async () => {
-	const { device: opened } = await device();
-	const id = timeId();
-	expectOk(await saveRecording(opened, recording(id)));
-	const seen = expectOk(await opened.recordings.get({ id }));
-	// Someone else changes another field after the person read the note.
-	expectOk(
-		await opened.recordings.update(
-			{ id },
-			{ durationMs: 4242 },
-			{ over: seen.version },
-		),
-	);
-
-	const renamed = expectOk(
-		await renameRecording(opened, { id, title: 'Retro', over: seen.version }),
-	);
-	expect(renamed).toMatchObject({ title: 'Retro', durationMs: 4242 });
-});
-
-test('a rename of a deleted note is a conflict, not a re-creation', async () => {
-	const { device: opened } = await device();
-	const id = timeId();
-	expectOk(await saveRecording(opened, recording(id)));
-	const seen = expectOk(await opened.recordings.get({ id }));
-	expectOk(await opened.recordings.delete({ id }, { over: seen.version }));
-
-	const renamed = await renameRecording(opened, {
-		id,
-		title: 'Gone',
-		over: seen.version,
-	});
-	expect(renamed.error?.name).toBe('Conflict');
 });

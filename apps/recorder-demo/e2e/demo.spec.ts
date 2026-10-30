@@ -11,8 +11,9 @@
  *    recorded, and `epicenter check` passes against the published contract.
  * 4. A title edited on the desktop and synced shows on the web after a
  *    reload.
- * 5. A web rename and a desktop edit of other fields race on one note: both
- *    land.
+ * 5. A web rename over a note the desktop changed meanwhile is refused as
+ *    `Conflict`; the draft stays, and saving again lands it beside the
+ *    desktop's edit.
  */
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -299,7 +300,7 @@ test('4. a title edited on the desktop shows on the web', async ({
 	);
 });
 
-test('5. a web rename and a desktop edit of other fields race, and both land', async ({
+test('5. a web rename over a desktop edit is refused, keeps its draft, and both land on a second save', async ({
 	stack,
 	person,
 }) => {
@@ -313,15 +314,19 @@ test('5. a web rename and a desktop edit of other fields race, and both land', a
 	const title = row('repository').getByLabel('Title');
 	await title.fill('Web title');
 
-	await Promise.all([
-		(async () => {
-			await row('repository')
-				.getByRole('button', { name: 'Save title' })
-				.click();
-			await expect(row('repository').getByTestId('status')).toHaveText('Saved');
-		})(),
-		sync(stack, person, clone),
-	]);
+	// The desktop's edit lands first, so the title the web shows is stale.
+	await sync(stack, person, clone);
+	const status = row('repository').getByTestId('status');
+	const save = row('repository').getByRole('button', { name: 'Save title' });
+	await save.click();
+	// The client refuses a write over a note that moved since it was read
+	// (`Conflict`); the row says so, shows the note as it is now, and keeps
+	// the draft, so saving again writes the title over that version.
+	await expect(status).toHaveText(/^Changed elsewhere/);
+	await expect(title).toHaveValue('Web title');
+	await expect(row('repository').getByTestId('duration')).toHaveText('4.2 s');
+	await save.click();
+	await expect(status).toHaveText('Saved');
 
 	// The desktop brings in whatever landed after its own push.
 	await sync(stack, person, clone);

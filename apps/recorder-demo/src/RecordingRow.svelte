@@ -2,7 +2,6 @@
 	import { onDestroy } from 'svelte';
 	import { getDevice, getRemote } from './lib/context.ts';
 	import type { RecordingRow } from './lib/recordings.ts';
-	import { renameRecording } from './lib/save.ts';
 
 	const {
 		row,
@@ -43,11 +42,18 @@
 		event.preventDefault();
 		if (!row.note || draft === null) return;
 		status = 'Saving…';
-		const renamed = await renameRecording(client, {
-			id: row.id,
-			title: draft,
-			over: row.note.version,
-		});
+		const renamed = await client.recordings.update(
+			{ id: row.id },
+			{ title: draft },
+			{ over: row.note.version },
+		);
+		if (renamed.error?.name === 'Conflict' && renamed.error.current !== null) {
+			// The note moved since it was read. Show it as it is now and keep
+			// the draft: saving again writes the title over that version.
+			await onchange();
+			status = 'Changed elsewhere; your title is kept. Save again to apply it.';
+			return;
+		}
 		if (renamed.error !== null) {
 			status = renamed.error.message;
 			return;
