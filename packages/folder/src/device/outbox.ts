@@ -8,15 +8,19 @@
  * the files it names, so it survives a reload and a crash:
  *
  * ```json
- * { "id": "…", "paths": { "recordings/x.md": "<sha256>" }, "state": "pending", "receipt": null }
+ * { "id": "…", "paths": { "recordings/x.md": "<sha256>" }, "bases": {}, "state": "pending", "receipt": null }
  * ```
  *
  * `paths` holds each file's path and the version the device held when the
- * capture was recorded. The upload (phase 5) sends a capture as one write
- * carrying its id, records the server's receipt here (`acknowledge`), and
- * only then deletes the device's copies (`finish`), each only at its
- * recorded version, so an edit made since survives. A resend after a lost
- * reply carries the same id, and the server answers with the first receipt.
+ * capture was recorded; `bases`, for a file the server already holds, the
+ * Git blob id there it replaces. The upload (`startUploading` in
+ * `@epicenter/folder/remote`) sends a capture as one write carrying its id,
+ * records the server's receipt here (`acknowledge`), and only then deletes
+ * the device's copies (`finish`), each only at its recorded version and
+ * only when the receipt shows those bytes landed. A resend after a lost
+ * reply carries the same id, and the server answers with the first
+ * receipt; a file edited since, or not on the server as the device holds
+ * it, goes back in the outbox as an update over what landed.
  *
  * The sidecars are the device's own: hidden, so no collection claims them
  * and `epicenter check` skips them.
@@ -27,8 +31,11 @@ import {
 	type CompiledContract,
 	type Contract,
 	type PlaceholdersOf,
+	storedWithLfs,
 	type Version,
 } from '@epicenter/definition/contract';
+import { timeId } from '@epicenter/definition/ids';
+import { gitBlobHash, writePointer } from '@epicenter/definition/merge';
 import {
 	defineErrors,
 	type InferError,
@@ -44,13 +51,25 @@ export const OUTBOX_DIRECTORY = '.epicenter/outbox';
 export type Receipt = {
 	commit: string;
 	paths: string[];
+	/** The Git blob id that landed at each path. */
 	blobs: Record<string, string>;
+	/**
+	 * The server answered a resend with the receipt of the capture's first
+	 * landing, which may hold other bytes than the ones resent.
+	 */
+	replayed?: boolean;
 };
 
 /** One capture: the files it holds, at the versions recorded, and how far its upload got. */
 export type Capture = {
 	id: string;
 	paths: Record<string, Version>;
+	/**
+	 * For a file the server already holds, the Git blob id there that this
+	 * capture's version replaces: an edit kept after an earlier capture of
+	 * it landed. A path without a base is new to the server.
+	 */
+	bases: Record<string, string>;
 	/** `pending` until the server's receipt is recorded, then `acknowledged`. */
 	state: 'pending' | 'acknowledged';
 	receipt: Receipt | null;
@@ -79,8 +98,11 @@ type Conflict = InferError<typeof ClientError.Conflict>;
 type Invalid = InferError<typeof ClientError.Invalid>;
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
-/** A capture id: one path segment, safe on every disk, as `timeId()` makes. */
-const CAPTURE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,199}$/;
+/**
+ * A capture id: one path segment, safe on every disk, at most 64 characters
+ * (what the server takes), as `timeId()` makes.
+ */
+const CAPTURE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
 const sidecarPath = (id: string) => `${OUTBOX_DIRECTORY}/${id}.json`;
 
@@ -99,23 +121,25 @@ function parseCapture(bytes: Uint8Array): Capture | null {
 		return null;
 	}
 	if (!isRecord(value) || !isRecord(value.paths)) return null;
-	const { id, paths, state, receipt } = value;
+	const { id, paths, state, receipt, bases = {} } = value;
 	if (typeof id !== 'string' || !CAPTURE_ID.test(id)) return null;
-	if (!Object.values(paths).every((version) => typeof version === 'string'))
-		return null;
+	const strings = (record: Record<string, unknown>) =>
+		Object.values(record).every((version) => typeof version === 'string');
+	if (!strings(paths) || !isRecord(bases) || !strings(bases)) return null;
+	const capture = {
+		id,
+		paths: paths as Capture['paths'],
+		bases: bases as Capture['bases'],
+	};
 	if (state === 'pending' && receipt === null)
-		return { id, paths: paths as Capture['paths'], state, receipt };
+		return { ...capture, state, receipt };
 	if (
 		state === 'acknowledged' &&
 		isRecord(receipt) &&
-		typeof receipt.commit === 'string'
+		typeof receipt.commit === 'string' &&
+		isRecord(receipt.blobs)
 	)
-		return {
-			id,
-			paths: paths as Capture['paths'],
-			state,
-			receipt: receipt as Receipt,
-		};
+		return { ...capture, state, receipt: receipt as Receipt };
 	return null;
 }
 
@@ -125,6 +149,8 @@ const encodeCapture = (capture: Capture) =>
 export function createOutbox<TContract extends Contract>(
 	compiled: CompiledContract,
 	store: DeviceStore,
+	/** Told after each capture `add` records. */
+	added: (capture: Capture) => void = () => {},
 ) {
 	/** The capture `id` and its sidecar's version, or `NotFound`. */
 	async function read(
@@ -211,11 +237,18 @@ export function createOutbox<TContract extends Contract>(
 					});
 				paths[path.data] = file.version;
 			}
-			const capture: Capture = { id, paths, state: 'pending', receipt: null };
+			const capture: Capture = {
+				id,
+				paths,
+				bases: {},
+				state: 'pending',
+				receipt: null,
+			};
 			const path = sidecarPath(id);
 			const written = await store.write(path, encodeCapture(capture), 'absent');
 			if (written.error !== null) return written;
 			if (written.data === 'stale') return ClientError.Occupied({ path });
+			added(capture);
 			return Ok(capture);
 		},
 		/** Every capture still in the outbox, oldest id first, and the sidecars that hold none. */
@@ -270,41 +303,114 @@ export function createOutbox<TContract extends Contract>(
 			return Ok(capture);
 		},
 		/**
-		 * Delete an acknowledged capture's files, each only while it holds
-		 * its recorded version, then its sidecar. `kept` names the files
-		 * changed since, which stay on the device for another capture.
+		 * Let go of an acknowledged capture: delete each file the server now
+		 * holds as the device does, then the sidecar. A file is deleted only
+		 * while it holds its recorded version, and only when the receipt
+		 * shows those bytes landed: a first landing (merged or not), or a
+		 * replayed receipt whose blob there is the file's own.
+		 *
+		 * Every other file still on the device is `kept`, and never dropped:
+		 * it goes back in the outbox as a new pending capture (`queued`),
+		 * with the blob that landed at its path as its base, so it uploads as
+		 * an update over that version. An edit made after a lost reply, or a
+		 * capture id the server knew from before, therefore never loses work.
+		 *
+		 * A pending capture is refused while any of its files is still on the
+		 * device; once all are gone there is nothing left to send, and its
+		 * sidecar goes.
 		 */
 		async finish(
 			id: string,
 		): Promise<
 			Result<
-				{ kept: string[] },
-				NotFound | Conflict | Invalid | Unavailable | OutboxError
+				{ kept: string[]; queued: Capture | null },
+				NotFound | Occupied | Conflict | Invalid | Unavailable | OutboxError
 			>
 		> {
 			const found = await read(id);
 			if (found.error !== null) return found;
 			const { capture, version } = found.data;
-			if (capture.state !== 'acknowledged')
-				return OutboxError.NotAcknowledged({ id });
-			const kept: string[] = [];
-			for (const [path, held] of Object.entries(capture.paths)) {
-				const removed = await store.write(path, null, held);
+			const { receipt } = capture;
+			if (receipt === null) {
+				for (const path of Object.keys(capture.paths)) {
+					const held = await store.read(path);
+					if (held.error !== null) return held;
+					if (held.data !== null) return OutboxError.NotAcknowledged({ id });
+				}
+				return removeSidecar(id, version, { kept: [], queued: null });
+			}
+			const kept: Record<string, Version> = {};
+			for (const [path, recorded] of Object.entries(capture.paths)) {
+				const held = await store.read(path);
+				if (held.error !== null) return held;
+				if (held.data === null) continue;
+				const landed =
+					held.data.version === recorded &&
+					(!receipt.replayed ||
+						receipt.blobs[path] === blobOf(path, held.data.bytes, recorded));
+				if (!landed) {
+					kept[path] = held.data.version;
+					continue;
+				}
+				const removed = await store.write(path, null, recorded);
 				if (removed.error !== null) return removed;
 				if (removed.data === 'stale') {
+					// Edited between the read and the delete.
 					const now = await store.read(path);
 					if (now.error !== null) return now;
-					if (now.data !== null) kept.push(path);
+					if (now.data !== null) kept[path] = now.data.version;
 				}
 			}
-			const path = sidecarPath(id);
-			const removed = await store.write(path, null, version);
-			if (removed.error !== null) return removed;
-			if (removed.data === 'stale')
-				return ClientError.Conflict({ path, current: null });
-			return Ok({ kept });
+			let queued: Capture | null = null;
+			if (Object.keys(kept).length > 0) {
+				queued = {
+					id: timeId(),
+					paths: kept,
+					bases: Object.fromEntries(
+						Object.keys(kept).flatMap((path) => {
+							const blob = receipt.blobs[path];
+							return blob ? [[path, blob]] : [];
+						}),
+					),
+					state: 'pending',
+					receipt: null,
+				};
+				const path = sidecarPath(queued.id);
+				const written = await store.write(
+					path,
+					encodeCapture(queued),
+					'absent',
+				);
+				if (written.error !== null) return written;
+				if (written.data === 'stale') return ClientError.Occupied({ path });
+				added(queued);
+			}
+			return removeSidecar(id, version, { kept: Object.keys(kept), queued });
 		},
 	};
+
+	/** Remove capture `id`'s sidecar while it holds `version`, answering `result`. */
+	async function removeSidecar<T>(id: string, version: Version, result: T) {
+		const path = sidecarPath(id);
+		const removed = await store.write(path, null, version);
+		if (removed.error !== null) return removed;
+		if (removed.data === 'stale')
+			return ClientError.Conflict({ path, current: null });
+		return Ok(result);
+	}
+}
+
+/**
+ * The Git blob id the server stores for the device file at `path` holding
+ * `bytes` at `version`: a note's own bytes, or the LFS pointer naming any
+ * other file, whose oid is its device version (the sha256 of its bytes).
+ */
+function blobOf(path: string, bytes: Uint8Array, version: Version): string {
+	return gitBlobHash(
+		storedWithLfs(path)
+			? writePointer({ oid: version, size: bytes.byteLength })
+			: bytes,
+	);
 }
 
 /** A device's outbox, typed for its contract. */
@@ -312,11 +418,43 @@ export type Outbox<TContract extends Contract> = ReturnType<
 	typeof createOutbox<TContract>
 >;
 
-const outboxes = new WeakMap<object, Outbox<Contract>>();
+/** What a device client is made of, for this package's uploader. */
+export type DeviceParts = {
+	compiled: CompiledContract;
+	store: DeviceStore;
+	outbox: Outbox<Contract>;
+	/** Call `listener` after each new capture; returns the unsubscribe. */
+	onCapture(listener: () => void): () => void;
+};
 
-/** Make `outbox` the one `outboxOf(device)` returns. */
-export function registerOutbox(device: object, outbox: Outbox<Contract>) {
-	outboxes.set(device, outbox);
+const devices = new WeakMap<object, DeviceParts>();
+
+/** Give `device` its outbox over `store`, and remember its parts. */
+export function registerDevice(
+	device: object,
+	{ compiled, store }: { compiled: CompiledContract; store: DeviceStore },
+) {
+	const listeners = new Set<() => void>();
+	const outbox = createOutbox(compiled, store, () => {
+		for (const listener of listeners) listener();
+	});
+	devices.set(device, {
+		compiled,
+		store,
+		outbox,
+		onCapture(listener) {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
+	});
+}
+
+/** The parts of a client `openDevice` returned. */
+export function deviceParts(device: object): DeviceParts {
+	const parts = devices.get(device);
+	if (parts === undefined)
+		throw new Error('expected a client that openDevice returned');
+	return parts;
 }
 
 /**
@@ -327,8 +465,5 @@ export function registerOutbox(device: object, outbox: Outbox<Contract>) {
 export function outboxOf<TContract extends Contract>(
 	device: Client<TContract>,
 ): Outbox<TContract> {
-	const outbox = outboxes.get(device);
-	if (outbox === undefined)
-		throw new Error('outboxOf takes a client that openDevice returned');
-	return outbox as Outbox<TContract>;
+	return deviceParts(device).outbox as Outbox<TContract>;
 }

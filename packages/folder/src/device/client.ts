@@ -34,7 +34,7 @@ import {
 	pathOf,
 	type Value,
 } from '../note-codec.js';
-import { createOutbox, registerOutbox } from './outbox.js';
+import { registerDevice } from './outbox.js';
 import type { DeviceStore } from './store.js';
 
 const encoder = new TextEncoder();
@@ -60,7 +60,7 @@ export function createDeviceClient<TContract extends Contract>(
 				? noteClient(compiled, collection, store)
 				: fileClient(compiled, collection, store);
 	const client = clients as Client<TContract>;
-	registerOutbox(client, createOutbox(compiled, store));
+	registerDevice(client, { compiled, store });
 	return client;
 }
 

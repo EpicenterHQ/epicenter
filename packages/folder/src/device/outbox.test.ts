@@ -10,16 +10,19 @@
  * Key behaviors:
  * - `add` records each file's path and the version it holds, and refuses a version it does not
  * - The sidecar is plain JSON with id, paths, state and receipt
- * - `finish` refuses a capture the server has not acknowledged
- * - `finish` deletes each file only at its recorded version, keeping one edited since
+ * - `finish` refuses a capture the server has not acknowledged while its files remain
+ * - `finish` deletes each file only at its recorded version, and queues one edited since as an update
+ * - `finish` deletes nothing a replayed receipt does not show landed as the device holds it
+ * - A capture id fits the server: at most 64 characters
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
+import { gitBlobHash, writePointer } from '@epicenter/definition/merge';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { openDevice, outboxOf } from '../node.js';
+import { type Capture, openDevice, outboxOf } from '../node.js';
 
 const recorder = defineContract({
 	name: 'recorder',
@@ -80,6 +83,7 @@ test('add records the capture as a pending sidecar naming each path and the vers
 			'recordings/r1.md': note.version,
 			'recordings/r1.webm': audio.version,
 		},
+		bases: {},
 		state: 'pending' as const,
 		receipt: null,
 	};
@@ -131,6 +135,19 @@ test('add refuses a version the device no longer holds, a capture id twice, and 
 		}),
 	);
 	expect(unusable.name).toBe('Invalid');
+	const long = expectErr(
+		await outbox.add({
+			id: 'a'.repeat(65),
+			files: [{ collection: 'recordings', ...edited }],
+		}),
+	);
+	expect(long.name).toBe('Invalid');
+	expectOk(
+		await outbox.add({
+			id: 'a'.repeat(64),
+			files: [{ collection: 'recordings', ...edited }],
+		}),
+	);
 });
 
 test('finish refuses a pending capture, and deletes an acknowledged one only at its recorded versions', async () => {
@@ -145,10 +162,11 @@ test('finish refuses a pending capture, and deletes an acknowledged one only at 
 		}),
 	);
 	expect(expectErr(await outbox.finish('r1')).name).toBe('NotAcknowledged');
+	const landed = 'b'.repeat(40);
 	const receipt = {
 		commit: 'c0ffee',
 		paths: ['recordings/r1.md', 'recordings/r1.webm'],
-		blobs: {},
+		blobs: { 'recordings/r1.md': landed },
 	};
 	const acknowledged = expectOk(await outbox.acknowledge('r1', receipt));
 	expect(acknowledged).toMatchObject({ state: 'acknowledged', receipt });
@@ -160,15 +178,23 @@ test('finish refuses a pending capture, and deletes an acknowledged one only at 
 			{ over: note.version },
 		),
 	);
-	expect(expectOk(await outbox.finish('r1'))).toEqual({
-		kept: ['recordings/r1.md'],
-	});
+	const finished = expectOk(await outbox.finish('r1'));
+	expect(finished.kept).toEqual(['recordings/r1.md']);
+	// The edit is queued as an update over the version that landed.
+	const queued: Capture = {
+		id: finished.queued?.id ?? 'missing',
+		paths: { 'recordings/r1.md': edited.version },
+		bases: { 'recordings/r1.md': landed },
+		state: 'pending',
+		receipt: null,
+	};
+	expect(finished.queued).toEqual(queued);
 	expect(await exists(join(root, 'recordings/r1.webm'))).toBe(false);
 	expect(expectOk(await device.recordings.get({ id: 'r1' })).version).toBe(
 		edited.version,
 	);
 	expect(await exists(join(root, '.epicenter/outbox/r1.json'))).toBe(false);
-	expect(expectOk(await outbox.list()).items).toEqual([]);
+	expect(expectOk(await outbox.list()).items).toEqual([queued]);
 	expect(expectErr(await outbox.acknowledge('r1', receipt)).name).toBe(
 		'NotFound',
 	);
@@ -181,4 +207,59 @@ test('an unreadable sidecar is listed as invalid, not dropped or thrown', async 
 		items: [],
 		invalid: ['.epicenter/outbox/broken.json'],
 	});
+});
+
+test('finish deletes nothing a replayed receipt does not show landed as the device holds it', async () => {
+	const { root, outbox, note, audio } = await setup();
+	expectOk(
+		await outbox.add({
+			id: 'r1',
+			files: [
+				{ collection: 'recordings', ...note },
+				{ collection: 'audio', ...audio },
+			],
+		}),
+	);
+	const noteBytes = await readFile(join(root, 'recordings/r1.md'));
+	const audioBytes = await readFile(join(root, 'recordings/r1.webm'));
+	const audioBlob = gitBlobHash(
+		writePointer({ oid: audio.version, size: audioBytes.byteLength }),
+	);
+	// The server knew this id from an earlier capture: its note is other bytes.
+	const older = 'c'.repeat(40);
+	expectOk(
+		await outbox.acknowledge('r1', {
+			commit: 'c0ffee',
+			paths: ['recordings/r1.md', 'recordings/r1.webm'],
+			blobs: { 'recordings/r1.md': older, 'recordings/r1.webm': audioBlob },
+			replayed: true,
+		}),
+	);
+	const finished = expectOk(await outbox.finish('r1'));
+	expect(finished.kept).toEqual(['recordings/r1.md']);
+	expect(finished.queued).toMatchObject({
+		paths: { 'recordings/r1.md': note.version },
+		bases: { 'recordings/r1.md': older },
+	});
+	expect(await exists(join(root, 'recordings/r1.md'))).toBe(true);
+	expect(await exists(join(root, 'recordings/r1.webm'))).toBe(false);
+	expect(gitBlobHash(noteBytes)).not.toBe(older);
+});
+
+test('a pending capture whose files are all gone finishes, with nothing to send', async () => {
+	const { device, outbox, note } = await setup();
+	expectOk(
+		await outbox.add({
+			id: 'r1',
+			files: [{ collection: 'recordings', ...note }],
+		}),
+	);
+	expectOk(
+		await device.recordings.delete({ id: 'r1' }, { over: note.version }),
+	);
+	expect(expectOk(await outbox.finish('r1'))).toEqual({
+		kept: [],
+		queued: null,
+	});
+	expect(expectOk(await outbox.list()).items).toEqual([]);
 });
