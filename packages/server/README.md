@@ -122,7 +122,7 @@ type GitHost = {
   serve(id: string, request: GitRequest): Promise<Response>;
   create(id: string): Promise<void>;
   delete(id: string): Promise<void>;
-  /** The receiver's and translator's port; Artifacts gains it in phase 7. */
+  /** The receiver's and translator's port (`GitObjects`, `src/git/objects.ts`). */
   objects?(id: string): GitObjects;
 };
 ```
@@ -130,10 +130,25 @@ type GitHost = {
 `GitRequest` is internal to `src/routes/git.ts`; an implementation receives it
 through `GitHost['serve']` rather than importing it from the package.
 
+Who may reach a repository is the deployment's `GitAccess`, passed to
+`mountGitHost` as `access`: `authorize` decides one request (account, role,
+namespace, and the repository the name resolves to, or null before its first
+write), and `create` makes the repository at its first write. The default,
+`databaseGitAccess`, is the Postgres statement above. The Cloudflare spike
+Worker (`apps/api/worker/spike.ts`) injects bearer tokens instead; every rule
+after the decision is the same code.
+
 The route resolves names to ids and lists from Postgres, so the store takes
 an id where ADR-0546 sketches `(namespace, name)`, and has no `list`: a rename
 or a move is a row update and an alias, with no storage call. `apps/api` binds
-Cloudflare Artifacts (`worker/git-repositories.ts`); the Bun entry binds
+Cloudflare Artifacts (`worker/git-repositories.ts`, whose `objects` are
+`worker/artifacts-objects.ts`: refs from Artifacts' receive-pack
+advertisement, objects through the binding by kind, and every ref move as one
+`atomic` receive-pack), with LFS objects in R2 (`createR2LfsStore`,
+`src/lfs/r2-lfs-store.ts`): clients upload and download through presigned
+URLs that sign `content-length`, `if-none-match: *` and
+`x-amz-checksum-sha256`, and an object is verified by one `head()` whose
+sha256 checksum and size must match the pointer. The Bun entry binds
 `createDiskGitHost` from `@epicenter/server/bun` (`src/git-disk-store.ts`):
 bare repositories at `<root>/<repository id>.git`, cloned and fetched through
 `git http-backend` (receive-pack off, capture receipts hidden), written through

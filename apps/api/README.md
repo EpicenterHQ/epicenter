@@ -113,7 +113,8 @@ Cloudflare Workers
 │   ├── /device                device code entry; approval is the consent page
 │   ├── /.well-known/*         authorization server and protected resource metadata
 │   ├── /api/repos             the caller's repositories, by namespace
-│   ├── git audience /:namespace/:name.git/*  Git smart HTTP, forwarded to Artifacts
+│   ├── git audience /:namespace/:name.git/*  Git smart HTTP (clone and fetch forwarded to Artifacts;
+│   │                          pushes through the receiver), web writes, Git LFS
 │   ├── /v1/*                  OpenAI-compatible chat and STT gateways
 │   └── /api/billing/*         Autumn (hosted-only, worker/billing/)
 │
@@ -267,7 +268,14 @@ an id. It reaches
 `https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<id>.git`
 with a token it mints and caches per repository and scope: 24 hours, renewed an
 hour early, `read` for a fetch and `write` for a push. The client's token never
-reaches Artifacts. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
+reaches Artifacts. Clone and fetch are forwarded (protocol v0, with receipt refs
+filtered out of the advertisement); every push goes through the receiver and
+every web write through the translator, over `worker/artifacts-objects.ts`.
+Git LFS objects live in R2 when the Worker binds a bucket (`LFS_BUCKET`,
+`LFS_BUCKET_NAME`, and the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair
+that presigns transfers; `worker/lfs-store.ts`). `wrangler.jsonc` binds none
+yet, so on the hosted cloud the LFS routes answer 503 and a push carrying any
+file other than a note is refused. The Bun entry keeps bare repositories under `GIT_STORE_ROOT`
 (`<root>/<id>.git`; clone and fetch through `git http-backend`, every push
 through the forward-only receiver, web writes through the translator at
 `<repo>.git/epicenter/writes`) and Git LFS objects under `LFS_STORE_ROOT`
@@ -285,6 +293,12 @@ variable, and required account secret from its local config. Hosted Git answers
 used a separate Worker and namespace, and have not been repeated for the
 per-id store; run them before the first deploy of ADR-0546. The local launcher
 does not enable that integration path.
+
+`wrangler.spike.jsonc` deploys the same Git routes as a separate spike Worker
+(`worker/spike.ts`) over its own Artifacts namespace and R2 bucket, with two
+bearer tokens in place of the OAuth server, which needs a database. Deploy it
+only with `wrangler deploy --config wrangler.spike.jsonc`, and delete it after
+the measurement.
 
 ### Database commands
 
