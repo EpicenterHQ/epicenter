@@ -17,7 +17,8 @@
  * `<origin>/git` for any other deployment (`resolveOAuthAudiences`), so a
  * request is Git's when its host and path fall under that audience.
  *
- * Every request is decided by one statement (`authorizeResourceRequest`):
+ * Every request is decided by the deployment's `GitAccess`. The hosted
+ * cloud's (`databaseGitAccess`) is one statement (`authorizeResourceRequest`):
  * the access token, presented as a Bearer token or as the password of Basic
  * credentials, with its audience, scope, and grant target; the namespace
  * membership and its role; and `<namespace>/<name>` resolved through
@@ -42,8 +43,8 @@
  * by its immutable id, never by `<namespace>/<name>`, and receives only
  * requests this module already authorized; the client's credential never
  * reaches it. A store with `objects` (disk) gets every push through the
- * receiver; one without (Artifacts, until phase 7) serves pushes itself,
- * and the files and LFS routes answer 503.
+ * receiver; one without serves pushes itself, and the files and LFS routes
+ * answer 503.
  *
  * Refusals answer JSON `{ error, error_description }`:
  *   - 401 `invalid_token`        missing, unknown, expired, revoked, or another
@@ -78,6 +79,7 @@ import {
 	authorizeAccountRequest,
 	authorizeResourceRequest,
 	protectedResourceMetadataUrl,
+	type ResourceRefusal,
 	readAccessToken,
 	resolvePersonalNamespace,
 } from '../auth/resource-access.js';
@@ -148,10 +150,96 @@ export type GitHost = {
 	/**
 	 * Repository `id`'s objects and refs, for the push receiver and the
 	 * write translator; the caller closes the handle. A host without it
-	 * (Artifacts, until phase 7) serves pushes itself through `serve`, and
-	 * answers the files and LFS routes with 503.
+	 * serves pushes itself through `serve`, and answers the files and LFS
+	 * routes with 503.
 	 */
 	objects?(id: string): GitObjects;
+};
+
+/** What one request may do to one repository, as a deployment's access decided it. */
+export type RepositoryAccess = {
+	accountId: string;
+	role: NamespaceRole;
+	/** The namespace the role is in (`~` resolved to the caller's own). */
+	namespaceId: string;
+	/** The repository the name resolves to, or null while nothing has been written to it. */
+	repository: { id: string } | null;
+};
+
+/**
+ * Who may do what to which repository. The hosted cloud decides from the
+ * database (`databaseGitAccess`, the default); a deployment with no database
+ * (the Cloudflare spike Worker) injects its own. Every rule after the
+ * decision (roles, first writes, the receiver, the translator, LFS) is
+ * this module's, so each deployment runs the same routes.
+ */
+export type GitAccess = {
+	/**
+	 * Decide one request: the caller's credential (`c.req`), and the
+	 * repository `name` in `namespaceId` (`~`: the caller's own) for
+	 * `operation`. A refusal is sent as it is.
+	 */
+	authorize(
+		c: Context<CloudEnv>,
+		target: { namespaceId: string; name: string; operation: 'read' | 'push' },
+	): Promise<
+		| { data: RepositoryAccess; error: null }
+		| { data: null; error: ResourceRefusal }
+	>;
+	/**
+	 * Make the repository at its first write: its storage (`host.create`),
+	 * then its record. Returns the repository a concurrent first write may
+	 * have made instead.
+	 */
+	create(
+		c: Context<CloudEnv>,
+		target: { namespaceId: string; name: string; host: GitHost },
+	): Promise<{ id: string }>;
+};
+
+/**
+ * The hosted cloud's access: one statement (`authorizeResourceRequest`)
+ * over the token, its grant, the namespace membership and the repository's
+ * name or alias; a first write inserts the `repository` row after its
+ * storage. Reads `c.var.db`, which `mountGitHost`'s `setup` installs.
+ */
+export const databaseGitAccess: GitAccess = {
+	async authorize(c, { namespaceId, name, operation }) {
+		const audience = c.var.audiences.git;
+		const token = readAccessToken(c.req.header('authorization'));
+		const resolved =
+			namespaceId === PERSONAL_NAMESPACE
+				? ((await resolvePersonalNamespace(c.var.db, token)) ??
+					PERSONAL_NAMESPACE)
+				: namespaceId;
+		return authorizeResourceRequest(c.var.db, {
+			token,
+			audience,
+			scope: operation === 'push' ? 'folders:write' : 'folders:read',
+			namespaceId: resolved,
+			repository: name,
+		});
+	},
+	async create(c, { namespaceId, name, host }) {
+		// Storage comes first, so no row ever names a repository that has
+		// none. Storage made for `id` stays if the insert fails: it may have
+		// committed and lost only its reply, and a row naming missing storage
+		// would fail every request; storage no row names harms nothing.
+		const id = newRepositoryId();
+		await host.create(id);
+		const repository = await createRepository(c.var.db, {
+			id,
+			namespaceId,
+			name,
+		});
+		// Another first write inserted the row, so this one goes into that
+		// repository, and the storage made for `id` is certainly unnamed.
+		if (repository.id !== id)
+			await host.delete(id).catch((cause) => {
+				log.error(GitHostError.DeleteFailed({ id, cause }).error);
+			});
+		return repository;
+	},
 };
 
 const FORWARDED_HEADERS = [
@@ -386,10 +474,14 @@ export function mountGitHost(
 	app: Hono<CloudEnv>,
 	{
 		setup,
+		access = databaseGitAccess,
 		resolveHost,
 		resolveLfs = () => null,
 	}: {
+		/** Installs what `access` reads (the database, for `databaseGitAccess`). */
 		setup: MiddlewareHandler<CloudEnv>;
+		/** Who may do what; the database by default. */
+		access?: GitAccess;
 		/** `null` answers 503 `git_unavailable` on every Git request. */
 		resolveHost: (env: CloudEnv['Bindings']) => GitHost | null;
 		/** Where LFS objects live; `null` answers the LFS routes with 503. */
@@ -439,21 +531,12 @@ export function mountGitHost(
 			batch = read;
 		}
 		const operation = operationOf(endpoint, batch);
-		const token = readAccessToken(c.req.header('authorization'));
-
-		let decided: Awaited<ReturnType<typeof authorizeResourceRequest>>;
+		let decided: Awaited<ReturnType<GitAccess['authorize']>>;
 		try {
-			const namespaceId =
-				target.namespaceId === PERSONAL_NAMESPACE
-					? ((await resolvePersonalNamespace(c.var.db, token)) ??
-						PERSONAL_NAMESPACE)
-					: target.namespaceId;
-			decided = await authorizeResourceRequest(c.var.db, {
-				token,
-				audience,
-				scope: operation === 'push' ? 'folders:write' : 'folders:read',
-				namespaceId,
-				repository: target.name,
+			decided = await access.authorize(c, {
+				namespaceId: target.namespaceId,
+				name: target.name,
+				operation,
 			});
 		} catch (cause) {
 			log.error(GitHostError.AuthorizeFailed({ cause }).error);
@@ -477,8 +560,8 @@ export function mountGitHost(
 				...basic,
 			]);
 		}
-		const access = decided.data;
-		if (!roleAllows(access.role, operation))
+		const granted = decided.data;
+		if (!roleAllows(granted.role, operation))
 			return refuse(
 				c,
 				403,
@@ -491,13 +574,13 @@ export function mountGitHost(
 		/** The remote as the client named it, ending `.git`. */
 		const remote = `${url.origin}${url.pathname.slice(0, url.pathname.indexOf('.git/') + 4)}`;
 
-		let repository = access.repository;
+		let repository = granted.repository;
 		if (repository === null) {
 			// Reading a name nobody holds creates nothing: one who may write to
 			// it sees an empty repository, and anyone else a missing one.
 			if (operation === 'read' || endpoint.kind === 'git') {
 				if (endpoint.kind === 'git' && endpoint.advertisement) {
-					if (!roleAllows(access.role, 'push'))
+					if (!roleAllows(granted.role, 'push'))
 						return refuse(
 							c,
 							404,
@@ -520,21 +603,14 @@ export function mountGitHost(
 						`No repository is named ${target.namespaceId}/${target.name}.`,
 					);
 			}
-			// The first write. Storage comes first, so no row ever names a
-			// repository that has none.
-			const id = newRepositoryId();
+			// The first write makes the repository.
 			try {
-				await host.create(id);
-				repository = await createRepository(c.var.db, {
-					id,
-					namespaceId: access.namespaceId,
+				repository = await access.create(c, {
+					namespaceId: granted.namespaceId,
 					name: target.name,
+					host,
 				});
 			} catch (cause) {
-				// Storage made for `id` stays. A failed insert may still have
-				// committed and lost only its reply, and a row naming missing
-				// storage would fail every request; storage no row names harms
-				// nothing.
 				log.error(
 					GitHostError.CreateFailed({
 						path: `${target.namespaceId}/${target.name}`,
@@ -548,12 +624,6 @@ export function mountGitHost(
 					'The repository could not be created.',
 				);
 			}
-			// Another first write inserted the row, so this one goes into that
-			// repository, and the storage made for `id` is certainly unnamed.
-			if (repository.id !== id)
-				await host.delete(id).catch((cause) => {
-					log.error(GitHostError.DeleteFailed({ id, cause }).error);
-				});
 		}
 
 		if (
@@ -567,8 +637,8 @@ export function mountGitHost(
 				endpoint,
 				batch,
 				remote,
-				accountId: access.accountId,
-				role: access.role,
+				accountId: granted.accountId,
+				role: granted.role,
 			});
 
 		const headers = new Headers();
@@ -584,7 +654,7 @@ export function mountGitHost(
 				headers,
 				body: endpoint.advertisement ? null : c.req.raw.body,
 				signal: c.req.raw.signal,
-				accountId: access.accountId,
+				accountId: granted.accountId,
 			});
 		} catch (cause) {
 			if (!c.req.raw.signal.aborted)

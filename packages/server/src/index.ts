@@ -33,6 +33,7 @@ export {
 } from './auth/oauth-registrations.js';
 export {
 	authorizeResourceRequest,
+	type ResourceRefusal,
 	readAccessToken,
 } from './auth/resource-access.js';
 export { createCloudContextMiddleware } from './create-cloud-context-middleware.js';
@@ -50,7 +51,13 @@ export {
 // only the deployment-controlled knobs (auth choice, optional policies). The
 // Better Auth endpoints are mounted by mountAuthRoutes.
 export { mountAuthRoutes } from './routes/auth.js';
-export { type GitHost, mountGitHost } from './routes/git.js';
+export {
+	databaseGitAccess,
+	type GitAccess,
+	type GitHost,
+	mountGitHost,
+	type RepositoryAccess,
+} from './routes/git.js';
 export { mountInferenceApp } from './routes/inference.js';
 export { mountTranscriptionApp } from './routes/transcription.js';
 // Parent app. Wires the portable per-request lifecycle (origin + trust, CORS)
