@@ -11,7 +11,7 @@
  * - `add` records each file's path and the version it holds, and refuses a version it does not
  * - The sidecar is plain JSON with id, paths, state and receipt
  * - `finish` refuses a capture the server has not acknowledged while its files remain
- * - `finish` deletes each file only at its recorded version, and queues one edited since as an update
+ * - `finish` deletes each file only at the version the upload sent, and queues one edited since as an update
  * - `finish` deletes nothing a replayed receipt does not show landed as the device holds it
  * - A capture id fits the server: at most 64 characters
  */
@@ -150,7 +150,7 @@ test('add refuses a version the device no longer holds, a capture id twice, and 
 	);
 });
 
-test('finish refuses a pending capture, and deletes an acknowledged one only at its recorded versions', async () => {
+test('finish refuses a pending capture, and deletes an acknowledged one only at the versions sent', async () => {
 	const { root, device, outbox, note, audio } = await setup();
 	expectOk(
 		await outbox.add({
@@ -168,8 +168,12 @@ test('finish refuses a pending capture, and deletes an acknowledged one only at 
 		paths: ['recordings/r1.md', 'recordings/r1.webm'],
 		blobs: { 'recordings/r1.md': landed },
 	};
-	const acknowledged = expectOk(await outbox.acknowledge('r1', receipt));
-	expect(acknowledged).toMatchObject({ state: 'acknowledged', receipt });
+	const sent = {
+		'recordings/r1.md': note.version,
+		'recordings/r1.webm': audio.version,
+	};
+	const acknowledged = expectOk(await outbox.acknowledge('r1', receipt, sent));
+	expect(acknowledged).toMatchObject({ state: 'acknowledged', receipt, sent });
 	// An edit after the upload read the note: that edit must survive.
 	const edited = expectOk(
 		await device.recordings.update(
@@ -195,9 +199,66 @@ test('finish refuses a pending capture, and deletes an acknowledged one only at 
 	);
 	expect(await exists(join(root, '.epicenter/outbox/r1.json'))).toBe(false);
 	expect(expectOk(await outbox.list()).items).toEqual([queued]);
-	expect(expectErr(await outbox.acknowledge('r1', receipt)).name).toBe(
+	expect(expectErr(await outbox.acknowledge('r1', receipt, sent)).name).toBe(
 		'NotFound',
 	);
+});
+
+test('finish keeps an edit reverted to the recorded bytes while other bytes were in flight', async () => {
+	const { root, device, outbox, note, audio } = await setup();
+	expectOk(
+		await outbox.add({
+			id: 'r1',
+			files: [
+				{ collection: 'recordings', ...note },
+				{ collection: 'audio', ...audio },
+			],
+		}),
+	);
+	// Renamed before the upload read it: the uploader sends "Retro".
+	const renamed = expectOk(
+		await device.recordings.update(
+			{ id: 'r1' },
+			{ title: 'Retro' },
+			{ over: note.version },
+		),
+	);
+	const sentBytes = await readFile(join(root, 'recordings/r1.md'));
+	// While the write is in flight, the person renames it back.
+	const reverted = expectOk(
+		await device.recordings.update(
+			{ id: 'r1' },
+			{ title: 'Standup' },
+			{ over: renamed.version },
+		),
+	);
+	expect(reverted.version).toBe(note.version);
+	const landed = gitBlobHash(sentBytes);
+	expectOk(
+		await outbox.acknowledge(
+			'r1',
+			{
+				commit: 'c0ffee',
+				paths: ['recordings/r1.md', 'recordings/r1.webm'],
+				blobs: { 'recordings/r1.md': landed },
+			},
+			{
+				'recordings/r1.md': renamed.version,
+				'recordings/r1.webm': audio.version,
+			},
+		),
+	);
+	const finished = expectOk(await outbox.finish('r1'));
+	// "Standup" is not what landed, so it stays and goes up over "Retro".
+	expect(finished.kept).toEqual(['recordings/r1.md']);
+	expect(finished.queued).toMatchObject({
+		paths: { 'recordings/r1.md': note.version },
+		bases: { 'recordings/r1.md': landed },
+	});
+	expect(expectOk(await device.recordings.get({ id: 'r1' })).title).toBe(
+		'Standup',
+	);
+	expect(await exists(join(root, 'recordings/r1.webm'))).toBe(false);
 });
 
 test('an unreadable sidecar is listed as invalid, not dropped or thrown', async () => {
@@ -228,12 +289,16 @@ test('finish deletes nothing a replayed receipt does not show landed as the devi
 	// The server knew this id from an earlier capture: its note is other bytes.
 	const older = 'c'.repeat(40);
 	expectOk(
-		await outbox.acknowledge('r1', {
-			commit: 'c0ffee',
-			paths: ['recordings/r1.md', 'recordings/r1.webm'],
-			blobs: { 'recordings/r1.md': older, 'recordings/r1.webm': audioBlob },
-			replayed: true,
-		}),
+		await outbox.acknowledge(
+			'r1',
+			{
+				commit: 'c0ffee',
+				paths: ['recordings/r1.md', 'recordings/r1.webm'],
+				blobs: { 'recordings/r1.md': older, 'recordings/r1.webm': audioBlob },
+				replayed: true,
+			},
+			{ 'recordings/r1.md': note.version, 'recordings/r1.webm': audio.version },
+		),
 	);
 	const finished = expectOk(await outbox.finish('r1'));
 	expect(finished.kept).toEqual(['recordings/r1.md']);
