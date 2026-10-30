@@ -13,6 +13,7 @@
  * `{ path, lfs: { oid, size }, base? }` (any other file, whose LFS object
  * must already be uploaded and verified), or `{ path, delete: true, base }`.
  * Paths are repository-relative and must lie under `root` when it is given.
+ * A body is at most `MAX_WRITE_BYTES` (16 MiB).
  * `base` is the Git blob id the writer read; without it a write is a create.
  *
  * Each request reads `main`, settles every file against it, builds one
@@ -75,6 +76,8 @@ import { LFS_OID, type LfsObject, type LfsStore } from '../lfs/lfs-store.js';
 const CAPTURE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const OID = /^[0-9a-f]{40}$/;
 const MAX_FILES = 1000;
+/** The largest web write body read; a larger one is refused (413) before it is read whole. */
+export const MAX_WRITE_BYTES = 16 * 1024 * 1024;
 const MAX_ATTEMPTS = 12;
 const decoder = new TextDecoder();
 

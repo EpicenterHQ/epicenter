@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { rm } from 'node:fs/promises';
+import { deflateSync } from 'node:zlib';
 import {
 	createGitSandbox,
 	type GitSandbox,
@@ -95,7 +97,61 @@ describe('readPack', () => {
 	test('an empty body is an empty pack', () => {
 		expect(readPack(new Uint8Array()).size).toBe(0);
 	});
+
+	test('refuses a pack whose objects inflate past the budget, before inflating them', () => {
+		const big = makeObject('blob', new Uint8Array(2 * 1024 * 1024));
+		expect(readPack(writePack([big])).size).toBe(1);
+		expect(() => readPack(writePack([big]), { maxBytes: 1024 * 1024 })).toThrow(
+			/inflate past 1 MiB/,
+		);
+		// A header that understates the entry: inflation stops at the budget all the same.
+		const zeros = deflateSync(new Uint8Array(8 * 1024 * 1024));
+		const lying = pack([Buffer.concat([varintHead(3, 16), zeros])]);
+		expect(() => readPack(lying, { maxBytes: 1024 * 1024 })).toThrow(
+			/inflate past 1 MiB/,
+		);
+	});
+
+	test('refuses a delta that declares a result past the budget, before allocating it', () => {
+		const base = Buffer.from('hello\n');
+		const baseEntry = Buffer.concat([
+			varintHead(3, base.length),
+			deflateSync(base),
+		]);
+		// Base size 6, result size 2^40, then one copy.
+		const delta = Uint8Array.from([6, 128, 128, 128, 128, 128, 32, 0x90, 6]);
+		const deltaEntry = Buffer.concat([
+			varintHead(6, delta.length),
+			Uint8Array.of(baseEntry.length),
+			deflateSync(delta),
+		]);
+		expect(() =>
+			readPack(pack([baseEntry, deltaEntry]), { maxBytes: 1024 * 1024 }),
+		).toThrow(/inflate past 1 MiB/);
+	});
 });
+
+/** A pack entry's type and size header, as Git writes it. */
+function varintHead(code: number, size: number) {
+	const out = [(code << 4) | (size & 15)];
+	let rest = Math.floor(size / 16);
+	while (rest > 0) {
+		out[out.length - 1] = (out[out.length - 1] as number) | 128;
+		out.push(rest & 127);
+		rest = Math.floor(rest / 128);
+	}
+	return Uint8Array.from(out);
+}
+
+/** A version 2 pack of raw entries, with its checksum. */
+function pack(entries: Uint8Array[]) {
+	const head = Buffer.alloc(12);
+	head.write('PACK', 0, 'ascii');
+	head.writeUInt32BE(2, 4);
+	head.writeUInt32BE(entries.length, 8);
+	const content = Buffer.concat([head, ...entries]);
+	return Buffer.concat([content, createHash('sha1').update(content).digest()]);
+}
 
 describe('writePack', () => {
 	test('Git indexes it, and its ids are the ones Git computes', async () => {

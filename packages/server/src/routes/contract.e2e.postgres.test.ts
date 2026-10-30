@@ -491,6 +491,32 @@ describe('the file contract on the local server', () => {
 		expect(again.body).toMatchObject({ commit: first.commit, replayed: true });
 	}, 120_000);
 
+	test('a write body past the cap is refused before it is read whole, and nothing moves', async () => {
+		const main = (
+			await box.ok(box.root, [
+				'--git-dir',
+				await gitDirOf(),
+				'rev-parse',
+				'main',
+			])
+		).trim();
+		const huge = await web.write({
+			files: [{ path: 'notes/huge.md', text: 'x'.repeat(17 * 1024 * 1024) }],
+		});
+		expect(huge.status).toBe(413);
+		expect(huge.body.error).toBe('too_large');
+		expect(
+			(
+				await box.ok(box.root, [
+					'--git-dir',
+					await gitDirOf(),
+					'rev-parse',
+					'main',
+				])
+			).trim(),
+		).toBe(main);
+	}, 60_000);
+
 	test("`~` names the caller's personal namespace (decision 46)", async () => {
 		const mine = webClient(owner.token, '~', 'whispering');
 		const written = await mine.write({
