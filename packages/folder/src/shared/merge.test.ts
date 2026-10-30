@@ -5,8 +5,8 @@
  * edits survive, competing units take change, and untouched source bytes remain.
  */
 import { expect, test } from 'bun:test';
+import { parseRowSource } from '@epicenter/definition/note';
 import { expectOk } from 'wellcrafted/testing';
-import { parseRowSource } from './content/canonical.js';
 import { merge } from './merge.js';
 
 const row = (head: string, body = '') => `---\n${head}---\n${body}`;

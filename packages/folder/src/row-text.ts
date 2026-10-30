@@ -3,12 +3,12 @@
  * use shared/row.ts and source-preserving Folder saves.
  */
 
+import { parseRowSource } from '@epicenter/definition/note';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
 	compileTableSchema,
 	type PortableTableSchema,
 } from './declaration-schema.js';
-import { parseRowSource } from './shared/content/canonical.js';
 
 /**
  * The editable part of a row: every frontmatter field, unknown keys

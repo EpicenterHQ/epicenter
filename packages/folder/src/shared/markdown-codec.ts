@@ -1,16 +1,18 @@
 /** Pure Markdown reading and changing under one framing rule. */
-import type { TSchema as Schema, Static } from 'typebox';
-import { Check, Errors } from 'typebox/value';
-import { Err, Ok, type Result } from 'wellcrafted/result';
-import { parseDocument } from 'yaml';
+
 import {
 	type CanonicalDocument,
 	type CanonicalRefusal,
 	formatRowSource,
+	frameRowText,
+	joinRowText,
 	parseRowSource,
 	sameValue,
-} from './content/canonical.js';
-import { frameRowText, joinRowText } from './content/markdown.js';
+} from '@epicenter/definition/note';
+import type { TSchema as Schema, Static } from 'typebox';
+import { Check, Errors } from 'typebox/value';
+import { Err, Ok, type Result } from 'wellcrafted/result';
+import { parseDocument } from 'yaml';
 
 export type Issue = {
 	kind: 'not-text' | 'frontmatter' | 'schema';

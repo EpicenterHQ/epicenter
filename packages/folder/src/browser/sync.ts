@@ -1,3 +1,4 @@
+import { parseRowSource, sameValue } from '@epicenter/definition/note';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -13,7 +14,6 @@ import {
 } from '../git/raw-objects.js';
 import { mergeTrees, overrodeTrailer } from '../git/tree-merge.js';
 import { ancestors, collisionKey } from '../paths.js';
-import { parseRowSource, sameValue } from '../shared/content/canonical.js';
 import { sameContent } from '../shared/merge.js';
 import { includesCommit } from './git/ancestry.js';
 import { snapshotObjects } from './git/closure.js';

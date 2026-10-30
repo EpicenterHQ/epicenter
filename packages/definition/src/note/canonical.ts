@@ -29,7 +29,7 @@ import {
 	isSeq,
 	parseDocument,
 } from 'yaml';
-import { frameRowText } from './markdown.js';
+import { frameRowText } from './frame.js';
 
 /** A JSON value with an exact YAML and JSON form. */
 type CanonicalValue =
@@ -137,7 +137,7 @@ function lineOf(walk: Walk, node: unknown): number | undefined {
  * validation. A refusal carries no partial document, and the line of the
  * source it points at; keep the original text available for raw repair.
  * Parsing does not retain frontmatter comments or presentation. A refusal
- * inside a top-level field names that `field`. Internal to the package.
+ * inside a top-level field names that `field`.
  */
 export function parseRowSource(source: string): Result<
 	{

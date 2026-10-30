@@ -552,6 +552,7 @@
       "dependencies": {
         "typebox": "catalog:",
         "wellcrafted": "catalog:",
+        "yaml": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",

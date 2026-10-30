@@ -8,9 +8,9 @@
  * - Structured edits refuse malformed frontmatter; raw text stays available for repair.
  */
 import { expect, expectTypeOf, test } from 'bun:test';
+import { parseRowSource } from '@epicenter/definition/note';
 import { Type } from 'typebox';
 import { expectErr, expectOk } from 'wellcrafted/testing';
-import { parseRowSource } from './content/canonical.js';
 import { readRow, rowChange } from './row.js';
 
 const schema = Type.Object({ title: Type.String(), count: Type.Number() });

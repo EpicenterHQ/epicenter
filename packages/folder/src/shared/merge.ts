@@ -5,10 +5,11 @@
 import {
 	type CanonicalDocument,
 	formatRowSource,
+	frameRowText,
+	joinRowText,
 	parseRowSource,
 	sameValue,
-} from './content/canonical.js';
-import { frameRowText, joinRowText } from './content/markdown.js';
+} from '@epicenter/definition/note';
 import {
 	type CompetingRegion,
 	type DiffArrays,

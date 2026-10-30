@@ -9,13 +9,14 @@
  * answers `unchanged`, so a hand-edited file is not reformatted for nothing;
  * any other patch normalizes the whole frontmatter, comments included.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
+
 import {
 	type CanonicalRefusal,
 	formatRowSource,
 	parseRowSource,
 	sameValue,
-} from './shared/content/canonical.js';
+} from '@epicenter/definition/note';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 
 export type RowPatch = {
 	readonly fields?: Readonly<Record<string, unknown>>;
