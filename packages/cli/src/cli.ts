@@ -9,7 +9,6 @@
  */
 
 import packageJson from '../package.json' with { type: 'json' };
-import type { GrantKind } from './auth.ts';
 import { COMMANDS } from './commands.ts';
 import { EXIT, fail, writeErr, writeJson, writeOut } from './output.ts';
 import {
@@ -28,7 +27,7 @@ type Run = (
  * `--version` and `--help` start without the folder engine.
  */
 const HANDLERS: Record<string, Run> = {
-	'messages': async () => (await import('./messages.js')).messagesCommand(),
+	messages: async () => (await import('./messages.js')).messagesCommand(),
 	'schema export': async ({ positionals: [directory], json }) =>
 		(await import('./schema-commands.ts')).exportSchemas(
 			directory as string,
@@ -49,7 +48,11 @@ const HANDLERS: Record<string, Run> = {
 	'folders pin': async ({ positionals: [directory], json }) =>
 		(await import('./navigation.js')).foldersCommand('pin', directory, json),
 	'folders remove-recent': async ({ positionals: [directory], json }) =>
-		(await import('./navigation.js')).foldersCommand('remove-recent', directory, json),
+		(await import('./navigation.js')).foldersCommand(
+			'remove-recent',
+			directory,
+			json,
+		),
 	'folders list': async ({ positionals: [directory], json }) =>
 		(await import('./navigation.js')).foldersCommand('list', directory, json),
 	'folders unpin': async ({ positionals: [directory], json }) =>
@@ -60,21 +63,23 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./folder-commands.ts')).query(dir as string, sql, json),
 	generate: async ({ positionals: [dir], json }) =>
 		(await import('./folder-commands.ts')).generate(dir as string, json),
-	status: async ({ positionals: [dir], options, json, grant }) =>
-		history('status', dir as string, options, json, grant),
-	history: async ({ positionals: [dir], options, json, grant }) =>
-		history('history', dir as string, options, json, grant),
-	'save-version': async ({ positionals: [dir], options, json, grant }) =>
-		history('save-version', dir as string, options, json, grant),
+	init: async ({ positionals: [dir], options, json, grant }) =>
+		(await import('./sync/commands.ts')).initCommand(dir, options, json, grant),
 	sync: async ({ positionals: [dir], options, json, grant }) =>
-		history('sync', dir as string, options, json, grant),
+		(await import('./sync/commands.ts')).syncCommand(dir, options, json, grant),
+	status: async ({ positionals: [dir], json }) =>
+		(await import('./sync/commands.ts')).statusCommand(dir, json),
 	clone: async ({ positionals: [source, dir], json, grant }) =>
-		(await import('./repository-commands.ts')).clone(
+		(await import('./sync/commands.ts')).cloneCommand(
 			source as string,
 			dir,
 			json,
 			grant,
 		),
+	forget: async ({ positionals: [dir], json }) =>
+		(await import('./sync/commands.ts')).forgetCommand(dir, json),
+	'merge-driver': async ({ positionals }) =>
+		(await import('./sync/commands.ts')).mergeDriverCommand(positionals),
 	repos: async ({ json, grant }) =>
 		(await import('./repository-commands.ts')).repos(json, grant),
 	'auth key': async ({ positionals: [action, connection], json }) => {
@@ -130,29 +135,6 @@ const HANDLERS: Record<string, Run> = {
 		(await import('./install-command.ts')).installCommand({ json }),
 };
 
-/**
- * Run a history command. When the shell ends this process (a page reloaded,
- * or its window closed), every `git` it started ends too, with the helpers
- * each started (ADR-0559), and a refresh it sent finishes first (ADR-0565;
- * `stop.ts`).
- */
-async function history(
-	command: 'status' | 'history' | 'save-version' | 'sync',
-	dir: string,
-	options: Record<string, string | true>,
-	json: boolean,
-	grant: GrantKind,
-) {
-	const [{ historyCommand }, { endGitCommands }, { onStop }] =
-		await Promise.all([
-			import('./history-commands.ts'),
-			import('@epicenter/folder/bun'),
-			import('./stop.ts'),
-		]);
-	onStop(endGitCommands);
-	return historyCommand(command, dir, options, json, grant);
-}
-
 /** What `epicenter <command> --help` adds below the usage line. */
 const DETAILS: Record<string, string> = {
 	check: `Prints one line per file that does not conform, compiler style, then a
@@ -189,31 +171,46 @@ keychain. The Epicenter app's sign-in is separate; sign it out in its Settings.`
 the deployment's Git origin with a username, an access token as the password,
 and password_expiry_utc; any other host gets no answer. store and erase do
 nothing. Takes no --json.`,
-	status: `Prints the folder's branch and head, the files changed since the last
-version, and the remote with how far ahead and behind it is. Reads only: it
-runs Git and writes nothing. With --json, one line in the history encoding
-the desktop app reads. Exits 0, or 2 when the folder cannot be used or git
-is not installed ({"error": "GitMissing"} with --json).`,
-	clone: `Clones <namespace>/<name> from this deployment's Git origin, or any
-other URL as given with your own Git credentials, into <dir>, by default
-~/Epicenter/<name>. Run epicenter repos to list the names. Exits 2 when it
-cannot clone.`,
+	status: `Prints the folder's branch and commit, the files under it that changed since
+the last sync, whether it is registered, and its remote with how far ahead
+and behind it was at the last fetch. Reads only: it fetches nothing and
+writes nothing. With --json, {"status": {...}}. <dir> defaults to the current
+directory. Exits 0, or 2 when the folder is not in a repository.`,
+	clone: `Clones <namespace>/<name> from this deployment's Git origin, any other URL
+with your own Git credentials, or a repository by its path, into <dir>, by
+default ~/Epicenter/<name>. Then runs init there, which pulls the LFS bytes
+and registers the folder. Run epicenter repos to list the names. Exits 2
+when it cannot clone.`,
+	init: `Sets up or repairs <dir> (default: the current directory) for sync, and says
+what it changed: git init when it is not in a repository; Epicenter's block in
+the folder's committed .gitattributes (notes merge by Epicenter's rules,
+every other file except dotfiles is Git LFS); the merge driver and the LFS
+filters and hooks in this clone; the LFS bytes for files checked out as
+pointers; this deployment's credential helper in this clone; and the folder in
+the global epicenter.folder list. A folder inside another repository is
+refused, because sync pulls and pushes that whole repository; --enclosing-ok
+adopts it on purpose (sync still commits only the folder). Exits 0, or 2 when
+refused.`,
+	forget: `Takes <dir> (default: the current directory) out of the global
+epicenter.folder list, and makes sync refuse it until init runs again. Its
+files, repository, and history stay.`,
 	repos: `Lists the repositories of every namespace this sign-in may reach: the
 personal namespace first, then each group by title, as <namespace>/<name>.
 With --json, {"namespaces": [{"id", "title", "personal", "role",
 "repositories": [{"id", "name", "url"}]}]}.`,
-	sync: `Records the folder's edits as a version, fetches the remote branch, merges
-it by each file's kind, and pushes, under the folder's history lock, so two
-syncs or a sync and save-version never interleave. --to <namespace>/<name>
-connects the folder to that repository on this deployment's Git origin:
-the first sync creates it, and the folder's remote becomes
-<git origin>/<namespace>/<name>.git. --to also takes any remote's URL.
-What both sides changed merges into one commit, and this folder's version
-of each field or lines both changed wins; the commit's Overrode: lines name
-what the remote lost, which its history still holds. A sync asks nothing.
-A folder with no epicenter.json is not synced (nothing says which files stay
-on this computer), and nothing is committed or pushed; declare them in
-epicenter.json's "local" list first.`,
+	sync: `Commits what changed in <dir> (only that folder's paths, through Git's LFS
+filters), fetches origin, checks that the remote main still contains the one
+this clone last saw, merges it, and pushes, retrying when the remote moved.
+Notes merge by Epicenter's rules: front matter by key, the later arrival
+winning, and the body by line with one conflict block per clash. An edit
+beats a delete, and a file both sides replaced keeps the remote's and lands
+this one beside it as "<name> (conflict <hash>).<ext>". Without <dir>, syncs
+every folder init registered. Syncs of one repository take turns. --watch
+syncs again after each change and every 30 seconds until stopped. With
+--json, one {"sync": {...}} line per folder per round. Exits 0 when every
+folder synced, 1 when a round should run again (a lock, the network), and 2
+when a folder stopped for a person (a rewritten remote, a merge Epicenter does
+not settle, a folder init did not set up).`,
 	generate: `Runs <dir>/epicenter.ts, whose default export is defineFolder({...}) from
 @epicenter/folder, and writes the epicenter.json it declares. It is the only
 command that runs a folder's code; check and query read only epicenter.json.
@@ -258,7 +255,7 @@ function helpText(group?: string) {
 		...(auth.length ? ['', 'Your Epicenter account:', ...auth.map(line)] : []),
 		'',
 		'Every command takes --json: one JSON value on stdout, or NDJSON progress',
-		'lines ending in one result for sync, clone, and auth login.',
+		'lines for sync and auth login.',
 		'Stderr is for people. Exit codes: 0 done, 1 a finding to act on, 2 input',
 		'the command cannot use.',
 		'',
@@ -328,7 +325,7 @@ export async function runCli(argv: readonly string[]): Promise<number> {
 			const run = HANDLERS[name(invocation.command)] as Run;
 			// Bun 1.3.14 can end the process while a command still awaits
 			// `crypto.subtle` work started after a child process exited, as
-			// isomorphic-git's hashing does between two `git` runs; a ref'd
+			// hashing a conflict copy between two `git` runs does; a ref'd
 			// timer keeps it running until the command returns.
 			const alive = setInterval(() => {}, 2 ** 30);
 			try {

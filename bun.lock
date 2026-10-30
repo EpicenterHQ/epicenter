@@ -506,6 +506,7 @@
         "@beeper/desktop-api": "^6.0.0",
         "@epicenter/ai": "workspace:*",
         "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "typebox": "catalog:",
         "wellcrafted": "catalog:",

@@ -181,35 +181,10 @@ test('generate refuses a legacy declaration that would write a malformed table s
 	expect(await readFile(fixture.path, 'utf8')).toBe(before);
 });
 
-test('duplicate declaration keys do not block history or change source', async () => {
-	const fixture = await setup();
-	const before = '{"tables":{},"views":{"x":1,"x":2}}';
-	await writeFile(fixture.path, before);
-	const result = fixture.run(['save-version', fixture.directory]);
-	expect(result.exitCode).toBe(0);
-	expect(await readFile(fixture.path, 'utf8')).toBe(before);
-	expect(await readdir(fixture.directory)).toContain('.git');
-});
-
-test('history honors ignore rules beside high precision while schema import preserves those bytes', async () => {
+test('schema import refuses a declaration whose high-precision bytes it cannot keep', async () => {
 	const fixture = await setup();
 	const before = '{"tables":{},"views":{"future":{"value":9007199254740993}}}';
 	await writeFile(fixture.path, before);
-	await writeFile(join(fixture.directory, '.gitignore'), '/audio/\n');
-	await mkdir(join(fixture.directory, 'audio'));
-	await writeFile(
-		join(fixture.directory, 'audio', 'clip.wav'),
-		'local recording',
-	);
-	const version = fixture.run(['save-version', fixture.directory]);
-	expect(version.exitCode).toBe(0);
-	expect(await readFile(fixture.path, 'utf8')).toBe(before);
-	const tracked = Bun.spawnSync(['git', '-C', fixture.directory, 'ls-files'], {
-		stdout: 'pipe',
-		stderr: 'pipe',
-	});
-	expect(tracked.exitCode).toBe(0);
-	expect(tracked.stdout.toString()).toBe('.gitignore\nepicenter.json\n');
 	const imported = fixture.run(
 		['schema', 'import', fixture.directory, '-'],
 		JSON.stringify({ tables: { tasks } }),
