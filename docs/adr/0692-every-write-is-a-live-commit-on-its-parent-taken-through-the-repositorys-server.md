@@ -5,7 +5,7 @@
 - **Would supersede:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (the last edit to reach `main` wins each unit, and Epicenter writes no conflict marker): a clash is a conflict block in the note; [ADR-0529](0529-commits-happen-only-on-sync-or-when-a-person-saves-a-version.md) (a commit happens only at sync or when a person saves a version): the server flushes live history into Git on its own schedule.
 - **Would amend:** [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) at "Repository content has one committed history: Git": live history runs ahead of Git until the next flush; [ADR-0534](0534-data-folders-are-the-only-data-model.md) at the device's copy: a device holds a replica database of the repository's files, not a folder it writes through; [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) at binary files ("Git LFS pointers ... are not designed"): every file that is not a note is a canonical LFS pointer, at any path an app names.
 - **Relates:** [ADR-0620](0620-history-in-a-repository-only-grows.md), whose rule `main` keeps; [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which runs the replica on every device and decides that typing is safe once it reaches the engine; [ADR-0693](0693-repositories-are-addressed-and-every-page-is-an-owner-a-repository-or-an-app-on-one.md) (what a repository and its address are); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (the app API over the replica); [ADR-0697](0697-all-text-merges-from-everyone.md) (all text merges, from everyone: the one write rule this record runs, a `git push` included); [ADR-0457](0457-a-row-filename-is-its-exact-id-and-a-title-is-a-field.md) (a path is a note's identity); [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (the server reads no schema).
-- **Unbuilt:** the hosted server (a Durable Object host, Cloudflare Artifacts as `GitObjects`, R2 for blob bytes behind presigned uploads); a `git push` transport into `receive` (the receiver and its checks are built, no receive-pack endpoint is); accounts and membership (the development server makes anyone the owner their `Authorization: Bearer <name>` names); the GitHub mirror and Action. (The `epicenter sync` and `epicenter commit` commands agents run are built in `packages/repository`.)
+- **Unbuilt:** the hosted server (a Durable Object host, Cloudflare Artifacts as `GitObjects`, R2 for blob bytes behind presigned uploads); a `git push` transport into `receive` (the receiver and its checks are built, no receive-pack endpoint is); accounts and membership (the development server makes anyone the owner their `Authorization: Bearer <name>` names); the GitHub mirror and Action. (The `epicenter sync` command agents run is built in `packages/repository`.)
 
 ## Context
 
@@ -47,10 +47,14 @@ changes on top of a parent:
 `id` is `commitId`, the Git blob id of the commit's canonical form, so it
 hashes the parent and the content, never repeats, and makes a resend
 recognizable. `text: null` deletes the file. There is no move and no append:
-a rename is a delete of the old path and a write of the new one, saved
-in one call. Everything one call saves is one group (on the device, each file names
-its call), and a group goes in one commit or not at all.
-`time` is a label people read in conflict blocks, never an order.
+a rename is a delete of the old path and a write of the new one, each going
+on its own ([ADR-0698](0698-the-file-is-the-unit.md): the file is the unit).
+A blob's file may carry `over`, the text its writer made it over, when that
+is not what the commit's parent holds there (a write the device knows has
+lost); the id hashes it. `time` is the device's claim, any ISO instant: a
+label people read in conflict blocks and Git's author date, never an order.
+What is time-based (the retention window, the flush schedule) runs on the
+server's clock, when a commit arrives; no commit is refused for a clock.
 
 **`main` only moves forward, and every writer's commit meets a `main` that
 moved the same way** ([ADR-0697](0697-all-text-merges-from-everyone.md)).
@@ -67,10 +71,17 @@ wants merging reads a file (`GET /files/<path>` names the commit it read
 as `Epicenter-Commit`) and posts a commit on that parent to
 `POST /commits`.
 
-**A blob never merges.** A blob write lands only where the path still holds
-the blob in the commit's parent; a create or replace that does not is
-refused (`blob-changed`) and held with why, and a delete that does not
-leaves the file. Holding a blob holds its group.
+**A blob never merges, and a blob write that lost lands beside it.** A blob
+write lands only where the path still holds the blob its writer saw (the
+commit's parent, or its `over`). A create or replace that does not lands at
+a sibling the server names, `<stem> (conflict <hash7>).<ext>`, from the
+original stem and the losing bytes' hash: allocated idempotently (equal
+bytes are one file) against the whole resulting tree, taking more of the
+hash where a name is held by other bytes, a folder or another spelling. A
+race at a sibling makes another sibling of the original stem. The answer
+names each sibling (`siblings`), and so does a `git push`'s. References to
+the original file are not repaired; the outcome tells the writer. A delete
+that does not land leaves the file.
 
 **Every conflict is text.** `settle` runs the Epicenter merge (`core/merge.ts`):
 
@@ -112,15 +123,15 @@ the door's rules.** `admit` (`server/server.ts`) checks, in order:
 | A session, a member, not a `reader` | `no-session`, `not-member`, `reader` |
 | Pushes per member, a bucket of 30 refilled at 10 a second | `rate` |
 | `id` is the hash of the commit; `author.user` is the session's user | `bad-id`, `not-author` |
-| `time` is an ISO instant at most 5 minutes ahead of the server's clock | `bad-time`, `clock-ahead` |
+| `time` is an ISO instant | `bad-time` |
 | At most 4 MB as JSON, 1,000 files, one entry per folded path | `too-large`, `too-many-files`, `path-twice` |
 | A path at most 512 bytes | `path-too-long` |
 | `admissible(path, text)` (`core/door.ts`), below | `inadmissible`, with the door's reason |
-| A pointer's bytes present at its size; a blob write lands only over the blob its writer saw | `blob-missing`, `blob-changed` |
+| A pointer's bytes present at its size | `blob-missing` |
 | A name is a file or a folder, never both, over the commit's parent and over what `main` becomes (`collision`, `core/tree.ts`) | `is-a-folder`, `under-a-file` |
 
 `admissible` is one pure predicate the device, the server and a GitHub
-Action share. A note (`.md` in any case) parses, uses LF with no byte order
+Action share. A note (`.md` in any case) uses LF with no byte order
 mark, is at most 1 MB, is never an LFS pointer, and its frontmatter holds at
 most `FRONTMATTER_KEYS` (1,000) keys and `FRONTMATTER_VALUES` (10,000)
 scalars, nested at most `FRONTMATTER_NESTING` (64) deep. Every text is valid
@@ -137,36 +148,60 @@ folder still holds files is refused at that file as `is-a-folder` ("a folder
 already has this name"), and one written beneath a file as `under-a-file` ("a
 file already has this name"), checked over the commit's parent and over what
 `main` would become, so a stale writer is refused too. A delete names only a
-file. Only a person renaming one can fix such a refusal, so the device holds
-it like an inadmissible name, and a tree update that meets a collision
+file. Only a person renaming one can fix such a refusal, so the device marks
+the file `refused`, and a tree update that meets a collision
 throws rather than drop either side. A merge result passes `admissible` too, and two named
 exceptions refuse a text writer because of someone else: a merge that would grow
 a note past 1 MB (`merge-too-large`), and one that would leave more than
 `BLOCK_CAP` (20) conflict blocks in a note (`too-many-blocks`, "this note
 has unresolved conflicts; resolve some first"). The server reads no schema.
 
-**A device holds text the shared text cannot take, with its reason, and
-nothing else.** The replica (`openReplica`, `client/replica.ts`) keeps four
+**A note is always valid.** A text that does not open with parseable
+frontmatter (a YAML mapping between `---` fences) is a note with no fields,
+its whole text the body; an app's schema then reports its fields missing.
+Nothing refuses or holds a note for its frontmatter, and a merge of three
+notes whose frontmatter parses writes frontmatter that parses (a seeded
+property). A folder reads a note's CRLF line endings and byte order mark as
+LF with none, keeps the file's own hash in its record, and never writes the
+file back only to normalize it.
+
+**Every note lands in house style.** The server prints each landing note's
+frontmatter one way (`formatMarkdown`: `yaml`'s printer over the document as
+written, so comments, key order and quoting are kept, new keys appended by
+the merge; the body never touched), deterministically and idempotently, and
+merges commute with it. Devices send what was typed; a folder writes the
+formatted text back once, by its ordinary projection.
+
+**A device repairs what the repository can represent, and refuses only what
+it cannot.** The replica (`openReplica`, `client/replica.ts`) keeps four
 levels per file: `base` (the text at its position), `sent` (in the commit
 awaiting an answer), `committed` (in the unsent commit) and `mine` (what it
-shows). A text the door refuses, or one the server refused, stays in `mine`
-marked `held` with the reason until its writer saves that file again; its
-group waits with it, and other groups go. A group too large for one request
-is held whole, never split. A pointer whose bytes the server does not hold
-yet is owed: it stays saved, `sending` with "its bytes are uploading", and
-its group waits, until the upload track (`client/uploads.ts`) finds the
-bytes present; a refused upload holds it with why. A commit whose outcome the server
-cannot know is put beside what is there as one block, held as "outcome
-unknown". A delete or field removal that lost to an edit is not held: it is
-an intent, not typed text, and the edited note stays, visibly. There are no
-stored notices: a person reads the text, whose blocks say what was
-contested, and each file's `FileStatus` (`synced`, `sending`, or `held` with
-a reason). A request the server rejects (rate, size, form) holds no text;
-the work stays committed and goes again.
+shows). Each file goes on its own. One that cannot go now stays in `mine`
+with its reason, alone, as one of two states (`FileStatus`): `waiting`, which
+the system clears (bytes uploading or refused by size or quota, a request,
+merge or block bound, a text the door's other rules refuse), or `refused`,
+which only a person can fix: an unportable name, a name another file has in
+other letters, a note that is not text, or a file where a folder is or the
+reverse (`onlyAPersonFixes`, `core/door.ts`). Only its writer's next save of
+that file clears it. A pointer whose bytes the server does not hold yet is
+owed: it waits, "its bytes are uploading", until the upload track
+(`client/uploads.ts`) finds them present. Work whose outcome the server
+cannot know goes as one labelled conflict block after what is there
+(`<user>/<device>/outcome-unknown`), bounded as any note is; a blob of it
+goes with `over`. A delete or field removal that lost to an edit is not
+held: it is an intent, not typed text, and the edited note stays, visibly.
+There are no stored notices: a person reads the text, whose blocks say what
+was contested, each file's state (`synced`, `sending`, `waiting` or
+`refused`), and how each file it sent landed (`outcomes`: as sent, with
+conflict blocks, at a sibling with its path, or a delete that did not take).
+A request the server rejects (rate, size, form) holds no text; the work
+stays committed and goes again, a request too large in halves.
 
-**A device sends one commit at a time, on top of its position.** A save
-commits at once while online; while a commit is in flight or the device is
-offline, the unsent commit is amended. A ready commit goes before
+**A device sends one commit at a time, on top of its position.** A save is
+stored at once; a file is sent once its text has been quiet for
+`SEND_QUIET` (1.5 s), a pause and never a hold, so a burst of keystrokes
+lands as one text. While a commit is in flight or the device is offline,
+the unsent commit is amended. A ready commit goes before
 notifications are read. Each answer (`PushAnswer`) is `applied`, `merged`,
 `flushed`, `refused`, `rejected` or `outcome-unknown`, and an applied or
 merged answer carries `main`'s texts for every path changed since the
@@ -298,8 +333,8 @@ another repository, server or account is refused (`BoundElsewhere`).
   2.3 s.
 - No text writer, person or agent, is refused because of someone else,
   except at 1 MB, at 20 blocks, in HTTP's conditional file write, and
-  where someone made a file or a folder of the same name; a blob write is
-  refused when the blob it replaces moved. Two people
+  where someone made a file or a folder of the same name; a blob write
+  that lost lands beside the one that won. Two people
   typing in the same words at once produce one block, which stays in the
   note and in Git until someone edits it away.
 - Every value someone saved is in the shared text and in Git history,
@@ -308,8 +343,9 @@ another repository, server or account is refused (`BoundElsewhere`).
   as a block. Nothing is lost; it is visible and repairable, as in Git,
   which has no notion of a different note at one path.
 - A device offline past the 10-minute window catches up with every file,
-  and work whose outcome is unknown is held beside the text, never merged
-  blindly.
+  and work whose outcome is unknown goes as a labelled block after the
+  text, never merged blindly; if it had landed, the block repeats it,
+  visibly.
 - A clone reads the last flush, so it lags live history by up to a minute
   at rest and five minutes on a busy repository, unless the flush is asked
   for.
@@ -335,17 +371,25 @@ another repository, server or account is refused (`BoundElsewhere`).
   the server keeps each commit's tree for the window.
 - **An `expired` answer after a week offline, applying an edit only if its
   file was unchanged:** a 10-minute window with `outcome-unknown` and a
-  full catch-up costs a download, not a rule about offline time, and holds
-  the work beside the text.
+  full catch-up costs a download, not a rule about offline time, and puts
+  the work after the text as a labelled block.
 - **Never merging a stale edit into a different note recreated at its path**
   (identity by creating commit, siblings saved beside it): dropped for the
-  one `deletedSince` check, which appends the edit as a block.
+  one `deletedSince` check, which appends the edit as a block. Siblings are
+  kept for blobs, which never merge.
 - **Stored notices for overlaps, dropped field values and edits kept over a
-  delete:** every conflict is text, and the only device state is `held`.
+  delete:** every conflict is text, and the only device states are
+  `waiting` and `refused`.
 - **The current value winning a field clash, with the loser only reported:**
   the loser would reach no one else and no history.
-- **Keeping `main`'s text when a merge would not parse:** the door admits
-  only notes that parse, so a merge of three parsing notes by key parses.
+- **Refusing a note whose frontmatter does not parse, and holding it on its
+  device:** a note half typed could not sync, and two repairs of one never
+  met; a note is always valid instead, and a merge of three notes whose
+  frontmatter parses writes frontmatter that parses.
+- **Holding a blob write that lost, with why:** its writer had to keep the
+  bytes under another name by hand; the server names a sibling instead.
+- **Refusing a commit dated ahead of the server's clock:** a device's clock
+  is a claim; nothing time-based reads it.
 - **A notification stream over server-sent events:** an open stream kept
   the Durable Object in memory (deployed spike 3); hibernating WebSockets
   were evicted with sockets intact and woke in about 30 ms, and carrying
@@ -358,8 +402,10 @@ another repository, server or account is refused (`BoundElsewhere`).
   it starved a push on any repository someone was typing in; see
   [ADR-0697](0697-all-text-merges-from-everyone.md) for the measurement and
   the other push shapes considered.
-- **Devices committing after a 0.5 to 2 s pause:** committing every save
-  online measured p95 400 ms to the server at 10 typists, against 2.2 s.
+- **Sending every save at once:** committing every save online measured
+  p95 400 ms to the server at 10 typists, against 2.2 s for a 0.5 to 2 s
+  pause; the owner chose the pause (1.5 s quiet) so a burst lands as one
+  text, accepting that latency.
 - **IndexedDB as the device store:** writing 50,000 records took 17 s in
   Chromium.
 - **A desktop folder retired in favor of the replica alone:** revisited by
@@ -369,11 +415,11 @@ another repository, server or account is refused (`BoundElsewhere`).
 
 The property test (`packages/repository/src/sim/property.test.ts`, and
 `wire.property.test.ts` over the real HTTP and socket wire) checks after
-every step that nothing typed and acknowledged is lost, every shared note
-parses, every device converges with the server, and hostile writes are
-refused or bounded, and that an agent's batch lands in one commit or is
-held whole; recent runs passed 500 fresh seeds at 200 steps in memory and
-200 over the wire. `server/receive.test.ts` runs a `git push` against a
+every step that nothing typed and acknowledged is lost, every device
+converges with the server, no token appears twice outside conflict blocks,
+what a device has not sent waits or is refused alone with a reason, and
+hostile writes are refused or bounded; phase 9g's runs passed 2,000 fresh
+seeds at 200 steps in memory and 300 over the wire. `server/receive.test.ts` runs a `git push` against a
 real bare repository through every hazard (a push behind live edits, a save
 during its checks, a stale blob, conflict cuts and labelled commits before
 it, a second push from the first, a join outliving the window, a crash at

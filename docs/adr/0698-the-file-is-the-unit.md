@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-30
-- **Amends:** [ADR-0697](0697-all-text-merges-from-everyone.md) at "A call's group lands whole", "A message belongs to its call", "A call has one outcome, and the replica reports it" and "Held means one thing" (a held save holds its call): there are no groups, calls, call outcomes or commit messages. Each file goes on its own. A held file holds only itself, and a pointer waits only for its own bytes.
+- **Amends:** [ADR-0697](0697-all-text-merges-from-everyone.md) at "A call's group lands whole", "A message belongs to its call", "A call has one outcome, and the replica reports it" and "Held means one thing" (a held save holds its call): there are no groups, calls, call outcomes or commit messages. Each file goes on its own. A file that cannot go waits or is refused alone, and a pointer waits only for its own bytes. ADR-0697 is edited to match.
 - **Relates:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) (the live commit, which loses its optional message); [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) (the folder engine, whose `epicenter commit` this deletes); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (`repo.commit`, which stays as a local transaction).
-- **Unbuilt:** nothing beyond ADR-0697's own Unbuilt line. Prototyped in `packages/repository` on branch `claude/file-is-the-unit`.
+- **Unbuilt:** nothing beyond ADR-0697's own Unbuilt line. Built in `packages/repository`: prototyped on branch `claude/file-is-the-unit`, merged into `claude/repository-v2` with the repairs below (phase 9g).
 
 ## Context
 
@@ -33,16 +33,21 @@ repairs a file, so a file is what waits.
 ## Decision
 
 **The unit is the file.** A device has one unsent commit carrying every file
-it changed. When it sends, each file that can go, goes. A file that cannot
-go waits alone, with its reason: a text the door or the server refused, work
-whose outcome is unknown, or a save a front end found the repository cannot
-take. A pointer whose bytes the server does not hold waits alone for them,
-saved and out of the unsent commit, until the upload track says they are
-present. Nothing waits for another file.
+it changed. When it sends, each file that can go, goes, once its text has
+been quiet for a short pause. A file that cannot go stays alone, with its
+reason, in one of two states: `waiting`, which the system clears (bytes
+uploading, or a size or bound), or `refused`, which only a person can fix
+(an unportable name, a name another file has in other letters, a note that
+is not text, a file where a folder is or the reverse). A pointer whose
+bytes the server does not hold waits alone for them, saved and out of the
+unsent commit, until the upload track says they are present. Nothing waits
+for another file.
 
-**A rename is a delete and a create, independent.** If the new name cannot
-go (it does not parse, or folds to another file's name), the delete lands and
-the text waits in the new file, held, on the device that renamed it.
+**A rename is a delete and a create, independent; there is no rename
+pairing.** If the new name cannot go (an unportable name, or one that folds
+to another file's), the delete lands and the text waits in the new file,
+refused, on the device that renamed it, until its person renames it again.
+The owner accepted that cost: the text lives on that one device meanwhile.
 
 **There are no commit messages.** A live commit carries its author (user and
 device) and its files. History says who wrote each change, and conflict
@@ -57,11 +62,54 @@ half of it.
 **`epicenter commit` is gone.** Without a message or a call outcome, it only
 read every difference from the record and sent it. `epicenter sync --once`
 does exactly that, after catching up first, so it is "send now". It reports
-each held file with its reason and exits 2 while anything is held or
-pending.
+how each file it sent landed, and each file waiting or refused with its
+reason, and exits 2 while anything waits, is refused or is pending.
 
 **A request too large goes in halves.** The next commit takes half as many
-files, and one file too large to go alone is held with the server's reason.
+files, and one file too large to go alone waits with the server's reason.
+
+## Repair over refusal
+
+The repository repairs what it can represent and refuses only what it
+cannot represent or cannot afford (review-repair, agreed by three
+reviewers and the owner; built in phase 9g):
+
+- **A note is always valid.** A text that does not open with parseable
+  frontmatter is a note with no fields, its whole text the body; a schema
+  reports its fields missing. Nothing holds a note for its frontmatter. A
+  merge of three notes whose frontmatter parses writes frontmatter that
+  parses (a seeded property). A folder normalizes CRLF and a byte order mark
+  as it reads, records the file's own hash, and never writes it back only to
+  normalize it.
+- **A blob write that lost lands beside.** The server puts a losing create
+  or stale replace at a sibling, `<stem> (conflict <hash7>).<ext>`, named
+  from the original stem and the losing bytes' hash, allocated idempotently
+  against the whole resulting tree; the answer, and a `git push`'s, names
+  it. A device that knows its write lost says what it was made over
+  (`over`); it never names the sibling.
+- **Work whose outcome is unknown goes** as one labelled conflict block after
+  what is there, instead of being held.
+- **A device may claim any time.** Its claim is Git's author date; the
+  server's arrival time drives retention and the flush; no commit is
+  refused for a clock.
+- **Every note lands in house style.** The server formats each landing
+  note's frontmatter one way, deterministically and idempotently, the body
+  untouched; merges commute with it. Devices send what was typed; a folder
+  writes the formatted text back once.
+- **Each file says how it landed:** as sent, with conflict blocks, at a
+  sibling (with its path), or a delete that did not take, in the replica,
+  the API and `sync --once`.
+- **A file is sent once quiet.** Every save is stored at once; the replica
+  sends a file after its text has been quiet for 1.5 s, never as a hold.
+- **Storage that is not persistent is said.** A browser that holds work
+  existing nowhere else asks for persistent storage, and where it is not
+  persistent, the shell's repository bar says the browser may delete it.
+
+Must stay refusals: size and parse-cost bounds, rate, `merge-too-large`,
+the block cap, pointers without bytes, text that is not UTF-8, NUL,
+unportable paths, `.git`, control files, case twins, auth, commit id and
+author checks, a path named twice, a `git push` behind Git's `main`, and
+HTTP's `If-Match`.
 
 ## What was deleted
 

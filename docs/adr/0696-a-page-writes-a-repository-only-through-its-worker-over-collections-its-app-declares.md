@@ -2,7 +2,7 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-29
-- **Relates:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) (the replica and the commits this API's writes become); [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which decides that typing is safe once it reaches the engine's database; [ADR-0694](0694-installing-an-app-is-trusting-it.md), whose manifest names an app's collections; [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (a schema interprets a note, it never refuses one); [ADR-0697](0697-all-text-merges-from-everyone.md) (a call's group lands whole, the rule `repo.commit` runs).
+- **Relates:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) (the replica and the commits this API's writes become); [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md), which decides that typing is safe once it reaches the engine's database; [ADR-0694](0694-installing-an-app-is-trusting-it.md), whose manifest names an app's collections; [ADR-0632](0632-a-lens-belongs-to-its-reader.md) (a schema interprets a note, it never refuses one); [ADR-0697](0697-all-text-merges-from-everyone.md) (all text merges); [ADR-0698](0698-the-file-is-the-unit.md) (each file goes on its own; `repo.commit` is a local transaction).
 - **Unbuilt:** the editor and the page over the desktop and CLI hosts; a measurement of the browser's OPFS worker under typing.
 
 ## Context
@@ -42,7 +42,8 @@ one.** `{ path: 'recordings/{stem}.webm', blob: true }` offers `create`
 it shows none), `delete` and `open`, which answers a `File` typed by the
 path's extension, from this device or fetched and verified first. A write
 seals the bytes on this device before it stores the pointer, and is
-compare-and-swap: it lands only over the blob this device saw there. The
+compare-and-swap: it lands over the blob this device saw there, or, if that
+moved, beside it at a sibling the server names. The
 plain file API takes bytes too: `files.create(path, text | Blob)` (a note
 is text, any other file bytes), `files.replace` and `files.open`.
 `attachment(repo, getPath)` in `@epicenter/svelte/repository` shows one as
@@ -52,17 +53,22 @@ replica. A held collection keeps every note (exact text, fields, body,
 collection keeps nothing in the page and offers `read(params)`, async;
 `all()` and `get()` are type errors on it. `repo.query(sql)` reads any view.
 A note is `ValidNote` or `InvalidNote` (with its `issues`): the schema
-interprets, it never refuses.
+interprets, it never refuses. A note whose frontmatter does not parse has
+no fields, so its schema's required fields are its issues; `app.check`
+reports only schema issues.
 
 **Every write is a change the worker applies to the text it holds, in one
 transaction.** `create`, `patch(params, fields)` (only those keys; the rest
 of the note keeps its formatting), `delete`, `write(params, text, { over })`
 (exact source, merged where the note moved since `over`), and
-`repo.commit(batch => ...)` for several at once, blobs included. What one
-call stores is one group: it lands in one commit, once every byte it names
-is on the server, or is held whole, and a batch whose change cannot apply
-stores nothing. Each resolves once this device stored it, with the note's
-resulting text and the revision. On a held
+`repo.commit(batch => ...)` for several at once, blobs included. A call is
+a local transaction: it stores all of its writes or none, and the page
+hears it as one change; from there each file goes on its own (ADR-0698),
+once quiet for the replica's pause, a pointer once its bytes are on the
+server. Each resolves once this device stored it, with the note's resulting
+text and the revision. A file's `state` is `synced`, `sending`, `waiting`
+or `refused` with why, and `repo.files.outcomes()` says how each file this
+device sent landed. On a held
 collection a write is projected over the stored note the way the worker will
 apply it, until the change event carrying its token is heard, and dropped
 if it fails. The worker keeps no file texts in memory.
@@ -79,8 +85,8 @@ keeps its object. `repo.subscribe` names the collections that changed.
 **A note has one editor, shared by every view of it, and it writes every
 change at once.** `openEditor(params)` (`api/editor.ts`) returns the one
 `Editor` of the path: `draft()` is the note's exact text, `update(draft,
-changes?)` is a keystroke, and each is sent as `write(text, { over: the text
-it was typed on })`. The worker applies writes in order and merges each once
+changes?)` is a keystroke, and each is stored as `write(text, { over: the
+text it was typed on })`; the replica sends the file once it has been quiet. The worker applies writes in order and merges each once
 with `settle`, so a field set elsewhere merges by key and a same-line clash
 is one conflict block however many keystrokes follow. While writes are in
 flight the views keep the typing; once the last is answered they show the

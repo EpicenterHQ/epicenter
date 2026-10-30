@@ -2,9 +2,9 @@
 
 - **Status:** Proposed
 - **Date:** 2026-10-30
-- **Amends:** [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) at "an agent's work lands as one commit or not at all" and "refused if `main` moved since it looked, so the agent redoes its work": an agent's batch merges like anyone's save, and lands in one commit or is held whole; nothing is refused because `main` moved, except a `git push`, under Git's own ref rule.
-- **Relates:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) (the live commit, the merge and the door this rule runs on); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (`repo.commit`, the call whose group lands whole).
-- **Unbuilt:** a `git push` transport (a receive-pack endpoint into the built receiver). Built: `epicenter commit`, the call outcomes it reports, messages on `repo.commit`, and a `git push` taken as a merge.
+- **Amends:** [ADR-0695](0695-one-sync-engine-runs-on-every-device-and-a-folder-on-disk-is-its-watched-projection.md) at "an agent's work lands as one commit or not at all" and "refused if `main` moved since it looked, so the agent redoes its work": an agent's batch merges like anyone's save, each file on its own ([ADR-0698](0698-the-file-is-the-unit.md)); nothing is refused because `main` moved, except a `git push`, under Git's own ref rule.
+- **Relates:** [ADR-0692](0692-every-write-is-a-live-commit-on-its-parent-taken-through-the-repositorys-server.md) (the live commit, the merge and the door this rule runs on); [ADR-0696](0696-a-page-writes-a-repository-only-through-its-worker-over-collections-its-app-declares.md) (`repo.commit`, a local transaction); [ADR-0698](0698-the-file-is-the-unit.md), which replaced this record's groups, calls, outcomes and messages with the file as the unit, and its repairs.
+- **Unbuilt:** a `git push` transport (a receive-pack endpoint into the built receiver). Built: a `git push` taken as a merge, and each file's outcome (ADR-0698).
 
 ## Context
 
@@ -28,46 +28,18 @@ person, an app, an agent or a script. A clash is a conflict block, labelled
 with its author. Who wrote a commit changes its label and what the session
 may do, never how it settles.
 
-**A call's group lands whole.** What one call saved (`repo.commit`, a
-replica's `writeAll`, later `epicenter commit`) is one group. The device
-sends a group in one commit or not at all: it waits while any file of it is
-held or owed its bytes, and a file of it the door or the server refuses
-holds the rest with it. A group too large for one request is held whole,
-never split; its writer saves less. A later save of a file in a held group
-joins that group. Separate calls are separate groups: a person attaching an
-image and then naming it in a note makes two, so the note never waits on the
-upload.
-
-**A message belongs to its call.** A call may say a message (`epicenter
-commit -m`, `repo.commit(build, { message })`). Its commit is one of its own
-and is never amended: a later save of one of its files, under another
-message or none, waits until it is sent. The message goes into history as
-that commit's Git commit message, with an `Epicenter-Device` trailer naming
-who wrote it. A call without a message is amended as ever: a later save's
-call takes it in when that save is committed over it, and until then it goes
-on its own, so a later call that is held or waiting never holds it, even
-where it saved the same text. When a later save joins a held call, the group
-says the newer call's message, or the older's when the newer has none.
-
-**A call has one outcome, and the replica reports it.** `landed`, in its
-commit (or in `main` as it found it, when nothing of it needed sending),
-naming the files where a merge of its work wrote conflict blocks and those
-where its delete did not take, since an edit beat it; `held`, naming the
-files of it that hold it, and why; or `pending`. A writer reads its own
-call's outcome: another call's held files never stop it or appear in its
-verdict, and nothing matches commits by their message.
-
-**Held means one thing.** A held save is a writer's own work that cannot go
-yet, and it holds its call: a text the door or the server refused, work
-whose outcome is unknown, bytes the server will not take, and a save a front
-end found that the repository cannot take at all (a folder's note that is
-not UTF-8, a name that folds to another file's, bytes the device could not
-store). It holds its call wherever the refusal is found, the device's door,
-the server or the folder, so the call lands whole or is held whole. A later
-save of the held path, or word that it is gone or can be taken, joins that
-call and ends the hold. What a front end leaves alone (dot paths, editor
-droppings, symlinks and other files that are not regular) is never a save,
-and never held.
+**Each file goes on its own, and what cannot go waits or is refused.**
+[ADR-0698](0698-the-file-is-the-unit.md) replaced this record's groups,
+calls, call outcomes and commit messages: a file goes when it can, alone. A
+file that cannot go is `waiting` (the system clears it) or `refused` (only a
+person can fix it: an unportable name, a name another file has in other
+letters, a note that is not text, a file where a folder is or the reverse),
+with its reason, wherever that is found: the device's door, the server or
+the folder. Only its writer's next save of the file clears it. Each file
+this device sent says how it landed: as sent, with conflict blocks, at a
+sibling, or a delete that did not take. What a front end leaves alone (dot
+paths, editor droppings, symlinks and other files that are not regular) is
+never a save.
 
 **One row per spelling.** Paths equal after NFC and case folding are one
 path, spelled as `main` spells it, and a device keeps one row for it. Where
@@ -77,10 +49,11 @@ spelling before anything is taken: on a catch-up, and on every answer that
 lands this device's commit (`applied`, `merged`, or `flushed` long after),
 so the work is rebased onto `main`'s text and never sent over it unseen.
 
-**Only bytes compare-and-swap.** A blob write lands only where the path
-still holds the blob its writer saw (`settlePointer`); one that does not is
-held with why, and so is its group. A pointer joins the group of the call
-that saved it, and that group waits for its bytes.
+**Only bytes compare-and-swap, and a blob write that lost lands beside.** A
+blob write lands only where the path still holds the blob its writer saw
+(`settlePointer`); one that does not lands at a sibling the server names
+from the original stem and its bytes' hash (ADR-0692), and its writer is
+told the path. A pointer waits alone for its bytes.
 
 **HTTP's file writes are conditional.** `PUT` and `DELETE /files/<path>`
 require `If-Match` (or `If-None-Match: *` to create), checked inside the
@@ -98,8 +71,9 @@ checked, are merged, not refused. The pushed change (the diff from the old
 value's tree to the pushed tree) becomes one live commit on the live commit
 Git's `main` stands for: the flushed place, or the live commit an earlier
 push became while it waits to be joined. It merges into live `main` like any
-call's group: every note merges, and a blob by compare-and-swap, so a stale
-blob replace refuses the whole push with its path and Git does not move.
+commit: every note merges, and a blob by compare-and-swap, so a stale blob
+replace lands beside the live one at a sibling the accepted answer names.
+Git's `main` holds the pushed bytes at the path until the join is flushed.
 
 The transaction that lands the live commit journals the move of Git's
 `main` from the old value to exactly the pushed commit, and records the
@@ -137,28 +111,12 @@ however many commits the flush writes.
   the server or the replica, and no agent reset path.
 - An agent never redoes work because a person typed; it may find conflict
   blocks in what it wrote, and repairs them like anyone.
-- A batch's files are never seen half-landed by anyone else. The cost is
-  waiting: a batch with a large upload waits for it, and one refused file
-  holds its whole group until its writer saves again.
-- A group too large for one request needs its writer to save less, since
-  saving one of its files alone still waits for the rest.
-- A file in a folder the repository cannot take holds the call that found
-  it until its person renames or fixes it; an agent's `commit -m` with such
-  a file exits held, and nothing of it lands.
-- A writer waits on its own call and learns what became of it, so a stale
-  held file elsewhere never makes a commit look failed.
-- One message can name two commits when groups cross-join. A message call's
-  blob write refused at catch-up holds its call, and a later save over that
-  blob joins it, so one group has the message, unsent files and a held file.
-  If a later save then re-saves the held blob (joining that group) and also
-  saves over another message call's unsent file, it waits for that commit.
-  The group's unsent files go first under its message, then the other
-  message's commit, then the held file under the first message again. No
-  text is lost; history shows one message on two commits. Keeping one commit
-  per message here costs a rule: a call that waits waits whole, which
-  deadlocks when two such groups wait on each other and needs a tie-break,
-  or a message commit that may be amended, which folds edits made after
-  `epicenter commit -m` into it. Neither is chosen.
+- Another device can see half of a batch (ADR-0698): each file goes when it
+  can, and a file that cannot waits or is refused alone. The cross-join
+  cycle of groups and messages this record's first form reached cannot
+  occur.
+- A writer reads each file's state and outcome; a file elsewhere that waits
+  or is refused never makes another look failed.
 - A `git push` lands beside typing. Measured in the simulation
   (`packages/repository/scripts/push-starvation.ts`, 10 people autosaving
   every 1 to 3 s, 400 ms client round trips): 538 of 538 pushes landed in
@@ -177,6 +135,9 @@ however many commits the flush writes.
   commit path, and the merge it allows is the right one.
 
 ## Considered alternatives
+
+The alternatives below about groups, calls and messages were weighed while
+this record kept them; ADR-0698 removed them.
 
 - **A writer mode, `fast-forward` for agents** (ADR-0695 as written): the
   agent loses every race with typing, and the mode reached every layer.
