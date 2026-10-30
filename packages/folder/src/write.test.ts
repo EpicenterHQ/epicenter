@@ -37,8 +37,12 @@ async function directory() {
 test('put lands only while the path holds what it expects, and changes nothing when stale', async () => {
 	const { boundary } = await directory();
 	const one = encoder.encode('one\n');
-	expect(expectOk(await boundary.put('a/b.md', one, 'absent')).kind).toBe('landed');
-	expect(expectOk(await boundary.put('a/b.md', one, 'absent')).kind).toBe('stale');
+	expect(expectOk(await boundary.put('a/b.md', one, 'absent')).kind).toBe(
+		'landed',
+	);
+	expect(expectOk(await boundary.put('a/b.md', one, 'absent')).kind).toBe(
+		'stale',
+	);
 	const first = await hashBytes(one);
 	expect(
 		expectOk(
@@ -52,17 +56,19 @@ test('put lands only while the path holds what it expects, and changes nothing w
 			await boundary.put('a/b.md', encoder.encode('two\n'), { sha256: first }),
 		).kind,
 	).toBe('landed');
-	expect(expectOk(await boundary.put('a/b.md', null, { sha256: first })).kind).toBe(
-		'stale',
-	);
+	expect(
+		expectOk(await boundary.put('a/b.md', null, { sha256: first })).kind,
+	).toBe('stale');
 	const second = await hashBytes(encoder.encode('two\n'));
-	expect(expectOk(await boundary.put('a/b.md', null, { sha256: second })).kind).toBe(
+	expect(
+		expectOk(await boundary.put('a/b.md', null, { sha256: second })).kind,
+	).toBe('landed');
+	expect(
+		expectOk(await boundary.put('a/b.md', null, { sha256: second })).kind,
+	).toBe('stale');
+	expect(expectOk(await boundary.put('a/b.md', null, 'absent')).kind).toBe(
 		'landed',
 	);
-	expect(expectOk(await boundary.put('a/b.md', null, { sha256: second })).kind).toBe(
-		'stale',
-	);
-	expect(expectOk(await boundary.put('a/b.md', null, 'absent')).kind).toBe('landed');
 	expect(expectErr(await boundary.read('a/b.md')).name).toBe('NotFound');
 	expect(expectErr(await boundary.put('.git/x', one, 'absent')).name).toBe(
 		'InvalidPath',
@@ -99,7 +105,9 @@ test('an existing nonportable name may be replaced or removed, never made', asyn
 	expect(
 		expectErr(await boundary.put('b?.md', encoder.encode('x'), 'absent')).name,
 	).toBe('InvalidPath');
-	expect(expectOk(await boundary.put('a?.md', null, 'any')).kind).toBe('landed');
+	expect(expectOk(await boundary.put('a?.md', null, 'any')).kind).toBe(
+		'landed',
+	);
 	expect(expectErr(await boundary.read('a?.md')).name).toBe('NotFound');
 	// The file went before the write landed: it cannot make the name.
 	await writeFile(join(root, 'c?.md'), 'theirs\n');
@@ -202,7 +210,8 @@ test('publication joins a live addition and preserves an incoming edit over an u
 
 test('publication puts nothing when the merged file is already live', async () => {
 	const { boundary } = await directory();
-	expectOk(await boundary.put('a.txt', encoder.encode('same\n'), 'absent')).kind;
+	expectOk(await boundary.put('a.txt', encoder.encode('same\n'), 'absent'))
+		.kind;
 	let puts = 0;
 	const storage = {
 		...boundary,

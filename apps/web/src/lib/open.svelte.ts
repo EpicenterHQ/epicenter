@@ -15,11 +15,18 @@ import type { ShellRepository } from './lens.js';
 /** An open repository: its handle, its reads tracked (`reactive`), and the copy it opened. */
 export type OpenRepository = { repo: ShellRepository; manifest: Manifest };
 
-export const [getOpenRepository, setOpenRepository] = createContext<OpenRepository>();
+export const [getOpenRepository, setOpenRepository] =
+	createContext<OpenRepository>();
 
 /** Open `manifest`'s copy in this tab, with every installed app's collections. */
 export const openRepository = (manifest: Manifest): OpenRepository => ({
-	repo: reactive(openBrowserRepository({ app: installedLens(), replica: manifest.replica, headers: headersOf(manifest) })),
+	repo: reactive(
+		openBrowserRepository({
+			app: installedLens(),
+			replica: manifest.replica,
+			headers: headersOf(manifest),
+		}),
+	),
 	manifest,
 });
 

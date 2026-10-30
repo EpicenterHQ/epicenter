@@ -1,517 +1,517 @@
 {
-  "recordedAt": "2026-10-27T06:50:14.112Z",
-  "source": "Read-only live vault snapshot, raw Markdown per nested shared text node; no metadata projection or UI",
-  "yjs": "14.0.0-rc.26",
-  "exclusions": [
-    ".git",
-    "node_modules",
-    ".obsidian",
-    ".trash",
-    ".claude",
-    ".codex",
-    ".agents"
-  ],
-  "corpora": [
-    {
-      "name": "pages",
-      "files": 3048,
-      "utf8Bytes": 12574697,
-      "utf16Units": 12533639,
-      "checksum": 2216584287,
-      "seed": {
-        "importMs": 12.900000095367432,
-        "encodeMs": 29.199999809265137,
-        "encodedBytes": 12824275,
-        "files": 3048
-      },
-      "trials": [
-        {
-          "trial": 0,
-          "openMs": 4.300000190734863,
-          "readMs": 6.699999809265137,
-          "applyMs": 12.599999904632568,
-          "readyMs": 23.59999990463257,
-          "files": 3048,
-          "validation": {
-            "files": 3048,
-            "utf16Units": 12533639,
-            "checksum": 2216584287
-          },
-          "baseline": {
-            "usedSize": 1288088,
-            "totalSize": 2162688,
-            "embedderHeapUsedSize": 305032,
-            "backingStorageSize": 150655
-          },
-          "startupHeap": {
-            "usedSize": 5540072,
-            "totalSize": 9764864,
-            "embedderHeapUsedSize": 473104,
-            "backingStorageSize": 25712887
-          },
-          "steadyHeap": {
-            "usedSize": 3591248,
-            "totalSize": 4259840,
-            "embedderHeapUsedSize": 306384,
-            "backingStorageSize": 12888612
-          },
-          "baselineHeapBytes": 1288088,
-          "startupHeapDeltaBytes": 4251984,
-          "postGcHeapDeltaBytes": 2303160,
-          "startupBackingDeltaBytes": 25562232,
-          "postGcBackingDeltaBytes": 12737957,
-          "postGcHeapAndBackingDeltaBytes": 15041117
-        },
-        {
-          "trial": 1,
-          "openMs": 8.100000381469727,
-          "readMs": 6.799999713897705,
-          "applyMs": 13.900000095367432,
-          "readyMs": 28.800000190734863,
-          "files": 3048,
-          "validation": {
-            "files": 3048,
-            "utf16Units": 12533639,
-            "checksum": 2216584287
-          },
-          "baseline": {
-            "usedSize": 1288088,
-            "totalSize": 2162688,
-            "embedderHeapUsedSize": 305032,
-            "backingStorageSize": 150655
-          },
-          "startupHeap": {
-            "usedSize": 5564396,
-            "totalSize": 9764864,
-            "embedderHeapUsedSize": 473088,
-            "backingStorageSize": 25712887
-          },
-          "steadyHeap": {
-            "usedSize": 3592072,
-            "totalSize": 4259840,
-            "embedderHeapUsedSize": 306384,
-            "backingStorageSize": 12888612
-          },
-          "baselineHeapBytes": 1288088,
-          "startupHeapDeltaBytes": 4276308,
-          "postGcHeapDeltaBytes": 2303984,
-          "startupBackingDeltaBytes": 25562232,
-          "postGcBackingDeltaBytes": 12737957,
-          "postGcHeapAndBackingDeltaBytes": 15041941
-        },
-        {
-          "trial": 2,
-          "openMs": 5.199999809265137,
-          "readMs": 7.800000190734863,
-          "applyMs": 15,
-          "readyMs": 28,
-          "files": 3048,
-          "validation": {
-            "files": 3048,
-            "utf16Units": 12533639,
-            "checksum": 2216584287
-          },
-          "baseline": {
-            "usedSize": 1288088,
-            "totalSize": 2162688,
-            "embedderHeapUsedSize": 305032,
-            "backingStorageSize": 150655
-          },
-          "startupHeap": {
-            "usedSize": 5546120,
-            "totalSize": 9764864,
-            "embedderHeapUsedSize": 473088,
-            "backingStorageSize": 25712887
-          },
-          "steadyHeap": {
-            "usedSize": 3592564,
-            "totalSize": 4259840,
-            "embedderHeapUsedSize": 306384,
-            "backingStorageSize": 12888612
-          },
-          "baselineHeapBytes": 1288088,
-          "startupHeapDeltaBytes": 4258032,
-          "postGcHeapDeltaBytes": 2304476,
-          "startupBackingDeltaBytes": 25562232,
-          "postGcBackingDeltaBytes": 12737957,
-          "postGcHeapAndBackingDeltaBytes": 15042433
-        }
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.5999999046325684,
-          "durableMs": 2.0999999046325684,
-          "updateBytes": 49
-        },
-        {
-          "inMemoryMs": 0.19999980926513672,
-          "durableMs": 0.8999996185302734,
-          "updateBytes": 42
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 1.5,
-          "updateBytes": 42
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.8000001907348633,
-          "updateBytes": 42
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.6000003814697266,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.9000000953674316,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0.10000038146972656,
-          "durableMs": 0.6000003814697266,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.7000002861022949,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0.19999980926513672,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.8000001907348633,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.40000009536743164,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.40000009536743164,
-          "updateBytes": 44
-        }
-      ],
-      "editedValidation": {
-        "files": 3048,
-        "utf16Units": 12533939,
-        "checksum": 2630930643
-      },
-      "incrementalReplay": {
-        "openMs": 0.20000028610229492,
-        "readMs": 6.699999809265137,
-        "applyMs": 13.5,
-        "readyMs": 20.40000009536743,
-        "files": 3048
-      },
-      "incrementalReplayVerified": true,
-      "compaction": {
-        "encodeMs": 25.40000009536743,
-        "durableMs": 52.59999990463257,
-        "encodedBytes": 12824610
-      },
-      "compactionReopenVerified": true
-    },
-    {
-      "name": "all",
-      "files": 48831,
-      "utf8Bytes": 122788490,
-      "utf16Units": 122072597,
-      "checksum": 1695013643,
-      "seed": {
-        "importMs": 107.40000009536743,
-        "encodeMs": 248,
-        "encodedBytes": 127417187,
-        "files": 48831
-      },
-      "trials": [
-        {
-          "trial": 0,
-          "openMs": 3.200000286102295,
-          "readMs": 55.09999990463257,
-          "applyMs": 106.5,
-          "readyMs": 164.80000019073486,
-          "files": 48831,
-          "validation": {
-            "files": 48831,
-            "utf16Units": 122072597,
-            "checksum": 1695013643
-          },
-          "baseline": {
-            "usedSize": 1288088,
-            "totalSize": 2162688,
-            "embedderHeapUsedSize": 305032,
-            "backingStorageSize": 150655
-          },
-          "startupHeap": {
-            "usedSize": 45206436,
-            "totalSize": 93880320,
-            "embedderHeapUsedSize": 508952,
-            "backingStorageSize": 253543534
-          },
-          "steadyHeap": {
-            "usedSize": 36119228,
-            "totalSize": 39731200,
-            "embedderHeapUsedSize": 307984,
-            "backingStorageSize": 126126347
-          },
-          "baselineHeapBytes": 1288088,
-          "startupHeapDeltaBytes": 43918348,
-          "postGcHeapDeltaBytes": 34831140,
-          "startupBackingDeltaBytes": 253392879,
-          "postGcBackingDeltaBytes": 125975692,
-          "postGcHeapAndBackingDeltaBytes": 160806832
-        },
-        {
-          "trial": 1,
-          "openMs": 3.5,
-          "readMs": 59.39999961853027,
-          "applyMs": 113.90000009536743,
-          "readyMs": 176.7999997138977,
-          "files": 48831,
-          "validation": {
-            "files": 48831,
-            "utf16Units": 122072597,
-            "checksum": 1695013643
-          },
-          "baseline": {
-            "usedSize": 1288088,
-            "totalSize": 2162688,
-            "embedderHeapUsedSize": 305032,
-            "backingStorageSize": 150655
-          },
-          "startupHeap": {
-            "usedSize": 45210836,
-            "totalSize": 93880320,
-            "embedderHeapUsedSize": 515440,
-            "backingStorageSize": 253543534
-          },
-          "steadyHeap": {
-            "usedSize": 36116672,
-            "totalSize": 39731200,
-            "embedderHeapUsedSize": 307984,
-            "backingStorageSize": 126126347
-          },
-          "baselineHeapBytes": 1288088,
-          "startupHeapDeltaBytes": 43922748,
-          "postGcHeapDeltaBytes": 34828584,
-          "startupBackingDeltaBytes": 253392879,
-          "postGcBackingDeltaBytes": 125975692,
-          "postGcHeapAndBackingDeltaBytes": 160804276
-        },
-        {
-          "trial": 2,
-          "openMs": 4.300000190734863,
-          "readMs": 69,
-          "applyMs": 118.19999980926514,
-          "readyMs": 191.5,
-          "files": 48831,
-          "validation": {
-            "files": 48831,
-            "utf16Units": 122072597,
-            "checksum": 1695013643
-          },
-          "baseline": {
-            "usedSize": 1288088,
-            "totalSize": 2162688,
-            "embedderHeapUsedSize": 305032,
-            "backingStorageSize": 150655
-          },
-          "startupHeap": {
-            "usedSize": 45408216,
-            "totalSize": 93618176,
-            "embedderHeapUsedSize": 508936,
-            "backingStorageSize": 253543534
-          },
-          "steadyHeap": {
-            "usedSize": 36117088,
-            "totalSize": 39731200,
-            "embedderHeapUsedSize": 307984,
-            "backingStorageSize": 126126347
-          },
-          "baselineHeapBytes": 1288088,
-          "startupHeapDeltaBytes": 44120128,
-          "postGcHeapDeltaBytes": 34829000,
-          "startupBackingDeltaBytes": 253392879,
-          "postGcBackingDeltaBytes": 125975692,
-          "postGcHeapAndBackingDeltaBytes": 160804692
-        }
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.5,
-          "durableMs": 3,
-          "updateBytes": 49
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.7000002861022949,
-          "updateBytes": 42
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 1.4000000953674316,
-          "updateBytes": 42
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 1,
-          "updateBytes": 42
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.5,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0.20000028610229492,
-          "durableMs": 0.8000001907348633,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.40000009536743164,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.40000009536743164,
-          "updateBytes": 43
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.40000009536743164,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.2999997138977051,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5999999046325684,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.7999997138977051,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "durableMs": 0.39999961853027344,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.5,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.40000009536743164,
-          "updateBytes": 44
-        },
-        {
-          "inMemoryMs": 0,
-          "durableMs": 0.40000009536743164,
-          "updateBytes": 44
-        }
-      ],
-      "editedValidation": {
-        "files": 48831,
-        "utf16Units": 122072897,
-        "checksum": 3353114327
-      },
-      "incrementalReplay": {
-        "openMs": 0.20000028610229492,
-        "readMs": 54.299999713897705,
-        "applyMs": 107.2000002861023,
-        "readyMs": 161.7000002861023,
-        "files": 48831
-      },
-      "incrementalReplayVerified": true,
-      "compaction": {
-        "encodeMs": 269.5,
-        "durableMs": 502.09999990463257,
-        "encodedBytes": 127417522
-      },
-      "compactionReopenVerified": true
-    }
-  ],
-  "chromium": "151.0.7922.34",
-  "machine": {
-    "cpu": "Apple M4 Max",
-    "ramGiB": 128,
-    "macOS": "26.5.2",
-    "bun": "1.4.3"
-  }
+	"recordedAt": "2026-10-27T06:50:14.112Z",
+	"source": "Read-only live vault snapshot, raw Markdown per nested shared text node; no metadata projection or UI",
+	"yjs": "14.0.0-rc.26",
+	"exclusions": [
+		".git",
+		"node_modules",
+		".obsidian",
+		".trash",
+		".claude",
+		".codex",
+		".agents"
+	],
+	"corpora": [
+		{
+			"name": "pages",
+			"files": 3048,
+			"utf8Bytes": 12574697,
+			"utf16Units": 12533639,
+			"checksum": 2216584287,
+			"seed": {
+				"importMs": 12.900000095367432,
+				"encodeMs": 29.199999809265137,
+				"encodedBytes": 12824275,
+				"files": 3048
+			},
+			"trials": [
+				{
+					"trial": 0,
+					"openMs": 4.300000190734863,
+					"readMs": 6.699999809265137,
+					"applyMs": 12.599999904632568,
+					"readyMs": 23.59999990463257,
+					"files": 3048,
+					"validation": {
+						"files": 3048,
+						"utf16Units": 12533639,
+						"checksum": 2216584287
+					},
+					"baseline": {
+						"usedSize": 1288088,
+						"totalSize": 2162688,
+						"embedderHeapUsedSize": 305032,
+						"backingStorageSize": 150655
+					},
+					"startupHeap": {
+						"usedSize": 5540072,
+						"totalSize": 9764864,
+						"embedderHeapUsedSize": 473104,
+						"backingStorageSize": 25712887
+					},
+					"steadyHeap": {
+						"usedSize": 3591248,
+						"totalSize": 4259840,
+						"embedderHeapUsedSize": 306384,
+						"backingStorageSize": 12888612
+					},
+					"baselineHeapBytes": 1288088,
+					"startupHeapDeltaBytes": 4251984,
+					"postGcHeapDeltaBytes": 2303160,
+					"startupBackingDeltaBytes": 25562232,
+					"postGcBackingDeltaBytes": 12737957,
+					"postGcHeapAndBackingDeltaBytes": 15041117
+				},
+				{
+					"trial": 1,
+					"openMs": 8.100000381469727,
+					"readMs": 6.799999713897705,
+					"applyMs": 13.900000095367432,
+					"readyMs": 28.800000190734863,
+					"files": 3048,
+					"validation": {
+						"files": 3048,
+						"utf16Units": 12533639,
+						"checksum": 2216584287
+					},
+					"baseline": {
+						"usedSize": 1288088,
+						"totalSize": 2162688,
+						"embedderHeapUsedSize": 305032,
+						"backingStorageSize": 150655
+					},
+					"startupHeap": {
+						"usedSize": 5564396,
+						"totalSize": 9764864,
+						"embedderHeapUsedSize": 473088,
+						"backingStorageSize": 25712887
+					},
+					"steadyHeap": {
+						"usedSize": 3592072,
+						"totalSize": 4259840,
+						"embedderHeapUsedSize": 306384,
+						"backingStorageSize": 12888612
+					},
+					"baselineHeapBytes": 1288088,
+					"startupHeapDeltaBytes": 4276308,
+					"postGcHeapDeltaBytes": 2303984,
+					"startupBackingDeltaBytes": 25562232,
+					"postGcBackingDeltaBytes": 12737957,
+					"postGcHeapAndBackingDeltaBytes": 15041941
+				},
+				{
+					"trial": 2,
+					"openMs": 5.199999809265137,
+					"readMs": 7.800000190734863,
+					"applyMs": 15,
+					"readyMs": 28,
+					"files": 3048,
+					"validation": {
+						"files": 3048,
+						"utf16Units": 12533639,
+						"checksum": 2216584287
+					},
+					"baseline": {
+						"usedSize": 1288088,
+						"totalSize": 2162688,
+						"embedderHeapUsedSize": 305032,
+						"backingStorageSize": 150655
+					},
+					"startupHeap": {
+						"usedSize": 5546120,
+						"totalSize": 9764864,
+						"embedderHeapUsedSize": 473088,
+						"backingStorageSize": 25712887
+					},
+					"steadyHeap": {
+						"usedSize": 3592564,
+						"totalSize": 4259840,
+						"embedderHeapUsedSize": 306384,
+						"backingStorageSize": 12888612
+					},
+					"baselineHeapBytes": 1288088,
+					"startupHeapDeltaBytes": 4258032,
+					"postGcHeapDeltaBytes": 2304476,
+					"startupBackingDeltaBytes": 25562232,
+					"postGcBackingDeltaBytes": 12737957,
+					"postGcHeapAndBackingDeltaBytes": 15042433
+				}
+			],
+			"edits": [
+				{
+					"inMemoryMs": 0.5999999046325684,
+					"durableMs": 2.0999999046325684,
+					"updateBytes": 49
+				},
+				{
+					"inMemoryMs": 0.19999980926513672,
+					"durableMs": 0.8999996185302734,
+					"updateBytes": 42
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 1.5,
+					"updateBytes": 42
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.8000001907348633,
+					"updateBytes": 42
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.6000003814697266,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.9000000953674316,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0.10000038146972656,
+					"durableMs": 0.6000003814697266,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.7000002861022949,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0.19999980926513672,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.8000001907348633,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.40000009536743164,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.40000009536743164,
+					"updateBytes": 44
+				}
+			],
+			"editedValidation": {
+				"files": 3048,
+				"utf16Units": 12533939,
+				"checksum": 2630930643
+			},
+			"incrementalReplay": {
+				"openMs": 0.20000028610229492,
+				"readMs": 6.699999809265137,
+				"applyMs": 13.5,
+				"readyMs": 20.40000009536743,
+				"files": 3048
+			},
+			"incrementalReplayVerified": true,
+			"compaction": {
+				"encodeMs": 25.40000009536743,
+				"durableMs": 52.59999990463257,
+				"encodedBytes": 12824610
+			},
+			"compactionReopenVerified": true
+		},
+		{
+			"name": "all",
+			"files": 48831,
+			"utf8Bytes": 122788490,
+			"utf16Units": 122072597,
+			"checksum": 1695013643,
+			"seed": {
+				"importMs": 107.40000009536743,
+				"encodeMs": 248,
+				"encodedBytes": 127417187,
+				"files": 48831
+			},
+			"trials": [
+				{
+					"trial": 0,
+					"openMs": 3.200000286102295,
+					"readMs": 55.09999990463257,
+					"applyMs": 106.5,
+					"readyMs": 164.80000019073486,
+					"files": 48831,
+					"validation": {
+						"files": 48831,
+						"utf16Units": 122072597,
+						"checksum": 1695013643
+					},
+					"baseline": {
+						"usedSize": 1288088,
+						"totalSize": 2162688,
+						"embedderHeapUsedSize": 305032,
+						"backingStorageSize": 150655
+					},
+					"startupHeap": {
+						"usedSize": 45206436,
+						"totalSize": 93880320,
+						"embedderHeapUsedSize": 508952,
+						"backingStorageSize": 253543534
+					},
+					"steadyHeap": {
+						"usedSize": 36119228,
+						"totalSize": 39731200,
+						"embedderHeapUsedSize": 307984,
+						"backingStorageSize": 126126347
+					},
+					"baselineHeapBytes": 1288088,
+					"startupHeapDeltaBytes": 43918348,
+					"postGcHeapDeltaBytes": 34831140,
+					"startupBackingDeltaBytes": 253392879,
+					"postGcBackingDeltaBytes": 125975692,
+					"postGcHeapAndBackingDeltaBytes": 160806832
+				},
+				{
+					"trial": 1,
+					"openMs": 3.5,
+					"readMs": 59.39999961853027,
+					"applyMs": 113.90000009536743,
+					"readyMs": 176.7999997138977,
+					"files": 48831,
+					"validation": {
+						"files": 48831,
+						"utf16Units": 122072597,
+						"checksum": 1695013643
+					},
+					"baseline": {
+						"usedSize": 1288088,
+						"totalSize": 2162688,
+						"embedderHeapUsedSize": 305032,
+						"backingStorageSize": 150655
+					},
+					"startupHeap": {
+						"usedSize": 45210836,
+						"totalSize": 93880320,
+						"embedderHeapUsedSize": 515440,
+						"backingStorageSize": 253543534
+					},
+					"steadyHeap": {
+						"usedSize": 36116672,
+						"totalSize": 39731200,
+						"embedderHeapUsedSize": 307984,
+						"backingStorageSize": 126126347
+					},
+					"baselineHeapBytes": 1288088,
+					"startupHeapDeltaBytes": 43922748,
+					"postGcHeapDeltaBytes": 34828584,
+					"startupBackingDeltaBytes": 253392879,
+					"postGcBackingDeltaBytes": 125975692,
+					"postGcHeapAndBackingDeltaBytes": 160804276
+				},
+				{
+					"trial": 2,
+					"openMs": 4.300000190734863,
+					"readMs": 69,
+					"applyMs": 118.19999980926514,
+					"readyMs": 191.5,
+					"files": 48831,
+					"validation": {
+						"files": 48831,
+						"utf16Units": 122072597,
+						"checksum": 1695013643
+					},
+					"baseline": {
+						"usedSize": 1288088,
+						"totalSize": 2162688,
+						"embedderHeapUsedSize": 305032,
+						"backingStorageSize": 150655
+					},
+					"startupHeap": {
+						"usedSize": 45408216,
+						"totalSize": 93618176,
+						"embedderHeapUsedSize": 508936,
+						"backingStorageSize": 253543534
+					},
+					"steadyHeap": {
+						"usedSize": 36117088,
+						"totalSize": 39731200,
+						"embedderHeapUsedSize": 307984,
+						"backingStorageSize": 126126347
+					},
+					"baselineHeapBytes": 1288088,
+					"startupHeapDeltaBytes": 44120128,
+					"postGcHeapDeltaBytes": 34829000,
+					"startupBackingDeltaBytes": 253392879,
+					"postGcBackingDeltaBytes": 125975692,
+					"postGcHeapAndBackingDeltaBytes": 160804692
+				}
+			],
+			"edits": [
+				{
+					"inMemoryMs": 0.5,
+					"durableMs": 3,
+					"updateBytes": 49
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.7000002861022949,
+					"updateBytes": 42
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 1.4000000953674316,
+					"updateBytes": 42
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 1,
+					"updateBytes": 42
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.5,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0.20000028610229492,
+					"durableMs": 0.8000001907348633,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.40000009536743164,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.40000009536743164,
+					"updateBytes": 43
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.40000009536743164,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.2999997138977051,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5999999046325684,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.7999997138977051,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"durableMs": 0.39999961853027344,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.5,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.40000009536743164,
+					"updateBytes": 44
+				},
+				{
+					"inMemoryMs": 0,
+					"durableMs": 0.40000009536743164,
+					"updateBytes": 44
+				}
+			],
+			"editedValidation": {
+				"files": 48831,
+				"utf16Units": 122072897,
+				"checksum": 3353114327
+			},
+			"incrementalReplay": {
+				"openMs": 0.20000028610229492,
+				"readMs": 54.299999713897705,
+				"applyMs": 107.2000002861023,
+				"readyMs": 161.7000002861023,
+				"files": 48831
+			},
+			"incrementalReplayVerified": true,
+			"compaction": {
+				"encodeMs": 269.5,
+				"durableMs": 502.09999990463257,
+				"encodedBytes": 127417522
+			},
+			"compactionReopenVerified": true
+		}
+	],
+	"chromium": "151.0.7922.34",
+	"machine": {
+		"cpu": "Apple M4 Max",
+		"ramGiB": 128,
+		"macOS": "26.5.2",
+		"bun": "1.4.3"
+	}
 }

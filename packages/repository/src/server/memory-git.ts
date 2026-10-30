@@ -3,8 +3,20 @@
  * simulated network: the same ids the Bun Git store writes, so a flush
  * planned against one is checked against the other by the same rules.
  */
-import { type GitObject, gitBlobHash, gitCommitHash, gitObjectId, gitTreeHash, type TreeEntry } from '../core/hash.js';
-import type { CommitInfo, GitObjects, GitObjectWrites, Tree } from './git-store.js';
+import {
+	type GitObject,
+	gitBlobHash,
+	gitCommitHash,
+	gitObjectId,
+	gitTreeHash,
+	type TreeEntry,
+} from '../core/hash.js';
+import type {
+	CommitInfo,
+	GitObjects,
+	GitObjectWrites,
+	Tree,
+} from './git-store.js';
 
 type Stored =
 	| { kind: 'blob'; bytes: Uint8Array }
@@ -26,7 +38,9 @@ function parse({ kind, bytes }: GitObject): Stored {
 			kind,
 			info: {
 				tree: header.find((line) => line.startsWith('tree '))?.slice(5) ?? '',
-				parents: header.filter((line) => line.startsWith('parent ')).map((line) => line.slice(7)),
+				parents: header
+					.filter((line) => line.startsWith('parent '))
+					.map((line) => line.slice(7)),
 				message: text.slice(split + 2),
 			},
 		};
@@ -38,8 +52,12 @@ function parse({ kind, bytes }: GitObject): Stored {
 		const mode = decoder.decode(bytes.subarray(at, space));
 		const name = decoder.decode(bytes.subarray(space + 1, nul));
 		let hash = '';
-		for (const byte of bytes.subarray(nul + 1, nul + 21)) hash += byte.toString(16).padStart(2, '0');
-		entries.set(name, mode === '40000' ? { kind: 'tree', hash } : { kind: 'blob', hash, mode });
+		for (const byte of bytes.subarray(nul + 1, nul + 21))
+			hash += byte.toString(16).padStart(2, '0');
+		entries.set(
+			name,
+			mode === '40000' ? { kind: 'tree', hash } : { kind: 'blob', hash, mode },
+		);
 		at = nul + 21;
 	}
 	return { kind, entries };
@@ -52,7 +70,12 @@ export function createMemoryGitStore() {
 	function writeLevel(level: Level): string {
 		const entries = new Map<string, TreeEntry>();
 		for (const [name, entry] of level)
-			entries.set(name, entry instanceof Map ? { kind: 'tree', hash: writeLevel(entry) } : { kind: 'blob', hash: entry.oid, mode: entry.mode });
+			entries.set(
+				name,
+				entry instanceof Map
+					? { kind: 'tree', hash: writeLevel(entry) }
+					: { kind: 'blob', hash: entry.oid, mode: entry.mode },
+			);
 		const oid = gitTreeHash([...entries]);
 		objects.set(oid, { kind: 'tree', entries });
 		return oid;
@@ -69,7 +92,11 @@ export function createMemoryGitStore() {
 		if (tree?.kind !== 'tree') throw new Error(`no tree ${oid}`);
 		for (const [name, entry] of tree.entries) {
 			if (entry.kind === 'tree') flatten(entry.hash, `${prefix}${name}/`, out);
-			else out.set(`${prefix}${name}`, { mode: entry.mode ?? '100644', oid: entry.hash });
+			else
+				out.set(`${prefix}${name}`, {
+					mode: entry.mode ?? '100644',
+					oid: entry.hash,
+				});
 		}
 	}
 
@@ -113,16 +140,31 @@ export function createMemoryGitStore() {
 			}
 			return writeLevel(root);
 		},
-		async writeCommit({ tree, parents, message, author, committer = author, at }) {
+		async writeCommit({
+			tree,
+			parents,
+			message,
+			author,
+			committer = author,
+			at,
+		}) {
 			const seconds = Math.floor(at.getTime() / 1000);
-			const oid = gitCommitHash({ tree, parents, message, author: { ...author, at: seconds }, committer: { ...committer, at: seconds } });
+			const oid = gitCommitHash({
+				tree,
+				parents,
+				message,
+				author: { ...author, at: seconds },
+				committer: { ...committer, at: seconds },
+			});
 			objects.set(oid, { kind: 'commit', info: { tree, parents, message } });
 			return oid;
 		},
 		async writePack(written, { name, next, expected }) {
-			for (const object of written) objects.set(gitObjectId(object), parse(object));
+			for (const object of written)
+				objects.set(gitObjectId(object), parse(object));
 			// As receive-pack: a ref may name only a commit Git holds.
-			if (objects.get(next)?.kind !== 'commit') throw new Error(`writePack: no commit ${next}`);
+			if (objects.get(next)?.kind !== 'commit')
+				throw new Error(`writePack: no commit ${next}`);
 			return move(name, next, expected);
 		},
 		async updateRef(name, next, expected) {

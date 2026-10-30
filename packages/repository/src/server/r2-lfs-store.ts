@@ -10,7 +10,7 @@
  * semantics (`lfs-store.test.ts`), since Miniflare does not resolve here.
  */
 import { Ok } from 'wellcrafted/result';
-import { LFS_OID, LfsStoreError, type LfsStore } from './lfs-store.js';
+import { LFS_OID, type LfsStore, LfsStoreError } from './lfs-store.js';
 
 /** Only the R2 surface used by the byte store; hosts need no Cloudflare types. */
 export type R2Bucket = {
@@ -19,9 +19,7 @@ export type R2Bucket = {
 		body: ReadableStream<Uint8Array>,
 		options: { sha256: string; onlyIf: { etagDoesNotMatch: '*' } },
 	): Promise<unknown | null>;
-	head(
-		key: string,
-	): Promise<{
+	head(key: string): Promise<{
 		size: number;
 		checksums?: { sha256?: ArrayBuffer | Uint8Array | string };
 	} | null>;

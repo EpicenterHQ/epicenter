@@ -30,9 +30,16 @@ export type GitObjects = {
 	 * ref update); false when the ref was not `expected`. `next` must be one
 	 * of `objects` or already in Git, with everything it names.
 	 */
-	writePack(objects: GitObject[], ref: { name: string; next: string; expected: string | null }): Promise<boolean>;
+	writePack(
+		objects: GitObject[],
+		ref: { name: string; next: string; expected: string | null },
+	): Promise<boolean>;
 	/** Move `name` to `next` only if it is still `expected` (null: absent). */
-	updateRef(name: string, next: string, expected: string | null): Promise<boolean>;
+	updateRef(
+		name: string,
+		next: string,
+		expected: string | null,
+	): Promise<boolean>;
 	/** Delete `name` only if it is still `expected`; true when it is gone. */
 	deleteRef(name: string, expected: string): Promise<boolean>;
 };
@@ -56,16 +63,17 @@ export type GitObjectWrites = {
 };
 
 /** What today's (legacy) server also needs: history walks. */
-export type GitStore = GitObjects & GitObjectWrites & {
-	mergeBase(a: string, b: string): Promise<string | null>;
-	/**
-	 * The first-parent commits from `head` back to, not including, the newest
-	 * one whose `Epicenter-Seq` is at or below `seq`, oldest first: the commits
-	 * a device at `seq` has not seen. A commit with no sequence does not stop
-	 * the walk.
-	 */
-	commitsAfter(head: string, seq: number): Promise<LoggedCommit[]>;
-};
+export type GitStore = GitObjects &
+	GitObjectWrites & {
+		mergeBase(a: string, b: string): Promise<string | null>;
+		/**
+		 * The first-parent commits from `head` back to, not including, the newest
+		 * one whose `Epicenter-Seq` is at or below `seq`, oldest first: the commits
+		 * a device at `seq` has not seen. A commit with no sequence does not stop
+		 * the walk.
+		 */
+		commitsAfter(head: string, seq: number): Promise<LoggedCommit[]>;
+	};
 
 export const MAIN = 'refs/heads/main';
 

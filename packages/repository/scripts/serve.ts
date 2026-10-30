@@ -37,12 +37,15 @@ const { values, positionals } = parseArgs({
 });
 const [dir] = positionals;
 if (dir === undefined) {
-	console.error('Usage: bun packages/repository/scripts/serve.ts <repo-dir> [--repository <name>] [--port 8787] [--host 127.0.0.1] [--origin <url> ...]');
+	console.error(
+		'Usage: bun packages/repository/scripts/serve.ts <repo-dir> [--repository <name>] [--port 8787] [--host 127.0.0.1] [--origin <url> ...]',
+	);
 	process.exit(2);
 }
 const server = await openDiskRepository(resolve(dir));
 // The name a replica binds to, which a join link names.
-const repository = values.repository ?? basename(resolve(dir)).replace(/\.git$/, '');
+const repository =
+	values.repository ?? basename(resolve(dir)).replace(/\.git$/, '');
 const served = serveRepository({
 	repository,
 	// This machine's server; a replica binds to it.
@@ -54,7 +57,9 @@ const served = serveRepository({
 	port: Number(values.port),
 	origins: values.origin,
 });
-console.log(`Serving ${resolve(dir)} as the repository '${repository}' at ${served.url} (Authorization: Bearer <name>)`);
+console.log(
+	`Serving ${resolve(dir)} as the repository '${repository}' at ${served.url} (Authorization: Bearer <name>)`,
+);
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
 	process.on(signal, () => {
 		void server

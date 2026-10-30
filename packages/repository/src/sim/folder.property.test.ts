@@ -44,14 +44,22 @@
  * where a token is, and F_LOG=n how many steps are shown.
  */
 import { expect, test } from 'bun:test';
-import { parsePointer } from '../core/markdown.js';
+import { UPLOADING } from '../client/replica.js';
 import { fold } from '../core/door.js';
+import { parsePointer } from '../core/markdown.js';
 import { ignored, TWIN } from '../folder/engine.js';
+import {
+	createFolderDevice,
+	type FolderDevice,
+	type Lfs,
+	oidOf,
+	runFor,
+	until,
+	uploadBlob,
+} from './folder.test-support.js';
 import { createWorld, type Device } from './harness.js';
 import { createRandom, type Random } from './net.js';
-import { createFolderDevice, type FolderDevice, type Lfs, oidOf, runFor, until, uploadBlob } from './folder.test-support.js';
 import { versionsOf } from './property.test-support.js';
-import { UPLOADING } from '../client/replica.js';
 
 const env = (name: string) => process.env[`F_${name}`];
 const SEED = env('SEED');
@@ -67,20 +75,37 @@ const BLOBS = ['m/x.png', 'm/y.webm'];
 const TOKEN = /t\d+z/g;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const tokensIn = (text: string | null) => new Set(text === null ? [] : (text.match(TOKEN) ?? []));
-const note = (lines: string[]) => `---\ntitle: N\n---\n${lines.map((line) => `${line}\n`).join('')}`;
-const appended = (text: string | null, token: string) => (text === null || text === '' ? note([token]) : `${text.endsWith('\n') ? text : `${text}\n`}${token}\n`);
+const tokensIn = (text: string | null) =>
+	new Set(text === null ? [] : (text.match(TOKEN) ?? []));
+const note = (lines: string[]) =>
+	`---\ntitle: N\n---\n${lines.map((line) => `${line}\n`).join('')}`;
+const appended = (text: string | null, token: string) =>
+	text === null || text === ''
+		? note([token])
+		: `${text.endsWith('\n') ? text : `${text}\n`}${token}\n`;
 
 async function run(seed: number, steps: number) {
 	const random = createRandom(seed * 7919 + 17);
-	const world = createWorld({ seed, latency: { min: 2, max: 30 }, loss: { up: 0.03, down: 0.03 }, streamLoss: 0.02, stall: { chance: 0.02, ms: 2_500 } });
+	const world = createWorld({
+		seed,
+		latency: { min: 2, max: 30 },
+		loss: { up: 0.03, down: 0.03 },
+		streamLoss: 0.02,
+		stall: { chance: 0.02, ms: 2_500 },
+	});
 	const lfs: Lfs = new Map();
 	const faults = {
 		delay: () => (random.chance(0.2) ? random.int(0, 400) : random.int(0, 20)),
 		drop: () => random.chance(0.02),
 		overflow: () => random.chance(0.01),
 	};
-	const folder: FolderDevice = createFolderDevice(world, 'ada', { lfs, faults, quiet: QUIET, scanEvery: 30_000, step: () => (random.chance(0.3) ? random.int(1, 4) : 0) });
+	const folder: FolderDevice = createFolderDevice(world, 'ada', {
+		lfs,
+		faults,
+		quiet: QUIET,
+		scanEvery: 30_000,
+		step: () => (random.chance(0.3) ? random.int(1, 4) : 0),
+	});
 	const bo: Device = world.device('bo');
 	const log: string[] = [];
 	const violations: string[] = [];
@@ -124,13 +149,26 @@ async function run(seed: number, steps: number) {
 	const later = (ms: number, run: () => void) => world.net.after(ms, run);
 
 	type Style = 'in-place' | 'atomic' | 'vim' | 'vim-backupcopy' | 'jetbrains';
-	const STYLES: Style[] = ['in-place', 'atomic', 'vim', 'vim-backupcopy', 'jetbrains'];
+	const STYLES: Style[] = [
+		'in-place',
+		'atomic',
+		'vim',
+		'vim-backupcopy',
+		'jetbrains',
+	];
 	const name = (path: string) => path.slice(path.lastIndexOf('/') + 1);
-	const dir = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
-	const beside = (path: string, file: string) => (dir(path) === '' ? file : `${dir(path)}/${file}`);
+	const dir = (path: string) =>
+		path.slice(0, Math.max(0, path.lastIndexOf('/')));
+	const beside = (path: string, file: string) =>
+		dir(path) === '' ? file : `${dir(path)}/${file}`;
 
 	/** Save `text` at `path` in `style`, its steps spread over virtual time shorter than a quiet window. */
-	function save(path: string, text: string, style: Style, fresh: string[] = []) {
+	function save(
+		path: string,
+		text: string,
+		style: Style,
+		fresh: string[] = [],
+	) {
 		switch (style) {
 			case 'in-place': {
 				const ino = folder.disk.inodeOf(path);
@@ -138,12 +176,14 @@ async function run(seed: number, steps: number) {
 				// Truncate, then the bytes after a gap: a reader between sees the empty file.
 				writing.set(path, text);
 				const before = folder.disk.text(path);
-				for (const t of tokensIn(before)) if (!tokensIn(text).has(t)) owed.delete(t);
+				for (const t of tokensIn(before))
+					if (!tokensIn(text).has(t)) owed.delete(t);
 				folder.disk.writeInode(ino, new Uint8Array());
 				later(random.int(1, QUIET / 3), () => {
 					writing.delete(path);
 					// What another writer put in the file since the truncate is overwritten too.
-					for (const t of tokensIn(folder.disk.inodeText(ino))) if (!tokensIn(text).has(t)) owed.delete(t);
+					for (const t of tokensIn(folder.disk.inodeText(ino)))
+						if (!tokensIn(text).has(t)) owed.delete(t);
 					// Through the descriptor: wherever the inode is now, at the path or captured.
 					if (folder.disk.writeInode(ino, encoder.encode(text))) owe(fresh);
 				});
@@ -156,7 +196,10 @@ async function run(seed: number, steps: number) {
 				later(random.int(0, 10), () => {
 					writing.delete(path);
 					// The model's own check: an editor's temporary is its own until it is renamed.
-					if (folder.disk.text(temp) !== text) violations.push(`the test model: ${temp} was written by another save`);
+					if (folder.disk.text(temp) !== text)
+						violations.push(
+							`the test model: ${temp} was written by another save`,
+						);
 					removing(path, text);
 					if (folder.disk.rename(temp, path)) owe(fresh);
 				});
@@ -215,11 +258,13 @@ async function run(seed: number, steps: number) {
 
 	const path = () => random.pick(NOTES);
 	const blobPath = () => random.pick(BLOBS);
-	const bytes = () => encoder.encode(`bytes ${random.int(0, 3)} ${random.int(0, 1_000_000)}`);
+	const bytes = () =>
+		encoder.encode(`bytes ${random.int(0, 3)} ${random.int(0, 1_000_000)}`);
 	const busy = (p: string) => writing.has(p);
 	/** What bo's device shows at `p` under whichever spelling it keeps (`read` is exact): bo writes over what it read. */
 	const boRead = (p: string) => {
-		for (const [q, f] of bo.replica.files()) if (fold(q) === fold(p)) return f.mine;
+		for (const [q, f] of bo.replica.files())
+			if (fold(q) === fold(p)) return f.mine;
 		return null;
 	};
 
@@ -275,7 +320,12 @@ async function run(seed: number, steps: number) {
 					later(at, () => {
 						if (busy(p)) return;
 						const mine = token();
-						save(p, appended(folder.disk.text(p), mine), random.pick(['in-place', 'atomic'] as const), [mine]);
+						save(
+							p,
+							appended(folder.disk.text(p), mine),
+							random.pick(['in-place', 'atomic'] as const),
+							[mine],
+						);
 					});
 				}
 				return `bo edits ${p} +${t} while ada's editor keeps saving it`;
@@ -306,7 +356,13 @@ async function run(seed: number, steps: number) {
 			3,
 			() => {
 				const [from, to] = [path(), path()];
-				if (from === to || busy(from) || busy(to) || folder.disk.text(from) === null) return null;
+				if (
+					from === to ||
+					busy(from) ||
+					busy(to) ||
+					folder.disk.text(from) === null
+				)
+					return null;
 				removing(to, folder.disk.text(from));
 				folder.disk.rename(from, to);
 				return `ada moves ${from} to ${to}`;
@@ -317,7 +373,9 @@ async function run(seed: number, steps: number) {
 			() => {
 				const [from, to] = random.chance(0.5) ? ['d', 'moved'] : ['moved', 'd'];
 				if (NOTES.some(busy)) return null;
-				return folder.disk.rename(from, to) ? `ada moves the directory ${from} to ${to}` : null;
+				return folder.disk.rename(from, to)
+					? `ada moves the directory ${from} to ${to}`
+					: null;
 			},
 		],
 		[
@@ -345,7 +403,15 @@ async function run(seed: number, steps: number) {
 		[
 			2,
 			() => {
-				const p = random.pick(['.obsidian/workspace.json', 'n/.a.md.swp', '.DS_Store', '4913', 'n/a.md~', 'n/#a.md#', '.git/HEAD']);
+				const p = random.pick([
+					'.obsidian/workspace.json',
+					'n/.a.md.swp',
+					'.DS_Store',
+					'4913',
+					'n/a.md~',
+					'n/#a.md#',
+					'.git/HEAD',
+				]);
 				folder.disk.write(p, encoder.encode(`${token()}\n`));
 				return `ada's editor drops ${p}`;
 			},
@@ -374,7 +440,12 @@ async function run(seed: number, steps: number) {
 			() => {
 				const p = path();
 				const twin = p.replace(/[a-z](?=\.md$)/, (c) => c.toUpperCase());
-				if (twin === p || folder.disk.text(p) === null || folder.disk.text(twin) !== null) return null;
+				if (
+					twin === p ||
+					folder.disk.text(p) === null ||
+					folder.disk.text(twin) !== null
+				)
+					return null;
 				const t = token();
 				put(twin, note([t]), [t]);
 				return `ada makes ${twin}, a case twin of ${p}`;
@@ -411,7 +482,14 @@ async function run(seed: number, steps: number) {
 			},
 		],
 		[1, () => (folder.disk.unlink(blobPath()) ? 'ada deletes a blob' : null)],
-		[1, () => (folder.disk.rename('m/x.png', 'm/z.png') || folder.disk.rename('m/z.png', 'm/x.png') ? 'ada renames a blob' : null)],
+		[
+			1,
+			() =>
+				folder.disk.rename('m/x.png', 'm/z.png') ||
+				folder.disk.rename('m/z.png', 'm/x.png')
+					? 'ada renames a blob'
+					: null,
+		],
 		[
 			3,
 			async () => {
@@ -424,7 +502,10 @@ async function run(seed: number, steps: number) {
 			() => {
 				const owedBytes = folder.replica.owed()[0];
 				if (owedBytes === undefined) return null;
-				folder.replica.refused(owedBytes.oid, 'the file is larger than this repository allows');
+				folder.replica.refused(
+					owedBytes.oid,
+					'the file is larger than this repository allows',
+				);
 				return `ada's upload of ${owedBytes.oid.slice(0, 6)} is refused`;
 			},
 		],
@@ -471,7 +552,8 @@ async function run(seed: number, steps: number) {
 				const pointer = uploadBlob(world, lfs, bytes());
 				const sealed = parsePointer(pointer);
 				bo.replica.write(p, pointer);
-				if (sealed !== null && random.chance(0.8)) bo.replica.present(sealed.oid, sealed.size);
+				if (sealed !== null && random.chance(0.8))
+					bo.replica.present(sealed.oid, sealed.size);
 				return `bo writes the blob ${p}`;
 			},
 		],
@@ -503,7 +585,10 @@ async function run(seed: number, steps: number) {
 				// A stopped folder sends now (`epicenter sync --once`): one scan, online for a while, then stopped again.
 				await folder.crash({ watch: false });
 				await until(world, folder.engine.scan());
-				if (process.env.F_TRACE) log.push(`   (sent now at ${world.net.now()}: held ${JSON.stringify(folder.replica.notSent())}; unsent ${folder.replica.unsent().join(', ')})`);
+				if (process.env.F_TRACE)
+					log.push(
+						`   (sent now at ${world.net.now()}: held ${JSON.stringify(folder.replica.notSent())}; unsent ${folder.replica.unsent().join(', ')})`,
+					);
 				folder.device.setOnline(true);
 				await runFor(world, random.int(0, 3_000));
 				folder.engine.kill();
@@ -536,21 +621,41 @@ async function run(seed: number, steps: number) {
 
 	world.onRequest((device, request, reply) => {
 		if (request.type !== 'push') return;
-		if (process.env.F_TRACE && device === 'ada' && reply.type === 'answer') log.push(`   [${world.net.now()} push ${request.commit.id.slice(0, 7)} ${request.commit.files.map((f) => f.path).join(',')} -> ${reply.answer.kind}]`);
+		if (process.env.F_TRACE && device === 'ada' && reply.type === 'answer')
+			log.push(
+				`   [${world.net.now()} push ${request.commit.id.slice(0, 7)} ${request.commit.files.map((f) => f.path).join(',')} -> ${reply.answer.kind}]`,
+			);
 		// No pointer sent before its bytes: the server holds every pointer's bytes when a device sends it.
 		for (const file of request.commit.files) {
 			const pointer = file.text === null ? null : parsePointer(file.text);
-			if (pointer !== null && world.server.uploaded(pointer.oid) !== pointer.size) violations.push(`${device} sent ${file.path} before its bytes were on the server (${pointer.oid.slice(0, 8)})`);
+			if (
+				pointer !== null &&
+				world.server.uploaded(pointer.oid) !== pointer.size
+			)
+				violations.push(
+					`${device} sent ${file.path} before its bytes were on the server (${pointer.oid.slice(0, 8)})`,
+				);
 		}
 	});
 
 	/** Saves the replica holds refused where the engine found them, by path as found. */
-	const refusedWhereFound = () => new Set(folder.replica.query<{ path: string }>('SELECT path FROM "epicenter/refused"').map((row) => row.path));
+	const refusedWhereFound = () =>
+		new Set(
+			folder.replica
+				.query<{ path: string }>('SELECT path FROM "epicenter/refused"')
+				.map((row) => row.path),
+		);
 
 	function present() {
-		const texts: string[] = [...folder.disk.texts().map(([, text]) => text), ...folder.disk.scratchTexts(), ...writing.values(), ...stale.values()];
+		const texts: string[] = [
+			...folder.disk.texts().map(([, text]) => text),
+			...folder.disk.scratchTexts(),
+			...writing.values(),
+			...stale.values(),
+		];
 		for (const device of [folder.replica, bo.replica])
-			for (const f of device.files().values()) texts.push(f.mine ?? '', f.base ?? '', f.tip ?? '');
+			for (const f of device.files().values())
+				texts.push(f.mine ?? '', f.base ?? '', f.tip ?? '');
 		for (const text of world.server.snapshot().values()) texts.push(text);
 		const all = new Set<string>();
 		for (const text of texts) for (const t of tokensIn(text)) all.add(t);
@@ -559,18 +664,36 @@ async function run(seed: number, steps: number) {
 	/** Where token `t` is now, for a trace. */
 	function where(t: string) {
 		const at: string[] = [];
-		for (const [p, text] of folder.disk.texts()) if (tokensIn(text).has(t)) at.push(`disk:${p}`);
-		if (folder.disk.scratchTexts().some((text) => tokensIn(text).has(t))) at.push('scratch');
-		for (const [name, device] of [['ada', folder.replica], ['bo', bo.replica]] as const)
-			for (const [p, f] of device.files()) for (const [level, text] of [['mine', f.mine], ['base', f.base], ['tip', f.tip]] as const) if (tokensIn(text).has(t)) at.push(`${name}.${level}:${p}`);
-		for (const [p, text] of world.server.snapshot()) if (tokensIn(text).has(t)) at.push(`server:${p}`);
+		for (const [p, text] of folder.disk.texts())
+			if (tokensIn(text).has(t)) at.push(`disk:${p}`);
+		if (folder.disk.scratchTexts().some((text) => tokensIn(text).has(t)))
+			at.push('scratch');
+		for (const [name, device] of [
+			['ada', folder.replica],
+			['bo', bo.replica],
+		] as const)
+			for (const [p, f] of device.files())
+				for (const [level, text] of [
+					['mine', f.mine],
+					['base', f.base],
+					['tip', f.tip],
+				] as const)
+					if (tokensIn(text).has(t)) at.push(`${name}.${level}:${p}`);
+		for (const [p, text] of world.server.snapshot())
+			if (tokensIn(text).has(t)) at.push(`server:${p}`);
 		return at.join(' ');
 	}
 	function checkStep(label: string) {
-		if (process.env.F_TOKEN !== undefined) log.push(`   <${process.env.F_TOKEN} ${owed.has(process.env.F_TOKEN) ? 'owed' : 'not owed'}: ${where(process.env.F_TOKEN)}>`);
+		if (process.env.F_TOKEN !== undefined)
+			log.push(
+				`   <${process.env.F_TOKEN} ${owed.has(process.env.F_TOKEN) ? 'owed' : 'not owed'}: ${where(process.env.F_TOKEN)}>`,
+			);
 		const here = present();
-		for (const t of owed) if (!here.has(t)) violations.push(`after "${label}": ${t} is nowhere`);
-		for (const p of world.server.snapshot().keys()) if (ignored(p)) violations.push(`the server holds ${p}, which is ignored`);
+		for (const t of owed)
+			if (!here.has(t)) violations.push(`after "${label}": ${t} is nowhere`);
+		for (const p of world.server.snapshot().keys())
+			if (ignored(p))
+				violations.push(`the server holds ${p}, which is ignored`);
 		violations.push(...folder.disk.violations.splice(0));
 	}
 
@@ -584,7 +707,9 @@ async function run(seed: number, steps: number) {
 		if (did !== null) log.push(`${i}: ${did}`);
 		if (process.env.F_WATCH !== undefined) {
 			const w = process.env.F_WATCH;
-			log.push(`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.path IS NOT NULL AS committed FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?', [w]))}}`);
+			log.push(
+				`   {${w}: ${JSON.stringify(folder.replica.state(w))} ${JSON.stringify(folder.replica.query('SELECT f.text IS NULL AS gone, f.text IS f.base AS clean, f.saved, f.held, u.path IS NOT NULL AS committed FROM "epicenter/files" f LEFT JOIN "epicenter/unsent" u ON u.path = f.path WHERE f.path = ?', [w]))}}`,
+			);
 		}
 		await runFor(world, random.int(0, 600));
 		checkStep(did ?? `step ${i}`);
@@ -608,17 +733,20 @@ async function run(seed: number, steps: number) {
 	for (let round = 0; round < 6; round++) {
 		await runFor(world, 3_000);
 		await until(world, folder.upload());
-		for (const owedBytes of bo.replica.owed()) bo.replica.present(owedBytes.oid, owedBytes.size);
+		for (const owedBytes of bo.replica.owed())
+			bo.replica.present(owedBytes.oid, owedBytes.size);
 		// Repairs: what a person holds back they fix and save again (a note), or save again (a blob kept).
 		const found = refusedWhereFound();
 		for (const { path: p, reason } of folder.replica.notSent()) {
 			// A file whose name another's folds to: the person renames it. A file the repository could not take as found: the person writes it again.
-			if (reason === TWIN) folder.disk.rename(p, p.replace(/(\.[a-z]+)$/, ` ${token()}$1`));
+			if (reason === TWIN)
+				folder.disk.rename(p, p.replace(/(\.[a-z]+)$/, ` ${token()}$1`));
 			else if (found.has(p)) put(p, note([token()]));
 			else {
 				const text = folder.disk.text(p);
 				retype(text);
-				if (p.endsWith('.md')) put(p, note([...tokensIn(text ?? '')].concat([token()])));
+				if (p.endsWith('.md'))
+					put(p, note([...tokensIn(text ?? '')].concat([token()])));
 				else if (text !== null) folder.disk.write(p, bytes());
 			}
 		}
@@ -638,34 +766,70 @@ async function run(seed: number, steps: number) {
 	// Held: a text the door refused, whose text is the replica's, or a save refused where it was found (the repository cannot take the file), whose text is the folder's.
 	const held = new Set(folder.replica.notSent().map((h) => h.path));
 	const found = refusedWhereFound();
-	const heldText = (p: string) => (found.has(p) ? folder.disk.text(p) : folder.replica.read(p));
+	const heldText = (p: string) =>
+		found.has(p) ? folder.disk.text(p) : folder.replica.read(p);
 	// Held alone: what a replica has not sent is held, each file with a reason of its own; nothing waits on another file.
-	for (const [who, replica] of [['ada', folder.replica], ['bo', bo.replica]] as const) {
+	for (const [who, replica] of [
+		['ada', folder.replica],
+		['bo', bo.replica],
+	] as const) {
 		// Every upload is done or refused by now: none still uploading.
-		const heldHere = new Map(replica.notSent().filter((h) => h.reason !== UPLOADING).map((h) => [h.path, h.reason]));
-		for (const [p, reason] of heldHere) if (reason.trim() === '') violations.push(`${who} holds ${p} with no reason`);
-		for (const p of replica.unsent()) if (!heldHere.has(p)) violations.push(`${who}'s ${p} is not sent and not held (${JSON.stringify(replica.state(p))})`);
+		const heldHere = new Map(
+			replica
+				.notSent()
+				.filter((h) => h.reason !== UPLOADING)
+				.map((h) => [h.path, h.reason]),
+		);
+		for (const [p, reason] of heldHere)
+			if (reason.trim() === '')
+				violations.push(`${who} holds ${p} with no reason`);
+		for (const p of replica.unsent())
+			if (!heldHere.has(p))
+				violations.push(
+					`${who}'s ${p} is not sent and not held (${JSON.stringify(replica.state(p))})`,
+				);
 	}
 	for (const [p, text] of folder.disk.texts()) {
 		if (ignored(p)) continue;
 		const mine = folder.replica.read(p);
-		if (mine === null && !held.has(p)) violations.push(`${p} is in the folder but not the replica`);
+		if (mine === null && !held.has(p))
+			violations.push(`${p} is in the folder but not the replica`);
 		else if (mine === null) continue;
-		else if (p.endsWith('.md') ? text !== mine : parsePointer(mine)?.oid !== oidOf(encoder.encode(text)).oid && parsePointer(mine)?.oid !== oidOf(folder.disk.bytes(p) ?? new Uint8Array()).oid)
-			violations.push(`${p}: the folder holds ${JSON.stringify(text).slice(0, 60)}, the replica ${JSON.stringify(mine).slice(0, 60)}`);
-		if (!held.has(p) && mine !== (server.get(p) ?? null)) violations.push(`${p}: the replica and the server differ`);
+		else if (
+			p.endsWith('.md')
+				? text !== mine
+				: parsePointer(mine)?.oid !== oidOf(encoder.encode(text)).oid &&
+					parsePointer(mine)?.oid !==
+						oidOf(folder.disk.bytes(p) ?? new Uint8Array()).oid
+		)
+			violations.push(
+				`${p}: the folder holds ${JSON.stringify(text).slice(0, 60)}, the replica ${JSON.stringify(mine).slice(0, 60)}`,
+			);
+		if (!held.has(p) && mine !== (server.get(p) ?? null))
+			violations.push(`${p}: the replica and the server differ`);
 	}
-	for (const [p] of server) if (folder.disk.bytes(p) === null && !held.has(p)) violations.push(`${p} is on the server but not in the folder`);
+	for (const [p] of server)
+		if (folder.disk.bytes(p) === null && !held.has(p))
+			violations.push(`${p} is on the server but not in the folder`);
 	for (const t of owed) {
 		const inServer = [...server.values()].some((text) => tokensIn(text).has(t));
 		const inHeld = [...held].some((p) => tokensIn(heldText(p)).has(t));
-		if (!inServer && !inHeld) violations.push(`at quiescence, ${t} is not on the server`);
+		if (!inServer && !inHeld)
+			violations.push(`at quiescence, ${t} is not on the server`);
 	}
-	for (const [p, text] of [...server, ...folder.disk.texts().filter(([p]) => p.endsWith('.md'))]) {
+	for (const [p, text] of [
+		...server,
+		...folder.disk.texts().filter(([p]) => p.endsWith('.md')),
+	]) {
 		for (const [version, written] of versionsOf(text)) {
 			const seen = new Map<string, number>();
-			for (const t of written.match(TOKEN) ?? []) seen.set(t, (seen.get(t) ?? 0) + 1);
-			for (const [t, count] of seen) if (count > 1 && !retyped.has(t)) violations.push(`${t} appears ${count} times in ${p} (${version})${process.env.F_TRACE ? `:\n${text}` : ''}`);
+			for (const t of written.match(TOKEN) ?? [])
+				seen.set(t, (seen.get(t) ?? 0) + 1);
+			for (const [t, count] of seen)
+				if (count > 1 && !retyped.has(t))
+					violations.push(
+						`${t} appears ${count} times in ${p} (${version})${process.env.F_TRACE ? `:\n${text}` : ''}`,
+					);
 		}
 	}
 	// Own writes never echo: quiet now, an idle period and a scan send nothing.
@@ -673,24 +837,44 @@ async function run(seed: number, steps: number) {
 	await runFor(world, 5_000);
 	await until(world, folder.engine.scan());
 	await runFor(world, 5_000);
-	if (folder.replica.stats().pushes !== pushes) violations.push(`an idle folder sent ${folder.replica.stats().pushes - pushes} more pushes`);
-	if (folder.disk.scratchNames().length > 0) violations.push(`captures left in scratch: ${folder.disk.scratchNames().join(', ')}`);
+	if (folder.replica.stats().pushes !== pushes)
+		violations.push(
+			`an idle folder sent ${folder.replica.stats().pushes - pushes} more pushes`,
+		);
+	if (folder.disk.scratchNames().length > 0)
+		violations.push(
+			`captures left in scratch: ${folder.disk.scratchNames().join(', ')}`,
+		);
 	violations.push(...folder.disk.violations.splice(0));
 	return { violations, log, decoder };
 }
 
-const seeds = SEED !== undefined ? [Number(SEED)] : Array.from({ length: RUNS }, (_, i) => FROM + i);
+const seeds =
+	SEED !== undefined
+		? [Number(SEED)]
+		: Array.from({ length: RUNS }, (_, i) => FROM + i);
 test(`the folder engine holds its invariants over ${seeds.length} seeds of ${STEPS} steps`, async () => {
 	// Every seed runs, so one sweep names every failing seed; the first failure is shown in full.
 	const failed: { seed: number; first: string }[] = [];
 	let shown = '';
 	for (const seed of seeds) {
 		// A run that throws (the engine never idle, say) is that seed's failure, and the sweep goes on.
-		const { violations, log } = await run(seed, STEPS).catch((cause: unknown) => ({ violations: [`the run threw: ${cause instanceof Error ? cause.message : String(cause)}`], log: [] as string[] }));
+		const { violations, log } = await run(seed, STEPS).catch(
+			(cause: unknown) => ({
+				violations: [
+					`the run threw: ${cause instanceof Error ? cause.message : String(cause)}`,
+				],
+				log: [] as string[],
+			}),
+		);
 		if (violations.length === 0) continue;
 		failed.push({ seed, first: violations[0] ?? '' });
-		if (shown === '') shown = `seed ${seed} (F_SEED=${seed} F_STEPS=${STEPS}):\n${violations.slice(0, 10).join('\n')}\n\nsteps:\n${log.slice(-Number(process.env.F_LOG ?? 40)).join('\n')}`;
+		if (shown === '')
+			shown = `seed ${seed} (F_SEED=${seed} F_STEPS=${STEPS}):\n${violations.slice(0, 10).join('\n')}\n\nsteps:\n${log.slice(-Number(process.env.F_LOG ?? 40)).join('\n')}`;
 	}
-	if (failed.length > 0) throw new Error(`${failed.length} of ${seeds.length} seeds fail:\n${failed.map((f) => `  ${f.seed}: ${f.first}`).join('\n')}\n\n${shown}`);
+	if (failed.length > 0)
+		throw new Error(
+			`${failed.length} of ${seeds.length} seeds fail:\n${failed.map((f) => `  ${f.seed}: ${f.first}`).join('\n')}\n\n${shown}`,
+		);
 	expect(true).toBe(true);
 }, 3_600_000);

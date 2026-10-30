@@ -16,4 +16,8 @@ export const todosApp = defineApp({
 });
 
 /** Todos as an app (ADR-0694): served at `todos.epicenter.so`, over `todos/`. */
-export const manifest = defineManifest({ name: 'Todos', hostname: 'todos.epicenter.so', collections: todosApp });
+export const manifest = defineManifest({
+	name: 'Todos',
+	hostname: 'todos.epicenter.so',
+	collections: todosApp,
+});

@@ -35,8 +35,17 @@ export type LiveCommit = CommitBody & { id: string };
 
 /** The canonical form a commit id hashes: a JSON array in a fixed order. */
 export function canonicalCommit({ parent, author, time, files }: CommitBody) {
-	return JSON.stringify([parent, author.user, author.device, time, files.map((f) => (f.over === undefined ? [f.path, f.text] : [f.path, f.text, f.over]))]);
+	return JSON.stringify([
+		parent,
+		author.user,
+		author.device,
+		time,
+		files.map((f) =>
+			f.over === undefined ? [f.path, f.text] : [f.path, f.text, f.over],
+		),
+	]);
 }
 
 /** A commit's id: the Git blob id of its canonical form. */
-export const commitId = (commit: CommitBody) => gitBlobHash(canonicalCommit(commit));
+export const commitId = (commit: CommitBody) =>
+	gitBlobHash(canonicalCommit(commit));

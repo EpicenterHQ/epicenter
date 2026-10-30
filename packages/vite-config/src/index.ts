@@ -86,7 +86,12 @@ export function hostAppViteConfig(app: { port: number }): UserConfig {
 			}),
 			alias: [
 				...(host
-					? [{ find: /^@epicenter\/folder$/, replacement: '@epicenter/folder/tauri' }]
+					? [
+							{
+								find: /^@epicenter\/folder$/,
+								replacement: '@epicenter/folder/tauri',
+							},
+						]
 					: []),
 				{ find: 'buffer', replacement: dirname(fromFolder.resolve('buffer/')) },
 			],

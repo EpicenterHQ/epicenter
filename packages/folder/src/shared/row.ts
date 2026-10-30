@@ -2,9 +2,9 @@
 import type { TSchema as Schema } from 'typebox';
 import {
 	changeMarkdown,
-	readMarkdown,
 	type MarkdownChange,
 	type MarkdownValue,
+	readMarkdown,
 } from './markdown-codec.js';
 
 export type { Issue, MarkdownValue } from './markdown-codec.js';

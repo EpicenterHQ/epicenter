@@ -49,44 +49,101 @@ for (const [engine, browser] of [
 					repository,
 					serverId: 'replica-sync',
 					server,
-					authenticate: authenticateBearer((token) => ({ user: token, role: 'writer' })),
+					authenticate: authenticateBearer((token) => ({
+						user: token,
+						role: 'writer',
+					})),
 					origins: [new URL(site.url).origin],
 				});
-				const gates = { alice: startGate(served.url), bob: startGate(served.url) };
+				const gates = {
+					alice: startGate(served.url),
+					bob: startGate(served.url),
+				};
 				const alice = await launchProfile(browser);
 				const bob = await launchProfile(browser);
 				try {
-					const a = await loadReplicaPage(alice.context, site.url, { page: alice.context.pages()[0] });
-					const b = await loadReplicaPage(bob.context, site.url, { page: bob.context.pages()[0] });
-					await a.evaluate(([repository, server]) => replicas.create(repository, { account: 'alice', url: server, token: 'alice' }), [repository, gates.alice.url] as const);
+					const a = await loadReplicaPage(alice.context, site.url, {
+						page: alice.context.pages()[0],
+					});
+					const b = await loadReplicaPage(bob.context, site.url, {
+						page: bob.context.pages()[0],
+					});
+					await a.evaluate(
+						([repository, server]) =>
+							replicas.create(repository, {
+								account: 'alice',
+								url: server,
+								token: 'alice',
+							}),
+						[repository, gates.alice.url] as const,
+					);
 					const { replica: bobReplica } = await b.evaluate(
-						([repository, server]) => replicas.create(repository, { account: 'bob', url: server, token: 'bob' }),
+						([repository, server]) =>
+							replicas.create(repository, {
+								account: 'bob',
+								url: server,
+								token: 'bob',
+							}),
 						[repository, gates.bob.url] as const,
 					);
-					if (bobReplica === null) throw new Error("bob's replica was not created");
+					if (bobReplica === null)
+						throw new Error("bob's replica was not created");
 
-					await a.evaluate((text) => replicas.write('notes/list.md', text), note('a\nb\nc\n'));
-					await b.evaluate((text) => replicas.untilText('notes/list.md', text), note('a\nb\nc\n'));
+					await a.evaluate(
+						(text) => replicas.write('notes/list.md', text),
+						note('a\nb\nc\n'),
+					);
+					await b.evaluate(
+						(text) => replicas.untilText('notes/list.md', text),
+						note('a\nb\nc\n'),
+					);
 
 					gates.bob.setOpen(false);
-					await b.evaluate((text) => replicas.write('notes/list.md', text), note('a\nb\nC\n'));
-					await a.evaluate((text) => replicas.write('notes/list.md', text), note('A\nb\nc\n'));
+					await b.evaluate(
+						(text) => replicas.write('notes/list.md', text),
+						note('a\nb\nC\n'),
+					);
+					await a.evaluate(
+						(text) => replicas.write('notes/list.md', text),
+						note('A\nb\nc\n'),
+					);
 					await a.evaluate(() => replicas.untilSynced());
 					// Bob's edit outlives a reload while offline.
 					await b.reload();
 					await b.waitForFunction(() => globalThis.replicas !== undefined);
-					expect(await b.evaluate((replica) => replicas.open(replica, { token: 'bob' }), bobReplica)).toEqual({ status: 'open' });
-					expect(await b.evaluate(() => replicas.read('notes/list.md'))).toBe(note('a\nb\nC\n'));
-					expect(await b.evaluate(() => replicas.unsent())).toEqual(['notes/list.md']);
+					expect(
+						await b.evaluate(
+							(replica) => replicas.open(replica, { token: 'bob' }),
+							bobReplica,
+						),
+					).toEqual({ status: 'open' });
+					expect(await b.evaluate(() => replicas.read('notes/list.md'))).toBe(
+						note('a\nb\nC\n'),
+					);
+					expect(await b.evaluate(() => replicas.unsent())).toEqual([
+						'notes/list.md',
+					]);
 
 					gates.bob.setOpen(true);
-					await b.evaluate((text) => replicas.untilText('notes/list.md', text), note('A\nb\nC\n'));
-					await a.evaluate((text) => replicas.untilText('notes/list.md', text), note('A\nb\nC\n'));
+					await b.evaluate(
+						(text) => replicas.untilText('notes/list.md', text),
+						note('A\nb\nC\n'),
+					);
+					await a.evaluate(
+						(text) => replicas.untilText('notes/list.md', text),
+						note('A\nb\nC\n'),
+					);
 					await b.evaluate(() => replicas.untilSynced());
 					expect(server.read('notes/list.md')).toBe(note('A\nb\nC\n'));
 
 					await server.flush();
-					const shown = Bun.spawnSync(['git', '-C', join(dir, 'repo.git'), 'show', 'main:notes/list.md']);
+					const shown = Bun.spawnSync([
+						'git',
+						'-C',
+						join(dir, 'repo.git'),
+						'show',
+						'main:notes/list.md',
+					]);
 					expect(shown.stdout.toString()).toBe(note('A\nb\nC\n'));
 				} finally {
 					await alice.cleanup();

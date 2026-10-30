@@ -8,7 +8,10 @@ export type SqlValue = string | number | bigint | null | Uint8Array;
 
 export type SqlDriver = {
 	exec(sql: string): void;
-	all<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): TRow[];
+	all<TRow = Record<string, SqlValue>>(
+		sql: string,
+		params?: SqlValue[],
+	): TRow[];
 	run(sql: string, params?: SqlValue[]): void;
 	/**
 	 * Run one statement that cannot change anything: not the database, not
@@ -16,7 +19,10 @@ export type SqlDriver = {
 	 * more than one statement or one that could, as it throws for SQL that
 	 * does not compile. Apps' SQL goes only here.
 	 */
-	read<TRow = Record<string, SqlValue>>(sql: string, params?: SqlValue[]): TRow[];
+	read<TRow = Record<string, SqlValue>>(
+		sql: string,
+		params?: SqlValue[],
+	): TRow[];
 	/** Run `fn` in one transaction; a throw rolls it back. Nested calls join it. */
 	transaction<T>(fn: () => T): T;
 	/**
@@ -29,6 +35,10 @@ export type SqlDriver = {
 };
 
 /** The first row, or undefined. */
-export function first<TRow>(driver: SqlDriver, sql: string, params?: SqlValue[]) {
+export function first<TRow>(
+	driver: SqlDriver,
+	sql: string,
+	params?: SqlValue[],
+) {
 	return driver.all<TRow>(sql, params)[0];
 }

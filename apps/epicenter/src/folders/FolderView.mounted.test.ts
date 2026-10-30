@@ -11,9 +11,12 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		'../../../../packages/svelte/src/svelte-dom.test-support.js'
 	);
 	const { flushSync, mount, unmount } = await import('svelte');
-	const { createFolder, memoryHost, SaveError, until: waitUntil } = await import(
-		'@epicenter/folder/testing'
-	);
+	const {
+		createFolder,
+		memoryHost,
+		SaveError,
+		until: waitUntil,
+	} = await import('@epicenter/folder/testing');
 	const { svelteFolder } = await import('@epicenter/svelte/folder');
 	const { default: FolderViewHost } = await import(
 		'./fixtures/FolderViewHost.svelte'
@@ -49,9 +52,7 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				return results;
 			};
 		}
-		const owner = expectOk(
-			await createFolder(memory.storage, { tables: {} }),
-		);
+		const owner = expectOk(await createFolder(memory.storage, { tables: {} }));
 		const folder = svelteFolder(owner);
 		const target = document.createElement('div');
 		document.body.append(target);
@@ -115,11 +116,18 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		const fixture = await setup({ 'a.md': 'Original\n' });
 		try {
 			await until(() => fixture.file('a.md') !== null);
-			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			fixture
+				.file('a.md')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.box()?.value === 'Original\n');
-			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			fixture.control.failPut.set(
+				'a.md',
+				SaveError.StorageFailed({ cause: 'full' }).error!,
+			);
 			type(fixture.box(), 'Changed\n');
-			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			await until(
+				() => fixture.target.textContent?.includes('Not saved:') ?? false,
+			);
 			expect(fixture.box()?.value).toBe('Changed\n');
 			expect(fixture.text('a.md')).toBe('Original\n');
 			fixture.control.failPut.delete('a.md');
@@ -136,11 +144,18 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		const fixture = await setup({ 'a.md': 'Original\n' });
 		try {
 			await until(() => fixture.file('a.md') !== null);
-			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			fixture
+				.file('a.md')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.box()?.value === 'Original\n');
-			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
+			fixture.control.failPut.set(
+				'a.md',
+				SaveError.StorageFailed({ cause: 'full' }).error!,
+			);
 			type(fixture.box(), 'Changed\n');
-			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			await until(
+				() => fixture.target.textContent?.includes('Not saved:') ?? false,
+			);
 			fixture.outside('a.md', null);
 			await until(() => fixture.folder.file('a.md') === undefined);
 			expect(fixture.box()).toBeNull();
@@ -156,9 +171,13 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		let release: (() => void) | undefined;
 		try {
 			await until(() => fixture.file('a.md') !== null);
-			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			fixture
+				.file('a.md')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.box()?.value === 'First\n');
-			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+			fixture.control.putGate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
 			type(fixture.box(), 'Second\n');
 			await until(() => fixture.folder.saving);
 			type(fixture.box(), 'Third\n');
@@ -180,15 +199,21 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		let release: (() => void) | undefined;
 		try {
 			await until(() => fixture.file('a.md') !== null);
-			fixture.file('a.md')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			fixture
+				.file('a.md')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			await until(() => fixture.box()?.value === 'First\n');
-			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
+			fixture.control.putGate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
 			type(fixture.box(), 'Typed\n');
 			fixture.outside('a.md', null);
 			release?.();
 			fixture.control.putGate = undefined;
 			await fixture.owner.idle();
-			await until(() => fixture.target.textContent?.includes('Not saved:') ?? false);
+			await until(
+				() => fixture.target.textContent?.includes('Not saved:') ?? false,
+			);
 			expect(fixture.text('a.md')).toBeUndefined();
 			expect(fixture.target.textContent).toContain('Copy');
 		} finally {
@@ -518,12 +543,10 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 	});
 
 	test('a cell draft keeps later typing through its own save and another row change', async () => {
-		const fixture = await setup(
-			{
-				'a.md': '---\ntitle: First\n---\n',
-				'b.md': '---\ntitle: Second\n---\n',
-			},
-		);
+		const fixture = await setup({
+			'a.md': '---\ntitle: First\n---\n',
+			'b.md': '---\ntitle: Second\n---\n',
+		});
 		try {
 			click(fixture.target, 'Tables');
 			await until(
@@ -554,11 +577,21 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		let release: (() => void) | undefined;
 		try {
 			click(fixture.target, 'Tables');
-			await until(() => fixture.target.querySelector('[aria-label="a.md: title"]') !== null);
-			fixture.control.putGate = new Promise<void>((resolve) => { release = resolve; });
-			type(fixture.target.querySelector('[aria-label="a.md: title"]'), 'From table');
+			await until(
+				() =>
+					fixture.target.querySelector('[aria-label="a.md: title"]') !== null,
+			);
+			fixture.control.putGate = new Promise<void>((resolve) => {
+				release = resolve;
+			});
+			type(
+				fixture.target.querySelector('[aria-label="a.md: title"]'),
+				'From table',
+			);
 			await until(() => fixture.log.puts.length === 1);
-			fixture.target.querySelector('[data-row-path="a.md"] button')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+			fixture.target
+				.querySelector('[data-row-path="a.md"] button')
+				?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 			flushSync();
 			expect(fixture.box()?.value).toBe('---\ntitle: Before\n---\n');
 			type(fixture.box(), '---\ntitle: Before\ncategory: from source\n---\n');
@@ -575,7 +608,10 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 	});
 
 	test('a focused row remains visible after its edit leaves the filter', async () => {
-		const fixture = await setup({ 'a.md': '---\nstatus: todo\n---\n', 'b.md': '---\nstatus: todo\n---\n' });
+		const fixture = await setup({
+			'a.md': '---\nstatus: todo\n---\n',
+			'b.md': '---\nstatus: todo\n---\n',
+		});
 		try {
 			click(fixture.target, 'Tables');
 			flushSync();
@@ -605,7 +641,9 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				"No longer matches this view's filters",
 			);
 			expect(document.activeElement).toBe(input);
-			expect(fixture.target.querySelector('[aria-label="b.md: status"]')).not.toBeNull();
+			expect(
+				fixture.target.querySelector('[aria-label="b.md: status"]'),
+			).not.toBeNull();
 			input?.blur();
 			await until(
 				() =>
@@ -636,16 +674,25 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				fixture.target.querySelector('[aria-label="Move a.md"]'),
 				'done',
 			);
-			await until(() => fixture.target.textContent?.includes('Move failed:') ?? false);
+			await until(
+				() => fixture.target.textContent?.includes('Move failed:') ?? false,
+			);
 			expect(fixture.text('a.md')).toContain('status: todo');
-			expect(fixture.target.querySelector('[aria-label="Move a.md"]')?.textContent).toContain('todo');
+			expect(
+				fixture.target.querySelector('[aria-label="Move a.md"]')?.textContent,
+			).toContain('todo');
 			expect(
 				fixture.target.querySelector('[aria-label="todo"]')?.textContent,
 			).toContain('a.md');
 			expect(fixture.target.textContent).toContain('Move failed:');
 			fixture.control.failPut.delete('a.md');
-			await choose(fixture.target.querySelector('[aria-label="Move a.md"]'), 'done');
-			await until(() => fixture.text('a.md')?.includes('status: done') ?? false);
+			await choose(
+				fixture.target.querySelector('[aria-label="Move a.md"]'),
+				'done',
+			);
+			await until(
+				() => fixture.text('a.md')?.includes('status: done') ?? false,
+			);
 		} finally {
 			await fixture.close();
 		}
@@ -655,8 +702,13 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		const fixture = await setup({ 'a.md': '---\ncount: 3\n---\n' });
 		try {
 			click(fixture.target, 'Tables');
-			await until(() => fixture.target.querySelector('[aria-label="a.md: count"]') !== null);
-			const input = fixture.target.querySelector<HTMLInputElement>('[aria-label="a.md: count"]');
+			await until(
+				() =>
+					fixture.target.querySelector('[aria-label="a.md: count"]') !== null,
+			);
+			const input = fixture.target.querySelector<HTMLInputElement>(
+				'[aria-label="a.md: count"]',
+			);
 			type(input, '');
 			flushSync();
 			expect(fixture.text('a.md')).toContain('count: 3');
@@ -675,11 +727,21 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 		const fixture = await setup({ 'a.md': '---\ndone: false\n---\n' });
 		try {
 			click(fixture.target, 'Tables');
-			await until(() => fixture.target.querySelector('[aria-label="a.md: done"]') !== null);
-			fixture.control.failPut.set('a.md', SaveError.StorageFailed({ cause: 'full' }).error!);
-			const checkbox = fixture.target.querySelector('[aria-label="a.md: done"]');
+			await until(
+				() =>
+					fixture.target.querySelector('[aria-label="a.md: done"]') !== null,
+			);
+			fixture.control.failPut.set(
+				'a.md',
+				SaveError.StorageFailed({ cause: 'full' }).error!,
+			);
+			const checkbox = fixture.target.querySelector(
+				'[aria-label="a.md: done"]',
+			);
 			checkbox?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-			await until(() => fixture.target.textContent?.includes('Change failed:') ?? false);
+			await until(
+				() => fixture.target.textContent?.includes('Change failed:') ?? false,
+			);
 			expect(checkbox?.getAttribute('aria-checked')).toBe('false');
 			expect(fixture.text('a.md')).toContain('done: false');
 			expect(fixture.target.textContent).toContain('Change failed:');
@@ -704,11 +766,14 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 				kind: 'string',
 				label: 'missing.md: title',
 				disabled: false,
-				save: (value: unknown) => folder.update('missing.md', { fields: { title: value } }),
+				save: (value: unknown) =>
+					folder.update('missing.md', { fields: { title: value } }),
 			},
 		});
 		try {
-			const input = target.querySelector<HTMLInputElement>('[aria-label="missing.md: title"]');
+			const input = target.querySelector<HTMLInputElement>(
+				'[aria-label="missing.md: title"]',
+			);
 			type(input, 'Changed');
 			await until(() => target.textContent?.includes('Not saved:') ?? false);
 			expect(input?.value).toBe('Changed');
@@ -719,5 +784,4 @@ describe.skipIf(!browser)('folder editor mirror', async () => {
 			target.remove();
 		}
 	});
-
 });

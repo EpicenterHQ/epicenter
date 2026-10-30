@@ -1,7 +1,8 @@
 /** LFS bytes in memory, verified as they arrive: for tests and for a server that keeps nothing. */
-import { createHasher } from '../client/blobs.js';
+
 import { Ok } from 'wellcrafted/result';
-import { LFS_OID, LfsStoreError, type LfsStore } from './lfs-store.js';
+import { createHasher } from '../client/blobs.js';
+import { LFS_OID, type LfsStore, LfsStoreError } from './lfs-store.js';
 
 export function createMemoryLfsStore(): LfsStore {
 	const objects = new Map<string, Uint8Array>();

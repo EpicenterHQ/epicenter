@@ -11,26 +11,41 @@
  * CORS headers a browser needs, and its preflights are answered. Sockets
  * need none, and authenticate with a ticket.
  */
-import { join } from 'node:path';
+
 import { mkdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Server as BunServer } from 'bun';
 import { defineErrors } from 'wellcrafted/error';
 import { createLogger, type Logger } from 'wellcrafted/logger';
-import { type Alarm, type Limits, openServer, type Server } from '../server/server.js';
 import type { LfsStore } from '../server/lfs-store.js';
 import { createMemoryLfsStore } from '../server/memory-lfs-store.js';
-import { type Authenticate, createWire, SESSION_EXPIRED, type Verified, type WireLimits, WIRE_LIMITS } from '../wire/wire.js';
+import {
+	type Alarm,
+	type Limits,
+	openServer,
+	type Server,
+} from '../server/server.js';
+import {
+	type Authenticate,
+	createWire,
+	SESSION_EXPIRED,
+	type Verified,
+	WIRE_LIMITS,
+	type WireLimits,
+} from '../wire/wire.js';
 import { openBunGitStore } from './git.js';
-import { openBunSqlite } from './sqlite.js';
 import { createFileLfsStore } from './lfs-store.js';
+import { openBunSqlite } from './sqlite.js';
 
 const EVENTS = 'events';
 
 /** What a listed origin may send and read across origins. */
 const CORS = {
 	'access-control-allow-methods': 'GET, POST, PUT, DELETE',
-	'access-control-allow-headers': 'authorization, accept, content-type, content-length, if-match, if-none-match, epicenter-device',
-	'access-control-expose-headers': 'etag, epicenter-commit, retry-after, content-length',
+	'access-control-allow-headers':
+		'authorization, accept, content-type, content-length, if-match, if-none-match, epicenter-device',
+	'access-control-expose-headers':
+		'etag, epicenter-commit, retry-after, content-length',
 	'access-control-max-age': '600',
 };
 
@@ -40,13 +55,23 @@ function allowOrigin(response: Response, origin: string) {
 	headers.set('access-control-allow-origin', origin);
 	headers.append('vary', 'origin');
 	for (const [name, value] of Object.entries(CORS)) headers.set(name, value);
-	return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+	return new Response(response.body, {
+		status: response.status,
+		statusText: response.statusText,
+		headers,
+	});
 }
 
-type SocketData = { verified: Verified; expiry?: ReturnType<typeof setTimeout> };
+type SocketData = {
+	verified: Verified;
+	expiry?: ReturnType<typeof setTimeout>;
+};
 
 const ServeError = defineErrors({
-	RequestFailed: ({ cause }: { cause: unknown }) => ({ message: 'A request failed on the repository server', cause }),
+	RequestFailed: ({ cause }: { cause: unknown }) => ({
+		message: 'A request failed on the repository server',
+		cause,
+	}),
 });
 
 /** Serve `server` over the wire on `hostname:port` (0 picks a free port). */
@@ -85,11 +110,18 @@ export function serveRepository({
 		repository,
 		serverId,
 		server,
-		lfs: lfs ?? (dir === undefined ? createMemoryLfsStore() : createFileLfsStore(join(dir, 'epicenter', 'blobs'))),
+		lfs:
+			lfs ??
+			(dir === undefined
+				? createMemoryLfsStore()
+				: createFileLfsStore(join(dir, 'epicenter', 'blobs'))),
 		authenticate,
 		...(limits === undefined ? {} : { limits }),
 		sockets: {
-			upgrade: (request, verified) => (bun?.upgrade(request, { data: { verified } }) ? undefined : new Response('Expected a WebSocket upgrade', { status: 426 })),
+			upgrade: (request, verified) =>
+				bun?.upgrade(request, { data: { verified } })
+					? undefined
+					: new Response('Expected a WebSocket upgrade', { status: 426 }),
 			publish: (message) => {
 				bun?.publish(EVENTS, message);
 			},
@@ -98,14 +130,20 @@ export function serveRepository({
 	bun = Bun.serve<SocketData>({
 		hostname,
 		port,
-		maxRequestBodySize: Math.max(server.sizing().blob, limits?.body ?? WIRE_LIMITS.body),
+		maxRequestBodySize: Math.max(
+			server.sizing().blob,
+			limits?.body ?? WIRE_LIMITS.body,
+		),
 		idleTimeout: 255,
 		async fetch(request) {
 			const origin = request.headers.get('origin');
 			const allowed = origin !== null && origins.includes(origin);
-			if (allowed && request.method === 'OPTIONS') return allowOrigin(new Response(null, { status: 204 }), origin);
+			if (allowed && request.method === 'OPTIONS')
+				return allowOrigin(new Response(null, { status: 204 }), origin);
 			const response = await wire.handle(request);
-			return response === undefined || !allowed ? response : allowOrigin(response, origin);
+			return response === undefined || !allowed
+				? response
+				: allowOrigin(response, origin);
 		},
 		error(cause) {
 			log.error(ServeError.RequestFailed({ cause }));
@@ -114,18 +152,28 @@ export function serveRepository({
 		websocket: {
 			open(socket) {
 				const { expires } = socket.data.verified;
-				if (expires !== undefined) socket.data.expiry = setTimeout(() => socket.close(SESSION_EXPIRED, 'The session expired'), Math.max(0, expires - Date.now()));
+				if (expires !== undefined)
+					socket.data.expiry = setTimeout(
+						() => socket.close(SESSION_EXPIRED, 'The session expired'),
+						Math.max(0, expires - Date.now()),
+					);
 				// Subscribed and told `main` in one step, so no commit falls between the two.
 				socket.subscribe(EVENTS);
 				socket.send(wire.hello(socket.data.verified));
 			},
 			message(socket, message) {
-				wire.receive(typeof message === 'string' ? message : new TextDecoder().decode(message), socket.data.verified, {
-					send: (reply) => {
-						socket.send(reply);
+				wire.receive(
+					typeof message === 'string'
+						? message
+						: new TextDecoder().decode(message),
+					socket.data.verified,
+					{
+						send: (reply) => {
+							socket.send(reply);
+						},
+						close: (code, reason) => socket.close(code, reason),
 					},
-					close: (code, reason) => socket.close(code, reason),
-				});
+				);
 			},
 			close(socket) {
 				clearTimeout(socket.data.expiry);
@@ -165,7 +213,13 @@ export const timeoutAlarm = (due: () => void): Alarm => {
  * live history is SQLite in `dir/epicenter/live.sqlite`. Flushes run on the
  * server's schedule with the process's timers.
  */
-export async function openDiskRepository(dir: string, { log = createLogger('repository/serve'), limits }: { log?: Logger; limits?: Partial<Limits> } = {}) {
+export async function openDiskRepository(
+	dir: string,
+	{
+		log = createLogger('repository/serve'),
+		limits,
+	}: { log?: Logger; limits?: Partial<Limits> } = {},
+) {
 	const git = await openBunGitStore(dir);
 	await mkdir(join(dir, 'epicenter'), { recursive: true });
 	return openServer({
@@ -182,7 +236,10 @@ export async function openDiskRepository(dir: string, { log = createLogger('repo
  * The DOM's declaration hides Bun's overload under this package's
  * tsconfig, so it is named here once.
  */
-const BunWebSocket = WebSocket as unknown as new (url: string, options: Bun.WebSocketOptions) => WebSocket;
+const BunWebSocket = WebSocket as unknown as new (
+	url: string,
+	options: Bun.WebSocketOptions,
+) => WebSocket;
 
 /** Open feed sockets that carry `headers`, such as `authorization`: a wire client's `openSocket` in Bun. */
 export const socketWithHeaders =

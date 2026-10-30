@@ -225,7 +225,9 @@ export async function runDeletion(
 		const problem = await deleteFile(context, result);
 		if (problem !== undefined) leftovers.push(`${result}: ${problem}`);
 	}
-	return leftovers.length > 0 ? `Could not delete ${leftovers.join(', ')}.` : undefined;
+	return leftovers.length > 0
+		? `Could not delete ${leftovers.join(', ')}.`
+		: undefined;
 }
 
 const count = (n: number, one: string, many: string) =>

@@ -23,8 +23,6 @@
  * jsdom has no layout, focus, selection, or IME; see svelte-dom.test-support.
  */
 
-// The mounted loader registers its plugin before anything loads a runes module.
-import { leave, type } from '../svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -33,6 +31,8 @@ import { Err } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import type { WhisperingFolder } from '../../lib/folder.js';
 import type { Whispering } from '../../lib/whispering.svelte.js';
+// The mounted loader registers its plugin before anything loads a runes module.
+import { leave, type } from '../svelte-dom.test-support.js';
 
 // Load the services after the mounted loader registered its plugin.
 const { closeTestWhispering } = await import(
@@ -193,8 +193,10 @@ test('a transcript saves to its own path after switching files', async () => {
 	expect(await readFile(join(root, 'other.txt'), 'utf8')).toBe('Another file');
 	await show(whispering, folder, A);
 	expect(
-		field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]')
-			?.value,
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of a.md"]',
+		)?.value,
 	).toBe('Alpha, typed.\n');
 });
 
@@ -205,10 +207,19 @@ test('a failed text edit stays visible until Save again succeeds or Discard foll
 		{ memory: true },
 	);
 	await show(whispering, folder, 'note.txt');
-	const editor = () => field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]');
+	const editor = () =>
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of note.txt"]',
+		);
 	const button = (label: string) =>
-		[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === label);
-	host!.control.failPut.set('note.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+		[...target.querySelectorAll<HTMLButtonElement>('button')].find(
+			(item) => item.textContent?.trim() === label,
+		);
+	host!.control.failPut.set(
+		'note.txt',
+		SaveError.StorageFailed({ cause: 'disk full' }).error,
+	);
 	type(editor(), 'First edit');
 	await settle(folder);
 	expect(editor()?.value).toBe('First edit');
@@ -222,7 +233,10 @@ test('a failed text edit stays visible until Save again succeeds or Discard foll
 	expect(host!.text('note.txt')).toBe('First edit');
 	expect(target.textContent).not.toContain('Not saved:');
 
-	host!.control.failPut.set('note.txt', SaveError.StorageFailed({ cause: 'disk full' }).error);
+	host!.control.failPut.set(
+		'note.txt',
+		SaveError.StorageFailed({ cause: 'disk full' }).error,
+	);
 	type(editor(), 'Second edit');
 	await settle(folder);
 	expect(editor()?.value).toBe('Second edit');
@@ -240,7 +254,13 @@ test('a whole-file text edit refuses a file deleted outside the mirror', async (
 	);
 	await show(whispering, folder, 'note.txt');
 	host!.outside('note.txt', null, { hint: false });
-	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of note.txt"]'), 'Typed');
+	type(
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of note.txt"]',
+		),
+		'Typed',
+	);
 	await settle(folder);
 	expect(host!.text('note.txt')).toBeUndefined();
 	expect(target.textContent).toContain('Not saved:');
@@ -256,14 +276,20 @@ test('recording Source queued after a title write replaces the whole file', asyn
 	await show(whispering, folder, RECORDING);
 	const release = deferred<void>();
 	host!.control.putGate = release.promise;
-	type(field<HTMLInputElement>(target, 'input[aria-label="Recording title"]'), 'Latest');
-	await eventually(() => host!.log.puts.length === 1);
-	const sourceTab = [...target.querySelectorAll<HTMLButtonElement>('button')].find(
-		(item) => item.textContent?.trim() === 'Source',
+	type(
+		field<HTMLInputElement>(target, 'input[aria-label="Recording title"]'),
+		'Latest',
 	);
+	await eventually(() => host!.log.puts.length === 1);
+	const sourceTab = [
+		...target.querySelectorAll<HTMLButtonElement>('button'),
+	].find((item) => item.textContent?.trim() === 'Source');
 	sourceTab?.click();
 	flushSync();
-	const source = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Markdown source"]');
+	const source = field<HTMLTextAreaElement>(
+		target,
+		'textarea[aria-label="Markdown source"]',
+	);
 	expect(source?.value).toContain('title: Before');
 	type(source, recording('Before', 'Source note\n'));
 	host!.control.putGate = undefined;
@@ -275,17 +301,30 @@ test('recording Source queued after a title write replaces the whole file', asyn
 
 test('transcript Source queued after a body write replaces the whole file', async () => {
 	const { folder, whispering, target, host } = await open(
-		{ [A]: transcript('Before\n') }, 'recordings', { memory: true },
+		{ [A]: transcript('Before\n') },
+		'recordings',
+		{ memory: true },
 	);
 	await show(whispering, folder, A);
 	const release = deferred<void>();
 	host!.control.putGate = release.promise;
-	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]'), 'Updated body\n');
+	type(
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of a.md"]',
+		),
+		'Updated body\n',
+	);
 	await eventually(() => host!.log.puts.length === 1);
-	[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === 'Edit the whole file')?.click();
+	[...target.querySelectorAll<HTMLButtonElement>('button')]
+		.find((item) => item.textContent?.trim() === 'Edit the whole file')
+		?.click();
 	flushSync();
 	expect(whispering.showsText(A)).toBe(true);
-	const source = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of a.md"]');
+	const source = field<HTMLTextAreaElement>(
+		target,
+		'textarea[aria-label="Contents of a.md"]',
+	);
 	expect(source?.value).toBe(transcript('Before\n'));
 	type(source, transcript('Before\n').replace('model: m', 'model: new-model'));
 	release.resolve();
@@ -298,16 +337,26 @@ test('transcript Source queued after a body write replaces the whole file', asyn
 
 test('transformation Source queued after instructions replaces the whole file', async () => {
 	const { folder, whispering, target, host } = await open(
-		{ [RECIPE]: '---\ntitle: Before\nmodel: null\n---\nTidy.\n' }, 'transformations', { memory: true },
+		{ [RECIPE]: '---\ntitle: Before\nmodel: null\n---\nTidy.\n' },
+		'transformations',
+		{ memory: true },
 	);
 	await show(whispering, folder, RECIPE);
 	const release = deferred<void>();
 	host!.control.putGate = release.promise;
-	type(field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]'), 'Updated instructions\n');
+	type(
+		field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]'),
+		'Updated instructions\n',
+	);
 	await eventually(() => host!.log.puts.length === 1);
-	[...target.querySelectorAll<HTMLButtonElement>('button')].find((item) => item.textContent?.trim() === 'Source')?.click();
+	[...target.querySelectorAll<HTMLButtonElement>('button')]
+		.find((item) => item.textContent?.trim() === 'Source')
+		?.click();
 	flushSync();
-	const source = field<HTMLTextAreaElement>(target, '[data-testid="transformation-source"]');
+	const source = field<HTMLTextAreaElement>(
+		target,
+		'[data-testid="transformation-source"]',
+	);
 	expect(source?.value).toContain('title: Before');
 	type(source, '---\ntitle: From source\nmodel: null\n---\nTidy.\n');
 	release.resolve();
@@ -400,7 +449,12 @@ test('a transformation opens in Source when invalid, and its issues follow the t
 	release.resolve();
 	await eventually(() => {
 		flushSync();
-		return field<HTMLTextAreaElement>(target, '[data-testid="transformation-prompt"]') !== null;
+		return (
+			field<HTMLTextAreaElement>(
+				target,
+				'[data-testid="transformation-prompt"]',
+			) !== null
+		);
 	});
 	expect(host!.text(RECIPE)).toBe(repaired);
 	expect(target.querySelector('[data-testid="needs-repair"]')).toBeNull();
@@ -645,7 +699,9 @@ test('audio the folder does not keep plays from its bytes', async () => {
 		'clips/loose.wav': toneWav(),
 	});
 	await show(whispering, folder, 'clips/loose.wav');
-	expect(target.querySelector('[data-testid="audio-file-view"]')).not.toBeNull();
+	expect(
+		target.querySelector('[data-testid="audio-file-view"]'),
+	).not.toBeNull();
 	await eventually(() => {
 		flushSync();
 		return target.querySelector('[data-testid="audio-player"]') !== null;
@@ -660,7 +716,10 @@ test('a file whose read failed says so and reads again on Try again', async () =
 		{ memory: true },
 	);
 	await show(whispering, folder, path);
-	const editor = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of locked.txt"]');
+	const editor = field<HTMLTextAreaElement>(
+		target,
+		'textarea[aria-label="Contents of locked.txt"]',
+	);
 	expect(editor?.value).toBe('Readable\n');
 	// Storage refuses reads of the file, and another program changes it.
 	const read = host!.storage.read;
@@ -680,10 +739,19 @@ test('a file whose read failed says so and reads again on Try again', async () =
 	host!.outside(path, 'Changed, and now unreadable\n');
 	await eventually(() => {
 		flushSync();
-		return target.querySelector('[role="alert"]')?.textContent?.includes('read refused') === true;
+		return (
+			target
+				.querySelector('[role="alert"]')
+				?.textContent?.includes('read refused') === true
+		);
 	});
 	expect(target.textContent).toContain('read refused');
-	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of locked.txt"]')).toBe(editor);
+	expect(
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of locked.txt"]',
+		),
+	).toBe(editor);
 	host!.storage.read = read;
 	const tryAgain = [...target.querySelectorAll('button')].find(
 		(button) => button.textContent?.trim() === 'Try again',
@@ -702,13 +770,28 @@ test('a file whose read failed says so and reads again on Try again', async () =
 
 test('a later read failure keeps a typed file edit visible when its save fails', async () => {
 	const path = 'notes/editable.txt';
-	const { folder, host, whispering, target } = await open({ [path]: 'First\n' }, 'recordings', { memory: true });
+	const { folder, host, whispering, target } = await open(
+		{ [path]: 'First\n' },
+		'recordings',
+		{ memory: true },
+	);
 	await show(whispering, folder, path);
-	const editor = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of editable.txt"]');
+	const editor = field<HTMLTextAreaElement>(
+		target,
+		'textarea[aria-label="Contents of editable.txt"]',
+	);
 	const read = host!.storage.read;
 	host!.storage.read = async (paths) => {
 		const answer = new Map(await read(paths));
-		if (paths.includes(path)) answer.set(path, Err({ name: 'StorageFailed', message: 'Read refused', cause: new Error('read refused') }));
+		if (paths.includes(path))
+			answer.set(
+				path,
+				Err({
+					name: 'StorageFailed',
+					message: 'Read refused',
+					cause: new Error('read refused'),
+				}),
+			);
 		return answer;
 	};
 	host!.outside(path, 'Outside\n');
@@ -716,26 +799,45 @@ test('a later read failure keeps a typed file edit visible when its save fails',
 		flushSync();
 		return target.textContent?.includes('Read refused') === true;
 	});
-	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of editable.txt"]')).toBe(editor);
+	expect(
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of editable.txt"]',
+		),
+	).toBe(editor);
 	type(editor, 'Typed on\n');
 	await settle(folder);
 	expect(host!.text(path)).toBe('Outside\n');
-	expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of editable.txt"]')).toBe(editor);
+	expect(
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of editable.txt"]',
+		),
+	).toBe(editor);
 	expect(editor?.value).toBe('Typed on\n');
 	expect(target.textContent).toContain('Not saved:');
 });
 
 test('rename includes the mounted editor draft queued before it', async () => {
 	const path = 'notes/draft.txt';
-	const { folder, host, whispering, target } = await open({ [path]: 'Old\n' }, 'recordings', { memory: true });
+	const { folder, host, whispering, target } = await open(
+		{ [path]: 'Old\n' },
+		'recordings',
+		{ memory: true },
+	);
 	await show(whispering, folder, path);
-	const editor = field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of draft.txt"]');
+	const editor = field<HTMLTextAreaElement>(
+		target,
+		'textarea[aria-label="Contents of draft.txt"]',
+	);
 	const gate = deferred<void>();
 	host!.control.putGate = gate.promise;
 	type(editor, 'New draft\n');
 	const name = field<HTMLInputElement>(target, 'input[autocomplete="off"]');
 	type(name, 'renamed.txt');
-	name?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+	name
+		?.closest('form')
+		?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 	await eventually(() => host!.log.puts.some((put) => put.path === path));
 	host!.control.putGate = undefined;
 	gate.resolve();
@@ -747,16 +849,27 @@ test('rename includes the mounted editor draft queued before it', async () => {
 
 test('the file view is inert while its rename is pending', async () => {
 	const path = 'notes/draft.txt';
-	const { folder, host, whispering, target } = await open({ [path]: 'Old\n' }, 'recordings', { memory: true });
+	const { folder, host, whispering, target } = await open(
+		{ [path]: 'Old\n' },
+		'recordings',
+		{ memory: true },
+	);
 	await show(whispering, folder, path);
 	const gate = deferred<void>();
 	host!.control.putGate = gate.promise;
 	try {
 		const name = field<HTMLInputElement>(target, 'input[autocomplete="off"]');
 		type(name, 'renamed.txt');
-		name?.closest('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+		name
+			?.closest('form')
+			?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 		flushSync();
-		expect(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of draft.txt"]')?.closest('section')?.inert).toBe(true);
+		expect(
+			field<HTMLTextAreaElement>(
+				target,
+				'textarea[aria-label="Contents of draft.txt"]',
+			)?.closest('section')?.inert,
+		).toBe(true);
 		gate.resolve();
 		await settle(folder);
 		expect(host!.text(path)).toBeUndefined();
@@ -767,12 +880,22 @@ test('the file view is inert while its rename is pending', async () => {
 });
 
 test('rename includes a transcript draft without closing its card', async () => {
-	const { folder, host, whispering, target } = await open({
-		[RECORDING]: recording('Take', ''),
-		[A]: transcript('Old words\n').replace('recordingId: one', 'recordingId: take'),
-	}, 'recordings', { memory: true });
+	const { folder, host, whispering, target } = await open(
+		{
+			[RECORDING]: recording('Take', ''),
+			[A]: transcript('Old words\n').replace(
+				'recordingId: one',
+				'recordingId: take',
+			),
+		},
+		'recordings',
+		{ memory: true },
+	);
 	await show(whispering, folder, RECORDING);
-	const editor = field<HTMLTextAreaElement>(target, '[data-testid="transcript-text"]');
+	const editor = field<HTMLTextAreaElement>(
+		target,
+		'[data-testid="transcript-text"]',
+	);
 	type(editor, 'New words\n');
 	expect(await whispering.rename(A, 'renamed.md')).toBeUndefined();
 	await settle(folder);
@@ -782,11 +905,21 @@ test('rename includes a transcript draft without closing its card', async () => 
 
 test('deleting after typing removes the file without a teardown write', async () => {
 	const path = 'notes/delete.txt';
-	const { folder, host, whispering, target } = await open({ [path]: 'Old\n' }, 'recordings', { memory: true });
+	const { folder, host, whispering, target } = await open(
+		{ [path]: 'Old\n' },
+		'recordings',
+		{ memory: true },
+	);
 	await show(whispering, folder, path);
 	const gate = deferred<void>();
 	host!.control.putGate = gate.promise;
-	type(field<HTMLTextAreaElement>(target, 'textarea[aria-label="Contents of delete.txt"]'), 'Typed\n');
+	type(
+		field<HTMLTextAreaElement>(
+			target,
+			'textarea[aria-label="Contents of delete.txt"]',
+		),
+		'Typed\n',
+	);
 	const deletion = expectOk(await whispering.deletionFor(path));
 	const removing = whispering.delete(deletion);
 	host!.control.putGate = undefined;

@@ -16,7 +16,12 @@
  */
 import { createLogger } from 'wellcrafted/logger';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import type { Expectation, FileRead, FolderStorage, PutOutcome } from './boundary.js';
+import type {
+	Expectation,
+	FileRead,
+	FolderStorage,
+	PutOutcome,
+} from './boundary.js';
 import { FileError, PublishError } from './errors.js';
 import { hashBytes } from './hash.js';
 import {
@@ -64,7 +69,11 @@ function logOverwrite(path: string, overridden: readonly Overridden[]) {
 const fileOf = (read: FileRead | null): FileRead | null =>
 	read === null
 		? null
-		: Object.freeze({ bytes: read.bytes, sha256: read.sha256, stamp: read.stamp });
+		: Object.freeze({
+				bytes: read.bytes,
+				sha256: read.sha256,
+				stamp: read.stamp,
+			});
 
 const toBytes = (content: FileContent | null) =>
 	typeof content === 'string' ? encoder.encode(content) : content;
@@ -88,7 +97,10 @@ export async function confirmedPut(
 			? read.error?.name === 'NotFound'
 			: read.error === null && read.data.sha256 === sha256;
 	return landed
-		? Ok({ kind: 'landed', stamp: read.error === null ? read.data.stamp : null })
+		? Ok({
+				kind: 'landed',
+				stamp: read.error === null ? read.data.stamp : null,
+			})
 		: put;
 }
 

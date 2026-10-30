@@ -8,15 +8,39 @@
  */
 import { expect, test } from 'bun:test';
 import type { FileEntry } from '@epicenter/repository';
-import { folderOfPath, listingOf, newPathProblem, parentOf, pathOfFolder } from './tree.js';
+import {
+	folderOfPath,
+	listingOf,
+	newPathProblem,
+	parentOf,
+	pathOfFolder,
+} from './tree.js';
 
-const synced = (path: string): FileEntry => ({ path, state: { status: 'synced' } });
-const FILES = ['README.md', 'notes/a.md', 'notes/deep/b.md', 'todos/milk.md', 'notes/z.md'].map(synced);
+const synced = (path: string): FileEntry => ({
+	path,
+	state: { status: 'synced' },
+});
+const FILES = [
+	'README.md',
+	'notes/a.md',
+	'notes/deep/b.md',
+	'todos/milk.md',
+	'notes/z.md',
+].map(synced);
 
 test('a folder lists the folders and files directly in it', () => {
-	expect(listingOf(FILES, '')).toEqual({ folders: ['notes', 'todos'], files: [synced('README.md')] });
-	expect(listingOf(FILES, 'notes')).toEqual({ folders: ['deep'], files: [synced('notes/a.md'), synced('notes/z.md')] });
-	expect(listingOf(FILES, 'notes/deep')).toEqual({ folders: [], files: [synced('notes/deep/b.md')] });
+	expect(listingOf(FILES, '')).toEqual({
+		folders: ['notes', 'todos'],
+		files: [synced('README.md')],
+	});
+	expect(listingOf(FILES, 'notes')).toEqual({
+		folders: ['deep'],
+		files: [synced('notes/a.md'), synced('notes/z.md')],
+	});
+	expect(listingOf(FILES, 'notes/deep')).toEqual({
+		folders: [],
+		files: [synced('notes/deep/b.md')],
+	});
 	expect(listingOf(FILES, 'nothing')).toEqual({ folders: [], files: [] });
 	expect(parentOf('notes/deep/b.md')).toBe('notes/deep');
 	expect(parentOf('README.md')).toBe('');
@@ -34,8 +58,12 @@ test("Files' path names the root, a folder, or a file", () => {
 
 test('a new path is refused when a file or folder is already there, by any spelling', () => {
 	expect(newPathProblem(FILES, 'notes/new.md')).toBeUndefined();
-	expect(newPathProblem(FILES, 'Notes/A.md')).toBe('A file is already at Notes/A.md.');
-	expect(newPathProblem(FILES, 'notes/deep')).toBe('A folder is already at notes/deep.');
+	expect(newPathProblem(FILES, 'Notes/A.md')).toBe(
+		'A file is already at Notes/A.md.',
+	);
+	expect(newPathProblem(FILES, 'notes/deep')).toBe(
+		'A folder is already at notes/deep.',
+	);
 	expect(newPathProblem(FILES, '')).toBe('Enter a name.');
 	expect(newPathProblem(FILES, 'notes/')).toBe('Enter a name.');
 	expect(newPathProblem(FILES, '/x.md')).toContain('cannot start with /');

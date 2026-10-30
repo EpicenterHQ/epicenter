@@ -28,9 +28,9 @@
 
 import { InstantString } from '@epicenter/definition';
 import {
+	describeIssues,
 	type FolderFile,
 	type Row,
-	describeIssues,
 	readRow,
 } from '@epicenter/folder';
 import { ancestors, dirname, joinPath } from '@epicenter/folder/file-browser';
@@ -56,8 +56,8 @@ import {
 	TRANSCRIPTIONS,
 	TRANSFORMATION_RUNS,
 	TRANSFORMATIONS,
-	whisperingTables,
 	type WhisperingTables,
+	whisperingTables,
 } from './definition.js';
 import {
 	captureDeletion,
@@ -310,18 +310,20 @@ export function createWhispering(folder: WhisperingFolder) {
 		return listedFiles(folder.files);
 	}
 
-	const recordingsOf = perListing((rows: readonly ListedRow<'recordings'>[]) => {
-		const read = split(RECORDINGS, rows);
-		return {
-			...read,
-			entries: read.entries.sort(
-				(a, b) =>
-					b.row.fields.recordedAt.localeCompare(a.row.fields.recordedAt) ||
-					byPath(b, a),
-			),
-			repairs: read.repairs.sort(byPath),
-		};
-	});
+	const recordingsOf = perListing(
+		(rows: readonly ListedRow<'recordings'>[]) => {
+			const read = split(RECORDINGS, rows);
+			return {
+				...read,
+				entries: read.entries.sort(
+					(a, b) =>
+						b.row.fields.recordedAt.localeCompare(a.row.fields.recordedAt) ||
+						byPath(b, a),
+				),
+				repairs: read.repairs.sort(byPath),
+			};
+		},
+	);
 	const transformationsOf = perListing(
 		(rows: readonly ListedRow<'transformations'>[]) => {
 			const read = split(TRANSFORMATIONS, rows);
@@ -427,7 +429,7 @@ export function createWhispering(folder: WhisperingFolder) {
 				id: string;
 				capture: ActiveCapture;
 				/** Its initial row save, awaited before Stop writes the row's length. */
-			rowSave: ReturnType<typeof folder.tables.recordings.create>;
+				rowSave: ReturnType<typeof folder.tables.recordings.create>;
 		  }
 		| { phase: 'stopping'; id: string; capture: ActiveCapture };
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
@@ -538,7 +540,11 @@ export function createWhispering(folder: WhisperingFolder) {
 		if (stopError === null) justFinished.set(id, capture.audioPath);
 		// Look at the folder now, so the finished audio is listed soon.
 		void folder.refresh().then(() => {
-			if (!listing().byStem.get(recordingAudioStem(id))?.some((path) => audioMimeTypeOf(path) !== undefined))
+			if (
+				!listing()
+					.byStem.get(recordingAudioStem(id))
+					?.some((path) => audioMimeTypeOf(path) !== undefined)
+			)
 				justFinished.delete(id);
 		});
 		captureState = { phase: 'idle' };
@@ -955,7 +961,10 @@ export function createWhispering(folder: WhisperingFolder) {
 				capture: services.capture.source,
 			};
 			// Keep the capture installed even if admitting its row throws.
-			const creating = folder.tables.recordings.create(id, { fields, body: '' });
+			const creating = folder.tables.recordings.create(id, {
+				fields,
+				body: '',
+			});
 			// Stop awaits this capture's own initial row save.
 			captureState = { phase: 'recording', id, capture, rowSave: creating };
 			capture.onEnded((reason) => {

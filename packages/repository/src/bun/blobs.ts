@@ -11,10 +11,23 @@
  */
 import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { type BlobStore, BlobStoreError, OID, sealStream } from '../client/blobs.js';
+import {
+	type BlobStore,
+	BlobStoreError,
+	OID,
+	sealStream,
+} from '../client/blobs.js';
 
-const isNotFound = (cause: unknown) => typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === 'ENOENT';
-const isFull = (cause: unknown) => typeof cause === 'object' && cause !== null && 'code' in cause && (cause.code === 'ENOSPC' || cause.code === 'EDQUOT');
+const isNotFound = (cause: unknown) =>
+	typeof cause === 'object' &&
+	cause !== null &&
+	'code' in cause &&
+	cause.code === 'ENOENT';
+const isFull = (cause: unknown) =>
+	typeof cause === 'object' &&
+	cause !== null &&
+	'code' in cause &&
+	(cause.code === 'ENOSPC' || cause.code === 'EDQUOT');
 
 /** Store blob bytes as files in `directory`, made when first needed. */
 export function createFileBlobStore(directory: string): BlobStore<Blob> {
@@ -36,17 +49,25 @@ export function createFileBlobStore(directory: string): BlobStore<Blob> {
 				const file = await open(temporary, 'wx');
 				let sealed: Awaited<ReturnType<typeof sealStream>>;
 				try {
-					sealed = await sealStream(stream, async (chunk, at) => void (await file.write(chunk, 0, chunk.byteLength, at)), expect);
+					sealed = await sealStream(
+						stream,
+						async (chunk, at) =>
+							void (await file.write(chunk, 0, chunk.byteLength, at)),
+						expect,
+					);
 					await file.sync();
 				} finally {
 					await file.close();
 				}
-				if (sealed.error !== null || (await exists(sealed.data.oid))) await rm(temporary, { force: true });
+				if (sealed.error !== null || (await exists(sealed.data.oid)))
+					await rm(temporary, { force: true });
 				else await rename(temporary, pathOf(sealed.data.oid));
 				return sealed;
 			} catch (cause) {
 				await rm(temporary, { force: true }).catch(() => {});
-				return isFull(cause) ? BlobStoreError.QuotaExceeded({ cause }) : BlobStoreError.Failed({ cause });
+				return isFull(cause)
+					? BlobStoreError.QuotaExceeded({ cause })
+					: BlobStoreError.Failed({ cause });
 			}
 		},
 		read: async (oid) => ((await exists(oid)) ? Bun.file(pathOf(oid)) : null),

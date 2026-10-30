@@ -3,7 +3,12 @@ import { Database } from 'bun:sqlite';
 import type { SqlDriver, SqlValue } from '../sql.js';
 
 /** The quote that closes each opening quote of a string or a name. */
-const CLOSING: Record<string, string> = { "'": "'", '"': '"', '`': '`', '[': ']' };
+const CLOSING: Record<string, string> = {
+	"'": "'",
+	'"': '"',
+	'`': '`',
+	'[': ']',
+};
 
 /**
  * The first statement of `sql`: where it ends (past its `;`), the first word
@@ -11,7 +16,11 @@ const CLOSING: Record<string, string> = { "'": "'", '"': '"', '`': '`', '[': ']'
  * Quoted strings, quoted names and comments are skipped, so a `;` inside
  * them ends nothing.
  */
-function firstStatement(sql: string): { end: number; word: string; empty: boolean } {
+function firstStatement(sql: string): {
+	end: number;
+	word: string;
+	empty: boolean;
+} {
 	let word = '';
 	let empty = true;
 	let at = 0;
@@ -69,7 +78,10 @@ const READ_KINDS = new Set(['SELECT', 'WITH', 'VALUES']);
 /** The one statement `sql` holds, if it is a read; `bun:sqlite` would run the first and skip the rest. */
 function oneRead(sql: string): string {
 	const { end, word } = firstStatement(sql);
-	if (!READ_KINDS.has(word)) throw new Error(`A read is a SELECT, WITH or VALUES statement, not ${word === '' ? 'nothing' : word}`);
+	if (!READ_KINDS.has(word))
+		throw new Error(
+			`A read is a SELECT, WITH or VALUES statement, not ${word === '' ? 'nothing' : word}`,
+		);
 	for (let rest = sql.slice(end); rest !== ''; ) {
 		const next = firstStatement(rest);
 		if (!next.empty) throw new Error('A read is one statement');

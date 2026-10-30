@@ -40,7 +40,8 @@ export const nativeWindow = {
 };
 
 async function destroy(token: number): Promise<boolean> {
-	if (!handlers.has(token) || phase === 'idle' || phase === 'gone') return false;
+	if (!handlers.has(token) || phase === 'idle' || phase === 'gone')
+		return false;
 	if (phase === 'prompting') {
 		phase = 'ready';
 		return true;
@@ -60,7 +61,10 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 	// SAFETY: The test harness sets this optional marker on the global object.
 	isTauri: () => (globalThis as { isTauri?: boolean }).isTauri === true,
-	invoke: async (command: string, args?: { onClose?: CloseChannel; token?: number }) => {
+	invoke: async (
+		command: string,
+		args?: { onClose?: CloseChannel; token?: number },
+	) => {
 		switch (command) {
 			case 'plugin:epicenter-folder|subscribe_close': {
 				await nativeWindow.registration;
@@ -91,7 +95,9 @@ export async function untilListening() {
 export function desktop(on: boolean) {
 	if (on) {
 		if (!globalThis.document)
-			Object.assign(globalThis, { document: { documentElement: { inert: false } } });
+			Object.assign(globalThis, {
+				document: { documentElement: { inert: false } },
+			});
 		if (!globalThis.window)
 			Object.assign(globalThis, { window: new EventTarget() });
 		document.documentElement.inert ??= false;
@@ -123,5 +129,7 @@ export async function requestClose(): Promise<void> {
 		return;
 	}
 	phase = 'sent';
-	await Promise.all([...handlers.values()].map((channel) => channel.onmessage?.(null)));
+	await Promise.all(
+		[...handlers.values()].map((channel) => channel.onmessage?.(null)),
+	);
 }

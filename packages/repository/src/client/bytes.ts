@@ -31,17 +31,37 @@ import type { Change, Changed, ChangeError, Replica } from './replica.js';
 /** Why a blob was not stored or opened. */
 export const BlobError = defineErrors({
 	/** A create found a file at the path on this device: nothing was stored. */
-	Exists: ({ path }: { path: string }) => ({ message: `There is already a file at ${path}`, path }),
+	Exists: ({ path }: { path: string }) => ({
+		message: `There is already a file at ${path}`,
+		path,
+	}),
 	/** No file is at the path on this device (a replace, an open), or the server has no such bytes: nothing was stored or opened. */
-	NotFound: ({ path }: { path: string }) => ({ message: `There is no file at ${path}`, path }),
+	NotFound: ({ path }: { path: string }) => ({
+		message: `There is no file at ${path}`,
+		path,
+	}),
 	/** A Markdown path is a note, never a blob. */
-	NotBlob: ({ path }: { path: string }) => ({ message: `${path} is a note, not a file of bytes`, path }),
+	NotBlob: ({ path }: { path: string }) => ({
+		message: `${path} is a note, not a file of bytes`,
+		path,
+	}),
 	/** Text at a path that is not a note, other than a pointer to bytes: a file of bytes is written as a Blob. */
-	NotPointer: ({ path }: { path: string }) => ({ message: `${path} is not a note: write its bytes as a Blob`, path }),
+	NotPointer: ({ path }: { path: string }) => ({
+		message: `${path} is not a note: write its bytes as a Blob`,
+		path,
+	}),
 	/** The bytes are more than the repository takes: nothing was sealed. */
-	TooLarge: ({ size, limit }: { size: number; limit: number }) => ({ message: `The file is ${size} bytes; this repository takes at most ${limit}`, size, limit }),
+	TooLarge: ({ size, limit }: { size: number; limit: number }) => ({
+		message: `The file is ${size} bytes; this repository takes at most ${limit}`,
+		size,
+		limit,
+	}),
 	/** The bytes are not here and could not be fetched now (offline, the server failing): try again. */
-	Unfetched: ({ path, reason }: { path: string; reason: string }) => ({ message: `${path} cannot be read now: ${reason}`, path, reason }),
+	Unfetched: ({ path, reason }: { path: string; reason: string }) => ({
+		message: `${path} cannot be read now: ${reason}`,
+		path,
+		reason,
+	}),
 });
 export type BlobError = InferErrors<typeof BlobError>;
 
@@ -60,17 +80,33 @@ export type PutError = BlobError | BlobStoreError | ChangeError | SaveError;
  * and the folder engine's projection share. Nothing is stored for bytes
  * that are not the ones named.
  */
-export async function downloadBlob({ lfs, store }: { lfs: LfsClient | null; store: BlobStore<Blob> }, path: string, pointer: Sealed): Promise<Result<undefined, BlobError>> {
+export async function downloadBlob(
+	{ lfs, store }: { lfs: LfsClient | null; store: BlobStore<Blob> },
+	path: string,
+	pointer: Sealed,
+): Promise<Result<undefined, BlobError>> {
 	if (lfs === null) return BlobError.NotFound({ path });
 	const asked = await lfs.batch('download', [pointer]);
-	if (asked.error !== null) return BlobError.Unfetched({ path, reason: asked.error.message });
+	if (asked.error !== null)
+		return BlobError.Unfetched({ path, reason: asked.error.message });
 	const answer = asked.data.find((each) => each.oid === pointer.oid);
 	const action = answer?.actions?.download;
-	if (action === undefined) return answer?.error?.code === 404 ? BlobError.NotFound({ path }) : BlobError.Unfetched({ path, reason: answer?.error?.message ?? 'no download was offered' });
+	if (action === undefined)
+		return answer?.error?.code === 404
+			? BlobError.NotFound({ path })
+			: BlobError.Unfetched({
+					path,
+					reason: answer?.error?.message ?? 'no download was offered',
+				});
 	const body = await lfs.get(action);
-	if (body.error !== null) return body.error.name === 'Refused' && body.error.status === 404 ? BlobError.NotFound({ path }) : BlobError.Unfetched({ path, reason: body.error.message });
+	if (body.error !== null)
+		return body.error.name === 'Refused' && body.error.status === 404
+			? BlobError.NotFound({ path })
+			: BlobError.Unfetched({ path, reason: body.error.message });
 	const sealed = await store.seal(body.data, { expect: pointer });
-	return sealed.error === null ? Ok(undefined) : BlobError.Unfetched({ path, reason: sealed.error.message });
+	return sealed.error === null
+		? Ok(undefined)
+		: BlobError.Unfetched({ path, reason: sealed.error.message });
 }
 
 export function serveBytes({
@@ -79,7 +115,13 @@ export function serveBytes({
 	lfs,
 }: {
 	/** The replica, and the change that stores a call (the page's, so its token is heard with it). */
-	replica: Pick<Replica, 'read' | 'blobLimit'> & { change(changes: Change[], token?: number, message?: string): Result<Changed, ChangeError | SaveError> };
+	replica: Pick<Replica, 'read' | 'blobLimit'> & {
+		change(
+			changes: Change[],
+			token?: number,
+			message?: string,
+		): Result<Changed, ChangeError | SaveError>;
+	};
 	store: BlobStore<Blob>;
 	/** The server's LFS endpoint, or null for a repository kept only on this device. */
 	lfs: LfsClient | null;
@@ -87,7 +129,8 @@ export function serveBytes({
 	/** Downloads in flight, one per oid. */
 	const fetching = new Map<string, Promise<Result<undefined, BlobError>>>();
 
-	const download = (path: string, pointer: Sealed) => downloadBlob({ lfs, store }, path, pointer);
+	const download = (path: string, pointer: Sealed) =>
+		downloadBlob({ lfs, store }, path, pointer);
 
 	return {
 		/**
@@ -95,18 +138,30 @@ export function serveBytes({
 		 * `changes`, in one change made with `token`. Nothing is
 		 * stored unless every blob was sealed and every change applies.
 		 */
-		async put(blobs: BlobPut[], changes: Change[] = [], token?: number): Promise<Result<Put, PutError>> {
-			const misplaced = (path: string, replace: boolean) => ((replica.read(path) !== null) === replace ? null : replace ? BlobError.NotFound({ path }) : BlobError.Exists({ path }));
+		async put(
+			blobs: BlobPut[],
+			changes: Change[] = [],
+			token?: number,
+		): Promise<Result<Put, PutError>> {
+			const misplaced = (path: string, replace: boolean) =>
+				(replica.read(path) !== null) === replace
+					? null
+					: replace
+						? BlobError.NotFound({ path })
+						: BlobError.Exists({ path });
 			const limit = replica.blobLimit();
 			for (const { path, blob, replace } of blobs) {
 				if (isNote(path)) return BlobError.NotBlob({ path });
-				if (blob.size > limit) return BlobError.TooLarge({ size: blob.size, limit });
+				if (blob.size > limit)
+					return BlobError.TooLarge({ size: blob.size, limit });
 				const refusal = misplaced(path, replace);
 				if (refusal !== null) return refusal;
 			}
 			const sealed: Record<string, Sealed> = {};
 			for (const { path, blob } of blobs) {
-				const kept = await store.seal(blob.stream() as ReadableStream<Uint8Array>);
+				const kept = await store.seal(
+					blob.stream() as ReadableStream<Uint8Array>,
+				);
 				if (kept.error !== null) return kept;
 				sealed[path] = kept.data;
 			}
@@ -115,7 +170,13 @@ export function serveBytes({
 				const refusal = misplaced(path, replace);
 				if (refusal !== null) return refusal;
 			}
-			const pointers = blobs.map(({ path }): Change => ({ kind: 'write', path, text: writePointer(sealed[path] as Sealed) }));
+			const pointers = blobs.map(
+				({ path }): Change => ({
+					kind: 'write',
+					path,
+					text: writePointer(sealed[path] as Sealed),
+				}),
+			);
 			const changed = replica.change([...changes, ...pointers], token);
 			if (changed.error !== null) return changed;
 			return Ok({ ...changed.data, sealed });
@@ -129,16 +190,26 @@ export function serveBytes({
 			if (bytes === null) {
 				let running = fetching.get(pointer.oid);
 				if (running === undefined) {
-					running = download(path, pointer).finally(() => fetching.delete(pointer.oid));
+					running = download(path, pointer).finally(() =>
+						fetching.delete(pointer.oid),
+					);
 					fetching.set(pointer.oid, running);
 				}
 				const fetched = await running;
 				if (fetched.error !== null) return fetched;
 				bytes = await store.read(pointer.oid);
-				if (bytes === null) return BlobError.Unfetched({ path, reason: 'the bytes were fetched and then gone' });
+				if (bytes === null)
+					return BlobError.Unfetched({
+						path,
+						reason: 'the bytes were fetched and then gone',
+					});
 			}
 			// A File over the store's own handle: its bytes are not copied.
-			return Ok(new File([bytes], path.slice(path.lastIndexOf('/') + 1), { type: mediaType(path) }));
+			return Ok(
+				new File([bytes], path.slice(path.lastIndexOf('/') + 1), {
+					type: mediaType(path),
+				}),
+			);
 		},
 	};
 }

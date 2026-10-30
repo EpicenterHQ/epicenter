@@ -21,7 +21,8 @@ export function createRandom(seed: number) {
 	return {
 		next,
 		/** An integer in [min, max]. */
-		int: (min: number, max: number) => min + Math.floor(next() * (max - min + 1)),
+		int: (min: number, max: number) =>
+			min + Math.floor(next() * (max - min + 1)),
 		chance: (p: number) => next() < p,
 		pick: <T>(items: readonly T[]): T => {
 			const item = items[Math.floor(next() * items.length)];
@@ -55,7 +56,8 @@ export function createNet(seed: number) {
 	let order = 0;
 	let nextConnection = 1;
 
-	const less = (a: Event, b: Event) => a.at < b.at || (a.at === b.at && a.order < b.order);
+	const less = (a: Event, b: Event) =>
+		a.at < b.at || (a.at === b.at && a.order < b.order);
 	function push(event: Event) {
 		heap.push(event);
 		let i = heap.length - 1;
@@ -88,7 +90,8 @@ export function createNet(seed: number) {
 		return top;
 	}
 
-	const at = (time: number, run: () => void) => push({ at: Math.max(time, now), order: order++, run });
+	const at = (time: number, run: () => void) =>
+		push({ at: Math.max(time, now), order: order++, run });
 
 	/**
 	 * Open a connection. `server` receives messages sent up, `client` those
@@ -96,7 +99,12 @@ export function createNet(seed: number) {
 	 */
 	function connect<TUp, TDown>(
 		options: LinkOptions,
-		ends: { server: (message: TUp) => void; client: (message: TDown) => void; closed: () => void; serverClosed?: () => void },
+		ends: {
+			server: (message: TUp) => void;
+			client: (message: TDown) => void;
+			closed: () => void;
+			serverClosed?: () => void;
+		},
 	) {
 		const id = nextConnection++;
 		let open = true;
@@ -110,7 +118,12 @@ export function createNet(seed: number) {
 			ends.serverClosed?.();
 			at(now + delay(), ends.closed);
 		};
-		const deliver = <T>(message: T, lost: boolean, direction: 'up' | 'down', to: (message: T) => void) => {
+		const deliver = <T>(
+			message: T,
+			lost: boolean,
+			direction: 'up' | 'down',
+			to: (message: T) => void,
+		) => {
 			if (!open) return;
 			if (lost) {
 				if (options.lossCloses) close();
@@ -118,7 +131,8 @@ export function createNet(seed: number) {
 			}
 			const copy = structuredClone(message);
 			let time = now + delay();
-			if (options.stall !== undefined && random.chance(options.stall.chance)) time += random.int(0, options.stall.ms);
+			if (options.stall !== undefined && random.chance(options.stall.chance))
+				time += random.int(0, options.stall.ms);
 			if (options.ordered) {
 				time = Math.max(time, direction === 'up' ? lastUp : lastDown);
 				if (direction === 'up') lastUp = time;
@@ -131,7 +145,8 @@ export function createNet(seed: number) {
 		return {
 			id,
 			isOpen: () => open,
-			up: (message: TUp) => deliver(message, random.chance(options.loss.up), 'up', ends.server),
+			up: (message: TUp) =>
+				deliver(message, random.chance(options.loss.up), 'up', ends.server),
 			down: (message: TDown) => {
 				const lost = loseNextDown || random.chance(options.loss.down);
 				loseNextDown = false;

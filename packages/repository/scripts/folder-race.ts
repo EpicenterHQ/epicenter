@@ -57,11 +57,31 @@
  * ingest; "superseded" are saves the editor overwrote itself.
  */
 import { dlopen, FFIType, read as readPointer } from 'bun:ffi';
-import { closeSync, fstatSync, ftruncateSync, lstatSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import {
+	closeSync,
+	fstatSync,
+	ftruncateSync,
+	lstatSync,
+	mkdtempSync,
+	openSync,
+	readFileSync,
+	readSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	unlinkSync,
+	writeFileSync,
+	writeSync,
+} from 'node:fs';
 import { link, open, readFile, rename, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isMainThread, parentPort, Worker, workerData } from 'node:worker_threads';
+import {
+	isMainThread,
+	parentPort,
+	Worker,
+	workerData,
+} from 'node:worker_threads';
 import { createBunFolderFs } from '../src/bun/folder-fs.js';
 import { SCRATCH } from '../src/folder/fs.js';
 
@@ -79,7 +99,10 @@ type Candidate = 'naive' | 'capture' | 'swap';
 
 function loadSwap() {
 	const lib = dlopen('/usr/lib/libSystem.B.dylib', {
-		renamex_np: { args: [FFIType.ptr, FFIType.ptr, FFIType.u32], returns: FFIType.i32 },
+		renamex_np: {
+			args: [FFIType.ptr, FFIType.ptr, FFIType.u32],
+			returns: FFIType.i32,
+		},
 		__error: { args: [], returns: FFIType.ptr },
 	});
 	const cstr = (path: string) => Buffer.from(`${path}\0`);
@@ -99,8 +122,12 @@ const editorToken = (text: string | null) => {
 	const match = text === null ? null : /^editor (\d+) /.exec(text);
 	return match === null ? null : Number(match[1]);
 };
-const code = (cause: unknown) => (typeof cause === 'object' && cause !== null && 'code' in cause ? (cause as { code: unknown }).code : undefined);
-const sleepSync = (lock: Int32Array, ms: number) => Atomics.wait(lock, 0, 0, ms);
+const code = (cause: unknown) =>
+	typeof cause === 'object' && cause !== null && 'code' in cause
+		? (cause as { code: unknown }).code
+		: undefined;
+const sleepSync = (lock: Int32Array, ms: number) =>
+	Atomics.wait(lock, 0, 0, ms);
 
 // ============================================================================
 // Editor (Worker)
@@ -125,18 +152,40 @@ type EditorReport = {
 	lostIds: number[];
 };
 
-function editor({ dir, flags, stop }: { dir: string; flags: Uint8Array; stop: Int32Array }) {
+function editor({
+	dir,
+	flags,
+	stop,
+}: {
+	dir: string;
+	flags: Uint8Array;
+	stop: Int32Array;
+}) {
 	const swap = loadSwap();
 	const path = join(dir, NAME);
 	const tmp = join(dir, `.${NAME}.tmp`);
 	const lock = new Int32Array(new SharedArrayBuffer(4));
 	const buffer = Buffer.alloc(8192);
 	const report: EditorReport = {
-		saves: 0, inPlace: 0, atomic: 0, superseded: 0, replaced: 0, absentReplaced: 0, other: 0,
-		destroyed: 0, destroyedDetached: 0, detached: 0, absentInPlace: 0, absentAtomic: 0, inPlaceRetryFailed: 0,
-		swapErrors: {}, errors: {}, lostIds: [],
+		saves: 0,
+		inPlace: 0,
+		atomic: 0,
+		superseded: 0,
+		replaced: 0,
+		absentReplaced: 0,
+		other: 0,
+		destroyed: 0,
+		destroyedDetached: 0,
+		detached: 0,
+		absentInPlace: 0,
+		absentAtomic: 0,
+		inPlaceRetryFailed: 0,
+		swapErrors: {},
+		errors: {},
+		lostIds: [],
 	};
-	const bump = (record: Record<string, number>, key: string) => (record[key] = (record[key] ?? 0) + 1);
+	const bump = (record: Record<string, number>, key: string) =>
+		(record[key] = (record[key] ?? 0) + 1);
 	/** Saves the engine replaced (engine text, or absent, where save k was): judged at the end. */
 	const replacedSaves: number[] = [];
 	const detachedSaves = new Set<number>();
@@ -251,15 +300,31 @@ type EngineReport = {
 	errors: Record<string, number>;
 };
 
-async function engine(candidate: Candidate, dir: string, flags: Uint8Array, seconds: number) {
+async function engine(
+	candidate: Candidate,
+	dir: string,
+	flags: Uint8Array,
+	seconds: number,
+) {
 	const path = join(dir, NAME);
 	const port = createBunFolderFs(dir);
 	const swap = candidate === 'swap' ? loadSwap() : null;
 	const report: EngineReport = {
-		ticks: 0, writes: 0, ingests: 0, observed: 0, captured: 0, capturedOther: 0, recheckCaptured: 0,
-		linkEexist: 0, swapCalls: 0, swapFallbackLink: 0, swapErrors: {}, errors: {},
+		ticks: 0,
+		writes: 0,
+		ingests: 0,
+		observed: 0,
+		captured: 0,
+		capturedOther: 0,
+		recheckCaptured: 0,
+		linkEexist: 0,
+		swapCalls: 0,
+		swapFallbackLink: 0,
+		swapErrors: {},
+		errors: {},
 	};
-	const bump = (record: Record<string, number>, key: string) => (record[key] = (record[key] ?? 0) + 1);
+	const bump = (record: Record<string, number>, key: string) =>
+		(record[key] = (record[key] ?? 0) + 1);
 	const rechecks: Promise<void>[] = [];
 	let n = 0;
 	let temp = 0;
@@ -279,13 +344,19 @@ async function engine(candidate: Candidate, dir: string, flags: Uint8Array, seco
 		Atomics.or(flags, k, bit);
 	};
 	/** Look at what the primitive displaced: compare now, then once more after 150 ms. */
-	const inspect = (first: string, expected: string, readAgain: () => Promise<string | null>, release: () => Promise<void>) => {
+	const inspect = (
+		first: string,
+		expected: string,
+		readAgain: () => Promise<string | null>,
+		release: () => Promise<void>,
+	) => {
 		if (Bun.hash(first) !== Bun.hash(expected)) hold(first, CAPTURED);
 		rechecks.push(
 			(async () => {
 				await Bun.sleep(150);
 				const again = await readAgain();
-				if (again !== null && again !== first && again !== expected) hold(again, RECHECKED);
+				if (again !== null && again !== first && again !== expected)
+					hold(again, RECHECKED);
 				await release();
 			})(),
 		);
@@ -340,8 +411,15 @@ async function engine(candidate: Candidate, dir: string, flags: Uint8Array, seco
 					record = next;
 				} else report.linkEexist++;
 				if (displaced !== null) {
-					const first = (await (await port.readScratch(displaced))?.bytes.text()) ?? '';
-					inspect(first, expected, async () => (await (await port.readScratch(displaced))?.bytes.text()) ?? null, () => port.drop(displaced));
+					const first =
+						(await (await port.readScratch(displaced))?.bytes.text()) ?? '';
+					inspect(
+						first,
+						expected,
+						async () =>
+							(await (await port.readScratch(displaced))?.bytes.text()) ?? null,
+						() => port.drop(displaced),
+					);
 				}
 			} else if (swap !== null) {
 				const file = await stage(next);
@@ -351,7 +429,12 @@ async function engine(candidate: Candidate, dir: string, flags: Uint8Array, seco
 					report.writes++;
 					record = next;
 					const first = await readFile(file, 'utf8');
-					inspect(first, expected, () => readFile(file, 'utf8').catch(() => null), () => unlink(file).catch(() => {}));
+					inspect(
+						first,
+						expected,
+						() => readFile(file, 'utf8').catch(() => null),
+						() => unlink(file).catch(() => {}),
+					);
 				} else {
 					bump(report.swapErrors, `errno ${errno}`);
 					if (errno === ENOENT) {
@@ -381,11 +464,15 @@ async function engine(candidate: Candidate, dir: string, flags: Uint8Array, seco
 // ============================================================================
 
 async function run(candidate: Candidate, seconds: number) {
-	const dir = realpathSync(mkdtempSync(join(tmpdir(), `folder-race-${candidate}-`)));
+	const dir = realpathSync(
+		mkdtempSync(join(tmpdir(), `folder-race-${candidate}-`)),
+	);
 	const flags = new Uint8Array(new SharedArrayBuffer(MAX_SAVES));
 	const stop = new Int32Array(new SharedArrayBuffer(4));
 	try {
-		const worker = new Worker(new URL(import.meta.url), { workerData: { dir, flags, stop } });
+		const worker = new Worker(new URL(import.meta.url), {
+			workerData: { dir, flags, stop },
+		});
 		const done = new Promise<EditorReport>((resolve, reject) => {
 			worker.on('message', resolve);
 			worker.on('error', reject);
@@ -401,7 +488,13 @@ async function run(candidate: Candidate, seconds: number) {
 				return '(absent)';
 			}
 		})();
-		return { candidate, engine: engineReport, editor: editorReport, leftover, scratchDir: join(dir, SCRATCH) };
+		return {
+			candidate,
+			engine: engineReport,
+			editor: editorReport,
+			leftover,
+			scratchDir: join(dir, SCRATCH),
+		};
 	} finally {
 		rmSync(dir, { recursive: true, force: true });
 	}
@@ -412,9 +505,17 @@ function main() {
 	const secondsAt = args.indexOf('--seconds');
 	const seconds = secondsAt === -1 ? 60 : Number(args[secondsAt + 1]);
 	const onlyAt = args.indexOf('--only');
-	const candidates = (onlyAt === -1 ? ['naive', 'capture', 'swap'] : (args[onlyAt + 1] ?? '').split(',')) as Candidate[];
-	console.log(`folder-race: ${seconds} s per candidate, bun ${Bun.version}, ${process.platform} ${process.arch}, tmpdir ${tmpdir()}`);
-	console.log('engine: main thread (async); editor: Bun Worker thread (sync node:fs)\n');
+	const candidates = (
+		onlyAt === -1
+			? ['naive', 'capture', 'swap']
+			: (args[onlyAt + 1] ?? '').split(',')
+	) as Candidate[];
+	console.log(
+		`folder-race: ${seconds} s per candidate, bun ${Bun.version}, ${process.platform} ${process.arch}, tmpdir ${tmpdir()}`,
+	);
+	console.log(
+		'engine: main thread (async); editor: Bun Worker thread (sync node:fs)\n',
+	);
 	return (async () => {
 		const results: Awaited<ReturnType<typeof run>>[] = [];
 		for (const candidate of candidates) {
@@ -426,7 +527,10 @@ function main() {
 			console.log(`file left: ${JSON.stringify(result.leftover)}\n`);
 		}
 		const rows: [string, (r: (typeof results)[number]) => string | number][] = [
-			['editor saves (in-place/atomic)', (r) => `${r.editor.saves} (${r.editor.inPlace}/${r.editor.atomic})`],
+			[
+				'editor saves (in-place/atomic)',
+				(r) => `${r.editor.saves} (${r.editor.inPlace}/${r.editor.atomic})`,
+			],
 			['engine writes', (r) => r.engine.writes],
 			['saves observed (read before writing)', (r) => r.engine.observed],
 			['saves captured (displaced != expected)', (r) => r.engine.captured],
@@ -435,23 +539,43 @@ function main() {
 			['replaced by engine (engine text found)', (r) => r.editor.replaced],
 			['replaced by engine (path absent)', (r) => r.editor.absentReplaced],
 			['DESTROYED', (r) => r.editor.destroyed],
-			['  of which detached (fd write after move)', (r) => r.editor.destroyedDetached],
+			[
+				'  of which detached (fd write after move)',
+				(r) => r.editor.destroyedDetached,
+			],
 			['detached in-place writes (all)', (r) => r.editor.detached],
-			['absent instants: in-place open r+ ENOENT', (r) => r.editor.absentInPlace],
+			[
+				'absent instants: in-place open r+ ENOENT',
+				(r) => r.editor.absentInPlace,
+			],
 			['absent instants: atomic swap ENOENT', (r) => r.editor.absentAtomic],
 			['in-place retry (open w) failures', (r) => r.editor.inPlaceRetryFailed],
 			['editor errors', (r) => JSON.stringify(r.editor.errors)],
-			['editor swap errors (non-ENOENT)', (r) => JSON.stringify(r.editor.swapErrors)],
+			[
+				'editor swap errors (non-ENOENT)',
+				(r) => JSON.stringify(r.editor.swapErrors),
+			],
 			['engine link EEXIST (editor won)', (r) => r.engine.linkEexist],
-			['engine swap calls / errors', (r) => `${r.engine.swapCalls} / ${JSON.stringify(r.engine.swapErrors)}`],
+			[
+				'engine swap calls / errors',
+				(r) => `${r.engine.swapCalls} / ${JSON.stringify(r.engine.swapErrors)}`,
+			],
 			['engine errors', (r) => JSON.stringify(r.engine.errors)],
 			['unclassified prior content', (r) => r.editor.other],
 		];
 		const width = Math.max(...rows.map(([label]) => label.length));
-		console.log(`${''.padEnd(width)} | ${results.map((r) => r.candidate.padEnd(16)).join(' | ')}`);
-		for (const [label, cell] of rows) console.log(`${label.padEnd(width)} | ${results.map((r) => String(cell(r)).padEnd(16)).join(' | ')}`);
+		console.log(
+			`${''.padEnd(width)} | ${results.map((r) => r.candidate.padEnd(16)).join(' | ')}`,
+		);
+		for (const [label, cell] of rows)
+			console.log(
+				`${label.padEnd(width)} | ${results.map((r) => String(cell(r)).padEnd(16)).join(' | ')}`,
+			);
 	})();
 }
 
 if (isMainThread) await main();
-else parentPort?.postMessage(editor(workerData as { dir: string; flags: Uint8Array; stop: Int32Array }));
+else
+	parentPort?.postMessage(
+		editor(workerData as { dir: string; flags: Uint8Array; stop: Int32Array }),
+	);

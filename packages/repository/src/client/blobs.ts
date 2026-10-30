@@ -22,7 +22,11 @@
  */
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex } from '@noble/hashes/utils.js';
-import { defineErrors, extractErrorMessage, type InferErrors } from 'wellcrafted/error';
+import {
+	defineErrors,
+	extractErrorMessage,
+	type InferErrors,
+} from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 
 /** An LFS oid: lowercase hex SHA-256. Anything else names no object. */
@@ -38,7 +42,15 @@ export const BlobStoreError = defineErrors({
 		cause,
 	}),
 	/** The bytes were not the ones the seal expected: nothing was stored. */
-	Mismatch: ({ expected, oid, size }: { expected: Sealed; oid: string | null; size: number }) => ({
+	Mismatch: ({
+		expected,
+		oid,
+		size,
+	}: {
+		expected: Sealed;
+		oid: string | null;
+		size: number;
+	}) => ({
 		message: `The bytes are not ${expected.oid} (${expected.size} bytes)`,
 		expected,
 		oid,
@@ -55,7 +67,10 @@ export type BlobStoreError = InferErrors<typeof BlobStoreError>;
 /** A device's blob store; `THandle` is what a read answers on this host. */
 export type BlobStore<THandle> = {
 	/** Store the bytes `stream` carries, named by their SHA-256 once all of them are written; with `expect`, only if they are those bytes. */
-	seal(stream: ReadableStream<Uint8Array>, options?: { expect?: Sealed }): Promise<Result<Sealed, BlobStoreError>>;
+	seal(
+		stream: ReadableStream<Uint8Array>,
+		options?: { expect?: Sealed },
+	): Promise<Result<Sealed, BlobStoreError>>;
 	/** The bytes named `oid`, or null when they are not here. */
 	read(oid: string): Promise<THandle | null>;
 	has(oid: string): Promise<boolean>;
@@ -65,7 +80,10 @@ export type BlobStore<THandle> = {
 
 /** Whether storage refused bytes for lack of room (`QuotaExceededError` in every browser). */
 export const isQuotaExceeded = (cause: unknown) =>
-	typeof cause === 'object' && cause !== null && 'name' in cause && cause.name === 'QuotaExceededError';
+	typeof cause === 'object' &&
+	cause !== null &&
+	'name' in cause &&
+	cause.name === 'QuotaExceededError';
 
 /**
  * Read `stream` to its end through `write`, hashing as it goes: the one
@@ -84,14 +102,19 @@ export async function sealStream(
 	for (let read = await reader.read(); !read.done; read = await reader.read()) {
 		if (expect !== undefined && size + read.value.byteLength > expect.size) {
 			await reader.cancel().catch(() => {});
-			return BlobStoreError.Mismatch({ expected: expect, oid: null, size: size + read.value.byteLength });
+			return BlobStoreError.Mismatch({
+				expected: expect,
+				oid: null,
+				size: size + read.value.byteLength,
+			});
 		}
 		await write(read.value, size);
 		hasher.update(read.value);
 		size += read.value.byteLength;
 	}
 	const oid = hasher.digest();
-	if (expect !== undefined && (oid !== expect.oid || size !== expect.size)) return BlobStoreError.Mismatch({ expected: expect, oid, size });
+	if (expect !== undefined && (oid !== expect.oid || size !== expect.size))
+		return BlobStoreError.Mismatch({ expected: expect, oid, size });
 	return Ok({ oid, size });
 }
 
@@ -115,11 +138,16 @@ export function createMemoryBlobStore(): BlobStore<Blob> {
 			const chunks: Uint8Array[] = [];
 			let sealed: Result<Sealed, BlobStoreError>;
 			try {
-				sealed = await sealStream(stream, (chunk) => void chunks.push(chunk.slice()), expect);
+				sealed = await sealStream(
+					stream,
+					(chunk) => void chunks.push(chunk.slice()),
+					expect,
+				);
 			} catch (cause) {
 				return BlobStoreError.Failed({ cause });
 			}
-			if (sealed.error === null && !objects.has(sealed.data.oid)) objects.set(sealed.data.oid, new Blob(chunks as BlobPart[]));
+			if (sealed.error === null && !objects.has(sealed.data.oid))
+				objects.set(sealed.data.oid, new Blob(chunks as BlobPart[]));
 			return sealed;
 		},
 		read: async (oid) => objects.get(oid) ?? null,

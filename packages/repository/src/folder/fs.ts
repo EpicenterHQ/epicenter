@@ -24,8 +24,9 @@
  * when the scope is unknown (an overflow, an error, a name it could not
  * read), and the engine reads the file to learn what happened.
  */
-import { Ok, type Result } from 'wellcrafted/result';
+
 import { defineErrors, type InferErrors } from 'wellcrafted/error';
+import { Ok, type Result } from 'wellcrafted/result';
 
 /** The folder the engine keeps for itself, never synced: its identity file and its scratch. */
 export const OWN = '.epicenter';
@@ -33,17 +34,31 @@ export const OWN = '.epicenter';
 export const SCRATCH = `${OWN}/tmp`;
 
 /** One thing a walk or a stat finds. Symlinks are reported as such, never followed. */
-export type Entry = { path: string; kind: 'file' | 'directory' | 'symlink' | 'other'; size: number; mtime: number; ino: number };
+export type Entry = {
+	path: string;
+	kind: 'file' | 'directory' | 'symlink' | 'other';
+	size: number;
+	mtime: number;
+	ino: number;
+};
 
 /** A captured file: its bytes, read when asked, and its mtime, so a file still being written through a descriptor is seen to be. */
 export type Captured = { bytes: Blob; mtime: number };
 
 /** What `replace` did: whether its bytes are at the path now (and the file it made, as a stat would find it), and the scratch name of what was there before (null: nothing was). */
-export type Replaced = { written: boolean; entry: Entry | null; displaced: string | null };
+export type Replaced = {
+	written: boolean;
+	entry: Entry | null;
+	displaced: string | null;
+};
 
 export const FolderFsError = defineErrors({
 	/** The file system refused a change for a reason other than a race (no room, no permission). */
-	Failed: ({ path, cause }: { path: string; cause: unknown }) => ({ message: `${path} could not be changed: ${String(cause)}`, path, cause }),
+	Failed: ({ path, cause }: { path: string; cause: unknown }) => ({
+		message: `${path} could not be changed: ${String(cause)}`,
+		path,
+		cause,
+	}),
 });
 export type FolderFsError = InferErrors<typeof FolderFsError>;
 
@@ -61,9 +76,16 @@ export type FolderFs = {
 	 * `scratch` (a name `SCRATCH` holds), and the new bytes go in only if the
 	 * path is still empty. Parent directories are made.
 	 */
-	replace(path: string, bytes: Blob, { scratch }: { scratch: string }): Promise<Result<Replaced, FolderFsError>>;
+	replace(
+		path: string,
+		bytes: Blob,
+		{ scratch }: { scratch: string },
+	): Promise<Result<Replaced, FolderFsError>>;
 	/** Take what is at `path` to `scratch`: null when nothing was there. */
-	remove(path: string, { scratch }: { scratch: string }): Promise<Result<string | null, FolderFsError>>;
+	remove(
+		path: string,
+		{ scratch }: { scratch: string },
+	): Promise<Result<string | null, FolderFsError>>;
 	/** A captured file's bytes and mtime, or null when it is gone. */
 	readScratch(scratch: string): Promise<Captured | null>;
 	/** Put a captured file back at `path` if the path is empty (a crash's recovery); whether it went back. */
@@ -73,14 +95,22 @@ export type FolderFs = {
 	/** Scratch names left in `SCRATCH` (by a crash). */
 	scratches(): Promise<string[]>;
 	/** Be told which paths may have changed, or `null` for any; returns the function that stops it. A watch that fails for good calls `failed`. */
-	watch(listener: (paths: string[] | null) => void, failed: (cause: unknown) => void): () => void;
+	watch(
+		listener: (paths: string[] | null) => void,
+		failed: (cause: unknown) => void,
+	): () => void;
 };
 
 // ============================================================================
 // Memory
 // ============================================================================
 
-type MemoryFile = { bytes: Uint8Array; ino: number; mtime: number; kind: 'file' | 'symlink' };
+type MemoryFile = {
+	bytes: Uint8Array;
+	ino: number;
+	mtime: number;
+	kind: 'file' | 'symlink';
+};
 
 /** How the memory file system's events arrive: each delayed, some dropped silently, some lost to an overflow (`null`). */
 export type EventFaults = {
@@ -159,21 +189,32 @@ export function createMemoryFolderFs({
 				after(at - now(), () => {
 					const paths = due.get(at);
 					due.delete(at);
-					for (const listener of listeners) listener(paths === null || paths === undefined ? null : [...paths]);
+					for (const listener of listeners)
+						listener(paths === null || paths === undefined ? null : [...paths]);
 				});
 			} else if (lost) due.set(at, null);
 			else batch?.add(path);
 		}
 	}
-	const entryOf = (path: string, file: MemoryFile): Entry => ({ path, kind: file.kind, size: file.bytes.byteLength, mtime: file.mtime, ino: file.ino });
+	const entryOf = (path: string, file: MemoryFile): Entry => ({
+		path,
+		kind: file.kind,
+		size: file.bytes.byteLength,
+		mtime: file.mtime,
+		ino: file.ino,
+	});
 	const isDirectory = (path: string) => {
 		const prefix = `${path}/`;
 		for (const key of files.keys()) if (key.startsWith(prefix)) return true;
 		return false;
 	};
-	const bytesOf = async (blob: Blob) => new Uint8Array(await blob.arrayBuffer());
+	const bytesOf = async (blob: Blob) =>
+		new Uint8Array(await blob.arrayBuffer());
 	/** A path is free for a new file: nothing there, and no file where a parent directory must be. */
-	const free = (path: string) => !files.has(path) && !isDirectory(path) && parentsOf(path).every((parent) => !files.has(parent));
+	const free = (path: string) =>
+		!files.has(path) &&
+		!isDirectory(path) &&
+		parentsOf(path).every((parent) => !files.has(parent));
 
 	const port: FolderFs = {
 		async *walk(prefix, skip) {
@@ -181,12 +222,20 @@ export function createMemoryFolderFs({
 			const seen = new Set<string>();
 			for (const path of [...files.keys()].sort()) {
 				if (prefix !== '' && !path.startsWith(`${prefix}/`)) continue;
-				const parents = parentsOf(path).filter((parent) => prefix === '' || parent.length > prefix.length);
+				const parents = parentsOf(path).filter(
+					(parent) => prefix === '' || parent.length > prefix.length,
+				);
 				if (parents.some(skip)) continue;
 				for (const parent of parents)
 					if (!seen.has(parent)) {
 						seen.add(parent);
-						yield { path: parent, kind: 'directory', size: 0, mtime: 0, ino: 0 };
+						yield {
+							path: parent,
+							kind: 'directory',
+							size: 0,
+							mtime: 0,
+							ino: 0,
+						};
 					}
 				const file = files.get(path);
 				if (file !== undefined) yield entryOf(path, file);
@@ -196,24 +245,36 @@ export function createMemoryFolderFs({
 			await tick();
 			const file = files.get(path);
 			if (file !== undefined) return entryOf(path, file);
-			return isDirectory(path) ? { path, kind: 'directory', size: 0, mtime: 0, ino: 0 } : null;
+			return isDirectory(path)
+				? { path, kind: 'directory', size: 0, mtime: 0, ino: 0 }
+				: null;
 		},
 		async list(dir) {
 			await tick();
 			const prefix = dir === '' ? '' : `${dir}/`;
 			const names = new Set<string>();
-			for (const path of files.keys()) if (path.startsWith(prefix)) names.add(path.slice(prefix.length).split('/')[0] ?? '');
+			for (const path of files.keys())
+				if (path.startsWith(prefix))
+					names.add(path.slice(prefix.length).split('/')[0] ?? '');
 			return [...names].sort();
 		},
 		async read(path) {
 			await tick();
 			const file = files.get(path);
-			return file === undefined || file.kind !== 'file' ? null : new Blob([file.bytes.slice() as BlobPart]);
+			return file === undefined || file.kind !== 'file'
+				? null
+				: new Blob([file.bytes.slice() as BlobPart]);
 		},
 		async replace(path, blob, { scratch: name }) {
-			if (ignored(path)) violations.push(`the engine wrote ${path}, which is ignored`);
+			if (ignored(path))
+				violations.push(`the engine wrote ${path}, which is ignored`);
 			// The folder as the engine last looked, just before this call: a file beside which it must not make one.
-			const beside = fold === null || files.has(path) ? [] : [...files.keys()].filter((other) => other !== path && fold(other) === fold(path));
+			const beside =
+				fold === null || files.has(path)
+					? []
+					: [...files.keys()].filter(
+							(other) => other !== path && fold(other) === fold(path),
+						);
 			const bytes = await bytesOf(blob);
 			await tick();
 			const there = files.get(path);
@@ -224,15 +285,32 @@ export function createMemoryFolderFs({
 			}
 			// An editor may act here, between the capture and the link.
 			await tick();
-			if (!free(path)) return Ok({ written: false, entry: null, displaced: there === undefined ? null : name });
-			const made: MemoryFile = { bytes, ino: inode++, mtime: now(), kind: 'file' };
-			for (const other of beside) if (files.has(other)) violations.push(`the engine wrote ${path} beside ${other}`);
+			if (!free(path))
+				return Ok({
+					written: false,
+					entry: null,
+					displaced: there === undefined ? null : name,
+				});
+			const made: MemoryFile = {
+				bytes,
+				ino: inode++,
+				mtime: now(),
+				kind: 'file',
+			};
+			for (const other of beside)
+				if (files.has(other))
+					violations.push(`the engine wrote ${path} beside ${other}`);
 			files.set(path, made);
 			emit(path);
-			return Ok({ written: true, entry: entryOf(path, made), displaced: there === undefined ? null : name });
+			return Ok({
+				written: true,
+				entry: entryOf(path, made),
+				displaced: there === undefined ? null : name,
+			});
 		},
 		async remove(path, { scratch: name }) {
-			if (ignored(path)) violations.push(`the engine removed ${path}, which is ignored`);
+			if (ignored(path))
+				violations.push(`the engine removed ${path}, which is ignored`);
 			await tick();
 			const there = files.get(path);
 			if (there === undefined) return Ok(null);
@@ -246,7 +324,10 @@ export function createMemoryFolderFs({
 			const file = scratch.get(name);
 			if (file === undefined) return null;
 			file.read = true;
-			return { bytes: new Blob([file.bytes.slice() as BlobPart]), mtime: file.mtime };
+			return {
+				bytes: new Blob([file.bytes.slice() as BlobPart]),
+				mtime: file.mtime,
+			};
 		},
 		async restore(name, path) {
 			await tick();
@@ -260,7 +341,10 @@ export function createMemoryFolderFs({
 		async drop(name) {
 			await tick();
 			const file = scratch.get(name);
-			if (file !== undefined && !file.read) violations.push(`the engine dropped ${name} unread: ${JSON.stringify(decoder.decode(file.bytes)).slice(0, 80)}`);
+			if (file !== undefined && !file.read)
+				violations.push(
+					`the engine dropped ${name} unread: ${JSON.stringify(decoder.decode(file.bytes)).slice(0, 80)}`,
+				);
 			scratch.delete(name);
 		},
 		async scratches() {
@@ -286,13 +370,19 @@ export function createMemoryFolderFs({
 		write(path: string, bytes: Uint8Array) {
 			const there = files.get(path);
 			if (there === undefined && !free(path)) return false;
-			files.set(path, { bytes, ino: there?.ino ?? inode++, mtime: now(), kind: 'file' });
+			files.set(path, {
+				bytes,
+				ino: there?.ino ?? inode++,
+				mtime: now(),
+				kind: 'file',
+			});
 			emit(path);
 			return true;
 		},
 		/** The text inode `ino` holds now, at its path or captured, or null. */
 		inodeText(ino: number) {
-			for (const file of [...files.values(), ...scratch.values()]) if (file.ino === ino) return decoder.decode(file.bytes);
+			for (const file of [...files.values(), ...scratch.values()])
+				if (file.ino === ino) return decoder.decode(file.bytes);
 			return null;
 		},
 		/** The inode at `path`, as a writer that opened it holds it. */
@@ -319,7 +409,12 @@ export function createMemoryFolderFs({
 		/** Make a symlink (its target's bytes as its content, for the record only). */
 		symlink(path: string, target: string) {
 			if (!free(path)) return false;
-			files.set(path, { bytes: new TextEncoder().encode(target), ino: inode++, mtime: now(), kind: 'symlink' });
+			files.set(path, {
+				bytes: new TextEncoder().encode(target),
+				ino: inode++,
+				mtime: now(),
+				kind: 'symlink',
+			});
 			emit(path);
 			return true;
 		},
@@ -347,7 +442,9 @@ export function createMemoryFolderFs({
 				return true;
 			}
 			const prefix = `${from}/`;
-			const moving = [...files.keys()].filter((path) => path.startsWith(prefix));
+			const moving = [...files.keys()].filter((path) =>
+				path.startsWith(prefix),
+			);
 			if (moving.length === 0 || files.has(to) || isDirectory(to)) return false;
 			for (const path of moving) {
 				const moved = `${to}/${path.slice(prefix.length)}`;
@@ -365,13 +462,21 @@ export function createMemoryFolderFs({
 			return file === undefined ? null : decoder.decode(file.bytes);
 		},
 		/** Every regular file's path. */
-		paths: () => [...files].filter(([, file]) => file.kind === 'file').map(([path]) => path).sort(),
+		paths: () =>
+			[...files]
+				.filter(([, file]) => file.kind === 'file')
+				.map(([path]) => path)
+				.sort(),
 		/** Captured files not yet dropped. */
 		scratchNames: () => [...scratch.keys()],
 		/** Every captured file's text, for a check that a save is somewhere. */
-		scratchTexts: () => [...scratch.values()].map((file) => decoder.decode(file.bytes)),
+		scratchTexts: () =>
+			[...scratch.values()].map((file) => decoder.decode(file.bytes)),
 		/** Every file's text, ignored or not, symlinks aside. */
-		texts: () => [...files].filter(([, file]) => file.kind === 'file').map(([path, file]) => [path, decoder.decode(file.bytes)] as const),
+		texts: () =>
+			[...files]
+				.filter(([, file]) => file.kind === 'file')
+				.map(([path, file]) => [path, decoder.decode(file.bytes)] as const),
 		/** The process using the port dies: every call in progress stops where it is, and never completes. */
 		crash() {
 			epoch++;

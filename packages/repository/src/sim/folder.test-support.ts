@@ -5,15 +5,25 @@
  * holds live in one map (`lfs`), so a device can fetch what another
  * uploaded. Shared by the folder's scenario tests and its property test.
  */
-import { createMemoryBlobStore, createHasher, type Sealed } from '../client/blobs.js';
+import {
+	createHasher,
+	createMemoryBlobStore,
+	type Sealed,
+} from '../client/blobs.js';
 import { fold } from '../core/door.js';
 import { writePointer } from '../core/markdown.js';
-import { createFolderEngine, type FolderEngine, ignored, QUIET } from '../folder/engine.js';
+import {
+	createFolderEngine,
+	type FolderEngine,
+	ignored,
+	QUIET,
+} from '../folder/engine.js';
 import { createMemoryFolderFs, type EventFaults } from '../folder/fs.js';
 import type { Device, World } from './harness.js';
 
 /** Let every promise that can settle now settle. */
-export const drain = () => new Promise<void>((resolve) => setImmediate(resolve));
+export const drain = () =>
+	new Promise<void>((resolve) => setImmediate(resolve));
 
 /** Run the world's virtual clock for `ms`, settling promises between events, so async work on virtual time interleaves as it would. */
 export async function runFor(world: World, ms: number) {
@@ -31,7 +41,11 @@ export async function step(world: World) {
 }
 
 /** Run the virtual clock until `work` settles (at most `limit` ms of virtual time): its answer. */
-export async function until<T>(world: World, work: Promise<T>, limit = 600_000): Promise<T> {
+export async function until<T>(
+	world: World,
+	work: Promise<T>,
+	limit = 600_000,
+): Promise<T> {
 	let done = false;
 	const settled = work.finally(() => {
 		done = true;
@@ -53,10 +67,29 @@ export const oidOf = (bytes: Uint8Array): Sealed => {
 export function createFolderDevice(
 	world: World,
 	name: string,
-	{ lfs, faults, quiet = QUIET, scanEvery = null, step }: { lfs: Lfs; faults?: EventFaults; quiet?: number; scanEvery?: number | null; step?: () => number },
+	{
+		lfs,
+		faults,
+		quiet = QUIET,
+		scanEvery = null,
+		step,
+	}: {
+		lfs: Lfs;
+		faults?: EventFaults;
+		quiet?: number;
+		scanEvery?: number | null;
+		step?: () => number;
+	},
 ) {
 	const device: Device = world.device(name);
-	const disk = createMemoryFolderFs({ after: world.net.after, now: world.net.now, ...(faults === undefined ? {} : { faults }), ...(step === undefined ? {} : { step }), ignored, fold });
+	const disk = createMemoryFolderFs({
+		after: world.net.after,
+		now: world.net.now,
+		...(faults === undefined ? {} : { faults }),
+		...(step === undefined ? {} : { step }),
+		ignored,
+		fold,
+	});
 	const store = createMemoryBlobStore();
 	let live = false;
 	const make = (): FolderEngine =>
@@ -67,8 +100,15 @@ export function createFolderDevice(
 			store,
 			async fetch(_path, pointer) {
 				const bytes = lfs.get(pointer.oid);
-				if (bytes === undefined || world.server.uploaded(pointer.oid) !== pointer.size) return false;
-				const sealed = await store.seal(new Blob([bytes as BlobPart]).stream() as ReadableStream<Uint8Array>, { expect: pointer });
+				if (
+					bytes === undefined ||
+					world.server.uploaded(pointer.oid) !== pointer.size
+				)
+					return false;
+				const sealed = await store.seal(
+					new Blob([bytes as BlobPart]).stream() as ReadableStream<Uint8Array>,
+					{ expect: pointer },
+				);
 				return sealed.error === null;
 			},
 			after: world.net.after,

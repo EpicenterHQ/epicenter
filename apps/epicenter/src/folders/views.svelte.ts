@@ -1,10 +1,11 @@
 /** Explicit view forms and SQL executions; submitted text belongs to the file editor. */
+
+import type { Saved } from '@epicenter/folder';
 import {
 	changeSavedView,
 	type SavedView,
 	type SavedViewChange,
 } from '@epicenter/folder/declaration';
-import type { Saved } from '@epicenter/folder';
 import { SvelteMap } from 'svelte/reactivity';
 import { Err, Ok } from 'wellcrafted/result';
 import type { QueryAnswer } from '../ui/bindings.gen';

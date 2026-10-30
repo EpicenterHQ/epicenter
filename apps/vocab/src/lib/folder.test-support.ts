@@ -21,9 +21,7 @@ export function createBrowser() {
 		async open(): Promise<VocabFolder> {
 			const { svelteFolder } = await import('@epicenter/svelte/folder');
 			globalThis.indexedDB = indexedDB;
-			const core = expectOk(
-				await openFolder({ tables: vocabTables }),
-			);
+			const core = expectOk(await openFolder({ tables: vocabTables }));
 			opened.push(core);
 			return svelteFolder(core);
 		},

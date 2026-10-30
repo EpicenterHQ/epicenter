@@ -32,7 +32,11 @@ function setup(
 		async read(path) {
 			if (current === null) return FileError.NotFound({ path });
 			const bytes = new TextEncoder().encode(current);
-			return Ok({ bytes, sha256: await hashBytes(bytes), stamp: `test:${current}` });
+			return Ok({
+				bytes,
+				sha256: await hashBytes(bytes),
+				stamp: `test:${current}`,
+			});
 		},
 		async put(_path, bytes, expected) {
 			puts++;
@@ -47,7 +51,10 @@ function setup(
 					: typeof expected === 'object' && hash === expected.sha256;
 			if (!holds) return Ok({ kind: 'stale' });
 			current = bytes === null ? null : new TextDecoder().decode(bytes);
-			return Ok({ kind: 'landed', stamp: current === null ? null : `test:${current}` });
+			return Ok({
+				kind: 'landed',
+				stamp: current === null ? null : `test:${current}`,
+			});
 		},
 	};
 	return { storage, source: () => current, puts: () => puts };

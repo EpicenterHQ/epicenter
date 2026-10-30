@@ -1,66 +1,66 @@
 {
-  "cases": 733102,
-  "mismatches": 0,
-  "maxEntriesPerBranch": 3,
-  "branchesDuringSave": 2,
-  "longTailCommands": 20000,
-  "equalityControlDetected": true,
-  "witnessControlDetected": true,
-  "illustrations": [
-    {
-      "firstSave": "failure",
-      "remaining": {
-        "fields": [
-          [
-            "title",
-            {
-              "base": "Old",
-              "value": "Old",
-              "assigned": false,
-              "id": 130011
-            }
-          ]
-        ],
-        "body": {
-          "base": "one\ntwo\nthree\n",
-          "value": "one\ntwo\nthree\nlocal\n"
-        }
-      },
-      "final": {
-        "fields": {
-          "title": "Outside",
-          "tag": "later outside"
-        },
-        "body": "ONE\nTWO\nthree\nlocal\n"
-      }
-    },
-    {
-      "firstSave": "success",
-      "remaining": {
-        "fields": [
-          [
-            "title",
-            {
-              "base": "Mine",
-              "value": "Old",
-              "assigned": false,
-              "id": 130030
-            }
-          ]
-        ],
-        "body": {
-          "base": "one\ntwo\nthree\n",
-          "value": "one\ntwo\nthree\nlocal\n"
-        }
-      },
-      "final": {
-        "fields": {
-          "title": "Old",
-          "tag": "later outside"
-        },
-        "body": "ONE\nTWO\nthree\nlocal\n"
-      }
-    }
-  ],
-  "failures": []
+	"cases": 733102,
+	"mismatches": 0,
+	"maxEntriesPerBranch": 3,
+	"branchesDuringSave": 2,
+	"longTailCommands": 20000,
+	"equalityControlDetected": true,
+	"witnessControlDetected": true,
+	"illustrations": [
+		{
+			"firstSave": "failure",
+			"remaining": {
+				"fields": [
+					[
+						"title",
+						{
+							"base": "Old",
+							"value": "Old",
+							"assigned": false,
+							"id": 130011
+						}
+					]
+				],
+				"body": {
+					"base": "one\ntwo\nthree\n",
+					"value": "one\ntwo\nthree\nlocal\n"
+				}
+			},
+			"final": {
+				"fields": {
+					"title": "Outside",
+					"tag": "later outside"
+				},
+				"body": "ONE\nTWO\nthree\nlocal\n"
+			}
+		},
+		{
+			"firstSave": "success",
+			"remaining": {
+				"fields": [
+					[
+						"title",
+						{
+							"base": "Mine",
+							"value": "Old",
+							"assigned": false,
+							"id": 130030
+						}
+					]
+				],
+				"body": {
+					"base": "one\ntwo\nthree\n",
+					"value": "one\ntwo\nthree\nlocal\n"
+				}
+			},
+			"final": {
+				"fields": {
+					"title": "Old",
+					"tag": "later outside"
+				},
+				"body": "ONE\nTWO\nthree\nlocal\n"
+			}
+		}
+	],
+	"failures": []
 }

@@ -22,8 +22,9 @@
  * bytes owed, so the next one starts again from the sealed bytes: the
  * server stores nothing for a PUT that did not finish.
  */
-import type { Logger } from 'wellcrafted/logger';
+
 import { defineErrors } from 'wellcrafted/error';
+import type { Logger } from 'wellcrafted/logger';
 import type { LfsClient, LfsClientError } from '../wire/client.js';
 import type { BlobStore } from './blobs.js';
 import type { Replica } from './replica.js';
@@ -36,9 +37,19 @@ export const UPLOAD_REFUSALS = {
 } as const;
 
 /** A person's reason for a batch answer's per-object refusal: 422 past the blob limit, 507 past the quota. */
-const refusedInBatch = (code: number, message: string) => (code === 422 ? UPLOAD_REFUSALS[422] : code === 507 ? UPLOAD_REFUSALS[507] : message);
+const refusedInBatch = (code: number, message: string) =>
+	code === 422
+		? UPLOAD_REFUSALS[422]
+		: code === 507
+			? UPLOAD_REFUSALS[507]
+			: message;
 /** A person's reason for a refused PUT: 413 past the blob limit, 507 past the quota, else the server's own (422: the bytes are not their oid). */
-const refusedPut = (status: number, message: string) => (status === 413 ? UPLOAD_REFUSALS[422] : status === 507 ? UPLOAD_REFUSALS[507] : message);
+const refusedPut = (status: number, message: string) =>
+	status === 413
+		? UPLOAD_REFUSALS[422]
+		: status === 507
+			? UPLOAD_REFUSALS[507]
+			: message;
 
 /** Objects asked for in one batch, and sent at once. */
 const PARALLEL = 4;
@@ -46,7 +57,11 @@ const PARALLEL = 4;
 const RETRY_CAP = 30_000;
 
 const UploadDiagnostic = defineErrors({
-	Failed: ({ oid, cause }: { oid: string; cause: LfsClientError }) => ({ message: `An upload of ${oid} failed and will go again: ${cause.message}`, oid, cause }),
+	Failed: ({ oid, cause }: { oid: string; cause: LfsClientError }) => ({
+		message: `An upload of ${oid} failed and will go again: ${cause.message}`,
+		oid,
+		cause,
+	}),
 });
 
 export function startUploads({
@@ -89,13 +104,24 @@ export function startUploads({
 		const asked = await lfs.batch('upload', [object]);
 		if (asked.error !== null) return failed(object.oid, asked.error);
 		const answer = asked.data.find((each) => each.oid === object.oid);
-		if (answer?.error !== undefined) return replica.refused(object.oid, refusedInBatch(answer.error.code, answer.error.message));
+		if (answer?.error !== undefined)
+			return replica.refused(
+				object.oid,
+				refusedInBatch(answer.error.code, answer.error.message),
+			);
 		const upload = answer?.actions?.upload;
 		if (upload !== undefined) {
 			const bytes = await store.read(object.oid);
-			if (bytes === null) return replica.refused(object.oid, UPLOAD_REFUSALS.missing);
+			if (bytes === null)
+				return replica.refused(object.oid, UPLOAD_REFUSALS.missing);
 			const put = await lfs.put(upload, bytes);
-			if (put.error !== null) return put.error.name === 'Refused' ? replica.refused(object.oid, refusedPut(put.error.status, put.error.message)) : failed(object.oid, put.error);
+			if (put.error !== null)
+				return put.error.name === 'Refused'
+					? replica.refused(
+							object.oid,
+							refusedPut(put.error.status, put.error.message),
+						)
+					: failed(object.oid, put.error);
 			const verify = answer?.actions?.verify;
 			if (verify !== undefined) {
 				const verified = await lfs.verify(verify, object);
@@ -111,7 +137,10 @@ export function startUploads({
 			if (stopped || waiting) return;
 			const room = PARALLEL - sending.size;
 			if (room <= 0) return;
-			const next = replica.owed(PARALLEL * 2).filter(({ oid }) => !sending.has(oid)).slice(0, room);
+			const next = replica
+				.owed(PARALLEL * 2)
+				.filter(({ oid }) => !sending.has(oid))
+				.slice(0, room);
 			if (next.length === 0) return;
 			await Promise.all(
 				next.map(async (object) => {

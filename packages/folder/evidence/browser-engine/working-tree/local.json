@@ -1,136 +1,121 @@
 {
-  "recordedAt": "2026-10-20T11:14:43.061Z",
-  "bundleSha256": "191313f5a68a2c81d144f8d420006d100f96d2a3e49b4719c19407676a7c4e3a",
-  "scope": "Production local engine. Local acknowledgement simulation, no network sync, forced process crash, or phone evidence.",
-  "results": [
-    {
-      "browser": "chromium",
-      "version": "151.0.7922.34",
-      "acknowledgedSaves": 205,
-      "failedRootChecks": 196,
-      "saveP95Ms": 8.400000095367432,
-      "maxSaveMs": 15.299999713897705,
-      "metadataProbe": {
-        "folders": 500,
-        "capturedTrees": 3,
-        "captureMs": [
-          1.5,
-          0.7999997138977051,
-          0.8000001907348633,
-          0.8000001907348633,
-          0.8999996185302734
-        ],
-        "saveMs": 3.5,
-        "backlog": {
-          "savedFiles": 500,
-          "utf8Bytes": 2050890,
-          "capturedTrees": 3,
-          "captureMs": 1
-        }
-      },
-      "final": {
-        "a": 101,
-        "b": 101
-      },
-      "nativeGit": "hash-object + fsck --strict + show",
-      "checks": [
-        "offline-first reopen",
-        "abandoned candidate",
-        "two tabs + commit publication",
-        "independent paragraphs",
-        "exact pending identity",
-        "newer edits survive acknowledgement",
-        "committed reopen",
-        "unreachable objects removed beside pending and unsent work",
-        "shared file survives collection across commits",
-        "collection concurrent with a save and later browser reopen"
-      ]
-    },
-    {
-      "browser": "webkit",
-      "version": "26.5",
-      "acknowledgedSaves": 205,
-      "failedRootChecks": 186,
-      "saveP95Ms": 15,
-      "maxSaveMs": 32,
-      "metadataProbe": {
-        "folders": 500,
-        "capturedTrees": 3,
-        "captureMs": [
-          2,
-          2,
-          1,
-          1,
-          2
-        ],
-        "saveMs": 6,
-        "backlog": {
-          "savedFiles": 500,
-          "utf8Bytes": 2050890,
-          "capturedTrees": 3,
-          "captureMs": 2
-        }
-      },
-      "final": {
-        "a": 101,
-        "b": 101
-      },
-      "nativeGit": "hash-object + fsck --strict + show",
-      "checks": [
-        "offline-first reopen",
-        "abandoned candidate",
-        "two tabs + commit publication",
-        "independent paragraphs",
-        "exact pending identity",
-        "newer edits survive acknowledgement",
-        "committed reopen",
-        "unreachable objects removed beside pending and unsent work",
-        "shared file survives collection across commits",
-        "collection concurrent with a save and later browser reopen"
-      ]
-    },
-    {
-      "browser": "firefox",
-      "version": "153.0",
-      "acknowledgedSaves": 205,
-      "failedRootChecks": 197,
-      "saveP95Ms": 10,
-      "maxSaveMs": 40,
-      "metadataProbe": {
-        "folders": 500,
-        "capturedTrees": 3,
-        "captureMs": [
-          1,
-          1,
-          1,
-          2,
-          2
-        ],
-        "saveMs": 3,
-        "backlog": {
-          "savedFiles": 500,
-          "utf8Bytes": 2050890,
-          "capturedTrees": 3,
-          "captureMs": 1
-        }
-      },
-      "final": {
-        "a": 101,
-        "b": 101
-      },
-      "nativeGit": "hash-object + fsck --strict + show",
-      "checks": [
-        "offline-first reopen",
-        "abandoned candidate",
-        "two tabs + commit publication",
-        "independent paragraphs",
-        "exact pending identity",
-        "newer edits survive acknowledgement",
-        "committed reopen",
-        "unreachable objects removed beside pending and unsent work",
-        "shared file survives collection across commits",
-        "collection concurrent with a save and later browser reopen"
-      ]
-    }
-  ]
+	"recordedAt": "2026-10-20T11:14:43.061Z",
+	"bundleSha256": "191313f5a68a2c81d144f8d420006d100f96d2a3e49b4719c19407676a7c4e3a",
+	"scope": "Production local engine. Local acknowledgement simulation, no network sync, forced process crash, or phone evidence.",
+	"results": [
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"acknowledgedSaves": 205,
+			"failedRootChecks": 196,
+			"saveP95Ms": 8.400000095367432,
+			"maxSaveMs": 15.299999713897705,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 3,
+				"captureMs": [
+					1.5, 0.7999997138977051, 0.8000001907348633, 0.8000001907348633,
+					0.8999996185302734
+				],
+				"saveMs": 3.5,
+				"backlog": {
+					"savedFiles": 500,
+					"utf8Bytes": 2050890,
+					"capturedTrees": 3,
+					"captureMs": 1
+				}
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen",
+				"unreachable objects removed beside pending and unsent work",
+				"shared file survives collection across commits",
+				"collection concurrent with a save and later browser reopen"
+			]
+		},
+		{
+			"browser": "webkit",
+			"version": "26.5",
+			"acknowledgedSaves": 205,
+			"failedRootChecks": 186,
+			"saveP95Ms": 15,
+			"maxSaveMs": 32,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 3,
+				"captureMs": [2, 2, 1, 1, 2],
+				"saveMs": 6,
+				"backlog": {
+					"savedFiles": 500,
+					"utf8Bytes": 2050890,
+					"capturedTrees": 3,
+					"captureMs": 2
+				}
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen",
+				"unreachable objects removed beside pending and unsent work",
+				"shared file survives collection across commits",
+				"collection concurrent with a save and later browser reopen"
+			]
+		},
+		{
+			"browser": "firefox",
+			"version": "153.0",
+			"acknowledgedSaves": 205,
+			"failedRootChecks": 197,
+			"saveP95Ms": 10,
+			"maxSaveMs": 40,
+			"metadataProbe": {
+				"folders": 500,
+				"capturedTrees": 3,
+				"captureMs": [1, 1, 1, 2, 2],
+				"saveMs": 3,
+				"backlog": {
+					"savedFiles": 500,
+					"utf8Bytes": 2050890,
+					"capturedTrees": 3,
+					"captureMs": 1
+				}
+			},
+			"final": {
+				"a": 101,
+				"b": 101
+			},
+			"nativeGit": "hash-object + fsck --strict + show",
+			"checks": [
+				"offline-first reopen",
+				"abandoned candidate",
+				"two tabs + commit publication",
+				"independent paragraphs",
+				"exact pending identity",
+				"newer edits survive acknowledgement",
+				"committed reopen",
+				"unreachable objects removed beside pending and unsent work",
+				"shared file survives collection across commits",
+				"collection concurrent with a save and later browser reopen"
+			]
+		}
+	]
 }

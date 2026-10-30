@@ -3,7 +3,13 @@
  * commands. For tests and the CLI; the hosted store is a later slice.
  */
 import { mkdir, stat } from 'node:fs/promises';
-import { type GitStore, type LoggedCommit, sequenceOf, type Tree, type TreeEntry } from '../server/git-store.js';
+import {
+	type GitStore,
+	type LoggedCommit,
+	sequenceOf,
+	type Tree,
+	type TreeEntry,
+} from '../server/git-store.js';
 import { encodePack } from '../server/pack.js';
 
 const ZERO = '0'.repeat(40);
@@ -39,7 +45,8 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 
 	async function must(args: string[], stdin?: Uint8Array) {
 		const result = await git(args, stdin);
-		if (result.code !== 0) throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
+		if (result.code !== 0)
+			throw new Error(`git ${args.join(' ')} failed: ${result.stderr}`);
 		return decoder.decode(result.stdout);
 	}
 
@@ -50,19 +57,29 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 
 	async function writeTreeLevel(entries: Level): Promise<string> {
 		const lines: string[] = [];
-		for (const [name, entry] of [...entries].sort(([a], [b]) => (a < b ? -1 : 1))) {
-			if (entry instanceof Map) lines.push(`040000 tree ${await writeTreeLevel(entry)}\t${name}\0`);
+		for (const [name, entry] of [...entries].sort(([a], [b]) =>
+			a < b ? -1 : 1,
+		)) {
+			if (entry instanceof Map)
+				lines.push(`040000 tree ${await writeTreeLevel(entry)}\t${name}\0`);
 			else
 				lines.push(
 					`${entry.mode} ${entry.mode === '160000' ? 'commit' : 'blob'} ${entry.oid}\t${name}\0`,
 				);
 		}
-		return (await must(['mktree', '-z'], new TextEncoder().encode(lines.join('')))).trim();
+		return (
+			await must(['mktree', '-z'], new TextEncoder().encode(lines.join('')))
+		).trim();
 	}
 
 	return {
 		async readRef(name) {
-			const result = await git(['rev-parse', '--verify', '-q', `${name}^{commit}`]);
+			const result = await git([
+				'rev-parse',
+				'--verify',
+				'-q',
+				`${name}^{commit}`,
+			]);
 			return result.code === 0 ? decoder.decode(result.stdout).trim() : null;
 		},
 		async readCommit(oid) {
@@ -73,7 +90,9 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 			const header = text.slice(0, split < 0 ? text.length : split).split('\n');
 			return {
 				tree: header.find((line) => line.startsWith('tree '))?.slice(5) ?? '',
-				parents: header.filter((line) => line.startsWith('parent ')).map((line) => line.slice(7)),
+				parents: header
+					.filter((line) => line.startsWith('parent '))
+					.map((line) => line.slice(7)),
 				message: split < 0 ? '' : text.slice(split + 2),
 			};
 		},
@@ -114,10 +133,26 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 			}
 			return writeTreeLevel(root);
 		},
-		async writeCommit({ tree, parents, message, author, committer = author, at }) {
+		async writeCommit({
+			tree,
+			parents,
+			message,
+			author,
+			committer = author,
+			at,
+		}) {
 			const date = `@${Math.floor(at.getTime() / 1000)} +0000`;
 			const child = Bun.spawn(
-				['git', '-C', dir, 'commit-tree', tree, ...parents.flatMap((p) => ['-p', p]), '-F', '-'],
+				[
+					'git',
+					'-C',
+					dir,
+					'commit-tree',
+					tree,
+					...parents.flatMap((p) => ['-p', p]),
+					'-F',
+					'-',
+				],
 				{
 					stdin: new TextEncoder().encode(message),
 					stdout: 'pipe',
@@ -143,14 +178,23 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 		},
 		async writePack(objects, ref) {
 			// Git checks the pack, every object's id and what each names, as receive-pack does.
-			await must(['index-pack', '--stdin', '--strict'], await encodePack(objects));
-			return (await git(['update-ref', ref.name, ref.next, ref.expected ?? ZERO])).code === 0;
+			await must(
+				['index-pack', '--stdin', '--strict'],
+				await encodePack(objects),
+			);
+			return (
+				(await git(['update-ref', ref.name, ref.next, ref.expected ?? ZERO]))
+					.code === 0
+			);
 		},
 		async updateRef(name, next, expected) {
-			return (await git(['update-ref', name, next, expected ?? ZERO])).code === 0;
+			return (
+				(await git(['update-ref', name, next, expected ?? ZERO])).code === 0
+			);
 		},
 		async deleteRef(name, expected) {
-			if ((await git(['update-ref', '-d', name, expected])).code === 0) return true;
+			if ((await git(['update-ref', '-d', name, expected])).code === 0)
+				return true;
 			return (await git(['rev-parse', '--verify', '-q', name])).code !== 0;
 		},
 		async mergeBase(a, b) {
@@ -159,12 +203,24 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 		},
 		async commitsAfter(head, seq) {
 			// Streamed, so the walk reads only as far back as the stopping commit.
-			const child = Bun.spawn(['git', '-C', dir, 'log', '--first-parent', '-z', '--format=%H %T %P%n%B', head], {
-				stdin: 'ignore',
-				stdout: 'pipe',
-				stderr: 'pipe',
-				env,
-			});
+			const child = Bun.spawn(
+				[
+					'git',
+					'-C',
+					dir,
+					'log',
+					'--first-parent',
+					'-z',
+					'--format=%H %T %P%n%B',
+					head,
+				],
+				{
+					stdin: 'ignore',
+					stdout: 'pipe',
+					stderr: 'pipe',
+					env,
+				},
+			);
 			const found: LoggedCommit[] = [];
 			const text = new TextDecoder();
 			const reader = child.stdout.getReader();
@@ -173,17 +229,28 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 			/** Take one record; true when it is the commit the walk stops at. */
 			const take = (record: string) => {
 				const split = record.indexOf('\n');
-				const [oid = '', tree = '', ...parents] = record.slice(0, split < 0 ? record.length : split).split(' ');
+				const [oid = '', tree = '', ...parents] = record
+					.slice(0, split < 0 ? record.length : split)
+					.split(' ');
 				const message = split < 0 ? '' : record.slice(split + 1);
 				const at = sequenceOf(message);
 				if (at !== null && at <= seq) return true;
-				found.push({ oid, tree, parents: parents.filter((parent) => parent !== ''), message });
+				found.push({
+					oid,
+					tree,
+					parents: parents.filter((parent) => parent !== ''),
+					message,
+				});
 				return false;
 			};
 			read: for (;;) {
 				const { done, value } = await reader.read();
 				buffer += text.decode(value, { stream: !done });
-				for (let cut = buffer.indexOf('\0'); cut >= 0; cut = buffer.indexOf('\0')) {
+				for (
+					let cut = buffer.indexOf('\0');
+					cut >= 0;
+					cut = buffer.indexOf('\0')
+				) {
 					const record = buffer.slice(0, cut);
 					buffer = buffer.slice(cut + 1);
 					if (take(record)) {
@@ -195,8 +262,12 @@ export async function openBunGitStore(dir: string): Promise<GitStore> {
 			}
 			if (stopped) child.kill();
 			else if (buffer !== '') take(buffer);
-			const [stderr, code] = await Promise.all([new Response(child.stderr).text(), child.exited]);
-			if (!stopped && code !== 0) throw new Error(`git log ${head} failed: ${stderr}`);
+			const [stderr, code] = await Promise.all([
+				new Response(child.stderr).text(),
+				child.exited,
+			]);
+			if (!stopped && code !== 0)
+				throw new Error(`git log ${head} failed: ${stderr}`);
 			return found.reverse();
 		},
 	};

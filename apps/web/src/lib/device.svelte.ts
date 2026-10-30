@@ -26,7 +26,6 @@ export type { Manifest };
 /** You, in an address: the one reserved owner name. */
 export const YOU = 'me';
 
-
 export { NAME };
 
 /** The address of `manifest`'s repository: `/<owner>/<repository>`. */
@@ -37,17 +36,23 @@ export const addressOf = (manifest: Pick<Manifest, 'owner' | 'repository'>) =>
 export const ownerOf = (segment: string) => (segment === YOU ? null : segment);
 
 /** What a server takes as whom a request is from: until accounts exist, the development server's `Authorization: Bearer <name>`. */
-export const headersOf = (syncing: Syncing): Record<string, string> => (syncing.url === null ? {} : { authorization: `Bearer ${syncing.account}` });
+export const headersOf = (syncing: Syncing): Record<string, string> =>
+	syncing.url === null ? {} : { authorization: `Bearer ${syncing.account}` };
 
 /** Where a copy keeps its files, in a person's words. */
 export const whereOf = (manifest: Manifest) =>
-	manifest.url === null ? 'Only on this device' : `Synced with ${new URL(manifest.url).host} as ${manifest.account}`;
+	manifest.url === null
+		? 'Only on this device'
+		: `Synced with ${new URL(manifest.url).host} as ${manifest.account}`;
 
 /** The link that joins `manifest`'s repository from another browser; null for one kept only here. To others, you are your account on its server. */
 export function joinLinkOf(manifest: Manifest, origin: string) {
 	if (manifest.url === null) return null;
 	const owner = manifest.owner ?? manifest.account;
-	const link = new URL(addressOf({ owner, repository: manifest.repository }), origin);
+	const link = new URL(
+		addressOf({ owner, repository: manifest.repository }),
+		origin,
+	);
 	link.searchParams.set('server', manifest.url);
 	return link.href;
 }
@@ -61,20 +66,32 @@ export const repositories = {
 	},
 	/** List them again from their manifests. */
 	async refresh() {
-		listed = (await listBrowserRepositories()).toSorted((a, b) => a.name.localeCompare(b.name) || a.repository.localeCompare(b.repository));
+		listed = (await listBrowserRepositories()).toSorted(
+			(a, b) =>
+				a.name.localeCompare(b.name) ||
+				a.repository.localeCompare(b.repository),
+		);
 		return listed;
 	},
 };
 
 /** The copy an address names, among `manifests`. */
-export const findAt = (manifests: readonly Manifest[], owner: string | null, repository: string) =>
-	manifests.find((manifest) => manifest.owner === owner && manifest.repository === repository);
+export const findAt = (
+	manifests: readonly Manifest[],
+	owner: string | null,
+	repository: string,
+) =>
+	manifests.find(
+		(manifest) =>
+			manifest.owner === owner && manifest.repository === repository,
+	);
 
 /** Every owner's home repository is named `home`; yours is `me/home`, made when first used. */
 export const HOME = 'home';
 
 /** Whether `manifest` is your home. */
-export const isHome = (manifest: Pick<Manifest, 'owner' | 'repository'>) => manifest.owner === null && manifest.repository === HOME;
+export const isHome = (manifest: Pick<Manifest, 'owner' | 'repository'>) =>
+	manifest.owner === null && manifest.repository === HOME;
 
 /** A repository id for a new repository of yours kept only here: its name as a name (`NAME`), made unique among yours. */
 function localIdFor(name: string, manifests: readonly Manifest[]) {
@@ -85,7 +102,8 @@ function localIdFor(name: string, manifests: readonly Manifest[]) {
 		.replace(/^[^a-z]+|-+$/g, '');
 	const base = slug === '' ? 'repository' : slug;
 	let id = base;
-	for (let n = 2; findAt(manifests, null, id) !== undefined; n++) id = `${base}-${n}`;
+	for (let n = 2; findAt(manifests, null, id) !== undefined; n++)
+		id = `${base}-${n}`;
 	return id;
 }
 
@@ -93,8 +111,14 @@ function localIdFor(name: string, manifests: readonly Manifest[]) {
  * Make a copy in this browser and let it go once its worker has written its
  * manifest, so the repository's page opens the one handle it keeps.
  */
-async function make(options: { owner: string | null; repository: string; name: string } & Syncing): Promise<Result<Manifest, BrowserReplicaError>> {
-	const created = await createBrowserRepository({ app: installedLens(), ...options, headers: headersOf(options) });
+async function make(
+	options: { owner: string | null; repository: string; name: string } & Syncing,
+): Promise<Result<Manifest, BrowserReplicaError>> {
+	const created = await createBrowserRepository({
+		app: installedLens(),
+		...options,
+		headers: headersOf(options),
+	});
 	if (created.error !== null) return created;
 	const { repository, manifest } = created.data;
 	/** Null once it opens, or why it could not. */
@@ -113,32 +137,62 @@ async function make(options: { owner: string | null; repository: string; name: s
 	});
 	repository.close();
 	await repositories.refresh();
-	return reached === null ? Ok(manifest) : BrowserReplicaError.Unavailable({ reason: reached });
+	return reached === null
+		? Ok(manifest)
+		: BrowserReplicaError.Unavailable({ reason: reached });
 }
 
 /** A new repository of yours, kept only on this device. */
 export async function createLocal(name: string) {
 	const manifests = listed ?? (await repositories.refresh());
-	return make({ owner: null, repository: localIdFor(name, manifests), name, account: null, url: null });
+	return make({
+		owner: null,
+		repository: localIdFor(name, manifests),
+		name,
+		account: null,
+		url: null,
+	});
 }
 
 /** This device's copy of `owner`'s `repository` on the server at `url`, syncing as `account`; refused unless both are names (`NAME`). */
-export async function join({ owner, repository, url, account }: { owner: string | null; repository: string; url: string; account: string }) {
+export async function join({
+	owner,
+	repository,
+	url,
+	account,
+}: {
+	owner: string | null;
+	repository: string;
+	url: string;
+	account: string;
+}) {
 	for (const [what, value] of [
 		['owner', owner],
 		['repository', repository],
 	] as const)
 		if (value !== null && !NAME.test(value))
-			return BrowserReplicaError.Unavailable({ reason: `the ${what} '${value}' is not a name: a letter, then lowercase letters, digits and -` });
+			return BrowserReplicaError.Unavailable({
+				reason: `the ${what} '${value}' is not a name: a letter, then lowercase letters, digits and -`,
+			});
 	return make({ owner, repository, name: repository, account, url });
 }
 
 /** Your home, `me/home`, kept on this device until accounts keep it. */
-export const createHome = () => make({ owner: null, repository: HOME, name: 'Home', account: null, url: null });
+export const createHome = () =>
+	make({
+		owner: null,
+		repository: HOME,
+		name: 'Home',
+		account: null,
+		url: null,
+	});
 
 /** Delete a copy from this browser; refused, with what it would lose, while it has files only here, unless `discardUnsent`. */
 export async function remove(manifest: Manifest, discardUnsent: boolean) {
-	const removed = await removeBrowserRepository({ replica: manifest.replica, discardUnsent });
+	const removed = await removeBrowserRepository({
+		replica: manifest.replica,
+		discardUnsent,
+	});
 	await repositories.refresh();
 	return removed;
 }

@@ -12,7 +12,8 @@ import { defineManifest } from '@epicenter/app';
 import { defineApp, type Note, type ValidNote } from '@epicenter/repository';
 import { type Static, Type } from 'typebox';
 
-const nullable = <T extends ReturnType<typeof Type.String>>(type: T) => Type.Union([type, Type.Null()]);
+const nullable = <T extends ReturnType<typeof Type.String>>(type: T) =>
+	Type.Union([type, Type.Null()]);
 
 export const noteSchema = Type.Object({
 	folderId: nullable(Type.String()),
@@ -34,7 +35,11 @@ export const honeycrispApp = defineApp({
 });
 
 /** Honeycrisp as an app (ADR-0694): served at `honeycrisp.epicenter.so`, over `notes/` and `folders/`. */
-export const manifest = defineManifest({ name: 'Honeycrisp', hostname: 'honeycrisp.epicenter.so', collections: honeycrispApp });
+export const manifest = defineManifest({
+	name: 'Honeycrisp',
+	hostname: 'honeycrisp.epicenter.so',
+	collections: honeycrispApp,
+});
 
 export type NoteFields = Static<typeof noteSchema>;
 export type FolderFields = Static<typeof folderSchema>;

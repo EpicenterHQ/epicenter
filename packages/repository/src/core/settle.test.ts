@@ -16,49 +16,97 @@ import { findConflicts } from './conflict.js';
 import { writeMarkdown } from './markdown.js';
 import { conflictSibling, settle, settlePointer } from './settle.js';
 
-const parties = { current: { author: 'main', time: 't1' }, incoming: { author: 'alice/laptop', time: 't2' } };
-const note = (title: string, body = 'body\n') => `---\ntitle: ${title}\n---\n${body}`;
+const parties = {
+	current: { author: 'main', time: 't1' },
+	incoming: { author: 'alice/laptop', time: 't2' },
+};
+const note = (title: string, body = 'body\n') =>
+	`---\ntitle: ${title}\n---\n${body}`;
 
 describe('settle', () => {
 	test('a change on an unchanged base lands, and a repeat changes nothing', () => {
-		expect(settle('a\n', 'a\n', 'b\n', { parties })).toEqual({ text: 'b\n', blocks: false });
-		expect(settle('a\n', 'b\n', 'b\n', { parties })).toEqual({ text: 'b\n', blocks: false });
-		expect(settle('a\n', 'b\n', 'a\n', { parties })).toEqual({ text: 'b\n', blocks: false });
+		expect(settle('a\n', 'a\n', 'b\n', { parties })).toEqual({
+			text: 'b\n',
+			blocks: false,
+		});
+		expect(settle('a\n', 'b\n', 'b\n', { parties })).toEqual({
+			text: 'b\n',
+			blocks: false,
+		});
+		expect(settle('a\n', 'b\n', 'a\n', { parties })).toEqual({
+			text: 'b\n',
+			blocks: false,
+		});
 	});
 
 	test('a delete loses to an edit; an edit restores a deleted note', () => {
-		expect(settle('a\n', 'edited\n', null, { parties })).toEqual({ text: 'edited\n', blocks: false });
-		expect(settle('a\n', null, 'edited\n', { parties })).toEqual({ text: 'edited\n', blocks: false });
+		expect(settle('a\n', 'edited\n', null, { parties })).toEqual({
+			text: 'edited\n',
+			blocks: false,
+		});
+		expect(settle('a\n', null, 'edited\n', { parties })).toEqual({
+			text: 'edited\n',
+			blocks: false,
+		});
 	});
 
 	test("a field both sides set takes the later write's value, incoming's over main's, with no block", () => {
-		expect(settle(note('Base'), note('Mine'), note('Theirs'), { parties })).toEqual({ text: note('Theirs'), blocks: false });
+		expect(
+			settle(note('Base'), note('Mine'), note('Theirs'), { parties }),
+		).toEqual({ text: note('Theirs'), blocks: false });
 	});
 
 	test("a block in the body is body: a field's later write leaves it as it was", () => {
-		const held = '<<<<<<< current main - 44bb5a0 typed\nmood: A\n||||||| base ea98c42\n=======\nmood: B\n>>>>>>> incoming alice/laptop t0 8bb3865\n';
+		const held =
+			'<<<<<<< current main - 44bb5a0 typed\nmood: A\n||||||| base ea98c42\n=======\nmood: B\n>>>>>>> incoming alice/laptop t0 8bb3865\n';
 		const fields = (mood: string) => `---\nmood: ${mood}\n---\n${held}`;
-		expect(settle(fields('A'), fields('Mine'), fields('Theirs'), { parties })).toEqual({ text: fields('Theirs'), blocks: false });
+		expect(
+			settle(fields('A'), fields('Mine'), fields('Theirs'), { parties }),
+		).toEqual({ text: fields('Theirs'), blocks: false });
 	});
 
 	test("two patches of one key at once on a note whose header does not parse: the later write's value, no block, never a duplicate key", () => {
 		const broken = '---\na: [\n---\nbody\n';
-		const settled = settle(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { done: false } }), { parties });
-		expect(settled).toEqual({ text: '---\na: [\ndone: false\n---\nbody\n', blocks: false });
+		const settled = settle(
+			broken,
+			writeMarkdown(broken, { fields: { done: true } }),
+			writeMarkdown(broken, { fields: { done: false } }),
+			{ parties },
+		);
+		expect(settled).toEqual({
+			text: '---\na: [\ndone: false\n---\nbody\n',
+			blocks: false,
+		});
 	});
 
 	test('a path created twice or deleted since base holds another note (D3)', () => {
 		const twice = settle(null, note('One'), note('Two'), { parties });
 		expect(twice.blocks).toBe(true);
 		expect(twice.text?.startsWith(note('One'))).toBe(true);
-		expect(findConflicts(twice.text ?? '')).toMatchObject([{ line: 5, current: '', incoming: note('Two'), sides: { incoming: { author: 'alice/laptop', time: 't2' } } }]);
-		const reused = settle(note('Old'), note('New'), note('Old', 'edit\n'), { deletedSince: true, parties });
+		expect(findConflicts(twice.text ?? '')).toMatchObject([
+			{
+				line: 5,
+				current: '',
+				incoming: note('Two'),
+				sides: { incoming: { author: 'alice/laptop', time: 't2' } },
+			},
+		]);
+		const reused = settle(note('Old'), note('New'), note('Old', 'edit\n'), {
+			deletedSince: true,
+			parties,
+		});
 		expect(reused.blocks).toBe(true);
 	});
 
 	test('an identical block is written once, whoever its labels name', () => {
 		const once = settle(null, note('One'), note('Two'), { parties }).text ?? '';
-		const again = settle(null, once, note('Two'), { parties: { current: parties.current, incoming: { author: 'bob/phone', time: 't3' } } }).text ?? '';
+		const again =
+			settle(null, once, note('Two'), {
+				parties: {
+					current: parties.current,
+					incoming: { author: 'bob/phone', time: 't3' },
+				},
+			}).text ?? '';
 		expect(again).toBe(once);
 	});
 });
@@ -87,14 +135,28 @@ describe('settlePointer: a blob write lands only over the blob its writer saw', 
 	});
 	test('a lost write is named beside its file from the original stem and its bytes, the stem shortened to fit', () => {
 		const oid = 'abcdef0123'.repeat(6).slice(0, 64);
-		expect(conflictSibling('photos/cat.png', oid)).toBe('photos/cat (conflict abcdef0).png');
-		expect(conflictSibling('photos/cat (conflict 1234567).png', oid)).toBe('photos/cat (conflict abcdef0).png');
-		expect(conflictSibling('README', oid, 8)).toBe('README (conflict abcdef01)');
-		expect(conflictSibling('.env.local', oid)).toBe('.env (conflict abcdef0).local');
+		expect(conflictSibling('photos/cat.png', oid)).toBe(
+			'photos/cat (conflict abcdef0).png',
+		);
+		expect(conflictSibling('photos/cat (conflict 1234567).png', oid)).toBe(
+			'photos/cat (conflict abcdef0).png',
+		);
+		expect(conflictSibling('README', oid, 8)).toBe(
+			'README (conflict abcdef01)',
+		);
+		expect(conflictSibling('.env.local', oid)).toBe(
+			'.env (conflict abcdef0).local',
+		);
 		const long = conflictSibling(`a/${'é'.repeat(200)}.webm`, oid);
-		expect(new TextEncoder().encode(long.slice(2)).length).toBeLessThanOrEqual(255);
+		expect(new TextEncoder().encode(long.slice(2)).length).toBeLessThanOrEqual(
+			255,
+		);
 		expect(long.endsWith(' (conflict abcdef0).webm')).toBe(true);
-		expect(new TextEncoder().encode(conflictSibling(`${'d'.repeat(480)}/x.webm`, oid, 7, 512)).length).toBeLessThanOrEqual(512);
+		expect(
+			new TextEncoder().encode(
+				conflictSibling(`${'d'.repeat(480)}/x.webm`, oid, 7, 512),
+			).length,
+		).toBeLessThanOrEqual(512);
 	});
 	test('a path the writer did not change keeps what is there', () => {
 		expect(settlePointer(a, b, a)).toEqual({ text: b });

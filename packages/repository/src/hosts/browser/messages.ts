@@ -12,7 +12,6 @@ import type { ReplicaMethods } from './worker.js';
 
 export { SaveError } from '../../client/page.js';
 
-
 /** The first message a tab sends its new worker. */
 export type Init = {
 	type: 'init';
@@ -25,7 +24,14 @@ export type Init = {
 	headers: Record<string, string>;
 };
 
-export type Call = { [TMethod in keyof ReplicaMethods]: { type: 'call'; id: number; method: TMethod; args: Parameters<ReplicaMethods[TMethod]> } }[keyof ReplicaMethods];
+export type Call = {
+	[TMethod in keyof ReplicaMethods]: {
+		type: 'call';
+		id: number;
+		method: TMethod;
+		args: Parameters<ReplicaMethods[TMethod]>;
+	};
+}[keyof ReplicaMethods];
 
 export type TabMessage =
 	| Init

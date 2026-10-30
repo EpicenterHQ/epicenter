@@ -1,537 +1,531 @@
 {
-  "package": "@sqlite.org/sqlite-wasm@3.54.1-build1",
-  "playwright": "1.61.1",
-  "evidence": [
-    {
-      "browser": "chromium",
-      "cases": [
-        {
-          "name": "environment",
-          "value": {
-            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
-            "isolated": true,
-            "webLocks": true
-          }
-        },
-        {
-          "name": "official-adapter",
-          "value": {
-            "version": "3.54.1",
-            "filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
-          }
-        },
-        {
-          "name": "sqlite-visible-through-files",
-          "value": {
-            "names": [
-              "search.sqlite"
-            ],
-            "size": 32768,
-            "header": "SQLite format 3\u0000"
-          }
-        },
-        {
-          "name": "file-copy-opened-by-sqlite-in-other-tab",
-          "value": [
-            {
-              "value": 0
-            }
-          ]
-        },
-        {
-          "name": "two-tabs-open-same-file",
-          "value": [
-            {
-              "value": 0
-            }
-          ]
-        },
-        {
-          "name": "lease-refuses-active-raw-read",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "lease-refuses-active-raw-write",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "lease-refuses-active-raw-delete",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "other-tab-still-owns-file",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "two-tab-200-atomic-batches",
-          "value": {
-            "writes": [
-              {
-                "count": 100,
-                "ms": 516.6500000953674,
-                "retries": 0
-              },
-              {
-                "count": 100,
-                "ms": 1443.0149998664856,
-                "retries": 0
-              }
-            ],
-            "totals": [
-              {
-                "value": 200,
-                "edits": 200
-              }
-            ]
-          }
-        },
-        {
-          "name": "failed-batch-rolls-back",
-          "value": {
-            "ok": false,
-            "name": "SQLite3Error",
-            "message": "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: edits.tab, edits.seq",
-            "code": 2067
-          }
-        },
-        {
-          "name": "bounded-contention-and-recovery",
-          "value": {
-            "ok": false,
-            "name": "SQLite3Error",
-            "message": "SQLITE_BUSY: sqlite3 result code 5: database is locked",
-            "code": 5
-          }
-        },
-        {
-          "name": "tab-closed-mid-transaction-rolls-back",
-          "value": [
-            {
-              "value": 201
-            }
-          ]
-        },
-        {
-          "name": "tab-death-releases-cooperating-file-lease",
-          "value": 32768
-        },
-        {
-          "name": "browser-unprotected-live-read",
-          "value": {
-            "ok": true,
-            "value": 32768
-          }
-        },
-        {
-          "name": "browser-unprotected-live-write",
-          "value": {
-            "ok": false,
-            "name": "NoModificationAllowedError",
-            "message": "Failed to execute 'createWritable' on 'FileSystemFileHandle': An attempt was made to modify an object where modifications are not allowed.",
-            "code": 7
-          }
-        },
-        {
-          "name": "browser-unprotected-live-delete",
-          "value": {
-            "ok": false,
-            "name": "NoModificationAllowedError",
-            "message": "Failed to execute 'removeEntry' on 'FileSystemDirectoryHandle': An attempt was made to modify an object where modifications are not allowed.",
-            "code": 7
-          }
-        },
-        {
-          "name": "ordinary-file-survives-next-to-database",
-          "value": "{\"sidebar\":true}"
-        },
-        {
-          "name": "full-profile-reopen-integrity",
-          "value": [
-            {
-              "integrity_check": "ok"
-            }
-          ]
-        },
-        {
-          "name": "without-isolation-headers",
-          "value": {
-            "ok": false,
-            "name": "Error",
-            "message": "Official opfs VFS unavailable"
-          }
-        }
-      ],
-      "version": "149.0.7827.55"
-    },
-    {
-      "browser": "firefox",
-      "cases": [
-        {
-          "name": "environment",
-          "value": {
-            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
-            "isolated": true,
-            "webLocks": true
-          }
-        },
-        {
-          "name": "official-adapter",
-          "value": {
-            "version": "3.54.1",
-            "filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
-          }
-        },
-        {
-          "name": "sqlite-visible-through-files",
-          "value": {
-            "names": [
-              "search.sqlite"
-            ],
-            "size": 32768,
-            "header": "SQLite format 3\u0000"
-          }
-        },
-        {
-          "name": "file-copy-opened-by-sqlite-in-other-tab",
-          "value": [
-            {
-              "value": 0
-            }
-          ]
-        },
-        {
-          "name": "two-tabs-open-same-file",
-          "value": [
-            {
-              "value": 0
-            }
-          ]
-        },
-        {
-          "name": "lease-refuses-active-raw-read",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "lease-refuses-active-raw-write",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "lease-refuses-active-raw-delete",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "other-tab-still-owns-file",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "two-tab-200-atomic-batches",
-          "value": {
-            "writes": [
-              {
-                "count": 100,
-                "ms": 5712.76,
-                "retries": 0
-              },
-              {
-                "count": 100,
-                "ms": 2696.46,
-                "retries": 0
-              }
-            ],
-            "totals": [
-              {
-                "value": 200,
-                "edits": 200
-              }
-            ]
-          }
-        },
-        {
-          "name": "failed-batch-rolls-back",
-          "value": {
-            "ok": false,
-            "name": "SQLite3Error",
-            "message": "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: edits.tab, edits.seq",
-            "code": 2067
-          }
-        },
-        {
-          "name": "bounded-contention-and-recovery",
-          "value": {
-            "ok": false,
-            "name": "SQLite3Error",
-            "message": "SQLITE_BUSY: sqlite3 result code 5: database is locked",
-            "code": 5
-          }
-        },
-        {
-          "name": "tab-closed-mid-transaction-rolls-back",
-          "value": [
-            {
-              "value": 201
-            }
-          ]
-        },
-        {
-          "name": "tab-death-releases-cooperating-file-lease",
-          "value": 32768
-        },
-        {
-          "name": "browser-unprotected-live-read",
-          "value": {
-            "ok": true,
-            "value": 32768
-          }
-        },
-        {
-          "name": "browser-unprotected-live-write",
-          "value": {
-            "ok": false,
-            "name": "NoModificationAllowedError",
-            "message": "No modification allowed",
-            "code": 7
-          }
-        },
-        {
-          "name": "browser-unprotected-live-delete",
-          "value": {
-            "ok": false,
-            "name": "NoModificationAllowedError",
-            "message": "No modification allowed",
-            "code": 7
-          }
-        },
-        {
-          "name": "ordinary-file-survives-next-to-database",
-          "value": "{\"sidebar\":true}"
-        },
-        {
-          "name": "full-profile-reopen-integrity",
-          "value": [
-            {
-              "integrity_check": "ok"
-            }
-          ]
-        },
-        {
-          "name": "without-isolation-headers",
-          "value": {
-            "ok": false,
-            "name": "Error",
-            "message": "Official opfs VFS unavailable"
-          }
-        }
-      ],
-      "version": "151.0"
-    },
-    {
-      "browser": "webkit",
-      "cases": [
-        {
-          "name": "environment",
-          "value": {
-            "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
-            "isolated": true,
-            "webLocks": true
-          }
-        },
-        {
-          "name": "official-adapter",
-          "value": {
-            "version": "3.54.1",
-            "filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
-          }
-        },
-        {
-          "name": "sqlite-visible-through-files",
-          "value": {
-            "names": [
-              "search.sqlite"
-            ],
-            "size": 32768,
-            "header": "SQLite format 3\u0000"
-          }
-        },
-        {
-          "name": "file-copy-opened-by-sqlite-in-other-tab",
-          "value": [
-            {
-              "value": 0
-            }
-          ]
-        },
-        {
-          "name": "two-tabs-open-same-file",
-          "value": [
-            {
-              "value": 0
-            }
-          ]
-        },
-        {
-          "name": "lease-refuses-active-raw-read",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "lease-refuses-active-raw-write",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "lease-refuses-active-raw-delete",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "other-tab-still-owns-file",
-          "value": {
-            "ok": false,
-            "name": "FileBusy",
-            "message": "Close every SQLite connection before raw access"
-          }
-        },
-        {
-          "name": "two-tab-200-atomic-batches",
-          "value": {
-            "writes": [
-              {
-                "count": 100,
-                "ms": 445.64,
-                "retries": 0
-              },
-              {
-                "count": 100,
-                "ms": 1374.04,
-                "retries": 0
-              }
-            ],
-            "totals": [
-              {
-                "value": 200,
-                "edits": 200
-              }
-            ]
-          }
-        },
-        {
-          "name": "failed-batch-rolls-back",
-          "value": {
-            "ok": false,
-            "name": "SQLite3Error",
-            "message": "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: edits.tab, edits.seq",
-            "code": 2067
-          }
-        },
-        {
-          "name": "bounded-contention-and-recovery",
-          "value": {
-            "ok": false,
-            "name": "SQLite3Error",
-            "message": "SQLITE_IOERR_LOCK: sqlite3 result code 3850: disk I/O error",
-            "code": 3850
-          }
-        },
-        {
-          "name": "tab-closed-mid-transaction-rolls-back",
-          "value": [
-            {
-              "value": 201
-            }
-          ]
-        },
-        {
-          "name": "tab-death-releases-cooperating-file-lease",
-          "value": 32768
-        },
-        {
-          "name": "browser-unprotected-live-read",
-          "value": {
-            "ok": true,
-            "value": 32768
-          }
-        },
-        {
-          "name": "browser-unprotected-live-write",
-          "value": {
-            "ok": false,
-            "name": "InvalidStateError",
-            "message": "The object is in an invalid state.",
-            "code": 11
-          }
-        },
-        {
-          "name": "browser-unprotected-live-delete",
-          "value": {
-            "ok": false,
-            "name": "NoModificationAllowedError",
-            "message": "The object can not be modified.",
-            "code": 7
-          }
-        },
-        {
-          "name": "ordinary-file-survives-next-to-database",
-          "value": "{\"sidebar\":true}"
-        },
-        {
-          "name": "full-profile-reopen-integrity",
-          "value": [
-            {
-              "integrity_check": "ok"
-            }
-          ]
-        },
-        {
-          "name": "without-isolation-headers",
-          "value": {
-            "ok": false,
-            "name": "Error",
-            "message": "Official opfs VFS unavailable"
-          }
-        }
-      ],
-      "version": "26.5"
-    }
-  ]
+	"package": "@sqlite.org/sqlite-wasm@3.54.1-build1",
+	"playwright": "1.61.1",
+	"evidence": [
+		{
+			"browser": "chromium",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.7827.55 Safari/537.36",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "lease-refuses-active-raw-read",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "lease-refuses-active-raw-write",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "lease-refuses-active-raw-delete",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "other-tab-still-owns-file",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "two-tab-200-atomic-batches",
+					"value": {
+						"writes": [
+							{
+								"count": 100,
+								"ms": 516.6500000953674,
+								"retries": 0
+							},
+							{
+								"count": 100,
+								"ms": 1443.0149998664856,
+								"retries": 0
+							}
+						],
+						"totals": [
+							{
+								"value": 200,
+								"edits": 200
+							}
+						]
+					}
+				},
+				{
+					"name": "failed-batch-rolls-back",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: edits.tab, edits.seq",
+						"code": 2067
+					}
+				},
+				{
+					"name": "bounded-contention-and-recovery",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_BUSY: sqlite3 result code 5: database is locked",
+						"code": 5
+					}
+				},
+				{
+					"name": "tab-closed-mid-transaction-rolls-back",
+					"value": [
+						{
+							"value": 201
+						}
+					]
+				},
+				{
+					"name": "tab-death-releases-cooperating-file-lease",
+					"value": 32768
+				},
+				{
+					"name": "browser-unprotected-live-read",
+					"value": {
+						"ok": true,
+						"value": 32768
+					}
+				},
+				{
+					"name": "browser-unprotected-live-write",
+					"value": {
+						"ok": false,
+						"name": "NoModificationAllowedError",
+						"message": "Failed to execute 'createWritable' on 'FileSystemFileHandle': An attempt was made to modify an object where modifications are not allowed.",
+						"code": 7
+					}
+				},
+				{
+					"name": "browser-unprotected-live-delete",
+					"value": {
+						"ok": false,
+						"name": "NoModificationAllowedError",
+						"message": "Failed to execute 'removeEntry' on 'FileSystemDirectoryHandle': An attempt was made to modify an object where modifications are not allowed.",
+						"code": 7
+					}
+				},
+				{
+					"name": "ordinary-file-survives-next-to-database",
+					"value": "{\"sidebar\":true}"
+				},
+				{
+					"name": "full-profile-reopen-integrity",
+					"value": [
+						{
+							"integrity_check": "ok"
+						}
+					]
+				},
+				{
+					"name": "without-isolation-headers",
+					"value": {
+						"ok": false,
+						"name": "Error",
+						"message": "Official opfs VFS unavailable"
+					}
+				}
+			],
+			"version": "149.0.7827.55"
+		},
+		{
+			"browser": "firefox",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:151.0) Gecko/20100101 Firefox/151.0",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "lease-refuses-active-raw-read",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "lease-refuses-active-raw-write",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "lease-refuses-active-raw-delete",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "other-tab-still-owns-file",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "two-tab-200-atomic-batches",
+					"value": {
+						"writes": [
+							{
+								"count": 100,
+								"ms": 5712.76,
+								"retries": 0
+							},
+							{
+								"count": 100,
+								"ms": 2696.46,
+								"retries": 0
+							}
+						],
+						"totals": [
+							{
+								"value": 200,
+								"edits": 200
+							}
+						]
+					}
+				},
+				{
+					"name": "failed-batch-rolls-back",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: edits.tab, edits.seq",
+						"code": 2067
+					}
+				},
+				{
+					"name": "bounded-contention-and-recovery",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_BUSY: sqlite3 result code 5: database is locked",
+						"code": 5
+					}
+				},
+				{
+					"name": "tab-closed-mid-transaction-rolls-back",
+					"value": [
+						{
+							"value": 201
+						}
+					]
+				},
+				{
+					"name": "tab-death-releases-cooperating-file-lease",
+					"value": 32768
+				},
+				{
+					"name": "browser-unprotected-live-read",
+					"value": {
+						"ok": true,
+						"value": 32768
+					}
+				},
+				{
+					"name": "browser-unprotected-live-write",
+					"value": {
+						"ok": false,
+						"name": "NoModificationAllowedError",
+						"message": "No modification allowed",
+						"code": 7
+					}
+				},
+				{
+					"name": "browser-unprotected-live-delete",
+					"value": {
+						"ok": false,
+						"name": "NoModificationAllowedError",
+						"message": "No modification allowed",
+						"code": 7
+					}
+				},
+				{
+					"name": "ordinary-file-survives-next-to-database",
+					"value": "{\"sidebar\":true}"
+				},
+				{
+					"name": "full-profile-reopen-integrity",
+					"value": [
+						{
+							"integrity_check": "ok"
+						}
+					]
+				},
+				{
+					"name": "without-isolation-headers",
+					"value": {
+						"ok": false,
+						"name": "Error",
+						"message": "Official opfs VFS unavailable"
+					}
+				}
+			],
+			"version": "151.0"
+		},
+		{
+			"browser": "webkit",
+			"cases": [
+				{
+					"name": "environment",
+					"value": {
+						"userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.5 Safari/605.1.15",
+						"isolated": true,
+						"webLocks": true
+					}
+				},
+				{
+					"name": "official-adapter",
+					"value": {
+						"version": "3.54.1",
+						"filename": "/PROTOTYPE-wipe-me-device-opfs/search.sqlite"
+					}
+				},
+				{
+					"name": "sqlite-visible-through-files",
+					"value": {
+						"names": ["search.sqlite"],
+						"size": 32768,
+						"header": "SQLite format 3\u0000"
+					}
+				},
+				{
+					"name": "file-copy-opened-by-sqlite-in-other-tab",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "two-tabs-open-same-file",
+					"value": [
+						{
+							"value": 0
+						}
+					]
+				},
+				{
+					"name": "lease-refuses-active-raw-read",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "lease-refuses-active-raw-write",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "lease-refuses-active-raw-delete",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "other-tab-still-owns-file",
+					"value": {
+						"ok": false,
+						"name": "FileBusy",
+						"message": "Close every SQLite connection before raw access"
+					}
+				},
+				{
+					"name": "two-tab-200-atomic-batches",
+					"value": {
+						"writes": [
+							{
+								"count": 100,
+								"ms": 445.64,
+								"retries": 0
+							},
+							{
+								"count": 100,
+								"ms": 1374.04,
+								"retries": 0
+							}
+						],
+						"totals": [
+							{
+								"value": 200,
+								"edits": 200
+							}
+						]
+					}
+				},
+				{
+					"name": "failed-batch-rolls-back",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_CONSTRAINT_UNIQUE: sqlite3 result code 2067: UNIQUE constraint failed: edits.tab, edits.seq",
+						"code": 2067
+					}
+				},
+				{
+					"name": "bounded-contention-and-recovery",
+					"value": {
+						"ok": false,
+						"name": "SQLite3Error",
+						"message": "SQLITE_IOERR_LOCK: sqlite3 result code 3850: disk I/O error",
+						"code": 3850
+					}
+				},
+				{
+					"name": "tab-closed-mid-transaction-rolls-back",
+					"value": [
+						{
+							"value": 201
+						}
+					]
+				},
+				{
+					"name": "tab-death-releases-cooperating-file-lease",
+					"value": 32768
+				},
+				{
+					"name": "browser-unprotected-live-read",
+					"value": {
+						"ok": true,
+						"value": 32768
+					}
+				},
+				{
+					"name": "browser-unprotected-live-write",
+					"value": {
+						"ok": false,
+						"name": "InvalidStateError",
+						"message": "The object is in an invalid state.",
+						"code": 11
+					}
+				},
+				{
+					"name": "browser-unprotected-live-delete",
+					"value": {
+						"ok": false,
+						"name": "NoModificationAllowedError",
+						"message": "The object can not be modified.",
+						"code": 7
+					}
+				},
+				{
+					"name": "ordinary-file-survives-next-to-database",
+					"value": "{\"sidebar\":true}"
+				},
+				{
+					"name": "full-profile-reopen-integrity",
+					"value": [
+						{
+							"integrity_check": "ok"
+						}
+					]
+				},
+				{
+					"name": "without-isolation-headers",
+					"value": {
+						"ok": false,
+						"name": "Error",
+						"message": "Official opfs VFS unavailable"
+					}
+				}
+			],
+			"version": "26.5"
+		}
+	]
 }

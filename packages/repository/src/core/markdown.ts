@@ -11,7 +11,14 @@
  * none, and the whole text is body. Its keys are its key blocks
  * (`keyBlocks`); a key whose value does not parse costs only that key.
  */
-import { type Document, isMap, isNode, isScalar, parseDocument, stringify } from 'yaml';
+import {
+	type Document,
+	isMap,
+	isNode,
+	isScalar,
+	parseDocument,
+	stringify,
+} from 'yaml';
 
 /** Values are written out in full: an alias would break when its anchor's key is removed. */
 const PLAIN = { aliasDuplicateObjects: false } as const;
@@ -66,14 +73,20 @@ function keyText(line: string): string {
 		if (quote !== null) {
 			if (char === '\\' && quote === '"') at++;
 			else if (char === quote) quote = null;
-		} else if ((char === '"' || char === "'") && text.slice(0, at).trim() === '') quote = char;
-		else if (char === ':' && /^(\s|$)/.test(text.slice(at + 1))) return unquoted(text.slice(0, at).trimEnd());
+		} else if (
+			(char === '"' || char === "'") &&
+			text.slice(0, at).trim() === ''
+		)
+			quote = char;
+		else if (char === ':' && /^(\s|$)/.test(text.slice(at + 1)))
+			return unquoted(text.slice(0, at).trimEnd());
 	}
 	return text.trimEnd();
 }
 
 const unquoted = (key: string) => {
-	if (key.length > 1 && key.startsWith("'") && key.endsWith("'")) return key.slice(1, -1).replaceAll("''", "'");
+	if (key.length > 1 && key.startsWith("'") && key.endsWith("'"))
+		return key.slice(1, -1).replaceAll("''", "'");
 	if (key.length > 1 && key.startsWith('"') && key.endsWith('"'))
 		try {
 			return JSON.parse(key) as string;
@@ -92,7 +105,10 @@ const unquoted = (key: string) => {
  * after them. Lines before the first block are the preamble. A header that
  * does not parse splits the same way.
  */
-export function keyBlocks(yaml: string): { preamble: string; blocks: KeyBlock[] } {
+export function keyBlocks(yaml: string): {
+	preamble: string;
+	blocks: KeyBlock[];
+} {
 	const lines = yaml.split(/(?<=\n)/).filter((line) => line !== '');
 	let preamble = '';
 	const blocks: KeyBlock[] = [];
@@ -116,13 +132,31 @@ export function keyBlocks(yaml: string): { preamble: string; blocks: KeyBlock[] 
 }
 
 /** A key block's value, read on its own: null when the block is not that one key with a value that parses. */
-function readBlock(block: KeyBlock): { value: unknown; document: Document } | null {
-	const document = parseDocument(block.text, { prettyErrors: false, uniqueKeys: true });
-	if (document.errors.length > 0 || !isMap(document.contents) || document.contents.items.length !== 1) return null;
+function readBlock(
+	block: KeyBlock,
+): { value: unknown; document: Document } | null {
+	const document = parseDocument(block.text, {
+		prettyErrors: false,
+		uniqueKeys: true,
+	});
+	if (
+		document.errors.length > 0 ||
+		!isMap(document.contents) ||
+		document.contents.items.length !== 1
+	)
+		return null;
 	const pair = document.contents.items[0];
-	if (pair === undefined || !isScalar(pair.key) || String(pair.key.value) !== block.key) return null;
+	if (
+		pair === undefined ||
+		!isScalar(pair.key) ||
+		String(pair.key.value) !== block.key
+	)
+		return null;
 	try {
-		return { value: (document.toJS() as Record<string, unknown>)[block.key], document };
+		return {
+			value: (document.toJS() as Record<string, unknown>)[block.key],
+			document,
+		};
 	} catch {
 		// An alias with no anchor, or more aliases than `yaml` expands.
 		return null;
@@ -135,7 +169,10 @@ function readBlock(block: KeyBlock): { value: unknown; document: Document } | nu
  */
 export function readNote(text: string) {
 	const { yaml, bodyStart } = splitMarkdown(text);
-	return { header: yaml === null ? null : keyBlocks(yaml), body: text.slice(bodyStart) };
+	return {
+		header: yaml === null ? null : keyBlocks(yaml),
+		body: text.slice(bodyStart),
+	};
 }
 
 /**
@@ -149,7 +186,10 @@ export function parseMarkdown(text: string): ParsedMarkdown {
 	const broken: string[] = [];
 	const blocks = header?.blocks ?? [];
 	for (const block of blocks) {
-		const read = blocks.filter((other) => other.key === block.key).length === 1 ? readBlock(block) : null;
+		const read =
+			blocks.filter((other) => other.key === block.key).length === 1
+				? readBlock(block)
+				: null;
 		if (read !== null) fields[block.key] = read.value;
 		else if (!broken.includes(block.key)) broken.push(block.key);
 	}
@@ -166,7 +206,8 @@ export type MarkdownChange = {
 const HOUSE = { lineWidth: 0, flowCollectionPadding: false } as const;
 
 /** A key and its value as house-style lines. */
-const printKey = (key: string, value: unknown) => stringify({ [key]: value }, { ...PLAIN, ...HOUSE });
+const printKey = (key: string, value: unknown) =>
+	stringify({ [key]: value }, { ...PLAIN, ...HOUSE });
 
 /** `document` printed in house style, when it reads back as one block of `key` holding `value`. */
 function printed(document: Document, key: string, value: unknown) {
@@ -178,7 +219,13 @@ function printed(document: Document, key: string, value: unknown) {
 	}
 	const { preamble, blocks } = keyBlocks(text);
 	const [only] = blocks;
-	if (preamble !== '' || blocks.length !== 1 || only === undefined || only.key !== key) return null;
+	if (
+		preamble !== '' ||
+		blocks.length !== 1 ||
+		only === undefined ||
+		only.key !== key
+	)
+		return null;
 	const read = readBlock(only);
 	return read !== null && sameValue(read.value, value) ? text : null;
 }
@@ -191,7 +238,10 @@ function printed(document: Document, key: string, value: unknown) {
  * that does not parse and takes effect once it does. A text with no header
  * gains one.
  */
-export function writeMarkdown(previous: string | null, change: MarkdownChange): string {
+export function writeMarkdown(
+	previous: string | null,
+	change: MarkdownChange,
+): string {
 	const source = previous ?? '';
 	const { yaml } = splitMarkdown(source);
 	const body = change.body ?? bodyOf(source);
@@ -208,7 +258,10 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 		const at = out.findIndex((block) => block.key === key);
 		const found = out[at];
 		if (value === undefined || found === undefined) {
-			out = value === undefined ? out.filter((block) => block.key !== key) : [...out, { key, text: printKey(key, value) }];
+			out =
+				value === undefined
+					? out.filter((block) => block.key !== key)
+					: [...out, { key, text: printKey(key, value) }];
 			continue;
 		}
 		const read = readBlock(found);
@@ -223,7 +276,9 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 				text = printed(read.document, key, value) ?? text;
 			}
 		}
-		out = out.flatMap((block, n) => (n === at ? [{ key, text }] : block.key === key ? [] : [block]));
+		out = out.flatMap((block, n) =>
+			n === at ? [{ key, text }] : block.key === key ? [] : [block],
+		);
 	}
 	return `${OPEN}${preamble}${out.map((block) => block.text).join('')}---\n${body}`;
 }
@@ -231,7 +286,9 @@ export function writeMarkdown(previous: string | null, change: MarkdownChange): 
 /** A key block in house style: printed by `yaml` where its value parses, comments kept; as typed where it does not. */
 function houseBlock(block: KeyBlock) {
 	const read = readBlock(block);
-	return read === null ? block.text : (printed(read.document, block.key, read.value) ?? block.text);
+	return read === null
+		? block.text
+		: (printed(read.document, block.key, read.value) ?? block.text);
 }
 
 /**
@@ -244,15 +301,18 @@ export function formatMarkdown(text: string): string {
 	const { yaml, bodyStart } = splitMarkdown(text);
 	if (yaml === null) return text;
 	const { preamble, blocks } = keyBlocks(yaml);
-	const twice = (key: string) => blocks.filter((block) => block.key === key).length > 1;
+	const twice = (key: string) =>
+		blocks.filter((block) => block.key === key).length > 1;
 	return `${OPEN}${preamble}${blocks.map((block) => (twice(block.key) ? block.text : houseBlock(block))).join('')}---\n${text.slice(bodyStart)}`;
 }
 
 /** A text's body: what follows its header, or the whole text when it has none. */
-export const bodyOf = (text: string) => text.slice(splitMarkdown(text).bodyStart);
+export const bodyOf = (text: string) =>
+	text.slice(splitMarkdown(text).bodyStart);
 
 /** A text's header with its fences, byte for byte, whether or not it parses: empty when it has none. */
-export const headerOf = (text: string) => text.slice(0, splitMarkdown(text).bodyStart);
+export const headerOf = (text: string) =>
+	text.slice(0, splitMarkdown(text).bodyStart);
 
 /**
  * `text` with its body replaced by `body`, its header kept byte for byte,
@@ -261,17 +321,25 @@ export const headerOf = (text: string) => text.slice(0, splitMarkdown(text).body
 export function withBody(text: string, body: string) {
 	const header = headerOf(text);
 	// A closing fence at the very end has no newline after it yet.
-	if (header !== '' && !header.endsWith('\n') && body !== '') return `${header}\n${body}`;
+	if (header !== '' && !header.endsWith('\n') && body !== '')
+		return `${header}\n${body}`;
 	return `${header === '' ? emptyHeaderFor(body) : header}${body}`;
 }
 
 /** RULE: a body after no header must not itself read as one: one that opens with fences gets an empty header. */
-export const emptyHeaderFor = (body: string) => (splitMarkdown(body).yaml === null ? '' : `${OPEN}---\n`);
+export const emptyHeaderFor = (body: string) =>
+	splitMarkdown(body).yaml === null ? '' : `${OPEN}---\n`;
 
 /** Deep equality over plain JSON-like values. */
 export function sameValue(a: unknown, b: unknown): boolean {
 	if (Object.is(a, b)) return true;
-	if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+	if (
+		typeof a !== 'object' ||
+		typeof b !== 'object' ||
+		a === null ||
+		b === null
+	)
+		return false;
 	if (Array.isArray(a) !== Array.isArray(b)) return false;
 	const aKeys = Object.keys(a);
 	const bKeys = Object.keys(b);
@@ -279,7 +347,10 @@ export function sameValue(a: unknown, b: unknown): boolean {
 	return aKeys.every(
 		(key) =>
 			Object.hasOwn(b, key) &&
-			sameValue((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]),
+			sameValue(
+				(a as Record<string, unknown>)[key],
+				(b as Record<string, unknown>)[key],
+			),
 	);
 }
 
@@ -289,7 +360,8 @@ export function sameValue(a: unknown, b: unknown): boolean {
 
 export type LfsPointer = { oid: string; size: number };
 
-const POINTER = /^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([0-9a-f]{64})\nsize (\d+)\n$/;
+const POINTER =
+	/^version https:\/\/git-lfs\.github\.com\/spec\/v1\noid sha256:([0-9a-f]{64})\nsize (\d+)\n$/;
 
 /** The pointer a file's text holds, or null when the text is not a pointer. */
 export function parsePointer(text: string): LfsPointer | null {

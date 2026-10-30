@@ -44,7 +44,8 @@ export const CONTROL = new Set(['.gitattributes', '.lfsconfig', '.gitmodules']);
  * repository: every file through Git LFS, then notes (`.md` in any case)
  * and this file itself back to plain text with LF endings.
  */
-export const ATTRIBUTES = '* filter=lfs diff=lfs merge=lfs -text\n*.[mM][dD] !filter !diff !merge text eol=lf\n.gitattributes !filter !diff !merge text eol=lf\n';
+export const ATTRIBUTES =
+	'* filter=lfs diff=lfs merge=lfs -text\n*.[mM][dD] !filter !diff !merge text eol=lf\n.gitattributes !filter !diff !merge text eol=lf\n';
 
 /** A note is a path ending `.md` in any case. */
 export const isNote = (path: string) => path.toLowerCase().endsWith('.md');
@@ -53,7 +54,8 @@ export const fold = (path: string) => path.normalize('NFC').toLowerCase();
 
 const ILLEGAL = /[<>:"\\|?*\u0000-\u001f]/;
 const DEVICE = /^(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\.|$)/i;
-const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
+const LONE_SURROGATE =
+	/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/;
 
 /** A path past the server's bound on path bytes. */
 export const PATH_TOO_LONG = 'the path is too long';
@@ -61,7 +63,10 @@ export const PATH_TOO_LONG = 'the path is too long';
 export const TWIN = 'another file has this name in different letters';
 /** A note whose bytes are not UTF-8 text. */
 export const NOT_UTF8 = 'not UTF-8 text';
-const NOT_TEXT = ['the text is not valid UTF-8', 'binary files go through Git LFS'];
+const NOT_TEXT = [
+	'the text is not valid UTF-8',
+	'binary files go through Git LFS',
+];
 
 /**
  * RULE: what is not sent is either waiting (the system clears it: bytes to
@@ -72,26 +77,39 @@ const NOT_TEXT = ['the text is not valid UTF-8', 'binary files go through Git LF
  * reverse.
  */
 export function onlyAPersonFixes(path: string, reason: string) {
-	return pathRefusal(path) !== null || reason === PATH_TOO_LONG || reason === TWIN || reason === NOT_UTF8 || NOT_TEXT.includes(reason) || Object.values<string>(COLLISIONS).includes(reason);
+	return (
+		pathRefusal(path) !== null ||
+		reason === PATH_TOO_LONG ||
+		reason === TWIN ||
+		reason === NOT_UTF8 ||
+		NOT_TEXT.includes(reason) ||
+		Object.values<string>(COLLISIONS).includes(reason)
+	);
 }
 
 /** Why a path is not portable, or null. */
 export function pathRefusal(path: string): string | null {
-	if (path === '' || path.startsWith('/') || path.includes('\\')) return 'bad path';
+	if (path === '' || path.startsWith('/') || path.includes('\\'))
+		return 'bad path';
 	if (path !== path.normalize('NFC')) return 'the path is not NFC';
 	const segments = path.split('/');
 	for (const segment of segments) {
-		if (segment === '' || segment === '.' || segment === '..') return 'bad path';
+		if (segment === '' || segment === '.' || segment === '..')
+			return 'bad path';
 		const lower = segment.toLowerCase();
 		if (lower === '.git' || /^git~\d+$/.test(lower)) return '.git is reserved';
-		if (ILLEGAL.test(segment)) return 'a name may not hold < > : " \\ | ? * or control characters';
-		if (/[ .]$/.test(segment)) return 'a name may not end in a space or a period';
+		if (ILLEGAL.test(segment))
+			return 'a name may not hold < > : " \\ | ? * or control characters';
+		if (/[ .]$/.test(segment))
+			return 'a name may not end in a space or a period';
 		if (DEVICE.test(segment)) return 'a name may not be a reserved device name';
 		if (bytes(segment) > 255) return 'a name may be at most 255 bytes';
 	}
-	if (segments[0]?.toLowerCase() === '.epicenter') return 'Epicenter owns this file';
+	if (segments[0]?.toLowerCase() === '.epicenter')
+		return 'Epicenter owns this file';
 	// A control file's name is Epicenter's as a folder too: Git's tree has a file there.
-	if (segments.some((segment) => CONTROL.has(segment.toLowerCase()))) return 'Epicenter owns this file';
+	if (segments.some((segment) => CONTROL.has(segment.toLowerCase())))
+		return 'Epicenter owns this file';
 	return null;
 }
 
@@ -104,7 +122,8 @@ export function admissible(path: string, text: string | null): string | null {
 	const pointer = parsePointer(text);
 	if (isNote(path)) {
 		if (pointer !== null) return 'a note may not be an LFS pointer';
-		if (text.startsWith('\uFEFF')) return 'a note may not start with a byte order mark';
+		if (text.startsWith('\uFEFF'))
+			return 'a note may not start with a byte order mark';
 		if (text.includes('\r')) return 'a note must use LF line endings';
 		if (bytes(text) > MAX_FILE_BYTES) return 'a note may be at most 1 MB';
 		return frontmatterRefusal(text);
@@ -203,13 +222,21 @@ function frontmatterRefusal(text: string): string | null {
 				flow.pop();
 				break;
 			default:
-				if (type === 'value' || type === 'single-quoted-scalar' || type === 'double-quoted-scalar') values++;
+				if (
+					type === 'value' ||
+					type === 'single-quoted-scalar' ||
+					type === 'double-quoted-scalar'
+				)
+					values++;
 				// A scalar: inside a flow mapping, count each as a possible key.
 				if (inFlowMap) keys++;
 		}
-		if (values > FRONTMATTER_VALUES) return `the frontmatter may hold at most ${FRONTMATTER_VALUES} values`;
-		if (keys > FRONTMATTER_KEYS) return `the frontmatter may hold at most ${FRONTMATTER_KEYS} keys`;
-		if (blockColumn + flow.length > FRONTMATTER_NESTING) return `the frontmatter may nest at most ${FRONTMATTER_NESTING} deep`;
+		if (values > FRONTMATTER_VALUES)
+			return `the frontmatter may hold at most ${FRONTMATTER_VALUES} values`;
+		if (keys > FRONTMATTER_KEYS)
+			return `the frontmatter may hold at most ${FRONTMATTER_KEYS} keys`;
+		if (blockColumn + flow.length > FRONTMATTER_NESTING)
+			return `the frontmatter may nest at most ${FRONTMATTER_NESTING} deep`;
 	}
 	return null;
 }
@@ -218,9 +245,14 @@ function frontmatterRefusal(text: string): string | null {
 export function lint(path: string, text: string | null): string[] {
 	if (text === null) return [];
 	const warnings: string[] = [];
-	const opens = text.split('\n').filter((line) => line.startsWith('<<<<<<< ')).length;
+	const opens = text
+		.split('\n')
+		.filter((line) => line.startsWith('<<<<<<< ')).length;
 	const blocks = findConflicts(text).length;
-	if (blocks > 0) warnings.push(`${blocks} unresolved conflict block${blocks === 1 ? '' : 's'}`);
+	if (blocks > 0)
+		warnings.push(
+			`${blocks} unresolved conflict block${blocks === 1 ? '' : 's'}`,
+		);
 	if (opens > blocks) warnings.push('a malformed conflict block');
 	if (bytes(path) > 260) warnings.push('a long path');
 	return warnings;
@@ -236,6 +268,7 @@ export function slug(title: string) {
 		.replace(/-+/g, '-')
 		.replace(/^[-. ]+|[-. ]+$/g, '');
 	while (bytes(out) > 200) out = out.slice(0, -1);
-	if (out === '' || out === 'git' || DEVICE.test(out) || out.startsWith('.')) out = `${out.replace(/^\.+/, '')}-note`.replace(/^-/, '');
+	if (out === '' || out === 'git' || DEVICE.test(out) || out.startsWith('.'))
+		out = `${out.replace(/^\.+/, '')}-note`.replace(/^-/, '');
 	return out;
 }

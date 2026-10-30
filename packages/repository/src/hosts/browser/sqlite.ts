@@ -15,8 +15,15 @@
  * this module's, so a failed write can tell a full disk (`QuotaExceededError`)
  * from any other failure.
  */
-import sqlite3InitModule, { type Database, type Sqlite3Static } from '@sqlite.org/sqlite-wasm';
-import { defineErrors, extractErrorMessage, type InferErrors } from 'wellcrafted/error';
+import sqlite3InitModule, {
+	type Database,
+	type Sqlite3Static,
+} from '@sqlite.org/sqlite-wasm';
+import {
+	defineErrors,
+	extractErrorMessage,
+	type InferErrors,
+} from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import { Ok, type Result, tryAsync } from 'wellcrafted/result';
 import { isQuotaExceeded } from '../../client/blobs.js';
@@ -39,13 +46,17 @@ export const ReplicaStorageError = defineErrors({
 	/** The open was given up before it finished. */
 	Cancelled: () => ({ message: 'The open was cancelled' }),
 	/** Something SQLite reported, kept as a diagnostic. */
-	Reported: ({ text }: { text: string }) => ({ message: `SQLite: ${text}`, text }),
+	Reported: ({ text }: { text: string }) => ({
+		message: `SQLite: ${text}`,
+		text,
+	}),
 });
 export type ReplicaStorageError = InferErrors<typeof ReplicaStorageError>;
 
 /** The names browsers give the error of a sync access handle another worker holds. */
 const CONTENDED = new Set(['NoModificationAllowedError', 'InvalidStateError']);
-const isContended = (cause: unknown) => cause instanceof DOMException && CONTENDED.has(cause.name);
+const isContended = (cause: unknown) =>
+	cause instanceof DOMException && CONTENDED.has(cause.name);
 
 /** The last storage failure the VFS reported, since `clearReported`. */
 let reported: unknown = null;
@@ -53,9 +64,13 @@ let reported: unknown = null;
 /** sqlite's loggers, as this module's: the VFS's causes are kept, and everything goes to the logger. */
 const apiConfig = {
 	error(...args: unknown[]) {
-		const cause = args.find((arg) => arg instanceof Error || arg instanceof DOMException);
+		const cause = args.find(
+			(arg) => arg instanceof Error || arg instanceof DOMException,
+		);
 		if (cause !== undefined) reported = cause;
-		log.warn(ReplicaStorageError.Reported({ text: args.map(String).join(' ') }).error);
+		log.warn(
+			ReplicaStorageError.Reported({ text: args.map(String).join(' ') }).error,
+		);
 	},
 	warn: (...args: unknown[]) => log.debug('SQLite warned', args.map(String)),
 	log: (...args: unknown[]) => log.trace('SQLite logged', args.map(String)),
@@ -88,13 +103,20 @@ export const clearReported = () => {
 export function wasmDriver(sqlite3: Sqlite3Static, db: Database): SqlDriver {
 	const { capi, wasm } = sqlite3;
 	let depth = 0;
-	const bind = (params: SqlValue[]) => (params.length === 0 ? {} : { bind: params });
+	const bind = (params: SqlValue[]) =>
+		params.length === 0 ? {} : { bind: params };
 	/** Whether a read is compiling or running, so the authorizer refuses all but reading. */
 	let reading = false;
-	const READ_ACTIONS = new Set<number>([capi.SQLITE_SELECT, capi.SQLITE_READ, capi.SQLITE_FUNCTION, capi.SQLITE_RECURSIVE]);
+	const READ_ACTIONS = new Set<number>([
+		capi.SQLITE_SELECT,
+		capi.SQLITE_READ,
+		capi.SQLITE_FUNCTION,
+		capi.SQLITE_RECURSIVE,
+	]);
 	capi.sqlite3_set_authorizer(
 		db,
-		(_context, action) => (!reading || READ_ACTIONS.has(action) ? capi.SQLITE_OK : capi.SQLITE_DENY),
+		(_context, action) =>
+			!reading || READ_ACTIONS.has(action) ? capi.SQLITE_OK : capi.SQLITE_DENY,
 		0,
 	);
 
@@ -110,12 +132,19 @@ export function wasmDriver(sqlite3: Sqlite3Static, db: Database): SqlDriver {
 			const found: { sql: string; readonly: boolean }[] = [];
 			for (let at = text; at < end; ) {
 				wasm.pokePtr(statement, 0);
-				if (capi.sqlite3_prepare_v2(db, at, end - at, statement, tail) !== capi.SQLITE_OK) throw new Error(capi.sqlite3_errmsg(db));
+				if (
+					capi.sqlite3_prepare_v2(db, at, end - at, statement, tail) !==
+					capi.SQLITE_OK
+				)
+					throw new Error(capi.sqlite3_errmsg(db));
 				const compiled = wasm.peekPtr(statement);
 				at = wasm.peekPtr(tail);
 				// Space and comments compile to no statement.
 				if (compiled === 0) continue;
-				found.push({ sql: capi.sqlite3_sql(compiled), readonly: capi.sqlite3_stmt_readonly(compiled) !== 0 });
+				found.push({
+					sql: capi.sqlite3_sql(compiled),
+					readonly: capi.sqlite3_stmt_readonly(compiled) !== 0,
+				});
 				capi.sqlite3_finalize(compiled);
 			}
 			return found;
@@ -130,7 +159,12 @@ export function wasmDriver(sqlite3: Sqlite3Static, db: Database): SqlDriver {
 			db.exec(sql);
 		},
 		all<TRow>(sql: string, params: SqlValue[] = []) {
-			return db.exec({ sql, ...bind(params), rowMode: 'object', returnValue: 'resultRows' }) as TRow[];
+			return db.exec({
+				sql,
+				...bind(params),
+				rowMode: 'object',
+				returnValue: 'resultRows',
+			}) as TRow[];
 		},
 		run(sql, params = []) {
 			db.exec({ sql, ...bind(params) });
@@ -140,9 +174,16 @@ export function wasmDriver(sqlite3: Sqlite3Static, db: Database): SqlDriver {
 			try {
 				const statements = statementsIn(sql);
 				const [only] = statements;
-				if (only === undefined || statements.length > 1) throw new Error('A read is one statement');
-				if (!only.readonly) throw new Error('A read cannot change the database');
-				return db.exec({ sql: only.sql, ...bind(params), rowMode: 'object', returnValue: 'resultRows' }) as TRow[];
+				if (only === undefined || statements.length > 1)
+					throw new Error('A read is one statement');
+				if (!only.readonly)
+					throw new Error('A read cannot change the database');
+				return db.exec({
+					sql: only.sql,
+					...bind(params),
+					rowMode: 'object',
+					returnValue: 'resultRows',
+				}) as TRow[];
 			} finally {
 				reading = false;
 			}
@@ -165,7 +206,12 @@ export function wasmDriver(sqlite3: Sqlite3Static, db: Database): SqlDriver {
 			}
 		},
 		registerFunction(name, fn) {
-			db.createFunction({ name, arity: 1, deterministic: true, xFunc: (_context, value) => fn(value as SqlValue) });
+			db.createFunction({
+				name,
+				arity: 1,
+				deterministic: true,
+				xFunc: (_context, value) => fn(value as SqlValue),
+			});
 		},
 		close() {
 			db.close();
@@ -188,14 +234,24 @@ export async function openReplicaDatabase(
 		onWaiting = () => {},
 		cancelled = () => false,
 		maxDelayMs = 500,
-	}: { onWaiting?: (reason: string) => void; cancelled?: () => boolean; maxDelayMs?: number } = {},
+	}: {
+		onWaiting?: (reason: string) => void;
+		cancelled?: () => boolean;
+		maxDelayMs?: number;
+	} = {},
 ): Promise<Result<SqlDriver, ReplicaStorageError>> {
 	const handles =
 		typeof FileSystemFileHandle === 'undefined'
 			? undefined
-			: (FileSystemFileHandle.prototype as { createSyncAccessHandle?: unknown }).createSyncAccessHandle;
-	if (typeof navigator.storage?.getDirectory !== 'function' || typeof handles !== 'function')
-		return ReplicaStorageError.Unsupported({ cause: new Error('this browser has no OPFS sync access handles') });
+			: (FileSystemFileHandle.prototype as { createSyncAccessHandle?: unknown })
+					.createSyncAccessHandle;
+	if (
+		typeof navigator.storage?.getDirectory !== 'function' ||
+		typeof handles !== 'function'
+	)
+		return ReplicaStorageError.Unsupported({
+			cause: new Error('this browser has no OPFS sync access handles'),
+		});
 	const sqlite3 = await tryAsync({
 		try: loadSqlite,
 		catch: (cause) => ReplicaStorageError.Unsupported({ cause }),
@@ -217,7 +273,10 @@ export async function openReplicaDatabase(
 		});
 		if (pool.error === null) {
 			const util = pool.data;
-			const driver = wasmDriver(sqlite3.data, new util.OpfsSAHPoolDb('/replica.sqlite3'));
+			const driver = wasmDriver(
+				sqlite3.data,
+				new util.OpfsSAHPoolDb('/replica.sqlite3'),
+			);
 			return Ok({
 				...driver,
 				close() {

@@ -19,8 +19,8 @@ import type { Author } from './git/objects.js';
 import { scratch } from './git-http.test-support.js';
 import type { HistoryRequest } from './history-wire.js';
 import { scratchDirectory } from './native/directory.js';
-import { storageHost } from './storage.js';
 import type { FileContent } from './shared/merge.js';
+import { storageHost } from './storage.js';
 
 export async function openDirectoryHistory({
 	root,
@@ -49,7 +49,9 @@ export async function openDirectoryHistory({
 		await beforeGit?.(args);
 		return system(args, options);
 	};
-	const folder = expectOk(await createFolder(storageHost(storage), { tables: {} }));
+	const folder = expectOk(
+		await createFolder(storageHost(storage), { tables: {} }),
+	);
 	return {
 		root,
 		storage,
@@ -66,9 +68,7 @@ export async function openDirectoryHistory({
 		/** Replace the file at `path` with `to`, or remove it for `null`. */
 		write: async (path: string, to: FileContent | null) => {
 			const saved =
-				to === null
-					? await folder.delete(path)
-					: await folder.write(path, to);
+				to === null ? await folder.delete(path) : await folder.write(path, to);
 			return saved.error === null ? Ok(undefined) : Err(saved.error);
 		},
 		files: { read: (path: string) => storage.read(path) },

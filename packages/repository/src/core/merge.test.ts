@@ -18,7 +18,14 @@
  */
 import { describe, expect, test } from 'bun:test';
 import { findConflicts, type Labels } from './conflict.js';
-import { formatMarkdown, parseMarkdown, readNote, sameValue, splitMarkdown, writeMarkdown } from './markdown.js';
+import {
+	formatMarkdown,
+	parseMarkdown,
+	readNote,
+	sameValue,
+	splitMarkdown,
+	writeMarkdown,
+} from './markdown.js';
 import { type ContentOverlap, merge, withBlocks } from './merge.js';
 
 const labels: Labels = {
@@ -36,7 +43,11 @@ const spans = (overlaps: ContentOverlap[]) =>
 
 describe('examples', () => {
 	test('adjacent checkbox edits both survive', () => {
-		const r = merge('- [ ] a\n- [ ] b\n', '- [x] a\n- [ ] b\n', '- [ ] a\n- [x] b\n');
+		const r = merge(
+			'- [ ] a\n- [ ] b\n',
+			'- [x] a\n- [ ] b\n',
+			'- [ ] a\n- [x] b\n',
+		);
 		expect(r.text).toBe('- [x] a\n- [x] b\n');
 		expect(r.overlaps).toHaveLength(0);
 	});
@@ -48,7 +59,11 @@ describe('examples', () => {
 	});
 
 	test('separate sentence edits in one paragraph both survive', () => {
-		const r = merge('One. Two. Three.\n', 'One! Two. Three.\n', 'One. Two. Three!\n');
+		const r = merge(
+			'One. Two. Three.\n',
+			'One! Two. Three.\n',
+			'One. Two. Three!\n',
+		);
 		expect(r.text).toBe('One! Two. Three!\n');
 		expect(r.overlaps).toHaveLength(0);
 	});
@@ -69,7 +84,8 @@ describe('examples', () => {
 		expect(merge('', 'b', 'c\n').text).toBe('b\nc\n');
 		// An existing block current did not have lands on a line of its own, so it still reads as a block (property seed W 29).
 		const head = '---\ntitle: a\n---\n';
-		const block = '<<<<<<< current c - -\n||||||| base -\n=======\nold\n>>>>>>> incoming b - -\n';
+		const block =
+			'<<<<<<< current c - -\n||||||| base -\n=======\nold\n>>>>>>> incoming b - -\n';
 		const r = merge(head, `${head}t57z`, `${head}${block}`);
 		expect(r.text).toBe(`${head}t57z\n${block}`);
 		expect(findConflicts(r.text ?? '')).toHaveLength(1);
@@ -84,7 +100,9 @@ describe('examples', () => {
 
 	test('a line one side ends unterminated stays its own line when the other side adds after it', () => {
 		// Incoming rewrites the last line and leaves it unterminated; current adds a line after it (property seed B 601077).
-		expect(merge('agent\n', 'agent\nadded\n', 'changed\nt58z').text).toBe('changed\nt58z\nadded\n');
+		expect(merge('agent\n', 'agent\nadded\n', 'changed\nt58z').text).toBe(
+			'changed\nt58z\nadded\n',
+		);
 	});
 
 	test('cat/cart/coat reports a whole-word overlap without coart', () => {
@@ -105,40 +123,70 @@ describe('examples', () => {
 	});
 
 	test('frontmatter compares parsed values, so formatting is not a clash', () => {
-		const r = merge('---\na: 1\nb: x\n---\n', "---\na: 1\nb: 'x'  # quoted\n---\n", '---\na: 2\nb: x\n---\n');
+		const r = merge(
+			'---\na: 1\nb: x\n---\n',
+			"---\na: 1\nb: 'x'  # quoted\n---\n",
+			'---\na: 2\nb: x\n---\n',
+		);
 		expect(r.text).toBe("---\na: 2\nb: 'x'  # quoted\n---\n");
 		expect(r.overlaps).toEqual([]);
 	});
 
 	test('a settings-style set on each side merges by key', () => {
 		const base = '---\ntheme: light\n---\n';
-		const r = merge(base, '---\ntheme: dark\n---\n', '---\ntheme: light\nfont: serif\n---\n');
+		const r = merge(
+			base,
+			'---\ntheme: dark\n---\n',
+			'---\ntheme: light\nfont: serif\n---\n',
+		);
 		expect(r.text).toBe('---\ntheme: dark\nfont: serif\n---\n');
 	});
 
 	test('a key removed on one side is removed', () => {
-		const r = merge('---\na: 1\nb: 2\n---\n', '---\na: 1\n---\n', '---\na: 1\nb: 2\nc: 3\n---\n');
+		const r = merge(
+			'---\na: 1\nb: 2\n---\n',
+			'---\na: 1\n---\n',
+			'---\na: 1\nb: 2\nc: 3\n---\n',
+		);
 		expect(r.text).toBe('---\na: 1\nc: 3\n---\n');
 	});
 
 	test('a key deleted on one side and changed on the other keeps the change', () => {
 		// Probe: current's unseen delete used to win, unlike the file-level rule.
-		const r = merge('---\nstatus: a\ntitle: t\n---\nx\n', '---\ntitle: t\n---\nx\n', '---\nstatus: b\ntitle: t\n---\nx\n');
+		const r = merge(
+			'---\nstatus: a\ntitle: t\n---\nx\n',
+			'---\ntitle: t\n---\nx\n',
+			'---\nstatus: b\ntitle: t\n---\nx\n',
+		);
 		expect(r.text).toBe('---\ntitle: t\nstatus: b\n---\nx\n');
 		expect(r.overlaps).toEqual([]);
-		const other = merge('---\nstatus: a\ntitle: t\n---\nx\n', '---\nstatus: c\ntitle: t\n---\nx\n', '---\ntitle: t\n---\nx\n');
+		const other = merge(
+			'---\nstatus: a\ntitle: t\n---\nx\n',
+			'---\nstatus: c\ntitle: t\n---\nx\n',
+			'---\ntitle: t\n---\nx\n',
+		);
 		expect(other.text).toBe('---\nstatus: c\ntitle: t\n---\nx\n');
 		expect(other.overlaps).toEqual([]);
 	});
 
 	test('two offline creates merge fields, keep both bodies and report the clash', () => {
-		const r = merge(null, '---\nweather: sun\n---\nMorning', '---\nmood: good\n---\nEvening');
-		expect(r.text).toBe('---\nweather: sun\nmood: good\n---\nMorning\n\nEvening');
+		const r = merge(
+			null,
+			'---\nweather: sun\n---\nMorning',
+			'---\nmood: good\n---\nEvening',
+		);
+		expect(r.text).toBe(
+			'---\nweather: sun\nmood: good\n---\nMorning\n\nEvening',
+		);
 		expect(r.overlaps).toEqual([{ unit: 'file', clash: 'created' }]);
 	});
 
 	test("two creates with a clashing field take the later write's value and report the create", () => {
-		const r = merge(null, '---\nstatus: a\n---\nbody c\n', '---\nstatus: b\n---\nbody i\n');
+		const r = merge(
+			null,
+			'---\nstatus: a\n---\nbody c\n',
+			'---\nstatus: b\n---\nbody i\n',
+		);
 		expect(r.text).toBe('---\nstatus: b\n---\nbody c\n\nbody i\n');
 		expect(r.overlaps).toEqual([{ unit: 'file', clash: 'created' }]);
 	});
@@ -169,27 +217,45 @@ describe('examples', () => {
 	test('a true overlap gets a labelled conflict block with a base section', () => {
 		const marked = withBlocks(merge('cat\n', 'cart\n', 'coat\n'), labels);
 		expect(marked).toBe(`${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`);
-		expect(findConflicts(marked ?? '')).toMatchObject([{ current: 'cart\n', base: 'cat\n', incoming: 'coat\n' }]);
+		expect(findConflicts(marked ?? '')).toMatchObject([
+			{ current: 'cart\n', base: 'cat\n', incoming: 'coat\n' },
+		]);
 	});
 
 	test('section lines that read as delimiters are escaped, and read back as written', () => {
-		const marked = withBlocks(merge('a\n', '=======\n', '>>>>>>> x\n'), labels) ?? '';
-		expect(marked).toBe(`${OPEN}\\=======\n${BASE}a\n=======\n\\>>>>>>> x\n${CLOSE}`);
-		expect(findConflicts(marked)).toMatchObject([{ current: '=======\n', incoming: '>>>>>>> x\n' }]);
+		const marked =
+			withBlocks(merge('a\n', '=======\n', '>>>>>>> x\n'), labels) ?? '';
+		expect(marked).toBe(
+			`${OPEN}\\=======\n${BASE}a\n=======\n\\>>>>>>> x\n${CLOSE}`,
+		);
+		expect(findConflicts(marked)).toMatchObject([
+			{ current: '=======\n', incoming: '>>>>>>> x\n' },
+		]);
 	});
 
 	test('an overlap in a body after frontmatter has offsets past the header', () => {
-		const r = merge('---\na: 1\n---\ncat\n', '---\na: 1\n---\ncart\n', '---\na: 2\n---\ncoat\n');
+		const r = merge(
+			'---\na: 1\n---\ncat\n',
+			'---\na: 1\n---\ncart\n',
+			'---\na: 2\n---\ncoat\n',
+		);
 		expect(r.text).toBe('---\na: 2\n---\ncart\n');
 		const [overlap] = spans(r.overlaps);
 		expect(r.text?.slice(overlap?.start, overlap?.end)).toBe('cart');
-		expect(withBlocks(r, labels)).toBe(`---\na: 2\n---\n${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`);
+		expect(withBlocks(r, labels)).toBe(
+			`---\na: 2\n---\n${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`,
+		);
 	});
 
 	test('CRLF overlap blocks use current line endings and offsets', () => {
 		const r = merge('a\ncat\n', 'a\r\ncart\r\n', 'a\ncoat\n');
 		expect(r.text).toBe('a\r\ncart\r\n');
-		expect(withBlocks(r, labels)).toBe(`a\n${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`.replaceAll('\n', '\r\n'));
+		expect(withBlocks(r, labels)).toBe(
+			`a\n${OPEN}cart\n${BASE}cat\n=======\ncoat\n${CLOSE}`.replaceAll(
+				'\n',
+				'\r\n',
+			),
+		);
 	});
 
 	test('a further edit of an existing block adds a separate block, never a nested one', () => {
@@ -200,45 +266,79 @@ describe('examples', () => {
 		expect(marked).toBe(`${OPEN}${BASE}cat\n=======\ncut\n${CLOSE}${first}`);
 		const blocks = findConflicts(marked);
 		expect(blocks).toHaveLength(2);
-		for (const block of blocks) expect(block.current + block.incoming).not.toContain('<<<<<<< ');
+		for (const block of blocks)
+			expect(block.current + block.incoming).not.toContain('<<<<<<< ');
 	});
 
 	test('one clash is one block: an edit of lines a block offers as a side continues that side, however many writes follow', () => {
 		// Bob's oneR met Alice's oneA; Alice's later writes were made from oneA, then oneAB.
 		const first = withBlocks(merge('one\n', 'oneR\n', 'oneA\n'), labels) ?? '';
-		const later = { ...labels, incoming: { author: 'alice', time: 't3', version: 'i2' } };
-		const second = withBlocks(merge('intro\noneA\n', `intro\n${first}`, 'intro\noneAB\n'), later) ?? '';
-		expect(second).toBe(`intro\n${OPEN}oneR\n${BASE}one\n=======\noneAB\n>>>>>>> incoming alice t3 i2\n`);
-		const third = withBlocks(merge('intro\noneAB\n', second, 'intro\noneABC\n'), later) ?? '';
-		expect(findConflicts(third)).toMatchObject([{ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' }]);
+		const later = {
+			...labels,
+			incoming: { author: 'alice', time: 't3', version: 'i2' },
+		};
+		const second =
+			withBlocks(
+				merge('intro\noneA\n', `intro\n${first}`, 'intro\noneAB\n'),
+				later,
+			) ?? '';
+		expect(second).toBe(
+			`intro\n${OPEN}oneR\n${BASE}one\n=======\noneAB\n>>>>>>> incoming alice t3 i2\n`,
+		);
+		const third =
+			withBlocks(merge('intro\noneAB\n', second, 'intro\noneABC\n'), later) ??
+			'';
+		expect(findConflicts(third)).toMatchObject([
+			{ current: 'oneR\n', base: 'one\n', incoming: 'oneABC\n' },
+		]);
 		// The block may be on either side: here the writer's own text holds it, and main edited the line it offers.
-		const mirrored = withBlocks(merge('oneR\n', 'oneRS\n', first), labels) ?? '';
+		const mirrored =
+			withBlocks(merge('oneR\n', 'oneRS\n', first), labels) ?? '';
 		expect(mirrored).toBe(`${OPEN}oneRS\n${BASE}one\n=======\noneA\n${CLOSE}`);
 	});
 
 	test("continuing a block's side keeps text typed on its delimiter line", () => {
-		const block = '<<<<<<< current bob t1 c1 typed here\noneR\n||||||| base b1\none\n=======\noneA\n>>>>>>> incoming alice t0 i0\n';
-		const continued = withBlocks(merge('oneR\n', block, 'oneRS\n'), labels) ?? '';
-		expect(findConflicts(continued)).toMatchObject([{ current: 'oneRS\n', incoming: 'oneA\n', labels: { current: 'current bob t1 c1 typed here' } }]);
+		const block =
+			'<<<<<<< current bob t1 c1 typed here\noneR\n||||||| base b1\none\n=======\noneA\n>>>>>>> incoming alice t0 i0\n';
+		const continued =
+			withBlocks(merge('oneR\n', block, 'oneRS\n'), labels) ?? '';
+		expect(findConflicts(continued)).toMatchObject([
+			{
+				current: 'oneRS\n',
+				incoming: 'oneA\n',
+				labels: { current: 'current bob t1 c1 typed here' },
+			},
+		]);
 	});
 
 	test('an overlap touching an existing block keeps both sides', () => {
 		// Probe: current edits a plain line and a line in the block; incoming edits
 		// the plain line and resolves the block. Incoming used to vanish.
-		const block = '<<<<<<< current x t v\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> incoming y t v\n';
+		const block =
+			'<<<<<<< current x t v\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> incoming y t v\n';
 		const edited = block.replace('one', 'ONE');
-		const r = merge(`intro\n${block}end\n`, `intro by cur\n${edited}end\n`, 'intro by inc\nresolved\nend\n');
+		const r = merge(
+			`intro\n${block}end\n`,
+			`intro by cur\n${edited}end\n`,
+			'intro by inc\nresolved\nend\n',
+		);
 		expect(r.overlaps).toMatchObject([{ unit: 'block' }]);
 		const marked = withBlocks(r, labels) ?? '';
-		expect(marked).toBe(`${OPEN}intro by cur\n${BASE}intro\n=======\nintro by inc\nresolved\n${CLOSE}${edited}end\n`);
+		expect(marked).toBe(
+			`${OPEN}intro by cur\n${BASE}intro\n=======\nintro by inc\nresolved\n${CLOSE}${edited}end\n`,
+		);
 		expect(findConflicts(marked)).toHaveLength(2);
 	});
 
 	test('two edits inside one block become two adjacent blocks', () => {
-		const block = '<<<<<<< current x t v\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> incoming y t v\n';
+		const block =
+			'<<<<<<< current x t v\none\n||||||| base\nzero\n=======\ntwo\n>>>>>>> incoming y t v\n';
 		const mine = block.replace('one', 'ONE');
 		const theirs = block.replace('two', 'TWO');
-		const marked = withBlocks(merge(`a\n${block}`, `a\n${mine}`, `a\n${theirs}`), labels);
+		const marked = withBlocks(
+			merge(`a\n${block}`, `a\n${mine}`, `a\n${theirs}`),
+			labels,
+		);
 		expect(marked).toBe(`a\n${mine}${theirs}`);
 	});
 
@@ -247,7 +347,11 @@ describe('examples', () => {
 	});
 
 	test('unparseable frontmatter merges as plain lines', () => {
-		const r = merge('---\na: [\n---\nx\ny\n', '---\na: [\n---\nX\ny\n', '---\na: [\n---\nx\nY\n');
+		const r = merge(
+			'---\na: [\n---\nx\ny\n',
+			'---\na: [\n---\nX\ny\n',
+			'---\na: [\n---\nx\nY\n',
+		);
 		expect(r.text).toBe('---\na: [\n---\nX\nY\n');
 	});
 
@@ -279,13 +383,16 @@ const random = () => {
 	return seed >>> 0;
 };
 const pick = (n: number) => random() % n;
-const count = (s: string, token: string) => (s.match(new RegExp(`\\b${token}\\b`, 'g')) ?? []).length;
-const tokens = (s: string | null): string[] => s?.match(/\b(?:b|c|i)\d+\b/g) ?? [];
+const count = (s: string, token: string) =>
+	(s.match(new RegExp(`\\b${token}\\b`, 'g')) ?? []).length;
+const tokens = (s: string | null): string[] =>
+	s?.match(/\b(?:b|c|i)\d+\b/g) ?? [];
 
 function caseAt(k: number): [string, string, string] {
 	const baseLines = Array.from(
 		{ length: 1 + pick(5) },
-		(_, n) => `- b${k * 20 + n * 3} b${k * 20 + n * 3 + 1} b${k * 20 + n * 3 + 2}\n`,
+		(_, n) =>
+			`- b${k * 20 + n * 3} b${k * 20 + n * 3 + 1} b${k * 20 + n * 3 + 2}\n`,
 	);
 	const edit = (side: string, mode: number) => {
 		const lines = [...baseLines];
@@ -306,8 +413,16 @@ describe('properties', () => {
 	test('inserted tokens outside overlaps survive exactly once', () => {
 		for (const [b, c, i] of CASES) {
 			const r = merge(b, c, i);
-			for (const token of new Set([...tokens(c), ...tokens(i)].filter((t) => !tokens(b).includes(t)))) {
-				if (spans(r.overlaps).some((o) => tokens(o.current).includes(token) || tokens(o.incoming).includes(token)))
+			for (const token of new Set(
+				[...tokens(c), ...tokens(i)].filter((t) => !tokens(b).includes(t)),
+			)) {
+				if (
+					spans(r.overlaps).some(
+						(o) =>
+							tokens(o.current).includes(token) ||
+							tokens(o.incoming).includes(token),
+					)
+				)
 					continue;
 				expect(count(r.text ?? '', token)).toBe(1);
 			}
@@ -317,15 +432,19 @@ describe('properties', () => {
 	test('jointly retained base tokens occur once outside overlaps', () => {
 		for (const [b, c, i] of CASES) {
 			const r = merge(b, c, i);
-			for (const token of tokens(b).filter((t) => tokens(c).includes(t) && tokens(i).includes(t))) {
-				if (spans(r.overlaps).some((o) => tokens(o.base).includes(token))) continue;
+			for (const token of tokens(b).filter(
+				(t) => tokens(c).includes(t) && tokens(i).includes(t),
+			)) {
+				if (spans(r.overlaps).some((o) => tokens(o.base).includes(token)))
+					continue;
 				expect(count(r.text ?? '', token)).toBe(1);
 			}
 		}
 	});
 
 	test('merge is deterministic', () => {
-		for (const [b, c, i] of CASES) expect(merge(b, c, i)).toEqual(merge(b, c, i));
+		for (const [b, c, i] of CASES)
+			expect(merge(b, c, i)).toEqual(merge(b, c, i));
 	});
 
 	test('identity laws hold', () => {
@@ -339,7 +458,8 @@ describe('properties', () => {
 	test('no output token is a blend', () => {
 		for (const [b, c, i] of CASES) {
 			const possible = new Set([...tokens(b), ...tokens(c), ...tokens(i)]);
-			for (const token of tokens(merge(b, c, i).text)) expect(possible.has(token)).toBe(true);
+			for (const token of tokens(merge(b, c, i).text))
+				expect(possible.has(token)).toBe(true);
 		}
 	});
 
@@ -348,7 +468,9 @@ describe('properties', () => {
 			const result = merge(b, c, i);
 			const marked = withBlocks(result, labels) ?? '';
 			const found = findConflicts(marked);
-			expect(found.length).toBeGreaterThanOrEqual(spans(result.overlaps).filter((o) => o.unit === 'body').length);
+			expect(found.length).toBeGreaterThanOrEqual(
+				spans(result.overlaps).filter((o) => o.unit === 'body').length,
+			);
 			for (const block of found) {
 				expect(marked.slice(block.from, block.to)).toBe(block.raw);
 				expect(block.current).not.toContain('<<<<<<< ');
@@ -369,7 +491,8 @@ describe('properties', () => {
 			i[200 + pick(1000)] = `- i${trial}\n`;
 			const r = merge(base.join(''), c.join(''), i.join(''));
 			expect(r.overlaps).toHaveLength(0);
-			for (const token of [`c${trial}`, `d${trial}`, `i${trial}`]) expect(count(r.text ?? '', token)).toBe(1);
+			for (const token of [`c${trial}`, `d${trial}`, `i${trial}`])
+				expect(count(r.text ?? '', token)).toBe(1);
 		}
 	});
 });
@@ -377,7 +500,12 @@ describe('properties', () => {
 describe('two insertions at one point', () => {
 	test("lines both sides inserted are kept once, each side's own lines current first (property seeds B 910115, 910214)", () => {
 		// Both broke the same frontmatter (its lines moved to the body) and set a field: the moved lines are one copy.
-		const merged = merge('---\ntitle: t1z\n---\n', '---\n---\n---\nx: a\ntitle: t1z\n---\n', '---\n---\n---\ny: b\ntitle: t1z\n---\n').text ?? '';
+		const merged =
+			merge(
+				'---\ntitle: t1z\n---\n',
+				'---\n---\n---\nx: a\ntitle: t1z\n---\n',
+				'---\n---\n---\ny: b\ntitle: t1z\n---\n',
+			).text ?? '';
 		expect(merged.match(/t1z/g)).toHaveLength(1);
 		expect(merged).toBe('---\n---\n---\nx: a\ny: b\ntitle: t1z\n---\n');
 		// Nothing shared: both kept whole, current first, as before.
@@ -395,11 +523,20 @@ describe('two insertions at one point', () => {
 		const marked = withBlocks(result, labels) ?? '';
 		expect(findConflicts(marked)).toHaveLength(1);
 		// Overlapping, not only touching: the same (property seed W 400031).
-		const overlapping = merge('---\ntitle: t11z\n---\na\n', '---\n---\ntitle: t11z\nX\na c\n', '---\n---\ntitle: t11z\na b\n');
+		const overlapping = merge(
+			'---\ntitle: t11z\n---\na\n',
+			'---\n---\ntitle: t11z\nX\na c\n',
+			'---\n---\ntitle: t11z\na b\n',
+		);
 		expect(overlapping.text?.match(/t11z/g)).toHaveLength(1);
-		expect(overlapping.overlaps.filter((o) => o.unit === 'body')).toHaveLength(1);
+		expect(overlapping.overlaps.filter((o) => o.unit === 'body')).toHaveLength(
+			1,
+		);
 		// Sharing nothing, they stay independent: an insertion beside a neighbour's edit merges clean.
-		expect(merge(base, 'ONE\ntwo\n', 'zero\none\ntwo\n')).toEqual({ text: 'zero\nONE\ntwo\n', overlaps: [] });
+		expect(merge(base, 'ONE\ntwo\n', 'zero\none\ntwo\n')).toEqual({
+			text: 'zero\nONE\ntwo\n',
+			overlaps: [],
+		});
 	});
 });
 
@@ -408,38 +545,77 @@ describe('the header merges by top-level key, each value whole', () => {
 	const fieldsOf = (text: string | null) => parseMarkdown(text ?? '').fields;
 
 	test("a list both sides changed is one value: [a] / [a, b] / [a, c] is the later write's, incoming's [a, c]", () => {
-		const r = merge(note('tags: [a]\n'), note('tags: [a, b]\n'), note('tags: [a, c]\n'));
+		const r = merge(
+			note('tags: [a]\n'),
+			note('tags: [a, b]\n'),
+			note('tags: [a, c]\n'),
+		);
 		expect(r.text).toBe(note('tags: [a, c]\n'));
 		expect(r.overlaps).toEqual([]);
 	});
 
 	test("a map both sides changed is one value: incoming's whole, never merged by its keys", () => {
-		const r = merge(note('meta:\n  x: 1\n'), note('meta:\n  x: 1\n  y: 2\n'), note('meta:\n  x: 1\n  z: 3\n'));
+		const r = merge(
+			note('meta:\n  x: 1\n'),
+			note('meta:\n  x: 1\n  y: 2\n'),
+			note('meta:\n  x: 1\n  z: 3\n'),
+		);
 		expect(fieldsOf(r.text)).toEqual({ meta: { x: 1, z: 3 } });
 		expect(r.overlaps).toEqual([]);
 	});
 
 	test("comments in the header survive the merge, each side's own", () => {
 		const base = note('# about this note\ntitle: t # the title\ntags: [a]\n');
-		const current = note('# about this note\ntitle: t # the title\ntags: [a, b] # topics\n');
-		const incoming = note('# about this note\ntitle: t # the title\ntags: [a]\n# how it went\nmood: ok # for now\n');
+		const current = note(
+			'# about this note\ntitle: t # the title\ntags: [a, b] # topics\n',
+		);
+		const incoming = note(
+			'# about this note\ntitle: t # the title\ntags: [a]\n# how it went\nmood: ok # for now\n',
+		);
 		const r = merge(base, current, incoming);
-		expect(r.text).toBe(note('# about this note\ntitle: t # the title\ntags: [a, b] # topics\n# how it went\nmood: ok # for now\n'));
+		expect(r.text).toBe(
+			note(
+				'# about this note\ntitle: t # the title\ntags: [a, b] # topics\n# how it went\nmood: ok # for now\n',
+			),
+		);
 		// A key's value taken from incoming keeps the key's own comment, and brings the value's.
-		const won = merge(base, current, note('# about this note\ntitle: u # renamed\ntags: [a]\n'));
-		expect(won.text).toBe(note('# about this note\ntitle: u # renamed\ntags: [a, b] # topics\n'));
+		const won = merge(
+			base,
+			current,
+			note('# about this note\ntitle: u # renamed\ntags: [a]\n'),
+		);
+		expect(won.text).toBe(
+			note('# about this note\ntitle: u # renamed\ntags: [a, b] # topics\n'),
+		);
 	});
 
 	test("two patches of one key at once on a header that does not parse: the later write's value, never a duplicate key", () => {
 		const broken = '---\na: [\n---\nbody\n';
-		const r = merge(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { done: false } }));
-		expect(r).toEqual({ text: '---\na: [\ndone: false\n---\nbody\n', overlaps: [] });
+		const r = merge(
+			broken,
+			writeMarkdown(broken, { fields: { done: true } }),
+			writeMarkdown(broken, { fields: { done: false } }),
+		);
+		expect(r).toEqual({
+			text: '---\na: [\ndone: false\n---\nbody\n',
+			overlaps: [],
+		});
 		// Different keys are both kept.
-		expect(merge(broken, writeMarkdown(broken, { fields: { done: true } }), writeMarkdown(broken, { fields: { mood: 'ok' } })).text).toBe('---\na: [\ndone: true\nmood: ok\n---\nbody\n');
+		expect(
+			merge(
+				broken,
+				writeMarkdown(broken, { fields: { done: true } }),
+				writeMarkdown(broken, { fields: { mood: 'ok' } }),
+			).text,
+		).toBe('---\na: [\ndone: true\nmood: ok\n---\nbody\n');
 	});
 
 	test('a side that breaks its header drops it: the broken block is its body, and no empty header is left', () => {
-		const r = merge(note('title: A\n', 'one\nbob\n'), note('title: A\n', 'one\nBOB\n'), `---\ntitle: A\ntitle: B\n---\nONE\nbob\n`);
+		const r = merge(
+			note('title: A\n', 'one\nbob\n'),
+			note('title: A\n', 'one\nBOB\n'),
+			`---\ntitle: A\ntitle: B\n---\nONE\nbob\n`,
+		);
 		expect(r.text).toBe('---\ntitle: A\ntitle: B\n---\nONE\nBOB\n');
 	});
 });
@@ -447,26 +623,54 @@ describe('the header merges by top-level key, each value whole', () => {
 describe('the header is a list of key blocks: a broken key merges by key like any other', () => {
 	test('two people breaking one header at once: each break is its own key, never a line copied into the body (property seed W 800031)', () => {
 		// Bob breaks the header over a main that had no block yet; Carol breaks it over a main that did.
-		const bob = merge('---\ntitle: t\n---\n', '---\ntitle: t\n---\nBLOCK\n', '---\nxb: "open\ntitle: t\n---\n').text ?? '';
+		const bob =
+			merge(
+				'---\ntitle: t\n---\n',
+				'---\ntitle: t\n---\nBLOCK\n',
+				'---\nxb: "open\ntitle: t\n---\n',
+			).text ?? '';
 		expect(bob).toBe('---\ntitle: t\nxb: "open\n---\nBLOCK\n');
-		const carol = merge('---\ntitle: t\n---\nBLOCK\n', bob, '---\nxc: "open\ntitle: t\n---\nBLOCK\n').text ?? '';
+		const carol =
+			merge(
+				'---\ntitle: t\n---\nBLOCK\n',
+				bob,
+				'---\nxc: "open\ntitle: t\n---\nBLOCK\n',
+			).text ?? '';
 		expect(carol).toBe('---\ntitle: t\nxb: "open\nxc: "open\n---\nBLOCK\n');
 	});
 
 	test('two concurrent breaks of different keys merge per key', () => {
 		const base = '---\ntitle: t\nmood: m\n---\nbody\n';
-		const r = merge(base, '---\ntitle: "t\nmood: m\n---\nbody\n', '---\ntitle: t\nmood: [m\n---\nbody\n');
-		expect(r).toEqual({ text: '---\ntitle: "t\nmood: [m\n---\nbody\n', overlaps: [] });
+		const r = merge(
+			base,
+			'---\ntitle: "t\nmood: m\n---\nbody\n',
+			'---\ntitle: t\nmood: [m\n---\nbody\n',
+		);
+		expect(r).toEqual({
+			text: '---\ntitle: "t\nmood: [m\n---\nbody\n',
+			overlaps: [],
+		});
 	});
 
 	test("two concurrent breaks of the same key: the later write's", () => {
-		const r = merge('---\ntitle: t\ndone: true\n---\nbody\n', '---\ntitle: "t\ndone: true\n---\nbody\n', '---\ntitle: [t\ndone: true\n---\nbody\n');
-		expect(r).toEqual({ text: '---\ntitle: [t\ndone: true\n---\nbody\n', overlaps: [] });
+		const r = merge(
+			'---\ntitle: t\ndone: true\n---\nbody\n',
+			'---\ntitle: "t\ndone: true\n---\nbody\n',
+			'---\ntitle: [t\ndone: true\n---\nbody\n',
+		);
+		expect(r).toEqual({
+			text: '---\ntitle: [t\ndone: true\n---\nbody\n',
+			overlaps: [],
+		});
 	});
 
 	test("a text whose closing fence went is all body: its old header lines are body, and the other side's header edit stays in the header", () => {
 		// Current adds a key (broken); incoming deletes the closing fence, so its header lines are body.
-		const r = merge('---\ntitle: a\n---\nbody\n', '---\nxc: "open\ntitle: a\n---\nbody\n', '---\ntitle: a\nbody\n');
+		const r = merge(
+			'---\ntitle: a\n---\nbody\n',
+			'---\nxc: "open\ntitle: a\n---\nbody\n',
+			'---\ntitle: a\nbody\n',
+		);
 		expect(r.text).toBe('---\nxc: "open\n---\n---\ntitle: a\nbody\n');
 		expect(r.text?.match(/title: a/g)).toHaveLength(1);
 	});
@@ -474,7 +678,10 @@ describe('the header is a list of key blocks: a broken key merges by key like an
 
 describe('a merge never breaks a note', () => {
 	/** Whether a text's fences, if any, hold parseable frontmatter. */
-	const opensParsed = (text: string | null) => text === null || splitMarkdown(text).yaml === null || parseMarkdown(text).hasFrontmatter;
+	const opensParsed = (text: string | null) =>
+		text === null ||
+		splitMarkdown(text).yaml === null ||
+		parseMarkdown(text).hasFrontmatter;
 	let state = 0x9e3779b9;
 	const next = () => {
 		state ^= state << 13;
@@ -482,25 +689,56 @@ describe('a merge never breaks a note', () => {
 		state ^= state << 5;
 		return (state >>> 0) / 2 ** 32;
 	};
-	const choose = <T>(items: readonly T[]) => items[Math.floor(next() * items.length)] as T;
+	const choose = <T>(items: readonly T[]) =>
+		items[Math.floor(next() * items.length)] as T;
 	/** Body lines that look like frontmatter, fences or blocks, beside ordinary ones. */
-	const LINES = ['---', 'a: 1', 'title: x', '- item', 'plain words', '', '<<<<<<< x', '=======', '"open', 'k: [1, 2]'] as const;
+	const LINES = [
+		'---',
+		'a: 1',
+		'title: x',
+		'- item',
+		'plain words',
+		'',
+		'<<<<<<< x',
+		'=======',
+		'"open',
+		'k: [1, 2]',
+	] as const;
 	const VALUES = [1, 'two', [1, 2], { n: 1 }, null, 'a: b', '---'] as const;
-	const fields = () => Object.fromEntries(['title', 'a', 'mood', 'tags'].filter(() => next() < 0.5).map((key) => [key, choose(VALUES)]));
-	const body = () => Array.from({ length: Math.floor(next() * 5) }, () => `${choose(LINES)}\n`).join('');
+	const fields = () =>
+		Object.fromEntries(
+			['title', 'a', 'mood', 'tags']
+				.filter(() => next() < 0.5)
+				.map((key) => [key, choose(VALUES)]),
+		);
+	const body = () =>
+		Array.from(
+			{ length: Math.floor(next() * 5) },
+			() => `${choose(LINES)}\n`,
+		).join('');
 	/** A side's edit of `text`: fields set or removed, frontmatter added or dropped, body lines inserted (at the top, often) or removed. */
 	function edit(text: string) {
 		let out = text;
 		for (let n = Math.floor(next() * 3); n >= 0; n--) {
 			const roll = next();
 			const parsed = parseMarkdown(out);
-			if (roll < 0.3) out = writeMarkdown(out, { fields: { [choose(['title', 'a', 'mood', 'tags', 'new'])]: next() < 0.3 ? undefined : choose(VALUES) } });
+			if (roll < 0.3)
+				out = writeMarkdown(out, {
+					fields: {
+						[choose(['title', 'a', 'mood', 'tags', 'new'])]:
+							next() < 0.3 ? undefined : choose(VALUES),
+					},
+				});
 			else if (roll < 0.4) out = parsed.body;
-			else if (roll < 0.5) out = writeMarkdown(null, { fields: fields(), body: out });
+			else if (roll < 0.5)
+				out = writeMarkdown(null, { fields: fields(), body: out });
 			else {
-				const lines = parsed.body.split(/(?<=\n)/).filter((line) => line !== '');
+				const lines = parsed.body
+					.split(/(?<=\n)/)
+					.filter((line) => line !== '');
 				const at = next() < 0.5 ? 0 : Math.floor(next() * (lines.length + 1));
-				if (next() < 0.3 && lines.length > 0) lines.splice(Math.min(at, lines.length - 1), 1);
+				if (next() < 0.3 && lines.length > 0)
+					lines.splice(Math.min(at, lines.length - 1), 1);
 				else lines.splice(at, 0, `${choose(LINES)}\n`);
 				out = writeMarkdown(out, { body: lines.join('') });
 			}
@@ -514,68 +752,146 @@ describe('a merge never breaks a note', () => {
 	 * that came out unparseable reads as none, so it fails both. (A text whose
 	 * top block does not parse is a note with no header, not a broken one.)
 	 */
-	const keepsHeader = (current: string, incoming: string, text: string | null) => {
+	const keepsHeader = (
+		current: string,
+		incoming: string,
+		text: string | null,
+	) => {
 		if (text === null) return true;
-		const [merged, c, i] = [parseMarkdown(text), parseMarkdown(current), parseMarkdown(incoming)];
-		if (c.hasFrontmatter && i.hasFrontmatter && !merged.hasFrontmatter) return false;
-		return Object.keys(c.fields).every((key) => !Object.hasOwn(i.fields, key) || !sameValue(c.fields[key], i.fields[key]) || sameValue(merged.fields[key], c.fields[key]));
+		const [merged, c, i] = [
+			parseMarkdown(text),
+			parseMarkdown(current),
+			parseMarkdown(incoming),
+		];
+		if (c.hasFrontmatter && i.hasFrontmatter && !merged.hasFrontmatter)
+			return false;
+		return Object.keys(c.fields).every(
+			(key) =>
+				!Object.hasOwn(i.fields, key) ||
+				!sameValue(c.fields[key], i.fields[key]) ||
+				sameValue(merged.fields[key], c.fields[key]),
+		);
 	};
 
 	test('a merge keeps the header: where both sides had one it has one, holding every key both sides agree on, blocks written included', () => {
 		for (let k = 0; k < 20_000; k++) {
-			const base = next() < 0.15 ? null : writeMarkdown(null, { fields: fields(), body: body() });
-			const current = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
-			const incoming = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
+			const base =
+				next() < 0.15
+					? null
+					: writeMarkdown(null, { fields: fields(), body: body() });
+			const current = edit(
+				base ?? writeMarkdown(null, { fields: fields(), body: body() }),
+			);
+			const incoming = edit(
+				base ?? writeMarkdown(null, { fields: fields(), body: body() }),
+			);
 			const result = merge(base, current, incoming);
 			const marked = withBlocks(result, labels);
-			if (!keepsHeader(current, incoming, result.text) || !keepsHeader(current, incoming, marked)) throw new Error(`a merge lost the header: ${JSON.stringify({ base, current, incoming, merged: result.text, marked })}`);
+			if (
+				!keepsHeader(current, incoming, result.text) ||
+				!keepsHeader(current, incoming, marked)
+			)
+				throw new Error(
+					`a merge lost the header: ${JSON.stringify({ base, current, incoming, merged: result.text, marked })}`,
+				);
 		}
 	});
 
 	test('merges, patches and house style never break a key that parses, and never write a key twice: only typed text breaks a key', () => {
-		const brokenOf = (text: string | null) => new Set(text === null ? [] : parseMarkdown(text).broken);
+		const brokenOf = (text: string | null) =>
+			new Set(text === null ? [] : parseMarkdown(text).broken);
 		const twice = (text: string | null) => {
-			const keys = readNote(text ?? '').header?.blocks.map((block) => block.key) ?? [];
+			const keys =
+				readNote(text ?? '').header?.blocks.map((block) => block.key) ?? [];
 			return new Set(keys.filter((key, n) => keys.indexOf(key) !== n));
 		};
-		const within = (inner: Set<string>, ...outer: Set<string>[]) => [...inner].every((key) => outer.some((set) => set.has(key)));
+		const within = (inner: Set<string>, ...outer: Set<string>[]) =>
+			[...inner].every((key) => outer.some((set) => set.has(key)));
 		/** Typed text that breaks a key: a quote left open on a new key line or a key's own line. */
 		const typed = (text: string) => {
 			if (next() > 0.25 || splitMarkdown(text).yaml === null) return text;
-			return next() < 0.5 ? `---\nx: "open\n${text.slice(4)}` : text.replace(/^(title|mood|a): .*$/m, '$1: "open');
+			return next() < 0.5
+				? `---\nx: "open\n${text.slice(4)}`
+				: text.replace(/^(title|mood|a): .*$/m, '$1: "open');
 		};
 		for (let k = 0; k < 20_000; k++) {
-			const base = next() < 0.15 ? null : typed(writeMarkdown(null, { fields: fields(), body: body() }));
-			const current = typed(edit(base ?? writeMarkdown(null, { fields: fields(), body: body() })));
-			const incoming = typed(edit(base ?? writeMarkdown(null, { fields: fields(), body: body() })));
+			const base =
+				next() < 0.15
+					? null
+					: typed(writeMarkdown(null, { fields: fields(), body: body() }));
+			const current = typed(
+				edit(base ?? writeMarkdown(null, { fields: fields(), body: body() })),
+			);
+			const incoming = typed(
+				edit(base ?? writeMarkdown(null, { fields: fields(), body: body() })),
+			);
 			for (const text of [current, incoming]) {
 				const key = choose(['title', 'a', 'mood', 'tags', 'new']);
-				const patched = writeMarkdown(text, { fields: { [key]: next() < 0.3 ? undefined : choose(VALUES) } });
+				const patched = writeMarkdown(text, {
+					fields: { [key]: next() < 0.3 ? undefined : choose(VALUES) },
+				});
 				const formatted = formatMarkdown(text);
-				const without = new Set([...brokenOf(text)].filter((other) => other !== key));
-				if (!within(brokenOf(patched), without) || twice(patched).size > twice(text).size) throw new Error(`a patch broke a key: ${JSON.stringify({ text, patched })}`);
-				if (!within(brokenOf(formatted), brokenOf(text)) || !sameValue(parseMarkdown(formatted).fields, parseMarkdown(text).fields)) throw new Error(`house style broke a key: ${JSON.stringify({ text, formatted })}`);
+				const without = new Set(
+					[...brokenOf(text)].filter((other) => other !== key),
+				);
+				if (
+					!within(brokenOf(patched), without) ||
+					twice(patched).size > twice(text).size
+				)
+					throw new Error(
+						`a patch broke a key: ${JSON.stringify({ text, patched })}`,
+					);
+				if (
+					!within(brokenOf(formatted), brokenOf(text)) ||
+					!sameValue(
+						parseMarkdown(formatted).fields,
+						parseMarkdown(text).fields,
+					)
+				)
+					throw new Error(
+						`house style broke a key: ${JSON.stringify({ text, formatted })}`,
+					);
 			}
 			const result = merge(base, current, incoming);
 			for (const out of [result.text, withBlocks(result, labels)])
-				if (!within(brokenOf(out), brokenOf(current), brokenOf(incoming)) || !within(twice(out), twice(current), twice(incoming)))
-					throw new Error(`a merge broke a key: ${JSON.stringify({ base, current, incoming, merged: out })}`);
+				if (
+					!within(brokenOf(out), brokenOf(current), brokenOf(incoming)) ||
+					!within(twice(out), twice(current), twice(incoming))
+				)
+					throw new Error(
+						`a merge broke a key: ${JSON.stringify({ base, current, incoming, merged: out })}`,
+					);
 		}
 	}, 60_000);
 
 	test('house style is idempotent, and merges commute with it: merging formatted texts formats to what merging the texts does', () => {
 		let checked = 0;
-		const formatted = (text: string | null) => (text === null ? null : formatMarkdown(text));
+		const formatted = (text: string | null) =>
+			text === null ? null : formatMarkdown(text);
 		for (let k = 0; k < 10_000; k++) {
-			const base = next() < 0.15 ? null : writeMarkdown(null, { fields: fields(), body: body() });
-			const current = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
-			const incoming = edit(base ?? writeMarkdown(null, { fields: fields(), body: body() }));
+			const base =
+				next() < 0.15
+					? null
+					: writeMarkdown(null, { fields: fields(), body: body() });
+			const current = edit(
+				base ?? writeMarkdown(null, { fields: fields(), body: body() }),
+			);
+			const incoming = edit(
+				base ?? writeMarkdown(null, { fields: fields(), body: body() }),
+			);
 			if (![base, current, incoming].every(opensParsed)) continue;
 			checked++;
-			for (const text of [current, incoming]) if (formatMarkdown(formatMarkdown(text)) !== formatMarkdown(text)) throw new Error(`not idempotent: ${JSON.stringify(text)}`);
+			for (const text of [current, incoming])
+				if (formatMarkdown(formatMarkdown(text)) !== formatMarkdown(text))
+					throw new Error(`not idempotent: ${JSON.stringify(text)}`);
 			const plain = formatted(merge(base, current, incoming).text);
-			const styled = formatted(merge(formatted(base), formatted(current), formatted(incoming)).text);
-			if (plain !== styled) throw new Error(`a merge does not commute with house style: ${JSON.stringify({ base, current, incoming, plain, styled })}`);
+			const styled = formatted(
+				merge(formatted(base), formatted(current), formatted(incoming)).text,
+			);
+			if (plain !== styled)
+				throw new Error(
+					`a merge does not commute with house style: ${JSON.stringify({ base, current, incoming, plain, styled })}`,
+				);
 		}
 		expect(checked).toBeGreaterThan(5_000);
 	});

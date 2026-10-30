@@ -6,7 +6,12 @@
  * collection name.
  */
 import type { AppManifest } from '@epicenter/app';
-import { type App, combineApps, type Definitions, type Repository } from '@epicenter/repository';
+import {
+	type App,
+	combineApps,
+	type Definitions,
+	type Repository,
+} from '@epicenter/repository';
 
 /** The repository the shell opens: every installed app's collections, and the plain file API. */
 export type ShellRepository = Repository<Definitions>;

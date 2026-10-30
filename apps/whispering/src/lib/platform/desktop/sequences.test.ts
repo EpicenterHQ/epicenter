@@ -74,9 +74,7 @@ async function open(files: Record<string, string>) {
 	for (const [path, text] of Object.entries(files))
 		await shell.write(path, text);
 	const stubs = await openTestServices();
-	const opened = expectOk(
-		await openFolder({ tables: whisperingTables }),
-	);
+	const opened = expectOk(await openFolder({ tables: whisperingTables }));
 	const folder = svelteFolder(opened);
 	const { whispering } = await createTestWhispering({
 		services: stubs.services,

@@ -21,17 +21,27 @@ export type SyncAccessHandle = {
 };
 
 /** The names in `directory`, with whether each is a file or a directory. */
-export async function entriesOf(directory: FileSystemDirectoryHandle): Promise<[string, FileSystemHandle['kind']][]> {
+export async function entriesOf(
+	directory: FileSystemDirectoryHandle,
+): Promise<[string, FileSystemHandle['kind']][]> {
 	const found: [string, FileSystemHandle['kind']][] = [];
-	for await (const [name, handle] of (directory as FileSystemDirectoryHandle & { entries(): AsyncIterable<[string, FileSystemHandle]> }).entries())
+	for await (const [name, handle] of (
+		directory as FileSystemDirectoryHandle & {
+			entries(): AsyncIterable<[string, FileSystemHandle]>;
+		}
+	).entries())
 		found.push([name, handle.kind]);
 	return found.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-export const isNotFound = (cause: unknown) => cause instanceof DOMException && cause.name === 'NotFoundError';
+export const isNotFound = (cause: unknown) =>
+	cause instanceof DOMException && cause.name === 'NotFoundError';
 
 /** The directory `name` in `parent`, or null when there is none. */
-export async function directoryIn(parent: FileSystemDirectoryHandle, name: string): Promise<FileSystemDirectoryHandle | null> {
+export async function directoryIn(
+	parent: FileSystemDirectoryHandle,
+	name: string,
+): Promise<FileSystemDirectoryHandle | null> {
 	try {
 		return await parent.getDirectoryHandle(name);
 	} catch (cause) {
@@ -41,7 +51,10 @@ export async function directoryIn(parent: FileSystemDirectoryHandle, name: strin
 }
 
 /** The file `name` in `directory`, or null when there is none. */
-export async function fileIn(directory: FileSystemDirectoryHandle, name: string): Promise<File | null> {
+export async function fileIn(
+	directory: FileSystemDirectoryHandle,
+	name: string,
+): Promise<File | null> {
 	try {
 		return await (await directory.getFileHandle(name)).getFile();
 	} catch (cause) {
@@ -56,14 +69,21 @@ export async function fileIn(directory: FileSystemDirectoryHandle, name: string)
  * `name`. A worker killed midway leaves at most a stray temporary file. In a
  * dedicated worker only.
  */
-export async function writeWhole(directory: FileSystemDirectoryHandle, name: string, bytes: Uint8Array) {
+export async function writeWhole(
+	directory: FileSystemDirectoryHandle,
+	name: string,
+	bytes: Uint8Array,
+) {
 	const temporary = `${name}.${crypto.randomUUID()}.tmp`;
-	const handle = (await directory.getFileHandle(temporary, { create: true })) as WorkerFileHandle;
+	const handle = (await directory.getFileHandle(temporary, {
+		create: true,
+	})) as WorkerFileHandle;
 	try {
 		const access = await handle.createSyncAccessHandle();
 		try {
 			access.truncate(0);
-			if (access.write(bytes, { at: 0 }) !== bytes.length) throw new Error(`The write to '${temporary}' was short`);
+			if (access.write(bytes, { at: 0 }) !== bytes.length)
+				throw new Error(`The write to '${temporary}' was short`);
 			access.flush();
 		} finally {
 			access.close();

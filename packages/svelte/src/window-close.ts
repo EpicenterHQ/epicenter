@@ -27,7 +27,9 @@ export async function holdWindowClose(
 		try {
 			await drain();
 		} catch (cause) {
-			log.error(new Error('The window could not wait for its writes', { cause }));
+			log.error(
+				new Error('The window could not wait for its writes', { cause }),
+			);
 		}
 		if (!holding || phase !== 'waiting') return;
 		phase = 'gone';
@@ -47,9 +49,12 @@ export async function holdWindowClose(
 	};
 
 	try {
-		const token = await invoke<number>('plugin:epicenter-folder|subscribe_close', {
-			onClose: channel,
-		});
+		const token = await invoke<number>(
+			'plugin:epicenter-folder|subscribe_close',
+			{
+				onClose: channel,
+			},
+		);
 		registered.resolve(token);
 		return () => {
 			if (!holding) return;

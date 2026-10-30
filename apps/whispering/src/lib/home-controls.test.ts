@@ -39,9 +39,9 @@ import type { WhisperingServices } from './platform/types.js';
 import {
 	deferred,
 	openTestServices,
-	waitForSaves,
 	TEST_BASE_URL,
 	type TestServicesOptions,
+	waitForSaves,
 } from './services.test-support.js';
 import type { Whispering } from './whispering.svelte.js';
 

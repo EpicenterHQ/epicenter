@@ -15,4 +15,9 @@
  */
 import { definePropertySuite, memoryWorld } from './property.test-support.js';
 
-definePropertySuite({ label: 'the repository in memory', prefix: 'B', runs: 40, world: memoryWorld });
+definePropertySuite({
+	label: 'the repository in memory',
+	prefix: 'B',
+	runs: 40,
+	world: memoryWorld,
+});

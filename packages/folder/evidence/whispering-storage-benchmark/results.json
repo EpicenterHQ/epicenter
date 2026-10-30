@@ -1,2047 +1,1864 @@
 {
-  "recordedAt": "2026-10-27T07:00:18.257Z",
-  "scope": "Data-layer startup: open storage, hydrate/project five tables, list files. Excludes browser launch, script loading, Svelte mount, network sync and audio.",
-  "rounds": 3,
-  "sizes": [
-    1000,
-    10000
-  ],
-  "yjs": "14.0.0-rc.26",
-  "manifests": [
-    {
-      "browser": "chromium",
-      "version": "151.0.7922.34",
-      "variant": "current",
-      "size": 1000,
-      "tables": [
-        {
-          "name": "recordings",
-          "rows": 1000,
-          "markdownBytes": 254890
-        },
-        {
-          "name": "transcriptions",
-          "rows": 1000,
-          "markdownBytes": 3143000
-        },
-        {
-          "name": "transformations",
-          "rows": 1000,
-          "markdownBytes": 638890
-        },
-        {
-          "name": "transformation_runs",
-          "rows": 1000,
-          "markdownBytes": 5576890
-        },
-        {
-          "name": "text_runs",
-          "rows": 1000,
-          "markdownBytes": 4986890
-        }
-      ],
-      "expected": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "seedMs": 280.5,
-      "logicalStoredBytes": 14865762
-    },
-    {
-      "browser": "chromium",
-      "version": "151.0.7922.34",
-      "variant": "batched-cache",
-      "size": 1000,
-      "tables": [
-        {
-          "name": "recordings",
-          "rows": 1000,
-          "markdownBytes": 254890
-        },
-        {
-          "name": "transcriptions",
-          "rows": 1000,
-          "markdownBytes": 3143000
-        },
-        {
-          "name": "transformations",
-          "rows": 1000,
-          "markdownBytes": 638890
-        },
-        {
-          "name": "transformation_runs",
-          "rows": 1000,
-          "markdownBytes": 5576890
-        },
-        {
-          "name": "text_runs",
-          "rows": 1000,
-          "markdownBytes": 4986890
-        }
-      ],
-      "expected": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "seedMs": 264.69999980926514,
-      "logicalStoredBytes": 14865762
-    },
-    {
-      "browser": "chromium",
-      "version": "151.0.7922.34",
-      "variant": "yjs",
-      "size": 1000,
-      "tables": [
-        {
-          "name": "recordings",
-          "rows": 1000,
-          "markdownBytes": 254890
-        },
-        {
-          "name": "transcriptions",
-          "rows": 1000,
-          "markdownBytes": 3143000
-        },
-        {
-          "name": "transformations",
-          "rows": 1000,
-          "markdownBytes": 638890
-        },
-        {
-          "name": "transformation_runs",
-          "rows": 1000,
-          "markdownBytes": 5576890
-        },
-        {
-          "name": "text_runs",
-          "rows": 1000,
-          "markdownBytes": 4986890
-        }
-      ],
-      "expected": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "seedMs": 126.59999990463257,
-      "logicalStoredBytes": 14679603
-    },
-    {
-      "browser": "chromium",
-      "version": "151.0.7922.34",
-      "variant": "current",
-      "size": 10000,
-      "tables": [
-        {
-          "name": "recordings",
-          "rows": 10000,
-          "markdownBytes": 2558890
-        },
-        {
-          "name": "transcriptions",
-          "rows": 10000,
-          "markdownBytes": 31430000
-        },
-        {
-          "name": "transformations",
-          "rows": 10000,
-          "markdownBytes": 6398890
-        },
-        {
-          "name": "transformation_runs",
-          "rows": 10000,
-          "markdownBytes": 55778890
-        },
-        {
-          "name": "text_runs",
-          "rows": 10000,
-          "markdownBytes": 49878890
-        }
-      ],
-      "expected": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "seedMs": 3930.5,
-      "logicalStoredBytes": 148695762
-    },
-    {
-      "browser": "chromium",
-      "version": "151.0.7922.34",
-      "variant": "batched-cache",
-      "size": 10000,
-      "tables": [
-        {
-          "name": "recordings",
-          "rows": 10000,
-          "markdownBytes": 2558890
-        },
-        {
-          "name": "transcriptions",
-          "rows": 10000,
-          "markdownBytes": 31430000
-        },
-        {
-          "name": "transformations",
-          "rows": 10000,
-          "markdownBytes": 6398890
-        },
-        {
-          "name": "transformation_runs",
-          "rows": 10000,
-          "markdownBytes": 55778890
-        },
-        {
-          "name": "text_runs",
-          "rows": 10000,
-          "markdownBytes": 49878890
-        }
-      ],
-      "expected": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "seedMs": 2914,
-      "logicalStoredBytes": 148695762
-    },
-    {
-      "browser": "chromium",
-      "version": "151.0.7922.34",
-      "variant": "yjs",
-      "size": 10000,
-      "tables": [
-        {
-          "name": "recordings",
-          "rows": 10000,
-          "markdownBytes": 2558890
-        },
-        {
-          "name": "transcriptions",
-          "rows": 10000,
-          "markdownBytes": 31430000
-        },
-        {
-          "name": "transformations",
-          "rows": 10000,
-          "markdownBytes": 6398890
-        },
-        {
-          "name": "transformation_runs",
-          "rows": 10000,
-          "markdownBytes": 55778890
-        },
-        {
-          "name": "text_runs",
-          "rows": 10000,
-          "markdownBytes": 49878890
-        }
-      ],
-      "expected": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "seedMs": 821.5,
-      "logicalStoredBytes": 146835604
-    }
-  ],
-  "trials": [
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "current",
-      "round": 0,
-      "startup": {
-        "openMs": 28.699999809265137,
-        "replayMs": 0,
-        "listMs": 229.90000009536743,
-        "readyMs": 258.59999990463257,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696480,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389751
-      },
-      "immediate": {
-        "usedSize": 22295516,
-        "totalSize": 47513600,
-        "embedderHeapUsedSize": 1515032,
-        "backingStorageSize": 30057147
-      },
-      "steady": {
-        "usedSize": 9472932,
-        "totalSize": 11337728,
-        "embedderHeapUsedSize": 320088,
-        "backingStorageSize": 14990331
-      },
-      "startupMemory": {
-        "jsHeapBytes": 20599036,
-        "backingBytes": 29667396,
-        "heapAndBackingBytes": 50266432
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 7776452,
-        "backingBytes": 14600580,
-        "heapAndBackingBytes": 22377032
-      },
-      "warmMs": [
-        240.69999980926514,
-        182.90000009536743,
-        193.40000009536743
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 16.40000009536743,
-          "refreshMs": 46.59999990463257,
-          "totalMs": 63
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 9.800000190734863,
-          "refreshMs": 41.90000009536743,
-          "totalMs": 51.700000286102295
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 9,
-          "refreshMs": 41.30000019073486,
-          "totalMs": 50.30000019073486
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 8.5,
-          "refreshMs": 40.5,
-          "totalMs": 49
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.099999904632568,
-          "refreshMs": 43.40000009536743,
-          "totalMs": 49.5
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "batched-cache",
-      "round": 0,
-      "startup": {
-        "openMs": 11.699999809265137,
-        "replayMs": 0,
-        "listMs": 194.80000019073486,
-        "readyMs": 206.5,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696512,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 390102
-      },
-      "immediate": {
-        "usedSize": 25503852,
-        "totalSize": 49348608,
-        "embedderHeapUsedSize": 1495416,
-        "backingStorageSize": 30347739
-      },
-      "steady": {
-        "usedSize": 9720956,
-        "totalSize": 11599872,
-        "embedderHeapUsedSize": 340344,
-        "backingStorageSize": 15190688
-      },
-      "startupMemory": {
-        "jsHeapBytes": 23807340,
-        "backingBytes": 29957637,
-        "heapAndBackingBytes": 53764977
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 8024444,
-        "backingBytes": 14800586,
-        "heapAndBackingBytes": 22825030
-      },
-      "warmMs": [
-        25,
-        23.09999990463257,
-        25.300000190734863
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 22.100000381469727,
-          "refreshMs": 3.299999713897705,
-          "totalMs": 25.40000009536743
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 7,
-          "refreshMs": 2.9000000953674316,
-          "totalMs": 9.900000095367432
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.400000095367432,
-          "refreshMs": 3.3000001907348633,
-          "totalMs": 9.700000286102295
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.599999904632568,
-          "refreshMs": 2.799999713897705,
-          "totalMs": 9.399999618530273
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6,
-          "refreshMs": 2.8000001907348633,
-          "totalMs": 8.800000190734863
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "yjs",
-      "round": 0,
-      "startup": {
-        "openMs": 7.900000095367432,
-        "replayMs": 34.90000009536743,
-        "listMs": 25.199999809265137,
-        "readyMs": 68,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696496,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389743
-      },
-      "immediate": {
-        "usedSize": 17055332,
-        "totalSize": 52887552,
-        "embedderHeapUsedSize": 695024,
-        "backingStorageSize": 28821287
-      },
-      "steady": {
-        "usedSize": 14274916,
-        "totalSize": 16269312,
-        "embedderHeapUsedSize": 307648,
-        "backingStorageSize": 14141684
-      },
-      "startupMemory": {
-        "jsHeapBytes": 15358836,
-        "backingBytes": 28431544,
-        "heapAndBackingBytes": 43790380
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 12578420,
-        "backingBytes": 13751941,
-        "heapAndBackingBytes": 26330361
-      },
-      "warmMs": [
-        2.3000001907348633,
-        2.200000286102295,
-        1.6999998092651367
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.6999998092651367,
-          "updateBytes": 43,
-          "durableMs": 6.099999904632568,
-          "refreshMs": 0.40000009536743164,
-          "totalMs": 6.5
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 8.400000095367432,
-          "refreshMs": 0.40000009536743164,
-          "totalMs": 8.800000190734863
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 15,
-          "refreshMs": 0.19999980926513672,
-          "totalMs": 15.199999809265137
-        },
-        {
-          "inMemoryMs": 0.20000028610229492,
-          "updateBytes": 34,
-          "durableMs": 7.400000095367432,
-          "refreshMs": 0.19999980926513672,
-          "totalMs": 7.599999904632568
-        },
-        {
-          "inMemoryMs": 0.20000028610229492,
-          "updateBytes": 34,
-          "durableMs": 0.7000002861022949,
-          "refreshMs": 0,
-          "totalMs": 0.7000002861022949
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "yjs",
-      "round": 1,
-      "startup": {
-        "openMs": 9.199999809265137,
-        "replayMs": 40,
-        "listMs": 25.90000009536743,
-        "readyMs": 75.09999990463257,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696496,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389743
-      },
-      "immediate": {
-        "usedSize": 23476352,
-        "totalSize": 54460416,
-        "embedderHeapUsedSize": 695024,
-        "backingStorageSize": 28821366
-      },
-      "steady": {
-        "usedSize": 15491608,
-        "totalSize": 17842176,
-        "embedderHeapUsedSize": 307648,
-        "backingStorageSize": 14141684
-      },
-      "startupMemory": {
-        "jsHeapBytes": 21779856,
-        "backingBytes": 28431623,
-        "heapAndBackingBytes": 50211479
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 13795112,
-        "backingBytes": 13751941,
-        "heapAndBackingBytes": 27547053
-      },
-      "warmMs": [
-        2.0999999046325684,
-        2,
-        1.6999998092651367
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.8000001907348633,
-          "updateBytes": 42,
-          "durableMs": 17.5,
-          "refreshMs": 0.5,
-          "totalMs": 18
-        },
-        {
-          "inMemoryMs": 0.19999980926513672,
-          "updateBytes": 34,
-          "durableMs": 7.699999809265137,
-          "refreshMs": 0.40000009536743164,
-          "totalMs": 8.099999904632568
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 7.099999904632568,
-          "refreshMs": 0.3000001907348633,
-          "totalMs": 7.400000095367432
-        },
-        {
-          "inMemoryMs": 0.19999980926513672,
-          "updateBytes": 34,
-          "durableMs": 5.5,
-          "refreshMs": 0.19999980926513672,
-          "totalMs": 5.699999809265137
-        },
-        {
-          "inMemoryMs": 0.19999980926513672,
-          "updateBytes": 34,
-          "durableMs": 0.5999999046325684,
-          "refreshMs": 0.09999990463256836,
-          "totalMs": 0.6999998092651367
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "batched-cache",
-      "round": 1,
-      "startup": {
-        "openMs": 18.700000286102295,
-        "replayMs": 0,
-        "listMs": 199.19999980926514,
-        "readyMs": 217.90000009536743,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696512,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 390102
-      },
-      "immediate": {
-        "usedSize": 25597868,
-        "totalSize": 49348608,
-        "embedderHeapUsedSize": 1537192,
-        "backingStorageSize": 30347739
-      },
-      "steady": {
-        "usedSize": 9721424,
-        "totalSize": 11075584,
-        "embedderHeapUsedSize": 340352,
-        "backingStorageSize": 15190688
-      },
-      "startupMemory": {
-        "jsHeapBytes": 23901356,
-        "backingBytes": 29957637,
-        "heapAndBackingBytes": 53858993
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 8024912,
-        "backingBytes": 14800586,
-        "heapAndBackingBytes": 22825498
-      },
-      "warmMs": [
-        23.59999990463257,
-        21.800000190734863,
-        22.40000009536743
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 11.599999904632568,
-          "refreshMs": 3,
-          "totalMs": 14.599999904632568
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 15.200000286102295,
-          "refreshMs": 3.299999713897705,
-          "totalMs": 18.5
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.200000286102295,
-          "refreshMs": 2.5999999046325684,
-          "totalMs": 8.800000190734863
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.599999904632568,
-          "refreshMs": 3,
-          "totalMs": 9.599999904632568
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.300000190734863,
-          "refreshMs": 2.9000000953674316,
-          "totalMs": 9.200000286102295
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "current",
-      "round": 1,
-      "startup": {
-        "openMs": 13.800000190734863,
-        "replayMs": 0,
-        "listMs": 210.19999980926514,
-        "readyMs": 224,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696480,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389751
-      },
-      "immediate": {
-        "usedSize": 23346080,
-        "totalSize": 46989312,
-        "embedderHeapUsedSize": 1519432,
-        "backingStorageSize": 30057147
-      },
-      "steady": {
-        "usedSize": 9471552,
-        "totalSize": 10813440,
-        "embedderHeapUsedSize": 320088,
-        "backingStorageSize": 14990331
-      },
-      "startupMemory": {
-        "jsHeapBytes": 21649600,
-        "backingBytes": 29667396,
-        "heapAndBackingBytes": 51316996
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 7775072,
-        "backingBytes": 14600580,
-        "heapAndBackingBytes": 22375652
-      },
-      "warmMs": [
-        245.59999990463257,
-        180.19999980926514,
-        171.19999980926514
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 14.900000095367432,
-          "refreshMs": 48,
-          "totalMs": 62.90000009536743
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 7,
-          "refreshMs": 44,
-          "totalMs": 51
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.799999713897705,
-          "refreshMs": 42.80000019073486,
-          "totalMs": 49.59999990463257
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 21.800000190734863,
-          "refreshMs": 42.19999980926514,
-          "totalMs": 64
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 9.200000286102295,
-          "refreshMs": 45.5,
-          "totalMs": 54.700000286102295
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "batched-cache",
-      "round": 2,
-      "startup": {
-        "openMs": 28.300000190734863,
-        "replayMs": 0,
-        "listMs": 205.30000019073486,
-        "readyMs": 233.60000038146973,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696512,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 390102
-      },
-      "immediate": {
-        "usedSize": 25594896,
-        "totalSize": 49086464,
-        "embedderHeapUsedSize": 1537288,
-        "backingStorageSize": 30347739
-      },
-      "steady": {
-        "usedSize": 9721040,
-        "totalSize": 11075584,
-        "embedderHeapUsedSize": 340344,
-        "backingStorageSize": 15190688
-      },
-      "startupMemory": {
-        "jsHeapBytes": 23898384,
-        "backingBytes": 29957637,
-        "heapAndBackingBytes": 53856021
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 8024528,
-        "backingBytes": 14800586,
-        "heapAndBackingBytes": 22825114
-      },
-      "warmMs": [
-        25.600000381469727,
-        24.200000286102295,
-        21.59999990463257
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 15,
-          "refreshMs": 3.4000000953674316,
-          "totalMs": 18.40000009536743
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 16,
-          "refreshMs": 3.4000000953674316,
-          "totalMs": 19.40000009536743
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 9.5,
-          "refreshMs": 3.6999998092651367,
-          "totalMs": 13.199999809265137
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 13.899999618530273,
-          "refreshMs": 3.200000286102295,
-          "totalMs": 17.09999990463257
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 8.599999904632568,
-          "refreshMs": 3.0999999046325684,
-          "totalMs": 11.699999809265137
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "current",
-      "round": 2,
-      "startup": {
-        "openMs": 8.400000095367432,
-        "replayMs": 0,
-        "listMs": 208.5,
-        "readyMs": 216.90000009536743,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696480,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 723192,
-        "backingStorageSize": 389751
-      },
-      "immediate": {
-        "usedSize": 23098264,
-        "totalSize": 47251456,
-        "embedderHeapUsedSize": 1441464,
-        "backingStorageSize": 30057147
-      },
-      "steady": {
-        "usedSize": 9471528,
-        "totalSize": 10551296,
-        "embedderHeapUsedSize": 319840,
-        "backingStorageSize": 14990331
-      },
-      "startupMemory": {
-        "jsHeapBytes": 21401784,
-        "backingBytes": 29667396,
-        "heapAndBackingBytes": 51069180
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 7775048,
-        "backingBytes": 14600580,
-        "heapAndBackingBytes": 22375628
-      },
-      "warmMs": [
-        240.59999990463257,
-        190.5,
-        181
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 12.599999904632568,
-          "refreshMs": 49.69999980926514,
-          "totalMs": 62.299999713897705
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 7.400000095367432,
-          "refreshMs": 45.700000286102295,
-          "totalMs": 53.10000038146973
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6.299999713897705,
-          "refreshMs": 43.59999990463257,
-          "totalMs": 49.89999961853027
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 6,
-          "refreshMs": 42.80000019073486,
-          "totalMs": 48.80000019073486
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 5.599999904632568,
-          "refreshMs": 45.19999980926514,
-          "totalMs": 50.799999713897705
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 1000,
-      "variant": "yjs",
-      "round": 2,
-      "startup": {
-        "openMs": 4.800000190734863,
-        "replayMs": 38.5,
-        "listMs": 25.5,
-        "readyMs": 68.80000019073486,
-        "counts": [
-          1000,
-          1000,
-          1000,
-          1000,
-          1000
-        ],
-        "files": 5000
-      },
-      "baseline": {
-        "usedSize": 1696496,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389743
-      },
-      "immediate": {
-        "usedSize": 23616816,
-        "totalSize": 54460416,
-        "embedderHeapUsedSize": 695024,
-        "backingStorageSize": 28821436
-      },
-      "steady": {
-        "usedSize": 15501484,
-        "totalSize": 17842176,
-        "embedderHeapUsedSize": 307648,
-        "backingStorageSize": 14141684
-      },
-      "startupMemory": {
-        "jsHeapBytes": 21920320,
-        "backingBytes": 28431693,
-        "heapAndBackingBytes": 50352013
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 13804988,
-        "backingBytes": 13751941,
-        "heapAndBackingBytes": 27556929
-      },
-      "warmMs": [
-        2,
-        1.8000001907348633,
-        1.8000001907348633
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.7999997138977051,
-          "updateBytes": 42,
-          "durableMs": 20.5,
-          "refreshMs": 0.5,
-          "totalMs": 21.09999990463257
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 1.5999999046325684,
-          "refreshMs": 0.40000009536743164,
-          "totalMs": 2
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 1.299999713897705,
-          "refreshMs": 0.09999990463256836,
-          "totalMs": 1.3999996185302734
-        },
-        {
-          "inMemoryMs": 0.19999980926513672,
-          "updateBytes": 34,
-          "durableMs": 9.5,
-          "refreshMs": 0.19999980926513672,
-          "totalMs": 9.699999809265137
-        },
-        {
-          "inMemoryMs": 0.10000038146972656,
-          "updateBytes": 34,
-          "durableMs": 1.5,
-          "refreshMs": 0.20000028610229492,
-          "totalMs": 1.700000286102295
-        }
-      ],
-      "validation": {
-        "count": 5000,
-        "hash": 2980791451
-      },
-      "editedValidation": {
-        "count": 5000,
-        "hash": 122338349
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "current",
-      "round": 0,
-      "startup": {
-        "openMs": 12.900000095367432,
-        "replayMs": 0,
-        "listMs": 2041.1999998092651,
-        "readyMs": 2054.0999999046326,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696480,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389751
-      },
-      "immediate": {
-        "usedSize": 100942352,
-        "totalSize": 169558016,
-        "embedderHeapUsedSize": 1646128,
-        "backingStorageSize": 253953641
-      },
-      "steady": {
-        "usedSize": 71820376,
-        "totalSize": 74727424,
-        "embedderHeapUsedSize": 317344,
-        "backingStorageSize": 146435331
-      },
-      "startupMemory": {
-        "jsHeapBytes": 99245872,
-        "backingBytes": 253563890,
-        "heapAndBackingBytes": 352809762
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 70123896,
-        "backingBytes": 146045580,
-        "heapAndBackingBytes": 216169476
-      },
-      "warmMs": [
-        1896,
-        1903.5999999046326,
-        1833.7000002861023
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 114.5,
-          "refreshMs": 461.6000003814697,
-          "totalMs": 576.1000003814697
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 59.59999990463257,
-          "refreshMs": 489.2999997138977,
-          "totalMs": 548.8999996185303
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 57.700000286102295,
-          "refreshMs": 434,
-          "totalMs": 491.7000002861023
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 59.59999990463257,
-          "refreshMs": 610.4000000953674,
-          "totalMs": 670
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 62,
-          "refreshMs": 556,
-          "totalMs": 618
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "batched-cache",
-      "round": 0,
-      "startup": {
-        "openMs": 14.599999904632568,
-        "replayMs": 0,
-        "listMs": 1802.9000000953674,
-        "readyMs": 1817.5,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696512,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 390102
-      },
-      "immediate": {
-        "usedSize": 136070284,
-        "totalSize": 191315968,
-        "embedderHeapUsedSize": 5015016,
-        "backingStorageSize": 201756431
-      },
-      "steady": {
-        "usedSize": 74786480,
-        "totalSize": 78577664,
-        "embedderHeapUsedSize": 444960,
-        "backingStorageSize": 148435688
-      },
-      "startupMemory": {
-        "jsHeapBytes": 134373772,
-        "backingBytes": 201366329,
-        "heapAndBackingBytes": 335740101
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 73089968,
-        "backingBytes": 148045586,
-        "heapAndBackingBytes": 221135554
-      },
-      "warmMs": [
-        270,
-        251.40000009536743,
-        259.2999997138977
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 84.59999990463257,
-          "refreshMs": 33.299999713897705,
-          "totalMs": 117.89999961853027
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 60.799999713897705,
-          "refreshMs": 31.90000009536743,
-          "totalMs": 92.69999980926514
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 65.90000009536743,
-          "refreshMs": 34.299999713897705,
-          "totalMs": 100.19999980926514
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 58.200000286102295,
-          "refreshMs": 32.299999713897705,
-          "totalMs": 90.5
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 63.19999980926514,
-          "refreshMs": 33.30000019073486,
-          "totalMs": 96.5
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "yjs",
-      "round": 0,
-      "startup": {
-        "openMs": 4.200000286102295,
-        "replayMs": 306.09999990463257,
-        "listMs": 167.90000009536743,
-        "readyMs": 478.2000002861023,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696496,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389743
-      },
-      "immediate": {
-        "usedSize": 149467120,
-        "totalSize": 216580096,
-        "embedderHeapUsedSize": 4371256,
-        "backingStorageSize": 284763288
-      },
-      "steady": {
-        "usedSize": 124262516,
-        "totalSize": 140328960,
-        "embedderHeapUsedSize": 307648,
-        "backingStorageSize": 137927684
-      },
-      "startupMemory": {
-        "jsHeapBytes": 147770624,
-        "backingBytes": 284373545,
-        "heapAndBackingBytes": 432144169
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 122566020,
-        "backingBytes": 137537941,
-        "heapAndBackingBytes": 260103961
-      },
-      "warmMs": [
-        18.5,
-        13.700000286102295,
-        13.5
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.8000001907348633,
-          "updateBytes": 44,
-          "durableMs": 13.700000286102295,
-          "refreshMs": 1.8999996185302734,
-          "totalMs": 15.599999904632568
-        },
-        {
-          "inMemoryMs": 0.10000038146972656,
-          "updateBytes": 34,
-          "durableMs": 2.1000003814697266,
-          "refreshMs": 1.5999999046325684,
-          "totalMs": 3.700000286102295
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 3.799999713897705,
-          "refreshMs": 1.0999999046325684,
-          "totalMs": 4.899999618530273
-        },
-        {
-          "inMemoryMs": 0.10000038146972656,
-          "updateBytes": 34,
-          "durableMs": 1.8000001907348633,
-          "refreshMs": 0.9000000953674316,
-          "totalMs": 2.700000286102295
-        },
-        {
-          "inMemoryMs": 0,
-          "updateBytes": 34,
-          "durableMs": 0.8999996185302734,
-          "refreshMs": 0.8000001907348633,
-          "totalMs": 1.6999998092651367
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "yjs",
-      "round": 1,
-      "startup": {
-        "openMs": 15,
-        "replayMs": 312.19999980926514,
-        "listMs": 158.10000038146973,
-        "readyMs": 485.30000019073486,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696496,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 723192,
-        "backingStorageSize": 389743
-      },
-      "immediate": {
-        "usedSize": 153088048,
-        "totalSize": 216154112,
-        "embedderHeapUsedSize": 4377880,
-        "backingStorageSize": 284763369
-      },
-      "steady": {
-        "usedSize": 125271948,
-        "totalSize": 141115392,
-        "embedderHeapUsedSize": 307648,
-        "backingStorageSize": 137927684
-      },
-      "startupMemory": {
-        "jsHeapBytes": 151391552,
-        "backingBytes": 284373626,
-        "heapAndBackingBytes": 435765178
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 123575452,
-        "backingBytes": 137537941,
-        "heapAndBackingBytes": 261113393
-      },
-      "warmMs": [
-        17.90000009536743,
-        15.5,
-        12.800000190734863
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.6999998092651367,
-          "updateBytes": 42,
-          "durableMs": 16.199999809265137,
-          "refreshMs": 1.8000001907348633,
-          "totalMs": 18
-        },
-        {
-          "inMemoryMs": 0.10000038146972656,
-          "updateBytes": 34,
-          "durableMs": 13.700000286102295,
-          "refreshMs": 1.5999999046325684,
-          "totalMs": 15.300000190734863
-        },
-        {
-          "inMemoryMs": 0.19999980926513672,
-          "updateBytes": 34,
-          "durableMs": 17.799999713897705,
-          "refreshMs": 1.200000286102295,
-          "totalMs": 19
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 5.5,
-          "refreshMs": 0.7999997138977051,
-          "totalMs": 6.299999713897705
-        },
-        {
-          "inMemoryMs": 0,
-          "updateBytes": 34,
-          "durableMs": 0.40000009536743164,
-          "refreshMs": 0.5999999046325684,
-          "totalMs": 1
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "batched-cache",
-      "round": 1,
-      "startup": {
-        "openMs": 17.300000190734863,
-        "replayMs": 0,
-        "listMs": 1880.9000000953674,
-        "readyMs": 1898.2000002861023,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696512,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 390102
-      },
-      "immediate": {
-        "usedSize": 136110692,
-        "totalSize": 200343552,
-        "embedderHeapUsedSize": 5666088,
-        "backingStorageSize": 201750853
-      },
-      "steady": {
-        "usedSize": 74780800,
-        "totalSize": 78839808,
-        "embedderHeapUsedSize": 443552,
-        "backingStorageSize": 148435688
-      },
-      "startupMemory": {
-        "jsHeapBytes": 134414180,
-        "backingBytes": 201360751,
-        "heapAndBackingBytes": 335774931
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 73084288,
-        "backingBytes": 148045586,
-        "heapAndBackingBytes": 221129874
-      },
-      "warmMs": [
-        261.40000009536743,
-        257.90000009536743,
-        228.7000002861023
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 78.7999997138977,
-          "refreshMs": 32.30000019073486,
-          "totalMs": 111.09999990463257
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 61.80000019073486,
-          "refreshMs": 31.800000190734863,
-          "totalMs": 93.60000038146973
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 63.89999961853027,
-          "refreshMs": 33.30000019073486,
-          "totalMs": 97.19999980926514
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 59.90000009536743,
-          "refreshMs": 30.5,
-          "totalMs": 90.40000009536743
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 65,
-          "refreshMs": 31.5,
-          "totalMs": 96.5
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "current",
-      "round": 1,
-      "startup": {
-        "openMs": 18.699999809265137,
-        "replayMs": 0,
-        "listMs": 2094.7000002861023,
-        "readyMs": 2113.4000000953674,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696480,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389751
-      },
-      "immediate": {
-        "usedSize": 99896324,
-        "totalSize": 168771584,
-        "embedderHeapUsedSize": 1777264,
-        "backingStorageSize": 253953641
-      },
-      "steady": {
-        "usedSize": 71819788,
-        "totalSize": 75776000,
-        "embedderHeapUsedSize": 317720,
-        "backingStorageSize": 146435331
-      },
-      "startupMemory": {
-        "jsHeapBytes": 98199844,
-        "backingBytes": 253563890,
-        "heapAndBackingBytes": 351763734
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 70123308,
-        "backingBytes": 146045580,
-        "heapAndBackingBytes": 216168888
-      },
-      "warmMs": [
-        1986.8000001907349,
-        1861,
-        1857.7000002861023
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 116.09999990463257,
-          "refreshMs": 550.8000001907349,
-          "totalMs": 666.9000000953674
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 58.69999980926514,
-          "refreshMs": 488.90000009536743,
-          "totalMs": 547.5999999046326
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 59.59999990463257,
-          "refreshMs": 452.19999980926514,
-          "totalMs": 511.7999997138977
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 59.5,
-          "refreshMs": 469,
-          "totalMs": 528.5
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 57.700000286102295,
-          "refreshMs": 464.5,
-          "totalMs": 522.2000002861023
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "batched-cache",
-      "round": 2,
-      "startup": {
-        "openMs": 19,
-        "replayMs": 0,
-        "listMs": 1900.2999997138977,
-        "readyMs": 1919.2999997138977,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696512,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305376,
-        "backingStorageSize": 390102
-      },
-      "immediate": {
-        "usedSize": 153393828,
-        "totalSize": 201277440,
-        "embedderHeapUsedSize": 5012784,
-        "backingStorageSize": 201750853
-      },
-      "steady": {
-        "usedSize": 74789328,
-        "totalSize": 79101952,
-        "embedderHeapUsedSize": 444224,
-        "backingStorageSize": 148435688
-      },
-      "startupMemory": {
-        "jsHeapBytes": 151697316,
-        "backingBytes": 201360751,
-        "heapAndBackingBytes": 353058067
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 73092816,
-        "backingBytes": 148045586,
-        "heapAndBackingBytes": 221138402
-      },
-      "warmMs": [
-        286.5,
-        225.5,
-        278.40000009536743
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 92.90000009536743,
-          "refreshMs": 32,
-          "totalMs": 124.90000009536743
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 55.80000019073486,
-          "refreshMs": 31,
-          "totalMs": 86.80000019073486
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 59,
-          "refreshMs": 31.09999990463257,
-          "totalMs": 90.09999990463257
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 396.09999990463257,
-          "refreshMs": 31.90000009536743,
-          "totalMs": 428
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 51.39999961853027,
-          "refreshMs": 28.100000381469727,
-          "totalMs": 79.5
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "current",
-      "round": 2,
-      "startup": {
-        "openMs": 18.40000009536743,
-        "replayMs": 0,
-        "listMs": 2098.4000000953674,
-        "readyMs": 2116.800000190735,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696480,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389751
-      },
-      "immediate": {
-        "usedSize": 119680752,
-        "totalSize": 167723008,
-        "embedderHeapUsedSize": 2188072,
-        "backingStorageSize": 253953641
-      },
-      "steady": {
-        "usedSize": 71820376,
-        "totalSize": 75513856,
-        "embedderHeapUsedSize": 317720,
-        "backingStorageSize": 146435331
-      },
-      "startupMemory": {
-        "jsHeapBytes": 117984272,
-        "backingBytes": 253563890,
-        "heapAndBackingBytes": 371548162
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 70123896,
-        "backingBytes": 146045580,
-        "heapAndBackingBytes": 216169476
-      },
-      "warmMs": [
-        1998.5999999046326,
-        1908,
-        1766.4000000953674
-      ],
-      "edits": [
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 116.90000009536743,
-          "refreshMs": 471.19999980926514,
-          "totalMs": 588.0999999046326
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 60.5,
-          "refreshMs": 429.30000019073486,
-          "totalMs": 489.80000019073486
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 59.90000009536743,
-          "refreshMs": 462.90000009536743,
-          "totalMs": 522.8000001907349
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 349.3999996185303,
-          "refreshMs": 634,
-          "totalMs": 983.3999996185303
-        },
-        {
-          "inMemoryMs": null,
-          "updateBytes": null,
-          "durableMs": 57.40000009536743,
-          "refreshMs": 522.9000000953674,
-          "totalMs": 580.3000001907349
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    },
-    {
-      "browser": "chromium",
-      "size": 10000,
-      "variant": "yjs",
-      "round": 2,
-      "startup": {
-        "openMs": 4.099999904632568,
-        "replayMs": 347.1000003814697,
-        "listMs": 162.59999990463257,
-        "readyMs": 513.8000001907349,
-        "counts": [
-          10000,
-          10000,
-          10000,
-          10000,
-          10000
-        ],
-        "files": 50000
-      },
-      "baseline": {
-        "usedSize": 1696496,
-        "totalSize": 2424832,
-        "embedderHeapUsedSize": 305560,
-        "backingStorageSize": 389743
-      },
-      "immediate": {
-        "usedSize": 181092924,
-        "totalSize": 232062976,
-        "embedderHeapUsedSize": 4500216,
-        "backingStorageSize": 284763432
-      },
-      "steady": {
-        "usedSize": 136321976,
-        "totalSize": 156057600,
-        "embedderHeapUsedSize": 307648,
-        "backingStorageSize": 137927684
-      },
-      "startupMemory": {
-        "jsHeapBytes": 179396428,
-        "backingBytes": 284373689,
-        "heapAndBackingBytes": 463770117
-      },
-      "retainedMemory": {
-        "jsHeapBytes": 134625480,
-        "backingBytes": 137537941,
-        "heapAndBackingBytes": 272163421
-      },
-      "warmMs": [
-        17.100000381469727,
-        17.40000009536743,
-        16.699999809265137
-      ],
-      "edits": [
-        {
-          "inMemoryMs": 0.6999998092651367,
-          "updateBytes": 42,
-          "durableMs": 5.5,
-          "refreshMs": 1.9000000953674316,
-          "totalMs": 7.400000095367432
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 0.9000000953674316,
-          "refreshMs": 1.5,
-          "totalMs": 2.4000000953674316
-        },
-        {
-          "inMemoryMs": 0,
-          "updateBytes": 34,
-          "durableMs": 0.7000002861022949,
-          "refreshMs": 0.7999997138977051,
-          "totalMs": 1.5
-        },
-        {
-          "inMemoryMs": 0.09999990463256836,
-          "updateBytes": 34,
-          "durableMs": 2.0999999046325684,
-          "refreshMs": 0.7000002861022949,
-          "totalMs": 2.8000001907348633
-        },
-        {
-          "inMemoryMs": 0.20000028610229492,
-          "updateBytes": 34,
-          "durableMs": 0.8000001907348633,
-          "refreshMs": 0.5999999046325684,
-          "totalMs": 1.4000000953674316
-        }
-      ],
-      "validation": {
-        "count": 50000,
-        "hash": 414801667
-      },
-      "editedValidation": {
-        "count": 50000,
-        "hash": 105526821
-      },
-      "incrementalReopenVerified": true
-    }
-  ],
-  "bundles": {
-    "current": "b0a9365677ec5e92ef03d49a6b1fcb1e2537835822dfd75e8ff08099472139b5",
-    "batched-cache": "28c1774128fb722c938bd92fa8a80211c324cac6e4603df498a0aca6af977f51",
-    "yjs": "25a84b9f56a73aec2bacb7365ef42878bdf191c6c84638bd7adc15d9288c1993"
-  },
-  "productionSources": {
-    "src/browser/storage.ts": "5b4b8ec27dd012cd17fd599a57aab514678a09e1edab0aad7b1f8e3df5ef3c32",
-    "src/browser/repository.ts": "4a15ad16c0579933076212ec72f799dcc6268f516ff8b28e39e8dd4453956e5a",
-    "src/shared/markdown-codec.ts": "568a2e72cb5c895d7e8ee672a46f47cf5248bfbb80d94c517cb24f64d5a3a813"
-  },
-  "machine": {
-    "cpu": "Apple M4 Max",
-    "ramGiB": 128,
-    "macOS": "26.5.2",
-    "bun": "1.4.3"
-  },
-  "sourceCommit": "ef0adda0aabedad4c062ceb599ae52fe6d043288"
+	"recordedAt": "2026-10-27T07:00:18.257Z",
+	"scope": "Data-layer startup: open storage, hydrate/project five tables, list files. Excludes browser launch, script loading, Svelte mount, network sync and audio.",
+	"rounds": 3,
+	"sizes": [1000, 10000],
+	"yjs": "14.0.0-rc.26",
+	"manifests": [
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"variant": "current",
+			"size": 1000,
+			"tables": [
+				{
+					"name": "recordings",
+					"rows": 1000,
+					"markdownBytes": 254890
+				},
+				{
+					"name": "transcriptions",
+					"rows": 1000,
+					"markdownBytes": 3143000
+				},
+				{
+					"name": "transformations",
+					"rows": 1000,
+					"markdownBytes": 638890
+				},
+				{
+					"name": "transformation_runs",
+					"rows": 1000,
+					"markdownBytes": 5576890
+				},
+				{
+					"name": "text_runs",
+					"rows": 1000,
+					"markdownBytes": 4986890
+				}
+			],
+			"expected": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"seedMs": 280.5,
+			"logicalStoredBytes": 14865762
+		},
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"variant": "batched-cache",
+			"size": 1000,
+			"tables": [
+				{
+					"name": "recordings",
+					"rows": 1000,
+					"markdownBytes": 254890
+				},
+				{
+					"name": "transcriptions",
+					"rows": 1000,
+					"markdownBytes": 3143000
+				},
+				{
+					"name": "transformations",
+					"rows": 1000,
+					"markdownBytes": 638890
+				},
+				{
+					"name": "transformation_runs",
+					"rows": 1000,
+					"markdownBytes": 5576890
+				},
+				{
+					"name": "text_runs",
+					"rows": 1000,
+					"markdownBytes": 4986890
+				}
+			],
+			"expected": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"seedMs": 264.69999980926514,
+			"logicalStoredBytes": 14865762
+		},
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"variant": "yjs",
+			"size": 1000,
+			"tables": [
+				{
+					"name": "recordings",
+					"rows": 1000,
+					"markdownBytes": 254890
+				},
+				{
+					"name": "transcriptions",
+					"rows": 1000,
+					"markdownBytes": 3143000
+				},
+				{
+					"name": "transformations",
+					"rows": 1000,
+					"markdownBytes": 638890
+				},
+				{
+					"name": "transformation_runs",
+					"rows": 1000,
+					"markdownBytes": 5576890
+				},
+				{
+					"name": "text_runs",
+					"rows": 1000,
+					"markdownBytes": 4986890
+				}
+			],
+			"expected": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"seedMs": 126.59999990463257,
+			"logicalStoredBytes": 14679603
+		},
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"variant": "current",
+			"size": 10000,
+			"tables": [
+				{
+					"name": "recordings",
+					"rows": 10000,
+					"markdownBytes": 2558890
+				},
+				{
+					"name": "transcriptions",
+					"rows": 10000,
+					"markdownBytes": 31430000
+				},
+				{
+					"name": "transformations",
+					"rows": 10000,
+					"markdownBytes": 6398890
+				},
+				{
+					"name": "transformation_runs",
+					"rows": 10000,
+					"markdownBytes": 55778890
+				},
+				{
+					"name": "text_runs",
+					"rows": 10000,
+					"markdownBytes": 49878890
+				}
+			],
+			"expected": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"seedMs": 3930.5,
+			"logicalStoredBytes": 148695762
+		},
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"variant": "batched-cache",
+			"size": 10000,
+			"tables": [
+				{
+					"name": "recordings",
+					"rows": 10000,
+					"markdownBytes": 2558890
+				},
+				{
+					"name": "transcriptions",
+					"rows": 10000,
+					"markdownBytes": 31430000
+				},
+				{
+					"name": "transformations",
+					"rows": 10000,
+					"markdownBytes": 6398890
+				},
+				{
+					"name": "transformation_runs",
+					"rows": 10000,
+					"markdownBytes": 55778890
+				},
+				{
+					"name": "text_runs",
+					"rows": 10000,
+					"markdownBytes": 49878890
+				}
+			],
+			"expected": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"seedMs": 2914,
+			"logicalStoredBytes": 148695762
+		},
+		{
+			"browser": "chromium",
+			"version": "151.0.7922.34",
+			"variant": "yjs",
+			"size": 10000,
+			"tables": [
+				{
+					"name": "recordings",
+					"rows": 10000,
+					"markdownBytes": 2558890
+				},
+				{
+					"name": "transcriptions",
+					"rows": 10000,
+					"markdownBytes": 31430000
+				},
+				{
+					"name": "transformations",
+					"rows": 10000,
+					"markdownBytes": 6398890
+				},
+				{
+					"name": "transformation_runs",
+					"rows": 10000,
+					"markdownBytes": 55778890
+				},
+				{
+					"name": "text_runs",
+					"rows": 10000,
+					"markdownBytes": 49878890
+				}
+			],
+			"expected": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"seedMs": 821.5,
+			"logicalStoredBytes": 146835604
+		}
+	],
+	"trials": [
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "current",
+			"round": 0,
+			"startup": {
+				"openMs": 28.699999809265137,
+				"replayMs": 0,
+				"listMs": 229.90000009536743,
+				"readyMs": 258.59999990463257,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696480,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389751
+			},
+			"immediate": {
+				"usedSize": 22295516,
+				"totalSize": 47513600,
+				"embedderHeapUsedSize": 1515032,
+				"backingStorageSize": 30057147
+			},
+			"steady": {
+				"usedSize": 9472932,
+				"totalSize": 11337728,
+				"embedderHeapUsedSize": 320088,
+				"backingStorageSize": 14990331
+			},
+			"startupMemory": {
+				"jsHeapBytes": 20599036,
+				"backingBytes": 29667396,
+				"heapAndBackingBytes": 50266432
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 7776452,
+				"backingBytes": 14600580,
+				"heapAndBackingBytes": 22377032
+			},
+			"warmMs": [240.69999980926514, 182.90000009536743, 193.40000009536743],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 16.40000009536743,
+					"refreshMs": 46.59999990463257,
+					"totalMs": 63
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 9.800000190734863,
+					"refreshMs": 41.90000009536743,
+					"totalMs": 51.700000286102295
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 9,
+					"refreshMs": 41.30000019073486,
+					"totalMs": 50.30000019073486
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 8.5,
+					"refreshMs": 40.5,
+					"totalMs": 49
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.099999904632568,
+					"refreshMs": 43.40000009536743,
+					"totalMs": 49.5
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "batched-cache",
+			"round": 0,
+			"startup": {
+				"openMs": 11.699999809265137,
+				"replayMs": 0,
+				"listMs": 194.80000019073486,
+				"readyMs": 206.5,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696512,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 390102
+			},
+			"immediate": {
+				"usedSize": 25503852,
+				"totalSize": 49348608,
+				"embedderHeapUsedSize": 1495416,
+				"backingStorageSize": 30347739
+			},
+			"steady": {
+				"usedSize": 9720956,
+				"totalSize": 11599872,
+				"embedderHeapUsedSize": 340344,
+				"backingStorageSize": 15190688
+			},
+			"startupMemory": {
+				"jsHeapBytes": 23807340,
+				"backingBytes": 29957637,
+				"heapAndBackingBytes": 53764977
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 8024444,
+				"backingBytes": 14800586,
+				"heapAndBackingBytes": 22825030
+			},
+			"warmMs": [25, 23.09999990463257, 25.300000190734863],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 22.100000381469727,
+					"refreshMs": 3.299999713897705,
+					"totalMs": 25.40000009536743
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 7,
+					"refreshMs": 2.9000000953674316,
+					"totalMs": 9.900000095367432
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.400000095367432,
+					"refreshMs": 3.3000001907348633,
+					"totalMs": 9.700000286102295
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.599999904632568,
+					"refreshMs": 2.799999713897705,
+					"totalMs": 9.399999618530273
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6,
+					"refreshMs": 2.8000001907348633,
+					"totalMs": 8.800000190734863
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "yjs",
+			"round": 0,
+			"startup": {
+				"openMs": 7.900000095367432,
+				"replayMs": 34.90000009536743,
+				"listMs": 25.199999809265137,
+				"readyMs": 68,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696496,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389743
+			},
+			"immediate": {
+				"usedSize": 17055332,
+				"totalSize": 52887552,
+				"embedderHeapUsedSize": 695024,
+				"backingStorageSize": 28821287
+			},
+			"steady": {
+				"usedSize": 14274916,
+				"totalSize": 16269312,
+				"embedderHeapUsedSize": 307648,
+				"backingStorageSize": 14141684
+			},
+			"startupMemory": {
+				"jsHeapBytes": 15358836,
+				"backingBytes": 28431544,
+				"heapAndBackingBytes": 43790380
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 12578420,
+				"backingBytes": 13751941,
+				"heapAndBackingBytes": 26330361
+			},
+			"warmMs": [2.3000001907348633, 2.200000286102295, 1.6999998092651367],
+			"edits": [
+				{
+					"inMemoryMs": 0.6999998092651367,
+					"updateBytes": 43,
+					"durableMs": 6.099999904632568,
+					"refreshMs": 0.40000009536743164,
+					"totalMs": 6.5
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 8.400000095367432,
+					"refreshMs": 0.40000009536743164,
+					"totalMs": 8.800000190734863
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 15,
+					"refreshMs": 0.19999980926513672,
+					"totalMs": 15.199999809265137
+				},
+				{
+					"inMemoryMs": 0.20000028610229492,
+					"updateBytes": 34,
+					"durableMs": 7.400000095367432,
+					"refreshMs": 0.19999980926513672,
+					"totalMs": 7.599999904632568
+				},
+				{
+					"inMemoryMs": 0.20000028610229492,
+					"updateBytes": 34,
+					"durableMs": 0.7000002861022949,
+					"refreshMs": 0,
+					"totalMs": 0.7000002861022949
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "yjs",
+			"round": 1,
+			"startup": {
+				"openMs": 9.199999809265137,
+				"replayMs": 40,
+				"listMs": 25.90000009536743,
+				"readyMs": 75.09999990463257,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696496,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389743
+			},
+			"immediate": {
+				"usedSize": 23476352,
+				"totalSize": 54460416,
+				"embedderHeapUsedSize": 695024,
+				"backingStorageSize": 28821366
+			},
+			"steady": {
+				"usedSize": 15491608,
+				"totalSize": 17842176,
+				"embedderHeapUsedSize": 307648,
+				"backingStorageSize": 14141684
+			},
+			"startupMemory": {
+				"jsHeapBytes": 21779856,
+				"backingBytes": 28431623,
+				"heapAndBackingBytes": 50211479
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 13795112,
+				"backingBytes": 13751941,
+				"heapAndBackingBytes": 27547053
+			},
+			"warmMs": [2.0999999046325684, 2, 1.6999998092651367],
+			"edits": [
+				{
+					"inMemoryMs": 0.8000001907348633,
+					"updateBytes": 42,
+					"durableMs": 17.5,
+					"refreshMs": 0.5,
+					"totalMs": 18
+				},
+				{
+					"inMemoryMs": 0.19999980926513672,
+					"updateBytes": 34,
+					"durableMs": 7.699999809265137,
+					"refreshMs": 0.40000009536743164,
+					"totalMs": 8.099999904632568
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 7.099999904632568,
+					"refreshMs": 0.3000001907348633,
+					"totalMs": 7.400000095367432
+				},
+				{
+					"inMemoryMs": 0.19999980926513672,
+					"updateBytes": 34,
+					"durableMs": 5.5,
+					"refreshMs": 0.19999980926513672,
+					"totalMs": 5.699999809265137
+				},
+				{
+					"inMemoryMs": 0.19999980926513672,
+					"updateBytes": 34,
+					"durableMs": 0.5999999046325684,
+					"refreshMs": 0.09999990463256836,
+					"totalMs": 0.6999998092651367
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "batched-cache",
+			"round": 1,
+			"startup": {
+				"openMs": 18.700000286102295,
+				"replayMs": 0,
+				"listMs": 199.19999980926514,
+				"readyMs": 217.90000009536743,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696512,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 390102
+			},
+			"immediate": {
+				"usedSize": 25597868,
+				"totalSize": 49348608,
+				"embedderHeapUsedSize": 1537192,
+				"backingStorageSize": 30347739
+			},
+			"steady": {
+				"usedSize": 9721424,
+				"totalSize": 11075584,
+				"embedderHeapUsedSize": 340352,
+				"backingStorageSize": 15190688
+			},
+			"startupMemory": {
+				"jsHeapBytes": 23901356,
+				"backingBytes": 29957637,
+				"heapAndBackingBytes": 53858993
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 8024912,
+				"backingBytes": 14800586,
+				"heapAndBackingBytes": 22825498
+			},
+			"warmMs": [23.59999990463257, 21.800000190734863, 22.40000009536743],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 11.599999904632568,
+					"refreshMs": 3,
+					"totalMs": 14.599999904632568
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 15.200000286102295,
+					"refreshMs": 3.299999713897705,
+					"totalMs": 18.5
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.200000286102295,
+					"refreshMs": 2.5999999046325684,
+					"totalMs": 8.800000190734863
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.599999904632568,
+					"refreshMs": 3,
+					"totalMs": 9.599999904632568
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.300000190734863,
+					"refreshMs": 2.9000000953674316,
+					"totalMs": 9.200000286102295
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "current",
+			"round": 1,
+			"startup": {
+				"openMs": 13.800000190734863,
+				"replayMs": 0,
+				"listMs": 210.19999980926514,
+				"readyMs": 224,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696480,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389751
+			},
+			"immediate": {
+				"usedSize": 23346080,
+				"totalSize": 46989312,
+				"embedderHeapUsedSize": 1519432,
+				"backingStorageSize": 30057147
+			},
+			"steady": {
+				"usedSize": 9471552,
+				"totalSize": 10813440,
+				"embedderHeapUsedSize": 320088,
+				"backingStorageSize": 14990331
+			},
+			"startupMemory": {
+				"jsHeapBytes": 21649600,
+				"backingBytes": 29667396,
+				"heapAndBackingBytes": 51316996
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 7775072,
+				"backingBytes": 14600580,
+				"heapAndBackingBytes": 22375652
+			},
+			"warmMs": [245.59999990463257, 180.19999980926514, 171.19999980926514],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 14.900000095367432,
+					"refreshMs": 48,
+					"totalMs": 62.90000009536743
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 7,
+					"refreshMs": 44,
+					"totalMs": 51
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.799999713897705,
+					"refreshMs": 42.80000019073486,
+					"totalMs": 49.59999990463257
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 21.800000190734863,
+					"refreshMs": 42.19999980926514,
+					"totalMs": 64
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 9.200000286102295,
+					"refreshMs": 45.5,
+					"totalMs": 54.700000286102295
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "batched-cache",
+			"round": 2,
+			"startup": {
+				"openMs": 28.300000190734863,
+				"replayMs": 0,
+				"listMs": 205.30000019073486,
+				"readyMs": 233.60000038146973,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696512,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 390102
+			},
+			"immediate": {
+				"usedSize": 25594896,
+				"totalSize": 49086464,
+				"embedderHeapUsedSize": 1537288,
+				"backingStorageSize": 30347739
+			},
+			"steady": {
+				"usedSize": 9721040,
+				"totalSize": 11075584,
+				"embedderHeapUsedSize": 340344,
+				"backingStorageSize": 15190688
+			},
+			"startupMemory": {
+				"jsHeapBytes": 23898384,
+				"backingBytes": 29957637,
+				"heapAndBackingBytes": 53856021
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 8024528,
+				"backingBytes": 14800586,
+				"heapAndBackingBytes": 22825114
+			},
+			"warmMs": [25.600000381469727, 24.200000286102295, 21.59999990463257],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 15,
+					"refreshMs": 3.4000000953674316,
+					"totalMs": 18.40000009536743
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 16,
+					"refreshMs": 3.4000000953674316,
+					"totalMs": 19.40000009536743
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 9.5,
+					"refreshMs": 3.6999998092651367,
+					"totalMs": 13.199999809265137
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 13.899999618530273,
+					"refreshMs": 3.200000286102295,
+					"totalMs": 17.09999990463257
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 8.599999904632568,
+					"refreshMs": 3.0999999046325684,
+					"totalMs": 11.699999809265137
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "current",
+			"round": 2,
+			"startup": {
+				"openMs": 8.400000095367432,
+				"replayMs": 0,
+				"listMs": 208.5,
+				"readyMs": 216.90000009536743,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696480,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 723192,
+				"backingStorageSize": 389751
+			},
+			"immediate": {
+				"usedSize": 23098264,
+				"totalSize": 47251456,
+				"embedderHeapUsedSize": 1441464,
+				"backingStorageSize": 30057147
+			},
+			"steady": {
+				"usedSize": 9471528,
+				"totalSize": 10551296,
+				"embedderHeapUsedSize": 319840,
+				"backingStorageSize": 14990331
+			},
+			"startupMemory": {
+				"jsHeapBytes": 21401784,
+				"backingBytes": 29667396,
+				"heapAndBackingBytes": 51069180
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 7775048,
+				"backingBytes": 14600580,
+				"heapAndBackingBytes": 22375628
+			},
+			"warmMs": [240.59999990463257, 190.5, 181],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 12.599999904632568,
+					"refreshMs": 49.69999980926514,
+					"totalMs": 62.299999713897705
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 7.400000095367432,
+					"refreshMs": 45.700000286102295,
+					"totalMs": 53.10000038146973
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6.299999713897705,
+					"refreshMs": 43.59999990463257,
+					"totalMs": 49.89999961853027
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 6,
+					"refreshMs": 42.80000019073486,
+					"totalMs": 48.80000019073486
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 5.599999904632568,
+					"refreshMs": 45.19999980926514,
+					"totalMs": 50.799999713897705
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 1000,
+			"variant": "yjs",
+			"round": 2,
+			"startup": {
+				"openMs": 4.800000190734863,
+				"replayMs": 38.5,
+				"listMs": 25.5,
+				"readyMs": 68.80000019073486,
+				"counts": [1000, 1000, 1000, 1000, 1000],
+				"files": 5000
+			},
+			"baseline": {
+				"usedSize": 1696496,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389743
+			},
+			"immediate": {
+				"usedSize": 23616816,
+				"totalSize": 54460416,
+				"embedderHeapUsedSize": 695024,
+				"backingStorageSize": 28821436
+			},
+			"steady": {
+				"usedSize": 15501484,
+				"totalSize": 17842176,
+				"embedderHeapUsedSize": 307648,
+				"backingStorageSize": 14141684
+			},
+			"startupMemory": {
+				"jsHeapBytes": 21920320,
+				"backingBytes": 28431693,
+				"heapAndBackingBytes": 50352013
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 13804988,
+				"backingBytes": 13751941,
+				"heapAndBackingBytes": 27556929
+			},
+			"warmMs": [2, 1.8000001907348633, 1.8000001907348633],
+			"edits": [
+				{
+					"inMemoryMs": 0.7999997138977051,
+					"updateBytes": 42,
+					"durableMs": 20.5,
+					"refreshMs": 0.5,
+					"totalMs": 21.09999990463257
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 1.5999999046325684,
+					"refreshMs": 0.40000009536743164,
+					"totalMs": 2
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 1.299999713897705,
+					"refreshMs": 0.09999990463256836,
+					"totalMs": 1.3999996185302734
+				},
+				{
+					"inMemoryMs": 0.19999980926513672,
+					"updateBytes": 34,
+					"durableMs": 9.5,
+					"refreshMs": 0.19999980926513672,
+					"totalMs": 9.699999809265137
+				},
+				{
+					"inMemoryMs": 0.10000038146972656,
+					"updateBytes": 34,
+					"durableMs": 1.5,
+					"refreshMs": 0.20000028610229492,
+					"totalMs": 1.700000286102295
+				}
+			],
+			"validation": {
+				"count": 5000,
+				"hash": 2980791451
+			},
+			"editedValidation": {
+				"count": 5000,
+				"hash": 122338349
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "current",
+			"round": 0,
+			"startup": {
+				"openMs": 12.900000095367432,
+				"replayMs": 0,
+				"listMs": 2041.1999998092651,
+				"readyMs": 2054.0999999046326,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696480,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389751
+			},
+			"immediate": {
+				"usedSize": 100942352,
+				"totalSize": 169558016,
+				"embedderHeapUsedSize": 1646128,
+				"backingStorageSize": 253953641
+			},
+			"steady": {
+				"usedSize": 71820376,
+				"totalSize": 74727424,
+				"embedderHeapUsedSize": 317344,
+				"backingStorageSize": 146435331
+			},
+			"startupMemory": {
+				"jsHeapBytes": 99245872,
+				"backingBytes": 253563890,
+				"heapAndBackingBytes": 352809762
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 70123896,
+				"backingBytes": 146045580,
+				"heapAndBackingBytes": 216169476
+			},
+			"warmMs": [1896, 1903.5999999046326, 1833.7000002861023],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 114.5,
+					"refreshMs": 461.6000003814697,
+					"totalMs": 576.1000003814697
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 59.59999990463257,
+					"refreshMs": 489.2999997138977,
+					"totalMs": 548.8999996185303
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 57.700000286102295,
+					"refreshMs": 434,
+					"totalMs": 491.7000002861023
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 59.59999990463257,
+					"refreshMs": 610.4000000953674,
+					"totalMs": 670
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 62,
+					"refreshMs": 556,
+					"totalMs": 618
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "batched-cache",
+			"round": 0,
+			"startup": {
+				"openMs": 14.599999904632568,
+				"replayMs": 0,
+				"listMs": 1802.9000000953674,
+				"readyMs": 1817.5,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696512,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 390102
+			},
+			"immediate": {
+				"usedSize": 136070284,
+				"totalSize": 191315968,
+				"embedderHeapUsedSize": 5015016,
+				"backingStorageSize": 201756431
+			},
+			"steady": {
+				"usedSize": 74786480,
+				"totalSize": 78577664,
+				"embedderHeapUsedSize": 444960,
+				"backingStorageSize": 148435688
+			},
+			"startupMemory": {
+				"jsHeapBytes": 134373772,
+				"backingBytes": 201366329,
+				"heapAndBackingBytes": 335740101
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 73089968,
+				"backingBytes": 148045586,
+				"heapAndBackingBytes": 221135554
+			},
+			"warmMs": [270, 251.40000009536743, 259.2999997138977],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 84.59999990463257,
+					"refreshMs": 33.299999713897705,
+					"totalMs": 117.89999961853027
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 60.799999713897705,
+					"refreshMs": 31.90000009536743,
+					"totalMs": 92.69999980926514
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 65.90000009536743,
+					"refreshMs": 34.299999713897705,
+					"totalMs": 100.19999980926514
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 58.200000286102295,
+					"refreshMs": 32.299999713897705,
+					"totalMs": 90.5
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 63.19999980926514,
+					"refreshMs": 33.30000019073486,
+					"totalMs": 96.5
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "yjs",
+			"round": 0,
+			"startup": {
+				"openMs": 4.200000286102295,
+				"replayMs": 306.09999990463257,
+				"listMs": 167.90000009536743,
+				"readyMs": 478.2000002861023,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696496,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389743
+			},
+			"immediate": {
+				"usedSize": 149467120,
+				"totalSize": 216580096,
+				"embedderHeapUsedSize": 4371256,
+				"backingStorageSize": 284763288
+			},
+			"steady": {
+				"usedSize": 124262516,
+				"totalSize": 140328960,
+				"embedderHeapUsedSize": 307648,
+				"backingStorageSize": 137927684
+			},
+			"startupMemory": {
+				"jsHeapBytes": 147770624,
+				"backingBytes": 284373545,
+				"heapAndBackingBytes": 432144169
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 122566020,
+				"backingBytes": 137537941,
+				"heapAndBackingBytes": 260103961
+			},
+			"warmMs": [18.5, 13.700000286102295, 13.5],
+			"edits": [
+				{
+					"inMemoryMs": 0.8000001907348633,
+					"updateBytes": 44,
+					"durableMs": 13.700000286102295,
+					"refreshMs": 1.8999996185302734,
+					"totalMs": 15.599999904632568
+				},
+				{
+					"inMemoryMs": 0.10000038146972656,
+					"updateBytes": 34,
+					"durableMs": 2.1000003814697266,
+					"refreshMs": 1.5999999046325684,
+					"totalMs": 3.700000286102295
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 3.799999713897705,
+					"refreshMs": 1.0999999046325684,
+					"totalMs": 4.899999618530273
+				},
+				{
+					"inMemoryMs": 0.10000038146972656,
+					"updateBytes": 34,
+					"durableMs": 1.8000001907348633,
+					"refreshMs": 0.9000000953674316,
+					"totalMs": 2.700000286102295
+				},
+				{
+					"inMemoryMs": 0,
+					"updateBytes": 34,
+					"durableMs": 0.8999996185302734,
+					"refreshMs": 0.8000001907348633,
+					"totalMs": 1.6999998092651367
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "yjs",
+			"round": 1,
+			"startup": {
+				"openMs": 15,
+				"replayMs": 312.19999980926514,
+				"listMs": 158.10000038146973,
+				"readyMs": 485.30000019073486,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696496,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 723192,
+				"backingStorageSize": 389743
+			},
+			"immediate": {
+				"usedSize": 153088048,
+				"totalSize": 216154112,
+				"embedderHeapUsedSize": 4377880,
+				"backingStorageSize": 284763369
+			},
+			"steady": {
+				"usedSize": 125271948,
+				"totalSize": 141115392,
+				"embedderHeapUsedSize": 307648,
+				"backingStorageSize": 137927684
+			},
+			"startupMemory": {
+				"jsHeapBytes": 151391552,
+				"backingBytes": 284373626,
+				"heapAndBackingBytes": 435765178
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 123575452,
+				"backingBytes": 137537941,
+				"heapAndBackingBytes": 261113393
+			},
+			"warmMs": [17.90000009536743, 15.5, 12.800000190734863],
+			"edits": [
+				{
+					"inMemoryMs": 0.6999998092651367,
+					"updateBytes": 42,
+					"durableMs": 16.199999809265137,
+					"refreshMs": 1.8000001907348633,
+					"totalMs": 18
+				},
+				{
+					"inMemoryMs": 0.10000038146972656,
+					"updateBytes": 34,
+					"durableMs": 13.700000286102295,
+					"refreshMs": 1.5999999046325684,
+					"totalMs": 15.300000190734863
+				},
+				{
+					"inMemoryMs": 0.19999980926513672,
+					"updateBytes": 34,
+					"durableMs": 17.799999713897705,
+					"refreshMs": 1.200000286102295,
+					"totalMs": 19
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 5.5,
+					"refreshMs": 0.7999997138977051,
+					"totalMs": 6.299999713897705
+				},
+				{
+					"inMemoryMs": 0,
+					"updateBytes": 34,
+					"durableMs": 0.40000009536743164,
+					"refreshMs": 0.5999999046325684,
+					"totalMs": 1
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "batched-cache",
+			"round": 1,
+			"startup": {
+				"openMs": 17.300000190734863,
+				"replayMs": 0,
+				"listMs": 1880.9000000953674,
+				"readyMs": 1898.2000002861023,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696512,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 390102
+			},
+			"immediate": {
+				"usedSize": 136110692,
+				"totalSize": 200343552,
+				"embedderHeapUsedSize": 5666088,
+				"backingStorageSize": 201750853
+			},
+			"steady": {
+				"usedSize": 74780800,
+				"totalSize": 78839808,
+				"embedderHeapUsedSize": 443552,
+				"backingStorageSize": 148435688
+			},
+			"startupMemory": {
+				"jsHeapBytes": 134414180,
+				"backingBytes": 201360751,
+				"heapAndBackingBytes": 335774931
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 73084288,
+				"backingBytes": 148045586,
+				"heapAndBackingBytes": 221129874
+			},
+			"warmMs": [261.40000009536743, 257.90000009536743, 228.7000002861023],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 78.7999997138977,
+					"refreshMs": 32.30000019073486,
+					"totalMs": 111.09999990463257
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 61.80000019073486,
+					"refreshMs": 31.800000190734863,
+					"totalMs": 93.60000038146973
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 63.89999961853027,
+					"refreshMs": 33.30000019073486,
+					"totalMs": 97.19999980926514
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 59.90000009536743,
+					"refreshMs": 30.5,
+					"totalMs": 90.40000009536743
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 65,
+					"refreshMs": 31.5,
+					"totalMs": 96.5
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "current",
+			"round": 1,
+			"startup": {
+				"openMs": 18.699999809265137,
+				"replayMs": 0,
+				"listMs": 2094.7000002861023,
+				"readyMs": 2113.4000000953674,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696480,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389751
+			},
+			"immediate": {
+				"usedSize": 99896324,
+				"totalSize": 168771584,
+				"embedderHeapUsedSize": 1777264,
+				"backingStorageSize": 253953641
+			},
+			"steady": {
+				"usedSize": 71819788,
+				"totalSize": 75776000,
+				"embedderHeapUsedSize": 317720,
+				"backingStorageSize": 146435331
+			},
+			"startupMemory": {
+				"jsHeapBytes": 98199844,
+				"backingBytes": 253563890,
+				"heapAndBackingBytes": 351763734
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 70123308,
+				"backingBytes": 146045580,
+				"heapAndBackingBytes": 216168888
+			},
+			"warmMs": [1986.8000001907349, 1861, 1857.7000002861023],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 116.09999990463257,
+					"refreshMs": 550.8000001907349,
+					"totalMs": 666.9000000953674
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 58.69999980926514,
+					"refreshMs": 488.90000009536743,
+					"totalMs": 547.5999999046326
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 59.59999990463257,
+					"refreshMs": 452.19999980926514,
+					"totalMs": 511.7999997138977
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 59.5,
+					"refreshMs": 469,
+					"totalMs": 528.5
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 57.700000286102295,
+					"refreshMs": 464.5,
+					"totalMs": 522.2000002861023
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "batched-cache",
+			"round": 2,
+			"startup": {
+				"openMs": 19,
+				"replayMs": 0,
+				"listMs": 1900.2999997138977,
+				"readyMs": 1919.2999997138977,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696512,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305376,
+				"backingStorageSize": 390102
+			},
+			"immediate": {
+				"usedSize": 153393828,
+				"totalSize": 201277440,
+				"embedderHeapUsedSize": 5012784,
+				"backingStorageSize": 201750853
+			},
+			"steady": {
+				"usedSize": 74789328,
+				"totalSize": 79101952,
+				"embedderHeapUsedSize": 444224,
+				"backingStorageSize": 148435688
+			},
+			"startupMemory": {
+				"jsHeapBytes": 151697316,
+				"backingBytes": 201360751,
+				"heapAndBackingBytes": 353058067
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 73092816,
+				"backingBytes": 148045586,
+				"heapAndBackingBytes": 221138402
+			},
+			"warmMs": [286.5, 225.5, 278.40000009536743],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 92.90000009536743,
+					"refreshMs": 32,
+					"totalMs": 124.90000009536743
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 55.80000019073486,
+					"refreshMs": 31,
+					"totalMs": 86.80000019073486
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 59,
+					"refreshMs": 31.09999990463257,
+					"totalMs": 90.09999990463257
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 396.09999990463257,
+					"refreshMs": 31.90000009536743,
+					"totalMs": 428
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 51.39999961853027,
+					"refreshMs": 28.100000381469727,
+					"totalMs": 79.5
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "current",
+			"round": 2,
+			"startup": {
+				"openMs": 18.40000009536743,
+				"replayMs": 0,
+				"listMs": 2098.4000000953674,
+				"readyMs": 2116.800000190735,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696480,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389751
+			},
+			"immediate": {
+				"usedSize": 119680752,
+				"totalSize": 167723008,
+				"embedderHeapUsedSize": 2188072,
+				"backingStorageSize": 253953641
+			},
+			"steady": {
+				"usedSize": 71820376,
+				"totalSize": 75513856,
+				"embedderHeapUsedSize": 317720,
+				"backingStorageSize": 146435331
+			},
+			"startupMemory": {
+				"jsHeapBytes": 117984272,
+				"backingBytes": 253563890,
+				"heapAndBackingBytes": 371548162
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 70123896,
+				"backingBytes": 146045580,
+				"heapAndBackingBytes": 216169476
+			},
+			"warmMs": [1998.5999999046326, 1908, 1766.4000000953674],
+			"edits": [
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 116.90000009536743,
+					"refreshMs": 471.19999980926514,
+					"totalMs": 588.0999999046326
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 60.5,
+					"refreshMs": 429.30000019073486,
+					"totalMs": 489.80000019073486
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 59.90000009536743,
+					"refreshMs": 462.90000009536743,
+					"totalMs": 522.8000001907349
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 349.3999996185303,
+					"refreshMs": 634,
+					"totalMs": 983.3999996185303
+				},
+				{
+					"inMemoryMs": null,
+					"updateBytes": null,
+					"durableMs": 57.40000009536743,
+					"refreshMs": 522.9000000953674,
+					"totalMs": 580.3000001907349
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		},
+		{
+			"browser": "chromium",
+			"size": 10000,
+			"variant": "yjs",
+			"round": 2,
+			"startup": {
+				"openMs": 4.099999904632568,
+				"replayMs": 347.1000003814697,
+				"listMs": 162.59999990463257,
+				"readyMs": 513.8000001907349,
+				"counts": [10000, 10000, 10000, 10000, 10000],
+				"files": 50000
+			},
+			"baseline": {
+				"usedSize": 1696496,
+				"totalSize": 2424832,
+				"embedderHeapUsedSize": 305560,
+				"backingStorageSize": 389743
+			},
+			"immediate": {
+				"usedSize": 181092924,
+				"totalSize": 232062976,
+				"embedderHeapUsedSize": 4500216,
+				"backingStorageSize": 284763432
+			},
+			"steady": {
+				"usedSize": 136321976,
+				"totalSize": 156057600,
+				"embedderHeapUsedSize": 307648,
+				"backingStorageSize": 137927684
+			},
+			"startupMemory": {
+				"jsHeapBytes": 179396428,
+				"backingBytes": 284373689,
+				"heapAndBackingBytes": 463770117
+			},
+			"retainedMemory": {
+				"jsHeapBytes": 134625480,
+				"backingBytes": 137537941,
+				"heapAndBackingBytes": 272163421
+			},
+			"warmMs": [17.100000381469727, 17.40000009536743, 16.699999809265137],
+			"edits": [
+				{
+					"inMemoryMs": 0.6999998092651367,
+					"updateBytes": 42,
+					"durableMs": 5.5,
+					"refreshMs": 1.9000000953674316,
+					"totalMs": 7.400000095367432
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 0.9000000953674316,
+					"refreshMs": 1.5,
+					"totalMs": 2.4000000953674316
+				},
+				{
+					"inMemoryMs": 0,
+					"updateBytes": 34,
+					"durableMs": 0.7000002861022949,
+					"refreshMs": 0.7999997138977051,
+					"totalMs": 1.5
+				},
+				{
+					"inMemoryMs": 0.09999990463256836,
+					"updateBytes": 34,
+					"durableMs": 2.0999999046325684,
+					"refreshMs": 0.7000002861022949,
+					"totalMs": 2.8000001907348633
+				},
+				{
+					"inMemoryMs": 0.20000028610229492,
+					"updateBytes": 34,
+					"durableMs": 0.8000001907348633,
+					"refreshMs": 0.5999999046325684,
+					"totalMs": 1.4000000953674316
+				}
+			],
+			"validation": {
+				"count": 50000,
+				"hash": 414801667
+			},
+			"editedValidation": {
+				"count": 50000,
+				"hash": 105526821
+			},
+			"incrementalReopenVerified": true
+		}
+	],
+	"bundles": {
+		"current": "b0a9365677ec5e92ef03d49a6b1fcb1e2537835822dfd75e8ff08099472139b5",
+		"batched-cache": "28c1774128fb722c938bd92fa8a80211c324cac6e4603df498a0aca6af977f51",
+		"yjs": "25a84b9f56a73aec2bacb7365ef42878bdf191c6c84638bd7adc15d9288c1993"
+	},
+	"productionSources": {
+		"src/browser/storage.ts": "5b4b8ec27dd012cd17fd599a57aab514678a09e1edab0aad7b1f8e3df5ef3c32",
+		"src/browser/repository.ts": "4a15ad16c0579933076212ec72f799dcc6268f516ff8b28e39e8dd4453956e5a",
+		"src/shared/markdown-codec.ts": "568a2e72cb5c895d7e8ee672a46f47cf5248bfbb80d94c517cb24f64d5a3a813"
+	},
+	"machine": {
+		"cpu": "Apple M4 Max",
+		"ramGiB": 128,
+		"macOS": "26.5.2",
+		"bun": "1.4.3"
+	},
+	"sourceCommit": "ef0adda0aabedad4c062ceb599ae52fe6d043288"
 }

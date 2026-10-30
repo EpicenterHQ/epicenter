@@ -28,7 +28,7 @@ type Run = (
  * `--version` and `--help` start without the folder engine.
  */
 const HANDLERS: Record<string, Run> = {
-	'messages': async () => (await import('./messages.js')).messagesCommand(),
+	messages: async () => (await import('./messages.js')).messagesCommand(),
 	'schema export': async ({ positionals: [directory], json }) =>
 		(await import('./schema-commands.ts')).exportSchemas(
 			directory as string,
@@ -49,7 +49,11 @@ const HANDLERS: Record<string, Run> = {
 	'folders pin': async ({ positionals: [directory], json }) =>
 		(await import('./navigation.js')).foldersCommand('pin', directory, json),
 	'folders remove-recent': async ({ positionals: [directory], json }) =>
-		(await import('./navigation.js')).foldersCommand('remove-recent', directory, json),
+		(await import('./navigation.js')).foldersCommand(
+			'remove-recent',
+			directory,
+			json,
+		),
 	'folders list': async ({ positionals: [directory], json }) =>
 		(await import('./navigation.js')).foldersCommand('list', directory, json),
 	'folders unpin': async ({ positionals: [directory], json }) =>

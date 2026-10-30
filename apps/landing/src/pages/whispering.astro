@@ -317,27 +317,27 @@ const faqItems = [
 
 				<div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
 					{features.map((feature, index) => {
-							const Icon = feature.icon;
-							return (
-								<Card.Root
-									class={`group stagger-item cursor-default text-center transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg stagger-delay-${index} border-0 shadow-sm`}
-								>
-									<Card.Header>
-										<div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 transition-colors duration-300 group-hover:bg-primary/20">
-											<Icon class="h-8 w-8 text-primary transition-transform duration-300 group-hover:scale-110" />
-										</div>
-										<Card.Title class="text-xl transition-colors duration-300 group-hover:text-primary">
-											{feature.title}
-										</Card.Title>
-									</Card.Header>
-									<Card.Content>
-										<Card.Description class="leading-relaxed">
-											{feature.description}
-										</Card.Description>
-									</Card.Content>
-								</Card.Root>
-							);
-						})}
+						const Icon = feature.icon;
+						return (
+							<Card.Root
+								class={`group stagger-item cursor-default text-center transition-all duration-300 hover:-translate-y-0.5 hover:shadow-lg stagger-delay-${index} border-0 shadow-sm`}
+							>
+								<Card.Header>
+									<div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10 transition-colors duration-300 group-hover:bg-primary/20">
+										<Icon class="h-8 w-8 text-primary transition-transform duration-300 group-hover:scale-110" />
+									</div>
+									<Card.Title class="text-xl transition-colors duration-300 group-hover:text-primary">
+										{feature.title}
+									</Card.Title>
+								</Card.Header>
+								<Card.Content>
+									<Card.Description class="leading-relaxed">
+										{feature.description}
+									</Card.Description>
+								</Card.Content>
+							</Card.Root>
+						);
+					})}
 				</div>
 			</div>
 		</section>
@@ -378,25 +378,19 @@ const faqItems = [
 							</thead>
 							<tbody class="divide-y divide-border">
 								{pricingData.map((row) => (
-										<tr
-											class="hover:bg-muted/50"
-											style="transition: all 0.2s ease"
-										>
-											<td class="px-6 py-5 font-medium">{row.provider}</td>
-											<td class="px-6 py-5 font-bold text-2xl">
-												{row.perHour}
-											</td>
-											<td class="px-6 py-5 text-foreground/75">
-												{row.lightUse}
-											</td>
-											<td class="px-6 py-5 text-foreground/75">
-												{row.heavyUse}
-											</td>
-											<td class="px-6 py-5 text-foreground/60 line-through">
-												{row.subscription}
-											</td>
-										</tr>
-									))}
+									<tr
+										class="hover:bg-muted/50"
+										style="transition: all 0.2s ease"
+									>
+										<td class="px-6 py-5 font-medium">{row.provider}</td>
+										<td class="px-6 py-5 font-bold text-2xl">{row.perHour}</td>
+										<td class="px-6 py-5 text-foreground/75">{row.lightUse}</td>
+										<td class="px-6 py-5 text-foreground/75">{row.heavyUse}</td>
+										<td class="px-6 py-5 text-foreground/60 line-through">
+											{row.subscription}
+										</td>
+									</tr>
+								))}
 							</tbody>
 						</table>
 					</div>
@@ -416,20 +410,20 @@ const faqItems = [
 
 				<div class="space-y-6">
 					{faqItems.map((item) => (
-							<Card.Root class="border-0 shadow-sm transition-all duration-200 hover:shadow-md">
-								<Card.Header>
-									<details class="group">
-										<summary class="flex cursor-pointer items-center justify-between font-semibold text-lg">
-											<span>{item.question}</span>
-											<ChevronDownIcon class="ml-4 h-5 w-5 shrink-0 text-foreground/60 transition-transform group-open:rotate-180" />
-										</summary>
-										<Card.Description class="mt-6 leading-relaxed">
-											{item.answer}
-										</Card.Description>
-									</details>
-								</Card.Header>
-							</Card.Root>
-						))}
+						<Card.Root class="border-0 shadow-sm transition-all duration-200 hover:shadow-md">
+							<Card.Header>
+								<details class="group">
+									<summary class="flex cursor-pointer items-center justify-between font-semibold text-lg">
+										<span>{item.question}</span>
+										<ChevronDownIcon class="ml-4 h-5 w-5 shrink-0 text-foreground/60 transition-transform group-open:rotate-180" />
+									</summary>
+									<Card.Description class="mt-6 leading-relaxed">
+										{item.answer}
+									</Card.Description>
+								</details>
+							</Card.Header>
+						</Card.Root>
+					))}
 				</div>
 			</div>
 		</section>

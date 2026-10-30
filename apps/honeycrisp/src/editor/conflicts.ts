@@ -8,42 +8,77 @@
  * whole block with the chosen text as written, so the markers are gone and
  * Undo brings them back.
  */
-import { findConflicts, type Side } from '@epicenter/repository/conflict';
-import { type EditorState, type Range, StateField } from '@codemirror/state';
-import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
 
-type Conflict = { from: number; to: number; current: string; incoming: string; labels: [string, string] };
+import { type EditorState, type Range, StateField } from '@codemirror/state';
+import {
+	Decoration,
+	type DecorationSet,
+	EditorView,
+	WidgetType,
+} from '@codemirror/view';
+import { findConflicts, type Side } from '@epicenter/repository/conflict';
+
+type Conflict = {
+	from: number;
+	to: number;
+	current: string;
+	incoming: string;
+	labels: [string, string];
+};
 
 /** Every well-formed conflict block, with document positions (a line break counts once). */
 export function conflictsIn(state: EditorState): Conflict[] {
 	const text = state.doc.sliceString(0, state.doc.length, '\n');
 	/** Who wrote a side and when, or the label as written when it is not one Epicenter wrote. */
-	const name = (side: Side | null, label: string) => (side === null ? label : side.time === '-' ? side.author : `${side.author}, ${side.time}`);
-	return findConflicts(text).map(({ from, to, current, incoming, labels, sides }) => ({
-		from,
-		to,
-		current,
-		incoming,
-		labels: [name(sides.current, labels.current), name(sides.incoming, labels.incoming)],
-	}));
+	const name = (side: Side | null, label: string) =>
+		side === null
+			? label
+			: side.time === '-'
+				? side.author
+				: `${side.author}, ${side.time}`;
+	return findConflicts(text).map(
+		({ from, to, current, incoming, labels, sides }) => ({
+			from,
+			to,
+			current,
+			incoming,
+			labels: [
+				name(sides.current, labels.current),
+				name(sides.incoming, labels.incoming),
+			],
+		}),
+	);
 }
 
 export type Resolution = 'this' | 'that' | 'both';
 
 /** What a block reads as once resolved. */
-export function resolved(conflict: Pick<Conflict, 'current' | 'incoming'>, choice: Resolution) {
+export function resolved(
+	conflict: Pick<Conflict, 'current' | 'incoming'>,
+	choice: Resolution,
+) {
 	if (choice === 'this') return conflict.current;
 	if (choice === 'that') return conflict.incoming;
 	return conflict.current + conflict.incoming;
 }
 
 /** Replace the block starting at `from` with the chosen side, as one edit. */
-export function resolveConflict(view: EditorView, from: number, choice: Resolution) {
-	const conflict = conflictsIn(view.state).find((candidate) => candidate.from === from);
+export function resolveConflict(
+	view: EditorView,
+	from: number,
+	choice: Resolution,
+) {
+	const conflict = conflictsIn(view.state).find(
+		(candidate) => candidate.from === from,
+	);
 	if (conflict === undefined) return false;
 	const separator = view.state.lineBreak;
 	view.dispatch({
-		changes: { from: conflict.from, to: conflict.to, insert: resolved(conflict, choice).split('\n').join(separator) },
+		changes: {
+			from: conflict.from,
+			to: conflict.to,
+			insert: resolved(conflict, choice).split('\n').join(separator),
+		},
 		selection: { anchor: conflict.from },
 		userEvent: 'input.resolve',
 	});
@@ -56,7 +91,11 @@ class ConflictCard extends WidgetType {
 	}
 	override eq(other: ConflictCard) {
 		const [a, b] = [this.conflict, other.conflict];
-		return a.current === b.current && a.incoming === b.incoming && a.labels.join() === b.labels.join();
+		return (
+			a.current === b.current &&
+			a.incoming === b.incoming &&
+			a.labels.join() === b.labels.join()
+		);
 	}
 	toDOM(view: EditorView) {
 		const card = document.createElement('div');
@@ -93,7 +132,9 @@ class ConflictCard extends WidgetType {
 			button.type = 'button';
 			button.textContent = text;
 			button.addEventListener('mousedown', (event) => event.preventDefault());
-			button.addEventListener('click', () => resolveConflict(view, view.posAtDOM(card), choice));
+			button.addEventListener('click', () =>
+				resolveConflict(view, view.posAtDOM(card), choice),
+			);
 			actions.append(button);
 		}
 		card.append(actions);
@@ -108,15 +149,22 @@ function cards(state: EditorState): DecorationSet {
 	const found: Range<Decoration>[] = conflictsIn(state).map((conflict) => {
 		// A block decoration covers whole lines: up to the closing marker's line end.
 		const end = state.doc.lineAt(conflict.to - 1).to;
-		return Decoration.replace({ widget: new ConflictCard(conflict), block: true }).range(conflict.from, end);
+		return Decoration.replace({
+			widget: new ConflictCard(conflict),
+			block: true,
+		}).range(conflict.from, end);
 	});
 	return Decoration.set(found);
 }
 
 const field = StateField.define<DecorationSet>({
 	create: cards,
-	update: (value, transaction) => (transaction.docChanged ? cards(transaction.state) : value),
-	provide: (self) => [EditorView.decorations.from(self), EditorView.atomicRanges.of((view) => view.state.field(self))],
+	update: (value, transaction) =>
+		transaction.docChanged ? cards(transaction.state) : value,
+	provide: (self) => [
+		EditorView.decorations.from(self),
+		EditorView.atomicRanges.of((view) => view.state.field(self)),
+	],
 });
 
 const theme = EditorView.baseTheme({
@@ -129,10 +177,18 @@ const theme = EditorView.baseTheme({
 		fontFamily: 'inherit',
 		whiteSpace: 'normal',
 	},
-	'.cm-conflict-title': { margin: '0 0 0.4em', fontWeight: '600', fontSize: '0.9em' },
+	'.cm-conflict-title': {
+		margin: '0 0 0.4em',
+		fontWeight: '600',
+		fontSize: '0.9em',
+	},
 	'.cm-conflict-side': { margin: '0.3em 0' },
 	'.cm-conflict-label': { margin: '0', fontSize: '0.75em', opacity: '0.7' },
-	'.cm-conflict-side pre': { margin: '0.1em 0 0', whiteSpace: 'pre-wrap', fontFamily: 'inherit' },
+	'.cm-conflict-side pre': {
+		margin: '0.1em 0 0',
+		whiteSpace: 'pre-wrap',
+		fontFamily: 'inherit',
+	},
 	'.cm-conflict-actions': { display: 'flex', gap: '0.5em', marginTop: '0.5em' },
 	'.cm-conflict-actions button': {
 		font: 'inherit',

@@ -19,5 +19,17 @@
 import { definePropertySuite } from './property.test-support.js';
 import { createWireWorld } from './wire-harness.js';
 
-definePropertySuite({ label: 'the repository over the socket', prefix: 'W', runs: 200, world: (options) => createWireWorld(options), timeout: 60_000 });
-definePropertySuite({ label: 'the repository over HTTP', prefix: 'H', runs: 50, world: (options) => createWireWorld(options, { transport: 'http' }), timeout: 60_000 });
+definePropertySuite({
+	label: 'the repository over the socket',
+	prefix: 'W',
+	runs: 200,
+	world: (options) => createWireWorld(options),
+	timeout: 60_000,
+});
+definePropertySuite({
+	label: 'the repository over HTTP',
+	prefix: 'H',
+	runs: 50,
+	world: (options) => createWireWorld(options, { transport: 'http' }),
+	timeout: 60_000,
+});

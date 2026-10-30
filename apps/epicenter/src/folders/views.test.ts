@@ -1,21 +1,21 @@
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { readSavedViews, type SavedView } from '@epicenter/folder/declaration';
-import { createFolder, memoryHost, tick } from '@epicenter/folder/testing';
-import { SaveError } from '@epicenter/folder/testing';
+import {
+	createFolder,
+	memoryHost,
+	SaveError,
+	tick,
+} from '@epicenter/folder/testing';
 import { expectOk } from 'wellcrafted/testing';
 import type { QueryAnswer } from '../ui/bindings.gen.js';
 
 const { createViews, SQL } = await import('./views.svelte.js');
 const grid: SavedView = { type: 'grid', title: 'Tasks', table: 'tasks' };
 
-async function setup(
-	source: Record<string, unknown> = { views: { a: grid } },
-) {
+async function setup(source: Record<string, unknown> = { views: { a: grid } }) {
 	const memory = memoryHost({ 'epicenter.json': JSON.stringify(source) });
-	const folder = expectOk(
-		await createFolder(memory.storage, { tables: {} }),
-	);
+	const folder = expectOk(await createFolder(memory.storage, { tables: {} }));
 	const text = () => {
 		const data = folder.file('epicenter.json')?.data;
 		return typeof data === 'string' ? data : undefined;
@@ -33,9 +33,10 @@ async function setup(
 }
 
 test('two saved view changes compose before either write lands', async () => {
-	const fixture = await setup(
-		{ views: { a: grid, b: grid }, metadata: 'kept' },
-	);
+	const fixture = await setup({
+		views: { a: grid, b: grid },
+		metadata: 'kept',
+	});
 	fixture.views.edit('saved:a', { ...grid, title: 'First' });
 	fixture.views.save('saved:a');
 	fixture.views.edit('saved:b', { ...grid, title: 'Second' });
@@ -93,11 +94,18 @@ test('remove preserves unrelated declaration data', async () => {
 
 test('failed removal reports the error to its caller', async () => {
 	const fixture = await setup();
-	fixture.control.failPut.set('epicenter.json', SaveError.StorageFailed({ cause: 'full' }).error!);
+	fixture.control.failPut.set(
+		'epicenter.json',
+		SaveError.StorageFailed({ cause: 'full' }).error!,
+	);
 	expect(fixture.views.remove('saved:a')).toBe(true);
 	await tick(10);
-	expect(fixture.removeFailures).toEqual([expect.stringContaining('View was not deleted:')]);
-	expect(JSON.parse(fixture.text('epicenter.json') ?? '{}').views.a).toEqual(grid);
+	expect(fixture.removeFailures).toEqual([
+		expect.stringContaining('View was not deleted:'),
+	]);
+	expect(JSON.parse(fixture.text('epicenter.json') ?? '{}').views.a).toEqual(
+		grid,
+	);
 	await fixture.folder.close();
 });
 

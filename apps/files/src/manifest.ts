@@ -7,4 +7,8 @@
 import { defineManifest } from '@epicenter/app';
 import { defineApp } from '@epicenter/repository';
 
-export const manifest = defineManifest({ name: 'Files', hostname: 'files.epicenter.so', collections: defineApp({}) });
+export const manifest = defineManifest({
+	name: 'Files',
+	hostname: 'files.epicenter.so',
+	collections: defineApp({}),
+});

@@ -24,21 +24,22 @@
  *
  * Works on Linux too (inotify backend); run it there to compare.
  */
-import { watch, type FSWatcher } from 'node:fs';
 import {
+	closeSync,
+	type FSWatcher,
+	ftruncateSync,
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
+	openSync,
 	readdirSync,
 	realpathSync,
 	renameSync,
 	rmSync,
 	statSync,
+	watch,
 	writeFileSync,
-	openSync,
 	writeSync,
-	ftruncateSync,
-	closeSync,
-	linkSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -96,7 +97,11 @@ async function withWatcher(
 	const max = opts.print ?? 60;
 	for (const e of list.slice(0, max)) {
 		const shown =
-			e.name === null ? 'null' : e.name === undefined ? 'undefined' : JSON.stringify(e.name);
+			e.name === null
+				? 'null'
+				: e.name === undefined
+					? 'undefined'
+					: JSON.stringify(e.name);
 		console.log(
 			`  +${e.t.toFixed(1).padStart(8)}ms  ${e.type.padEnd(6)} ${shown}${typeof e.name === 'string' ? form(e.name) : ''}`,
 		);
@@ -104,12 +109,17 @@ async function withWatcher(
 	if (list.length > max) console.log(`  ... ${list.length - max} more`);
 	const nulls = list.filter((e) => e.name == null).length;
 	const types = Object.entries(
-		list.reduce<Record<string, number>>((a, e) => ((a[e.type] = (a[e.type] ?? 0) + 1), a), {}),
+		list.reduce<Record<string, number>>(
+			(a, e) => ((a[e.type] = (a[e.type] ?? 0) + 1), a),
+			{},
+		),
 	);
 	// FSEvents MustScanSubDirs|UserDropped on the root has no ItemIsDir flag, so Bun
 	// strips the root prefix to "", substitutes the root's basename, and emits 'change'.
 	const rootName = basename(root);
-	const dropSignals = list.filter((e) => e.type === 'change' && e.name === rootName).length;
+	const dropSignals = list.filter(
+		(e) => e.type === 'change' && e.name === rootName,
+	).length;
 	console.log(
 		`  summary: events=${list.length} nullNames=${nulls} errors=${errors.length} rootBasenameChange(drop signal)=${dropSignals} types=${JSON.stringify(Object.fromEntries(types))}`,
 	);
@@ -120,11 +130,14 @@ async function withWatcher(
 const scenarios: Record<string, () => Promise<unknown>> = {
 	// (1) relative vs absolute, nested paths
 	paths: () =>
-		withWatcher('1. filename form (relative/absolute), nested create', (root) => {
-			mkdirSync(join(root, 'a/b'), { recursive: true });
-			writeFileSync(join(root, 'a/b/c.txt'), 'x');
-			writeFileSync(join(root, 'top.txt'), 'x');
-		}),
+		withWatcher(
+			'1. filename form (relative/absolute), nested create',
+			(root) => {
+				mkdirSync(join(root, 'a/b'), { recursive: true });
+				writeFileSync(join(root, 'a/b/c.txt'), 'x');
+				writeFileSync(join(root, 'top.txt'), 'x');
+			},
+		),
 
 	// (2) NFC vs NFD
 	unicode: async () => {
@@ -143,7 +156,9 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 			report =
 				`  NFC stat via NFD path is same inode before 2nd write: ${sameFile}\n` +
 				`  readdir after writing both: ${JSON.stringify(listing.map((n) => ({ n, nfc: n === n.normalize('NFC'), codepoints: [...n].length })))}\n` +
-				`  content: ${readdirSync(root).map((n) => statSync(join(root, n)).size).join(',')} bytes`;
+				`  content: ${readdirSync(root)
+					.map((n) => statSync(join(root, n)).size)
+					.join(',')} bytes`;
 			// A second dir where NFD is written first.
 			mkdirSync(join(root, 'nfd-first'));
 			writeFileSync(join(root, 'nfd-first', nfd), 'nfd');
@@ -158,32 +173,38 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 
 	// (3) atomic save
 	atomic: () =>
-		withWatcher('3. atomic save (write temp in same dir, rename over target)', async (root) => {
-			const target = join(root, 'note.md');
-			writeFileSync(target, 'v1');
-			await sleep(300);
-			const ino1 = statSync(target).ino;
-			const tmp = join(root, '.note.md.tmp');
-			writeFileSync(tmp, 'v2');
-			renameSync(tmp, target);
-			note(`inode before ${ino1} after ${statSync(target).ino}`);
-		}),
+		withWatcher(
+			'3. atomic save (write temp in same dir, rename over target)',
+			async (root) => {
+				const target = join(root, 'note.md');
+				writeFileSync(target, 'v1');
+				await sleep(300);
+				const ino1 = statSync(target).ino;
+				const tmp = join(root, '.note.md.tmp');
+				writeFileSync(tmp, 'v2');
+				renameSync(tmp, target);
+				note(`inode before ${ino1} after ${statSync(target).ino}`);
+			},
+		),
 
 	// (4) in-place write in two chunks
 	inplace: () =>
-		withWatcher('4. in-place write (truncate, chunk, 20ms gap, chunk)', async (root, t) => {
-			const target = join(root, 'note.md');
-			writeFileSync(target, 'original content');
-			await sleep(300);
-			note(`truncate at +${t().toFixed(1)}ms`);
-			const fd = openSync(target, 'r+');
-			ftruncateSync(fd, 0);
-			writeSync(fd, 'first half ', 0);
-			await sleep(20);
-			note(`second chunk at +${t().toFixed(1)}ms`);
-			writeSync(fd, 'second half', 11);
-			closeSync(fd);
-		}),
+		withWatcher(
+			'4. in-place write (truncate, chunk, 20ms gap, chunk)',
+			async (root, t) => {
+				const target = join(root, 'note.md');
+				writeFileSync(target, 'original content');
+				await sleep(300);
+				note(`truncate at +${t().toFixed(1)}ms`);
+				const fd = openSync(target, 'r+');
+				ftruncateSync(fd, 0);
+				writeSync(fd, 'first half ', 0);
+				await sleep(20);
+				note(`second chunk at +${t().toFixed(1)}ms`);
+				writeSync(fd, 'second half', 11);
+				closeSync(fd);
+			},
+		),
 
 	// (4b) modify a file that existed well before the watcher started
 	oldmodify: async () => {
@@ -205,9 +226,13 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 		await sleep(600);
 		w.close();
 		rmSync(pre, { recursive: true, force: true });
-		console.log('\n=== 4b. modify a file created 3s before the watcher (write at +0, +300ms) ===');
+		console.log(
+			'\n=== 4b. modify a file created 3s before the watcher (write at +0, +300ms) ===',
+		);
 		for (const e of events)
-			console.log(`  +${e.t.toFixed(1).padStart(8)}ms  ${e.type.padEnd(6)} ${JSON.stringify(e.name)}`);
+			console.log(
+				`  +${e.t.toFixed(1).padStart(8)}ms  ${e.type.padEnd(6)} ${JSON.stringify(e.name)}`,
+			);
 	},
 
 	// (9b) back-to-back writes 10ms apart: how far the 50ms stream latency defers later events
@@ -243,7 +268,8 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 	dirrename: () =>
 		withWatcher('5. rename a directory containing 3 files', async (root) => {
 			mkdirSync(join(root, 'old'));
-			for (const n of ['1.md', '2.md', '3.md']) writeFileSync(join(root, 'old', n), n);
+			for (const n of ['1.md', '2.md', '3.md'])
+				writeFileSync(join(root, 'old', n), n);
 			await sleep(300);
 			note('setup at +0; rename at +300ms');
 			renameSync(join(root, 'old'), join(root, 'new'));
@@ -251,13 +277,17 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 
 	// (6) recursive delete
 	rmrf: () =>
-		withWatcher('6. recursive delete of a directory with 3 files', async (root) => {
-			mkdirSync(join(root, 'gone'));
-			for (const n of ['1.md', '2.md', '3.md']) writeFileSync(join(root, 'gone', n), n);
-			await sleep(300);
-			note('setup at +0; delete at +300ms');
-			rmSync(join(root, 'gone'), { recursive: true });
-		}),
+		withWatcher(
+			'6. recursive delete of a directory with 3 files',
+			async (root) => {
+				mkdirSync(join(root, 'gone'));
+				for (const n of ['1.md', '2.md', '3.md'])
+					writeFileSync(join(root, 'gone', n), n);
+				await sleep(300);
+				note('setup at +0; delete at +300ms');
+				rmSync(join(root, 'gone'), { recursive: true });
+			},
+		),
 
 	// (7) 10,000 small files in one dir
 	burst: async () => {
@@ -279,27 +309,38 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 		console.log(
 			`  writes took ${writeMs.toFixed(0)}ms; events=${events.length}; distinct names=${distinct.size}; files never named=${missing.length}; last event +${last.toFixed(0)}ms`,
 		);
-		const expected = (n: unknown) => typeof n === 'string' && /^f\d+\.txt$/.test(n);
-		console.log(`  never named: ${JSON.stringify(missing.slice(0, 20).map((i) => `f${i}.txt`))}`);
+		const expected = (n: unknown) =>
+			typeof n === 'string' && /^f\d+\.txt$/.test(n);
+		console.log(
+			`  never named: ${JSON.stringify(missing.slice(0, 20).map((i) => `f${i}.txt`))}`,
+		);
 		console.log(
 			`  unexpected names: ${JSON.stringify([...distinct].filter((n) => !expected(n)).slice(0, 20))}`,
 		);
 		console.log(
-			`  'change' events: ${JSON.stringify(events.filter((e) => e.type === 'change').slice(0, 20).map((e) => [Math.round(e.t), e.name]))}`,
+			`  'change' events: ${JSON.stringify(
+				events
+					.filter((e) => e.type === 'change')
+					.slice(0, 20)
+					.map((e) => [Math.round(e.t), e.name]),
+			)}`,
 		);
 	},
 
 	// (8) file rename: old, new, or both
 	rename: () =>
-		withWatcher('8. rename a file (a.md -> b.md), then move into subdir', async (root) => {
-			writeFileSync(join(root, 'a.md'), 'x');
-			mkdirSync(join(root, 'sub'));
-			await sleep(300);
-			note('a.md -> b.md at +300ms; b.md -> sub/c.md at +600ms');
-			renameSync(join(root, 'a.md'), join(root, 'b.md'));
-			await sleep(300);
-			renameSync(join(root, 'b.md'), join(root, 'sub/c.md'));
-		}),
+		withWatcher(
+			'8. rename a file (a.md -> b.md), then move into subdir',
+			async (root) => {
+				writeFileSync(join(root, 'a.md'), 'x');
+				mkdirSync(join(root, 'sub'));
+				await sleep(300);
+				note('a.md -> b.md at +300ms; b.md -> sub/c.md at +600ms');
+				renameSync(join(root, 'a.md'), join(root, 'b.md'));
+				await sleep(300);
+				renameSync(join(root, 'b.md'), join(root, 'sub/c.md'));
+			},
+		),
 
 	// (9) latency from write return to event delivery
 	latency: async () => {
@@ -343,7 +384,8 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 		rmSync(root, { recursive: true, force: true });
 		const stats = (a: number[]) => {
 			const s = [...a].sort((x, y) => x - y);
-			const q = (p: number) => s[Math.min(s.length - 1, Math.floor(p * s.length))]!;
+			const q = (p: number) =>
+				s[Math.min(s.length - 1, Math.floor(p * s.length))]!;
 			return `n=${s.length} min=${s[0]?.toFixed(1)} p50=${q(0.5)?.toFixed(1)} p95=${q(0.95)?.toFixed(1)} max=${s.at(-1)?.toFixed(1)}`;
 		};
 		console.log('\n=== 9. latency write-return -> first event (ms) ===');
@@ -358,15 +400,19 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 			`overflow: ${N} files across 100 subdirs, event loop blocked 2s after writing`,
 			(root) => {
 				for (let d = 0; d < 100; d++) mkdirSync(join(root, `d${d}`));
-				for (let i = 0; i < N; i++) writeFileSync(join(root, `d${i % 100}`, `f${i}.txt`), 'x');
+				for (let i = 0; i < N; i++)
+					writeFileSync(join(root, `d${i % 100}`, `f${i}.txt`), 'x');
 				blockLoop(2000);
 			},
 			{ settleMs: 4000, print: 5 },
 		);
 		const names = new Set(events.map((e) => e.name));
 		let missing = 0;
-		for (let i = 0; i < N; i++) if (!names.has(`d${i % 100}/f${i}.txt`)) missing++;
-		const dirOnly = events.filter((e) => e.name && /^d\d+$/.test(e.name)).length;
+		for (let i = 0; i < N; i++)
+			if (!names.has(`d${i % 100}/f${i}.txt`)) missing++;
+		const dirOnly = events.filter(
+			(e) => e.name && /^d\d+$/.test(e.name),
+		).length;
 		console.log(
 			`  distinct names=${names.size}; files never named=${missing}; events naming a bare dir=${dirOnly}`,
 		);
@@ -390,8 +436,11 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 		);
 		const names = new Set(events.map((e) => e.name));
 		let missing = 0;
-		for (let i = 0; i < N; i++) if (!names.has(`d${i % 500}/f${i}.txt`)) missing++;
-		const dirOnly = events.filter((e) => e.name && /^d\d+\/?$/.test(e.name)).length;
+		for (let i = 0; i < N; i++)
+			if (!names.has(`d${i % 500}/f${i}.txt`)) missing++;
+		const dirOnly = events.filter(
+			(e) => e.name && /^d\d+\/?$/.test(e.name),
+		).length;
 		console.log(
 			`  distinct names=${names.size}; files never named=${missing}; events naming a bare dir=${dirOnly}`,
 		);
@@ -399,7 +448,9 @@ const scenarios: Record<string, () => Promise<unknown>> = {
 };
 
 const wanted = process.argv.slice(2);
-console.log(`bun ${Bun.version} ${process.platform} ${process.arch} ${require('node:os').release()}`);
+console.log(
+	`bun ${Bun.version} ${process.platform} ${process.arch} ${require('node:os').release()}`,
+);
 for (const [name, run] of Object.entries(scenarios)) {
 	if (wanted.length && !wanted.includes(name)) continue;
 	await run();

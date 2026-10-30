@@ -21,12 +21,22 @@ beforeAll(async () => {
 }, 180_000);
 afterAll(() => world?.stop());
 
-const editorOf = (page: Page) => page.getByRole('region', { name: 'Note' }).locator('.cm-content');
+const editorOf = (page: Page) =>
+	page.getByRole('region', { name: 'Note' }).locator('.cm-content');
 /** The editor's text, line by line, as it reads with the syntax of every line shown or not. */
-const shown = (page: Page) => editorOf(page).evaluate((content) => [...content.querySelectorAll('.cm-line')].map((line) => line.textContent ?? ''));
+const shown = (page: Page) =>
+	editorOf(page).evaluate((content) =>
+		[...content.querySelectorAll('.cm-line')].map(
+			(line) => line.textContent ?? '',
+		),
+	);
 
 /** Poll until `check` holds. */
-async function until(check: () => Promise<boolean>, what: string, timeout = 20_000) {
+async function until(
+	check: () => Promise<boolean>,
+	what: string,
+	timeout = 20_000,
+) {
 	const deadline = Date.now() + timeout;
 	while (!(await check())) {
 		if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
@@ -40,14 +50,19 @@ async function createNote(page: Page, title: string, body: string) {
 	await page.getByLabel('Title', { exact: true }).fill(title);
 	await editorOf(page).click();
 	await page.keyboard.insertText(body);
-	const row = page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: title });
+	const row = page
+		.getByRole('region', { name: 'Notes' })
+		.locator('[data-note]', { hasText: title });
 	await row.waitFor();
 	return (await row.getAttribute('data-note')) ?? '';
 }
 
 /** Open the note titled `title` once it has arrived. */
 async function openNote(page: Page, title: string) {
-	await page.getByRole('region', { name: 'Notes' }).locator('[data-note]', { hasText: title }).click();
+	await page
+		.getByRole('region', { name: 'Notes' })
+		.locator('[data-note]', { hasText: title })
+		.click();
 	await editorOf(page).waitFor();
 }
 
@@ -61,13 +76,19 @@ async function endOf(page: Page, text: string) {
 async function untilShown(page: Page, lines: string[], what: string) {
 	let last: string[] = [];
 	try {
-		await until(async () => (last = await shown(page)).join('\n') === lines.join('\n'), what);
+		await until(
+			async () => (last = await shown(page)).join('\n') === lines.join('\n'),
+			what,
+		);
 	} catch {
-		throw new Error(`Timed out waiting for ${what}: the editor shows ${JSON.stringify(last)}`);
+		throw new Error(
+			`Timed out waiting for ${what}: the editor shows ${JSON.stringify(last)}`,
+		);
 	}
 }
 
-const serverHas = (path: string, text: string) => async () => (await world.read(path))?.includes(text) ?? false;
+const serverHas = (path: string, text: string) => async () =>
+	(await world.read(path))?.includes(text) ?? false;
 
 async function twoPeople(browser: BrowserType) {
 	const alice = await world.open(browser, 'alice', 'honeycrisp');
@@ -90,23 +111,50 @@ for (const [engine, browser] of [
 		test(
 			'headings, bold and a task checkbox render in place, and the checkbox toggles in the file',
 			async () => {
-				const { page, cleanup } = await world.open(browser, 'alice', 'honeycrisp');
+				const { page, cleanup } = await world.open(
+					browser,
+					'alice',
+					'honeycrisp',
+				);
 				try {
-					const path = await createNote(page, `Preview ${engine}`, '# Groceries\n\nBuy **oat** milk\n\n- [ ] bread\n\nend');
+					const path = await createNote(
+						page,
+						`Preview ${engine}`,
+						'# Groceries\n\nBuy **oat** milk\n\n- [ ] bread\n\nend',
+					);
 					// The cursor is on the last line, so every other line shows rendered.
-					await untilShown(page, ['Groceries', '', 'Buy oat milk', '', ' bread', '', 'end'], 'the rendered lines');
-					await expect(editorOf(page).locator('.cm-md-h1').textContent()).resolves.toBe('Groceries');
-					await expect(editorOf(page).locator('.cm-md-strong').textContent()).resolves.toBe('oat');
+					await untilShown(
+						page,
+						['Groceries', '', 'Buy oat milk', '', ' bread', '', 'end'],
+						'the rendered lines',
+					);
+					await expect(
+						editorOf(page).locator('.cm-md-h1').textContent(),
+					).resolves.toBe('Groceries');
+					await expect(
+						editorOf(page).locator('.cm-md-strong').textContent(),
+					).resolves.toBe('oat');
 					const box = editorOf(page).locator('input.cm-md-task');
 					await expect(box.isChecked()).resolves.toBe(false);
 					// On the line being edited, its syntax shows.
 					await endOf(page, 'Buy oat milk');
-					await until(async () => (await shown(page))[2] === 'Buy **oat** milk', 'the syntax on the cursor line');
+					await until(
+						async () => (await shown(page))[2] === 'Buy **oat** milk',
+						'the syntax on the cursor line',
+					);
 
 					await box.click();
-					await until(async () => (await box.isChecked()) === true, 'the checkbox to show checked');
-					await until(serverHas(path, '- [x] bread\n'), 'the toggled task in the file');
-					expect(await world.read(path)).toEndWith('\n---\n# Groceries\n\nBuy **oat** milk\n\n- [x] bread\n\nend');
+					await until(
+						async () => (await box.isChecked()) === true,
+						'the checkbox to show checked',
+					);
+					await until(
+						serverHas(path, '- [x] bread\n'),
+						'the toggled task in the file',
+					);
+					expect(await world.read(path)).toEndWith(
+						'\n---\n# Groceries\n\nBuy **oat** milk\n\n- [x] bread\n\nend',
+					);
 				} finally {
 					await cleanup();
 				}
@@ -120,22 +168,56 @@ for (const [engine, browser] of [
 				const { alice, bob, cleanup } = await twoPeople(browser);
 				try {
 					const title = `Shared ${engine}`;
-					const path = await createNote(alice, title, 'Alpha.\n\nBeta.\n\nGamma.');
+					const path = await createNote(
+						alice,
+						title,
+						'Alpha.\n\nBeta.\n\nGamma.',
+					);
 					await until(serverHas(path, 'Gamma.'), 'the note on the server');
-					await until(async () => (await bob.getByRole('region', { name: 'Notes' }).getByText(title).count()) > 0, 'the note for bob');
+					await until(
+						async () =>
+							(await bob
+								.getByRole('region', { name: 'Notes' })
+								.getByText(title)
+								.count()) > 0,
+						'the note for bob',
+					);
 					await openNote(bob, title);
 
 					await endOf(alice, 'Alpha.');
 					await endOf(bob, 'Gamma.');
 					// Both type at once, keystroke by keystroke.
-					await Promise.all([alice.keyboard.type(' alice was here', { delay: 40 }), bob.keyboard.type(' bob was here', { delay: 40 })]);
-					const expected = ['Alpha. alice was here', '', 'Beta.', '', 'Gamma. bob was here'];
-					for (const page of [alice, bob]) await untilShown(page, expected, 'both edits on both screens');
+					await Promise.all([
+						alice.keyboard.type(' alice was here', { delay: 40 }),
+						bob.keyboard.type(' bob was here', { delay: 40 }),
+					]);
+					const expected = [
+						'Alpha. alice was here',
+						'',
+						'Beta.',
+						'',
+						'Gamma. bob was here',
+					];
+					for (const page of [alice, bob])
+						await untilShown(page, expected, 'both edits on both screens');
 					// Each cursor stayed where its person was typing.
 					await Promise.all([alice.keyboard.type('!'), bob.keyboard.type('?')]);
-					const after = ['Alpha. alice was here!', '', 'Beta.', '', 'Gamma. bob was here?'];
-					for (const page of [alice, bob]) await untilShown(page, after, 'the next keystrokes in place');
-					await until(serverHas(path, 'Alpha. alice was here!\n\nBeta.\n\nGamma. bob was here?'), 'both edits on the server');
+					const after = [
+						'Alpha. alice was here!',
+						'',
+						'Beta.',
+						'',
+						'Gamma. bob was here?',
+					];
+					for (const page of [alice, bob])
+						await untilShown(page, after, 'the next keystrokes in place');
+					await until(
+						serverHas(
+							path,
+							'Alpha. alice was here!\n\nBeta.\n\nGamma. bob was here?',
+						),
+						'both edits on the server',
+					);
 				} finally {
 					await cleanup();
 				}
@@ -151,20 +233,43 @@ for (const [engine, browser] of [
 					const title = `Undo ${engine}`;
 					const path = await createNote(alice, title, 'One.\n\nTwo.');
 					await until(serverHas(path, 'Two.'), 'the note on the server');
-					await until(async () => (await bob.getByRole('region', { name: 'Notes' }).getByText(title).count()) > 0, 'the note for bob');
+					await until(
+						async () =>
+							(await bob
+								.getByRole('region', { name: 'Notes' })
+								.getByText(title)
+								.count()) > 0,
+						'the note for bob',
+					);
 					await openNote(bob, title);
 
 					await endOf(alice, 'One.');
 					await alice.keyboard.type(' mine');
-					await until(serverHas(path, 'One. mine'), "alice's edit on the server");
+					await until(
+						serverHas(path, 'One. mine'),
+						"alice's edit on the server",
+					);
 					await endOf(bob, 'Two.');
 					await bob.keyboard.type(' theirs');
-					await until(async () => (await shown(alice)).join('|') === 'One. mine||Two. theirs', "bob's edit for alice");
+					await until(
+						async () =>
+							(await shown(alice)).join('|') === 'One. mine||Two. theirs',
+						"bob's edit for alice",
+					);
 
 					await alice.keyboard.press('ControlOrMeta+z');
-					await until(async () => (await shown(alice)).join('|') === 'One.||Two. theirs', 'undo of alice’s edit only');
-					await until(async () => (await shown(bob)).join('|') === 'One.||Two. theirs', 'the undo for bob');
-					await until(serverHas(path, 'One.\n\nTwo. theirs'), 'the undo on the server');
+					await until(
+						async () => (await shown(alice)).join('|') === 'One.||Two. theirs',
+						'undo of alice’s edit only',
+					);
+					await until(
+						async () => (await shown(bob)).join('|') === 'One.||Two. theirs',
+						'the undo for bob',
+					);
+					await until(
+						serverHas(path, 'One.\n\nTwo. theirs'),
+						'the undo on the server',
+					);
 				} finally {
 					await cleanup();
 				}
@@ -178,19 +283,35 @@ for (const [engine, browser] of [
 				const { alice, bob, cleanup } = await twoPeople(browser);
 				try {
 					const title = `Overlap ${engine}`;
-					const path = await createNote(alice, title, 'Before.\n\nThe meeting is on Monday.\n\nAfter.');
+					const path = await createNote(
+						alice,
+						title,
+						'Before.\n\nThe meeting is on Monday.\n\nAfter.',
+					);
 					await until(serverHas(path, 'After.'), 'the note on the server');
-					await until(async () => (await bob.getByRole('region', { name: 'Notes' }).getByText(title).count()) > 0, 'the note for bob');
+					await until(
+						async () =>
+							(await bob
+								.getByRole('region', { name: 'Notes' })
+								.getByText(title)
+								.count()) > 0,
+						'the note for bob',
+					);
 					await openNote(bob, title);
 
 					world.setOnline('bob', false);
 					await endOf(bob, 'Monday.');
-					for (let n = 0; n < 'Monday.'.length; n++) await bob.keyboard.press('Backspace');
+					for (let n = 0; n < 'Monday.'.length; n++)
+						await bob.keyboard.press('Backspace');
 					await bob.keyboard.type('Tuesday.');
 					await endOf(alice, 'Monday.');
-					for (let n = 0; n < 'Monday.'.length; n++) await alice.keyboard.press('Backspace');
+					for (let n = 0; n < 'Monday.'.length; n++)
+						await alice.keyboard.press('Backspace');
 					await alice.keyboard.type('Wednesday.');
-					await until(serverHas(path, 'Wednesday.'), "alice's edit on the server");
+					await until(
+						serverHas(path, 'Wednesday.'),
+						"alice's edit on the server",
+					);
 					world.setOnline('bob', true);
 
 					await until(serverHas(path, '<<<<<<< '), 'the markers in the file');
@@ -200,13 +321,22 @@ for (const [engine, browser] of [
 						await expect(card.textContent()).resolves.toContain('Tuesday.');
 						await expect(card.textContent()).resolves.toContain('Wednesday.');
 					}
-					await alice.getByRole('group', { name: 'Overlapping edits' }).getByRole('button', { name: 'Keep both' }).click();
-					await until(async () => !((await world.read(path)) ?? '<<<<<<< ').includes('<<<<<<< '), 'the markers gone from the file');
+					await alice
+						.getByRole('group', { name: 'Overlapping edits' })
+						.getByRole('button', { name: 'Keep both' })
+						.click();
+					await until(
+						async () =>
+							!((await world.read(path)) ?? '<<<<<<< ').includes('<<<<<<< '),
+						'the markers gone from the file',
+					);
 					const resolved = (await world.read(path)) ?? '';
 					expect(resolved).toContain('Wednesday.');
 					expect(resolved).toContain('Tuesday.');
 					expect(resolved).not.toMatch(/^(=======|\|\|\|\|\|\|\| |>>>>>>> )/m);
-					await bob.getByRole('group', { name: 'Overlapping edits' }).waitFor({ state: 'detached', timeout: 20_000 });
+					await bob
+						.getByRole('group', { name: 'Overlapping edits' })
+						.waitFor({ state: 'detached', timeout: 20_000 });
 				} finally {
 					await cleanup();
 				}

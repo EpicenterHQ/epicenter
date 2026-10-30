@@ -81,10 +81,7 @@ test('an empty folder gets only an ordinary .gitignore, and another startup writ
 test.each([
 	['# another app\n/private/', `${rules}# another app\n/private/`],
 	['!*.wav\n', `${rules}!*.wav\n`],
-	[
-		'﻿# café\r\n/cache/',
-		`﻿${rules.replaceAll('\n', '\r\n')}# café\r\n/cache/`,
-	],
+	['﻿# café\r\n/cache/', `﻿${rules.replaceAll('\n', '\r\n')}# café\r\n/cache/`],
 ])(
 	'adds the Markdown-only rules while preserving %j',
 	async (before, after) => {

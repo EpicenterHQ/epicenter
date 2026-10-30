@@ -24,7 +24,11 @@ export type NoteEditorOptions = {
 	label?: string;
 };
 
-export function createNoteEditor({ parent, editor, label = 'Note text' }: NoteEditorOptions) {
+export function createNoteEditor({
+	parent,
+	editor,
+	label = 'Note text',
+}: NoteEditorOptions) {
 	const view = new EditorView({
 		parent,
 		state: EditorState.create({
@@ -36,7 +40,10 @@ export function createNoteEditor({ parent, editor, label = 'Note text' }: NoteEd
 				livePreview,
 				conflictCards,
 				EditorView.lineWrapping,
-				EditorView.contentAttributes.of({ 'aria-label': label, spellcheck: 'true' }),
+				EditorView.contentAttributes.of({
+					'aria-label': label,
+					spellcheck: 'true',
+				}),
 				editorBinding(editor, { shows: 'body' }),
 			],
 		}),

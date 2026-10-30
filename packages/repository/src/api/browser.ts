@@ -31,8 +31,16 @@ import { openRepository, type Repository } from './repository.js';
 type Options = Omit<BrowserReplicaOptions, 'collections'>;
 
 /** Open `app`'s repository over the replica `replica` of this origin, in this tab. */
-export function openBrowserRepository<TDefs extends Definitions>({ app, replica, ...options }: { app: App<TDefs>; replica: string } & Options): Repository<TDefs> {
-	const tab = openBrowserReplica({ replica, collections: collectionsOf(app), ...options });
+export function openBrowserRepository<TDefs extends Definitions>({
+	app,
+	replica,
+	...options
+}: { app: App<TDefs>; replica: string } & Options): Repository<TDefs> {
+	const tab = openBrowserReplica({
+		replica,
+		collections: collectionsOf(app),
+		...options,
+	});
 	return openRepository({ app, host: browserHost(tab) });
 }
 
@@ -40,16 +48,40 @@ export function openBrowserRepository<TDefs extends Definitions>({ app, replica,
 export async function createBrowserRepository<TDefs extends Definitions>({
 	app,
 	...options
-}: { app: App<TDefs>; owner: string | null; repository: string; name: string } & Syncing & Options): Promise<Result<{ manifest: Manifest; repository: Repository<TDefs> }, BrowserReplicaError>> {
-	const created = await createBrowserReplica({ ...options, collections: collectionsOf(app) });
+}: {
+	app: App<TDefs>;
+	owner: string | null;
+	repository: string;
+	name: string;
+} & Syncing &
+	Options): Promise<
+	Result<
+		{ manifest: Manifest; repository: Repository<TDefs> },
+		BrowserReplicaError
+	>
+> {
+	const created = await createBrowserReplica({
+		...options,
+		collections: collectionsOf(app),
+	});
 	if (created.error !== null) return created;
-	return Ok({ manifest: created.data.manifest, repository: openRepository({ app, host: browserHost(created.data) }) });
+	return Ok({
+		manifest: created.data.manifest,
+		repository: openRepository({ app, host: browserHost(created.data) }),
+	});
 }
 
-export { BrowserReplicaError, type Manifest, type Persistence, storagePersistence, type Syncing } from '../hosts/browser/index.js';
+export {
+	BrowserReplicaError,
+	type Manifest,
+	type Persistence,
+	type Syncing,
+	storagePersistence,
+} from '../hosts/browser/index.js';
 
 /** This browser's repositories, from their manifests: which repository each is and whose (null: yours), its name here, the account and the server (null: kept only here). */
-export const listBrowserRepositories = (): Promise<Manifest[]> => listReplicas();
+export const listBrowserRepositories = (): Promise<Manifest[]> =>
+	listReplicas();
 
 /** How long a removal waits for the replica to open in this tab before it gives up, having changed nothing. */
 const REMOVE_WAIT = 10_000;
@@ -62,25 +94,40 @@ const REMOVE_WAIT = 10_000;
  * holds it), or when it does not open here within `REMOVE_WAIT`. The tab it
  * opens is closed however the removal ends.
  */
-export async function removeBrowserRepository({ replica, discardUnsent = false, ...options }: { replica: string; discardUnsent?: boolean } & Options): Promise<Result<undefined, BrowserReplicaError>> {
+export async function removeBrowserRepository({
+	replica,
+	discardUnsent = false,
+	...options
+}: { replica: string; discardUnsent?: boolean } & Options): Promise<
+	Result<undefined, BrowserReplicaError>
+> {
 	const tab = openBrowserReplica({ replica, ...options });
 	let stop = () => {};
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
-		const settled = await new Promise<Exclude<ReplicaTabState, { status: 'opening' | 'waiting' }> | null>((resolve) => {
+		const settled = await new Promise<Exclude<
+			ReplicaTabState,
+			{ status: 'opening' | 'waiting' }
+		> | null>((resolve) => {
 			timer = setTimeout(() => resolve(null), REMOVE_WAIT);
 			stop = tab.subscribe((state) => {
-				if (state.status !== 'opening' && state.status !== 'waiting') resolve(state);
+				if (state.status !== 'opening' && state.status !== 'waiting')
+					resolve(state);
 			});
 		});
-		if (settled === null) return BrowserReplicaError.Unavailable({ reason: 'it did not open in time' });
+		if (settled === null)
+			return BrowserReplicaError.Unavailable({
+				reason: 'it did not open in time',
+			});
 		switch (settled.status) {
 			case 'open':
 				return await settled.replica.remove({ discardUnsent });
 			case 'unavailable':
 				return { data: null, error: settled.error };
 			default:
-				return BrowserReplicaError.Unavailable({ reason: 'it is open in another tab' });
+				return BrowserReplicaError.Unavailable({
+					reason: 'it is open in another tab',
+				});
 		}
 	} finally {
 		clearTimeout(timer);

@@ -13,7 +13,11 @@
 import '../svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AppManifest } from '@epicenter/app';
-import type { Repository, RepositoryChange, RepositoryStatus } from '@epicenter/repository';
+import type {
+	Repository,
+	RepositoryChange,
+	RepositoryStatus,
+} from '@epicenter/repository';
 
 const { flushSync } = await import('svelte');
 const { mountSvelte } = await import('./mount.svelte.js');
@@ -35,7 +39,8 @@ function standIn() {
 		repo,
 		set(next: RepositoryStatus) {
 			status = next;
-			for (const listener of listeners) listener({ collections: [], files: false, status: true });
+			for (const listener of listeners)
+				listener({ collections: [], files: false, status: true });
 		},
 	};
 }
@@ -64,10 +69,14 @@ test('a root mounted through the adapter follows its path, navigates, tracks the
 	target.querySelector('button')?.click();
 	expect(asked).toEqual([['/next', { replace: true }]]);
 
-	expect(target.querySelector('[data-testid="status"]')?.textContent).toBe('opening');
+	expect(target.querySelector('[data-testid="status"]')?.textContent).toBe(
+		'opening',
+	);
 	set({ status: 'open' });
 	flushSync();
-	expect(target.querySelector('[data-testid="status"]')?.textContent).toBe('open');
+	expect(target.querySelector('[data-testid="status"]')?.textContent).toBe(
+		'open',
+	);
 
 	await mounted.unmount();
 	expect(target.querySelector('[data-testid="path"]')).toBeNull();

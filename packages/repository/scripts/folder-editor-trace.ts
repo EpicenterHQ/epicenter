@@ -25,7 +25,6 @@
  * Fixtures live under $FET_ROOT (default: the OS temp dir; see FIXTURE_ROOT
  * for why Linux needs a dir outside /tmp) and are deleted after each case.
  */
-import { watch } from 'node:fs';
 import {
 	existsSync,
 	linkSync,
@@ -37,6 +36,7 @@ import {
 	rmSync,
 	statSync,
 	unlinkSync,
+	watch,
 	writeFileSync,
 } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -108,7 +108,8 @@ function spawnPty(argv: string[], cwd: string) {
 	(async () => {
 		const dec = new TextDecoder();
 		const reader = proc.stdout.getReader();
-		for (let read = await reader.read(); !read.done; read = await reader.read()) out += dec.decode(read.value);
+		for (let read = await reader.read(); !read.done; read = await reader.read())
+			out += dec.decode(read.value);
 	})();
 	return {
 		proc,
@@ -147,7 +148,10 @@ async function trace(
 	const st0 = statSync(file);
 	const before = new Set(readdirSync(dir));
 	const extraBefore = new Map(
-		(opts.extraDirs ?? []).map((d) => [d, existsSync(d) ? new Set(readdirSync(d)) : new Set<string>()]),
+		(opts.extraDirs ?? []).map((d) => [
+			d,
+			existsSync(d) ? new Set(readdirSync(d)) : new Set<string>(),
+		]),
 	);
 	const events: Ev[] = [];
 	const marks: { t: number; label: string }[] = [];
@@ -171,7 +175,8 @@ async function trace(
 		if (!names.includes('note.txt')) absent.push(t);
 		for (const d of opts.extraDirs ?? [])
 			if (existsSync(d))
-				for (const n of readdirSync(d)) if (n.includes(dirTag)) record(seenOutside, `${d}/${n}`, t);
+				for (const n of readdirSync(d))
+					if (n.includes(dirTag)) record(seenOutside, `${d}/${n}`, t);
 	}, 1);
 	await sleep(300);
 	events.length = 0;
@@ -195,19 +200,27 @@ async function trace(
 		`  inode ${st0.ino} -> ${st1?.ino ?? 'missing'} (${st1 && st1.ino === st0.ino ? 'SAME: in-place write' : 'CHANGED: new file renamed/linked into place'}); nlink after ${st1?.nlink}; mode ${st0.mode.toString(8)} -> ${st1?.mode.toString(8)}`,
 	);
 	console.log(`  final content: ${JSON.stringify(content)}`);
-	const transient = [...seen.keys()].filter((n) => !before.has(n) && !after.includes(n));
-	const eventNames = new Set(events.map((e) => e.name).filter((n): n is string => !!n));
+	const transient = [...seen.keys()].filter(
+		(n) => !before.has(n) && !after.includes(n),
+	);
+	const eventNames = new Set(
+		events.map((e) => e.name).filter((n): n is string => !!n),
+	);
 	const transientEventOnly = [...eventNames].filter(
 		(n) => !before.has(n) && !after.includes(n) && !seen.has(n),
 	);
 	console.log(
 		`  transient names (poller): ${JSON.stringify(transient.map((n) => `${n} [+${seen.get(n)!.first.toFixed(0)}..+${seen.get(n)!.last.toFixed(0)}ms]`))}`,
 	);
-	console.log(`  transient names (events only, too brief for poller): ${JSON.stringify(transientEventOnly)}`);
+	console.log(
+		`  transient names (events only, too brief for poller): ${JSON.stringify(transientEventOnly)}`,
+	);
 	console.log(
 		`  note.txt missing from readdir in ${absent.length} poll samples${absent.length ? ` (+${absent[0]!.toFixed(1)}..+${absent.at(-1)!.toFixed(1)}ms)` : ''}`,
 	);
-	console.log(`  persisted new names: ${JSON.stringify(after.filter((n) => !before.has(n)))}`);
+	console.log(
+		`  persisted new names: ${JSON.stringify(after.filter((n) => !before.has(n)))}`,
+	);
 	for (const [d, b] of extraBefore) {
 		const a = existsSync(d) ? readdirSync(d) : [];
 		const mine = a.filter((n) => n.includes('note.txt'));
@@ -216,7 +229,9 @@ async function trace(
 		);
 	}
 	for (const [n, s] of seenOutside)
-		console.log(`  outside dir, seen during run: ${n} [+${s.first.toFixed(0)}..+${s.last.toFixed(0)}ms]`);
+		console.log(
+			`  outside dir, seen during run: ${n} [+${s.first.toFixed(0)}..+${s.last.toFixed(0)}ms]`,
+		);
 	for (const n of notes) console.log(`  ${n}`);
 	const timeline = [
 		...marks.map((m) => ({ t: m.t, line: `-- ${m.label}` })),
@@ -226,7 +241,8 @@ async function trace(
 		})),
 	].sort((a, b) => a.t - b.t);
 	console.log('  timeline (ms since editor spawn):');
-	for (const r of timeline) console.log(`    +${r.t.toFixed(1).padStart(7)}  ${r.line}`);
+	for (const r of timeline)
+		console.log(`    +${r.t.toFixed(1).padStart(7)}  ${r.line}`);
 	rmSync(dir, { recursive: true, force: true });
 }
 
@@ -248,7 +264,10 @@ function editAndSave(argv: (file: string) => string[], writtenRe = /written/) {
 		await sleep(400);
 		ctx.mark(':q sent');
 		ed.send(':q\r');
-		const exited = await Promise.race([ed.proc.exited, sleep(3000).then(() => 'timeout')]);
+		const exited = await Promise.race([
+			ed.proc.exited,
+			sleep(3000).then(() => 'timeout'),
+		]);
 		if (exited === 'timeout') ed.proc.kill();
 		ctx.mark(`exited ${exited}`);
 		return [
@@ -287,7 +306,10 @@ function conflict(argv: (file: string) => string[], answer: string) {
 		await sleep(700);
 		const said2 = ed.output().slice(from2);
 		ed.send('\x1b:qa!\r');
-		const exited = await Promise.race([ed.proc.exited, sleep(3000).then(() => 'timeout')]);
+		const exited = await Promise.race([
+			ed.proc.exited,
+			sleep(3000).then(() => 'timeout'),
+		]);
 		if (exited === 'timeout') ed.proc.kill();
 		ctx.mark(`exited ${exited}`);
 		const aside = readFileSync(`${ctx.file}.aside`, 'utf8');
@@ -299,53 +321,103 @@ function conflict(argv: (file: string) => string[], answer: string) {
 	};
 }
 
-const vim = (...opts: string[]) => (f: string) => [VIM, '-u', 'DEFAULTS', '-i', 'NONE', ...opts, f];
-const nvim = (...opts: string[]) => (f: string) => [NVIM, '--clean', ...opts, f];
+const vim =
+	(...opts: string[]) =>
+	(f: string) => [VIM, '-u', 'DEFAULTS', '-i', 'NONE', ...opts, f];
+const nvim =
+	(...opts: string[]) =>
+	(f: string) => [NVIM, '--clean', ...opts, f];
 const nvimDirs = [join(NVIM_STATE, 'swap'), join(NVIM_STATE, 'backup')];
 
 const cases: Record<string, () => Promise<void>> = {
 	'vim-none': () =>
-		trace('vim -u NONE (not default; compatible mode)', editAndSave((f) => [VIM, '-u', 'NONE', '-i', 'NONE', f])),
+		trace(
+			'vim -u NONE (not default; compatible mode)',
+			editAndSave((f) => [VIM, '-u', 'NONE', '-i', 'NONE', f]),
+		),
 	'vim-default': () => trace('vim -u DEFAULTS', editAndSave(vim())),
-	'vim-backupcopy-yes': () => trace('vim -u DEFAULTS, backupcopy=yes', editAndSave(vim('-c', 'set backupcopy=yes'))),
+	'vim-backupcopy-yes': () =>
+		trace(
+			'vim -u DEFAULTS, backupcopy=yes',
+			editAndSave(vim('-c', 'set backupcopy=yes')),
+		),
 	'vim-backup': () =>
-		trace('vim -u DEFAULTS, backup writebackup', editAndSave(vim('-c', 'set backup writebackup'))),
-	'vim-backupcopy-no': () => trace('vim -u DEFAULTS, backupcopy=no', editAndSave(vim('-c', 'set backupcopy=no'))),
+		trace(
+			'vim -u DEFAULTS, backup writebackup',
+			editAndSave(vim('-c', 'set backup writebackup')),
+		),
+	'vim-backupcopy-no': () =>
+		trace(
+			'vim -u DEFAULTS, backupcopy=no',
+			editAndSave(vim('-c', 'set backupcopy=no')),
+		),
 	'vim-hardlinked': () =>
-		trace('vim -u DEFAULTS, file has a 2nd hard link outside the dir', async (ctx) => {
-			const other = realpathSync(mkdtempSync(join(FIXTURE_ROOT, 'fet-link-')));
-			linkSync(ctx.file, join(other, 'alias.txt'));
-			const notes = await editAndSave(vim())(ctx);
-			notes.push(`hard link alias content after: ${JSON.stringify(readFileSync(join(other, 'alias.txt'), 'utf8'))}`);
-			rmSync(other, { recursive: true, force: true });
-			return notes;
-		}),
-	'nvim-default': () => trace('nvim --clean', editAndSave(nvim()), { extraDirs: nvimDirs }),
+		trace(
+			'vim -u DEFAULTS, file has a 2nd hard link outside the dir',
+			async (ctx) => {
+				const other = realpathSync(
+					mkdtempSync(join(FIXTURE_ROOT, 'fet-link-')),
+				);
+				linkSync(ctx.file, join(other, 'alias.txt'));
+				const notes = await editAndSave(vim())(ctx);
+				notes.push(
+					`hard link alias content after: ${JSON.stringify(readFileSync(join(other, 'alias.txt'), 'utf8'))}`,
+				);
+				rmSync(other, { recursive: true, force: true });
+				return notes;
+			},
+		),
+	'nvim-default': () =>
+		trace('nvim --clean', editAndSave(nvim()), { extraDirs: nvimDirs }),
 	'nvim-backupcopy-yes': () =>
-		trace('nvim --clean, backupcopy=yes', editAndSave(nvim('-c', 'set backupcopy=yes')), { extraDirs: nvimDirs }),
+		trace(
+			'nvim --clean, backupcopy=yes',
+			editAndSave(nvim('-c', 'set backupcopy=yes')),
+			{ extraDirs: nvimDirs },
+		),
 	'nvim-backup': () =>
-		trace('nvim --clean, backup writebackup', editAndSave(nvim('-c', 'set backup writebackup')), {
-			extraDirs: nvimDirs,
-		}),
+		trace(
+			'nvim --clean, backup writebackup',
+			editAndSave(nvim('-c', 'set backup writebackup')),
+			{
+				extraDirs: nvimDirs,
+			},
+		),
 	'nvim-backupcopy-no': () =>
-		trace('nvim --clean, backupcopy=no', editAndSave(nvim('-c', 'set backupcopy=no')), { extraDirs: nvimDirs }),
+		trace(
+			'nvim --clean, backupcopy=no',
+			editAndSave(nvim('-c', 'set backupcopy=no')),
+			{ extraDirs: nvimDirs },
+		),
 	sed: () =>
 		trace("sed -i '' (BSD sed)", async (ctx) => {
 			ctx.mark('sed spawned');
 			const s = now();
-			const p = Bun.spawn(['sed', '-i', '', 's/line1/LINE1/', ctx.file], { cwd: ctx.dir });
+			const p = Bun.spawn(['sed', '-i', '', 's/line1/LINE1/', ctx.file], {
+				cwd: ctx.dir,
+			});
 			await p.exited;
 			ctx.mark(`sed exited ${p.exitCode}`);
 			return [`sed run time ${(now() - s).toFixed(1)}ms`];
 		}),
 	'vim-conflict': () =>
-		trace('vim -u DEFAULTS: file replaced underneath, then :w, answer y', conflict(vim(), 'y')),
+		trace(
+			'vim -u DEFAULTS: file replaced underneath, then :w, answer y',
+			conflict(vim(), 'y'),
+		),
 	'vim-conflict-no': () =>
-		trace('vim -u DEFAULTS: file replaced underneath, then :w, answer n', conflict(vim(), 'n')),
+		trace(
+			'vim -u DEFAULTS: file replaced underneath, then :w, answer n',
+			conflict(vim(), 'n'),
+		),
 	'nvim-conflict': () =>
-		trace('nvim --clean: file replaced underneath, then :w, answer y', conflict(nvim(), 'y'), {
-			extraDirs: nvimDirs,
-		}),
+		trace(
+			'nvim --clean: file replaced underneath, then :w, answer y',
+			conflict(nvim(), 'y'),
+			{
+				extraDirs: nvimDirs,
+			},
+		),
 };
 
 const wanted = process.argv.slice(2);

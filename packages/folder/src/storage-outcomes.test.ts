@@ -151,11 +151,14 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 						const listed = await storage.list();
 						return listed.error === null
 							? {
-								data: {
-									files: listed.data.files.map(({ path, size }) => ({ path, size })),
-									directories: listed.data.directories,
-								},
-							}
+									data: {
+										files: listed.data.files.map(({ path, size }) => ({
+											path,
+											size,
+										})),
+										directories: listed.data.directories,
+									},
+								}
 							: listed;
 					}
 				}

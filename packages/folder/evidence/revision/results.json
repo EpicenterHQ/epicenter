@@ -1,4276 +1,4276 @@
 {
-  "scope": "Desktop scratch IndexedDB contention prototype, simulated network, no collection",
-  "main": [
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "no-sync-10hz",
-      "settings": {
-        "name": "no-sync-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 3000,
-        "delay": 0
-      },
-      "elapsed": 3274,
-      "countA": 25,
-      "countB": 25,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 52,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 50,
-        "rejectedAttempts": 18,
-        "latency": {
-          "p50": 13.5,
-          "p95": 21.7,
-          "max": 25.2
-        },
-        "window": {
-          "p50": 7.5,
-          "p95": 18.7,
-          "max": 24.8
-        }
-      },
-      "adopt": {
-        "publications": 1,
-        "rejectedAttempts": 0,
-        "window": {
-          "p50": 29.2,
-          "p95": 29.2,
-          "max": 29.2
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 72,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 0,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "two-tabs-1hz",
-      "settings": {
-        "name": "two-tabs-1hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 1000,
-        "duration": 6000,
-        "delay": 0
-      },
-      "elapsed": 6336,
-      "countA": 6,
-      "countB": 6,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 74,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 12,
-        "rejectedAttempts": 2,
-        "latency": {
-          "p50": 15.5,
-          "p95": 29.7,
-          "max": 29.7
-        },
-        "window": {
-          "p50": 11.1,
-          "p95": 21.8,
-          "max": 21.8
-        }
-      },
-      "adopt": {
-        "publications": 31,
-        "rejectedAttempts": 2,
-        "window": {
-          "p50": 17.7,
-          "p95": 26.8,
-          "max": 30.1
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 52.19999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 64.2000002861023,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 67.7000002861023,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 68.60000038146973,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 59.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 59,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 68.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 75.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 60.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 59.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 60.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 67.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 66.2999997138977,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 59.200000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 1,
-            "latency": 74.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 67.89999961853027,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 67.5,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 61.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 53.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 53.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 57.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 53.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 56,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 1,
-            "latency": 74.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 46.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 28,
-            "retries": 0,
-            "latency": 57.19999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 29,
-            "retries": 0,
-            "latency": 44,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 30,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 31,
-            "retries": 0,
-            "latency": 45.09999990463257,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 24,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "two-tabs-10hz",
-      "settings": {
-        "name": "two-tabs-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5257,
-      "countA": 43,
-      "countB": 44,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 141,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 87,
-        "rejectedAttempts": 6,
-        "latency": {
-          "p50": 7.1,
-          "p95": 20.4,
-          "max": 34.7
-        },
-        "window": {
-          "p50": 6.9,
-          "p95": 19.4,
-          "max": 27.6
-        }
-      },
-      "adopt": {
-        "publications": 27,
-        "rejectedAttempts": 3,
-        "window": {
-          "p50": 12.4,
-          "p95": 14.6,
-          "max": 16.6
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 52.19999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 58.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 1,
-            "latency": 63.5,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 49.5,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 43.39999961853027,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 53.799999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 58.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 53.19999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 55.799999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 46.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 55.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 53.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 49.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 49.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 56.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 1,
-            "latency": 55.19999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 52.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 54.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 55.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 53.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 50.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 55.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 46.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 50.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 1,
-            "latency": 68.2999997138977,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 55.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 53.59999990463257,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 2,
-        "adoptionsBeforeLastSave": 26,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "two-tabs-50hz",
-      "settings": {
-        "name": "two-tabs-50hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 20,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5204,
-      "countA": 126,
-      "countB": 132,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 310,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 258,
-        "rejectedAttempts": 80,
-        "latency": {
-          "p50": 10,
-          "p95": 25.9,
-          "max": 37.3
-        },
-        "window": {
-          "p50": 6.9,
-          "p95": 19,
-          "max": 22.9
-        }
-      },
-      "adopt": {
-        "publications": 26,
-        "rejectedAttempts": 16,
-        "window": {
-          "p50": 13.6,
-          "p95": 20.6,
-          "max": 25.4
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 1,
-            "latency": 81,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 61.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 1,
-            "latency": 74.80000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 61.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 2,
-            "latency": 88.80000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 1,
-            "latency": 65.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 52.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 1,
-            "latency": 82.7000002861023,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 56.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 57.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 51.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 2,
-            "latency": 79.80000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 1,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 44.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 60.89999961853027,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 46.80000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 53.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 3,
-            "latency": 102.19999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 52.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 2,
-            "latency": 86.19999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 1,
-            "latency": 76.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 52.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 1,
-            "latency": 76.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 54.09999990463257,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 2,
-        "adoptionsBeforeLastSave": 25,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "large-same-file-10hz",
-      "settings": {
-        "name": "large-same-file-10hz",
-        "rows": 5000,
-        "large": true,
-        "samePath": true,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5231,
-      "countA": 43,
-      "countB": 43,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 140,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 86,
-        "rejectedAttempts": 9,
-        "latency": {
-          "p50": 7.1,
-          "p95": 20.5,
-          "max": 32
-        },
-        "window": {
-          "p50": 6.8,
-          "p95": 18.7,
-          "max": 27.6
-        }
-      },
-      "adopt": {
-        "publications": 27,
-        "rejectedAttempts": 0,
-        "window": {
-          "p50": 12.8,
-          "p95": 15.7,
-          "max": 16.4
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 49.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 56.80000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 53.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 47.200000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 45.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 54.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 56.60000038146973,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 52.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 57.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 52.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 54.700000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 51.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 45.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 53.80000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 53.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 57.10000038146973,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 53.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 57.799999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 47.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 51.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 55.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 54.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 52.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 59.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 49.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 55.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 53.69999980926514,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 26,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "injected-250ms-window-50hz",
-      "settings": {
-        "name": "injected-250ms-window-50hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 20,
-        "duration": 2500,
-        "delay": 250
-      },
-      "elapsed": 3514,
-      "countA": 70,
-      "countB": 70,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 144,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 140,
-        "rejectedAttempts": 21,
-        "latency": {
-          "p50": 6.9,
-          "p95": 14.5,
-          "max": 26.9
-        },
-        "window": {
-          "p50": 6.6,
-          "p95": 12.9,
-          "max": 22.4
-        }
-      },
-      "adopt": {
-        "publications": 2,
-        "rejectedAttempts": 9,
-        "window": {
-          "p50": 274.3,
-          "p95": 288.1,
-          "max": 288.1
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 6,
-            "latency": 1688.5999999046326,
-            "published": false,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 3,
-            "latency": 1126.3000001907349,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 302.09999990463257,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 0,
-        "firstAdoptionAfterLastSaveMs": 515
-      }
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "no-sync-10hz",
-      "settings": {
-        "name": "no-sync-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 3000,
-        "delay": 0
-      },
-      "elapsed": 3291,
-      "countA": 28,
-      "countB": 28,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 58,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 56,
-        "rejectedAttempts": 5,
-        "latency": {
-          "p50": 7,
-          "p95": 19,
-          "max": 26
-        },
-        "window": {
-          "p50": 7,
-          "p95": 15,
-          "max": 19
-        }
-      },
-      "adopt": {
-        "publications": 1,
-        "rejectedAttempts": 0,
-        "window": {
-          "p50": 34,
-          "p95": 34,
-          "max": 34
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 70,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 0,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "two-tabs-1hz",
-      "settings": {
-        "name": "two-tabs-1hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 1000,
-        "duration": 6000,
-        "delay": 0
-      },
-      "elapsed": 6296,
-      "countA": 6,
-      "countB": 6,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 80,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 12,
-        "rejectedAttempts": 5,
-        "latency": {
-          "p50": 17,
-          "p95": 36,
-          "max": 36
-        },
-        "window": {
-          "p50": 12,
-          "p95": 19,
-          "max": 19
-        }
-      },
-      "adopt": {
-        "publications": 34,
-        "rejectedAttempts": 1,
-        "window": {
-          "p50": 16,
-          "p95": 28,
-          "max": 30
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 1,
-            "latency": 72,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 59,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 46,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 63,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 60,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 57,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 46,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 28,
-            "retries": 0,
-            "latency": 56,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 29,
-            "retries": 0,
-            "latency": 56,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 30,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 31,
-            "retries": 0,
-            "latency": 57,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 32,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 33,
-            "retries": 0,
-            "latency": 62,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 34,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 2,
-        "adoptionsBeforeLastSave": 28,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "two-tabs-10hz",
-      "settings": {
-        "name": "two-tabs-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5249,
-      "countA": 45,
-      "countB": 46,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 147,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 91,
-        "rejectedAttempts": 8,
-        "latency": {
-          "p50": 8,
-          "p95": 20,
-          "max": 24
-        },
-        "window": {
-          "p50": 7,
-          "p95": 16,
-          "max": 21
-        }
-      },
-      "adopt": {
-        "publications": 28,
-        "rejectedAttempts": 7,
-        "window": {
-          "p50": 15,
-          "p95": 28,
-          "max": 31
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 1,
-            "latency": 79,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 1,
-            "latency": 77,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 1,
-            "latency": 64,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 1,
-            "latency": 73,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 46,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 1,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 1,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 1,
-            "latency": 65,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 28,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 27,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "two-tabs-50hz",
-      "settings": {
-        "name": "two-tabs-50hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 20,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5292,
-      "countA": 136,
-      "countB": 147,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 327,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 283,
-        "rejectedAttempts": 100,
-        "latency": {
-          "p50": 14,
-          "p95": 26,
-          "max": 53
-        },
-        "window": {
-          "p50": 9,
-          "p95": 19,
-          "max": 25
-        }
-      },
-      "adopt": {
-        "publications": 22,
-        "rejectedAttempts": 46,
-        "window": {
-          "p50": 22,
-          "p95": 28,
-          "max": 31
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 7,
-            "latency": 201,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 1,
-            "latency": 82,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 4,
-            "latency": 155,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 6,
-            "latency": 183,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 1,
-            "latency": 78,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 3,
-            "latency": 129,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 5,
-            "latency": 184,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 1,
-            "latency": 77,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 1,
-            "latency": 72,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 2,
-            "latency": 102,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 1,
-            "latency": 96,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 1,
-            "latency": 82,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 1,
-            "latency": 77,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 3,
-            "latency": 117,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 3,
-            "latency": 130,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 1,
-            "latency": 77,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 1,
-            "latency": 72,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 3,
-            "latency": 115,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 1,
-            "latency": 79,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 63,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 2,
-        "adoptionsBeforeLastSave": 20,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "large-same-file-10hz",
-      "settings": {
-        "name": "large-same-file-10hz",
-        "rows": 5000,
-        "large": true,
-        "samePath": true,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5273,
-      "countA": 45,
-      "countB": 46,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 147,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 91,
-        "rejectedAttempts": 7,
-        "latency": {
-          "p50": 8,
-          "p95": 20,
-          "max": 32
-        },
-        "window": {
-          "p50": 8,
-          "p95": 19,
-          "max": 25
-        }
-      },
-      "adopt": {
-        "publications": 28,
-        "rejectedAttempts": 7,
-        "window": {
-          "p50": 15,
-          "p95": 25,
-          "max": 26
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 1,
-            "latency": 74,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 1,
-            "latency": 72,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 1,
-            "latency": 66,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 62,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 59,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 1,
-            "latency": 68,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 1,
-            "latency": 73,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 1,
-            "latency": 69,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 1,
-            "latency": 69,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 57,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 28,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 27,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "injected-250ms-window-50hz",
-      "settings": {
-        "name": "injected-250ms-window-50hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 20,
-        "duration": 2500,
-        "delay": 250
-      },
-      "elapsed": 3503,
-      "countA": 78,
-      "countB": 80,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 162,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 158,
-        "rejectedAttempts": 24,
-        "latency": {
-          "p50": 8,
-          "p95": 21,
-          "max": 28
-        },
-        "window": {
-          "p50": 7,
-          "p95": 16,
-          "max": 28
-        }
-      },
-      "adopt": {
-        "publications": 2,
-        "rejectedAttempts": 9,
-        "window": {
-          "p50": 277,
-          "p95": 286,
-          "max": 286
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 6,
-            "latency": 1678,
-            "published": false,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 3,
-            "latency": 1124,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 298,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 0,
-        "firstAdoptionAfterLastSaveMs": 521
-      }
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "no-sync-10hz",
-      "settings": {
-        "name": "no-sync-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 3000,
-        "delay": 0
-      },
-      "elapsed": 3306,
-      "countA": 26,
-      "countB": 27,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 55,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 53,
-        "rejectedAttempts": 9,
-        "latency": {
-          "p50": 7,
-          "p95": 13,
-          "max": 16
-        },
-        "window": {
-          "p50": 6,
-          "p95": 11,
-          "max": 13
-        }
-      },
-      "adopt": {
-        "publications": 1,
-        "rejectedAttempts": 0,
-        "window": {
-          "p50": 40,
-          "p95": 40,
-          "max": 40
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 83,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 0,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "two-tabs-1hz",
-      "settings": {
-        "name": "two-tabs-1hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 1000,
-        "duration": 6000,
-        "delay": 0
-      },
-      "elapsed": 6374,
-      "countA": 6,
-      "countB": 6,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 74,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 12,
-        "rejectedAttempts": 2,
-        "latency": {
-          "p50": 15,
-          "p95": 31,
-          "max": 31
-        },
-        "window": {
-          "p50": 9,
-          "p95": 31,
-          "max": 31
-        }
-      },
-      "adopt": {
-        "publications": 31,
-        "rejectedAttempts": 1,
-        "window": {
-          "p50": 13,
-          "p95": 40,
-          "max": 45
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 58,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 57,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 59,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 62,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 80,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 77,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 1,
-            "latency": 102,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 89,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 28,
-            "retries": 0,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 29,
-            "retries": 0,
-            "latency": 81,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 30,
-            "retries": 0,
-            "latency": 77,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 31,
-            "retries": 0,
-            "latency": 61,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 25,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "two-tabs-10hz",
-      "settings": {
-        "name": "two-tabs-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5339,
-      "countA": 41,
-      "countB": 41,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 130,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 82,
-        "rejectedAttempts": 22,
-        "latency": {
-          "p50": 13,
-          "p95": 36,
-          "max": 54
-        },
-        "window": {
-          "p50": 10,
-          "p95": 25,
-          "max": 37
-        }
-      },
-      "adopt": {
-        "publications": 24,
-        "rejectedAttempts": 15,
-        "window": {
-          "p50": 18,
-          "p95": 39,
-          "max": 41
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 63,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 60,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 72,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 2,
-            "latency": 104,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 1,
-            "latency": 98,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 2,
-            "latency": 113,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 66,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 60,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 2,
-            "latency": 105,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 44,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 59,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 1,
-            "latency": 66,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 2,
-            "latency": 115,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 1,
-            "latency": 83,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 2,
-            "latency": 88,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 1,
-            "latency": 84,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 1,
-            "latency": 83,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 79,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 2,
-        "adoptionsBeforeLastSave": 22,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "two-tabs-50hz",
-      "settings": {
-        "name": "two-tabs-50hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 20,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5415,
-      "countA": 132,
-      "countB": 135,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 317,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 267,
-        "rejectedAttempts": 103,
-        "latency": {
-          "p50": 10,
-          "p95": 20,
-          "max": 27
-        },
-        "window": {
-          "p50": 6,
-          "p95": 15,
-          "max": 21
-        }
-      },
-      "adopt": {
-        "publications": 25,
-        "rejectedAttempts": 21,
-        "window": {
-          "p50": 17,
-          "p95": 27,
-          "max": 34
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 1,
-            "latency": 91,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 1,
-            "latency": 80,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 1,
-            "latency": 74,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 2,
-            "latency": 83,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 64,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 2,
-            "latency": 93,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 1,
-            "latency": 78,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 1,
-            "latency": 74,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 57,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 58,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 1,
-            "latency": 74,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 1,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 2,
-            "latency": 111,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 1,
-            "latency": 66,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 1,
-            "latency": 82,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 65,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 1,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 2,
-            "latency": 91,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 1,
-            "latency": 86,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 2,
-            "latency": 92,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 59,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 77,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 2,
-        "adoptionsBeforeLastSave": 23,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "large-same-file-10hz",
-      "settings": {
-        "name": "large-same-file-10hz",
-        "rows": 5000,
-        "large": true,
-        "samePath": true,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5342,
-      "countA": 41,
-      "countB": 40,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 129,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 81,
-        "rejectedAttempts": 26,
-        "latency": {
-          "p50": 15,
-          "p95": 38,
-          "max": 55
-        },
-        "window": {
-          "p50": 11,
-          "p95": 26,
-          "max": 37
-        }
-      },
-      "adopt": {
-        "publications": 24,
-        "rejectedAttempts": 19,
-        "window": {
-          "p50": 18,
-          "p95": 37,
-          "max": 47
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 2,
-            "latency": 92,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 1,
-            "latency": 98,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 62,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 2,
-            "latency": 122,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 60,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 60,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 57,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 1,
-            "latency": 90,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 2,
-            "latency": 109,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 2,
-            "latency": 90,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 57,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 2,
-            "latency": 106,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 1,
-            "latency": 79,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 2,
-            "latency": 90,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 2,
-            "latency": 111,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 2,
-            "latency": 99,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 73,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 46,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 63,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 2,
-        "adoptionsBeforeLastSave": 22,
-        "firstAdoptionAfterLastSaveMs": null
-      }
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "injected-250ms-window-50hz",
-      "settings": {
-        "name": "injected-250ms-window-50hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 20,
-        "duration": 2500,
-        "delay": 250
-      },
-      "elapsed": 3344,
-      "countA": 69,
-      "countB": 69,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 142,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 138,
-        "rejectedAttempts": 19,
-        "latency": {
-          "p50": 7,
-          "p95": 17,
-          "max": 31
-        },
-        "window": {
-          "p50": 6,
-          "p95": 14,
-          "max": 28
-        }
-      },
-      "adopt": {
-        "publications": 2,
-        "rejectedAttempts": 8,
-        "window": {
-          "p50": 284,
-          "p95": 296,
-          "max": 296
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 6,
-            "latency": 1713,
-            "published": false,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 2,
-            "latency": 904,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 303,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "observed": {
-        "maxRetriesForOneSave": 1,
-        "adoptionsBeforeLastSave": 0,
-        "firstAdoptionAfterLastSaveMs": 339
-      }
-    }
-  ],
-  "reopen": [
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "large-same-file-10hz",
-      "settings": {
-        "name": "large-same-file-10hz",
-        "rows": 5000,
-        "large": true,
-        "samePath": true,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5350,
-      "countA": 44,
-      "countB": 43,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 143,
-        "refsEqual": true
-      },
-      "reopened": {
-        "failures": [],
-        "pending": 0,
-        "revision": 143,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 87,
-        "rejectedAttempts": 9,
-        "latency": {
-          "p50": 7,
-          "p95": 22.8,
-          "max": 31.1
-        },
-        "window": {
-          "p50": 6.8,
-          "p95": 20.1,
-          "max": 23.8
-        }
-      },
-      "adopt": {
-        "publications": 28,
-        "rejectedAttempts": 3,
-        "window": {
-          "p50": 12.6,
-          "p95": 17.7,
-          "max": 19.9
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 49.799999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 54.69999980926514,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 52.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 0,
-            "latency": 50.30000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 49.5,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 55.90000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 54.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 54.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 45.5,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 54.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 1,
-            "latency": 57.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 53.799999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 49.700000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 1,
-            "latency": 67.59999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 54.200000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 52.700000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 0,
-            "latency": 49.09999990463257,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 46.200000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 48.60000038146973,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 1,
-            "latency": 61.80000019073486,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 52.5,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 52.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 54.299999713897705,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 52.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 57.40000009536743,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 60.700000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 52.200000286102295,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 28,
-            "retries": 0,
-            "latency": 59.40000009536743,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      }
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "large-same-file-10hz",
-      "settings": {
-        "name": "large-same-file-10hz",
-        "rows": 5000,
-        "large": true,
-        "samePath": true,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5385,
-      "countA": 44,
-      "countB": 45,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 145,
-        "refsEqual": true
-      },
-      "reopened": {
-        "failures": [],
-        "pending": 0,
-        "revision": 145,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 89,
-        "rejectedAttempts": 18,
-        "latency": {
-          "p50": 8,
-          "p95": 31,
-          "max": 33
-        },
-        "window": {
-          "p50": 7,
-          "p95": 21,
-          "max": 27
-        }
-      },
-      "adopt": {
-        "publications": 28,
-        "rejectedAttempts": 11,
-        "window": {
-          "p50": 14,
-          "p95": 39,
-          "max": 40
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 1,
-            "latency": 69,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 58,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 1,
-            "latency": 78,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 0,
-            "latency": 60,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 2,
-            "latency": 72,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 2,
-            "latency": 103,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 0,
-            "latency": 46,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 0,
-            "latency": 53,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 50,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 1,
-            "latency": 62,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 1,
-            "latency": 76,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 49,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 1,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 0,
-            "latency": 46,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 45,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 2,
-            "latency": 91,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 46,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 26,
-            "retries": 0,
-            "latency": 47,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 27,
-            "retries": 0,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 28,
-            "retries": 0,
-            "latency": 59,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      }
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "large-same-file-10hz",
-      "settings": {
-        "name": "large-same-file-10hz",
-        "rows": 5000,
-        "large": true,
-        "samePath": true,
-        "saveEvery": 100,
-        "duration": 5000,
-        "delay": 0
-      },
-      "elapsed": 5493,
-      "countA": 41,
-      "countB": 42,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 133,
-        "refsEqual": true
-      },
-      "reopened": {
-        "failures": [],
-        "pending": 0,
-        "revision": 133,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 83,
-        "rejectedAttempts": 32,
-        "latency": {
-          "p50": 14,
-          "p95": 35,
-          "max": 62
-        },
-        "window": {
-          "p50": 8,
-          "p95": 26,
-          "max": 44
-        }
-      },
-      "adopt": {
-        "publications": 25,
-        "rejectedAttempts": 12,
-        "window": {
-          "p50": 15,
-          "p95": 37,
-          "max": 40
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 55,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 2,
-            "retries": 0,
-            "latency": 61,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 3,
-            "retries": 0,
-            "latency": 48,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 4,
-            "retries": 2,
-            "latency": 107,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 5,
-            "retries": 2,
-            "latency": 100,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 6,
-            "retries": 0,
-            "latency": 79,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 7,
-            "retries": 0,
-            "latency": 69,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 8,
-            "retries": 0,
-            "latency": 54,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 9,
-            "retries": 0,
-            "latency": 62,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 10,
-            "retries": 0,
-            "latency": 68,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 11,
-            "retries": 1,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 12,
-            "retries": 2,
-            "latency": 106,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 13,
-            "retries": 1,
-            "latency": 73,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 14,
-            "retries": 0,
-            "latency": 56,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 15,
-            "retries": 0,
-            "latency": 76,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 16,
-            "retries": 1,
-            "latency": 72,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 17,
-            "retries": 2,
-            "latency": 101,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 18,
-            "retries": 0,
-            "latency": 71,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 19,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 20,
-            "retries": 0,
-            "latency": 73,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 21,
-            "retries": 0,
-            "latency": 67,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 22,
-            "retries": 1,
-            "latency": 58,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 23,
-            "retries": 0,
-            "latency": 51,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 24,
-            "retries": 0,
-            "latency": 52,
-            "published": true,
-            "whileSaving": true
-          },
-          {
-            "round": 25,
-            "retries": 0,
-            "latency": 44,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      }
-    }
-  ],
-  "offline": [
-    {
-      "engine": "chromium",
-      "version": "153.0.8010.12",
-      "name": "no-sync-10hz",
-      "settings": {
-        "name": "no-sync-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 3000,
-        "delay": 0
-      },
-      "elapsed": 3346,
-      "countA": 25,
-      "countB": 25,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 52,
-        "refsEqual": true
-      },
-      "reopened": {
-        "failures": [],
-        "pending": 0,
-        "revision": 52,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 50,
-        "rejectedAttempts": 22,
-        "latency": {
-          "p50": 18.4,
-          "p95": 25.2,
-          "max": 25.3
-        },
-        "window": {
-          "p50": 9.9,
-          "p95": 21.3,
-          "max": 25.1
-        }
-      },
-      "adopt": {
-        "publications": 1,
-        "rejectedAttempts": 0,
-        "window": {
-          "p50": 29.6,
-          "p95": 29.6,
-          "max": 29.6
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 73.09999990463257,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "offlineDuringWriters": true
-    },
-    {
-      "engine": "webkit",
-      "version": "27.2",
-      "name": "no-sync-10hz",
-      "settings": {
-        "name": "no-sync-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 3000,
-        "delay": 0
-      },
-      "elapsed": 3360,
-      "countA": 24,
-      "countB": 24,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 50,
-        "refsEqual": true
-      },
-      "reopened": {
-        "failures": [],
-        "pending": 0,
-        "revision": 50,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 48,
-        "rejectedAttempts": 24,
-        "latency": {
-          "p50": 29,
-          "p95": 36,
-          "max": 38
-        },
-        "window": {
-          "p50": 17,
-          "p95": 30,
-          "max": 33
-        }
-      },
-      "adopt": {
-        "publications": 1,
-        "rejectedAttempts": 0,
-        "window": {
-          "p50": 67,
-          "p95": 67,
-          "max": 67
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 103,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "offlineDuringWriters": true
-    },
-    {
-      "engine": "firefox",
-      "version": "151.0",
-      "name": "no-sync-10hz",
-      "settings": {
-        "name": "no-sync-10hz",
-        "rows": 5000,
-        "large": false,
-        "samePath": false,
-        "saveEvery": 100,
-        "duration": 3000,
-        "delay": 0
-      },
-      "elapsed": 3504,
-      "countA": 23,
-      "countB": 23,
-      "drained": true,
-      "verification": {
-        "failures": [],
-        "pending": 0,
-        "revision": 48,
-        "refsEqual": true
-      },
-      "reopened": {
-        "failures": [],
-        "pending": 0,
-        "revision": 48,
-        "refsEqual": true
-      },
-      "save": {
-        "acknowledged": 46,
-        "rejectedAttempts": 23,
-        "latency": {
-          "p50": 27,
-          "p95": 35,
-          "max": 37
-        },
-        "window": {
-          "p50": 17,
-          "p95": 31,
-          "max": 35
-        }
-      },
-      "adopt": {
-        "publications": 1,
-        "rejectedAttempts": 0,
-        "window": {
-          "p50": 59,
-          "p95": 59,
-          "max": 59
-        },
-        "attempts": [
-          {
-            "round": 1,
-            "retries": 0,
-            "latency": 105,
-            "published": true,
-            "whileSaving": false
-          }
-        ]
-      },
-      "offlineDuringWriters": true
-    }
-  ],
-  "sourceCommit": "6058e010a9e09b7a396b6a23042d7498162a9ccc"
+	"scope": "Desktop scratch IndexedDB contention prototype, simulated network, no collection",
+	"main": [
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "no-sync-10hz",
+			"settings": {
+				"name": "no-sync-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 3000,
+				"delay": 0
+			},
+			"elapsed": 3274,
+			"countA": 25,
+			"countB": 25,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 52,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 50,
+				"rejectedAttempts": 18,
+				"latency": {
+					"p50": 13.5,
+					"p95": 21.7,
+					"max": 25.2
+				},
+				"window": {
+					"p50": 7.5,
+					"p95": 18.7,
+					"max": 24.8
+				}
+			},
+			"adopt": {
+				"publications": 1,
+				"rejectedAttempts": 0,
+				"window": {
+					"p50": 29.2,
+					"p95": 29.2,
+					"max": 29.2
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 72,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 0,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "two-tabs-1hz",
+			"settings": {
+				"name": "two-tabs-1hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 1000,
+				"duration": 6000,
+				"delay": 0
+			},
+			"elapsed": 6336,
+			"countA": 6,
+			"countB": 6,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 74,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 12,
+				"rejectedAttempts": 2,
+				"latency": {
+					"p50": 15.5,
+					"p95": 29.7,
+					"max": 29.7
+				},
+				"window": {
+					"p50": 11.1,
+					"p95": 21.8,
+					"max": 21.8
+				}
+			},
+			"adopt": {
+				"publications": 31,
+				"rejectedAttempts": 2,
+				"window": {
+					"p50": 17.7,
+					"p95": 26.8,
+					"max": 30.1
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 52.19999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 64.2000002861023,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 67.7000002861023,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 68.60000038146973,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 59.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 59,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 68.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 75.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 60.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 59.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 60.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 67.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 66.2999997138977,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 59.200000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 1,
+						"latency": 74.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 67.89999961853027,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 67.5,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 61.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 53.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 53.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 57.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 53.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 56,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 1,
+						"latency": 74.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 46.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 28,
+						"retries": 0,
+						"latency": 57.19999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 29,
+						"retries": 0,
+						"latency": 44,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 30,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 31,
+						"retries": 0,
+						"latency": 45.09999990463257,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 24,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "two-tabs-10hz",
+			"settings": {
+				"name": "two-tabs-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5257,
+			"countA": 43,
+			"countB": 44,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 141,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 87,
+				"rejectedAttempts": 6,
+				"latency": {
+					"p50": 7.1,
+					"p95": 20.4,
+					"max": 34.7
+				},
+				"window": {
+					"p50": 6.9,
+					"p95": 19.4,
+					"max": 27.6
+				}
+			},
+			"adopt": {
+				"publications": 27,
+				"rejectedAttempts": 3,
+				"window": {
+					"p50": 12.4,
+					"p95": 14.6,
+					"max": 16.6
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 52.19999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 58.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 1,
+						"latency": 63.5,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 49.5,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 43.39999961853027,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 53.799999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 58.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 53.19999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 55.799999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 46.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 55.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 53.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 49.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 49.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 56.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 1,
+						"latency": 55.19999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 52.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 54.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 55.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 53.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 50.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 55.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 46.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 50.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 1,
+						"latency": 68.2999997138977,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 55.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 53.59999990463257,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 2,
+				"adoptionsBeforeLastSave": 26,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "two-tabs-50hz",
+			"settings": {
+				"name": "two-tabs-50hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 20,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5204,
+			"countA": 126,
+			"countB": 132,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 310,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 258,
+				"rejectedAttempts": 80,
+				"latency": {
+					"p50": 10,
+					"p95": 25.9,
+					"max": 37.3
+				},
+				"window": {
+					"p50": 6.9,
+					"p95": 19,
+					"max": 22.9
+				}
+			},
+			"adopt": {
+				"publications": 26,
+				"rejectedAttempts": 16,
+				"window": {
+					"p50": 13.6,
+					"p95": 20.6,
+					"max": 25.4
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 1,
+						"latency": 81,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 61.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 1,
+						"latency": 74.80000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 61.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 2,
+						"latency": 88.80000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 1,
+						"latency": 65.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 52.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 1,
+						"latency": 82.7000002861023,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 56.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 57.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 51.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 2,
+						"latency": 79.80000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 1,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 44.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 60.89999961853027,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 46.80000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 53.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 3,
+						"latency": 102.19999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 52.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 2,
+						"latency": 86.19999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 1,
+						"latency": 76.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 52.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 1,
+						"latency": 76.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 54.09999990463257,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 2,
+				"adoptionsBeforeLastSave": 25,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "large-same-file-10hz",
+			"settings": {
+				"name": "large-same-file-10hz",
+				"rows": 5000,
+				"large": true,
+				"samePath": true,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5231,
+			"countA": 43,
+			"countB": 43,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 140,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 86,
+				"rejectedAttempts": 9,
+				"latency": {
+					"p50": 7.1,
+					"p95": 20.5,
+					"max": 32
+				},
+				"window": {
+					"p50": 6.8,
+					"p95": 18.7,
+					"max": 27.6
+				}
+			},
+			"adopt": {
+				"publications": 27,
+				"rejectedAttempts": 0,
+				"window": {
+					"p50": 12.8,
+					"p95": 15.7,
+					"max": 16.4
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 49.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 56.80000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 53.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 47.200000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 45.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 54.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 56.60000038146973,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 52.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 57.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 52.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 54.700000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 51.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 45.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 53.80000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 53.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 57.10000038146973,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 53.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 57.799999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 47.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 51.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 55.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 54.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 52.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 59.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 49.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 55.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 53.69999980926514,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 26,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "injected-250ms-window-50hz",
+			"settings": {
+				"name": "injected-250ms-window-50hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 20,
+				"duration": 2500,
+				"delay": 250
+			},
+			"elapsed": 3514,
+			"countA": 70,
+			"countB": 70,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 144,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 140,
+				"rejectedAttempts": 21,
+				"latency": {
+					"p50": 6.9,
+					"p95": 14.5,
+					"max": 26.9
+				},
+				"window": {
+					"p50": 6.6,
+					"p95": 12.9,
+					"max": 22.4
+				}
+			},
+			"adopt": {
+				"publications": 2,
+				"rejectedAttempts": 9,
+				"window": {
+					"p50": 274.3,
+					"p95": 288.1,
+					"max": 288.1
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 6,
+						"latency": 1688.5999999046326,
+						"published": false,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 3,
+						"latency": 1126.3000001907349,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 302.09999990463257,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 0,
+				"firstAdoptionAfterLastSaveMs": 515
+			}
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "no-sync-10hz",
+			"settings": {
+				"name": "no-sync-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 3000,
+				"delay": 0
+			},
+			"elapsed": 3291,
+			"countA": 28,
+			"countB": 28,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 58,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 56,
+				"rejectedAttempts": 5,
+				"latency": {
+					"p50": 7,
+					"p95": 19,
+					"max": 26
+				},
+				"window": {
+					"p50": 7,
+					"p95": 15,
+					"max": 19
+				}
+			},
+			"adopt": {
+				"publications": 1,
+				"rejectedAttempts": 0,
+				"window": {
+					"p50": 34,
+					"p95": 34,
+					"max": 34
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 70,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 0,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "two-tabs-1hz",
+			"settings": {
+				"name": "two-tabs-1hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 1000,
+				"duration": 6000,
+				"delay": 0
+			},
+			"elapsed": 6296,
+			"countA": 6,
+			"countB": 6,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 80,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 12,
+				"rejectedAttempts": 5,
+				"latency": {
+					"p50": 17,
+					"p95": 36,
+					"max": 36
+				},
+				"window": {
+					"p50": 12,
+					"p95": 19,
+					"max": 19
+				}
+			},
+			"adopt": {
+				"publications": 34,
+				"rejectedAttempts": 1,
+				"window": {
+					"p50": 16,
+					"p95": 28,
+					"max": 30
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 1,
+						"latency": 72,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 59,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 46,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 63,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 60,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 57,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 46,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 28,
+						"retries": 0,
+						"latency": 56,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 29,
+						"retries": 0,
+						"latency": 56,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 30,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 31,
+						"retries": 0,
+						"latency": 57,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 32,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 33,
+						"retries": 0,
+						"latency": 62,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 34,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 2,
+				"adoptionsBeforeLastSave": 28,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "two-tabs-10hz",
+			"settings": {
+				"name": "two-tabs-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5249,
+			"countA": 45,
+			"countB": 46,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 147,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 91,
+				"rejectedAttempts": 8,
+				"latency": {
+					"p50": 8,
+					"p95": 20,
+					"max": 24
+				},
+				"window": {
+					"p50": 7,
+					"p95": 16,
+					"max": 21
+				}
+			},
+			"adopt": {
+				"publications": 28,
+				"rejectedAttempts": 7,
+				"window": {
+					"p50": 15,
+					"p95": 28,
+					"max": 31
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 1,
+						"latency": 79,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 1,
+						"latency": 77,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 1,
+						"latency": 64,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 1,
+						"latency": 73,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 46,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 1,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 1,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 1,
+						"latency": 65,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 28,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 27,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "two-tabs-50hz",
+			"settings": {
+				"name": "two-tabs-50hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 20,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5292,
+			"countA": 136,
+			"countB": 147,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 327,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 283,
+				"rejectedAttempts": 100,
+				"latency": {
+					"p50": 14,
+					"p95": 26,
+					"max": 53
+				},
+				"window": {
+					"p50": 9,
+					"p95": 19,
+					"max": 25
+				}
+			},
+			"adopt": {
+				"publications": 22,
+				"rejectedAttempts": 46,
+				"window": {
+					"p50": 22,
+					"p95": 28,
+					"max": 31
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 7,
+						"latency": 201,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 1,
+						"latency": 82,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 4,
+						"latency": 155,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 6,
+						"latency": 183,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 1,
+						"latency": 78,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 3,
+						"latency": 129,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 5,
+						"latency": 184,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 1,
+						"latency": 77,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 1,
+						"latency": 72,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 2,
+						"latency": 102,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 1,
+						"latency": 96,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 1,
+						"latency": 82,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 1,
+						"latency": 77,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 3,
+						"latency": 117,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 3,
+						"latency": 130,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 1,
+						"latency": 77,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 1,
+						"latency": 72,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 3,
+						"latency": 115,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 1,
+						"latency": 79,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 63,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 2,
+				"adoptionsBeforeLastSave": 20,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "large-same-file-10hz",
+			"settings": {
+				"name": "large-same-file-10hz",
+				"rows": 5000,
+				"large": true,
+				"samePath": true,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5273,
+			"countA": 45,
+			"countB": 46,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 147,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 91,
+				"rejectedAttempts": 7,
+				"latency": {
+					"p50": 8,
+					"p95": 20,
+					"max": 32
+				},
+				"window": {
+					"p50": 8,
+					"p95": 19,
+					"max": 25
+				}
+			},
+			"adopt": {
+				"publications": 28,
+				"rejectedAttempts": 7,
+				"window": {
+					"p50": 15,
+					"p95": 25,
+					"max": 26
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 1,
+						"latency": 74,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 1,
+						"latency": 72,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 1,
+						"latency": 66,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 62,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 59,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 1,
+						"latency": 68,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 1,
+						"latency": 73,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 1,
+						"latency": 69,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 1,
+						"latency": 69,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 57,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 28,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 27,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "injected-250ms-window-50hz",
+			"settings": {
+				"name": "injected-250ms-window-50hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 20,
+				"duration": 2500,
+				"delay": 250
+			},
+			"elapsed": 3503,
+			"countA": 78,
+			"countB": 80,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 162,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 158,
+				"rejectedAttempts": 24,
+				"latency": {
+					"p50": 8,
+					"p95": 21,
+					"max": 28
+				},
+				"window": {
+					"p50": 7,
+					"p95": 16,
+					"max": 28
+				}
+			},
+			"adopt": {
+				"publications": 2,
+				"rejectedAttempts": 9,
+				"window": {
+					"p50": 277,
+					"p95": 286,
+					"max": 286
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 6,
+						"latency": 1678,
+						"published": false,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 3,
+						"latency": 1124,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 298,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 0,
+				"firstAdoptionAfterLastSaveMs": 521
+			}
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "no-sync-10hz",
+			"settings": {
+				"name": "no-sync-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 3000,
+				"delay": 0
+			},
+			"elapsed": 3306,
+			"countA": 26,
+			"countB": 27,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 55,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 53,
+				"rejectedAttempts": 9,
+				"latency": {
+					"p50": 7,
+					"p95": 13,
+					"max": 16
+				},
+				"window": {
+					"p50": 6,
+					"p95": 11,
+					"max": 13
+				}
+			},
+			"adopt": {
+				"publications": 1,
+				"rejectedAttempts": 0,
+				"window": {
+					"p50": 40,
+					"p95": 40,
+					"max": 40
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 83,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 0,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "two-tabs-1hz",
+			"settings": {
+				"name": "two-tabs-1hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 1000,
+				"duration": 6000,
+				"delay": 0
+			},
+			"elapsed": 6374,
+			"countA": 6,
+			"countB": 6,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 74,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 12,
+				"rejectedAttempts": 2,
+				"latency": {
+					"p50": 15,
+					"p95": 31,
+					"max": 31
+				},
+				"window": {
+					"p50": 9,
+					"p95": 31,
+					"max": 31
+				}
+			},
+			"adopt": {
+				"publications": 31,
+				"rejectedAttempts": 1,
+				"window": {
+					"p50": 13,
+					"p95": 40,
+					"max": 45
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 58,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 57,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 59,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 62,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 80,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 77,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 1,
+						"latency": 102,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 89,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 28,
+						"retries": 0,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 29,
+						"retries": 0,
+						"latency": 81,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 30,
+						"retries": 0,
+						"latency": 77,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 31,
+						"retries": 0,
+						"latency": 61,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 25,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "two-tabs-10hz",
+			"settings": {
+				"name": "two-tabs-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5339,
+			"countA": 41,
+			"countB": 41,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 130,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 82,
+				"rejectedAttempts": 22,
+				"latency": {
+					"p50": 13,
+					"p95": 36,
+					"max": 54
+				},
+				"window": {
+					"p50": 10,
+					"p95": 25,
+					"max": 37
+				}
+			},
+			"adopt": {
+				"publications": 24,
+				"rejectedAttempts": 15,
+				"window": {
+					"p50": 18,
+					"p95": 39,
+					"max": 41
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 63,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 60,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 72,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 2,
+						"latency": 104,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 1,
+						"latency": 98,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 2,
+						"latency": 113,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 66,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 60,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 2,
+						"latency": 105,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 44,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 59,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 1,
+						"latency": 66,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 2,
+						"latency": 115,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 1,
+						"latency": 83,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 2,
+						"latency": 88,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 1,
+						"latency": 84,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 1,
+						"latency": 83,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 79,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 2,
+				"adoptionsBeforeLastSave": 22,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "two-tabs-50hz",
+			"settings": {
+				"name": "two-tabs-50hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 20,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5415,
+			"countA": 132,
+			"countB": 135,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 317,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 267,
+				"rejectedAttempts": 103,
+				"latency": {
+					"p50": 10,
+					"p95": 20,
+					"max": 27
+				},
+				"window": {
+					"p50": 6,
+					"p95": 15,
+					"max": 21
+				}
+			},
+			"adopt": {
+				"publications": 25,
+				"rejectedAttempts": 21,
+				"window": {
+					"p50": 17,
+					"p95": 27,
+					"max": 34
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 1,
+						"latency": 91,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 1,
+						"latency": 80,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 1,
+						"latency": 74,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 2,
+						"latency": 83,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 64,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 2,
+						"latency": 93,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 1,
+						"latency": 78,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 1,
+						"latency": 74,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 57,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 58,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 1,
+						"latency": 74,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 1,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 2,
+						"latency": 111,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 1,
+						"latency": 66,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 1,
+						"latency": 82,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 65,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 1,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 2,
+						"latency": 91,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 1,
+						"latency": 86,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 2,
+						"latency": 92,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 59,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 77,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 2,
+				"adoptionsBeforeLastSave": 23,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "large-same-file-10hz",
+			"settings": {
+				"name": "large-same-file-10hz",
+				"rows": 5000,
+				"large": true,
+				"samePath": true,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5342,
+			"countA": 41,
+			"countB": 40,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 129,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 81,
+				"rejectedAttempts": 26,
+				"latency": {
+					"p50": 15,
+					"p95": 38,
+					"max": 55
+				},
+				"window": {
+					"p50": 11,
+					"p95": 26,
+					"max": 37
+				}
+			},
+			"adopt": {
+				"publications": 24,
+				"rejectedAttempts": 19,
+				"window": {
+					"p50": 18,
+					"p95": 37,
+					"max": 47
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 2,
+						"latency": 92,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 1,
+						"latency": 98,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 62,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 2,
+						"latency": 122,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 60,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 60,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 57,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 1,
+						"latency": 90,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 2,
+						"latency": 109,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 2,
+						"latency": 90,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 57,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 2,
+						"latency": 106,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 1,
+						"latency": 79,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 2,
+						"latency": 90,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 2,
+						"latency": 111,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 2,
+						"latency": 99,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 73,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 46,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 63,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 2,
+				"adoptionsBeforeLastSave": 22,
+				"firstAdoptionAfterLastSaveMs": null
+			}
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "injected-250ms-window-50hz",
+			"settings": {
+				"name": "injected-250ms-window-50hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 20,
+				"duration": 2500,
+				"delay": 250
+			},
+			"elapsed": 3344,
+			"countA": 69,
+			"countB": 69,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 142,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 138,
+				"rejectedAttempts": 19,
+				"latency": {
+					"p50": 7,
+					"p95": 17,
+					"max": 31
+				},
+				"window": {
+					"p50": 6,
+					"p95": 14,
+					"max": 28
+				}
+			},
+			"adopt": {
+				"publications": 2,
+				"rejectedAttempts": 8,
+				"window": {
+					"p50": 284,
+					"p95": 296,
+					"max": 296
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 6,
+						"latency": 1713,
+						"published": false,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 2,
+						"latency": 904,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 303,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"observed": {
+				"maxRetriesForOneSave": 1,
+				"adoptionsBeforeLastSave": 0,
+				"firstAdoptionAfterLastSaveMs": 339
+			}
+		}
+	],
+	"reopen": [
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "large-same-file-10hz",
+			"settings": {
+				"name": "large-same-file-10hz",
+				"rows": 5000,
+				"large": true,
+				"samePath": true,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5350,
+			"countA": 44,
+			"countB": 43,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 143,
+				"refsEqual": true
+			},
+			"reopened": {
+				"failures": [],
+				"pending": 0,
+				"revision": 143,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 87,
+				"rejectedAttempts": 9,
+				"latency": {
+					"p50": 7,
+					"p95": 22.8,
+					"max": 31.1
+				},
+				"window": {
+					"p50": 6.8,
+					"p95": 20.1,
+					"max": 23.8
+				}
+			},
+			"adopt": {
+				"publications": 28,
+				"rejectedAttempts": 3,
+				"window": {
+					"p50": 12.6,
+					"p95": 17.7,
+					"max": 19.9
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 49.799999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 54.69999980926514,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 52.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 0,
+						"latency": 50.30000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 49.5,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 55.90000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 54.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 54.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 45.5,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 54.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 1,
+						"latency": 57.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 53.799999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 49.700000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 1,
+						"latency": 67.59999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 54.200000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 52.700000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 0,
+						"latency": 49.09999990463257,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 46.200000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 48.60000038146973,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 1,
+						"latency": 61.80000019073486,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 52.5,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 52.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 54.299999713897705,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 52.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 57.40000009536743,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 60.700000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 52.200000286102295,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 28,
+						"retries": 0,
+						"latency": 59.40000009536743,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			}
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "large-same-file-10hz",
+			"settings": {
+				"name": "large-same-file-10hz",
+				"rows": 5000,
+				"large": true,
+				"samePath": true,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5385,
+			"countA": 44,
+			"countB": 45,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 145,
+				"refsEqual": true
+			},
+			"reopened": {
+				"failures": [],
+				"pending": 0,
+				"revision": 145,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 89,
+				"rejectedAttempts": 18,
+				"latency": {
+					"p50": 8,
+					"p95": 31,
+					"max": 33
+				},
+				"window": {
+					"p50": 7,
+					"p95": 21,
+					"max": 27
+				}
+			},
+			"adopt": {
+				"publications": 28,
+				"rejectedAttempts": 11,
+				"window": {
+					"p50": 14,
+					"p95": 39,
+					"max": 40
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 1,
+						"latency": 69,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 58,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 1,
+						"latency": 78,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 0,
+						"latency": 60,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 2,
+						"latency": 72,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 2,
+						"latency": 103,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 0,
+						"latency": 46,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 0,
+						"latency": 53,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 50,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 1,
+						"latency": 62,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 1,
+						"latency": 76,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 49,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 1,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 0,
+						"latency": 46,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 45,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 2,
+						"latency": 91,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 46,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 26,
+						"retries": 0,
+						"latency": 47,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 27,
+						"retries": 0,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 28,
+						"retries": 0,
+						"latency": 59,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			}
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "large-same-file-10hz",
+			"settings": {
+				"name": "large-same-file-10hz",
+				"rows": 5000,
+				"large": true,
+				"samePath": true,
+				"saveEvery": 100,
+				"duration": 5000,
+				"delay": 0
+			},
+			"elapsed": 5493,
+			"countA": 41,
+			"countB": 42,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 133,
+				"refsEqual": true
+			},
+			"reopened": {
+				"failures": [],
+				"pending": 0,
+				"revision": 133,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 83,
+				"rejectedAttempts": 32,
+				"latency": {
+					"p50": 14,
+					"p95": 35,
+					"max": 62
+				},
+				"window": {
+					"p50": 8,
+					"p95": 26,
+					"max": 44
+				}
+			},
+			"adopt": {
+				"publications": 25,
+				"rejectedAttempts": 12,
+				"window": {
+					"p50": 15,
+					"p95": 37,
+					"max": 40
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 55,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 2,
+						"retries": 0,
+						"latency": 61,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 3,
+						"retries": 0,
+						"latency": 48,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 4,
+						"retries": 2,
+						"latency": 107,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 5,
+						"retries": 2,
+						"latency": 100,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 6,
+						"retries": 0,
+						"latency": 79,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 7,
+						"retries": 0,
+						"latency": 69,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 8,
+						"retries": 0,
+						"latency": 54,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 9,
+						"retries": 0,
+						"latency": 62,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 10,
+						"retries": 0,
+						"latency": 68,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 11,
+						"retries": 1,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 12,
+						"retries": 2,
+						"latency": 106,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 13,
+						"retries": 1,
+						"latency": 73,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 14,
+						"retries": 0,
+						"latency": 56,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 15,
+						"retries": 0,
+						"latency": 76,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 16,
+						"retries": 1,
+						"latency": 72,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 17,
+						"retries": 2,
+						"latency": 101,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 18,
+						"retries": 0,
+						"latency": 71,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 19,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 20,
+						"retries": 0,
+						"latency": 73,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 21,
+						"retries": 0,
+						"latency": 67,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 22,
+						"retries": 1,
+						"latency": 58,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 23,
+						"retries": 0,
+						"latency": 51,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 24,
+						"retries": 0,
+						"latency": 52,
+						"published": true,
+						"whileSaving": true
+					},
+					{
+						"round": 25,
+						"retries": 0,
+						"latency": 44,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			}
+		}
+	],
+	"offline": [
+		{
+			"engine": "chromium",
+			"version": "153.0.8010.12",
+			"name": "no-sync-10hz",
+			"settings": {
+				"name": "no-sync-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 3000,
+				"delay": 0
+			},
+			"elapsed": 3346,
+			"countA": 25,
+			"countB": 25,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 52,
+				"refsEqual": true
+			},
+			"reopened": {
+				"failures": [],
+				"pending": 0,
+				"revision": 52,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 50,
+				"rejectedAttempts": 22,
+				"latency": {
+					"p50": 18.4,
+					"p95": 25.2,
+					"max": 25.3
+				},
+				"window": {
+					"p50": 9.9,
+					"p95": 21.3,
+					"max": 25.1
+				}
+			},
+			"adopt": {
+				"publications": 1,
+				"rejectedAttempts": 0,
+				"window": {
+					"p50": 29.6,
+					"p95": 29.6,
+					"max": 29.6
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 73.09999990463257,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"offlineDuringWriters": true
+		},
+		{
+			"engine": "webkit",
+			"version": "27.2",
+			"name": "no-sync-10hz",
+			"settings": {
+				"name": "no-sync-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 3000,
+				"delay": 0
+			},
+			"elapsed": 3360,
+			"countA": 24,
+			"countB": 24,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 50,
+				"refsEqual": true
+			},
+			"reopened": {
+				"failures": [],
+				"pending": 0,
+				"revision": 50,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 48,
+				"rejectedAttempts": 24,
+				"latency": {
+					"p50": 29,
+					"p95": 36,
+					"max": 38
+				},
+				"window": {
+					"p50": 17,
+					"p95": 30,
+					"max": 33
+				}
+			},
+			"adopt": {
+				"publications": 1,
+				"rejectedAttempts": 0,
+				"window": {
+					"p50": 67,
+					"p95": 67,
+					"max": 67
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 103,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"offlineDuringWriters": true
+		},
+		{
+			"engine": "firefox",
+			"version": "151.0",
+			"name": "no-sync-10hz",
+			"settings": {
+				"name": "no-sync-10hz",
+				"rows": 5000,
+				"large": false,
+				"samePath": false,
+				"saveEvery": 100,
+				"duration": 3000,
+				"delay": 0
+			},
+			"elapsed": 3504,
+			"countA": 23,
+			"countB": 23,
+			"drained": true,
+			"verification": {
+				"failures": [],
+				"pending": 0,
+				"revision": 48,
+				"refsEqual": true
+			},
+			"reopened": {
+				"failures": [],
+				"pending": 0,
+				"revision": 48,
+				"refsEqual": true
+			},
+			"save": {
+				"acknowledged": 46,
+				"rejectedAttempts": 23,
+				"latency": {
+					"p50": 27,
+					"p95": 35,
+					"max": 37
+				},
+				"window": {
+					"p50": 17,
+					"p95": 31,
+					"max": 35
+				}
+			},
+			"adopt": {
+				"publications": 1,
+				"rejectedAttempts": 0,
+				"window": {
+					"p50": 59,
+					"p95": 59,
+					"max": 59
+				},
+				"attempts": [
+					{
+						"round": 1,
+						"retries": 0,
+						"latency": 105,
+						"published": true,
+						"whileSaving": false
+					}
+				]
+			},
+			"offlineDuringWriters": true
+		}
+	],
+	"sourceCommit": "6058e010a9e09b7a396b6a23042d7498162a9ccc"
 }

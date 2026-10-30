@@ -44,5 +44,4 @@ export {
 	prepareDefinition,
 } from './prepare.js';
 
-
 export { isTableName } from './table-name.js';

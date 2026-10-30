@@ -3,6 +3,10 @@
  * host, and the calls a test makes on it, on `globalThis.replicas`. Results
  * cross to the test as plain data.
  */
+
+import { unwrap } from 'wellcrafted/result';
+import type { FileStatus } from '../src/client/replica.js';
+import { compileTemplate } from '../src/core/templates.js';
 import {
 	type BrowserReplicaOptions,
 	createBrowserReplica,
@@ -11,14 +15,15 @@ import {
 	openBrowserReplica,
 	type ReplicaTab,
 	type ReplicaTabState,
-	storagePersistence,
 	type Syncing,
+	storagePersistence,
 } from '../src/hosts/browser/index.js';
-import { replicaDirectory, replicaLock, replicasDirectory } from '../src/hosts/browser/layout.js';
+import {
+	replicaDirectory,
+	replicaLock,
+	replicasDirectory,
+} from '../src/hosts/browser/layout.js';
 import { entriesOf } from '../src/hosts/browser/opfs.js';
-import { compileTemplate } from '../src/core/templates.js';
-import type { FileStatus } from '../src/client/replica.js';
-import { unwrap } from 'wellcrafted/result';
 
 const NOTES = [
 	{
@@ -43,12 +48,17 @@ const state = (): ReplicaTabState => {
 };
 const current = () => {
 	const now = state();
-	if (now.status !== 'open') throw new Error(`The replica is ${now.status} in this tab`);
+	if (now.status !== 'open')
+		throw new Error(`The replica is ${now.status} in this tab`);
 	return now.replica;
 };
 
 /** Poll `check` until it holds. */
-async function until(check: () => Promise<boolean> | boolean, what: string, timeout = 15_000) {
+async function until(
+	check: () => Promise<boolean> | boolean,
+	what: string,
+	timeout = 15_000,
+) {
 	const deadline = Date.now() + timeout;
 	while (!(await check())) {
 		if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
@@ -57,13 +67,26 @@ async function until(check: () => Promise<boolean> | boolean, what: string, time
 }
 
 const plain = <T>(value: T) => JSON.parse(JSON.stringify(value)) as T;
-const bytesOf = (size: number, seed: number) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + seed) % 251);
+const bytesOf = (size: number, seed: number) =>
+	Uint8Array.from({ length: size }, (_, i) => (i * 31 + seed) % 251);
 async function summary(blob: Blob | null) {
 	if (blob === null) return null;
-	const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()));
-	return { size: blob.size, oid: Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('') };
+	const digest = new Uint8Array(
+		await crypto.subtle.digest('SHA-256', await blob.arrayBuffer()),
+	);
+	return {
+		size: blob.size,
+		oid: Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join(
+			'',
+		),
+	};
 }
-const message = (worker: Worker) => new Promise<unknown>((resolve) => worker.addEventListener('message', (event) => resolve(event.data), { once: true }));
+const message = (worker: Worker) =>
+	new Promise<unknown>((resolve) =>
+		worker.addEventListener('message', (event) => resolve(event.data), {
+			once: true,
+		}),
+	);
 const options = (token?: string): BrowserReplicaOptions => ({
 	collections: NOTES,
 	headers: token === undefined ? {} : { authorization: `Bearer ${token}` },
@@ -72,16 +95,34 @@ const options = (token?: string): BrowserReplicaOptions => ({
 
 /** Wait until this tab owns the replica, another tab does, or it cannot open; answers which. */
 async function settle() {
-	await until(() => ['open', 'elsewhere', 'unavailable'].includes(state().status), 'the replica to open');
+	await until(
+		() => ['open', 'elsewhere', 'unavailable'].includes(state().status),
+		'the replica to open',
+	);
 	const now = state();
-	return now.status === 'unavailable' ? { status: now.status, error: now.error.name } : { status: now.status };
+	return now.status === 'unavailable'
+		? { status: now.status, error: now.error.name }
+		: { status: now.status };
 }
 
 const api = {
 	/** Make a replica of `repository` and open it here; answers its id. */
-	async create(repository: string, { token, ...syncing }: Syncing & { token?: string } = { account: null, url: null }) {
-		const created = await createBrowserReplica({ owner: null, repository, name: repository, ...syncing, ...options(token) });
-		if (created.error !== null) return { error: created.error.name, replica: null };
+	async create(
+		repository: string,
+		{ token, ...syncing }: Syncing & { token?: string } = {
+			account: null,
+			url: null,
+		},
+	) {
+		const created = await createBrowserReplica({
+			owner: null,
+			repository,
+			name: repository,
+			...syncing,
+			...options(token),
+		});
+		if (created.error !== null)
+			return { error: created.error.name, replica: null };
 		tab = created.data;
 		await settle();
 		return { error: null, replica: tab.replica };
@@ -91,10 +132,16 @@ const api = {
 		return settle();
 	},
 	status: () => state().status,
-	untilStatus: (status: ReplicaTabState['status'], timeout?: number) => until(() => state().status === status, `the tab to be ${status} (it is ${tab?.state().status})`, timeout),
+	untilStatus: (status: ReplicaTabState['status'], timeout?: number) =>
+		until(
+			() => state().status === status,
+			`the tab to be ${status} (it is ${tab?.state().status})`,
+			timeout,
+		),
 	useHere() {
 		const now = state();
-		if (now.status !== 'elsewhere' && now.status !== 'moved') throw new Error(`Use here is not offered while ${now.status}`);
+		if (now.status !== 'elsewhere' && now.status !== 'moved')
+			throw new Error(`Use here is not offered while ${now.status}`);
 		now.useHere();
 	},
 	close: () => tab?.close(),
@@ -105,13 +152,27 @@ const api = {
 		return settle();
 	},
 	manifest: () => current().manifest,
-	write: async (path: string, text: string | null) => plain(await current().change([{ kind: 'write', path, text }])),
+	write: async (path: string, text: string | null) =>
+		plain(await current().change([{ kind: 'write', path, text }])),
 	read: (path: string) => current().read(path),
-	untilText: (path: string, text: string | null) => until(async () => (await current().read(path)) === text, `${path} to read ${JSON.stringify(text)}`),
+	untilText: (path: string, text: string | null) =>
+		until(
+			async () => (await current().read(path)) === text,
+			`${path} to read ${JSON.stringify(text)}`,
+		),
 	unsent: () => current().unsent(),
 	state: (path: string) => current().state(path),
-	untilState: (path: string, status: FileStatus['status']) => until(async () => (await current().state(path)).status === status, `${path} to be ${status}`),
-	untilSynced: () => until(async () => !(await current().busy()) && (await current().unsent()).length === 0, 'the replica to sync'),
+	untilState: (path: string, status: FileStatus['status']) =>
+		until(
+			async () => (await current().state(path)).status === status,
+			`${path} to be ${status}`,
+		),
+	untilSynced: () =>
+		until(
+			async () =>
+				!(await current().busy()) && (await current().unsent()).length === 0,
+			'the replica to sync',
+		),
 	query: (sql: string) => current().query(sql),
 	/** Write and, in the same task, freeze the page, as a browser freezing a background tab right after a keystroke. */
 	writeThenFreeze(path: string, text: string) {
@@ -137,11 +198,22 @@ const api = {
 		if (root === null) return null;
 		const at = async (name: string) => {
 			const entries = await entriesOf(root);
-			return entries.some(([entry]) => entry === name) ? (await entriesOf(await root.getDirectoryHandle(name))).map(([entry]) => entry) : null;
+			return entries.some(([entry]) => entry === name)
+				? (await entriesOf(await root.getDirectoryHandle(name))).map(
+						([entry]) => entry,
+					)
+				: null;
 		};
-		return { root: (await entriesOf(root)).map(([name, kind]) => `${name}${kind === 'directory' ? '/' : ''}`), sqlite: await at('sqlite'), objects: await at('objects') };
+		return {
+			root: (await entriesOf(root)).map(
+				([name, kind]) => `${name}${kind === 'directory' ? '/' : ''}`,
+			),
+			sqlite: await at('sqlite'),
+			objects: await at('objects'),
+		};
 	},
-	replicaDirectories: async () => (await entriesOf(await replicasDirectory())).map(([name]) => name),
+	replicaDirectories: async () =>
+		(await entriesOf(await replicasDirectory())).map(([name]) => name),
 	/**
 	 * Cut a removal short, as a tab closed midway would leave it: marked,
 	 * its database deleted, its manifest and objects still there.
@@ -161,9 +233,20 @@ const api = {
 	},
 	/** Put `size` generated bytes at `path`, as a create: the oid and size stored, and what the bytes are. */
 	async put(path: string, size: number, seed: number, replace = false) {
-		const result = plain(await current().put([{ path, blob: new Blob([bytesOf(size, seed)]), replace }], []));
+		const result = plain(
+			await current().put(
+				[{ path, blob: new Blob([bytesOf(size, seed)]), replace }],
+				[],
+			),
+		);
 		const sealed = result.data?.sealed[path];
-		return { result: sealed === undefined ? result : { data: { oid: sealed.oid, size: sealed.size }, error: null }, expected: await summary(new Blob([bytesOf(size, seed)])) };
+		return {
+			result:
+				sealed === undefined
+					? result
+					: { data: { oid: sealed.oid, size: sealed.size }, error: null },
+			expected: await summary(new Blob([bytesOf(size, seed)])),
+		};
 	},
 	/** The bytes at `path`, opened as a page opens them. */
 	async openBytes(path: string) {
@@ -230,14 +313,23 @@ const api = {
 	},
 	/** Wait until no tab of this origin holds the replica's lock. */
 	untilReleased: (replica: string) =>
-		until(async () => ((await navigator.locks.query()).held ?? []).every((lock) => lock.name !== replicaLock(replica)), 'the lock to be released'),
+		until(
+			async () =>
+				((await navigator.locks.query()).held ?? []).every(
+					(lock) => lock.name !== replicaLock(replica),
+				),
+			'the lock to be released',
+		),
 };
 
 const button = document.createElement('button');
 button.id = 'save';
 button.textContent = 'Save';
 button.addEventListener('click', () => {
-	if (armed !== null) clicked.push(current().change([{ kind: 'write', path: armed.path, text: armed.text }]));
+	if (armed !== null)
+		clicked.push(
+			current().change([{ kind: 'write', path: armed.path, text: armed.text }]),
+		);
 });
 document.body.append(button);
 

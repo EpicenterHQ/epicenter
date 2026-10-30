@@ -6,18 +6,30 @@
  * is in flight. Calls a test makes are on `globalThis.api`.
  */
 import { mount } from 'svelte';
-import { browserHost } from '../src/api/browser-host.js';
-import { collectionsOf } from '../src/api/local.js';
-import type { Editor } from '../src/api/editor.js';
-import { type Host, type HostState, openRepository, type Session } from '../src/api/repository.js';
-import { bodyOf } from '../src/core/markdown.js';
-import { createBrowserReplica, openBrowserReplica, type ReplicaTab, type Syncing } from '../src/hosts/browser/index.js';
 import { reactive } from '../../svelte/src/repository/index.js';
+import { browserHost } from '../src/api/browser-host.js';
+import type { Editor } from '../src/api/editor.js';
+import { collectionsOf } from '../src/api/local.js';
+import {
+	type Host,
+	type HostState,
+	openRepository,
+	type Session,
+} from '../src/api/repository.js';
+import { bodyOf } from '../src/core/markdown.js';
+import {
+	createBrowserReplica,
+	openBrowserReplica,
+	type ReplicaTab,
+	type Syncing,
+} from '../src/hosts/browser/index.js';
 import App from './api-page/App.svelte';
 import { todosApp } from './api-page/app.js';
 
 const worker = () => new Worker('/replica-worker.js', { type: 'module' });
-let repository: ReturnType<typeof openRepository<(typeof todosApp)['definitions']>> | null = null;
+let repository: ReturnType<
+	typeof openRepository<(typeof todosApp)['definitions']>
+> | null = null;
 let editor: Editor | undefined;
 let holding = false;
 /** Whether changes stored meanwhile are held from the page too, as a page that has not heard them yet. */
@@ -38,7 +50,9 @@ function holdable(inner: Host): Host {
 					const answered = session.change(changes, token);
 					if (!holding) return answered;
 					answered.catch(() => {});
-					return new Promise((resolve, reject) => held.push(() => answered.then(resolve, reject)));
+					return new Promise((resolve, reject) =>
+						held.push(() => answered.then(resolve, reject)),
+					);
 				},
 				watch(listener) {
 					return session.watch((delta) => {
@@ -51,11 +65,23 @@ function holdable(inner: Host): Host {
 		}
 		return wrapped;
 	};
-	return { subscribe: (onState) => inner.subscribe((state: HostState) => onState(state.status === 'open' ? { status: 'open', session: wrap(state.session) } : state)), close: () => inner.close() };
+	return {
+		subscribe: (onState) =>
+			inner.subscribe((state: HostState) =>
+				onState(
+					state.status === 'open'
+						? { status: 'open', session: wrap(state.session) }
+						: state,
+				),
+			),
+		close: () => inner.close(),
+	};
 }
 
 function show(tab: ReplicaTab) {
-	repository = reactive(openRepository({ app: todosApp, host: holdable(browserHost(tab)) }));
+	repository = reactive(
+		openRepository({ app: todosApp, host: holdable(browserHost(tab)) }),
+	);
 	const target = document.createElement('div');
 	document.body.append(target);
 	mount(App, {
@@ -76,7 +102,11 @@ const repo = () => {
 	if (repository === null) throw new Error('No repository is open');
 	return repository;
 };
-const options = (token: string) => ({ collections: collectionsOf(todosApp), headers: { authorization: `Bearer ${token}` } as Record<string, string>, worker });
+const options = (token: string) => ({
+	collections: collectionsOf(todosApp),
+	headers: { authorization: `Bearer ${token}` } as Record<string, string>,
+	worker,
+});
 
 /** Poll `check` until it holds. */
 async function until(check: () => boolean, what: string, timeout = 15_000) {
@@ -88,28 +118,71 @@ async function until(check: () => boolean, what: string, timeout = 15_000) {
 }
 
 const calls = {
-	async create(name: string, { token, ...syncing }: Syncing & { token: string }) {
-		const created = await createBrowserReplica({ owner: null, repository: name, name, ...syncing, ...options(token) });
+	async create(
+		name: string,
+		{ token, ...syncing }: Syncing & { token: string },
+	) {
+		const created = await createBrowserReplica({
+			owner: null,
+			repository: name,
+			name,
+			...syncing,
+			...options(token),
+		});
 		if (created.error !== null) throw new Error(created.error.message);
 		return show(created.data);
 	},
-	open: (replica: string, token: string) => show(openBrowserReplica({ replica, ...options(token) })),
+	open: (replica: string, token: string) =>
+		show(openBrowserReplica({ replica, ...options(token) })),
 	status: () => repo().status().status,
-	untilOpen: () => until(() => repository?.status().status === 'open', 'the repository to open'),
-	untilStatus: (status: string) => until(() => repository?.status().status === status, `the repository to be ${status}`),
-	add: async (stem: string, title: string, body: string) => (await repo().todos.create({ stem }, { fields: { title, done: false }, body })).error,
-	todos: () => repo().todos.all().map((todo) => ({ stem: todo.params.stem, done: todo.valid ? todo.fields.done : null, body: todo.body, state: todo.state.status })),
-	untilBody: (stem: string, body: string) => until(() => repo().todos.get({ stem })?.body === body, `${stem} to read ${JSON.stringify(body)}`),
+	untilOpen: () =>
+		until(
+			() => repository?.status().status === 'open',
+			'the repository to open',
+		),
+	untilStatus: (status: string) =>
+		until(
+			() => repository?.status().status === status,
+			`the repository to be ${status}`,
+		),
+	add: async (stem: string, title: string, body: string) =>
+		(
+			await repo().todos.create(
+				{ stem },
+				{ fields: { title, done: false }, body },
+			)
+		).error,
+	todos: () =>
+		repo()
+			.todos.all()
+			.map((todo) => ({
+				stem: todo.params.stem,
+				done: todo.valid ? todo.fields.done : null,
+				body: todo.body,
+				state: todo.state.status,
+			})),
+	untilBody: (stem: string, body: string) =>
+		until(
+			() => repo().todos.get({ stem })?.body === body,
+			`${stem} to read ${JSON.stringify(body)}`,
+		),
 	/** Write a todo's body as exact source made from `over`, as another app or device would. */
 	writeBody: async (stem: string, body: string, over: string) => {
 		const todo = repo().todos.get({ stem });
 		if (todo === undefined) throw new Error(`no todo ${stem}`);
 		const header = todo.text.slice(0, todo.text.length - todo.body.length);
-		return (await repo().todos.write({ stem }, `${header}${body}`, { over: `${header}${over}` })).error;
+		return (
+			await repo().todos.write({ stem }, `${header}${body}`, {
+				over: `${header}${over}`,
+			})
+		).error;
 	},
 	/** The text the worker holds now, under any draft. */
 	stored: async (stem: string) => {
-		const rows = await repo().query<{ text: string }>('SELECT text FROM "epicenter/files" WHERE path = ?', [`todos/${stem}.md`]);
+		const rows = await repo().query<{ text: string }>(
+			'SELECT text FROM "epicenter/files" WHERE path = ?',
+			[`todos/${stem}.md`],
+		);
 		return rows.error === null ? (rows.data[0]?.text ?? null) : null;
 	},
 	untilStored: async (stem: string, part: string) => {
@@ -117,7 +190,10 @@ const calls = {
 		for (;;) {
 			const text = await calls.stored(stem);
 			if (text?.includes(part)) return text;
-			if (Date.now() > deadline) throw new Error(`Timed out waiting for ${stem} to hold ${JSON.stringify(part)}: ${JSON.stringify(text)}`);
+			if (Date.now() > deadline)
+				throw new Error(
+					`Timed out waiting for ${stem} to hold ${JSON.stringify(part)}: ${JSON.stringify(text)}`,
+				);
 			await new Promise((resolve) => setTimeout(resolve, 25));
 		}
 	},
@@ -125,7 +201,8 @@ const calls = {
 	editorDraft: () => (editor === undefined ? null : bodyOf(editor.draft())),
 	replacements: () => replacements,
 	editorState: () => editor?.state().status ?? null,
-	untilEditorSaved: () => until(() => editor?.state().status === 'saved', 'the editor to save'),
+	untilEditorSaved: () =>
+		until(() => editor?.state().status === 'saved', 'the editor to save'),
 	/** Hold the worker's answers to writes, and with `deltas`, the changes the page hears. */
 	hold({ deltas = false }: { deltas?: boolean } = {}) {
 		holding = true;
@@ -140,8 +217,10 @@ const calls = {
 	freeze: () => document.dispatchEvent(new Event('freeze')),
 	resume: () => document.dispatchEvent(new Event('resume')),
 	/** The page is hidden for the back-forward cache, and shown again. */
-	pagehide: () => dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })),
-	pageshow: () => dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })),
+	pagehide: () =>
+		dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true })),
+	pageshow: () =>
+		dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })),
 };
 
 declare global {

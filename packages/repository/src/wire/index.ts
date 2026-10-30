@@ -1,11 +1,21 @@
-export { createLfsClient, type LfsAction, type LfsClient, LfsClientError, type LfsObjectAnswer, createWireClient, type SocketConnection, type WireClient, WireClientError } from './client.js';
+export {
+	createLfsClient,
+	createWireClient,
+	type LfsAction,
+	type LfsClient,
+	LfsClientError,
+	type LfsObjectAnswer,
+	type SocketConnection,
+	type WireClient,
+	WireClientError,
+} from './client.js';
 export {
 	type Authenticate,
 	authenticateBearer,
-	createWire,
-	COMMIT_HEADER,
-	DEVICE_HEADER,
 	type CatchUpQuery,
+	COMMIT_HEADER,
+	createWire,
+	DEVICE_HEADER,
 	PING,
 	PONG,
 	SESSION_EXPIRED,
@@ -13,10 +23,10 @@ export {
 	type SocketHub,
 	type SocketMessage,
 	type SocketRequest,
-	type Ticket,
 	statusOf,
+	type Ticket,
 	type Verified,
-	type Wire,
 	WIRE_LIMITS,
+	type Wire,
 	type WireLimits,
 } from './wire.js';

@@ -8,18 +8,43 @@
 import { extractErrorMessage } from 'wellcrafted/error';
 import { createLogger } from 'wellcrafted/logger';
 import type { Result } from 'wellcrafted/result';
-import { type BlobPut, type Bytes, type Put, type PutError, serveBytes } from '../../client/bytes.js';
 import type { BlobError } from '../../client/bytes.js';
+import {
+	type BlobPut,
+	type Bytes,
+	type Put,
+	type PutError,
+	serveBytes,
+} from '../../client/bytes.js';
 import { type PageServer, servePage } from '../../client/page.js';
-import { type Change, openReplica, type Replica } from '../../client/replica.js';
+import {
+	type Change,
+	openReplica,
+	type Replica,
+} from '../../client/replica.js';
 import { connectSocket } from '../../client/socket.js';
 import { startUploads } from '../../client/uploads.js';
 import type { SqlDriver, SqlValue } from '../../sql.js';
 import { createLfsClient, createWireClient } from '../../wire/client.js';
-import { OBJECTS, readManifest, replicaDirectory, writeManifest } from './layout.js';
-import { type Call, type Init, SaveError, type TabMessage, type WorkerMessage } from './messages.js';
+import {
+	OBJECTS,
+	readManifest,
+	replicaDirectory,
+	writeManifest,
+} from './layout.js';
+import {
+	type Call,
+	type Init,
+	SaveError,
+	type TabMessage,
+	type WorkerMessage,
+} from './messages.js';
 import { createOpfsBlobStore } from './objects.js';
-import { clearReported, openReplicaDatabase, storageWasFull } from './sqlite.js';
+import {
+	clearReported,
+	openReplicaDatabase,
+	storageWasFull,
+} from './sqlite.js';
 
 const log = createLogger('repository/browser-worker');
 
@@ -27,8 +52,16 @@ const post = (message: WorkerMessage) => postMessage(message);
 
 /** A Result as it crosses to the tab: an error's `cause` may not be cloneable, so it goes as its message. */
 function plain<T, E extends object>(result: Result<T, E>): Result<T, E> {
-	if (result.error === null || !('cause' in result.error) || result.error.cause === undefined) return result;
-	return { data: null, error: { ...result.error, cause: extractErrorMessage(result.error.cause) } };
+	if (
+		result.error === null ||
+		!('cause' in result.error) ||
+		result.error.cause === undefined
+	)
+		return result;
+	return {
+		data: null,
+		error: { ...result.error, cause: extractErrorMessage(result.error.cause) },
+	};
 }
 
 /** What the tab may call, by name. */
@@ -66,7 +99,11 @@ function replicaMethods(replica: Replica, page: PageServer, bytes: Bytes) {
 		 * replica's objects, then store a pointer to it at its path together
 		 * with `changes`, in one transaction.
 		 */
-		put: async (blobs: BlobPut[], changes: Change[], token?: number): Promise<Result<Put, PutError>> => {
+		put: async (
+			blobs: BlobPut[],
+			changes: Change[],
+			token?: number,
+		): Promise<Result<Put, PutError>> => {
 			clearReported();
 			return plain(await bytes.put(blobs, changes, token));
 		},
@@ -94,12 +131,14 @@ export function serveReplicaWorker() {
 		}
 		Promise.resolve(value).then(
 			(settled) => post({ type: 'answer', id, value: settled }),
-			(cause: unknown) => post({ type: 'failed', id, reason: extractErrorMessage(cause) }),
+			(cause: unknown) =>
+				post({ type: 'failed', id, reason: extractErrorMessage(cause) }),
 		);
 	}
 
 	async function start({ replica: id, create, collections, headers }: Init) {
-		if (create !== null && (await readManifest(id)) === null) await writeManifest(create);
+		if (create !== null && (await readManifest(id)) === null)
+			await writeManifest(create);
 		const manifest = await readManifest(id);
 		const root = await replicaDirectory(id);
 		if (manifest === null || root === null) return post({ type: 'missing' });
@@ -118,7 +157,11 @@ export function serveReplicaWorker() {
 		}
 		const driver: SqlDriver = opened.data;
 		// The replica's database holds the server's id, learned when it first meets it.
-		const binding = { repository: manifest.repository, server: null, account: manifest.account };
+		const binding = {
+			repository: manifest.repository,
+			server: null,
+			account: manifest.account,
+		};
 		const { data: replica, error } = openReplica({
 			driver,
 			binding,
@@ -134,17 +177,45 @@ export function serveReplicaWorker() {
 			log.error(error);
 			return post({ type: 'unavailable', reason: error.message });
 		}
-		const connection = manifest.url === null ? null : connectSocket(replica, createWireClient({ url: manifest.url, headers, tickets: true }), { log });
+		const connection =
+			manifest.url === null
+				? null
+				: connectSocket(
+						replica,
+						createWireClient({ url: manifest.url, headers, tickets: true }),
+						{ log },
+					);
 		const blobs = createOpfsBlobStore(objects);
-		const lfs = manifest.url === null ? null : createLfsClient({ url: manifest.url, headers });
+		const lfs =
+			manifest.url === null
+				? null
+				: createLfsClient({ url: manifest.url, headers });
 		// The upload track: from here, after every change (a pointer saved, a catch-up after the socket attached), and again after a failure's wait.
-		const uploads = lfs === null ? null : startUploads({ replica, store: blobs, lfs, log });
-		const page = servePage(replica, collections, { failed: (cause) => (storageWasFull() ? SaveError.QuotaExceeded() : SaveError.Failed({ reason: extractErrorMessage(cause) })) });
+		const uploads =
+			lfs === null ? null : startUploads({ replica, store: blobs, lfs, log });
+		const page = servePage(replica, collections, {
+			failed: (cause) =>
+				storageWasFull()
+					? SaveError.QuotaExceeded()
+					: SaveError.Failed({ reason: extractErrorMessage(cause) }),
+		});
 		page.watch((delta) => {
 			uploads?.kick();
 			post({ type: 'changed', delta });
 		});
-		methods = replicaMethods(replica, page, serveBytes({ replica: { read: replica.read, blobLimit: replica.blobLimit, change: page.change }, store: blobs, lfs }));
+		methods = replicaMethods(
+			replica,
+			page,
+			serveBytes({
+				replica: {
+					read: replica.read,
+					blobLimit: replica.blobLimit,
+					change: page.change,
+				},
+				store: blobs,
+				lfs,
+			}),
+		);
 		close = async () => {
 			uploads?.stop();
 			await blobs.close();
@@ -162,7 +233,9 @@ export function serveReplicaWorker() {
 		const message = event.data;
 		switch (message.type) {
 			case 'init':
-				void start(message).catch((cause: unknown) => post({ type: 'unavailable', reason: extractErrorMessage(cause) }));
+				void start(message).catch((cause: unknown) =>
+					post({ type: 'unavailable', reason: extractErrorMessage(cause) }),
+				);
 				return;
 			case 'close':
 				closing = true;

@@ -34,7 +34,9 @@ import {
 	openTestServices,
 } from './services.test-support.js';
 
-const { holdWindowClose } = await import('../../../../packages/svelte/src/window-close.js');
+const { holdWindowClose } = await import(
+	'../../../../packages/svelte/src/window-close.js'
+);
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {

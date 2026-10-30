@@ -149,11 +149,14 @@ test('a player hides a revoked URL while replacement audio is loading', async ()
 
 	const read = folder.read;
 	const next = deferred<Awaited<ReturnType<typeof folder.read>>>();
-	folder.read = (requested) => requested === path ? next.promise : read(requested);
+	folder.read = (requested) =>
+		requested === path ? next.promise : read(requested);
 	expectOk(await folder.write(path, toneWav({ seconds: 2 })));
 	flushSync();
 	expect(app.target.querySelector('audio')).toBeNull();
-	await eventually(() => app.target.textContent?.includes('Loading audio…') === true);
+	await eventually(
+		() => app.target.textContent?.includes('Loading audio…') === true,
+	);
 
 	next.resolve(await read(path));
 	await eventually(() => {

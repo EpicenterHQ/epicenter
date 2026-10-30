@@ -17,7 +17,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openBunGitStore } from '../bun/git.js';
-import { type GitObject, gitBlobHash, gitCommitHash, gitCommitObject, gitObjectId, gitTreeObject } from '../core/hash.js';
+import {
+	type GitObject,
+	gitBlobHash,
+	gitCommitHash,
+	gitCommitObject,
+	gitObjectId,
+	gitTreeObject,
+} from '../core/hash.js';
 import { createTreeStore } from '../core/tree.js';
 import type { GitObjects, GitObjectWrites } from './git-store.js';
 import { createMemoryGitStore } from './memory-git.js';
@@ -55,16 +62,47 @@ for (const [name, open] of adapters)
 				]),
 			);
 			const trees = createTreeStore();
-			expect(tree).toBe(trees.update(trees.empty, [[['notes', 'a.md'], blob], [['notes.md'], other]]));
+			expect(tree).toBe(
+				trees.update(trees.empty, [
+					[['notes', 'a.md'], blob],
+					[['notes.md'], other],
+				]),
+			);
 			const author = { name: 'alice', email: 'alice@users.epicenter.invalid' };
-			const committer = { name: 'Epicenter', email: 'epicenter@users.epicenter.invalid' };
+			const committer = {
+				name: 'Epicenter',
+				email: 'epicenter@users.epicenter.invalid',
+			};
 			const at = new Date(Date.UTC(2026, 9, 28, 12));
 			const message = 'Edit notes/a.md\n\nnotes/a.md\n';
-			const commit = await git.writeCommit({ tree, parents: [], message, author, committer, at });
+			const commit = await git.writeCommit({
+				tree,
+				parents: [],
+				message,
+				author,
+				committer,
+				at,
+			});
 			const seconds = at.getTime() / 1000;
-			expect(commit).toBe(gitCommitHash({ tree, parents: [], message, author: { ...author, at: seconds }, committer: { ...committer, at: seconds } }));
-			expect(await git.readCommit(commit)).toEqual({ tree, parents: [], message });
-			expect(new TextDecoder().decode((await git.readBlob(blob)) ?? new Uint8Array())).toBe('hello\n');
+			expect(commit).toBe(
+				gitCommitHash({
+					tree,
+					parents: [],
+					message,
+					author: { ...author, at: seconds },
+					committer: { ...committer, at: seconds },
+				}),
+			);
+			expect(await git.readCommit(commit)).toEqual({
+				tree,
+				parents: [],
+				message,
+			});
+			expect(
+				new TextDecoder().decode(
+					(await git.readBlob(blob)) ?? new Uint8Array(),
+				),
+			).toBe('hello\n');
 			expect([...(await git.readTree(tree))].sort()).toEqual([
 				['notes.md', { mode: '100644', oid: other }],
 				['notes/a.md', { mode: '100644', oid: blob }],
@@ -75,8 +113,20 @@ for (const [name, open] of adapters)
 			const git = await open();
 			const tree = await git.writeTree(new Map());
 			const author = { name: 'a', email: 'a@b' };
-			const one = await git.writeCommit({ tree, parents: [], message: 'one\n', author, at: new Date(0) });
-			const two = await git.writeCommit({ tree, parents: [one], message: 'two\n', author, at: new Date(0) });
+			const one = await git.writeCommit({
+				tree,
+				parents: [],
+				message: 'one\n',
+				author,
+				at: new Date(0),
+			});
+			const two = await git.writeCommit({
+				tree,
+				parents: [one],
+				message: 'two\n',
+				author,
+				at: new Date(0),
+			});
 			expect(await git.readRef('refs/heads/main')).toBeNull();
 			expect(await git.updateRef('refs/heads/main', one, two)).toBe(false);
 			expect(await git.updateRef('refs/heads/main', one, null)).toBe(true);
@@ -98,18 +148,36 @@ for (const [name, open] of adapters)
 				{ kind: 'blob', bytes: big },
 				{ kind: 'blob', bytes: small },
 			];
-			const inner = gitTreeObject([['a.md', { kind: 'blob', hash: gitObjectId(blobs[0] as GitObject) }]]);
+			const inner = gitTreeObject([
+				['a.md', { kind: 'blob', hash: gitObjectId(blobs[0] as GitObject) }],
+			]);
 			const root = gitTreeObject([
 				['notes', { kind: 'tree', hash: gitObjectId(inner) }],
 				['top.md', { kind: 'blob', hash: gitObjectId(blobs[1] as GitObject) }],
 			]);
-			const signature = { name: 'Epicenter', email: 'noreply@epicenter.so', at: 1_800_000_000 };
-			const commit = gitCommitObject({ tree: gitObjectId(root), parents: [], author: signature, committer: signature, message: 'packed\n' });
+			const signature = {
+				name: 'Epicenter',
+				email: 'noreply@epicenter.so',
+				at: 1_800_000_000,
+			};
+			const commit = gitCommitObject({
+				tree: gitObjectId(root),
+				parents: [],
+				author: signature,
+				committer: signature,
+				message: 'packed\n',
+			});
 			const oid = gitObjectId(commit);
 			const ref = { name: 'refs/heads/staging', next: oid, expected: null };
-			expect(await git.writePack([...blobs, inner, root, commit], ref)).toBe(true);
+			expect(await git.writePack([...blobs, inner, root, commit], ref)).toBe(
+				true,
+			);
 			expect(await git.readRef('refs/heads/staging')).toBe(oid);
-			expect(await git.readCommit(oid)).toEqual({ tree: gitObjectId(root), parents: [], message: 'packed\n' });
+			expect(await git.readCommit(oid)).toEqual({
+				tree: gitObjectId(root),
+				parents: [],
+				message: 'packed\n',
+			});
 			expect([...(await git.readTree(gitObjectId(root)))].sort()).toEqual([
 				['notes/a.md', { mode: '100644', oid: gitBlobHash(big) }],
 				['top.md', { mode: '100644', oid: gitBlobHash(small) }],
