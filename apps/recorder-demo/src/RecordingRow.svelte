@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { cacheOf } from '@epicenter/folder/browser';
 	import { onDestroy } from 'svelte';
+	import { Ok } from 'wellcrafted/result';
 	import { getDevice, getRemote } from './lib/context.ts';
 	import type { RecordingRow } from './lib/recordings.ts';
 
@@ -8,11 +10,13 @@
 		onchange,
 	}: { row: RecordingRow; onchange: () => Promise<void> } = $props();
 
-	// A repository row exists only while signed in, under the remote's
-	// subtree. A row keeps its id and side for its life: rows are keyed by
-	// both, so an upload replaces the device row with a new repository one.
+	// A repository or cache row exists only while signed in, under the
+	// remote's subtree. A row keeps its id and side for its life: rows are
+	// keyed by both, so an upload replaces the device row with a new
+	// repository one.
+	const device = getDevice();
 	// svelte-ignore state_referenced_locally
-	const client = row.where === 'device' ? getDevice() : getRemote();
+	const client = row.where === 'device' ? device : getRemote();
 
 	/** What the person typed and has not saved; null shows the note's title, however it changes. */
 	let draft = $state<string | null>(null);
@@ -23,10 +27,23 @@
 		if (audioUrl) URL.revokeObjectURL(audioUrl);
 	});
 
+	/** The audio's bytes: from the device's cache when it holds them, else from where the row lives. */
+	async function audioBytes(ext: string) {
+		if (row.cached) {
+			// Online, only the repository's version answers; offline, the cache is all there is.
+			const cached = await cacheOf(device).read(
+				{ collection: 'audio', id: row.id, ext },
+				row.audioVersion ? { version: row.audioVersion } : {},
+			);
+			if (cached.data) return Ok(cached.data);
+		}
+		return client.audio.get({ id: row.id, ext });
+	}
+
 	async function play() {
 		if (row.ext === null) return;
 		status = 'Loading…';
-		const audio = await client.audio.get({ id: row.id, ext: row.ext });
+		const audio = await audioBytes(row.ext);
 		if (audio.error !== null) {
 			status = audio.error.message;
 			return;
@@ -79,12 +96,17 @@
 		</form>
 	{:else}
 		<div class="row">
-			<strong data-testid="title">{row.note?.title ?? 'Untitled recording'}</strong>
+			<strong data-testid="title">
+				{row.note?.title ??
+					(row.where === 'cache' ? 'Cached recording' : 'Untitled recording')}
+			</strong>
 		</div>
 	{/if}
 	<div class="row meta">
 		{#if row.where === 'device'}
 			<span class="pending">not uploaded yet</span>
+		{:else if row.cached}
+			<span class="cached">cached</span>
 		{/if}
 		{#if row.note}
 			<span>{new Date(row.note.recordedAt).toLocaleString()}</span>

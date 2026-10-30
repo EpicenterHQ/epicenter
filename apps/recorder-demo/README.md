@@ -3,7 +3,9 @@
 A small recorder over the file contract. A recording lands in the browser
 first (OPFS, marked "not uploaded yet"), uploads to the signed-in person's
 repository on its own, and is then an ordinary note plus audio file that a
-desktop clone syncs with `epicenter sync`.
+desktop clone syncs with `epicenter sync`. The browser keeps the uploaded
+audio as a read-only cache (marked "cached"), so a recent recording plays
+without the server; signing out drops it.
 
 The contract is `src/contract.ts`: a note per recording at
 `recordings/{id}.md` (`title`, `recordedAt`, `durationMs`) and its audio at
@@ -33,7 +35,8 @@ It prints what to open:
    opens the app.
 2. Press **Record**, then **Stop**. The recording shows "not uploaded yet"
    until you sign in.
-3. Press **Sign in**. The recording uploads and the mark clears.
+3. Press **Sign in**. The recording uploads and its mark becomes "cached":
+   Play reads the browser's copy, with no download.
 4. In another shell, `source` the printed `desktop.sh`, then run the
    printed `epicenter clone`, `epicenter check`, and `epicenter sync`
    commands. Edit a note's `title:` in the clone, run `epicenter sync`, and
@@ -72,17 +75,21 @@ bun x playwright test -c apps/recorder-demo/playwright.config.ts --project=webki
 ```
 
 The Playwright suite (`e2e/demo.spec.ts`) starts the same environment as
-`demo` (`e2e/stack.ts`) and walks one person through six steps per engine:
+`demo` (`e2e/stack.ts`) and walks one person through eight steps per engine:
 record signed out; sign in and upload, with the first reply lost so the
-browser must keep its files until a receipt arrives; clone and
+browser must keep its files until a reply arrives, then keeps only the audio
+as a cache that plays with no LFS download; with every request to the server
+failing, a reloaded page shows the cached recording and plays it; clone and
 `git lfs pull` on the desktop, comparing the audio's sha256 and running
 `epicenter check`; a desktop title edit shown on the web; a web rename
 over a note the desktop changed meanwhile, which the client refuses as
 `Conflict`: the row keeps the draft, and saving again lands it beside the
 desktop's edit; and `epicenter share` with a second person, whose own
-signed-in browser shows and plays the recording. In WebKit a seventh step
+signed-in browser shows and plays the recording; and sign-out, after which
+the browser holds no files. In WebKit a ninth step
 opens an ephemeral context, which refuses OPFS as Safari's private windows
 do: a recording the device cannot keep stays in the page, with "Save again"
 and "Download it". Chromium records from its fake capture device and WebKit
 from the tone; both use persistent profiles, the only kind in which WebKit
-opens OPFS.
+opens OPFS. WebKit keeps OPFS outside the profile directory, so the first step
+empties the origin's files before it records.

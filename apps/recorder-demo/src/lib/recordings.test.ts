@@ -45,5 +45,63 @@ test('signed out, only the device is listed; audio without a note still shows', 
 		{ notes: [], audio: [{ id: 'a', ext: 'm4a', version: v('x') }] },
 		null,
 	);
-	expect(rows).toEqual([{ id: 'a', where: 'device', note: null, ext: 'm4a' }]);
+	expect(rows).toEqual([
+		{
+			id: 'a',
+			where: 'device',
+			note: null,
+			ext: 'm4a',
+			audioVersion: null,
+			cached: false,
+		},
+	]);
+});
+
+test("a repository recording whose audio this device cached is marked, with the repository's version", () => {
+	const rows = mergeRecordings(
+		{ notes: [], audio: [] },
+		{
+			notes: [note('a', 'Uploaded here'), note('b', 'Uploaded elsewhere')],
+			audio: [
+				{ id: 'a', ext: 'm4a', version: v('pointer-a') },
+				{ id: 'b', ext: 'm4a', version: v('pointer-b') },
+			],
+		},
+		[
+			{ id: 'a', ext: 'm4a' },
+			// Gone from the repository: an online list does not show it.
+			{ id: 'z', ext: 'm4a' },
+		],
+	);
+	expect(
+		rows.map(({ id, where, cached, audioVersion }) => ({
+			id,
+			where,
+			cached,
+			audioVersion,
+		})),
+	).toEqual([
+		{
+			id: 'b',
+			where: 'repository',
+			cached: false,
+			audioVersion: v('pointer-b'),
+		},
+		{
+			id: 'a',
+			where: 'repository',
+			cached: true,
+			audioVersion: v('pointer-a'),
+		},
+	]);
+});
+
+test('when the repository cannot be listed, cached audio shows as rows of its own', () => {
+	const rows = mergeRecordings({ notes: [note('b', 'Pending')], audio: [] }, null, [
+		{ id: 'a', ext: 'webm' },
+	]);
+	expect(rows.map(({ id, where, cached }) => ({ id, where, cached }))).toEqual([
+		{ id: 'b', where: 'device', cached: false },
+		{ id: 'a', where: 'cache', cached: true },
+	]);
 });

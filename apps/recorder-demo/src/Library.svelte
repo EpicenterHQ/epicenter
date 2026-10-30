@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
 	import { timeId } from '@epicenter/definition/ids';
+	import { cacheOf } from '@epicenter/folder/browser';
 	import type { Uploader } from '@epicenter/folder/remote';
 	import RecordingRow from './RecordingRow.svelte';
 	import type { Recorder } from './contract.ts';
@@ -17,6 +18,7 @@
 		$props();
 
 	const device = getDevice();
+	const cache = cacheOf(device);
 
 	let rows = $state.raw<Row[]>([]);
 	let problem = $state<string | null>(null);
@@ -41,20 +43,28 @@
 			device.recordings.list(),
 			device.audio.list(),
 		]);
-		const repository = remote
-			? await Promise.all([remote.recordings.list(), remote.audio.list()])
-			: null;
+		// Signed in, what this account's uploads cached on the device.
+		const [repository, cached] = remote
+			? await Promise.all([
+					Promise.all([remote.recordings.list(), remote.audio.list()]),
+					cache.list(),
+				])
+			: [null, null];
 		if (read !== reads) return;
-		const failed = [notes, audio, ...(repository ?? [])].find(
-			(listed) => listed.error !== null,
+		const failed = [notes, audio, ...(repository ?? []), cached].find(
+			(listed) => listed !== null && listed.error !== null,
 		);
 		problem = failed?.error?.message ?? null;
+		const [repositoryNotes, repositoryAudio] = repository ?? [];
 		rows = mergeRecordings(
 			{ notes: notes.data?.items ?? [], audio: audio.data?.items ?? [] },
-			repository && {
-				notes: repository[0].data?.items ?? [],
-				audio: repository[1].data?.items ?? [],
-			},
+			// Unreachable (offline): the cached audio shows on its own.
+			repositoryNotes?.data && repositoryAudio?.data
+				? { notes: repositoryNotes.data.items, audio: repositoryAudio.data.items }
+				: null,
+			(cached?.data?.items ?? []).flatMap((file) =>
+				file.collection === 'audio' ? [{ id: file.id, ext: file.ext }] : [],
+			),
 		);
 	}
 
@@ -67,7 +77,15 @@
 			if (uploader && rows.some((row) => row.where === 'device'))
 				void refresh();
 		}, 1000);
-		return () => clearInterval(timer);
+		// Going offline or back changes what the repository side can show.
+		const relist = () => void refresh();
+		addEventListener('online', relist);
+		addEventListener('offline', relist);
+		return () => {
+			clearInterval(timer);
+			removeEventListener('online', relist);
+			removeEventListener('offline', relist);
+		};
 	});
 
 	async function record() {

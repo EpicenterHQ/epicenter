@@ -6,18 +6,23 @@
  *    uploaded yet".
  * 2. Signed in, it uploads on its own. The first write's reply is lost after
  *    the server commits, and later writes are held: the browser keeps every
- *    file until a receipt arrives, then lets go and the mark clears.
- * 3. `epicenter clone` and `git lfs pull` give the bytes the browser
+ *    file until a reply arrives (the resend lands as nothing), then lets go
+ *    of the note and keeps the audio as a cache, marked cached, which plays
+ *    with no download.
+ * 3. With the server unreachable, a reopened page cannot list the
+ *    repository, and the cached recording still shows and plays.
+ * 4. `epicenter clone` and `git lfs pull` give the bytes the browser
  *    recorded, and `epicenter check` passes against the published contract.
- * 4. A title edited on the desktop and synced shows on the web after a
+ * 5. A title edited on the desktop and synced shows on the web after a
  *    reload.
- * 5. A web rename over a note the desktop changed meanwhile is refused as
+ * 6. A web rename over a note the desktop changed meanwhile is refused as
  *    `Conflict`; the draft stays, and saving again lands it beside the
  *    desktop's edit.
- * 6. Shared read only with a second person (`epicenter share`), the
+ * 7. Shared read only with a second person (`epicenter share`), the
  *    recording shows and plays in their own signed-in browser, opened with
- *    `?repository=<owner>/recorder-demo`.
- * 7. WebKit only, in an ephemeral context (no OPFS, as in Safari's private
+ *    `?repository=<owner>/recorder-demo`, its audio downloaded.
+ * 8. Signing out drops the cached audio: the browser holds nothing.
+ * 9. WebKit only, in an ephemeral context (no OPFS, as in Safari's private
  *    windows): a recording the device cannot keep stays in the page, to
  *    save again or download.
  */
@@ -165,7 +170,7 @@ async function sync(stack: Stack, person: Person, folder: string) {
 const sha256 = (bytes: Uint8Array) =>
 	createHash('sha256').update(bytes).digest('hex');
 
-const row = (where?: 'device' | 'repository') =>
+const row = (where?: 'device' | 'repository' | 'cache') =>
 	page.locator(
 		where
 			? `li[data-id="${id}"][data-where="${where}"]`
@@ -176,9 +181,18 @@ test('1. signed out, a recording stays in the browser, not uploaded yet', async 
 	stack,
 	microphone,
 }) => {
-	await page.goto(
-		`${stack.app}/${microphone === 'tone' ? '?fixture=tone' : ''}`,
-	);
+	const app = `${stack.app}/${microphone === 'tone' ? '?fixture=tone' : ''}`;
+	// WebKit keeps OPFS outside the profile directory, so an earlier run's
+	// files may still be there: start from an empty origin.
+	await page.goto(app);
+	await page.evaluate(async () => {
+		const root = await navigator.storage.getDirectory();
+		for await (const name of (
+			root as unknown as { keys(): AsyncIterable<string> }
+		).keys())
+			await root.removeEntry(name, { recursive: true });
+	});
+	await page.goto(app);
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 
 	await page.getByRole('button', { name: 'Record' }).click();
@@ -211,7 +225,7 @@ test('1. signed out, a recording stays in the browser, not uploaded yet', async 
 	await expect(recording.locator('audio')).toHaveAttribute('src', /^blob:/);
 });
 
-test('2. signed in, it uploads on its own, and the browser lets go only after the receipt', async ({
+test("2. signed in, it uploads on its own, and the browser lets go only after the server's reply, keeping the audio as a cache", async ({
 	stack,
 	person,
 }) => {
@@ -237,25 +251,61 @@ test('2. signed in, it uploads on its own, and the browser lets go only after th
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
 	await expect.poll(() => lost).toBe(200);
-	// The server committed, but no receipt reached the browser: it keeps all.
+	// The server committed, but no reply reached the browser: it keeps all.
 	expect(await opfsFiles()).toEqual(recorded);
 	await expect(row()).toContainText('not uploaded yet');
 
 	held.resolve();
 	await expect(row('repository')).toBeVisible({ timeout: 60_000 });
 	await expect(row()).not.toContainText('not uploaded yet');
-	expect(await opfsFiles()).toEqual({});
+	await expect(row('repository')).toContainText('cached');
+	// The note went (it is the repository's); the audio stays as a cache,
+	// outside the contract's paths, byte for byte what was recorded.
+	expect(await opfsFiles()).toEqual({
+		[`.epicenter/cache/${audioPath}`]: audioSha,
+	});
 	await context.unroute('**/epicenter/writes');
 
-	// Played from the repository: the bytes come down through Git LFS.
+	// Played from the cache: nothing comes down through Git LFS.
+	const lfs: string[] = [];
+	const listen = (request: { url(): string }) => {
+		if (request.url().includes('/info/lfs/')) lfs.push(request.url());
+	};
+	page.on('request', listen);
 	await row('repository').getByRole('button', { name: 'Play' }).click();
 	await expect(row('repository').locator('audio')).toHaveAttribute(
 		'src',
 		/^blob:/,
 	);
+	page.off('request', listen);
+	expect(lfs).toEqual([]);
 });
 
-test('3. a desktop clone holds the bytes the browser recorded, and the folder fits the contract', async ({
+test('3. with the server unreachable, the cached recording still shows and plays', async ({
+	stack,
+}) => {
+	// Every request to the server fails, as it does offline. (Playwright's
+	// emulated offline mode in WebKit also fails reads of the origin's own
+	// private files, so the server is cut off instead.)
+	const server = `${stack.origin}/**`;
+	await context.route(server, (route) => route.abort('internetdisconnected'));
+	try {
+		await page.reload();
+		// The repository cannot be listed: the cached audio shows on its own.
+		await expect(row('cache')).toContainText('cached');
+		await row('cache').getByRole('button', { name: 'Play' }).click();
+		await expect(row('cache').locator('audio')).toHaveAttribute(
+			'src',
+			/^blob:/,
+		);
+	} finally {
+		await context.unroute(server);
+	}
+	await page.reload();
+	await expect(row('repository')).toContainText('cached');
+});
+
+test('4. a desktop clone holds the bytes the browser recorded, and the folder fits the contract', async ({
 	stack,
 	person,
 }) => {
@@ -288,7 +338,7 @@ test('3. a desktop clone holds the bytes the browser recorded, and the folder fi
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('4. a title edited on the desktop shows on the web', async ({
+test('5. a title edited on the desktop shows on the web', async ({
 	stack,
 	person,
 }) => {
@@ -306,7 +356,7 @@ test('4. a title edited on the desktop shows on the web', async ({
 	);
 });
 
-test('5. a web rename over a desktop edit is refused, keeps its draft, and both land on a second save', async ({
+test('6. a web rename over a desktop edit is refused, keeps its draft, and both land on a second save', async ({
 	stack,
 	person,
 }) => {
@@ -356,7 +406,7 @@ test('5. a web rename over a desktop edit is refused, keeps its draft, and both 
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('6. shared with a second person, the recording shows and plays in their browser', async ({
+test('7. shared with a second person, the recording shows and plays in their browser', async ({
 	stack,
 	person,
 	playwright,
@@ -405,7 +455,15 @@ test('6. shared with a second person, the recording shows and plays in their bro
 	}
 });
 
-test('7. where the browser keeps no files, a recording is not lost: it stays in memory to save again or download', async ({
+test('8. signing out drops the cached audio from the browser', async () => {
+	await page.getByRole('button', { name: 'Sign out' }).click();
+	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+	// The walk may meet a file as it is dropped; look again.
+	await expect.poll(() => opfsFiles().catch(() => null)).toEqual({});
+	await expect(row()).toHaveCount(0);
+});
+
+test('9. where the browser keeps no files, a recording is not lost: it stays in memory to save again or download', async ({
 	stack,
 	browserName,
 	playwright,

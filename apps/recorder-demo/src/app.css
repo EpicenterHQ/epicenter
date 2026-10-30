@@ -39,11 +39,15 @@ li {
 	font-size: 0.85rem;
 	opacity: 0.7;
 }
-.pending {
+.pending,
+.cached {
 	font-size: 0.75rem;
 	padding: 0.1rem 0.4rem;
 	border-radius: 0.25rem;
 	background: color-mix(in srgb, orange 25%, transparent);
+}
+.cached {
+	background: color-mix(in srgb, steelblue 20%, transparent);
 }
 .problem {
 	color: crimson;
