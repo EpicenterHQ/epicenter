@@ -3,13 +3,13 @@
  *
  * Honeycrisp in the built shell, in Chromium and WebKit, two persistent profiles as two
  * people (alice and bob), syncing through the repository's development
- * server. Every note on the server parses (the server admits no other), so
- * a note whose frontmatter breaks is broken on a device: alice breaks one
- * in its source by typing, and repairs it.
+ * server. A note is always valid: one whose frontmatter does not parse is a
+ * note with no fields, and it syncs. Alice breaks one in its source by
+ * typing, and repairs it.
  *
  * Key behaviors:
- * - The source names the line that breaks; text that does not parse is saved on this device and held, not sent
- * - Each step of the repair that parses is sent; a schema mismatch shows its issue and clears when fixed
+ * - Text whose frontmatter does not parse is a note with no fields: its schema issue shows, and it is sent
+ * - A schema mismatch shows its issue and clears when fixed
  * - A note that does not read as one is listed for repair on the other profile, and becomes a normal note again
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
@@ -41,7 +41,7 @@ for (const [engine, browser] of [
 ] as const) {
 	describe(engine, () => {
 		test(
-			"a note broken in its source is held on the device, and its repair reaches another profile",
+			"a note broken in its source syncs as a note with no fields, and its repair reaches another profile",
 			async () => {
 				const alice = await world.open(browser, 'alice', 'honeycrisp');
 				const bob = await world.open(browser, 'bob', 'honeycrisp');
@@ -62,16 +62,13 @@ for (const [engine, browser] of [
 					await source.waitFor();
 					await until(statusSays(alice.page, 'Matches the schema'), 'the schema status');
 
-					// Retyping the title line passes through text that does not parse: saved here and held, not sent.
+					// Retyping the title line passes through text that does not parse: a note with no fields, so its title is missing, and it is sent.
 					await source.locator('.cm-line', { hasText: `title: ${title}` }).click();
 					await alice.page.keyboard.press('End');
 					await alice.page.keyboard.press('Shift+Home');
 					await alice.page.keyboard.type('title: [Broken');
-					await until(statusSays(alice.page, "Frontmatter doesn't parse"), 'the parse status');
-					await until(statusSays(alice.page, 'not sent'), 'the held text');
-					// Steps that parsed on the way were sent; the broken text never is.
-					await Bun.sleep(500);
-					expect(await world.read(path)).not.toContain('[Broken');
+					await until(statusSays(alice.page, "Doesn't match the schema"), 'the schema status');
+					await until(serverHas(path, 'title: [Broken\n'), 'the broken text on the server');
 
 					// Closing the bracket makes it parse, and it is sent, but a list is not a title.
 					await alice.page.keyboard.type(']');
