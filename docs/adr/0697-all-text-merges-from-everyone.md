@@ -147,6 +147,18 @@ however many commits the flush writes.
   a file exits held, and nothing of it lands.
 - A writer waits on its own call and learns what became of it, so a stale
   held file elsewhere never makes a commit look failed.
+- One message can name two commits when groups cross-join. A message call's
+  blob write refused at catch-up holds its call, and a later save over that
+  blob joins it, so one group has the message, unsent files and a held file.
+  If a later save then re-saves the held blob (joining that group) and also
+  saves over another message call's unsent file, it waits for that commit.
+  The group's unsent files go first under its message, then the other
+  message's commit, then the held file under the first message again. No
+  text is lost; history shows one message on two commits. Keeping one commit
+  per message here costs a rule: a call that waits waits whole, which
+  deadlocks when two such groups wait on each other and needs a tie-break,
+  or a message commit that may be amended, which folds edits made after
+  `epicenter commit -m` into it. Neither is chosen.
 - A `git push` lands beside typing. Measured in the simulation
   (`packages/repository/scripts/push-starvation.ts`, 10 people autosaving
   every 1 to 3 s, 400 ms client round trips): 538 of 538 pushes landed in
