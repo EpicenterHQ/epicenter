@@ -10,19 +10,21 @@
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
 		"./node": "./src/node.ts",
+		"./remote": "./src/remote.ts",
 		"./testing": "./src/testing.ts",
 		"./file-browser": "./src/file-browser.ts",
 		"./documents": "./src/documents.ts",
 		"./declaration": "./src/declaration/index.ts"
 	},
 	"scripts": {
-		"typecheck": "tsc --noEmit -p tsconfig.json",
+		"typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.server-tests.json",
 		"test": "bun test --isolate",
 		"test:engine": "bun test --isolate src/browser/ src/shared/",
 		"smoke:device": "bun smoke/device.ts",
 		"schema:generate": "bun src/declaration/generate-schema.ts"
 	},
 	"dependencies": {
+		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@tauri-apps/api": "catalog:",
 		"diff": "^8.0.4",
@@ -32,8 +34,13 @@
 		"yaml": "catalog:"
 	},
 	"devDependencies": {
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/server": "workspace:*",
 		"@types/bun": "catalog:",
+		"@types/pg": "^8.18.0",
+		"drizzle-orm": "catalog:",
 		"fake-indexeddb": "^6.2.6",
+		"pg": "^8.20.0",
 		"playwright": "^1.61.1",
 		"typescript": "catalog:",
 		"vite": "catalog:"

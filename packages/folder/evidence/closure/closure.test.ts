@@ -3,6 +3,8 @@
  *
  * The compiler resolves the complete Folder and definition programs, including
  * tests and type imports. Neither may pull in App, authentication, or Yjs.
+ * The Folder tests that run against the real server (`*.postgres.test.ts`)
+ * are their own program (`tsconfig.server-tests.json`), outside this one.
  * Runtime adapter isolation is covered by the emitted Vite bundle tests.
  */
 import { describe, expect, test } from 'bun:test';
@@ -46,7 +48,9 @@ describe('what the TypeScript program loads', () => {
 				.filter((file) => file.startsWith(`${PACKAGES}/`))
 				.map((file) => relative(PACKAGES, file).split('/')[0]);
 			expect([...new Set(workspace)].sort()).toEqual(
-				name === 'folder' ? ['definition', 'folder'] : ['definition'],
+				name === 'folder'
+					? ['constants', 'definition', 'folder']
+					: ['definition'],
 			);
 			const forbidden = files.filter(
 				(file) =>

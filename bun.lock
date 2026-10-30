@@ -565,6 +565,7 @@
       "name": "@epicenter/folder",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@tauri-apps/api": "catalog:",
         "diff": "^8.0.4",
@@ -574,8 +575,13 @@
         "yaml": "catalog:",
       },
       "devDependencies": {
+        "@epicenter/auth": "workspace:*",
+        "@epicenter/server": "workspace:*",
         "@types/bun": "catalog:",
+        "@types/pg": "^8.18.0",
+        "drizzle-orm": "catalog:",
         "fake-indexeddb": "^6.2.6",
+        "pg": "^8.20.0",
         "playwright": "^1.61.1",
         "typescript": "catalog:",
         "vite": "catalog:",
