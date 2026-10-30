@@ -8,16 +8,17 @@
  * - Writing the block twice changes nothing
  */
 import { expect, test } from 'bun:test';
-import { ATTRIBUTES_BLOCK, withAttributesBlock } from './attributes.ts';
+import { ATTRIBUTES } from '@epicenter/definition/merge';
+import { withAttributesBlock } from './attributes.ts';
 
 test('no file gets exactly the block', () => {
-	expect(withAttributesBlock(null)).toBe(ATTRIBUTES_BLOCK);
-	expect(withAttributesBlock('')).toBe(ATTRIBUTES_BLOCK);
+	expect(withAttributesBlock(null)).toBe(ATTRIBUTES);
+	expect(withAttributesBlock('')).toBe(ATTRIBUTES);
 });
 
 test("a person's lines stay before the block, a missing final newline added", () => {
 	expect(withAttributesBlock('*.txt text')).toBe(
-		`*.txt text\n${ATTRIBUTES_BLOCK}`,
+		`*.txt text\n${ATTRIBUTES}`,
 	);
 });
 
@@ -25,7 +26,7 @@ test('a stale block is replaced in place, and the lines around it stay', () => {
 	const stale =
 		'*.txt text\n# BEGIN epicenter (old)\n* filter=lfs\n# END epicenter\n*.csv diff\n';
 	expect(withAttributesBlock(stale)).toBe(
-		`*.txt text\n${ATTRIBUTES_BLOCK}*.csv diff\n`,
+		`*.txt text\n${ATTRIBUTES}*.csv diff\n`,
 	);
 });
 

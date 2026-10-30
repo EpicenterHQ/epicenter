@@ -15,6 +15,12 @@
  * `core/{merge,settle,conflict,hash}.ts` at `c32dd466`).
  */
 export {
+	ATTRIBUTES,
+	ATTRIBUTES_BEGIN,
+	ATTRIBUTES_END,
+	storedAsPointer,
+} from './attributes.js';
+export {
 	type Conflict,
 	findConflicts,
 	type Labels,
