@@ -7,8 +7,7 @@
  *
  * The save lock is the one the desktop shell's `lock.rs` takes too: an
  * exclusive SQLite transaction on `.<name>.epicenter-save-lock` beside the
- * directory (ADR-0562). The history lock beside it is the CLI's
- * (`runHistory` in `../bun.ts`). The scratch directory is
+ * directory (ADR-0562). The scratch directory is
  * `.<name>.epicenter-scratch` beside it, on the parent's file system, so a
  * directory that is itself a mount point cannot be saved to.
  */
@@ -60,32 +59,9 @@ export function holdingSaveLock<T>(
 	return holdingFolderLock(resolved, 'save', SAVE_LOCK_WAIT_MS, work);
 }
 
-/** How long a history operation waits for another process's. */
-const HISTORY_LOCK_WAIT_MS = 60_000;
-
-/**
- * Run `work`, one whole history operation (a save version or a sync),
- * holding the history lock of the directory at `resolved`: an exclusive
- * SQLite transaction on `.<name>.epicenter-history-lock` beside it, the
- * mechanism of the save lock, held by whichever process runs the operation
- * (ADR-0559). Two `epicenter` processes take turns, so a commit never lands
- * between a sync's checkpoint and its merge. It is apart from the save lock,
- * so saves never wait on a sync's network. Reading status or history takes
- * no lock. Waits up to `HISTORY_LOCK_WAIT_MS`, then throws before `work`
- * runs.
- */
-export function holdingHistoryLock<T>(
-	resolved: string,
-	work: () => Promise<T>,
-): Promise<T> {
-	return holdingFolderLock(resolved, 'history', HISTORY_LOCK_WAIT_MS, work);
-}
-
 /** What each folder lock guards, for the message when it cannot be taken. */
 const LOCKED = {
 	save: (resolved: string) => `Nothing was saved to the folder at ${resolved}`,
-	history: (resolved: string) =>
-		`The history of the folder at ${resolved} was not changed`,
 } as const;
 
 /** `.<name>.epicenter-<kind>-lock` beside the directory at `resolved`. */
@@ -124,8 +100,8 @@ const lockTurns = new Map<string, ReturnType<typeof createMutex>>();
  * releases when the process ends, however it ends, so a killed holder leaves
  * nothing to recover. Bun has no `flock`, so this is the one cross-process
  * lock it can take without native code, and the desktop shell takes the same
- * kind (`lock.rs`). The folder's save and history locks, the CLI's sign-in
- * refresh, and its app installs all hold one.
+ * kind (`lock.rs`). The folder's save lock, the CLI's sign-in refresh, its
+ * app installs, and each repository's sync turns all hold one.
  *
  * Work in this process takes turns first, so only one connection per lock
  * waits on the file lock, by polling with timers, never by blocking the

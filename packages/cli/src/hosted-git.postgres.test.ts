@@ -2,17 +2,27 @@
  * Hosted Git end to end through the `epicenter` command (ADR-0546): the real
  * authorization server and Git routes on a disposable Postgres cluster behind
  * a real listener, bare repositories on disk, and fresh CLI processes for
- * `sync --to`, `clone`, and `repos`. Git reaches this `http` server through
+ * `init`, `sync`, `clone`, and `repos`. A folder connects with plain
+ * `git remote add origin`, and its first sync's push creates the repository
+ * (decision 39). Git reaches this `http` server through
  * `epicenter auth git-credential`, the credential helper `auth login`
- * writes, which the test writes the same way; `sync --to` and `clone` leave
- * Git's global configuration alone. The processes share a sign-in the
+ * writes, which the test writes the same way. Git can find no repository
+ * above the scratch directory (`GIT_CEILING_DIRECTORIES`). The processes share a sign-in the
  * test seeds into their in-memory keychain (`EPICENTER_TEST_SECRETS`), with
  * the Git and API tokens already cached, so none refreshes and the rotating
  * refresh token is never replayed. Requires initdb, pg_ctl, and git on PATH;
  * never connects to a configured database.
  */
 import { afterAll, beforeAll, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,7 +73,9 @@ let env: Record<string, string>;
 let globalConfig: string;
 
 beforeAll(async () => {
-	scratch = await mkdtemp(join(tmpdir(), 'epicenter-hosted-git-'));
+	scratch = await realpath(
+		await mkdtemp(join(tmpdir(), 'epicenter-hosted-git-')),
+	);
 	const cluster = await startDisposablePostgres();
 	stopPostgres = cluster.stop;
 	const sql = cluster.clients[0];
@@ -164,6 +176,7 @@ beforeAll(async () => {
 		GIT_CONFIG_GLOBAL: globalConfig,
 		GIT_CONFIG_NOSYSTEM: '1',
 		GIT_TERMINAL_PROMPT: '0',
+		GIT_CEILING_DIRECTORIES: scratch,
 		EPICENTER_API_URL: origin,
 		EPICENTER_DATA_DIR: join(scratch, 'data'),
 		EPICENTER_FOLDER_DIR: join(scratch, 'Epicenter'),
@@ -177,6 +190,14 @@ beforeAll(async () => {
 		env,
 	);
 	if (helper.error !== null) throw new Error(helper.error);
+	// The command link the merge driver runs: this checkout's CLI.
+	const link = join(scratch, '.local', 'bin', 'epicenter');
+	await mkdir(join(link, '..'), { recursive: true });
+	await writeFile(
+		link,
+		`#!/bin/sh\nexec '${process.execPath}' --no-install '${bin}' "$@"\n`,
+	);
+	await chmod(link, 0o755);
 }, 60_000);
 
 afterAll(async () => {
@@ -215,28 +236,24 @@ async function git(cwd: string, ...args: string[]) {
 	return { code, stdout, stderr };
 }
 
-test('sync --to creates the repository, clone and sync carry it to another folder, and repos lists it', async () => {
+test('init, a remote added by hand, and sync create the repository; clone and sync carry it to another folder; repos lists it', async () => {
 	const folder = join(scratch, 'notes');
 	await mkdir(folder, { recursive: true });
 	await writeFile(join(folder, 'a.md'), 'one\n');
 
 	const url = `${origin}/git/${person.personal}/notes.git`;
 	const globalBefore = await readFile(globalConfig, 'utf8');
-	const connected = await epicenter(
-		'sync',
-		folder,
-		'--to',
-		`${person.personal}/notes`,
-		'--json',
+	const initialized = await epicenter('init', folder, '--json');
+	expect(initialized.code).toBe(0);
+	expect((await git(folder, 'remote', 'add', 'origin', url)).code).toBe(0);
+	const created = await epicenter('sync', folder, '--json');
+	expect(created.code).toBe(0);
+	expect(JSON.parse(created.stdout).sync.status).toBe('synced');
+	// Init only registers the folder in the global configuration; the
+	// credential helper there is the one `auth login` wrote.
+	expect(await readFile(globalConfig, 'utf8')).toBe(
+		`${globalBefore}[epicenter]\n\tfolder = ${folder}\n`,
 	);
-	expect(connected.stderr).toBe('');
-	expect(connected.code).toBe(0);
-	// The remote is set; the global configuration is left as it was, since
-	// only `auth login` writes the credential helper.
-	expect((await git(folder, 'remote', 'get-url', 'origin')).stdout.trim()).toBe(
-		url,
-	);
-	expect(await readFile(globalConfig, 'utf8')).toBe(globalBefore);
 
 	const listing = await epicenter('repos', '--json');
 	expect(listing.code).toBe(0);
@@ -270,39 +287,15 @@ test('sync --to creates the repository, clone and sync carry it to another folde
 	expect(await readFile(join(copy, 'c.md'), 'utf8')).toBe('three\n');
 }, 180_000);
 
-test('sync --to refuses a name that is not <namespace>/<name>, and another folder cannot take a name', async () => {
-	const folder = join(scratch, 'refused');
-	await mkdir(folder, { recursive: true });
-	await writeFile(join(folder, 'x.md'), 'x\n');
-	const bad = await epicenter('sync', folder, '--to', 'Not/Valid', '--json');
-	expect(bad.code).toBe(2);
-	expect(JSON.parse(bad.stdout).error).toContain('<namespace>/<name>');
-
-	// A second folder with a history of its own cannot land in the repository.
+test('a folder with a history of its own joins an existing repository on its first sync', async () => {
 	const other = join(scratch, 'other-notes');
 	await mkdir(other, { recursive: true });
 	await writeFile(join(other, 'z.md'), 'z\n');
-	await git(other, 'init', '--quiet', '--initial-branch=main');
-	await git(other, 'add', '--all');
-	await git(
-		other,
-		'-c',
-		'user.name=T',
-		'-c',
-		'user.email=t@example.test',
-		'commit',
-		'--quiet',
-		'-m',
-		'mine',
-	);
-	const taken = await epicenter(
-		'sync',
-		other,
-		'--to',
-		`${person.personal}/notes`,
-		'--json',
-	);
-	expect(taken.code).not.toBe(0);
-	expect(taken.stdout).toContain('Unrelated');
-	expect(await Bun.file(join(other, 'a.md')).exists()).toBe(false);
-});
+	expect((await epicenter('init', other)).code).toBe(0);
+	const url = `${origin}/git/${person.personal}/notes.git`;
+	await git(other, 'remote', 'add', 'origin', url);
+	const joined = await epicenter('sync', other, '--json');
+	expect(joined.code).toBe(0);
+	expect(await readFile(join(other, 'a.md'), 'utf8')).toBe('one\n');
+	expect((await git(other, 'cat-file', '-e', 'origin/main:z.md')).code).toBe(0);
+}, 60_000);

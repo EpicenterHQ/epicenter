@@ -1,12 +1,10 @@
 /**
  * `@epicenter/folder/bun`: open an existing directory as a folder and expose
- * the CLI's independent declaration, query, and Git history tools.
- * Folder writes take the directory save lock; Git is outside its lifetime.
+ * the CLI's independent declaration and query tools, its file lock, and the
+ * system `git` runner its sync verbs use. Folder writes take the directory
+ * save lock; Git is outside its lifetime.
  */
 
-import { lstat, realpath } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { Err, Ok, type Result } from 'wellcrafted/result';
 import { sweepStaleScratch } from './directory-store.js';
 import { OpenFolderError } from './errors.js';
 import {
@@ -15,16 +13,6 @@ import {
 	type OpenOptions,
 	type Tables,
 } from './folder.js';
-import type { GitCredentials } from './git/http.js';
-import { runNativeHistory } from './git/native-history.js';
-import {
-	createGitRunner,
-	gitLayoutProblem,
-	isNetworkUrl,
-	locateGit,
-} from './git/native-host.js';
-import type { Author } from './git/objects.js';
-import type { HistoryReply, HistoryRequest } from './history-wire.js';
 import { localRoot, scratchDirectory } from './native/directory.js';
 import { nativeStorage, savingPrimitives } from './native/storage.js';
 import { watchDirectory } from './native/watch.js';
@@ -52,32 +40,22 @@ export {
 export { type Definition, defineFolder } from './definition.js';
 export { readDirectoryDocuments } from './directory-documents.js';
 export { nodeDirectoryPrimitives } from './directory-node.js';
-export { basicAuthorization, type GitCredentials } from './git/http.js';
-export { GitCommandError, type GitRun } from './git/native-backend.js';
 export {
-	createGitRunner,
+	basicAuthorization,
 	endGitCommands,
+	GitCommandError,
+	type GitCredential,
+	type GitCredentials,
 	GitMissingError,
+	type GitRun,
 	locateGit,
 	runGit,
 } from './git/native-host.js';
 export {
-	NEUTRAL_ATTRIBUTES,
-	neutralizeAttributes,
-} from './git/neutral-attributes.js';
-export {
-	encodeHistory,
-	type GitMissingReply,
-	type HistoryReply,
-	type HistoryRequest,
-	type HistoryResults,
-	type HistoryState,
-} from './history-wire.js';
-export {
 	exportFolderSchemas,
 	importFolderSchemas,
 } from './native/declaration.js';
-export { holdingFileLock, holdingHistoryLock } from './native/directory.js';
+export { holdingFileLock } from './native/directory.js';
 export { DEFINITION_PATH } from './paths.js';
 export { describeTables } from './projection.js';
 export { queryDocuments } from './query-documents.js';
@@ -99,124 +77,4 @@ export async function openFolder<const T extends Tables>({
 		storageHost(nativeStorage(root), { watch: watchDirectory(root) }),
 		options,
 	);
-}
-
-export type HistoryOptions = {
-	/** Who commits where the folder's Git configuration names nobody. */
-	readonly author: Author;
-	/**
-	 * An application's own folder, which may get a repository of its own
-	 * inside another repository's working tree. A data folder may not: its
-	 * first commit is blocked, and its files are committed with that
-	 * repository's Git (ADR-0517).
-	 */
-	readonly application?: boolean;
-	/**
-	 * The credential for the remote a fetch or push names, asked for each
-	 * transfer with the URL the folder's history reads.
-	 */
-	readonly credentials?: GitCredentials;
-};
-
-/**
- * Run one history operation, `request`, on the folder at `root` and answer
- * its reply: what the `epicenter` CLI runs, one process over the system
- * `git` per `status`, `history`, `save-version`, or `sync` (ADR-0559).
- * Throws when the folder cannot be used: not a directory, Git state that
- * would write elsewhere, a remote that is not a network URL, or no `git` on
- * this computer (`GitMissingError`).
- *
- * This request owns all Git work and its final inspection. File writes stage
- * in `.<name>.epicenter-scratch` beside the folder, as a Bun folder's do.
- * Ordinary Git ignore and tracked-file rules select source; no schema
- * declaration is required. Ordinary saves run independently.
- */
-export async function runHistory(
-	root: string,
-	request: HistoryRequest,
-	{ author, application = false, credentials }: HistoryOptions,
-): Promise<HistoryReply<unknown>> {
-	const { data: resolved, error } = await directoryRoot(root);
-	if (error !== null)
-		throw new Error(
-			`${root} cannot hold a folder: ${error.cause instanceof Error ? error.cause.message : String(error.cause)}`,
-		);
-	const layout = await gitLayoutProblem(resolved);
-	if (layout !== undefined)
-		throw new Error(`The folder at ${resolved} cannot be used: ${layout}.`);
-	if (
-		request.op === 'sync' &&
-		request.connect !== undefined &&
-		!isNetworkUrl(request.connect)
-	)
-		throw new Error(
-			`${request.connect} is not a remote a folder syncs with: use an https:// or ssh:// URL, or http:// only to this computer`,
-		);
-	locateGit();
-
-	const commits = request.op !== 'status' && request.op !== 'log';
-	const scratch = scratchDirectory(resolved);
-	const boundary = nativeStorage(resolved);
-	// What a stopped write staged an hour or more ago goes before anything
-	// is staged, as at a Bun folder's open.
-	if (commits) await sweepStaleScratch(scratch, savingPrimitives(resolved));
-	return runNativeHistory({
-		rootPath: resolved,
-		host: { run: createGitRunner(resolved), files: savingPrimitives(resolved) },
-		boundary,
-		author,
-		credentials,
-		initProblem: application ? undefined : () => enclosingRepository(resolved),
-		request,
-	});
-}
-
-/**
- * The CLI's exit code for a reply (ADR-0558): 0 when the operation did what
- * it says, 1 when its result is a refusal or a finding a person acts on,
- * such as a sync that stopped.
- */
-export function historyExitCode(reply: HistoryReply<unknown>): 0 | 1 {
-	const { result } = reply;
-	if (typeof result === 'object' && result !== null && 'error' in result)
-		return result.error === null ? 0 : 1;
-	const status =
-		typeof result === 'object' && result !== null && 'status' in result
-			? result.status
-			: undefined;
-	return status === 'committed' || status === 'unchanged' ? 0 : 1;
-}
-
-/**
- * `root` with its links resolved, or why its history cannot be run: it is not
- * a directory, or its `.git` is not a directory of its own.
- */
-async function directoryRoot(
-	root: string,
-): Promise<Result<string, { root: string; cause: unknown }>> {
-	try {
-		const resolved = await realpath(root);
-		if (!(await lstat(resolved)).isDirectory())
-			throw new Error(`${root} is not a directory`);
-		const dotGit = await lstat(join(resolved, '.git')).catch(() => undefined);
-		if (dotGit !== undefined && !dotGit.isDirectory())
-			throw new Error(`${root}/.git is not a directory of its own`);
-		return Ok(resolved);
-	} catch (cause) {
-		return Err({ root, cause });
-	}
-}
-
-/**
- * Why `resolved` may not get a repository of its own: a directory above it
- * holds `.git`, so it is inside that repository's working tree.
- */
-async function enclosingRepository(
-	resolved: string,
-): Promise<string | undefined> {
-	for (let at = dirname(resolved); ; at = dirname(at)) {
-		if ((await lstat(join(at, '.git')).catch(() => undefined)) !== undefined)
-			return `${resolved} is inside the repository at ${at}; commit it with that repository's Git`;
-		if (dirname(at) === at) return undefined;
-	}
 }

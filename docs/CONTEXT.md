@@ -242,7 +242,7 @@ additional current APIs.
 | `@epicenter/folder` | Public `openFolder`, `Folder`, and `Row.id` across root, `/browser`, `/tauri`, and `/bun`. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. Older `defineFolder`, `Definition`, and `stem` remain in the Bun CLI tools. |
 | `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
 | `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, `readSavedViews`, and explicit app `exportTables`. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
-| CLI | Implemented commands include `auth`, `folders add|list|forget`, `schema export|import`, `generate`, and `save-version`. The source-installed `app` command group is removed. External-schema flags and CLI `open` remain deferred. |
+| CLI | Implemented commands include `auth`, `folders add|list|forget`, `schema export|import`, `generate`, `init`, `sync`, `clone`, `forget`, and `status`. The source-installed `app` command group is removed. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 
 For the full dated inventory and the review's accepted and rejected collapses,

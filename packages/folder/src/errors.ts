@@ -1,11 +1,9 @@
 /**
  * Operation failures: opening a `Folder` (`OpenFolderError`), and the
- * directory storage, row reading, and one write the CLI's readers and a
- * directory's history use.
+ * directory storage and row reading the CLI's readers use.
  *
  * Library messages state the failure precisely; the application decides what
- * a person is told. Native publication uses `PublishError` (ADR-0576); public
- * Folder saves use `SaveError`.
+ * a person is told. Public Folder saves use `SaveError`.
  *
  * A row file whose text was read but is not a valid row is `InvalidRow`: it
  * carries the exact text, the hash of the bytes read, and every issue, so the
@@ -119,40 +117,6 @@ export type RowReadError = FileError | InferErrors<typeof RowTextError>;
 
 /** The constructors of `RowReadError`. */
 export const RowReadError = { ...FileError, ...RowTextError };
-
-/** Why a write stopped for what other writers left. */
-const WriteRefusal = defineErrors({
-	/**
-	 * A write found the file changed by another writer, merged with it, and
-	 * found it changed again, `attempts` times; nothing of the write landed.
-	 */
-	KeptChanging: ({ path, attempts }: { path: string; attempts: number }) => ({
-		message: `'${path}' kept changing while it was saved; gave up after ${attempts} attempts`,
-		path,
-		attempts,
-	}),
-});
-
-/**
- * Every way the one write a directory's history publishes through fails
- * (`write.ts`, ADR-0576): a path no file can be written at (`InvalidPath`, a
- * directory included), a file another writer kept changing past `WRITE_ATTEMPTS`
- * (`KeptChanging`), storage that failed or whose reply was lost and could not
- * be confirmed (`Io`, with the storage failure as its cause), or closed
- * storage (`Closed`). A failed write wrote nothing. A file that does not read
- * as its kind is never a refusal: it merges as text, for repair (ADR-0503).
- */
-export type PublishError =
-	| Extract<FileError, { name: 'Io' | 'Closed' | 'InvalidPath' }>
-	| InferErrors<typeof WriteRefusal>;
-
-/** The constructors of `PublishError`. */
-export const PublishError = {
-	Io: FileError.Io,
-	Closed: FileError.Closed,
-	InvalidPath: FileError.InvalidPath,
-	...WriteRefusal,
-};
 
 /**
  * Why a folder could not be opened. Every opener returns these; none throws

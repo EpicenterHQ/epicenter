@@ -175,9 +175,9 @@ refresh even when no watcher hint arrives. Reads and saves return the stamp
 of the file they observed or published; checked writes still compare content
 hashes.
 
-The CLI's `runHistory` is independent of a Folder's lifetime. It can commit,
-inspect, and synchronize an existing directory. Git history and sync retain
-their conditional storage writes in `boundary.ts` and `write.ts`.
+History is not a Folder's: a folder gains Git only when `epicenter init`
+registers it, and `epicenter sync` (in `@epicenter/cli`) is its only
+committer, over the system `git` this package's `runGit` runs.
 
 ## Helpers
 
@@ -191,7 +191,7 @@ saved Markdown at any path for the generic editor and SQL reader. It includes
 schema diagnostics and unreadable paths. The declaration entry owns portable
 schema and saved-view readers; its JSON Schema is generated from the TypeBox
 source. `@epicenter/folder/bun` exports the CLI's `checkFolder`,
-`queryFolder`, `runHistory`, and declaration tools. These tools can read or
+`queryFolder`, declaration tools, `holdingFileLock`, and the `runGit` runner. These tools can read or
 change a directory independently of an opened Folder.
 
 ## Building for one environment
@@ -218,7 +218,9 @@ chooses at call time and loads only the chosen engine. The
 | `src/browser/` | The legacy IndexedDB repository behind `openFolder`. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
 | `src/shared/` | Markdown reading and Git sync content merge rules. |
-| `src/git/`, `history-wire.ts`, `write.ts` | History requests and Git publication. |
+| `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
+| `src/git/raw-objects.ts`, `scope.ts`, `tree-merge.ts` | Git objects, ignore rules, and tree merge for the browser repository. |
+| `write.ts` | A guarded put whose lost reply is read back. |
 | `src/declaration/`, `declaration.ts`, `directory-documents.ts` | Portable schemas and generic document reads. |
 | `evidence/`, `smoke/` | Bundle checks and browser smoke runs. |
 

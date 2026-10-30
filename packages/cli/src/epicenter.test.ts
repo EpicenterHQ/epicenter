@@ -394,7 +394,9 @@ test('a command line the grammar refuses exits 2 and says why', async () => {
 	expect(run('sync', folder, '--onto', 'x').stderr).toContain(
 		'epicenter sync does not take --onto',
 	);
-	expect(run('sync', folder, '--to').stderr).toContain('--to needs');
+	expect(run('sync', folder, '--interval').stderr).toContain(
+		'--interval needs',
+	);
 	expect(run('auth').exitCode).toBe(2);
 	expect(run('auth', 'approve', 'x').stderr).toContain(
 		"Unknown command 'epicenter auth approve'",
@@ -410,7 +412,7 @@ test('--help lists every command but send and install-command, and --json descri
 	expect(help.exitCode).toBe(0);
 	for (const usage of [
 		'epicenter query <dir> [<sql>]',
-		'epicenter sync <dir> [--to <namespace>/<name>]',
+		'epicenter sync [<dir>] [--watch]',
 		'epicenter auth git-credential get | store | erase',
 	])
 		expect(help.stdout).toContain(usage);
@@ -429,9 +431,11 @@ test('--help lists every command but send and install-command, and --json descri
 		'check',
 		'format',
 		'query',
-		'status',
+		'init',
 		'sync',
+		'status',
 		'clone',
+		'forget',
 		'repos',
 		'auth login',
 		'auth logout',

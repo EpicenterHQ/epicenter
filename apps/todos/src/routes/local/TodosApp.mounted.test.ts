@@ -15,7 +15,7 @@
  * - A row that does not fit is listed with its source and issues, and an
  *   edit keeps fields the schema does not name
  * - A failed storage check opens nothing; Try again checks again
- * - The local path offers no Save version, Sync, or Connect
+ * - The local path offers no Connect
  *
  * Run with `bun run test:mounted`; the server-runtime tests exclude this file.
  */
@@ -170,8 +170,6 @@ test('add, edit, complete, and delete persist across close and reopen', async ()
 	freshProfile();
 	const first = await openPage();
 	expect(first.text('[aria-label="Todos"]')).toContain('No todos yet');
-	expect(first.target.querySelector('[data-testid="save-version"]')).toBeNull();
-	expect(first.target.querySelector('[data-testid="sync"]')).toBeNull();
 	expect(first.target.querySelector('[data-testid="connect-open"]')).toBeNull();
 
 	type(first.get('[aria-label="New todo title"]'), 'Buy milk');

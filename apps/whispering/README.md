@@ -111,8 +111,8 @@ folder that leaves recording audio out has each recording's row, notes, and
 transcripts, and no audio. There a recording says "This recording's audio
 isn't on this device", and it cannot be played or transcribed.
 
-The `epicenter` CLI's `save-version` and `sync` use Git's tracked-file
-and ignore rules, without requiring `epicenter.json`. By default, the root
+`epicenter sync` commits with `git add`, so Git's tracked-file and ignore
+rules apply, without requiring `epicenter.json`. By default, the root
 `.gitignore` excludes untracked audio, images, PDFs, and other non-Markdown files.
 Those files stay on disk and travel with a complete folder copy. Already-tracked
 files remain tracked; the app never silently removes them from Git or rewrites

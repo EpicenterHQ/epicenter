@@ -6,15 +6,12 @@
  * database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import * as fs from 'node:fs';
 import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { RepositoryListing } from '@epicenter/constants/repositories';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import isomorphicGit from 'isomorphic-git';
-import http from 'isomorphic-git/http/web';
 import { type Client, Pool } from 'pg';
 import { registerFirstPartyClients } from '../auth/oauth-registrations.js';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
@@ -367,41 +364,6 @@ describe('hosted Git over the disk store', () => {
 			await sql.query('drop function refuse_repository()');
 		}
 	}, 60_000);
-
-	test('isomorphic-git, as a browser syncs, fetches nothing from a new name, then its push creates it', async () => {
-		const { person, token } = await signedIn('browser');
-		const url = remote(person.personal, 'from-browser');
-		const dir = await workingCopy('browser', { 'a.md': 'one\n' });
-		const headers = { authorization: `Bearer ${token}`, origin };
-		const fetched = await isomorphicGit.fetch({
-			fs,
-			http,
-			dir,
-			url,
-			ref: 'main',
-			singleBranch: true,
-			tags: false,
-			headers,
-		});
-		expect(fetched.fetchHead).toBeNull();
-		expect(await repositoryRows(person.personal)).toEqual([]);
-		const pushed = await isomorphicGit.push({
-			fs,
-			http,
-			dir,
-			url,
-			ref: 'main',
-			remoteRef: 'main',
-			headers,
-		});
-		expect(pushed.ok).toBe(true);
-		expect((await repositoryRows(person.personal)).map((r) => r.name)).toEqual([
-			'from-browser',
-		]);
-		const check = join(scratch, `browser-${crypto.randomUUID().slice(0, 8)}`);
-		expect((await git(scratch, token, 'clone', url, check)).code).toBe(0);
-		expect(await Bun.file(join(check, 'a.md')).text()).toBe('one\n');
-	}, 120_000);
 
 	test("unrelated history is refused for a member, even forced; the owner's forced push lands and keeps the old main", async () => {
 		const owner = await signedIn('rewrite-owner');
