@@ -11,6 +11,7 @@
  * - No field is lost: each key ends as the per-key rule says (one side's change lands, the later arrival wins a clash, an edit beats a delete)
  * - Conflict blocks are only in the body, are whole lines of each side, and number at most one per clash
  * - Edits of different words on one line merge with no block (decision 43 shapes a block, it adds none)
+ * - Two different insertions at one spot, of words or of lines, always make a block (decision 15, as in diff3)
  * - Two creates keep the first note's fields and the second note whole in one block
  *
  * See also:
@@ -271,5 +272,45 @@ describe('settle over random edits', () => {
 					`a clean word merge made a block or lost an edit: ${JSON.stringify({ words, j, m, text: settled.text })}`,
 				);
 		}
+	});
+
+	test('two different insertions at one spot always make a block', () => {
+		let pairs = 0;
+		for (let k = 0; k < ROUNDS; k++) {
+			const base = randomNote();
+			const at = Math.floor(next() * (base.lines.length + 1));
+			const [mine, theirs] = [choose(LINES), choose(LINES)];
+			// A copy of a neighbouring line is as well an insertion one line over: no single spot.
+			const neighbours = [base.lines[at - 1], base.lines[at]];
+			if (neighbours.includes(mine) || neighbours.includes(theirs)) continue;
+			const words = base.lines[at - 1];
+			const wordPair = next() < 0.5 && words !== undefined && words !== '';
+			const [c, i] = wordPair
+				? [`${words} ${choose(WORDS)}`, `${words} ${choose(WORDS)}`].map(
+						(line): Note => ({
+							fields: base.fields,
+							lines: base.lines.with(at - 1, line),
+						}),
+					)
+				: [mine, theirs].map(
+						(line): Note => ({
+							fields: base.fields,
+							lines: base.lines.toSpliced(at, 0, line),
+						}),
+					);
+			const [b, cText, iText] = [base, c as Note, i as Note].map(write) as [
+				string,
+				string,
+				string,
+			];
+			if (cText === iText) continue;
+			pairs++;
+			const settled = settle(b, cText, iText, { parties, keys: KEYS });
+			if (!settled.blocks)
+				throw new Error(
+					`a same-spot insertion pair merged with no block: ${JSON.stringify({ b, c: cText, i: iText, text: settled.text })}`,
+				);
+		}
+		expect(pairs).toBeGreaterThan(ROUNDS / 3);
 	});
 });
