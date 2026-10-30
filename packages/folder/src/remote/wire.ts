@@ -3,9 +3,11 @@
  * translator (`epicenter/files`, `epicenter/file`, `epicenter/writes`) and
  * the Git LFS API, both under the repository's Git remote.
  *
- * The repository is `<git>/~/<contract name>.git` (decision 46): `~` is the
- * signed-in person's own namespace, and one repository holds one app's
- * files (decision 19), so its paths are the contract's paths.
+ * The repository is `<git>/<owner>/<name>.git`, by default
+ * `<git>/~/<contract name>.git` (decision 46): `~` is the signed-in person's
+ * own namespace, and one repository holds one app's files (decision 19), so
+ * its paths are the contract's paths. Another person's repository is
+ * reached under their handle, through the grant they gave this account.
  *
  * Every request to the server goes through `account.fetch`, which carries
  * the account's credential and refuses once the account is retired. An LFS
@@ -119,9 +121,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 export type Wire = ReturnType<typeof createWire>;
 
-/** The wire to the repository of `contract` that `account` reaches. */
-export function createWire(account: RemoteAccount, name: string) {
-	const remote = `${resolveOAuthAudiences(account.baseURL).git}/~/${name}.git`;
+/** The wire to the repository `<owner>/<name>` as `account` reaches it. */
+export function createWire(account: RemoteAccount, repository: string) {
+	const remote = `${resolveOAuthAudiences(account.baseURL).git}/${repository}.git`;
 	const { origin } = new URL(remote);
 
 	/** Send one request: the account's for the server, a plain one elsewhere. */
