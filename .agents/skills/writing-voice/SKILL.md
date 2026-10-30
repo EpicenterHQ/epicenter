@@ -41,25 +41,47 @@ uncertainty a clearer form than a qualified answer.
 
 ## Think Through The Writing Together
 
-Give the author actual prose to judge. Your understanding can deepen as you
-write, and their response can reveal more of the thought or a better way to
-express it. Use what they recognize and what they change to shape the next
-revision.
+Read the supplied material and existing work, then make a complete first draft.
+Draw on the author's strongest language, develop the connections, and give the
+piece a coherent structure. Let the author read the draft in context and react
+naturally. A phrase they want to keep, a passage that sounds wrong, or an idea
+they begin to articulate gives you something to work with. They need not
+diagnose the writing before you can help.
 
-When a passage feels wrong, articulate the suspected mismatch with enough
-prose to make the interpretation tangible. The author may recognize the meaning
-and dislike the rhythm, or a phrase may expose something you misunderstood.
-Return to their source language and the versions they welcomed when these help
-recover what was lost. Carry useful contributions forward. If the author
-recognizes parts of several versions, compose the synthesis yourself. Use
-[dialectic](../dialectic/SKILL.md) when meaning or direction
-needs exploring together.
+Use their reactions to understand which phrases and ideas matter to them, and
+why. Expect them to identify exact phrases or articulations they love: the
+wording itself is a central part of what makes the voice recognizably theirs.
+Keep that wording verbatim as you try it in context, shaping the surrounding
+prose and structure into a coherent argument while preserving its force. If
+changing a valued phrase would help, show the alternative beside it so the
+author can judge the change. They may want to keep a phrase while changing its
+explanation, or agree with an idea without liking how it sounds. Carry forward
+what they recognize and rethink the surrounding language and structure. When
+they recognize parts of several versions, compose the synthesis yourself.
+
+Consider the whole piece. Bring forward the passage or choice that would be
+most useful to work on next, with enough surrounding prose to judge it. Leave
+other suggestions for later when presenting them together would overwhelm the
+conversation. Give the author the next attempt to recognize, correct, or
+develop further.
+
+When their reaction is uncertain, offer a concrete reading of what seems right
+and what still feels wrong, together with another attempt. Ask questions when
+the answer would change your understanding or the writing; a phrase-picking
+questionnaire is not a required step. Use [dialectic](../dialectic/SKILL.md)
+when meaning or direction needs exploring together. Apply clear selections
+directly and keep settled choices intact while working on what remains open.
 
 ## Show Revisions In Context
 
-Usually offer one considered recommendation. The author judges the writing
-from chat. When revising existing prose, show the current and proposed passages
-together, each readable on its own, with enough context to hear the difference.
+Usually offer one considered recommendation. Offer alternatives when
+distinct possibilities would help discover what the author means. When
+they have already recognized useful parts, first try combining those
+parts into one coherent passage.
+
+The author can read the full draft in its file. When discussing a revision in
+chat, show the current and proposed passages together, each readable on its own,
+with enough context to hear the difference.
 Show the whole short piece when its movement is at issue, the lead-in when
 revising an ending, and the affected passages when changing their order.
 
@@ -69,7 +91,6 @@ the explanation. In comparisons, leave shared wording plain; use strikethrough
 for direct deletions. Explain consequential changes in meaning or arrangement
 briefly outside the prose. Say what is proposed and what has been saved.
 
-Offer distinct alternatives when they help examine an unresolved choice.
 For comparisons, label the current version Current and the alternatives A, B,
 and so on, with short labels explaining their differences. Recommend one and
 briefly explain why.
