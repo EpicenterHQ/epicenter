@@ -22,6 +22,9 @@
  * - Owed pointers survive a reopen, and count as busy and unsent
  * - A blob write over a blob that moved while its bytes were uploading is held with why, and never uploaded
  * - A blob refusal that no held text stands under (a later save over it took `main`'s blob) joins no calls, so a message lands in one commit
+ * - `main`'s own pointer saved while a change to its path is in flight goes as new, so it is owed like any other, even under a later save
+ * - A blob replace made over bytes deleted and attached again since lands: compare-and-swap is on the bytes
+ * - A save cut over an unsent commit joins its call first, so that call's held file or owed bytes keep the whole group
  */
 import { expect, test } from 'bun:test';
 import type { LiveCommit } from '../core/commit.js';
@@ -249,4 +252,78 @@ test('a blob refusal that does not stand joins no calls: a message lands in one 
 	]);
 	expect(alice.replica.read(AUDIO)).toBe(writePointer(c));
 	expect(alice.replica.busy()).toBe(false);
+});
+
+test("a pointer equal to main's, saved while a change to its path is in flight, is owed until its bytes are present, even under a later save (seeds 470249, 470282)", () => {
+	const { world, alice, bob, settle, pushed } = setup();
+	world.upload(a.oid, a.size);
+	bob.replica.present(a.oid, a.size);
+	bob.replica.write(AUDIO, writePointer(a));
+	settle();
+	expect(alice.replica.read(AUDIO)).toBe(writePointer(a));
+	pushed.length = 0;
+	// Alice's delete goes out; while it is in flight she attaches `main`'s bytes again, then other bytes over them.
+	alice.replica.write(AUDIO, null);
+	alice.replica.write(AUDIO, writePointer(a));
+	expect(alice.replica.owed()).toEqual([a]);
+	alice.replica.write(AUDIO, writePointer(b));
+	settle();
+	// The delete landed, so `a` is no longer `main`'s: it never went, and only `b` is owed.
+	expect(pushed.map(({ commit }) => commit.files.map((f) => f.text))).toEqual([[null]]);
+	expect(alice.replica.owed()).toEqual([b]);
+	world.upload(b.oid, b.size);
+	alice.replica.present(b.oid, b.size);
+	settle();
+	expect(pushed.map(({ commit }) => commit.files.map((f) => f.text))).toEqual([[null], [writePointer(b)]]);
+	expect(world.server.read(AUDIO)).toBe(writePointer(b));
+	expect(alice.replica.busy()).toBe(false);
+});
+
+test('a blob replace made over bytes that were deleted and attached again since lands: compare-and-swap is on the bytes, not their history (seed 471236)', () => {
+	const { world, alice, bob, settle } = setup();
+	for (const bytes of [a, b]) world.upload(bytes.oid, bytes.size);
+	for (const device of [alice, bob]) for (const bytes of [a, b]) device.replica.present(bytes.oid, bytes.size);
+	bob.replica.write(AUDIO, writePointer(a));
+	settle();
+	alice.setOnline(false);
+	alice.replica.write(AUDIO, writePointer(b));
+	bob.replica.write(AUDIO, null);
+	settle();
+	bob.replica.write(AUDIO, writePointer(a));
+	settle();
+	alice.setOnline(true);
+	settle();
+	expect(world.server.read(AUDIO)).toBe(writePointer(b));
+	for (const device of [alice, bob]) expect(device.replica.state(AUDIO)).toEqual({ status: 'synced' });
+});
+
+test('a save cut over an unsent commit whose call waits on bytes waits with it: the owed blob of the call it joins is never sent (W seed 211163)', () => {
+	const { world, alice, bob, settle, pushed } = setup();
+	const c = { oid: 'c'.repeat(64), size: 10 };
+	for (const bytes of [a, b]) world.upload(bytes.oid, bytes.size);
+	for (const device of [alice, bob]) for (const bytes of [a, b]) device.replica.present(bytes.oid, bytes.size);
+	alice.replica.write(NOTE, note('one\n'));
+	settle();
+	pushed.length = 0;
+	alice.setOnline(false);
+	// One call saves the note and a blob; someone replaces the blob, so at catch-up its write is held, and the note's commit waits with it.
+	alice.replica.writeAll({ [NOTE]: note('two\n'), [AUDIO]: writePointer(a) });
+	bob.replica.write(AUDIO, writePointer(b));
+	settle();
+	alice.restart();
+	alice.setOnline(true);
+	settle();
+	expect(alice.replica.state(AUDIO).status).toBe('held');
+	// Her new bytes over the held blob join that call, and owe their upload; then a save over the note's unsent commit joins it too.
+	alice.replica.write(AUDIO, writePointer(c));
+	alice.replica.write(NOTE, note('three\n'));
+	settle();
+	expect(pushed.filter(({ device }) => device === 'alice')).toEqual([]);
+	expect(alice.replica.owed()).toEqual([c]);
+	world.upload(c.oid, c.size);
+	alice.replica.present(c.oid, c.size);
+	settle();
+	expect(pushed.filter(({ device }) => device === 'alice').map(({ commit }) => commit.files.map((f) => f.path).sort())).toEqual([[NOTE, AUDIO].sort()]);
+	expect(world.server.read(AUDIO)).toBe(writePointer(c));
+	expect(world.server.read(NOTE)).toBe(note('three\n'));
 });

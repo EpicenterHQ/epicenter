@@ -67,9 +67,10 @@
  *   "epicenter/fetched"   texts read by hash for that catch-up
  *   "epicenter/objects"   blob bytes the server holds, by oid, at a size
  *
- * A pointer this device made whose bytes the server does not hold is owed:
- * it stays saved here, out of every commit, `sending` with "its bytes are
- * uploading", and so does its group, until the upload track
+ * A pointer this device will send whose bytes it has not marked present is
+ * owed (`main`'s own pointer too, saved over a change in flight that moves
+ * `main` off it): it stays saved here, out of every commit, `sending` with
+ * "its bytes are uploading", and so does its group, until the upload track
  * (client/uploads) calls `present`. A refused upload holds it with why, and
  * its group with it; its writer's next save of the path tries again. Owed
  * is derived from these tables, never stored.
@@ -231,28 +232,38 @@ CREATE INDEX IF NOT EXISTS "epicenter/staged/path" ON "epicenter/staged" (path);
 CREATE TABLE IF NOT EXISTS "epicenter/objects" (oid TEXT PRIMARY KEY, size INTEGER NOT NULL) STRICT;
 `;
 
+/** Paths the commit in flight sends. */
+const IN_FLIGHT_PATHS = `(SELECT json_extract(j.value, '$.path') FROM "epicenter/inflight" i, json_each(i.commit_json, '$.files') j)`;
 /**
- * Files whose text is a pointer this device made (not yet `main`'s), not
- * held, whose bytes the server does not hold: owed. Only files with
- * work are read (`"epicenter/files/unsent"`, a partial index), and a note,
- * whose fields may name an `oid`, is never one.
+ * Files whose text is a pointer this device will send, not held, whose
+ * bytes it has not marked present: owed. RULE: a pointer is `main`'s, and
+ * needs no upload, only where it is what the server holds before it goes:
+ * `main`'s text at a path the commit in flight does not change. Saved over
+ * a change in flight, `main`'s own pointer goes as new, after `main` has
+ * moved off it. So every pointer cut into a commit has its bytes marked
+ * present, and only saved text is ever owed (`BLOCKER_SQL`). Only files
+ * with work are read (`"epicenter/files/unsent"`, a partial index, and the
+ * few paths in flight), and a note, whose fields may name an `oid`, is
+ * never one.
  */
-const OWED_WHERE = `f.text IS NOT f.base AND f.held IS NULL AND f.path NOT LIKE '%.md' AND json_extract(f.fields, '$.oid') IS NOT NULL
+const OWED_TEXT = `f.held IS NULL AND f.path NOT LIKE '%.md' AND json_extract(f.fields, '$.oid') IS NOT NULL
 	AND NOT EXISTS (SELECT 1 FROM "epicenter/objects" o WHERE o.oid = json_extract(f.fields, '$.oid'))`;
-const OWED_SQL = `FROM "epicenter/files" f WHERE ${OWED_WHERE}`;
-/**
- * What keeps call `?1` from going, held first: a save refused where it was
- * found, a held file, or one owed its bytes. A file's text is its saved
- * call's while saved or held, else its unsent commit's.
- */
+const OWED_WHERE = `(f.text IS NOT f.base OR f.path IN ${IN_FLIGHT_PATHS}) AND ${OWED_TEXT}`;
+/** The files `OWED_WHERE` reads, each by an index (`n` is the rowid): one branch of its `OR` each, as an `OR` reads every file. */
+const MADE_FILES = `(SELECT rowid AS n, path, text, fields, held FROM "epicenter/files" WHERE text IS NOT base
+	UNION ALL SELECT rowid, path, text, fields, held FROM "epicenter/files" WHERE text IS base AND path IN ${IN_FLIGHT_PATHS})`;
+const OWED_SQL = `FROM ${MADE_FILES} f WHERE ${OWED_TEXT}`;
 /** Every held save, with its call: held files, and saves refused where they were found. */
 const HELD = `(SELECT path, held AS reason, call FROM "epicenter/files" WHERE held IS NOT NULL UNION ALL SELECT path, reason, call FROM "epicenter/refused")`;
+/**
+ * What keeps call `?1` from going, held first: a save refused where it was
+ * found, a held file, or one owed its bytes. Only saved or held text is
+ * owed (`OWED_WHERE`), so an unsent commit waits on nothing of its own.
+ */
 const BLOCKER_SQL = `SELECT path, held FROM (
 	SELECT r.path, r.reason AS held, -1 AS n FROM "epicenter/refused" r WHERE r.call = ?1
 	UNION ALL
 	SELECT f.path, f.held, f.rowid AS n FROM "epicenter/files" f WHERE f.call = ?1 AND (f.held IS NOT NULL OR (${OWED_WHERE}))
-	UNION ALL
-	SELECT f.path, f.held, f.rowid AS n FROM "epicenter/unsent" u JOIN "epicenter/files" f ON f.path = u.path WHERE u.call = ?1 AND f.call IS NULL AND (${OWED_WHERE})
 ) ORDER BY held IS NULL, n LIMIT 1`;
 
 /** What a file waiting on its bytes says. */
@@ -667,11 +678,11 @@ function createReplica({
 	// Saving, committing and sending
 	// ==========================================================================
 
-	/** Paths whose text this device made names bytes `oid`. */
-	const pointing = (oid: string) => pathsOf(`SELECT path FROM "epicenter/files" WHERE text IS NOT base AND path NOT LIKE '%.md' AND json_extract(fields, '$.oid') = ?`, [oid]);
-	/** A pointer whose bytes the server does not hold yet waits here, saved, and its group waits with it. */
-	function owes(path: string, f: FileRecord) {
-		if (f.held !== undefined || isNote(path) || f.mine === null || f.mine === f.base) return false;
+	/** Paths whose text this device will send names bytes `oid` (`MADE_FILES`). */
+	const pointing = (oid: string) => pathsOf(`SELECT path FROM ${MADE_FILES} f WHERE f.path NOT LIKE '%.md' AND json_extract(f.fields, '$.oid') = ?`, [oid]);
+	/** A pointer whose bytes this device has not marked present waits here, saved, and its group waits with it: one not `main`'s, or `main`'s saved over a change in flight (`OWED_WHERE`). */
+	function owes(path: string, f: FileView) {
+		if (f.held !== undefined || isNote(path) || f.mine === null || (f.mine === f.base && f.sent === undefined)) return false;
 		const pointer = parsePointer(f.mine);
 		return pointer !== null && first(driver, 'SELECT 1 FROM "epicenter/objects" WHERE oid = ?', [pointer.oid]) === undefined;
 	}
@@ -814,20 +825,34 @@ function createReplica({
 				set(path, { ...rest, held: { reason: refusal } });
 			}
 		}
-		const blocked = blockedCalls();
 		/** RULE: a commit with a message is never amended: a call that saved over a file whose unsent commit is another call's with a message waits whole until that commit is sent. */
-		const waiting = new Set(
-			driver
-				.all<{ call: number }>(
-					'SELECT DISTINCT f.call AS call FROM "epicenter/files" f JOIN "epicenter/unsent" u ON u.path = f.path JOIN "epicenter/calls" c ON c.id = u.call WHERE f.saved = 1 AND u.call IS NOT f.call AND c.message IS NOT NULL',
-				)
-				.map((row) => row.call),
-		);
+		const waitingCalls = () =>
+			new Set(
+				driver
+					.all<{ call: number }>(
+						'SELECT DISTINCT f.call AS call FROM "epicenter/files" f JOIN "epicenter/unsent" u ON u.path = f.path JOIN "epicenter/calls" c ON c.id = u.call WHERE f.saved = 1 AND u.call IS NOT f.call AND c.message IS NOT NULL',
+					)
+					.map((row) => row.call),
+			);
+		let blocked = blockedCalls();
+		let waiting = waitingCalls();
+		/**
+		 * RULE: an unsent commit without a message is amended as ever: its call
+		 * joins the one whose save goes over it, which it then says. Joins come
+		 * first, each read against the groups the joins before it made, so what
+		 * keeps the call it joins from going (a held file, bytes owed) keeps the
+		 * whole group.
+		 */
+		for (const [, f] of filesWhere('saved = 1 AND path IN (SELECT path FROM "epicenter/unsent")')) {
+			const call = callOf(f.call ?? 0);
+			if (f.committed === undefined || blocked(call) || waiting.has(call)) continue;
+			join(f.committed.call, call);
+			blocked = blockedCalls();
+			waiting = waitingCalls();
+		}
 		for (const [path, f] of filesWhere('saved = 1')) {
 			const call = f.call ?? 0;
 			if (blocked(call) || waiting.has(call)) continue;
-			// RULE: an unsent commit without a message is amended as ever: its call joins the one whose save goes over it, which it then says.
-			if (f.committed !== undefined) join(f.committed.call, call);
 			const { saved: _, ...rest } = f;
 			const under = (f.sent ?? { text: f.base }).text;
 			if (f.mine === under) {
@@ -1681,7 +1706,7 @@ function createReplica({
 		/** Bytes this device owes the server, each once, oldest first: what the upload track sends. */
 		owed: (limit = 64) =>
 			driver.all<{ oid: string; size: number }>(
-				`SELECT oid, size FROM (SELECT json_extract(f.fields, '$.oid') AS oid, json_extract(f.fields, '$.size') AS size, MIN(f.rowid) AS n ${OWED_SQL} GROUP BY 1) ORDER BY n LIMIT ?`,
+				`SELECT oid, size FROM (SELECT json_extract(f.fields, '$.oid') AS oid, json_extract(f.fields, '$.size') AS size, MIN(f.n) AS n ${OWED_SQL} GROUP BY 1) ORDER BY n LIMIT ?`,
 				[limit],
 			).map(({ oid, size }) => ({ oid, size })),
 		/** The server holds bytes `oid` at `size`: every pointer owed them goes in the next commit. */
