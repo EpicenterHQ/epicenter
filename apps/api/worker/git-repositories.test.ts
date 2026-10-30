@@ -219,7 +219,7 @@ describe('the receiver waits for an R2 LFS store', () => {
 				pkt('# service=git-upload-pack\n'),
 				'0000',
 				pkt(`${'a'.repeat(40)} HEAD\0multi_ack\n`),
-				pkt(`${'b'.repeat(40)} refs/epicenter/captures/cap-1\n`),
+				pkt(`${'b'.repeat(40)} refs/epicenter/replaced/20261031-000000000Z\n`),
 				pkt(`${'a'.repeat(40)} refs/heads/main\n`),
 				'0000',
 			].join(''),
@@ -242,7 +242,7 @@ describe('the receiver waits for an R2 LFS store', () => {
 		expect(await served.text()).toBe(await advertisement().text());
 	});
 
-	test('with one, pushes and web writes go through the receiver, and receipt refs are hidden', async () => {
+	test('with one, pushes and web writes go through the receiver, and clone and fetch pass through in the protocol asked for', async () => {
 		const requests = stubFetch(advertisement);
 		const { host } = scripted([], { receiver: true });
 		expect(host.objects).toBeFunction();
@@ -253,9 +253,9 @@ describe('the receiver waits for an R2 LFS store', () => {
 		});
 		const served = await host.serve(ID, withProtocol());
 		expect(new Headers(requests[0]?.init.headers).get('git-protocol')).toBe(
-			null,
+			'version=2',
 		);
-		expect(await served.text()).not.toContain('refs/epicenter/captures/');
+		expect(await served.text()).toBe(await advertisement().text());
 	});
 
 	test('the deployment gets the receiver only when every R2 LFS binding is there', () => {

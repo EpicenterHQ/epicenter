@@ -103,11 +103,11 @@ go once hashed.
 Web writes go to the translator (`src/routes/files.ts`): one commit per
 request, notes merged with `@epicenter/definition/merge`'s `settle`, a losing
 binary written beside its target as a conflict copy, the standard
-`.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first commit, and
-`captureId` receipts
-kept under `refs/epicenter/captures/<id>`, moved with `main` in one transaction
-and hidden from clients. Both use the `GitObjects` port (`src/git/objects.ts`):
-refs, object reads, ancestry, and an atomic compare-and-swap `apply`.
+`.gitattributes` (`REPOSITORY_ATTRIBUTES`) in a repository's first commit. It
+keeps nothing about a request once it answers. Both use the `GitObjects` port
+(`src/git/objects.ts`): refs, object reads by kind, and an atomic
+compare-and-swap `apply` over several refs (the receiver moves `main` and its
+`replaced` backup together).
 
 A web write names each file with the Git blob id it read as `base`; without
 one it is a create. A file other than a note names an LFS object already
@@ -115,17 +115,21 @@ uploaded through the batch API:
 
 ```txt
 POST <git audience>/~/recorder-demo.git/epicenter/writes
-{ "captureId": "2026-10-31T01-00-05-123Z-k3x9a2f8",
-  "files": [
+{ "files": [
     { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.md", "text": "---\ntitle: Standup\n---\n" },
     { "path": "recordings/2026-10-31T01-00-05-123Z-k3x9a2f8.m4a", "lfs": { "oid": "<sha256>", "size": 48213 } } ] }
 -> 200 { "commit", "paths", "blobs": { "<path>": "<blob id>" }, "outcomes": [{ "path", "landed", "outcome" }] }
 ```
 
 An outcome is `written`, `merged`, `conflict`, `conflict-copy`, `unchanged`,
-`deleted`, or `kept`. A replay of the same capture returns the same receipt; a
-replay with other content is 409 `CaptureMismatch`, carrying the original
-receipt. A body over 16 MiB is 413 `too_large`.
+`deleted`, or `kept`. A body over 16 MiB is 413 `too_large`.
+
+A writer that lost the reply sends the same write again, and it is judged like
+any other. The same files with the same content are `unchanged` and make no
+commit (a note counts as the same when it is equal in house style). Other
+content at a path that was created meanwhile lands as two creates: a note keeps
+what is there and gains the incoming note as one conflict block, and a binary
+lands beside it as a conflict copy.
 
 One statement decides each Git request (`authorizeResourceRequest`): the access
 token, given as a Bearer token or as the Basic password, its audience, scope,
@@ -198,7 +202,7 @@ URLs that sign `content-length`, `if-none-match: *` and
 sha256 checksum and size must match the pointer. The Bun entry binds
 `createDiskGitHost` from `@epicenter/server/bun` (`src/git-disk-store.ts`):
 bare repositories at `<root>/<repository id>.git`, cloned and fetched through
-`git http-backend` (receive-pack off, capture receipts hidden), written through
+`git http-backend` (receive-pack off, every ref shown, in either protocol), written through
 `index-pack` and one `update-ref --stdin` transaction, with no hook run, from
 the repository or anywhere else, and a clean environment. Its LFS objects come
 from `createDiskLfsStore` (`src/lfs/disk-lfs-store.ts`), at

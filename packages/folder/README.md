@@ -165,8 +165,11 @@ browser opener in Playwright Chromium and WebKit.
 signed-in person's repository for the app, `<git audience>/~/<contract
 name>.git`, through `account.fetch` (any `@epicenter/auth` `Account`). A
 remote version is the Git blob id on `main`. `startUploading` sends each
-capture in the device's outbox, once signed in and online, and deletes the
-local copy only at the version the server's receipt shows landed:
+capture in the device's outbox, once signed in and online, and lets go of
+each file only at the version it sent, after the server's reply shows it
+landed. The server keeps nothing about a write, so after a lost reply the
+same write goes again and is judged like any write: bytes already there land
+as nothing, and a note edited meanwhile gains at most one conflict block:
 
 ```ts
 import { openRemote, startUploading } from '@epicenter/folder/remote';

@@ -6,8 +6,7 @@
  * program, which never serves receive-pack here: every push goes to the
  * receiver (`routes/receive.ts`), and every web write to the translator
  * (`routes/files.ts`), both through this store's `GitObjects`
- * (`createDiskObjects`). Capture receipts (`refs/epicenter/captures/*`)
- * are hidden from every client's ref advertisement (decision 50).
+ * (`createDiskObjects`).
  *
  * Every `git` here runs under the rules ADR-0559 gives the CLI's runner,
  * adapted to a server: no hook, from the repository or anywhere else
@@ -29,9 +28,6 @@ import {
 } from './git/objects.js';
 import { packCount } from './git/pack.js';
 import type { GitHost } from './routes/git.js';
-
-/** The refs no client is shown: capture receipts, read only by the translator. */
-export const HIDDEN_REFS = 'refs/epicenter/captures';
 
 /** Where `id`'s bare repository lives under `root`. */
 export function repositoryPath(root: string, id: string): string {
@@ -63,8 +59,6 @@ function safety(noHooks: string): string[] {
 		`core.hooksPath=${noHooks}`,
 		'-c',
 		'core.fsmonitor=false',
-		'-c',
-		`transfer.hideRefs=${HIDDEN_REFS}`,
 	];
 }
 
@@ -264,16 +258,6 @@ export function createDiskObjects({
 			return found?.kind === kind
 				? { size: found.size, bytes: found.bytes }
 				: null;
-		},
-		async isAncestor(ancestor, descendant) {
-			if (ancestor === descendant) return true;
-			const done = await inRepository([
-				'merge-base',
-				'--is-ancestor',
-				ancestor,
-				descendant,
-			]);
-			return done.code === 0;
 		},
 		async apply(updates, pack) {
 			if (pack !== null && packCount(pack) > 0) {

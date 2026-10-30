@@ -1,7 +1,8 @@
 /**
  * The write translator against the disk store and a real bare repository:
  * one commit per request, the note merge, conflict copies, an edit beating
- * a delete, and capture receipts (decision 50).
+ * a delete, and a resend after a lost reply judged like any write
+ * (decision 68).
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
@@ -9,7 +10,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { REPOSITORY_ATTRIBUTES } from '@epicenter/definition/contract';
 import { conflictSibling } from '@epicenter/definition/merge';
-import { type GitObjects, MAIN, readCommit, ZERO_OID } from '../git/objects.js';
+import { type GitObjects, MAIN, ZERO_OID } from '../git/objects.js';
 import { createDiskGitHost, repositoryPath } from '../git-disk-store.js';
 import { createDiskLfsStore } from '../lfs/disk-lfs-store.js';
 import type { LfsStore } from '../lfs/lfs-store.js';
@@ -20,7 +21,6 @@ import {
 } from '../test-helpers/sandbox-git.js';
 import {
 	applyWrite,
-	captureRef,
 	listRepositoryFiles,
 	type Receipt,
 	readRepositoryFile,
@@ -98,7 +98,7 @@ const note = (fields: Record<string, string>, body: string) =>
 		.join('\n')}\n---\n${body}`;
 
 describe('POST writes', () => {
-	test('a capture (note plus audio) is one commit, and its receipt names both blobs', async () => {
+	test('a capture (note plus audio) is one commit, and its reply names both blobs', async () => {
 		const repo = await repository();
 		const audio = new TextEncoder().encode('RIFF fake audio');
 		const files = [
@@ -110,13 +110,13 @@ describe('POST writes', () => {
 			size: audio.length,
 		};
 		files[1] = { path: 'recordings/a.webm', lfs: object };
-		const before = await repo.write({ captureId: 'cap-a', files });
+		const before = await repo.write({ files });
 		expect(before.status).toBe(409);
 		expect(before.body.error).toBe('lfs_not_uploaded');
 		expect(await repo.main()).toBe(ZERO_OID);
 
 		await upload(repo, audio);
-		const landed = await repo.write({ captureId: 'cap-a', files });
+		const landed = await repo.write({ files });
 		expect(landed.status).toBe(200);
 		expect(landed.body.paths).toEqual(['recordings/a.md', 'recordings/a.webm']);
 		expect(await repo.main()).toBe(landed.body.commit);
@@ -130,32 +130,82 @@ describe('POST writes', () => {
 		expect(await repo.show('recordings/a.webm')).toBe(
 			`version https://git-lfs.github.com/spec/v1\noid sha256:${object.oid}\nsize ${object.size}\n`,
 		);
-		const message = await box.ok(repo.gitDir, ['log', '-1', '--format=%B']);
-		expect(message).toContain('Epicenter-Capture: cap-a');
+		// The server keeps nothing about the request: main is the only ref.
+		expect([...(await repo.objects.refs()).keys()]).toEqual([MAIN]);
+	});
 
-		// A replay returns the same receipt, and main does not move.
-		const replay = await repo.write({ captureId: 'cap-a', files });
-		expect(replay.body).toMatchObject({
+	test('a plain resend after a lost reply lands as nothing: same blobs, no new commit', async () => {
+		const repo = await repository();
+		const audio = await upload(repo, new TextEncoder().encode('sound'));
+		const files = [
+			{ path: 'r/a.md', text: note({ title: 'Standup' }, 'Hello\n') },
+			{ path: 'r/a.webm', lfs: audio },
+		];
+		const landed = await repo.write({ files });
+		const resent = await repo.write({ files });
+		expect(resent.status).toBe(200);
+		expect(resent.body).toMatchObject({
 			commit: landed.body.commit,
 			paths: landed.body.paths,
 			blobs: landed.body.blobs,
-			replayed: true,
 		});
+		expect(resent.body.outcomes.map((o) => o.outcome)).toEqual([
+			'unchanged',
+			'unchanged',
+		]);
 		expect(await repo.main()).toBe(landed.body.commit);
-		// The receipt is a ref beside main, which no client is shown.
-		expect((await repo.objects.refs()).get(captureRef('cap-a'))).toBe(
-			landed.body.commit,
+		expect(
+			(await box.ok(repo.gitDir, ['rev-list', '--count', 'main'])).trim(),
+		).toBe('1');
+	});
+
+	test('a lost reply, an edit, then a resend: the note gets one conflict block and nothing is lost', async () => {
+		const repo = await repository();
+		const first = note({ title: 'Standup' }, 'first take\n');
+		const landed = await repo.write({
+			files: [{ path: 'c/x.md', text: first }],
+		});
+		expect(landed.status).toBe(200);
+		// The reply was lost; the person edited the still-pending note, and
+		// the device sends the same create with what it holds now.
+		const edited = note({ title: 'Retro' }, 'second take\n');
+		const resent = await repo.write({
+			files: [{ path: 'c/x.md', text: edited }],
+		});
+		expect(resent.status).toBe(200);
+		expect(resent.body.outcomes[0]?.outcome).toBe('conflict');
+		const text = await repo.show('c/x.md');
+		expect(text.match(/^<<<<<<< /gm)).toHaveLength(1);
+		expect(text.startsWith(first)).toBe(true);
+		for (const line of ['title: Retro', 'second take']) expect(text).toContain(line);
+		expect(resent.body.blobs['c/x.md']).toBe(
+			(await box.ok(repo.gitDir, ['rev-parse', 'main:c/x.md'])).trim(),
 		);
+	});
+
+	test('a binary resent with other bytes lands beside the first as a conflict copy', async () => {
+		const repo = await repository();
+		const take1 = await upload(repo, new TextEncoder().encode('take one'));
+		const take2 = await upload(repo, new TextEncoder().encode('take two'));
+		await repo.write({ files: [{ path: 'r/a.m4a', lfs: take1 }] });
+		const resent = await repo.write({ files: [{ path: 'r/a.m4a', lfs: take2 }] });
+		const sibling = conflictSibling('r/a.m4a', take2.oid);
+		expect(resent.body.outcomes[0]).toEqual({
+			path: 'r/a.m4a',
+			landed: sibling,
+			outcome: 'conflict-copy',
+		});
+		expect(await repo.show('r/a.m4a')).toContain(take1.oid);
+		expect(await repo.show(sibling)).toContain(take2.oid);
 	});
 
 	test("a repository's first commit holds the standard .gitattributes (decision 59)", async () => {
 		const repo = await repository();
 		const first = await repo.write({
-			captureId: 'cap-first',
 			files: [{ path: 'recordings/a.md', text: 'a\n' }],
 		});
 		expect(await repo.show('.gitattributes')).toBe(REPOSITORY_ATTRIBUTES);
-		// The receipt names the request's files only.
+		// The reply names the request's files only.
 		expect(first.body.paths).toEqual(['recordings/a.md']);
 		// Later writes leave it alone.
 		await repo.write({ files: [{ path: 'b.md', text: 'b\n' }] });
@@ -168,7 +218,7 @@ describe('POST writes', () => {
 					'.gitattributes',
 				])
 			).trim(),
-		).toBe('Capture cap-first');
+		).toBe('Web write: 1 file');
 
 		// A first write that brings its own keeps it.
 		const own = await repository();
@@ -240,12 +290,6 @@ describe('POST writes', () => {
 					{ path: 'a.md', text: 'x' },
 					{ path: 'a.md', text: 'y' },
 				],
-			}),
-		).toBe(400);
-		expect(
-			await refused({
-				captureId: 'no spaces',
-				files: [{ path: 'a.md', text: 'x' }],
 			}),
 		).toBe(400);
 		expect(await repo.main()).toBe(ZERO_OID);
@@ -461,17 +505,14 @@ describe('POST writes', () => {
 		expect(await repo.show('r/a.m4a')).toContain(second.oid);
 	});
 
-	test('two identical captures at once make one commit', async () => {
+	test('two identical creates at once make one commit', async () => {
 		const repo = await repository();
 		await repo.write({ files: [{ path: 'seed.md', text: 'seed\n' }] });
 		let release!: () => void;
 		const held = new Promise<void>((resolve) => {
 			release = resolve;
 		});
-		const request = {
-			captureId: 'cap-dup',
-			files: [{ path: 'c/1.md', text: 'one\n' }],
-		};
+		const request = { files: [{ path: 'c/1.md', text: 'one\n' }] };
 		const both = [
 			repo.write(request, () => held),
 			repo.write(request, () => held),
@@ -480,92 +521,20 @@ describe('POST writes', () => {
 		release();
 		const [a, b] = await Promise.all(both);
 		expect(a?.body.commit).toBe(b?.body.commit as string);
-		expect([a?.body.replayed, b?.body.replayed].filter(Boolean)).toHaveLength(
-			1,
-		);
+		expect(
+			[a?.body.outcomes[0]?.outcome, b?.body.outcomes[0]?.outcome].sort(),
+		).toEqual(['unchanged', 'written']);
 		expect(
 			(await box.ok(repo.gitDir, ['rev-list', '--count', 'main'])).trim(),
 		).toBe('2');
 	});
 
-	test('a capture resent with other bytes is refused with the receipt of what landed (review finding 2)', async () => {
-		const repo = await repository();
-		const first = {
-			captureId: 'cap-edit',
-			files: [{ path: 'c/x.md', text: 'first take\n' }],
-		};
-		const landed = await repo.write(first);
-		expect(landed.status).toBe(200);
-		// The reply was lost; the person edited the still-pending note and the device resends under the same id.
-		const edited = await repo.write({
-			captureId: 'cap-edit',
-			files: [{ path: 'c/x.md', text: 'second take\n' }],
-		});
-		expect(edited.status).toBe(409);
-		const body = edited.body as unknown as {
-			error: string;
-			receipt: Receipt;
-		};
-		expect(body.error).toBe('CaptureMismatch');
-		// The original receipt: the device requeues its edit as an update over these blobs.
-		expect(body.receipt).toMatchObject({
-			commit: landed.body.commit,
-			paths: ['c/x.md'],
-			blobs: landed.body.blobs,
-			replayed: true,
-		});
-		expect(await repo.main()).toBe(landed.body.commit);
-		expect(await repo.show('c/x.md')).toBe('first take\n');
-		// That update lands as an ordinary write.
-		const update = await repo.write({
-			files: [
-				{
-					path: 'c/x.md',
-					base: body.receipt.blobs['c/x.md'] as string,
-					text: 'second take\n',
-				},
-			],
-		});
-		expect(update.body.outcomes[0]?.outcome).toBe('written');
-		expect(await repo.show('c/x.md')).toBe('second take\n');
-		// A matching replay still returns the stored receipt, while its commit is on main.
-		const replay = await repo.write(first);
-		expect(replay.status).toBe(200);
-		expect(replay.body).toMatchObject({
-			commit: landed.body.commit,
-			blobs: landed.body.blobs,
-			replayed: true,
-		});
-	});
-
-	test('a capture id reused for other paths is refused, and lands nothing', async () => {
-		const repo = await repository();
-		const morning = await repo.write({
-			captureId: 'cap-2026-10-31',
-			files: [{ path: 'c/morning.md', text: 'morning\n' }],
-		});
-		const reused = await repo.write({
-			captureId: 'cap-2026-10-31',
-			files: [{ path: 'c/evening.md', text: 'evening\n' }],
-		});
-		expect(reused.status).toBe(409);
-		expect(reused.body.error).toBe('CaptureMismatch');
-		expect(
-			(reused.body as unknown as { receipt: Receipt }).receipt.paths,
-		).toEqual(['c/morning.md']);
-		expect(await repo.main()).toBe(morning.body.commit);
-	});
-
-	test('a receipt whose commit left main lands the capture again (decision 50)', async () => {
+	test("a resend after an owner's rewrite dropped the first landing lands it again", async () => {
 		const repo = await repository();
 		await repo.write({ files: [{ path: 'seed.md', text: 'seed\n' }] });
 		const seed = await repo.main();
-		const request = {
-			captureId: 'cap-r',
-			files: [{ path: 'c/r.md', text: 'kept\n' }],
-		};
+		const request = { files: [{ path: 'c/r.md', text: 'kept\n' }] };
 		const landed = await repo.write(request);
-		// An owner's rewrite drops the capture's commit from main.
 		expect(
 			await repo.objects.apply(
 				[{ ref: MAIN, old: landed.body.commit, next: seed }],
@@ -573,33 +542,9 @@ describe('POST writes', () => {
 			),
 		).toEqual({ ok: true });
 		const relanded = await repo.write(request);
-		expect(relanded.body.replayed).toBeUndefined();
+		expect(relanded.body.outcomes[0]?.outcome).toBe('written');
 		expect(await repo.main()).toBe(relanded.body.commit);
 		expect(await repo.show('c/r.md')).toBe('kept\n');
-		expect((await repo.objects.refs()).get(captureRef('cap-r'))).toBe(
-			relanded.body.commit,
-		);
-
-		// A rewrite that keeps the files (a reworded tip) needs no new commit.
-		const tip = await readCommit(repo.objects, relanded.body.commit);
-		const reworded = await box.ok(repo.gitDir, [
-			'commit-tree',
-			tip?.tree as string,
-			'-p',
-			seed,
-			'-m',
-			'reworded',
-		]);
-		await repo.objects.apply(
-			[{ ref: MAIN, old: relanded.body.commit, next: reworded.trim() }],
-			null,
-		);
-		const replay = await repo.write(request);
-		expect(replay.body.commit).toBe(reworded.trim());
-		expect(await repo.main()).toBe(reworded.trim());
-		expect((await repo.objects.refs()).get(captureRef('cap-r'))).toBe(
-			reworded.trim(),
-		);
 	});
 });
 

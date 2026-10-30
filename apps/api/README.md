@@ -13,9 +13,7 @@
 > `.md` note or a hidden path unless it is a stored Git LFS pointer. Before
 > binding: give the bucket a CORS rule for the registered app origins (PUT and
 > GET; headers `x-amz-checksum-sha256`, `if-none-match`, `content-type`), or
-> browser uploads and downloads fail, and decide how capture refs
-> (`refs/epicenter/captures/*`) are pruned, since every web write and fetch
-> reads all of them. See [Hosted Git](#hosted-git).
+> browser uploads and downloads fail. See [Hosted Git](#hosted-git).
 
 Epicenter Cloud Worker. Handles authentication, hosted Git, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
@@ -294,8 +292,8 @@ only the owner may push, since nothing would refuse a push replacing `main`.
 Git LFS objects live in R2 when the Worker binds a bucket (`LFS_BUCKET`,
 `LFS_BUCKET_NAME`, and the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair
 that presigns transfers; `worker/lfs-store.ts`), and only then does the
-receiver come on (`resolveArtifactsGitHost`): clone and fetch are forwarded
-over protocol v0, with receipt refs filtered out of the advertisement; every
+receiver come on (`resolveArtifactsGitHost`): clone and fetch are still
+forwarded untouched, in whichever protocol the client asks for; every
 push goes through the receiver and every web write through the translator,
 over `worker/artifacts-objects.ts`. The Worker's receiver takes a push body of
 at most 24 MiB, holds at most 24 MiB of its inflated objects, and reads at

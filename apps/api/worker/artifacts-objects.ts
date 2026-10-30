@@ -1,11 +1,10 @@
 /**
  * The `GitObjects` port over one Cloudflare Artifacts repository, so the
  * push receiver and the write translator run on the Worker exactly as on
- * disk (spike 6's `store()`, decisions 50 and 51).
+ * disk (spike 6's `store()`, decision 51).
  *
- * - **Refs** come from the repository's receive-pack advertisement. It is
- *   what a compare-and-swap is checked against, and it lists every ref,
- *   the hidden receipt refs included.
+ * - **Refs** come from the repository's receive-pack advertisement, which is
+ *   what a compare-and-swap is checked against.
  * - **Objects** are read through the binding's repository handle, by kind:
  *   `readCommit`, `readTree` and `readBlob`. The 2026-10 binding types do not
  *   declare them; spike 6 measured their shapes (`ArtifactsReader`). A tree
@@ -14,14 +13,12 @@
  *   gives no time zone or signature.
  * - **`apply`** is one `atomic` receive-pack. Artifacts checks every ref's
  *   old value and moves every ref or none (spike 6's probe: a stale `main`
- *   also refused the receipt ref), which makes receipts need no server state.
- * - **`isAncestor`** walks parents from the descendant a level at a time, up
- *   to `MAX_WALK` commits, each a binding round trip. Beyond that it answers
- *   no; the translator then lands a replayed capture again as a create, which
- *   changes nothing when its files are still there. The receiver does not
- *   ask it: it walks `main`'s history once per push through `read`
- *   (`receive.ts`, `mainReach`). The binding's undocumented `log()` (deployed
- *   spike 8) might replace these walks; it is not used.
+ *   also refused the other ref), so an owner's rewrite moves `main` and its
+ *   `refs/epicenter/replaced/*` backup together.
+ *
+ * The receiver walks `main`'s history once per push through `read`
+ * (`receive.ts`, `mainReach`). The binding's undocumented `log()` (deployed
+ * spike 8) might replace that walk; it is not used.
  */
 import {
 	type ApplyOutcome,
@@ -65,11 +62,6 @@ export type ArtifactsReader = {
 	): Promise<{ size: number; arrayBuffer(): Promise<ArrayBuffer> } | null>;
 	[Symbol.dispose]?(): void;
 };
-
-/** The most commits `isAncestor` reads before answering no. */
-export const MAX_WALK = 500;
-/** How many commits one level of the walk reads at once. */
-const WALK_WIDTH = 16;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -161,15 +153,6 @@ export function createArtifactsObjects({
 		return body;
 	}
 
-	async function readCommit(oid: string): Promise<ArtifactsCommit | null> {
-		try {
-			return await (await reader()).readCommit(oid);
-		} catch (cause) {
-			if (isMissing(cause)) return null;
-			throw cause;
-		}
-	}
-
 	async function readContent(
 		oid: string,
 		kind: ObjectKind,
@@ -238,25 +221,6 @@ export function createArtifactsObjects({
 				bytes:
 					found.size > maxBytes ? null : new Uint8Array(await found.blob()),
 			};
-		},
-		async isAncestor(ancestor, descendant) {
-			if (ancestor === descendant) return true;
-			const seen = new Set([descendant]);
-			let frontier = [descendant];
-			let read = 0;
-			while (frontier.length > 0 && read < MAX_WALK) {
-				const level = frontier.slice(0, WALK_WIDTH);
-				frontier = frontier.slice(WALK_WIDTH);
-				read += level.length;
-				for (const commit of await Promise.all(level.map(readCommit)))
-					for (const parent of commit?.parents ?? []) {
-						if (parent === ancestor) return true;
-						if (seen.has(parent)) continue;
-						seen.add(parent);
-						frontier.push(parent);
-					}
-			}
-			return false;
 		},
 		async apply(updates, pack): Promise<ApplyOutcome> {
 			const commands = updates.map(({ ref, old, next }, index) =>

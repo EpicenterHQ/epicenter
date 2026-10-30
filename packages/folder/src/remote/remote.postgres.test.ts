@@ -12,7 +12,7 @@
  *
  * Key behaviors:
  * - A note plus its audio go up as one capture, and the device lets go of them
- * - A resend after a lost reply recovers the first receipt instead of writing again
+ * - A resend after a lost reply is the same write again: no new commit, or one conflict block after an edit
  * - A crash after the PUT, after the write, or before the delete resumes without loss
  * - The remote client refuses a stale version (`Conflict`) and an occupied path (`Occupied`)
  * - A capture naming a path outside the contract stays on the device and is never sent
@@ -290,7 +290,7 @@ describe('upload', () => {
 		]);
 	}, 30_000);
 
-	test('a resend after a lost reply recovers the first receipt instead of writing again', async () => {
+	test('a plain resend after a lost reply lands as nothing: same commit, no new one', async () => {
 		const person = await signIn('lost-reply');
 		const { root, device } = await deviceAt();
 		const { id } = await capture(device, 'Lost reply');
@@ -307,13 +307,13 @@ describe('upload', () => {
 		const [lost, resent] = person.requests(WRITES).map(({ body }) => body);
 		expect(resent).toMatchObject({
 			commit: (lost as { commit: string }).commit,
-			replayed: true,
+			outcomes: [{ outcome: 'unchanged' }, { outcome: 'unchanged' }],
 		});
 		expect(person.requests(WRITES)).toHaveLength(2);
 		expect(await filesIn(root)).toEqual([]);
 	}, 30_000);
 
-	test('a crash after the write keeps everything on the device, and the next page recovers the receipt', async () => {
+	test('a crash after the write keeps everything on the device, and the next page sends it again', async () => {
 		const person = await signIn('after-write');
 		const { root, device } = await deviceAt();
 		const { id, bytes } = await capture(device, 'After the write');
@@ -335,14 +335,17 @@ describe('upload', () => {
 		expect(await uploader.drain()).toMatchObject({ uploaded: [id] });
 		const writes = person.requests(WRITES);
 		expect(writes).toHaveLength(2);
-		expect(writes[1]?.body).toMatchObject({ replayed: true });
+		expect(writes[1]?.body).toMatchObject({
+			commit: (writes[0]?.body as { commit: string }).commit,
+			outcomes: [{ outcome: 'unchanged' }, { outcome: 'unchanged' }],
+		});
 		expect(await filesIn(root)).toEqual([]);
 		expect(expectOk(await remote.audio.get({ id, ext: 'm4a' })).bytes).toEqual(
 			bytes,
 		);
 	}, 30_000);
 
-	test('an edit made after a lost reply is never dropped: it goes up as an update over what landed', async () => {
+	test('a lost reply, an edit, then a resend: one conflict block on the server, nothing lost', async () => {
 		const person = await signIn('edit-after-lost-reply');
 		const { root, device } = await deviceAt();
 		const { id, bytes } = await capture(device, 'Before');
@@ -367,28 +370,30 @@ describe('upload', () => {
 		using uploader = startUploading(device, remote);
 		const resent = await uploader.drain();
 
-		// The capture, then the kept edit queued under an id of its own.
-		expect(resent).toMatchObject({ refused: [], interrupted: null });
-		expect(resent.uploaded).toHaveLength(2);
-		expect(resent.uploaded[0]).toBe(id);
-		const [lost, replay, update] = person.requests(WRITES);
-		// The resend carries other bytes than landed, so the server refuses it
-		// with the first landing's receipt, which the device takes as its own.
-		expect(replay?.body).toMatchObject({
-			error: 'CaptureMismatch',
-			receipt: {
-				commit: (lost?.body as { commit: string }).commit,
-				replayed: true,
-			},
+		expect(resent).toMatchObject({
+			uploaded: [id],
+			refused: [],
+			interrupted: null,
 		});
-		// The kept edit went up under an id of its own, over the blob that landed.
-		expect(update?.body).toMatchObject({
-			outcomes: [{ path: `recordings/${id}.md`, outcome: 'written' }],
+		const writes = person.requests(WRITES);
+		expect(writes).toHaveLength(2);
+		// The resend is the same create with the edited note: two creates of
+		// one path, so the note keeps what landed first and gains the edit as
+		// one block; the audio is the same bytes and lands as nothing.
+		expect(writes[1]?.body).toMatchObject({
+			outcomes: [
+				{ path: `recordings/${id}.md`, outcome: 'conflict' },
+				{ path: `recordings/${id}.m4a`, outcome: 'unchanged' },
+			],
 		});
-		expect(expectOk(await remote.recordings.get({ id })).title).toBe('After');
+		const note = expectOk(await remote.recordings.get({ id }));
+		expect(note.title).toBe('Before');
+		expect(note.body.match(/^<<<<<<< /gm)).toHaveLength(1);
+		expect(note.body).toContain('title: After');
 		expect(expectOk(await remote.audio.get({ id, ext: 'm4a' })).bytes).toEqual(
 			bytes,
 		);
+		// The device let go only of what the reply showed landed: everything.
 		expect(await filesIn(root)).toEqual([]);
 	}, 30_000);
 

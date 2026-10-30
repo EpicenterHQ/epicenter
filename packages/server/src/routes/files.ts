@@ -1,5 +1,5 @@
 /**
- * The write translator (decisions 14, 15, 47, 50): the web reads and writes
+ * The write translator (decisions 14, 15, 47, 68): the web reads and writes
  * a repository's files through these, and never holds a copy of it.
  *
  * ```txt
@@ -8,7 +8,7 @@
  * POST <git>/<ns>/<name>.git/epicenter/writes             folders:write  one commit
  * ```
  *
- * A write is `{ captureId?, root?, files }`, each file one of
+ * A write is `{ root?, files }`, each file one of
  * `{ path, text, base? }` (a note, or a hidden path such as `.gitattributes`),
  * `{ path, lfs: { oid, size }, base? }` (any other file, whose LFS object
  * must already be uploaded and verified), or `{ path, delete: true, base }`.
@@ -31,22 +31,15 @@
  * `.gitattributes` (decision 59), unless the write brings its own, so a
  * desktop clone of a repository the web made runs Git LFS.
  *
- * The reply is the receipt `{ commit, paths, blobs, outcomes }`. A write
- * with a `captureId` moves `refs/epicenter/captures/<id>` with `main`, in
- * one transaction, and its commit records the request's fingerprint (each
- * path and its content: `requestDigest`). While that commit is on `main`, a
- * replay of the same files with the same content returns the original
- * receipt, and a replay with other files or content (an edit made after a
- * lost reply, an id reused) is refused, 409 `CaptureMismatch`, carrying the
- * original receipt: the landed paths and their blob ids, over which the
- * device sends its edit as an ordinary update. A capture whose commit left
- * `main` lands again as a create (decision 50), which is nothing when its
- * files are already there. A capture ref at a commit that records no
- * fingerprint (a capture that changed nothing) is no receipt: the request
- * runs as a write.
+ * The reply is `{ commit, paths, blobs, outcomes }`: where each file landed
+ * and the Git blob id there. The server keeps nothing about a request once
+ * it answers (decision 68). A device that lost the reply sends the same
+ * create again, which is judged like any write: identical bytes already at
+ * the path land as nothing (`unchanged`, no commit), and other bytes merge
+ * as two creates (a note gets at most one conflict block per clash, a
+ * binary lands as a conflict copy).
  */
 
-import { createHash } from 'node:crypto';
 import {
 	isNotePath,
 	REPOSITORY_ATTRIBUTES,
@@ -74,15 +67,12 @@ import { writePack } from '../git/pack.js';
 import { type Change, editTree, listFiles, lookup } from '../git/tree-edit.js';
 import { LFS_OID, type LfsObject, type LfsStore } from '../lfs/lfs-store.js';
 
-const CAPTURE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const OID = /^[0-9a-f]{40}$/;
 const MAX_FILES = 1000;
 /** The largest web write body read; a larger one is refused (413) before it is read whole. */
 export const MAX_WRITE_BYTES = 16 * 1024 * 1024;
 const MAX_ATTEMPTS = 12;
 const decoder = new TextDecoder();
-
-export const captureRef = (id: string) => `refs/epicenter/captures/${id}`;
 
 const json = (body: unknown, status = 200) =>
 	new Response(JSON.stringify(body), {
@@ -129,7 +119,6 @@ export type FileWrite =
 	| { path: string; delete: true; base: string };
 
 export type WriteRequest = {
-	captureId?: string;
 	root?: string;
 	files: FileWrite[];
 };
@@ -150,7 +139,6 @@ export type Receipt = {
 	/** The Git blob id at each landed path, the `base` of a later write; null where a delete landed. */
 	blobs: Record<string, string | null>;
 	outcomes: { path: string; landed: string; outcome: Outcome }[];
-	replayed?: true;
 	attempts?: number;
 };
 
@@ -171,12 +159,7 @@ export function readWriteRequest(body: unknown): WriteRequest | Refusal {
 	});
 	if (typeof body !== 'object' || body === null)
 		return bad('expected a JSON object');
-	const { captureId, root, files } = body as Record<string, unknown>;
-	if (
-		captureId !== undefined &&
-		(typeof captureId !== 'string' || !CAPTURE_ID.test(captureId))
-	)
-		return bad('captureId is 1 to 64 of A-Z, a-z, 0-9, _ and -');
+	const { root, files } = body as Record<string, unknown>;
 	const folder = readRoot(root);
 	if (folder === null) return bad('root is not a folder path');
 	if (!Array.isArray(files) || files.length === 0 || files.length > MAX_FILES)
@@ -227,7 +210,6 @@ export function readWriteRequest(body: unknown): WriteRequest | Refusal {
 		}
 	}
 	return {
-		captureId: captureId as string | undefined,
 		root: folder,
 		files: files as FileWrite[],
 	};
@@ -239,63 +221,6 @@ async function readText(
 ): Promise<string | null> {
 	const found = await objects.read(oid, 'blob');
 	return found?.bytes ? decoder.decode(found.bytes) : null;
-}
-
-/**
- * A request's fingerprint: each path with its content (a text's Git blob
- * id, an LFS object's oid and size, or a delete), in path order. Two
- * requests with one fingerprint would land the same bytes at the same paths.
- */
-export function requestDigest(files: FileWrite[]): string {
-	const lines = files
-		.map((file) => {
-			const content =
-				'delete' in file
-					? 'delete'
-					: 'lfs' in file
-						? `lfs ${file.lfs.oid} ${file.lfs.size}`
-						: `blob ${makeObject('blob', file.text).oid}`;
-			return `${file.path}\0${content}`;
-		})
-		.sort();
-	return createHash('sha256').update(lines.join('\n')).digest('hex');
-}
-
-/**
- * The receipt a capture's commit records, read back from its trailers, with
- * the fingerprint of the request that landed it; null when the commit
- * records none.
- */
-async function receiptOf(
-	objects: GitObjects,
-	commit: string,
-): Promise<{ receipt: Receipt; digest: string } | null> {
-	const found = await readCommit(objects, commit);
-	if (!found) return null;
-	const digest = found.message.match(
-		/^Epicenter-Request: ([0-9a-f]{64})$/m,
-	)?.[1];
-	if (digest === undefined) return null;
-	const paths = [...found.message.matchAll(/^Epicenter-Path: (.+)$/gm)].map(
-		(m) => m[1] as string,
-	);
-	const blobs: Record<string, string | null> = {};
-	for (const path of paths)
-		blobs[path] = (await lookup(objects, found.tree, path))?.oid ?? null;
-	return {
-		digest,
-		receipt: {
-			commit,
-			paths,
-			blobs,
-			outcomes: paths.map((path) => ({
-				path,
-				landed: path,
-				outcome: 'unchanged',
-			})),
-			replayed: true,
-		},
-	};
 }
 
 /** The house-style key order of `text`'s own front matter, when it parses. */
@@ -343,31 +268,8 @@ export async function applyWrite({
 					409,
 				);
 		}
-	const capture = request.captureId ? captureRef(request.captureId) : null;
-	const digest = capture === null ? null : requestDigest(request.files);
-
 	for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-		const refs = await objects.refs();
-		const main = refs.get(MAIN) ?? ZERO_OID;
-		const receipt = capture ? refs.get(capture) : undefined;
-		if (
-			receipt !== undefined &&
-			digest !== null &&
-			main !== ZERO_OID &&
-			(await objects.isAncestor(receipt, main))
-		) {
-			const original = await receiptOf(objects, receipt);
-			if (original?.digest === digest) return json(original.receipt);
-			if (original)
-				return json(
-					{
-						error: 'CaptureMismatch',
-						message: `capture ${request.captureId} already landed other files or bytes; write the change as an update over the receipt's blobs`,
-						receipt: original.receipt,
-					},
-					409,
-				);
-		}
+		const main = (await objects.refs()).get(MAIN) ?? ZERO_OID;
 		if (attempt === 1) await hold?.();
 		const root =
 			main === ZERO_OID
@@ -529,23 +431,12 @@ export async function applyWrite({
 				tree = empty.oid;
 			}
 			if (tree !== root) {
-				const subject = request.captureId
-					? `Capture ${request.captureId}`
-					: `Web write: ${paths.length} file${paths.length === 1 ? '' : 's'}`;
-				const trailers = [
-					...paths.map((p) => `Epicenter-Path: ${p}`),
-					...(request.captureId
-						? [
-								`Epicenter-Capture: ${request.captureId}`,
-								`Epicenter-Request: ${digest}`,
-							]
-						: []),
-				];
+				const subject = `Web write: ${paths.length} file${paths.length === 1 ? '' : 's'}`;
 				const commit = commitObject({
 					tree,
 					parents: main === ZERO_OID ? [] : [main],
 					author: { ...author, at },
-					message: `${subject}${merged ? ' (merged)' : ''}\n\n${trailers.join('\n')}\n`,
+					message: `${subject}${merged ? ' (merged)' : ''}\n`,
 				});
 				written.push(commit);
 				next = commit.oid;
@@ -558,23 +449,11 @@ export async function applyWrite({
 			outcomes,
 			attempts: attempt,
 		};
-		if (next === main && capture === null) return json(result);
-		if (next === ZERO_OID)
-			return json(
-				{
-					error: 'invalid_write',
-					message: 'nothing to write to an empty repository',
-				},
-				409,
-			);
-		const updates = [];
-		if (next !== main) updates.push({ ref: MAIN, old: main, next });
-		if (capture !== null && receipt !== next)
-			updates.push({ ref: capture, old: receipt ?? ZERO_OID, next });
-		if (updates.length === 0) return json(result);
+		// Nothing changed (a resend of bytes already there): no commit.
+		if (next === main) return json(result);
 		const applied = await objects.apply(
-			updates,
-			next === main ? null : writePack(written),
+			[{ ref: MAIN, old: main, next }],
+			writePack(written),
 		);
 		if (applied.ok) return json(result);
 		if (!applied.stale)

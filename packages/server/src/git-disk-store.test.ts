@@ -88,7 +88,7 @@ describe('disk GitObjects', () => {
 				[
 					{ ref: 'refs/heads/main', old: one.commit.oid, next: a.commit.oid },
 					{
-						ref: 'refs/epicenter/captures/x',
+						ref: 'refs/epicenter/replaced/x',
 						old: ZERO_OID,
 						next: a.commit.oid,
 					},
@@ -99,22 +99,20 @@ describe('disk GitObjects', () => {
 		const lost = await objects.apply(
 			[
 				{ ref: 'refs/heads/main', old: one.commit.oid, next: b.commit.oid },
-				{ ref: 'refs/epicenter/captures/y', old: ZERO_OID, next: b.commit.oid },
+				{ ref: 'refs/epicenter/replaced/y', old: ZERO_OID, next: b.commit.oid },
 			],
 			b.pack,
 		);
 		expect(lost).toMatchObject({ ok: false, stale: true });
 		const refs = await objects.refs();
 		expect(refs.get('refs/heads/main')).toBe(a.commit.oid);
-		expect(refs.has('refs/epicenter/captures/y')).toBe(false);
-		// A second capture ref of the same name is refused as stale, too.
+		expect(refs.has('refs/epicenter/replaced/y')).toBe(false);
+		// A second ref of the same name is refused as stale, too.
 		const again = await objects.apply(
-			[{ ref: 'refs/epicenter/captures/x', old: ZERO_OID, next: a.commit.oid }],
+			[{ ref: 'refs/epicenter/replaced/x', old: ZERO_OID, next: a.commit.oid }],
 			null,
 		);
 		expect(again).toMatchObject({ ok: false, stale: true });
-		expect(await objects.isAncestor(one.commit.oid, a.commit.oid)).toBe(true);
-		expect(await objects.isAncestor(b.commit.oid, a.commit.oid)).toBe(false);
 		objects.close();
 	});
 
@@ -131,17 +129,12 @@ describe('disk GitObjects', () => {
 		objects.close();
 	});
 
-	test('capture receipts are hidden from clients, and main is not', async () => {
+	test('upload-pack lists every ref, in protocol v0 and in v2', async () => {
 		const { id, objects } = await fresh();
 		const one = commitOf({ 'a.md': 'one\n' });
 		await objects.apply(
 			[
 				{ ref: 'refs/heads/main', old: ZERO_OID, next: one.commit.oid },
-				{
-					ref: 'refs/epicenter/captures/c1',
-					old: ZERO_OID,
-					next: one.commit.oid,
-				},
 				{
 					ref: 'refs/epicenter/replaced/20261030-000000000Z',
 					old: ZERO_OID,
@@ -151,18 +144,40 @@ describe('disk GitObjects', () => {
 			one.pack,
 		);
 		objects.close();
-		const advertised = await host.serve(id, {
-			service: 'git-upload-pack',
-			advertisement: true,
-			headers: new Headers(),
-			body: null,
-			signal: new AbortController().signal,
-			accountId: 'test',
-		});
-		const text = await advertised.text();
-		expect(text).toContain('refs/heads/main');
-		expect(text).toContain('refs/epicenter/replaced/');
-		expect(text).not.toContain('captures');
+		const serve = (
+			headers: Record<string, string>,
+			body: Uint8Array | null,
+		) =>
+			host.serve(id, {
+				service: 'git-upload-pack',
+				advertisement: body === null,
+				headers: new Headers(headers),
+				body: body && new Blob([body as BlobPart]).stream(),
+				signal: new AbortController().signal,
+				accountId: 'test',
+			});
+		const v0 = await (await serve({}, null)).text();
+		expect(v0).toContain(`${one.commit.oid} refs/heads/main`);
+		expect(v0).toContain('refs/epicenter/replaced/');
+
+		const v2 = { 'git-protocol': 'version=2' };
+		expect(await (await serve(v2, null)).text()).toContain('version 2');
+		const pkt = (line: string) =>
+			`${(line.length + 4).toString(16).padStart(4, '0')}${line}`;
+		const lsRefs = new TextEncoder().encode(
+			`${pkt('command=ls-refs\n')}0001${pkt('peel\n')}0000`,
+		);
+		const listed = await (
+			await serve(
+				{
+					...v2,
+					'content-type': 'application/x-git-upload-pack-request',
+				},
+				lsRefs,
+			)
+		).text();
+		expect(listed).toContain(`${one.commit.oid} refs/heads/main`);
+		expect(listed).toContain('refs/epicenter/replaced/');
 		expect(repositoryPath(join(box.root, 'store'), id)).toContain(id);
 	});
 });

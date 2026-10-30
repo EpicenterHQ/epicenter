@@ -129,18 +129,14 @@ const pointerFor = (bytes: Uint8Array) => {
 	};
 };
 
-/** `objects`, counting the commits it reads and every `isAncestor` asked of it. */
+/** `objects`, counting the commits it reads. */
 function counting(objects: GitObjects) {
-	const counts = { commitReads: 0, isAncestor: 0 };
+	const counts = { commitReads: 0 };
 	const counted: GitObjects = {
 		...objects,
 		read(oid, kind, options) {
 			if (kind === 'commit') counts.commitReads++;
 			return objects.read(oid, kind, options);
-		},
-		isAncestor(ancestor, descendant) {
-			counts.isAncestor++;
-			return objects.isAncestor(ancestor, descendant);
 		},
 	};
 	return { counts, objects: counted };
@@ -188,7 +184,6 @@ describe('receivePush over a long history', () => {
 			`ok ${MAIN}`,
 		);
 		expect(await r.main()).toBe(merge);
-		expect(counts.isAncestor).toBe(0);
 		// Main's commits down to the desktop's base, once, and a few more.
 		expect(counts.commitReads).toBeGreaterThan(600);
 		expect(counts.commitReads).toBeLessThan(700);
@@ -448,13 +443,19 @@ describe('receiveAdvertisement', () => {
 		const one = await r.commit({ 'a.md': 'x\n' });
 		await r.push(one);
 		await r.objects.apply(
-			[{ ref: 'refs/epicenter/captures/x', old: ZERO_OID, next: one }],
+			[
+				{
+					ref: 'refs/epicenter/replaced/20261031-000000000Z',
+					old: ZERO_OID,
+					next: one,
+				},
+			],
 			null,
 		);
 		const text = await (await receiveAdvertisement(r.objects)).text();
 		expect(text).toContain(
 			`${one} refs/heads/main\0report-status side-band-64k ofs-delta no-thin`,
 		);
-		expect(text).not.toContain('captures');
+		expect(text).not.toContain('refs/epicenter/replaced/');
 	});
 });

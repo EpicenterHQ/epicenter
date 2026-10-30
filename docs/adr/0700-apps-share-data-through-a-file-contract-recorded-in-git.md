@@ -63,19 +63,24 @@ reads and writes the repository through the server while online:
 
 A file made in the browser stays in OPFS with a capture sidecar
 (`.epicenter/outbox/<id>.json`). `startUploading(device, remote)` uploads it
-once signed in and online: the LFS object, then one write carrying its
-`captureId`. The local copy is deleted only at the version the receipt shows
-landed; a later edit is queued as an update. Edits and deletes of repository
-files are online only.
+once signed in and online: the LFS object, then one write. The device lets go
+of a file only at the version it sent, after the server's reply shows that
+version landed; an edit made while the write was in flight is queued as an
+update over what landed. The server keeps nothing about a write once it
+answers, so a lost reply means sending the same write again, judged like any
+write: bytes already at the path land as nothing (no commit), and bytes
+edited since land as two creates (a note gets at most one conflict block, a
+binary a conflict copy). Edits and deletes of repository files are online
+only.
 
 **The server translates writes and receives pushes; it holds no data of its
 own.** Both live in `mountGitHost` (`packages/server/src/routes/git.ts`):
 
 - The translator, `POST <repo>.git/epicenter/writes` (`routes/files.ts`), reads
   `main`, settles each file, builds one commit per request, and moves `main`
-  by compare-and-swap, retrying up to 12 times. A capture's receipt is
-  `refs/epicenter/captures/<id>`, moved with `main` and hidden from clients; a
-  replay is checked against `main`, which is the truth.
+  by compare-and-swap, retrying up to 12 times. It keeps no record of a
+  request (no capture refs, no hidden refs), so clone and fetch pass through
+  in whichever protocol the client asks for.
 - The receiver (`routes/receive.ts`) accepts `refs/heads/main` alone and no
   delete. It decides fast-forward from the pushed commits, accepts merge
   commits, and checks every commit `main` does not reach. Every changed file
@@ -154,8 +159,12 @@ the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
 - Artifacts caps a repository at 1 GB of Git data; LFS bytes in R2 do not
   count. R2 bytes of deleted files are not collected yet.
 - A front matter value that loses a race is visible only in history.
-- A version means sha256 on a device and a Git blob id on a remote. A receipt
-  carries blob ids, and the outbox compares them with its own bytes.
+- A version means sha256 on a device and a Git blob id on a remote. The
+  server's reply carries blob ids, and the outbox compares them with its own
+  bytes.
+- A reply lost and the file then changed, on the device or on `main`, before
+  the resend gives one conflict block (or a conflict copy) instead of a clean
+  update. Nothing is lost.
 - A repository grant exposes every data folder in that repository.
 - The production `api` Worker routes every push through the receiver, so it
   must not deploy until an R2 bucket is bound (`apps/api/README.md`).
@@ -172,6 +181,12 @@ the `isomorphic-git` dependency of `@epicenter/folder`; `publishFile`.
 - **A conflict block for front matter:** a note must always parse.
 - **The server formatting by contract:** the client formats before sending, so
   the server needs no contract and keeps the incoming key order.
+- **Server-held capture receipts** (built, then removed): a write carried a
+  capture id, the server moved `refs/epicenter/captures/<id>` with `main` and
+  answered a resend with the first landing, or 409 when the bytes differed.
+  It took capture refs that grew without end, request fingerprints, refs
+  hidden from clients by forcing protocol v0 on Artifacts, and an ancestry
+  walk capped at 500 commits, to spare one conflict block in a rare case.
 
 ## Records this changes
 

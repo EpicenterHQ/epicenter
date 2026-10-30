@@ -236,7 +236,6 @@ async function desktop(token: string, url: string) {
 }
 
 const capture = (id: string, audio: { oid: string; size: number }) => ({
-	captureId: `cap-${id}`,
 	files: [
 		{
 			path: `recordings/${id}.md`,
@@ -251,7 +250,7 @@ describe('the file contract on the local server', () => {
 	let web: ReturnType<typeof webClient>;
 	let first: Receipt;
 
-	test('a web capture (note plus audio) is one commit, and a replay returns its receipt', async () => {
+	test('a web capture (note plus audio) is one commit, and a resend lands as nothing', async () => {
 		web = webClient(owner.token, group, 'whispering');
 		const before = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
@@ -262,15 +261,18 @@ describe('the file contract on the local server', () => {
 		expect(landed.status).toBe(200);
 		expect(landed.body.paths).toEqual(['recordings/a.md', 'recordings/a.webm']);
 		first = landed.body;
-		const replay = await web.write(capture('a', object));
-		expect(replay.body).toMatchObject({
+		const resent = await web.write(capture('a', object));
+		expect(resent.body).toMatchObject({
 			commit: first.commit,
 			blobs: first.blobs,
-			replayed: true,
 		});
+		expect(resent.body.outcomes.map((o) => o.outcome)).toEqual([
+			'unchanged',
+			'unchanged',
+		]);
 	}, 60_000);
 
-	test('a desktop clone through stock git gets the audio byte for byte with git lfs pull, and sees no receipt', async () => {
+	test('a desktop clone through stock git gets the audio byte for byte with git lfs pull, and fetches over protocol v2', async () => {
 		const dir = await desktop(member.token, web.repo);
 		await box.ok(dir, ['lfs', 'pull']);
 		const pulled = await readFile(join(dir, 'recordings/a.webm'));
@@ -283,7 +285,7 @@ describe('the file contract on the local server', () => {
 			(
 				await box.ok(dir, ['log', '--format=%s', '--', '.gitattributes'])
 			).trim(),
-		).toBe('Capture cap-a');
+		).toBe('Web write: 2 files');
 		expect(
 			(
 				await box.ok(dir, [
@@ -294,11 +296,20 @@ describe('the file contract on the local server', () => {
 					'recordings/a.webm',
 				])
 			).trim(),
-		).toBe('Capture cap-a');
+		).toBe('Web write: 2 files');
 		expect(await box.ok(dir, ['fsck', '--strict'])).toBe('');
-		const advertised = await box.ok(dir, ['ls-remote', 'origin']);
-		expect(advertised).toContain('refs/heads/main');
-		expect(advertised).not.toContain('captures');
+		// Nothing is hidden from a client, so no protocol is forced: a fetch
+		// asks for v2 and gets it.
+		const trace = join(box.root, 'fetch-trace');
+		const fetched = Bun.spawn(
+			['git', '-c', 'protocol.version=2', 'fetch', 'origin'],
+			{ cwd: dir, env: { ...box.env, GIT_TRACE_PACKET: trace } },
+		);
+		expect(await fetched.exited).toBe(0);
+		const packets = await Bun.file(trace).text();
+		expect(packets).toContain('fetch< version 2');
+		expect(packets).toContain('fetch> command=ls-refs');
+		expect(packets).toMatch(/fetch< [0-9a-f]{40} refs\/heads\/main/);
 	}, 60_000);
 
 	test('racing web writes from one base all land, merged, in a linear history', async () => {
@@ -513,20 +524,23 @@ describe('the file contract on the local server', () => {
 		expect(refs).toMatch(
 			new RegExp(`^${old}\\trefs/epicenter/replaced/\\d{8}-\\d{9}Z$`, 'm'),
 		);
-		expect(refs).not.toContain('captures');
 
-		// The receipt now names a commit off main: a replay lands the capture again.
-		const replay = await web.write(capture('b', object));
-		expect(replay.status).toBe(200);
-		expect(replay.body.replayed).toBeUndefined();
+		// The rewrite dropped capture b: a resend lands it again.
+		const resent = await web.write(capture('b', object));
+		expect(resent.status).toBe(200);
+		expect(resent.body.outcomes.map((o) => o.outcome)).toEqual([
+			'written',
+			'written',
+		]);
 		expect((await web.read('recordings/b.md')).blob).toBe(
 			tipCapture.body.blobs['recordings/b.md'] as string,
 		);
-		// The first capture is still on main, so its replay is the original receipt.
+		// Capture a is still on main, so its resend lands as nothing.
 		const again = await web.write(
 			capture('a', { oid: sha256(audio), size: audio.length }),
 		);
-		expect(again.body).toMatchObject({ commit: first.commit, replayed: true });
+		expect(again.body.commit).toBe(resent.body.commit);
+		expect(again.body.blobs).toEqual(first.blobs);
 	}, 120_000);
 
 	test('a write body past the cap is refused before it is read whole, and nothing moves', async () => {

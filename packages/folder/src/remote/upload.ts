@@ -7,16 +7,19 @@
  *
  * 1. its files' bytes go up as Git LFS objects (batch, then PUT), notes
  *    as text;
- * 2. one write carries the capture's id, so the server makes one commit and
- *    keeps a receipt; a resend after a lost reply gets that first receipt
- *    back (decision 50) instead of a second commit;
- * 3. the receipt is recorded in the capture's sidecar (`acknowledge`);
+ * 2. one write lands them, as creates (or, for an edit kept from an earlier
+ *    capture, updates over the blob that landed);
+ * 3. the server's reply is recorded in the capture's sidecar
+ *    (`acknowledge`), with the version of each file sent;
  * 4. the device deletes each file only at the version it sent (`finish`),
  *    so an edit made since stays, and goes up as a new capture.
  *
  * Each step is safe to repeat, so a crash anywhere resumes: after the PUT
- * the batch skips the stored object, after the write the resend gets the
- * receipt, after the acknowledgement only the delete remains.
+ * the batch skips the stored object; after a write whose reply was lost the
+ * same write goes again, and the server judges it like any write (decision
+ * 68): bytes already there land as nothing, and bytes edited since merge
+ * as two creates, at most one conflict block, nothing lost; after the
+ * acknowledgement only the delete remains.
  *
  * The first run also adopts the device's files that no capture names (a
  * crash between `create` and the outbox's `add`), one capture per file.
@@ -201,7 +204,7 @@ export function startUploading<TContract extends Contract>(
 		return Ok(undefined);
 	}
 
-	/** Send `capture` and record its receipt; `refused` when it cannot go as it is. */
+	/** Send `capture` and record the server's reply; `refused` when it cannot go as it is. */
 	async function send(
 		capture: Capture,
 	): Promise<
@@ -242,7 +245,6 @@ export function startUploading<TContract extends Contract>(
 			binaries.map(({ path }, index) => [path, uploaded.data[index]]),
 		);
 		const written = await wire.write({
-			captureId: id,
 			files: files.map((file) => {
 				const lfs = objects.get(file.path);
 				return lfs
@@ -264,7 +266,7 @@ export function startUploading<TContract extends Contract>(
 				return ClientError.Unavailable({ cause: refusal });
 			return Ok({ refused: refusal });
 		}
-		const { commit, paths, blobs, replayed } = answer.receipt;
+		const { commit, paths, blobs } = answer.receipt;
 		const acknowledged = await outbox.acknowledge(
 			id,
 			{
@@ -275,7 +277,6 @@ export function startUploading<TContract extends Contract>(
 						(entry): entry is [string, string] => entry[1] !== null,
 					),
 				),
-				replayed: replayed === true,
 			},
 			sent,
 		);

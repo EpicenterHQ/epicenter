@@ -76,7 +76,6 @@ export type WriteReceipt = {
 	paths: string[];
 	blobs: Record<string, string | null>;
 	outcomes: { path: string; landed: string; outcome: Outcome }[];
-	replayed?: true;
 };
 
 export type Outcome =
@@ -241,14 +240,11 @@ export function createWire(account: RemoteAccount, repository: string) {
 			return Ok(answer as RemoteFile);
 		},
 		/**
-		 * One write request: one commit on `main`, or a refusal. A capture
-		 * resent with other bytes than its first landing (an edit made after
-		 * a lost reply) is refused with that landing's receipt (409
-		 * `CaptureMismatch`); it answers as that receipt, replayed, so the
-		 * device lets go only of what landed and sends the rest as updates.
+		 * One write request: at most one commit on `main`, or a refusal. The
+		 * server keeps nothing about it, so a write whose reply was lost is
+		 * sent again as it is, and judged like any write.
 		 */
 		async write(request: {
-			captureId?: string;
 			files: FileWrite[];
 		}): Promise<Result<WriteAnswer, Unavailable>> {
 			const sent = await send(`${remote}/epicenter/writes`, {
@@ -261,20 +257,6 @@ export function createWire(account: RemoteAccount, repository: string) {
 			const fields = isRecord(answer) ? answer : {};
 			if (sent.data.ok && typeof fields.commit === 'string')
 				return Ok({ landed: true, receipt: fields as WriteReceipt });
-			if (
-				sent.data.status === 409 &&
-				fields.error === 'CaptureMismatch' &&
-				isRecord(fields.receipt) &&
-				typeof fields.receipt.commit === 'string' &&
-				isRecord(fields.receipt.blobs)
-			)
-				return Ok({
-					landed: true,
-					receipt: {
-						...(fields.receipt as WriteReceipt),
-						replayed: true,
-					},
-				});
 			if (sent.data.status !== 400 && sent.data.status !== 409)
 				return refused(sent.data);
 			return Ok({

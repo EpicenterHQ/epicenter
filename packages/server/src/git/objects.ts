@@ -2,12 +2,11 @@
  * The Git object port (`GitObjects`) that the write translator and the
  * push receiver share, and the object formats both read and write.
  *
- * A backend only stores: it lists refs, reads an object by id and kind, answers
- * whether one commit is an ancestor of another, and applies ref updates
- * together with a pack, atomically and only where every ref still holds the
- * value the caller read (compare-and-swap). Every rule (fast-forward, LFS
- * pointers, merges, receipts) lives above it, so the disk store here and
- * Cloudflare Artifacts later (phase 7) run the same routes.
+ * A backend only stores: it lists refs, reads an object by id and kind, and
+ * applies ref updates together with a pack, atomically and only where every
+ * ref still holds the value the caller read (compare-and-swap). Every rule
+ * (fast-forward, LFS pointers, merges) lives above it, so the disk store
+ * here and Cloudflare Artifacts run the same routes.
  */
 import { createHash } from 'node:crypto';
 
@@ -35,7 +34,7 @@ export type ApplyOutcome =
 	| { ok: false; stale: false; reason: string };
 
 export type GitObjects = {
-	/** Every ref and the object it names, hidden refs included. */
+	/** Every ref and the object it names. */
 	refs(): Promise<Map<string, string>>;
 	/**
 	 * The `kind` object `oid`, or null when it is absent or of another kind.
@@ -51,8 +50,6 @@ export type GitObjects = {
 		kind: ObjectKind,
 		options?: { maxBytes?: number },
 	): Promise<{ size: number; bytes: Uint8Array | null } | null>;
-	/** Whether `ancestor` is `descendant` or reachable from it. */
-	isAncestor(ancestor: string, descendant: string): Promise<boolean>;
 	/**
 	 * Store `pack` (when given), check that every `next` names a complete
 	 * history, then move every ref in one transaction, or none.

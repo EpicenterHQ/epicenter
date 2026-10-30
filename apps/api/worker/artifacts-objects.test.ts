@@ -28,9 +28,7 @@ import {
 	type ArtifactsReader,
 	type ArtifactsTreeEntry,
 	createArtifactsObjects,
-	MAX_WALK,
 } from './artifacts-objects.js';
-import { hideRefs } from './git-repositories.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -195,7 +193,7 @@ function receiverOver(
 }
 
 describe('Artifacts GitObjects', () => {
-	test('refs come from the receive-pack advertisement, hidden refs included', async () => {
+	test('refs come from the receive-pack advertisement, every ref included', async () => {
 		const requests: [string, string | null][] = [];
 		globalThis.fetch = (async (
 			input: RequestInfo | URL,
@@ -210,7 +208,7 @@ describe('Artifacts GitObjects', () => {
 					'# service=git-receive-pack\n',
 					null,
 					`${A} refs/heads/main\0report-status atomic ofs-delta\n`,
-					`${B} refs/epicenter/captures/cap-1\n`,
+					`${B} refs/epicenter/replaced/20261031-000000000Z\n`,
 					null,
 				),
 			);
@@ -218,7 +216,7 @@ describe('Artifacts GitObjects', () => {
 		const refs = await objectsOver(handle().reader).refs();
 		expect([...refs]).toEqual([
 			['refs/heads/main', A],
-			['refs/epicenter/captures/cap-1', B],
+			['refs/epicenter/replaced/20261031-000000000Z', B],
 		]);
 		expect(requests).toEqual([
 			[
@@ -255,8 +253,7 @@ describe('Artifacts GitObjects', () => {
 	});
 
 	test('a commit is rebuilt from its fields, enough to parse', async () => {
-		const message =
-			'Capture cap-1\n\nEpicenter-Path: a.md\nEpicenter-Capture: cap-1';
+		const message = 'Web write: 1 file\n\nA body line.';
 		const { reader } = handle({
 			commits: new Map([[A, commit(A, [B, C], message)]]),
 		});
@@ -287,7 +284,7 @@ describe('Artifacts GitObjects', () => {
 		let reply = pkts(
 			'unpack ok\n',
 			`ok refs/heads/main\n`,
-			'ok refs/epicenter/captures/c\n',
+			'ok refs/epicenter/replaced/c\n',
 			null,
 		);
 		globalThis.fetch = (async (
@@ -300,13 +297,13 @@ describe('Artifacts GitObjects', () => {
 		const objects = objectsOver(handle().reader);
 		const updates = [
 			{ ref: 'refs/heads/main', old: A, next: B },
-			{ ref: 'refs/epicenter/captures/c', old: ZERO_OID, next: B },
+			{ ref: 'refs/epicenter/replaced/c', old: ZERO_OID, next: B },
 		];
 		expect(await objects.apply(updates, null)).toEqual({ ok: true });
 		const { lines, rest } = readCommandLines(sent);
 		expect(lines).toEqual([
 			`${A} ${B} refs/heads/main\0report-status atomic agent=epicenter\n`,
-			`${ZERO_OID} ${B} refs/epicenter/captures/c\n`,
+			`${ZERO_OID} ${B} refs/epicenter/replaced/c\n`,
 		]);
 		// No pack given: an empty one, which receive-pack needs for a non-delete.
 		expect(new TextDecoder().decode(rest.subarray(0, 4))).toBe('PACK');
@@ -314,14 +311,14 @@ describe('Artifacts GitObjects', () => {
 		reply = pkts(
 			'unpack ok\n',
 			'ng refs/heads/main stale ref\n',
-			'ng refs/epicenter/captures/c stale ref\n',
+			'ng refs/epicenter/replaced/c stale ref\n',
 			null,
 		);
 		expect(await objects.apply(updates, null)).toEqual({
 			ok: false,
 			stale: true,
 			reason:
-				'ng refs/heads/main stale ref; ng refs/epicenter/captures/c stale ref',
+				'ng refs/heads/main stale ref; ng refs/epicenter/replaced/c stale ref',
 		});
 		reply = pkts('unpack index-pack failed\n', null);
 		expect(await objects.apply(updates, null)).toMatchObject({
@@ -338,35 +335,6 @@ describe('Artifacts GitObjects', () => {
 			'Artifacts answered 401',
 		);
 		expect(refused).toEqual(['refused']);
-	});
-
-	test('isAncestor walks parents, merges included, and stops at MAX_WALK', async () => {
-		// D -> (C, B'), C -> A, B' -> A: a merge over A.
-		const D = 'd'.repeat(40);
-		const B2 = 'e'.repeat(40);
-		const commits = new Map([
-			[D, commit(D, [C, B2])],
-			[C, commit(C, [A])],
-			[B2, commit(B2, [A])],
-			[A, commit(A, [])],
-		]);
-		const objects = objectsOver(handle({ commits }).reader);
-		expect(await objects.isAncestor(A, D)).toBe(true);
-		expect(await objects.isAncestor(B2, D)).toBe(true);
-		expect(await objects.isAncestor(D, A)).toBe(false);
-		expect(await objects.isAncestor(D, D)).toBe(true);
-
-		const chain = new Map<string, ArtifactsCommit>();
-		const id = (n: number) => n.toString(16).padStart(40, '0');
-		for (let n = 1; n <= MAX_WALK + 5; n++)
-			chain.set(id(n), commit(id(n), n === 1 ? [] : [id(n - 1)]));
-		const long = handle({ commits: chain });
-		const deep = objectsOver(long.reader);
-		expect(await deep.isAncestor(id(MAX_WALK - 10), id(MAX_WALK + 5))).toBe(
-			true,
-		);
-		expect(await deep.isAncestor(id(1), id(MAX_WALK + 5))).toBe(false);
-		expect(long.reads.length).toBeLessThanOrEqual(MAX_WALK + 15 + MAX_WALK);
 	});
 
 	test("the receiver's walk reads Artifacts by kind: a stored side commit is checked when a push reaches it", async () => {
@@ -503,59 +471,5 @@ describe('Artifacts GitObjects', () => {
 		);
 		expect(held).toContain('refused (pack: its objects need more than 1 MiB');
 		expect(tooWide.applied).toEqual([]);
-	});
-});
-
-describe('hideRefs', () => {
-	test('drops receipt refs from an upload-pack advertisement and keeps the capabilities', async () => {
-		const hidden = await hideRefs(
-			new Response(
-				pkts(
-					'# service=git-upload-pack\n',
-					null,
-					`${A} HEAD\0multi_ack symref=HEAD:refs/heads/main\n`,
-					`${B} refs/epicenter/captures/cap-1\n`,
-					`${A} refs/epicenter/replaced/20261031-000000000Z\n`,
-					`${A} refs/heads/main\n`,
-					null,
-				),
-				{
-					headers: {
-						'content-type': 'application/x-git-upload-pack-advertisement',
-					},
-				},
-			),
-		);
-		const body = new Uint8Array(await hidden.arrayBuffer());
-		const service = readCommandLines(body);
-		expect(service.lines).toEqual(['# service=git-upload-pack\n']);
-		expect(readCommandLines(service.rest).lines).toEqual([
-			`${A} HEAD\0multi_ack symref=HEAD:refs/heads/main\n`,
-			`${A} refs/epicenter/replaced/20261031-000000000Z\n`,
-			`${A} refs/heads/main\n`,
-		]);
-		expect(hidden.headers.get('content-type')).toBe(
-			'application/x-git-upload-pack-advertisement',
-		);
-	});
-
-	test('when the first ref is hidden, the capabilities move to the next', async () => {
-		const hidden = await hideRefs(
-			new Response(
-				pkts(
-					'# service=git-upload-pack\n',
-					null,
-					`${B} refs/epicenter/captures/cap-1\0multi_ack\n`,
-					`${A} refs/heads/main\n`,
-					null,
-				),
-			),
-		);
-		const rest = readCommandLines(
-			new Uint8Array(await hidden.arrayBuffer()),
-		).rest;
-		expect(readCommandLines(rest).lines).toEqual([
-			`${A} refs/heads/main\0multi_ack\n`,
-		]);
 	});
 });

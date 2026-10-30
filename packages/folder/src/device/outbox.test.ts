@@ -2,25 +2,24 @@
  * Device Outbox Tests
  *
  * A capture made on a device (signed out, offline) is recorded in a sidecar
- * at `.epicenter/outbox/<captureId>.json` so phase 5's upload can send it
- * once, recover its receipt after a lost reply, and delete only the version
- * it sent. A miss here is a capture never uploaded, sent twice, or deleted
- * before the server has it.
+ * at `.epicenter/outbox/<captureId>.json` so phase 5's upload can send it,
+ * send it again after a lost reply, and delete only the version it sent. A
+ * miss here is a capture never uploaded, or deleted before the server has
+ * it.
  *
  * Key behaviors:
  * - `add` records each file's path and the version it holds, and refuses a version it does not
  * - The sidecar is plain JSON with id, paths, state and receipt
  * - `finish` refuses a capture the server has not acknowledged while its files remain
  * - `finish` deletes each file only at the version the upload sent, and queues one edited since as an update
- * - `finish` deletes nothing a replayed receipt does not show landed as the device holds it
- * - A capture id fits the server: at most 64 characters
+ * - A capture id is one short path segment: at most 64 characters
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defineContract } from '@epicenter/definition/contract';
-import { gitBlobHash, writePointer } from '@epicenter/definition/merge';
+import { gitBlobHash } from '@epicenter/definition/merge';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Capture, openDevice, outboxOf } from '../node.js';
 
@@ -270,7 +269,7 @@ test('an unreadable sidecar is listed as invalid, not dropped or thrown', async 
 	});
 });
 
-test('finish deletes nothing a replayed receipt does not show landed as the device holds it', async () => {
+test('a sidecar acknowledged with a replayed receipt (before decision 68) deletes nothing', async () => {
 	const { root, outbox, note, audio } = await setup();
 	expectOk(
 		await outbox.add({
@@ -281,34 +280,37 @@ test('finish deletes nothing a replayed receipt does not show landed as the devi
 			],
 		}),
 	);
-	const noteBytes = await readFile(join(root, 'recordings/r1.md'));
-	const audioBytes = await readFile(join(root, 'recordings/r1.webm'));
-	const audioBlob = gitBlobHash(
-		writePointer({ oid: audio.version, size: audioBytes.byteLength }),
-	);
-	// The server knew this id from an earlier capture: its note is other bytes.
 	const older = 'c'.repeat(40);
-	expectOk(
-		await outbox.acknowledge(
-			'r1',
-			{
+	await Bun.write(
+		join(root, '.epicenter/outbox/r1.json'),
+		JSON.stringify({
+			id: 'r1',
+			paths: {
+				'recordings/r1.md': note.version,
+				'recordings/r1.webm': audio.version,
+			},
+			bases: {},
+			state: 'acknowledged',
+			receipt: {
 				commit: 'c0ffee',
 				paths: ['recordings/r1.md', 'recordings/r1.webm'],
-				blobs: { 'recordings/r1.md': older, 'recordings/r1.webm': audioBlob },
+				blobs: { 'recordings/r1.md': older },
 				replayed: true,
 			},
-			{ 'recordings/r1.md': note.version, 'recordings/r1.webm': audio.version },
-		),
+			sent: {
+				'recordings/r1.md': note.version,
+				'recordings/r1.webm': audio.version,
+			},
+		}),
 	);
 	const finished = expectOk(await outbox.finish('r1'));
-	expect(finished.kept).toEqual(['recordings/r1.md']);
-	expect(finished.queued).toMatchObject({
-		paths: { 'recordings/r1.md': note.version },
-		bases: { 'recordings/r1.md': older },
-	});
+	expect(finished.kept.sort()).toEqual([
+		'recordings/r1.md',
+		'recordings/r1.webm',
+	]);
+	expect(finished.queued?.bases).toEqual({ 'recordings/r1.md': older });
 	expect(await exists(join(root, 'recordings/r1.md'))).toBe(true);
-	expect(await exists(join(root, 'recordings/r1.webm'))).toBe(false);
-	expect(gitBlobHash(noteBytes)).not.toBe(older);
+	expect(await exists(join(root, 'recordings/r1.webm'))).toBe(true);
 });
 
 test('a pending capture whose files are all gone finishes, with nothing to send', async () => {

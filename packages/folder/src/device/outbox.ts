@@ -14,14 +14,13 @@
  * `paths` holds each file's path and the version the device held when the
  * capture was recorded; `bases`, for a file the server already holds, the
  * Git blob id there it replaces. The upload (`startUploading` in
- * `@epicenter/folder/remote`) sends a capture as one write carrying its id,
- * records the server's receipt and the versions it sent here (`acknowledge`,
- * as `sent`), and only then deletes the device's copies (`finish`), each
- * only at the version sent and only when the receipt shows those bytes
- * landed. A resend after a lost
- * reply carries the same id, and the server answers with the first
- * receipt; a file edited since, or not on the server as the device holds
- * it, goes back in the outbox as an update over what landed.
+ * `@epicenter/folder/remote`) sends a capture as one write, records the
+ * server's reply and the versions it sent here (`acknowledge`, as `sent`),
+ * and only then deletes the device's copies (`finish`), each only at the
+ * version sent. The capture id names the sidecar; the server never sees it.
+ * A write whose reply was lost goes again as the same write, which the
+ * server judges like any other (decision 68). A file edited after it was
+ * sent goes back in the outbox as an update over what landed.
  *
  * The sidecars are the device's own: hidden, so no collection claims them
  * and `epicenter check` skips them.
@@ -32,11 +31,9 @@ import {
 	type CompiledContract,
 	type Contract,
 	type PlaceholdersOf,
-	storedWithLfs,
 	type Version,
 } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
-import { gitBlobHash, writePointer } from '@epicenter/definition/merge';
 import {
 	defineErrors,
 	type InferError,
@@ -48,17 +45,12 @@ import type { DeviceStore } from './store.js';
 /** Where a device keeps its outbox sidecars. */
 export const OUTBOX_DIRECTORY = '.epicenter/outbox';
 
-/** What the server answers for a capture it committed (phase 4's translator). */
+/** What the server answered for a capture's write (the translator's reply). */
 export type Receipt = {
 	commit: string;
 	paths: string[];
 	/** The Git blob id that landed at each path. */
 	blobs: Record<string, string>;
-	/**
-	 * The server answered a resend with the receipt of the capture's first
-	 * landing, which may hold other bytes than the ones resent.
-	 */
-	replayed?: boolean;
 };
 
 /** One capture: the files it holds, at the versions recorded, and how far its upload got. */
@@ -106,8 +98,8 @@ type Invalid = InferError<typeof ClientError.Invalid>;
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
 /**
- * A capture id: one path segment, safe on every disk, at most 64 characters
- * (what the server takes), as `timeId()` makes.
+ * A capture id: one path segment, safe on every disk, at most 64 characters,
+ * as `timeId()` makes.
  */
 const CAPTURE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 
@@ -150,8 +142,15 @@ function parseCapture(bytes: Uint8Array): Capture | null {
 		return {
 			...capture,
 			state,
-			receipt: receipt as Receipt,
-			sent: sent as Record<string, Version>,
+			receipt: {
+				commit: receipt.commit,
+				paths: receipt.paths as string[],
+				blobs: receipt.blobs as Record<string, string>,
+			},
+			// A sidecar written before decision 68 may hold a server's replayed
+			// receipt for other bytes than were sent: none of them is known to
+			// have landed, so `finish` keeps every file and requeues it.
+			sent: receipt.replayed === true ? {} : (sent as Record<string, Version>),
 		};
 	return null;
 }
@@ -322,18 +321,17 @@ export function createOutbox<TContract extends Contract>(
 		},
 		/**
 		 * Let go of an acknowledged capture: delete each file the server now
-		 * holds as the device does, then the sidecar. A file is deleted only
-		 * while it holds the version the upload sent (not the one `add`
-		 * recorded: an edit reverted to those bytes while other bytes were in
-		 * flight is not what landed), and only when the receipt shows those
-		 * bytes landed: a first landing (merged or not), or a replayed
-		 * receipt whose blob there is the file's own.
+		 * holds, then the sidecar. A file is deleted only while it holds the
+		 * version the upload sent, which the server's reply shows landed
+		 * (as written, merged into the note there, or as a conflict copy):
+		 * not the version `add` recorded, since an edit reverted to those
+		 * bytes while other bytes were in flight is not what landed.
 		 *
 		 * Every other file still on the device is `kept`, and never dropped:
 		 * it goes back in the outbox as a new pending capture (`queued`),
 		 * with the blob that landed at its path as its base, so it uploads as
-		 * an update over that version. An edit made after a lost reply, or a
-		 * capture id the server knew from before, therefore never loses work.
+		 * an update over that version. An edit made while a write was in
+		 * flight therefore never loses work.
 		 *
 		 * A pending capture is refused while any of its files is still on the
 		 * device; once all are gone there is nothing left to send, and its
@@ -365,11 +363,7 @@ export function createOutbox<TContract extends Contract>(
 				if (held.error !== null) return held;
 				if (held.data === null) continue;
 				const sent = capture.sent?.[path];
-				const landed =
-					held.data.version === sent &&
-					(!receipt.replayed ||
-						receipt.blobs[path] === blobOf(path, held.data.bytes, sent));
-				if (!landed) {
+				if (held.data.version !== sent) {
 					kept[path] = held.data.version;
 					continue;
 				}
@@ -419,19 +413,6 @@ export function createOutbox<TContract extends Contract>(
 			return ClientError.Conflict({ path, current: null });
 		return Ok(result);
 	}
-}
-
-/**
- * The Git blob id the server stores for the device file at `path` holding
- * `bytes` at `version`: a note's own bytes, or the LFS pointer naming any
- * other file, whose oid is its device version (the sha256 of its bytes).
- */
-function blobOf(path: string, bytes: Uint8Array, version: Version): string {
-	return gitBlobHash(
-		storedWithLfs(path)
-			? writePointer({ oid: version, size: bytes.byteLength })
-			: bytes,
-	);
 }
 
 /** A device's outbox, typed for its contract. */
@@ -488,3 +469,4 @@ export function outboxOf<TContract extends Contract>(
 ): Outbox<TContract> {
 	return deviceParts(device).outbox as Outbox<TContract>;
 }
+
