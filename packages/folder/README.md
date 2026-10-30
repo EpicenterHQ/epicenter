@@ -117,6 +117,42 @@ watchers. Await a write's result when subsequent work requires durable bytes.
 A UI edit and its retry or discard controls belong to
 [`@epicenter/svelte`](../svelte/README.md), outside the Folder.
 
+## Contract openers
+
+`openDevice(contract, …)` returns the typed client an app's contract derives
+(`Client<T>` from `@epicenter/definition/contract`) over a device's files, at
+the contract's paths:
+
+```ts
+import { openDevice, outboxOf } from '@epicenter/folder/browser'; // OPFS
+// import { openDevice } from '@epicenter/folder/node';           // a directory: openDevice(c, { path })
+
+const device = openDevice(recorder);
+const id = timeId();
+const note = await device.recordings.create({ id, title: 'Standup' });
+const audio = await device.audio.create({ id, ext: 'm4a', bytes });
+if (note.error === null && audio.error === null)
+	await outboxOf(device).add({
+		id,
+		files: [
+			{ collection: 'recordings', ...note.data },
+			{ collection: 'audio', ...audio.data },
+		],
+	});
+```
+
+Every note it writes is in house style, the contract's keys first. Every
+update and delete carries the version (sha256) its writer read, and lands
+only while the file still holds it (`Conflict` otherwise); `create` never
+replaces a file (`Occupied`). In the browser, one dedicated Worker owns the
+origin's private file system, with a Web Lock per path; a browser that gives
+the page no private storage answers `Unavailable` with a
+`DeviceError.StorageRefused` cause. The outbox records captures for upload
+as sidecars under `.epicenter/outbox/`. `/node` also exports `checkFiles`
+and `formatNotes`, which `epicenter check` and `epicenter format` run. See
+`src/device/`; `bun run --cwd packages/folder smoke:device` drives the
+browser opener in Playwright Chromium and WebKit.
+
 ## Browser storage
 
 The [browser repository engine](src/browser/README.md) stores the current
@@ -178,7 +214,8 @@ chooses at call time and loads only the chosen engine. The
 | Path | Responsibility |
 | --- | --- |
 | `src/folder.ts`, `storage.ts`, `patch.ts`, `write-refusal.ts` | Mirror, host contract, canonical patches, and write refusals. |
-| `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `testing.ts` | Public and test entries. |
+| `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `testing.ts` | Public and test entries. |
+| `src/device/` | `openDevice`: the contract client, its Bun and OPFS stores, the outbox, and `check`/`format`. |
 | `src/browser/` | IndexedDB repository and independent Git exchange. |
 | `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, bindings, and save locks. |
 | `src/shared/` | Markdown reading and Git sync content merge rules. |

@@ -1,12 +1,20 @@
 /**
- * `@epicenter/folder/browser`: this web origin's default local folder,
- * kept in IndexedDB as a Git working tree. A blob's oid is its change stamp,
- * and other tabs' saves arrive as hints.
+ * `@epicenter/folder/browser`: two openers for this web origin.
+ *
+ * - `openDevice(contract)`: a contract's typed client over the origin's
+ *   private file system (OPFS), at the same paths a desktop folder holds,
+ *   with the outbox of captures still to upload (`outboxOf`).
+ * - `openFolder({ tables })`: the legacy default local folder, kept in
+ *   IndexedDB as a Git working tree. A blob's oid is its change stamp, and
+ *   other tabs' saves arrive as hints.
  */
+import type { Client, Contract } from '@epicenter/definition/contract';
 import { isTauri } from '@tauri-apps/api/core';
 import { Ok, type Result } from 'wellcrafted/result';
 import { openRepository } from './browser/repository.js';
 import { snapshotContent } from './browser/storage.js';
+import { createDeviceClient } from './device/client.js';
+import { opfsStore } from './device/opfs-store.js';
 import { OpenFolderError } from './errors.js';
 import {
 	createFolder,
@@ -18,6 +26,36 @@ import { ReadError } from './shared/errors.js';
 import type { Fetched, FolderHost } from './storage.js';
 
 export * from './contract.js';
+export { DeviceError } from './device/opfs-store.js';
+export {
+	type Capture,
+	type Outbox,
+	OutboxError,
+	type OutboxFile,
+	outboxOf,
+	type Receipt,
+} from './device/outbox.js';
+
+/**
+ * The typed client of `contract` over this origin's private file system.
+ * Synchronous, so an app can put it in context at its root: the Worker that
+ * owns the files starts at the first call. A browser that gives the page no
+ * private storage makes each call `Unavailable` (its cause a
+ * `DeviceError.StorageRefused`), never a throw; a contract that is not well
+ * formed throws here, at once.
+ *
+ * @example
+ * ```ts
+ * const device = openDevice(recorder);
+ * const id = timeId();
+ * const note = await device.recordings.create({ id, title: 'Standup' });
+ * ```
+ */
+export function openDevice<TContract extends Contract>(
+	contract: TContract,
+): Client<TContract> {
+	return createDeviceClient(contract, opfsStore());
+}
 
 /** The same fixed key as the browser's default folder, so its files carry over. */
 const DEFAULT_KEY = 'default';

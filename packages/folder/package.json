@@ -9,6 +9,7 @@
 		"./browser": "./src/browser.ts",
 		"./tauri": "./src/tauri.ts",
 		"./bun": "./src/bun.ts",
+		"./node": "./src/node.ts",
 		"./testing": "./src/testing.ts",
 		"./file-browser": "./src/file-browser.ts",
 		"./documents": "./src/documents.ts",
@@ -20,6 +21,7 @@
 		"test:engine": "bun test --isolate src/browser/ src/shared/",
 		"smoke:local": "bun smoke/local.ts",
 		"smoke:sync:local": "bun smoke/sync.ts",
+		"smoke:device": "bun smoke/device.ts",
 		"gen:vectors": "bun src/git/commit-subject-vectors.ts",
 		"schema:generate": "bun src/declaration/generate-schema.ts"
 	},

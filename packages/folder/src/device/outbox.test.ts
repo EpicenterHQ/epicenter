@@ -1,0 +1,184 @@
+/**
+ * Device Outbox Tests
+ *
+ * A capture made on a device (signed out, offline) is recorded in a sidecar
+ * at `.epicenter/outbox/<captureId>.json` so phase 5's upload can send it
+ * once, recover its receipt after a lost reply, and delete only the version
+ * it sent. A miss here is a capture never uploaded, sent twice, or deleted
+ * before the server has it.
+ *
+ * Key behaviors:
+ * - `add` records each file's path and the version it holds, and refuses a version it does not
+ * - The sidecar is plain JSON with id, paths, state and receipt
+ * - `finish` refuses a capture the server has not acknowledged
+ * - `finish` deletes each file only at its recorded version, keeping one edited since
+ */
+import { afterEach, expect, test } from 'bun:test';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { defineContract } from '@epicenter/definition/contract';
+import { expectErr, expectOk } from 'wellcrafted/testing';
+import { openDevice, outboxOf } from '../node.js';
+
+const recorder = defineContract({
+	name: 'recorder',
+	collections: {
+		recordings: {
+			path: 'recordings/{id}.md',
+			fields: { title: { type: 'string' } },
+			required: ['title'],
+		},
+		audio: { path: 'recordings/{id}.{ext}' },
+	},
+});
+
+const folders: string[] = [];
+afterEach(async () => {
+	await Promise.all(
+		folders.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+	);
+});
+
+async function setup() {
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-outbox-'));
+	folders.push(root);
+	const device = openDevice(recorder, { path: root });
+	const note = expectOk(
+		await device.recordings.create({ id: 'r1', title: 'Standup' }),
+	);
+	const audio = expectOk(
+		await device.audio.create({
+			id: 'r1',
+			ext: 'webm',
+			bytes: new Uint8Array([1, 2, 3]),
+		}),
+	);
+	return { root, device, outbox: outboxOf(device), note, audio };
+}
+
+const exists = (path: string) =>
+	stat(path).then(
+		() => true,
+		() => false,
+	);
+
+test('add records the capture as a pending sidecar naming each path and the version held', async () => {
+	const { root, outbox, note, audio } = await setup();
+	const capture = expectOk(
+		await outbox.add({
+			id: 'r1',
+			files: [
+				{ collection: 'recordings', ...note },
+				{ collection: 'audio', ...audio },
+			],
+		}),
+	);
+	const expected = {
+		id: 'r1',
+		paths: {
+			'recordings/r1.md': note.version,
+			'recordings/r1.webm': audio.version,
+		},
+		state: 'pending' as const,
+		receipt: null,
+	};
+	expect(capture).toEqual(expected);
+	const sidecar = await readFile(
+		join(root, '.epicenter/outbox/r1.json'),
+		'utf8',
+	);
+	expect(JSON.parse(sidecar)).toEqual(expected);
+	expect(expectOk(await outbox.list())).toEqual({
+		items: [expected],
+		invalid: [],
+	});
+});
+
+test('add refuses a version the device no longer holds, a capture id twice, and an unusable id', async () => {
+	const { device, outbox, note } = await setup();
+	const edited = expectOk(
+		await device.recordings.update(
+			{ id: 'r1' },
+			{ title: 'Edited' },
+			{ over: note.version },
+		),
+	);
+	const stale = expectErr(
+		await outbox.add({
+			id: 'r1',
+			files: [{ collection: 'recordings', ...note }],
+		}),
+	);
+	expect(stale).toMatchObject({ name: 'Conflict', current: edited.version });
+	expectOk(
+		await outbox.add({
+			id: 'r1',
+			files: [{ collection: 'recordings', ...edited }],
+		}),
+	);
+	const twice = expectErr(
+		await outbox.add({
+			id: 'r1',
+			files: [{ collection: 'recordings', ...edited }],
+		}),
+	);
+	expect(twice.name).toBe('Occupied');
+	const unusable = expectErr(
+		await outbox.add({
+			id: '../r1',
+			files: [{ collection: 'recordings', ...edited }],
+		}),
+	);
+	expect(unusable.name).toBe('Invalid');
+});
+
+test('finish refuses a pending capture, and deletes an acknowledged one only at its recorded versions', async () => {
+	const { root, device, outbox, note, audio } = await setup();
+	expectOk(
+		await outbox.add({
+			id: 'r1',
+			files: [
+				{ collection: 'recordings', ...note },
+				{ collection: 'audio', ...audio },
+			],
+		}),
+	);
+	expect(expectErr(await outbox.finish('r1')).name).toBe('NotAcknowledged');
+	const receipt = {
+		commit: 'c0ffee',
+		paths: ['recordings/r1.md', 'recordings/r1.webm'],
+		blobs: {},
+	};
+	const acknowledged = expectOk(await outbox.acknowledge('r1', receipt));
+	expect(acknowledged).toMatchObject({ state: 'acknowledged', receipt });
+	// An edit after the upload read the note: that edit must survive.
+	const edited = expectOk(
+		await device.recordings.update(
+			{ id: 'r1' },
+			{ title: 'After upload' },
+			{ over: note.version },
+		),
+	);
+	expect(expectOk(await outbox.finish('r1'))).toEqual({
+		kept: ['recordings/r1.md'],
+	});
+	expect(await exists(join(root, 'recordings/r1.webm'))).toBe(false);
+	expect(expectOk(await device.recordings.get({ id: 'r1' })).version).toBe(
+		edited.version,
+	);
+	expect(await exists(join(root, '.epicenter/outbox/r1.json'))).toBe(false);
+	expect(expectOk(await outbox.list()).items).toEqual([]);
+	expect(expectErr(await outbox.acknowledge('r1', receipt)).name).toBe(
+		'NotFound',
+	);
+});
+
+test('an unreadable sidecar is listed as invalid, not dropped or thrown', async () => {
+	const { root, outbox } = await setup();
+	await Bun.write(join(root, '.epicenter/outbox/broken.json'), '{"id": 3');
+	expect(expectOk(await outbox.list())).toEqual({
+		items: [],
+		invalid: ['.epicenter/outbox/broken.json'],
+	});
+});
