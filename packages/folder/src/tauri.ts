@@ -21,7 +21,13 @@ import { openRefusal } from './native/open-refusal.js';
 import { storageHost } from './storage.js';
 import { tauriHostFiles } from './tauri-files.js';
 
+export { type AppConfig, appConfig } from './app-config.js';
 export * from './contract.js';
+export {
+	EpicenterSyncError,
+	syncedWithEpicenter,
+	syncWithEpicenter,
+} from './epicenter-sync.js';
 
 /**
  * The typed client of `contract` over the directory the desktop shell bound

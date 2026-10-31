@@ -20,6 +20,7 @@ import { createDeviceClient } from './device/client.js';
 import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 
+export { type AppConfig, appConfig } from './app-config.js';
 export {
 	CACHE_DIRECTORY,
 	CACHE_LIMIT,

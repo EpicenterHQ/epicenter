@@ -11,4 +11,6 @@ pub const COMMANDS: &[&str] = &[
     "put_folder_file",
     "make_folder_directory",
     "remove_folder_directory",
+    "sync_with_epicenter",
+    "synced_with_epicenter",
 ];

@@ -38,6 +38,15 @@ export const commands = {
 	 *  under the same save lock as a put.
 	 */
 	removeFolderDirectory: (path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { path })),
+	/**
+	 *  Ask the operating system to open Epicenter with a request to sync the
+	 *  folder at `path` under `contract`, the URL its contract is published at.
+	 *  Answers once the system took the request; whether Epicenter sets the
+	 *  folder up is the person's choice there.
+	 */
+	syncWithEpicenter: (path: string, contract: string) => typedError<null, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|sync_with_epicenter", { path, contract })),
+	/**  Whether Epicenter syncs the folder at `path` (`synced`). */
+	syncedWithEpicenter: (path: string) => typedError<boolean, SyncRequestError>(__TAURI_INVOKE("plugin:epicenter-folder|synced_with_epicenter", { path })),
 };
 
 /* Types */
@@ -110,6 +119,15 @@ export type StorageError =
  *  process held too long is one.
  */
 { name: "Io"; path: string; operation: string; message: string };
+
+/**  Why the request to Epicenter was not made: what the page is told. */
+export type SyncRequestError =
+/**  `path` is not an absolute path to an existing directory. */
+{ name: "Folder"; path: string } |
+/**  The contract URL is not `https:`, or `http:` on this machine. */
+{ name: "Contract"; url: string } |
+/**  The operating system did not open the link (Epicenter may not be installed). */
+{ name: "NotOpened"; message: string };
 
 /**  Why the calling window's folder could not be used: what the page is told. */
 export type WindowError =

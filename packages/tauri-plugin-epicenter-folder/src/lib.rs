@@ -47,6 +47,7 @@ pub use epicenter_folder_core::storage::{PutOutcome, StorageError};
 mod command_names;
 mod commands;
 pub mod defaults;
+pub mod epicenter;
 mod folders;
 mod watch;
 mod windows;
@@ -77,6 +78,8 @@ fn specta_builder<R: Runtime>() -> tauri_specta::Builder<R> {
             commands::read_folder_children::<tauri::Wry>,
             commands::make_folder_directory::<tauri::Wry>,
             commands::remove_folder_directory::<tauri::Wry>,
+            epicenter::sync_with_epicenter,
+            epicenter::synced_with_epicenter,
         ])
         .typ::<PutOutcome>()
         .error_handling(tauri_specta::ErrorHandlingMode::DataError)
