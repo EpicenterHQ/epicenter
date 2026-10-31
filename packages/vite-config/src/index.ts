@@ -1,6 +1,11 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import { searchForWorkspaceRoot, type UserConfig } from 'vite';
+import {
+	defaultClientConditions,
+	defaultServerConditions,
+	searchForWorkspaceRoot,
+	type UserConfig,
+} from 'vite';
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and
@@ -37,5 +42,27 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 			strictPort: true,
 			fs: { allow: [searchForWorkspaceRoot(process.cwd())] },
 		},
+	};
+}
+
+/**
+ * A desktop variant's resolution (`epicenter-standalone`'s README): when
+ * `EPICENTER_DESKTOP=1` (an app's `build:native`), the `tauri` condition
+ * picks each `#platform/*` seam's desktop leaf from the app's `package.json`
+ * "imports"; otherwise nothing changes and every seam is the browser's.
+ * Custom conditions replace Vite's defaults, so the defaults are spread
+ * after `tauri`. Merge it into the app's config:
+ *
+ * ```ts
+ * mergeConfig(workspaceAppViteConfig(APPS.CAPTURE), desktopVariant(), { … })
+ * ```
+ */
+export function desktopVariant(
+	desktop = process.env.EPICENTER_DESKTOP === '1',
+): UserConfig {
+	if (!desktop) return {};
+	return {
+		resolve: { conditions: ['tauri', ...defaultClientConditions] },
+		ssr: { resolve: { conditions: ['tauri', ...defaultServerConditions] } },
 	};
 }
