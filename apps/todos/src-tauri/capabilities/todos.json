@@ -1,7 +1,7 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "todos",
-	"description": "The one standalone Todos window opens the Epicenter-root default, bound by Rust before its WebView exists. The static page calls openFolder with its schema and passes no path. General folder selection belongs to Epicenter's launcher; standalone Todos has no picker or extra-folder windows. The page lists and reads its folder through the folder plugin's private observation and close channels. On close it waits for queued writes, then destroys the window. It may ask Rust to hand its bound folder to Epicenter.",
+	"description": "The one standalone Todos window opens the Epicenter-root default, bound by Rust before its WebView exists. The static page opens the window's folder as Todos' contract client (openDevice from @epicenter/folder/tauri) and passes no path. General folder selection belongs to Epicenter's launcher; standalone Todos has no picker or extra-folder windows. The page lists and reads its folder through the folder plugin's private observation and close channels. On close it waits for queued writes, then destroys the window. It may ask Rust to hand its bound folder to Epicenter.",
 	"local": true,
 	"windows": ["todos:*"],
 	"permissions": [

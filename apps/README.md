@@ -26,35 +26,39 @@ files remain in place.
 
 ## Svelte app root
 
-`<OpenFolder>` opens the folder, provides its reactive mirror to the product
-root, refreshes on return, and closes it on unmount. The product root installs
-that value in an app-owned `createContext<SvelteFolder<typeof tables>>()` pair.
-Descendants use the app's typed getter. See the
-[Svelte package](../packages/svelte/README.md#open-a-folder-in-an-app).
+An app on the file contract (decision 7 of the file-contract design; Todos is
+the reference) opens its device at the root, always there, and adds the
+person's repository under the signed-in subtree, one per account:
 
 ```svelte
+<!-- apps/todos/src/routes/+page.svelte -->
 <script lang="ts">
-  import { openFolder } from '@epicenter/folder';
-  import OpenFolder from '@epicenter/svelte/open-folder';
-  import { todosTables } from '$lib/definition.js';
-  import TodosApp from './local/TodosApp.svelte';
+  const client = openTodosDevice(); // OPFS in a browser, the bound folder in its desktop window
+  const device = setDevice({ client, files: fromClient(client) });
+  onDestroy(() => closeDevice(client));
+  const todos = createTodoList({
+    device: device.files.todos,
+    repository: null,
+    outbox: isDesktop ? null : outboxOf(client), // only the browser uploads
+  });
 </script>
 
-<OpenFolder open={() => openFolder({ tables: todosTables })}>
-  {#snippet children(folder)}<TodosApp {folder} />{/snippet}
-</OpenFolder>
+{#if isDesktop || auth.state.status === 'signed-out'}
+  <TodosApp {todos} />
+{:else}
+  {#key auth.state.account}<SignedIn account={auth.state.account} />{/key}
+{/if}
 ```
 
-The callback opens only when `<OpenFolder>` mounts or retries. Each build
-aliases the bare folder specifier to its browser or desktop entry. A refused
-open stays a refusal; it does not choose another store.
+`SignedIn` opens `openRemote(contract, { account })`, starts the uploader
+(`startUploading`), and renders the same views over a list that holds both
+sides. Views read and write through `fromClient` state: tracked `items`,
+`invalid` (notes that do not read, with their text), and writes that pass the
+version shown; `fieldEdit` binds one field to an immediate editor. See
+[Todos](todos/README.md) and the [Svelte package](../packages/svelte/README.md).
 
-`folder.files` and `folder.tables.todos.rows` show landed values. A text editor
-uses its own `edit(source, save)` from `@epicenter/svelte/folder`, keeping
-what was typed visible until that value's save answers. A failed edit save
-stays beside the control through `<UnsavedEdit>`. Direct writes return a
-`Saved` result after storage and the mirror agree. Page departure needs no extra send because typing already entered the queue; desktop window close waits for queued writes. Product
-workflows and account or inference services keep their own lifetimes.
+Apps not yet on the contract still open their folder with `<OpenFolder>` and
+`svelteFolder` from `@epicenter/svelte`.
 
 The root `bun dev:<app>` scripts start each app's required development
 processes. Each app README names its route and test commands. Epicenter owns

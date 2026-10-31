@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"identifier": "so.epicenter.todos",
 	"build": {
-		"frontendDist": "../dist"
+		"frontendDist": "../build"
 	},
 	"app": {
 		"windows": [],

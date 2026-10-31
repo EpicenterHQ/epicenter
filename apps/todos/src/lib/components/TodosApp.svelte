@@ -1,32 +1,26 @@
 <!--
-	Todos over this browser's local folder, inside `<OpenFolder>`: the
-	header, the list, and the open todo, laid out as the folder build lays
-	them out. Which todo is open is the URL's `?todo=<id>`, so it survives a
-	reload and the breakpoint.
-
-	The folder needs no account or remote, and Todos does not sync it yet:
-	the header offers no Save version, Sync, or Connect.
+	Todos over one list (`createTodoList`): the header, the list, and the
+	open todo. Which todo is open is the URL's `?todo=<id>`, so it survives
+	a reload and the breakpoint.
 -->
 <script lang="ts">
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Resizable from '@epicenter/ui/resizable';
-	import { setFolder } from '$lib/folder.js';
-	import type { SvelteFolder } from '@epicenter/svelte/folder';
-	import type { todosTables } from '$lib/definition.js';
 	import { tick } from 'svelte';
 	import { MediaQuery } from 'svelte/reactivity';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { todoPath } from '$lib/local-todos.js';
+	import { setTodos } from '$lib/context.js';
+	import type { TodoList as Todos } from '$lib/todos.js';
 	import AppHeader from './AppHeader.svelte';
 	import TodoDetail from './TodoDetail.svelte';
 	import TodoList from './TodoList.svelte';
 
-	let { folder }: { folder: SvelteFolder<typeof todosTables> } = $props();
+	let { todos }: { todos: Todos } = $props();
 
-	// The folder instance stays fixed until this app root unmounts.
+	// The list stays fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setFolder(folder);
+	setTodos(todos);
 
 	/** The shared Modal's breakpoint: below it, the list and the open todo take turns. */
 	const wide = new MediaQuery('(min-width: 768px)');
@@ -53,7 +47,7 @@
 		await show(undefined);
 		await tick();
 		if (id !== undefined)
-			document.querySelector<HTMLElement>(`[data-todo="${CSS.escape(todoPath(id))}"]`)?.focus();
+			document.querySelector<HTMLElement>(`[data-todo="${CSS.escape(id)}"]`)?.focus();
 	}
 </script>
 
@@ -61,7 +55,7 @@
 	{#if open === undefined}
 		<Empty.Root class="h-full">
 			<Empty.Title>Select a todo to edit it</Empty.Title>
-			<Empty.Description>Each todo is kept on this device.</Empty.Description>
+			<Empty.Description>Each todo is a Markdown note you can open anywhere.</Empty.Description>
 		</Empty.Root>
 	{:else}
 		{#key open}

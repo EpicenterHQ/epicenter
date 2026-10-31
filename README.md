@@ -104,7 +104,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 | [Local Books](apps/local-books) | Runs, separately | Headless CLI mirror that pulls QuickBooks into local SQLite. |
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Standalone desktop recorder. Recordings, transcripts, and settings are local files. |
-| [Todos](apps/todos) | Runs, development milestone | Opens a local folder without sign-in; saves on this device. |
+| [Todos](apps/todos) | Runs, development milestone | Todos as Markdown notes on the file contract: kept in the browser without sign-in, uploaded to your repository once signed in. |
 | [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
 | [Epicenter](apps/epicenter) | Runs, development | Desktop host for bundled folder apps and a generic native file view. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |

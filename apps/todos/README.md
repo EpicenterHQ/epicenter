@@ -1,115 +1,119 @@
 # Todos
 
-Todos keeps Markdown files in one local [Folder](../../packages/folder/README.md). It opens without an account, a remote, or Git. The ordinary build is one portable SPA: a browser uses this origin's IndexedDB folder, while Epicenter's hosted WebView uses the directory bound to its window. `bun run build` writes the website and a service worker for best-effort offline reopening. The temporary `build:host` path still serves Epicenter's bundled page and Todos's standalone shell. The native CLI opens an existing directory supplied on its command line. The same table schema interprets `todos/<id>.md` in each runtime.
+Todos keeps each todo as a Markdown note at `todos/<id>.md`: its `title` and
+`done` in front matter, its notes in the body. That layout is Todos'
+contract, `src/lib/contract.ts`, published unchanged as `static/contract.json`
+(`bun run contract` rewrites it after a change), the file
+`epicenter check <url>/contract.json <dir>` checks a folder against. Any
+program that writes the layout is a valid writer.
 
-The current UI can add, edit, complete, and delete todos. A todo's title and `done` flag live in frontmatter; its notes live in the Markdown body. Fields the schema does not name remain in the source when a row is edited. A file that does not read as a todo remains visible with its source for repair.
-Deleting a todo removes its Markdown row; adjacent files stay in the Folder.
+## The web app
 
-Add creates a complete row with `folder.tables.todos.create`; a failed Add leaves
-the title in the form and reports the error. Existing todo controls read the
-folder mirror. Each text editor keeps its own edit while its write is pending.
-Title and notes queue each change immediately. Closing the editor sends nothing
-more. Done writes directly. Each update changes only the fields it names over
-the file as it is when the save runs. After a successful write, the
-mirror already shows the saved row. A failed text write leaves the mirror at
-the disk value and keeps the attempted value visible in that editor. The editor
-offers Save again, Discard, and Copy. Failed commands report their errors.
+Todos opens without an account. Signed out, todos live in this browser's
+private files (OPFS), at the same paths a folder holds. Signing in with
+Epicenter opens the person's own repository, `<handle>/todos`, beside them as
+one list:
 
-## Run the browser app
+- A todo made signed out or offline stays in the browser and uploads on its
+  own once someone is signed in and online; the browser then lets go of its
+  copy. Until then, signed in, it is marked "not uploaded yet".
+- A todo added while signed in and online goes straight to the repository.
+- Edits, completes and deletes go to the copy shown: the browser's while it
+  holds one, else the repository's, which is online only.
+- Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
+  without a reload.
+- A note at a todo's path that does not read as a todo is listed under
+  "Needs repair" with its text. Saving fixed text there replaces the note,
+  written in house style; text that still does not fit is refused.
 
-From the repository root:
+Signing out leaves the browser with only the todos it never uploaded. The
+title and notes save as you type; a save that fails stays in its editor with
+Save again, Discard and Copy.
 
-```sh
-bun dev:todos:ui
-```
+The app signs in as `so.epicenter.todos` for the server's Git audience only
+(`src/lib/auth.ts`). The server is `VITE_EPICENTER_SERVER` at build time, else
+Epicenter's. The hosted API does not serve web writes yet, so signing in
+works against a local or self-hosted API.
 
-Open the URL Vite prints. Use a fresh browser profile or origin for a fresh workspace. The header says **Saving…** while a folder write is pending and **On this device** otherwise. Open a second tab at the same URL to see saved changes propagate. Once the page has loaded, editing needs no network connection. A cold offline launch requires an offline app shell and is separate work.
-
-A clean todo follows saved changes from another tab. Pending text remains in
-its editor until its write answers. Writes take turns, and the last write to a
-field wins. If a text save fails, the attempted value remains visible until the
-person retries, discards it, or edits again. A deleted row shows "This todo is
-no longer here." Files that do not read as todos stay visible for repair. Saving
-a row keeps unnamed fields and body but writes canonical frontmatter, dropping
-YAML comments and ordering declared keys first.
-
-For an isolated automated walkthrough, from the repository root run:
-
-```sh
-bun run --cwd apps/todos demo:local
-```
-
-The demo uses a fresh browser profile. It exercises editing, reopening, two tabs, offline edits after load, canonical frontmatter, and a controlled failed save. It also checks the browser's IndexedDB storage.
-
-## Run the desktop app
+### Run it
 
 From the repository root:
 
 ```sh
-bun dev:todos:desktop
+bun dev:todos:ui                       # Vite dev server on http://localhost:5186
+bun run --cwd apps/todos build         # static files in apps/todos/build/
+bun run --cwd apps/todos demo          # the whole stack, to try it by hand
 ```
 
-This builds the host page into `apps/todos/dist` (`build:host`) and runs the Tauri shell in `src-tauri/`, which needs a Rust toolchain. The development identifier `so.epicenter.todos.dev` opens `~/Epicenter Dev/so.epicenter.todos`; release builds open `~/Epicenter/so.epicenter.todos`. The window opens without an account or network.
+The build is static: any host that answers unknown paths with `index.html`
+(for `/auth/callback`) serves it, at an origin the API registers. It also
+writes a service worker so a loaded app reopens offline.
 
-<!-- doc-path-check: ignore-next-line (generated Tauri bundle output, not a tracked source file) -->
-To build a local macOS app that you can quit and reopen from Finder, run `bun build:todos:desktop` from the repository root. The result is `apps/todos/src-tauri/target/release/bundle/macos/Todos.app`. This local build is not a signed distribution.
+`demo` boots a disposable Postgres, the local API with temporary Git and LFS
+stores, the built app on `http://localhost:5186`, a demo person, and a
+desktop sandbox for the `epicenter` CLI, then prints a sign-in helper URL and
+the `epicenter clone`, `check` and `sync` commands for the person's `todos`
+repository. It needs `initdb`, `pg_ctl`, `git` and `git-lfs` on `PATH`, and
+port 5186 free. Ctrl-C deletes everything.
 
-Standalone and hosted Todos open one fixed default, `<library>/so.epicenter.todos`, where the library is `~/Epicenter`, `~/Epicenter Dev` in development, or `EPICENTER_FOLDER_DIR`. An ordinary launch creates it when missing and otherwise reuses it as it is; nothing is saved, so a default that was moved or deleted is made again empty by the next launch, and no other folder is searched for. Todos rows land at `todos/<id>.md` inside the bound folder. The save lock and scratch directory sit beside it.
-
-Startup reads no configuration.
-
-Both native shells use `defaults::DesktopPaths::open_default(library::TODOS)`
-from the folder plugin, one row of its shared default table; app-specific
-runtime state remains in each shell's AppData.
-
-Both shells call the folder plugin's `open_folder_window("todos", directory, url, configure)`. The plugin computes the window label from the app key and canonical directory, binds before construction, reuses an existing matching window, and cleans up on destruction. Todos's shell supplies its fixed default; Epicenter supplies its default or the folder chosen in its launcher. The page receives neither path.
-
-Standalone Todos has one window and no folder picker, recent-folder list, or extra-folder windows. When its default cannot be opened, for example because a file or a link is at that path, a native dialog names the failure and offers only Quit. Epicenter need not be installed. For any other folder, use Epicenter's launcher. Both wrappers load the same static host build; its `openFolder({ tables })` call reaches the directory its native shell already bound to the invoking window.
-
-Folder selection is a shell capability, not a requirement of the app. Hosted
-Todos can open a directory chosen by Epicenter without adding a picker to its
-web interface. Standalone Todos keeps the smaller fixed-default experience.
-Opening arbitrary folders without Epicenter would justify an optional native
-Open Folder action, but it would also require multiple-window presentation
-and Quit behavior; that capability is not part of this standalone product.
-
-On macOS, the app menu's Quit and Cmd-Q request that window's ordinary close.
-The page waits for writes in flight before closing. A saved window closes
-silently. A failed save leaves the attempted value in the editor with Save
-again, Discard, and Copy while the page stays open; leaving discards it.
-
-The shell binds the window's directory to it in trusted Rust before the window exists ([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)). The page calls the same `openFolder({ tables })` as the browser build and never names a path. `capabilities/todos.json` selects `todos:*` and gives that window the Folder plugin's private observation and close protocol, plus reading the app identifier and its own handoff command. The page receives no opener permission.
-
-Standalone Todos also offers **Open in Epicenter**. Rust reads the calling window's bound directory and asks the operating system to open `epicenter://open?path=…`. The page passes no path. Epicenter shows the full path and asks the person to accept before opening a separate file editor. The handoff opens the currently bound directory in Epicenter; it does not copy or move files. The message confirms only that the computer was asked, since Epicenter may not be installed ([ADR-0646](../../docs/adr/0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md)).
-
-On the earlier tested macOS build, opening and saving left only `.git/` and `todos/` in the Folder root. The shell assigns WebView runtime storage to its cache directory, outside the Folder. A packaged macOS launch verified the fixed default and displayed the relocated todo without a startup choice. Linux and Windows packaged builds have not been run.
-
-## Native directory example
+## The desktop app
 
 ```sh
-mkdir -p /tmp/todos-example
-bun apps/todos/scripts/native.ts /tmp/todos-example create "Buy milk"
-bun apps/todos/scripts/native.ts /tmp/todos-example list
-bun apps/todos/scripts/native.ts /tmp/todos-example complete <id>
+bun dev:todos:desktop     # from the repository root; needs a Rust toolchain
+bun build:todos:desktop   # a local, unsigned macOS app bundle
 ```
 
-The CLI opens `openFolder({ directory, tables: todosTables })`. It saves ordinary files and never makes a commit or contacts a remote. It leaves other files and unknown row fields intact.
+The Tauri shell in `src-tauri/` binds one folder to its one window before the
+page loads: `~/Epicenter/so.epicenter.todos` (`~/Epicenter Dev/...` for the
+development identifier `so.epicenter.todos.dev`, or under
+`EPICENTER_FOLDER_DIR`), created when missing. The page is the same build as
+the web app; in the window it opens that folder as the contract's client
+(`openDevice` from `@epicenter/folder/tauri`, chosen in `src/lib/device.ts`)
+and never names a path. It signs in to nothing and uploads nothing: Epicenter
+syncs a folder added to it (`epicenter sync`). Standalone Todos also offers
+**Open in Epicenter**, which asks the operating system to open the bound
+folder in Epicenter ([ADR-0646](../../docs/adr/0646-a-native-app-hands-epicenter-a-directory-path-and-the-person-accepts-it.md)).
+Closing the window does not wait for a save in flight.
 
-## Earlier browser data
-
-Earlier Todos builds kept named folders in OPFS. This build opens its IndexedDB folder independently and does not read or migrate those older files. It does not change or remove the OPFS bytes. A profile with only older OPFS data shows an empty current list.
-
-## Boundaries and checks
-
-`src/routes/+page.svelte` mounts one `OpenFolder` with `open={() => openFolder({ tables: todosTables })}`. It owns opening, refreshing on return, and close. `src/routes/local/` reads the reactive folder through Svelte context, owns each text input's edit, and reports command failures. `apps/todos/scripts/native.ts` uses the same public folder operations over a directory. Todos has no account, inference, or sync action.
-
-From the repository root:
+## The native CLI
 
 ```sh
-bun run --cwd apps/todos test
+bun apps/todos/scripts/native.ts /tmp/todos list
+bun apps/todos/scripts/native.ts /tmp/todos create "Buy milk"
+bun apps/todos/scripts/native.ts /tmp/todos complete <id>
+```
+
+It opens the directory as the contract's client (`openDevice` from
+`@epicenter/folder/node`), keeps front matter keys and notes Todos does not
+name, and never commits or contacts a server.
+
+## Layout
+
+- `src/lib/contract.ts`: the contract.
+- `src/lib/todos.ts`: the one list (`createTodoList`) over the device and,
+  signed in, the repository, as the note collection `fromClient` gives one
+  side, so `fieldEdit` binds to it unchanged.
+- `src/routes/+page.svelte`: opens the device at the root;
+  `src/lib/components/SignedIn.svelte` adds the repository and the uploader
+  per account.
+- `src/lib/components/`: the views, which read and write only through the
+  list in context.
+
+## Tests
+
+```sh
+bun run --cwd apps/todos test        # contract, the one list, the native CLI
 bun run --cwd apps/todos typecheck
-bun run --cwd apps/todos build
-bun run --cwd apps/todos build:host
-cargo test --manifest-path apps/todos/src-tauri/Cargo.toml
-bun build:todos:desktop
+bun x playwright test -c apps/todos/playwright.config.ts                    # both engines
+bun x playwright test -c apps/todos/playwright.config.ts --project=webkit   # one
 ```
+
+The Playwright suite (`e2e/todos.spec.ts`) starts the same environment as
+`demo` and walks one person through six steps per engine: create, edit,
+complete and delete todos signed out; sign in, and they upload and leave the
+browser, while a new one goes straight to the repository; `epicenter clone`
+holds them as written and `epicenter check` passes; a desktop title edit
+shows on the web with no reload, and notes edited on the web reach the
+desktop; a note the desktop wrote that does not read as a todo shows on the
+web with its text and is repaired there; and signing out leaves the browser
+empty.

@@ -2,11 +2,10 @@
 //!
 //! The native wrapper opens the same fixed default as Epicenter's Todos,
 //! `~/Epicenter/so.epicenter.todos` (`library::TODOS`), creating it when
-//! missing, and binds it before loading the page. The page calls
-//! `openFolder({ tables })` and never selects or discovers a path. Epicenter
-//! can load the same page over another folder chosen in its own launcher.
-//! Standalone Todos has no folder picker, recent-folder list, or
-//! extra-folder windows.
+//! missing, and binds it before loading the page. The page opens it as
+//! Todos' contract client (`openDevice` from `@epicenter/folder/tauri`) and
+//! never selects or discovers a path. Standalone Todos has no folder
+//! picker, recent-folder list, or extra-folder windows.
 
 use std::error::Error;
 

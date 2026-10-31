@@ -1,6 +1,11 @@
+<!--
+	The open todo: its title and notes as immediate editors (`fieldEdit`),
+	whether it is done, and Delete. A note at its path that does not read as
+	a todo shows its text and why, and is repaired by saving new text
+	(`replace`) or deleted.
+-->
 <script lang="ts">
-	import { edit } from '@epicenter/svelte/folder';
-	import RowIssues from '@epicenter/svelte/row-issues';
+	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
@@ -11,10 +16,10 @@
 	import { Textarea } from '@epicenter/ui/textarea';
 	import { toast } from '@epicenter/ui/sonner';
 	import ArrowLeftIcon from '@lucide/svelte/icons/arrow-left';
-	import { getFolder } from '$lib/folder.js';
-	import { labelOf, todoPath } from '$lib/local-todos.js';
+	import { getTodos } from '$lib/context.js';
+	import { describeIssues, labelOf, todoPath } from '$lib/todos.js';
 
-	const folder = getFolder();
+	const todos = getTodos();
 	let {
 		id: shownId,
 		onBack,
@@ -29,36 +34,44 @@
 	// svelte-ignore state_referenced_locally
 	const id = shownId;
 	const path = todoPath(id);
-	const row = $derived(folder.tables.todos.row(id));
-	const todo = $derived(row?.issues === null ? row : undefined);
-	const title = edit(
-		() => todo?.fields.title ?? '',
-		(text) => folder.tables.todos.update(id, { fields: { title: text } }),
-	);
-	const body = edit(
-		() => todo?.body ?? '',
-		(text) => folder.tables.todos.update(id, { body: text }),
-	);
+	const todo = $derived(todos.get({ id }));
+	const invalid = $derived(todos.invalid.find((note) => note.id === id));
+	const title = fieldEdit(todos, { id }, 'title');
+	const body = fieldEdit(todos, { id }, 'body');
+
 	async function toggleDone() {
 		if (todo === undefined) return;
-		const { error } = await folder.tables.todos.update(id, {
-			fields: { done: !todo.fields.done },
-		});
+		const { error } = await todos.update({ id }, { done: !todo.done });
 		if (error !== null)
 			toast.error('Could not update todo', { description: error.message });
 	}
-	const source = $derived(folder.file(path)?.data);
-	const unreadable = $derived(
-		row?.issues?.some((issue) => issue.kind === 'unreadable') ?? false,
-	);
+
+	/** The repair's text, once the person has changed it; until then the note's. */
+	let repair = $state<string | null>(null);
+	let repairing = $state(false);
+	let repairProblem = $state<string | null>(null);
+
+	async function saveRepair(text: string) {
+		repairing = true;
+		repairProblem = null;
+		const { error } = await todos.replace({ id }, text);
+		repairing = false;
+		if (error !== null) {
+			repairProblem =
+				error.name === 'Invalid' ? describeIssues(error.issues) : error.message;
+			return;
+		}
+		repair = null;
+	}
 
 	function confirmDelete(label: string) {
+		const where = (todo ?? invalid)?.where === 'repository' ? 'your repository' : 'this device';
 		confirmationDialog.open({
 			title: `Delete “${label}”?`,
-			description: `This deletes ${path} from this device. Other files stay in the folder.`,
+			description: `This deletes ${path} from ${where}.`,
 			confirm: { text: 'Delete', variant: 'destructive' },
 			async onConfirm() {
-				const { error } = await folder.delete(path);
+				const { error } = await todos.delete({ id });
 				if (error !== null) {
 					toast.error('Could not delete todo', { description: error.message });
 					return;
@@ -96,14 +109,14 @@
 			{@render back()}
 			<Checkbox
 				aria-label="Done"
-				bind:checked={() => todo.fields.done, () => void toggleDone()}
+				bind:checked={() => todo.done, () => void toggleDone()}
 			/>
 			<div class="min-w-0 flex-1 space-y-2">
 				<Input
 					class="text-base font-medium"
 					placeholder="Title"
 					aria-label="Title"
-					bind:value={title.value}
+					bind:value={() => title.value ?? '', (value) => (title.value = value)}
 				/>
 			</div>
 		</div>
@@ -112,11 +125,11 @@
 				class="min-h-0 flex-1 field-sizing-fixed resize-none"
 				placeholder="Notes in Markdown"
 				aria-label="Notes"
-				bind:value={body.value}
+				bind:value={() => body.value ?? '', (value) => (body.value = value)}
 			/>
 		</div>
 		{@render fileBar(labelOf(todo))}
-	{:else if row}
+	{:else if invalid}
 		<div class="flex shrink-0 items-center gap-2 border-b px-3 py-3 sm:px-4">
 			{@render back()}
 			<h2 class="min-w-0 flex-1 truncate font-mono text-sm">{path}</h2>
@@ -124,21 +137,43 @@
 		<div class="shrink-0 border-b bg-destructive/5 px-4 py-2 text-xs" role="status" data-testid="needs-repair">
 			<p class="mb-1 flex flex-wrap items-center gap-2 font-medium">
 				<Badge variant="destructive">Needs repair</Badge>
-				{unreadable ? 'Could not read this file.' : 'This file does not read as a todo. Todos keeps its source as it is.'}
+				{invalid.text === null
+					? 'This file is not text, so Todos cannot show it.'
+					: 'This file does not read as a todo. Fix its text and save it.'}
 			</p>
-			<div class="space-y-0.5 text-muted-foreground"><RowIssues issues={row.issues ?? []} /></div>
-			{#if unreadable}
-				<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button>
-			{/if}
+			<p class="text-muted-foreground">{describeIssues(invalid.issues)}</p>
 		</div>
-		{#if typeof source === 'string'}
-			<pre class="min-h-48 flex-1 overflow-auto px-4 py-3 font-mono text-xs break-words whitespace-pre-wrap" aria-label="Text of {path}">{source}</pre>
+		{#if invalid.text !== null}
+			{@const text = repair ?? invalid.text}
+			<form
+				class="flex min-h-48 flex-1 flex-col gap-2 px-3 py-3 sm:px-4"
+				onsubmit={(event) => {
+					event.preventDefault();
+					void saveRepair(text);
+				}}
+			>
+				<Textarea
+					class="min-h-0 flex-1 field-sizing-fixed resize-none font-mono text-xs"
+					aria-label="Text of {path}"
+					value={text}
+					oninput={(event) => (repair = event.currentTarget.value)}
+				/>
+				{#if repairProblem}
+					<p class="text-xs text-destructive" role="alert">Not saved: {repairProblem}</p>
+				{/if}
+				<div class="flex gap-2">
+					<Button type="submit" size="sm" disabled={repairing}>Save repair</Button>
+					{#if repair !== null}
+						<Button size="sm" variant="ghost" onclick={() => ((repair = null), (repairProblem = null))}>Discard</Button>
+					{/if}
+				</div>
+			</form>
 		{/if}
 		{@render fileBar(`${id}.md`)}
 	{:else}
 		<Empty.Root class="flex-1">
 			<Empty.Title>This todo is no longer here</Empty.Title>
-			<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
+			<Empty.Description>It was deleted, here or elsewhere.</Empty.Description>
 			{#if onBack}
 				<Button variant="outline" size="sm" onclick={onBack}><ArrowLeftIcon /> Back to todos</Button>
 			{/if}

@@ -1,60 +1,65 @@
-/** The Bun opener reads and saves ordinary files without Git. */
+/** The native CLI reads and writes a directory of todos as the contract lays it out. */
 import { expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openFolder } from '@epicenter/folder/bun';
 import { $ } from 'bun';
-import { expectOk } from 'wellcrafted/testing';
-import { todosTables } from '../src/lib/definition.js';
 
 const native = (directory: string, ...args: string[]) =>
-	$`bun scripts/native.ts ${directory} ${args}`.cwd(
-		join(import.meta.dir, '..'),
-	);
+	$`bun scripts/native.ts ${directory} ${args}`
+		.cwd(join(import.meta.dir, '..'))
+		.nothrow()
+		.quiet();
 
-test('native Todos keeps existing source fields and survives process reopen without Git', async () => {
-	const directory = await mkdtemp(join(tmpdir(), 'epicenter-todos-native-'));
+async function directory() {
+	const root = await mkdtemp(join(tmpdir(), 'epicenter-todos-native-'));
+	await mkdir(join(root, 'todos'));
+	return root;
+}
+
+test('a todo written by hand completes, keeping the keys and notes Todos does not name', async () => {
+	const root = await directory();
 	try {
-		await mkdir(join(directory, 'todos'));
 		await writeFile(
-			join(directory, 'todos/milk.md'),
-			'---\ntitle: Milk\ndone: false\nunknown: keep\n---\nA note\n',
+			join(root, 'todos/milk.md'),
+			'---\ntitle: Milk\ndone: false\nowner: sam\n---\nOat, not dairy\n',
 		);
-		const completed = await native(directory, 'complete', 'milk').json();
-		expect(completed).toEqual({ updated: 'todos/milk.md' });
-		const source = await readFile(join(directory, 'todos/milk.md'), 'utf8');
-		expect(source).toContain('unknown: keep');
-		expect(source).toContain('A note');
-		const opened = expectOk(
-			await openFolder({ directory, tables: todosTables }),
+		const completed = await native(root, 'complete', 'milk');
+		expect(completed.json()).toEqual({ completed: 'milk' });
+		expect(await readFile(join(root, 'todos/milk.md'), 'utf8')).toBe(
+			'---\ntitle: Milk\ndone: true\nowner: sam\n---\nOat, not dairy\n',
 		);
-		try {
-			expect(opened.tables.todos.row('milk')?.fields?.done).toBe(true);
-		} finally {
-			await opened.close();
-		}
-		const created = await native(directory, 'create', 'Buy bread').json();
-		expect(created.created).toMatch(/^todos\/.+\.md$/);
-		const listed = await native(directory, 'list').json();
-		expect(listed.todos).toHaveLength(2);
-		expect(listed.invalid).toEqual([]);
+
+		const created = (await native(root, 'create', 'Buy bread')).json();
+		const listed = (await native(root, 'list')).json();
+		expect(listed).toEqual({
+			todos: [
+				{ id: created.created, title: 'Buy bread', done: false },
+				{ id: 'milk', title: 'Milk', done: true },
+			].sort((a, b) => (a.id < b.id ? -1 : 1)),
+			invalid: [],
+		});
 	} finally {
-		await rm(directory, { recursive: true, force: true });
+		await rm(root, { recursive: true, force: true });
 	}
 });
 
-test('complete missing exits with an error and creates no row', async () => {
-	const directory = await mkdtemp(join(tmpdir(), 'epicenter-todos-native-'));
+test('a note that does not fit is listed as invalid, and completing a missing todo writes nothing', async () => {
+	const root = await directory();
 	try {
-		const result = await native(directory, 'complete', 'missing').nothrow();
-		expect(result.exitCode).toBe(1);
-		expect(JSON.parse(result.stdout.toString())).toEqual({
-			error: 'There is no todo at todos/missing.md',
-		});
-		expect(existsSync(join(directory, 'todos/missing.md'))).toBe(false);
+		await writeFile(join(root, 'todos/broken.md'), '---\ntitle: [x\n---\n');
+		const listed = (await native(root, 'list')).json();
+		expect(listed.todos).toEqual([]);
+		expect(listed.invalid.map(({ path }: { path: string }) => path)).toEqual([
+			'todos/broken.md',
+		]);
+
+		const missing = await native(root, 'complete', 'missing');
+		expect(missing.exitCode).toBe(1);
+		expect(missing.json()).toEqual({ error: 'Nothing is at todos/missing.md' });
+		expect(existsSync(join(root, 'todos/missing.md'))).toBe(false);
 	} finally {
-		await rm(directory, { recursive: true, force: true });
+		await rm(root, { recursive: true, force: true });
 	}
 });

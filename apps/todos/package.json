@@ -1,25 +1,22 @@
 {
 	"name": "@epicenter/todos",
-	"description": "Local Markdown todos over one Folder",
+	"description": "Todos as Markdown notes: kept in the browser, uploaded to the signed-in person's repository",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
-	"exports": {
-		"./definition": "./src/lib/definition.ts"
-	},
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"dev:desktop": "bun run build:host && tauri dev --config src-tauri/tauri.dev.conf.json",
-		"build:desktop": "bun run build:host && tauri build --bundles app",
-		"native": "bun scripts/native.ts",
-		"demo:local": "bun scripts/local-demo.ts",
+		"dev:desktop": "bun run build && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build && tauri build --bundles app",
 		"build": "NODE_ENV=production vite build",
-		"build:host": "EPICENTER_HOST=1 bun run build",
 		"preview": "vite preview",
+		"demo": "bun e2e/stack.ts --demo",
+		"contract": "bun scripts/write-contract.ts",
+		"native": "bun scripts/native.ts",
 		"prepare": "svelte-kit sync || echo ''",
-		"test": "bun test --isolate --path-ignore-patterns='src/**/*.mounted.test.ts' && bun run test:mounted",
-		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte mounted.test",
+		"test": "bun test --isolate --conditions=browser --conditions=svelte src scripts",
+		"test:e2e": "playwright test -c playwright.config.ts",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
@@ -32,7 +29,7 @@
 		"@tailwindcss/vite": "catalog:",
 		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
-		"fake-indexeddb": "^6.2.6",
+		"drizzle-orm": "catalog:",
 		"mode-watcher": "catalog:",
 		"playwright": "^1.61.1",
 		"svelte": "catalog:",
@@ -43,11 +40,13 @@
 		"vite": "catalog:"
 	},
 	"dependencies": {
+		"@epicenter/auth": "workspace:*",
+		"@epicenter/constants": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@tauri-apps/api": "catalog:",
-		"wellcrafted": "catalog:",
-		"typebox": "catalog:"
+		"wellcrafted": "catalog:"
 	},
 	"license": "AGPL-3.0-or-later"
 }

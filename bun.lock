@@ -322,10 +322,12 @@
       "name": "@epicenter/todos",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/auth": "workspace:*",
+        "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@tauri-apps/api": "catalog:",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -338,7 +340,7 @@
         "@tailwindcss/vite": "catalog:",
         "@tauri-apps/cli": "catalog:",
         "@types/bun": "catalog:",
-        "fake-indexeddb": "^6.2.6",
+        "drizzle-orm": "catalog:",
         "mode-watcher": "catalog:",
         "playwright": "^1.61.1",
         "svelte": "catalog:",
