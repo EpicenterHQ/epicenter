@@ -9,6 +9,9 @@
 //! - A put lands only on what the page expected and is otherwise `Stale`,
 //!   changing nothing; `None` bytes remove the file; no staged file outlives
 //!   a put.
+//! - A staged file is placed only where nothing is (`place`): whatever
+//!   appeared after a check stays, a move cut off after its link is placed,
+//!   and a move across a mount point says so.
 //! - A put stages inside the root, in `.epicenter/saves`, makes nothing
 //!   next to the root, and makes and changes nothing in `.git`: a folder with
 //!   no `.git`, or with a `.git` file or link, saves alike.
@@ -793,11 +796,11 @@ fn a_sweep_never_touches_recordings() {
     assert_eq!(fs::read(&old).unwrap(), b"audio");
 }
 
-/// A save across a mount point inside the folder fails saying so: the
-/// system's `EXDEV`, which a rename answers for a path on another file
-/// system, is that error and no other.
+/// A save or a placement across a mount point inside the folder fails
+/// saying so: the system's `EXDEV`, which a rename and a hard link answer
+/// for a path on another file system, is that error and no other.
 #[test]
-fn a_rename_across_a_mount_point_says_so() {
+fn a_move_across_a_mount_point_says_so() {
     let crossed = io::Error::from(ErrorKind::CrossesDevices);
     let message = rename_failure("mnt/a.md", &crossed);
     assert!(
@@ -813,6 +816,82 @@ fn a_rename_across_a_mount_point_says_so() {
     );
     let other = io::Error::from(ErrorKind::PermissionDenied);
     assert_eq!(rename_failure("a.md", &other), other.to_string());
+}
+
+/// A staged file `put` or the recorder made, in `saves`, and the target it
+/// is placed at in the root.
+fn staged_and_target(label: &str) -> (TempDir, PathBuf, PathBuf) {
+    let (temp, root) = folder(label, &[]);
+    let (staged, mut file) = create_scratch(&root).unwrap();
+    file.write_all(b"mine").unwrap();
+    (temp, staged, root.join("a.md"))
+}
+
+#[test]
+fn a_placed_file_appears_whole_and_its_staged_name_is_gone() {
+    let (_temp, staged, target) = staged_and_target("place-whole");
+    place(&staged, &target).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"mine");
+    assert!(!staged.exists());
+}
+
+/// What a caller found absent can be taken before it places: a file, a
+/// directory, or a link that appeared after its check is never replaced,
+/// and the staged file stays for the caller to remove or place elsewhere.
+#[test]
+fn what_appeared_after_the_check_is_never_replaced() {
+    let (temp, staged, target) = staged_and_target("place-taken");
+    assert!(holds(&target, &Expectation::Absent).unwrap());
+    fs::write(&target, b"theirs").unwrap();
+    assert_eq!(
+        place(&staged, &target).unwrap_err().kind(),
+        ErrorKind::AlreadyExists
+    );
+    assert_eq!(fs::read(&target).unwrap(), b"theirs");
+    assert_eq!(fs::read(&staged).unwrap(), b"mine");
+
+    fs::remove_file(&target).unwrap();
+    fs::create_dir(&target).unwrap();
+    assert!(place(&staged, &target).is_err());
+    assert!(target.is_dir());
+    fs::remove_dir(&target).unwrap();
+
+    #[cfg(unix)]
+    {
+        let elsewhere = temp.folder("elsewhere").join("b.md");
+        std::os::unix::fs::symlink(&elsewhere, &target).unwrap();
+        assert_eq!(
+            place(&staged, &target).unwrap_err().kind(),
+            ErrorKind::AlreadyExists
+        );
+        assert!(!elsewhere.exists(), "a link is not written through");
+    }
+    #[cfg(not(unix))]
+    let _ = temp;
+    assert_eq!(fs::read(&staged).unwrap(), b"mine");
+}
+
+/// A move cut off after its link and before it removed the staged name
+/// left one file at both names: placing it again finishes the move.
+#[cfg(unix)]
+#[test]
+fn a_move_cut_off_after_its_link_counts_as_placed() {
+    let (_temp, staged, target) = staged_and_target("place-cut-off");
+    fs::hard_link(&staged, &target).unwrap();
+    place(&staged, &target).unwrap();
+    assert_eq!(fs::read(&target).unwrap(), b"mine");
+    assert!(!staged.exists());
+}
+
+#[test]
+fn a_staged_file_that_is_gone_is_not_placed() {
+    let (_temp, staged, target) = staged_and_target("place-gone");
+    fs::remove_file(&staged).unwrap();
+    assert_eq!(
+        place(&staged, &target).unwrap_err().kind(),
+        ErrorKind::NotFound
+    );
+    assert!(!target.exists());
 }
 
 /// A `saves` directory that is a link is never followed: nothing is staged

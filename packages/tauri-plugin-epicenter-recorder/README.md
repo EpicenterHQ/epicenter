@@ -28,7 +28,7 @@ each piece of a recording to this browser's files instead (decision 84).
 | `src/recorder.rs` | The CPAL and `hound` pipeline: a non-blocking audio callback, a bounded queue, and a writer thread that appends to the WAV, updates its header about once a second, and sends the level. One recording at a time, owned by the window that started it. |
 | `src/rate.rs` | The conversion from the microphone's rate to the recording's 16 kHz, on the writer thread. |
 | `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length, and settle what a cut left in `.epicenter/recordings` as a stop does. |
-| `src/staging.rs` | Where a recording is written while it records (`pending`, `pending_under`) and encoded (`encode_scratch`), and `settle`: encode it and place it at its path without replacing a file (`place`, `sweep`). |
+| `src/staging.rs` | Where a recording is written while it records (`pending`, `pending_under`) and encoded (`encode_scratch`), and `settle`: encode it and place it at its path without replacing a file (`sweep`, through the folder core's `storage::place`). |
 | `src/opus.rs` | The encoder: a finalized WAV, read 20 ms at a time, to Opus at 24 kbps. |
 | `src/webm.rs` | The WebM writer the encoder writes through. |
 | `src/meter.rs` | A microphone opened for its level only, closed by its page or with it, or on its own when its stream dies or its page stops hearing it. |
@@ -135,8 +135,9 @@ a minute in a release build on an Apple-silicon Mac, and comes to about
 The encode is written into a new file in the folder's `.epicenter/saves`
 (as a save stages there: `0600`, named so a stale one is swept). That file is placed at `<path>.webm` without replacing anything
 there: a hard link to the path, which fails when a name is already there,
-then the scratch name removed (`staging::place`). A move cut off between the
-two is finished by the next one. Where the disk has no hard links it is
+then the scratch name removed (`storage::place` in the folder core, the one
+placement a save expecting nothing at its path uses too). A move cut off
+between the two is finished by the next one. Where the disk has no hard links it is
 renamed only while nothing is at the path. Only then is the WAV removed. A
 path below a mount point inside the folder is on another file system, which
 neither reaches: placing there fails saying it cannot save across a mount

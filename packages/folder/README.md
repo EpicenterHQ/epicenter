@@ -143,7 +143,9 @@ They stage a replacement in the directory's own `.epicenter/saves` and
 rename one whole file over its path, after checking it still holds the
 version the writer read. No lock spans that check and the rename: a save
 another program lands in that instant can be replaced, and Git history is
-the backstop (ADR-0568). A path below a mount point inside the directory
+the backstop (ADR-0568). In Tauri a save of a new file is the exception: the
+shell places it with a hard link, which never replaces a file that appeared
+after the check, and answers `stale`; the Bun host still renames it. A path below a mount point inside the directory
 cannot be reached by that rename, and its save fails saying it cannot cross
 a mount point. Nothing is made beside the directory. Paths and links are
 checked before writes.

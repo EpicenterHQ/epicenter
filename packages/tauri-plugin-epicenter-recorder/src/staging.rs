@@ -9,15 +9,16 @@
 //!
 //! When it stops, `settle` encodes the WAV to Opus in WebM (`opus::encode`)
 //! in a scratch file in the folder's `.epicenter/saves` (`encode_scratch`),
-//! places that at `<path>.webm` without replacing anything there (`place`),
-//! and only then removes the WAV. A stop whose path something took meanwhile
-//! leaves the WAV; recovery places what it settles beside a taken path
-//! (`sweep`). A quit or a crash before then leaves the WAV, which
-//! `wav::recover` repairs and settles the same way the next time the folder
-//! opens, and at most a scratch file, which the folder removes once it is an
-//! hour old (`storage::sweep_scratch`, which never reads `recordings/`). A
-//! WAV that cannot be encoded is placed itself, at `<path>.wav`: no audio is
-//! lost to an encoder.
+//! places that at `<path>.webm` without replacing anything there (the
+//! folder core's `storage::place`, which a save expecting nothing at its
+//! path uses too), and only then removes the WAV. A stop whose path
+//! something took meanwhile leaves the WAV; recovery places what it settles
+//! beside a taken path (`sweep`). A quit or a crash before then leaves the
+//! WAV, which `wav::recover` repairs and settles the same way the next time
+//! the folder opens, and at most a scratch file, which the folder removes
+//! once it is an hour old (`storage::sweep_scratch`, which never reads
+//! `recordings/`). A WAV that cannot be encoded is placed itself, at
+//! `<path>.wav`: no audio is lost to an encoder.
 //!
 //! Where these files are is `pending`, `pending_under`, and
 //! `encode_scratch`, each from the folder core's `state`; nothing else here
@@ -30,7 +31,9 @@ use std::path::{Path, PathBuf};
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
 use epicenter_folder_core::state;
-use epicenter_folder_core::storage::{create_scratch, prepare_state_directory, rename_failure};
+use epicenter_folder_core::storage::{
+    create_scratch, place, prepare_state_directory, rename_failure,
+};
 
 /// The checked full path the recording of the folder-relative `stem` (its
 /// path without an extension) is written to while it records, in `root`
@@ -272,90 +275,4 @@ fn same_bytes(a: &Path, b: &Path) -> io::Result<bool> {
         return Ok(false);
     }
     Ok(fs::read(a)? == fs::read(b)?)
-}
-
-/// Move the file at `staged` to `target`, never replacing anything there:
-/// a hard link to `target`, which fails when a name is already there, then
-/// the staged name removed. A link already made by an earlier move that
-/// stopped before the removal counts as placed. Where the disk has no hard
-/// links, the file is renamed only while nothing is at `target`.
-pub fn place(staged: &Path, target: &Path) -> io::Result<()> {
-    match fs::hard_link(staged, target) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            if !same_file(staged, target)? {
-                return Err(error);
-            }
-        }
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Err(error),
-        Err(_) => {
-            if fs::symlink_metadata(target).is_ok() {
-                return Err(io::Error::new(
-                    io::ErrorKind::AlreadyExists,
-                    "a file is already there",
-                ));
-            }
-            return fs::rename(staged, target);
-        }
-    }
-    fs::remove_file(staged)
-}
-
-/// Whether `a` and `b` are one file.
-fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let (a, b) = (fs::symlink_metadata(a)?, fs::symlink_metadata(b)?);
-        Ok((a.dev(), a.ino()) == (b.dev(), b.ino()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (a, b);
-        Ok(false)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_staged_file_is_placed_and_its_staged_name_removed() {
-        let directory = tempfile::tempdir().unwrap();
-        let staged = directory.path().join("staged.wav");
-        let target = directory.path().join("a.wav");
-        fs::write(&staged, b"audio").unwrap();
-        place(&staged, &target).unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"audio");
-        assert!(!staged.exists());
-    }
-
-    #[test]
-    fn placing_never_replaces_a_file_already_there() {
-        let directory = tempfile::tempdir().unwrap();
-        let staged = directory.path().join("staged.wav");
-        let target = directory.path().join("a.wav");
-        fs::write(&staged, b"audio").unwrap();
-        fs::write(&target, b"kept").unwrap();
-        let refused = place(&staged, &target).unwrap_err();
-        assert_eq!(refused.kind(), io::ErrorKind::AlreadyExists);
-        assert_eq!(fs::read(&target).unwrap(), b"kept");
-        assert_eq!(fs::read(&staged).unwrap(), b"audio");
-    }
-
-    /// A move that stopped after the link and before the removal is
-    /// finished: the second name is the same file.
-    #[cfg(unix)]
-    #[test]
-    fn a_move_cut_off_after_its_link_is_finished() {
-        let directory = tempfile::tempdir().unwrap();
-        let staged = directory.path().join("staged.wav");
-        let target = directory.path().join("a.wav");
-        fs::write(&staged, b"audio").unwrap();
-        fs::hard_link(&staged, &target).unwrap();
-        place(&staged, &target).unwrap();
-        assert_eq!(fs::read(&target).unwrap(), b"audio");
-        assert!(!staged.exists());
-    }
 }

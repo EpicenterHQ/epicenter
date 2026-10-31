@@ -296,6 +296,13 @@ and removes. Nothing holds the path between the check and the change, in
 the shell or in a Bun process opening the same directory: a save another
 writer lands in that instant can be replaced
 ([ADR-0562](../../docs/adr/0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md)).
+A put expecting nothing at its path (`absent`) is the exception: it is
+placed (`storage::place`, which the recorder places each recording with
+too), a hard link to the path that fails when any entry has the name, then
+the staged name removed. Whatever appeared there after the check stays, and
+the put answers `{ kind: "stale" }`. Where the disk has no hard links (FAT,
+exFAT, some network shares) it is renamed only while nothing is there, a
+check a racing writer can still beat.
 A directory another writer pruned while the put staged is made again; the
 root itself never is. The cost is a read and hash of the destination when
 `expected` names a hash. A path that holds something else changes nothing and answers

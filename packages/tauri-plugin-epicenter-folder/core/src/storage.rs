@@ -29,7 +29,10 @@
 //!
 //! The version check (what the path holds, against what the page read)
 //! runs right before the rename or the removal, with no lock across the
-//! two: another program that saves in that instant can be overwritten.
+//! two: another program that saves in that instant can be overwritten. A
+//! save that expects nothing at its path is the exception: it is placed
+//! (`place`), which never replaces what appeared there after the check, and
+//! is `Stale` instead. The recorder places its recordings the same way.
 //! External editors never took a lock anyway, and Git history keeps every
 //! version sync committed (ADR-0562, ADR-0568). On Unix no other account can read
 //! staged bytes, before publication or after a stopped save: `saves/` and
@@ -744,9 +747,10 @@ pub fn create_scratch(root: &Path) -> Result<(PathBuf, fs::File), String> {
 }
 
 /// What a move from `.epicenter` to the folder-relative `path` that failed
-/// with `cause` says. A path on another file system (a mount point inside
-/// the folder) is one no rename reaches; nothing is copied instead, so
-/// nothing was written there, and the message says so.
+/// with `cause` says: a rename, or a `place`. A path on another file system
+/// (a mount point inside the folder) is one no rename or hard link reaches
+/// (`EXDEV`); nothing is copied instead, so nothing was written there, and
+/// the message says so.
 pub fn rename_failure(path: &str, cause: &io::Error) -> String {
     if cause.kind() == ErrorKind::CrossesDevices {
         return format!(
@@ -755,6 +759,70 @@ pub fn rename_failure(path: &str, cause: &io::Error) -> String {
         );
     }
     cause.to_string()
+}
+
+/// Move the staged file at `staged` to `target` only where nothing is,
+/// never replacing anything there, whatever appeared since a caller looked:
+/// a hard link to `target`, which the system refuses when any entry has the
+/// name, then the staged name removed. A file is never half there: the link
+/// makes the whole file appear at once.
+///
+/// `AlreadyExists` when something is at `target`; the staged file stays. A
+/// link an earlier move made before it was cut off, before it removed the
+/// staged name, is this file at both names and counts as placed. Another
+/// file system (`CrossesDevices`, which `rename_failure` words), and a
+/// staged file or a target directory that is not there (`NotFound`), fail
+/// as they are. Where the disk has no hard links
+/// (FAT, exFAT, some network shares), the file is renamed only while nothing
+/// is at `target`: there a writer racing that one check can be replaced.
+///
+/// `put` places a save that expects nothing at its path, and the recorder
+/// places each recording, so neither replaces a file that appeared after
+/// its check.
+pub fn place(staged: &Path, target: &Path) -> io::Result<()> {
+    match fs::hard_link(staged, target) {
+        Ok(()) => {}
+        Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {
+            if !same_file(staged, target)? {
+                return Err(cause);
+            }
+        }
+        Err(cause)
+            if matches!(
+                cause.kind(),
+                ErrorKind::NotFound | ErrorKind::CrossesDevices
+            ) =>
+        {
+            return Err(cause);
+        }
+        Err(_) => {
+            if !absent(target) {
+                return Err(io::Error::new(
+                    ErrorKind::AlreadyExists,
+                    "a file is already there",
+                ));
+            }
+            return fs::rename(staged, target);
+        }
+    }
+    fs::remove_file(staged)
+}
+
+/// Whether `a` and `b` are one file: one device and inode, neither followed
+/// when it is a link. Other platforms say no, so a link there is never
+/// taken for the staged file.
+fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let (a, b) = (fs::symlink_metadata(a)?, fs::symlink_metadata(b)?);
+        Ok((a.dev(), a.ino()) == (b.dev(), b.ino()))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (a, b);
+        Ok(false)
+    }
 }
 
 /// Why a put cannot land on what `find` found at `path`, if it cannot.
@@ -844,7 +912,9 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
 /// bytes, then walks the path again (no link, every name stored as asked, as
 /// `find` checks), checks what the path holds, makes a new file's missing
 /// parent directories, and renames the staged bytes over the path. Nothing
-/// holds the path between that check and the rename. On every answer but
+/// holds the path between that check and the rename. A write expecting
+/// `Absent` is placed instead (`place`): something that appeared after the
+/// check is never replaced, and the put is `Stale`. On every answer but
 /// `Landed` nothing of the put is left: not the staged file, and not a
 /// directory it made.
 pub fn put(
@@ -947,8 +1017,18 @@ pub fn put(
         }
         keep_mode(&target, &scratch).map_err(|cause| failed(&cause))?;
         let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
-        if let Err(cause) = fs::rename(&scratch, &target) {
+        let placing = *expected == Expectation::Absent;
+        let moved = if placing {
+            place(&scratch, &target)
+        } else {
+            fs::rename(&scratch, &target)
+        };
+        if let Err(cause) = moved {
             remove_made(&made);
+            // Something appeared at the path after the check, and stays.
+            if placing && cause.kind() == ErrorKind::AlreadyExists {
+                return Ok(PutOutcome::Stale);
+            }
             return Err(failed(&rename_failure(path, &cause)));
         }
         let after_rename = file

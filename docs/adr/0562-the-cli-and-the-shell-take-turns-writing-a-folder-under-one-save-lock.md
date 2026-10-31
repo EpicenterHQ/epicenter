@@ -154,3 +154,18 @@ gone). `epicenter sync` excludes `.epicenter` itself
 whatever `.gitignore` says. A save whose target is below a mount point
 inside the folder fails saying it cannot cross a mount point, since a rename
 from `saves/` cannot reach it, and nothing is copied instead.
+
+## Amendment, 2026-11-01: a new file is placed, never renamed over what appeared
+
+The race the save-lock deletion accepted, another save landing between the
+version check and the rename, no longer applies to a desktop save of a new
+file. A save expecting nothing at its path, and every recording the recorder
+places, goes through one function in the folder core, `storage::place`: a
+hard link to the path, which the system refuses when any entry has the name,
+then the staged name removed. Whatever appeared after the check stays, and
+the save answers `stale`. A link a cut-off move already made is the same
+file at both names and counts as placed. A path below a mount point fails
+saying it cannot cross one, as a rename does. Where the disk has no hard
+links, the file is renamed only while nothing is there, a check a racing
+writer can still beat. A save that replaces a file keeps its version check
+and its rename. The Bun host still renames a new file after its check.
