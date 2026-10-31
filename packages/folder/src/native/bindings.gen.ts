@@ -14,7 +14,7 @@ export const commands = {
 	 *  otherwise); it is made, with missing parents, only for `create`, and is
 	 *  `Missing` when it is not there. Each open root has one watch, whose
 	 *  changes go to the latest channel the page opened it with, and removes
-	 *  the staged files a stopped save left anywhere in it an hour or more ago
+	 *  the staged files a stopped save left an hour or more ago
 	 *  (`storage::sweep_scratch`).
 	 */
 	openFolder: (root: string | null, create: boolean, onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { root, create, onChange })),
@@ -32,8 +32,8 @@ export const commands = {
 	/**  The caller can destroy only its own bound window after its writes drain. */
 	destroyBoundWindow: (token: number) => typedError<boolean, string>(__TAURI_INVOKE("plugin:epicenter-folder|destroy_bound_window", { token })),
 	/**
-	 *  Every file below the window's root, `.git` aside and hidden ones
-	 *  included, none of them followed (`storage::list`).
+	 *  Every file below the window's root, `.git` and `.epicenter` aside, none
+	 *  of them followed (`storage::list`).
 	 */
 	listFolder: (root: string | null) => typedError<ListedFile[], StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
 	/**

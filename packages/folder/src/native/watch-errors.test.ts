@@ -55,20 +55,16 @@ test('absent filenames and errors reconcile all, while closed callbacks are igno
 	expect(closed).toBe(1);
 });
 
-test('a hidden path never reports a change, at any depth', () => {
+test("Epicenter's own state at the top of the folder never reports a change", () => {
 	const hints: unknown[] = [];
 	const stop = watchDirectory(root)((paths) => hints.push(paths));
-	// A staged save and a recording in progress are hidden siblings of where
-	// they land, so a save does not echo and a recording's header does not
-	// wake anything.
-	event(
-		'rename',
-		join('notes', '.lz0-0123456789abcdef0123456789abcdef-1.epicenter-pending'),
-	);
-	event('change', join('recordings', '.1.wav.epicenter-pending'));
-	event('change', '.DS_Store');
-	event('change', join('notes', '.obsidian', 'workspace.json'));
-	event('change', join('notes', 'a.md'));
-	expect(hints).toEqual([['notes/a.md']]);
+	// Staged saves and unfinished files live in `.epicenter`, so a save
+	// does not echo as a change.
+	event('rename', '.epicenter');
+	event('change', join('.epicenter', 'recording', 'recordings', 'a.wav'));
+	event('rename', join('.epicenter', 'scratch', 'staged'));
+	// Below the top, `.epicenter` is an ordinary hidden name.
+	event('change', join('notes', '.epicenter'));
+	expect(hints).toEqual([['notes/.epicenter']]);
 	stop();
 });

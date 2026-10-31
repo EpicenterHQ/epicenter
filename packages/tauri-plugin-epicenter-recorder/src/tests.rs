@@ -581,9 +581,11 @@ fn stop_reaches_only_a_recording_this_window_started() {
 
     std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
     let path = fixture.root.join("recordings/a.wav");
-    let staged = fixture
-        .root
-        .join(crate::staging::pending("recordings/a.wav"));
+    let staged = crate::staging::prepare(&fixture.root, "recordings/a.wav").unwrap();
+    assert_eq!(
+        staged,
+        fixture.root.join(".epicenter/recording/recordings/a.wav")
+    );
     crate::recorder::tests::hold_recording(
         &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
         &staged,
@@ -616,7 +618,7 @@ fn stop_reaches_only_a_recording_this_window_started() {
 fn a_destroyed_window_finalizes_its_recording() {
     let fixture = fixture();
     let path = fixture.root.join("a.wav");
-    let staged = fixture.root.join(crate::staging::pending("a.wav"));
+    let staged = crate::staging::prepare(&fixture.root, "a.wav").unwrap();
     crate::recorder::tests::hold_recording(
         &mut fixture.app.state::<Recorders<MockRuntime>>().lock(),
         &staged,
@@ -660,10 +662,7 @@ fn recover_places_cut_off_recordings_in_the_bound_folder() {
         "a folder without recordings has nothing to repair"
     );
 
-    std::fs::create_dir_all(fixture.root.join("recordings")).unwrap();
-    let staged = fixture
-        .root
-        .join(crate::staging::pending("recordings/a.wav"));
+    let staged = crate::staging::prepare(&fixture.root, "recordings/a.wav").unwrap();
     let path = fixture.root.join("recordings/a.wav");
     let spec = hound::WavSpec {
         channels: 1,

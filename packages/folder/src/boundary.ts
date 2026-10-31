@@ -58,11 +58,7 @@ export type ListedFile = {
 
 /** A folder's files, as each host stores them. */
 export type FolderStorage = {
-	/**
-	 * Every file below the folder, `.git` aside. Hidden files are listed,
-	 * unfinished ones included (`pendingName`); their readers leave out what
-	 * is not the folder's data (`isHiddenPath` in `@epicenter/definition`).
-	 */
+	/** Every file below the folder, `.git` and `.epicenter` aside. */
 	list(): Promise<Result<readonly ListedFile[], FileError>>;
 	read(path: string): Promise<Result<FileRead, FileError>>;
 	/**
@@ -83,30 +79,12 @@ export type FolderStorage = {
 /** The folder's private Git directory, which no portable path names and no listing shows. */
 export const PRIVATE_DIRECTORY = '.git';
 
-/** The end of an unfinished file's name, namespaced so a person's own hidden files never match. */
-const PENDING_SUFFIX = '.epicenter-pending';
-
 /**
- * The hidden name an unfinished `name` is written under, beside where it
- * lands: `.<name>.epicenter-pending`. A staged save's `name` is a scratch
- * name (`scratchName`); a desktop recording in progress is its file's own
- * name (`<id>.wav`). Hidden, it is not the folder's data: no watcher reports
- * it, and `epicenter sync` never commits it. The desktop shell's
- * `pending_name` is the same rule.
+ * Epicenter's own state at the top of a folder: the scratch directory saves
+ * stage in, and unfinished files such as a recording in progress. No listing shows it and no watcher
+ * reports it; `epicenter init`'s `.gitignore` keeps it out of history.
  */
-export const pendingName = (name: string) => `.${name}${PENDING_SUFFIX}`;
-
-/**
- * The name an unfinished file stands for: `name` from
- * `.<name>.epicenter-pending` (`pendingName`), or `undefined` for any other
- * file name.
- */
-export function unfinishedName(fileName: string): string | undefined {
-	if (!fileName.startsWith('.') || !fileName.endsWith(PENDING_SUFFIX))
-		return undefined;
-	const name = fileName.slice(1, -PENDING_SUFFIX.length);
-	return name === '' ? undefined : name;
-}
+export const STATE_DIRECTORY = '.epicenter';
 
 /**
  * This process's id in the names it stages under, so two never pick one
@@ -118,10 +96,9 @@ let engine: string | undefined;
 let staged = 0;
 
 /**
- * A new scratch name for staged bytes: their creation time and a
- * per-process counter in base 36, around this process's engine id. Only
- * ASCII letters, digits, and `-`, which the desktop shell admits. A staged
- * file is named `pendingName(scratchName())` beside where it lands.
+ * A new staged file's name: its creation time and a per-process counter in
+ * base 36, around this process's engine id. Only ASCII letters, digits, and
+ * `-`, which the desktop shell admits.
  */
 export const scratchName = () => {
 	engine ??= crypto.randomUUID().replaceAll('-', '');
@@ -139,9 +116,8 @@ const STALE_SCRATCH_MS = 60 * 60 * 1000;
 const SCRATCH_NAME = /^([0-9a-z]+)-[0-9a-f]{32}-[0-9a-z]+$/;
 
 /**
- * Whether the staged file whose scratch name is `name` was made more than
- * `STALE_SCRATCH_MS` before `now`. A name no host made is never stale, nor
- * is a recording in progress: `<id>.wav` never has a scratch name's shape.
+ * Whether the staged file `name` was made more than `STALE_SCRATCH_MS`
+ * before `now`. A name no host made is never stale.
  */
 export function isStaleScratch(name: string, now = Date.now()): boolean {
 	const time = SCRATCH_NAME.exec(name)?.[1];

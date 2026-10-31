@@ -116,8 +116,8 @@ export async function sync(stack: Stack, person: Person, folder: string) {
 }
 
 /**
- * Every file in the page origin's OPFS but an unfinished one (a write's
- * staged bytes, `.<name>.epicenter-pending`), by path, as sha256. A file the page moves or removes during the walk is not
+ * Every file in the page origin's OPFS but the device's staging area, by
+ * path, as sha256. A file the page moves or removes during the walk is not
  * listed; a file a write lands on while it is read is read again.
  */
 export function opfsFiles(page: Page): Promise<Record<string, string>> {
@@ -125,8 +125,8 @@ export function opfsFiles(page: Page): Promise<Record<string, string>> {
 }
 
 /**
- * Every file under `root` (the origin's OPFS when omitted) but an unfinished
- * one, by path, as sha256: `opfsFiles` in the page.
+ * Every file under `root` (the origin's OPFS when omitted) but the device's
+ * staging area, by path, as sha256: `opfsFiles` in the page.
  *
  * The page's own writes run beside the walk. A file that went between being
  * named and being read is left out. A file a write landed on between taking
@@ -180,8 +180,6 @@ export async function digestTree(
 					await walk(handle as Directory, `${path}/`);
 					continue;
 				}
-				if (name.startsWith('.') && name.endsWith('.epicenter-pending'))
-					continue;
 				const digest = await digestOf(directory, name);
 				if (digest !== undefined) files[path] = digest;
 			}
@@ -194,6 +192,8 @@ export async function digestTree(
 		(root ?? (await navigator.storage.getDirectory())) as Directory,
 		'',
 	);
+	for (const path of Object.keys(files))
+		if (path.startsWith('.epicenter/staging/')) delete files[path];
 	return files;
 }
 

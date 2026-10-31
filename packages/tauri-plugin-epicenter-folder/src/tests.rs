@@ -25,9 +25,9 @@
 //!   `stale`.
 //! - Storage reaches the data paths of the bound root and nothing else:
 //!   never `.git`, never another window's root, never through a link. A save
-//!   stages beside its path and makes no `.git`; a `.git` file or link opens
+//!   stages in the root's `.epicenter` and makes no `.git`; a `.git` file or link opens
 //!   and saves and is left as it is. Opening sweeps staged files a stopped
-//!   save left anywhere in the folder.
+//!   save left.
 //! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
@@ -855,28 +855,20 @@ fn opening_a_bound_folder_that_is_gone_is_refused_and_makes_nothing() {
     assert!(!fixture.root.exists());
 }
 
-/// The unfinished files (`.<name>.epicenter-pending`, a put's staged
-/// bytes among them) left anywhere in the folder, by folder-relative path,
-/// sorted.
+/// The scratch directory inside the folder, where a put stages its bytes.
+fn scratch(fixture: &Fixture) -> PathBuf {
+    epicenter_folder_core::storage::scratch_directory(&fixture.root)
+}
+
+/// The staged files left in the folder's scratch directory.
 fn staged(fixture: &Fixture) -> Vec<String> {
-    let mut found = Vec::new();
-    let mut directories = vec![(fixture.root.clone(), String::new())];
-    while let Some((directory, prefix)) = directories.pop() {
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries {
-            let entry = entry.unwrap();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if entry.file_type().unwrap().is_dir() {
-                directories.push((entry.path(), format!("{prefix}{name}/")));
-            } else if epicenter_folder_core::storage::unfinished_name(&name).is_some() {
-                found.push(format!("{prefix}{name}"));
-            }
-        }
-    }
-    found.sort();
-    found
+    std::fs::read_dir(scratch(fixture))
+        .map(|entries| {
+            entries
+                .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[test]
@@ -1145,13 +1137,14 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
     );
 }
 
-/// A save that stopped before its rename leaves its staged file beside its
-/// path. Opening removes the ones an hour old, anywhere in the folder, and
-/// none younger, which another process's save may still be about to rename.
+/// A save that stopped before its rename leaves its staged file in the
+/// folder. Opening removes the ones an hour old, and none younger, which
+/// another process's save may still be about to rename.
 #[test]
 fn opening_sweeps_staged_files_a_stopped_save_left() {
     let fixture = fixture("sweep");
-    std::fs::create_dir_all(fixture.root.join("todos")).unwrap();
+    let scratch = scratch(&fixture);
+    std::fs::create_dir_all(&scratch).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -1165,14 +1158,14 @@ fn opening_sweeps_staged_files_a_stopped_save_left() {
         }
         digits.reverse();
         format!(
-            ".{}-0123456789abcdef0123456789abcdef-0.epicenter-pending",
+            "{}-0123456789abcdef0123456789abcdef-0",
             String::from_utf8(digits).unwrap()
         )
     };
     let old = name(now - 2 * 60 * 60 * 1000);
-    let young = format!("todos/{}", name(now - 60 * 1000));
-    for staged in [old.clone(), format!("todos/{old}"), young.clone()] {
-        std::fs::write(fixture.root.join(staged), b"x").unwrap();
+    let young = name(now - 60 * 1000);
+    for staged in [&old, &young] {
+        std::fs::write(scratch.join(staged), b"x").unwrap();
     }
     let main = fixture.bound_window("main", &fixture.root);
     open(&main).unwrap();

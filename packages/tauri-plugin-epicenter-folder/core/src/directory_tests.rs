@@ -86,17 +86,18 @@ fn names(directory: &Path) -> Vec<String> {
 }
 
 /// A plain directory with no `.git` is opened and saved to, and the save
-/// makes nothing in it but the file and its directory: its staged sibling is
-/// gone, and there is no `.git` and nothing beside it.
+/// makes nothing in it but the file and `.epicenter` (its empty scratch
+/// directory), no `.git`, and nothing beside it.
 #[test]
 fn a_directory_with_no_git_is_opened_and_saved_to() {
     let temp = TempDir::new("bind-no-git");
     let root = temp.folder("notes");
     assert_eq!(save(&root), Ok(PutOutcome::Landed { stamp: None }));
     assert_eq!(std::fs::read(root.join("todos/a.md")).unwrap(), b"milk");
-    assert_eq!(names(&root), ["todos"]);
-    assert_eq!(names(&root.join("todos")), ["a.md"]);
+    assert_eq!(names(&root), [".epicenter", "todos"]);
+    assert_eq!(names(&root.join(".epicenter")), ["scratch"]);
     assert_eq!(names(temp.path()), ["notes"]);
+    assert!(names(&storage::scratch_directory(&root)).is_empty());
 }
 
 /// A linked worktree's or submodule's `.git` file, and a `.git` link, open
@@ -112,7 +113,7 @@ fn a_git_file_or_link_is_opened_and_saved_to() {
         std::fs::read_to_string(worktree.join(".git")).unwrap(),
         gitdir
     );
-    assert_eq!(names(&worktree), [".git", "todos"]);
+    assert_eq!(names(&worktree), [".epicenter", ".git", "todos"]);
     #[cfg(unix)]
     {
         let linked = temp.folder("linked");

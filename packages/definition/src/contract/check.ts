@@ -33,7 +33,7 @@ export type FileIssue = {
  *   lacks a required one. A key the contract does not declare is fine.
  *
  * A path with a hidden segment (`.gitattributes`, `.obsidian/…`,
- * `.DS_Store`) is not the contract's and is skipped. A note given
+ * `.epicenter/…`) is not the contract's and is skipped. A note given
  * without `text` is checked by its path alone.
  *
  * @example

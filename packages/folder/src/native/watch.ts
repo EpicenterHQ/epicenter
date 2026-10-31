@@ -1,7 +1,7 @@
 /** Storage observations are path hints, never saved bytes or publication receipts. */
 import { watch } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
-import { isHiddenPath } from '@epicenter/definition/contract';
+import { STATE_DIRECTORY } from '../boundary.js';
 import { callObserver } from '../observer.js';
 import { readablePath } from '../paths.js';
 
@@ -36,13 +36,14 @@ export function watchDirectory(root: string): FolderWatch {
 				)
 					.split(sep)
 					.join('/');
-				// A hidden path below the root is not the folder's data: Git's
-				// state, and an unfinished file such as a staged save or a
-				// recording in progress. A save does not echo as a change.
-				const outside = path === '..' || path.startsWith('../');
-				if (!outside && isHiddenPath(path)) return;
+				// Epicenter's own state (staged saves, unfinished files) is not
+				// the folder's files, so a save does not echo as a change.
+				if (path.split('/')[0] === STATE_DIRECTORY) return;
 				if (readablePath(path)) return report([path]);
-				// Other uninterpretable names leave the scope of the change unknown.
+				// Git state does not belong to the folder's readable data. Other
+				// uninterpretable names leave the scope of the change unknown.
+				if (path.split('/').some((part) => part.toLowerCase() === '.git'))
+					return;
 				report(null);
 			},
 		);

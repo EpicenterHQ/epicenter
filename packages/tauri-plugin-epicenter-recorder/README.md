@@ -6,10 +6,9 @@ records: a page in the shell opens no microphone of its own
 A recording is a WAV in a folder
 the recording window opened, written from the first sample
 ([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
-`start` creates the WAV beside its path, as the hidden
-`.<name>.wav.epicenter-pending`, and appends 16 kHz mono PCM16 as the
-microphone captures, and `stop` finalizes its header and moves it to
-`<path>.wav`. Nothing deletes it. A quit, a
+`start` creates the WAV in the folder's `.epicenter/recording` and appends
+16 kHz mono PCM16 as the microphone captures, and `stop` finalizes its header
+and moves it to `<path>.wav`. Nothing deletes it. A quit, a
 crash, or a closed window keeps the audio up to the cut. A recording adds no
 Close or Quit warning.
 
@@ -28,8 +27,8 @@ each piece of a recording to this browser's files instead (decision 84).
 | --- | --- |
 | `src/recorder.rs` | The CPAL and `hound` pipeline: a non-blocking audio callback, a bounded queue, and a writer thread that appends to the WAV, updates its header about once a second, and sends the level. One recording at a time, owned by the window that started it. |
 | `src/rate.rs` | The conversion from the microphone's rate to the recording's 16 kHz, on the writer thread. |
-| `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length, and move what a cut left unfinished to its path. |
-| `src/staging.rs` | Where a recording is written while it records (`pending`, its hidden sibling), and `place`, the move to its path that never replaces a file. |
+| `src/wav.rs` | `repair` and `recover`: rewrite a WAV header whose sizes disagree with the file's length, and move what a cut left in `.epicenter/recording` to its path. |
+| `src/staging.rs` | Where a recording is written while it records, and `place`, the move to its path that never replaces a file. |
 | `src/meter.rs` | A microphone opened for its level only, closed by its page or with it, or on its own when its stream dies or its page stops hearing it. |
 | `src/permission.rs` | Microphone access through AVFoundation, asked before any microphone opens. |
 | `src/commands.rs` | `inputs`, `open_meter`, `close_meter`, `start`, `stop`, and `recover`. |
@@ -77,9 +76,9 @@ read once when the command arrives.
 | `inputs()` | Lists the input devices connected now as `{ id, name, isDefault }`. Opens nothing, so it needs no microphone permission. |
 | `open_meter(device, levels)` | Opens the microphone with id `device`, or the system default, and sends its level on `levels` until `close_meter(id)`, or until the window's page reloads or the window is destroyed. Nothing is recorded. Answers the meter's `id` and the microphone's name. |
 | `close_meter(id)` | Closes a meter. Only the window that opened it may close it. |
-| `start(root, path, device, signals)` | Records `<path>.wav` in `root`, from the microphone with id `device` or the system default, writing it as its hidden sibling `.<name>.wav.epicenter-pending` until it stops. Answers the recording's `id`, its path, and the microphone's name. |
+| `start(root, path, device, signals)` | Records `<path>.wav` in `root`, from the microphone with id `device` or the system default, writing it in `.epicenter/recording` until it stops. Answers the recording's `id`, its path, and the microphone's name. |
 | `stop(id)` | Finalizes the WAV, moves it to its path, and answers that path and its length. Only the window that started it may stop it. |
-| `recover(root, under)` | Repairs every unfinished `.<name>.wav.epicenter-pending` a cut left under `under` in `root` and moves it to its path, never over a file there, leaving the recording still being written alone. Where the path is taken, a leftover with the same bytes is removed and any other goes to the first free `<name>-recovered.wav` (`-recovered-2`, ...), so none stays unfinished. Answers the paths it moved; a second run moves none. |
+| `recover(root, under)` | Repairs every `.wav` a cut left under `under` in `root`'s `.epicenter/recording` and moves it to its path, never over a file there, leaving the recording still being written alone. Where the path is taken, a leftover with the same bytes is removed and any other goes to the first free `<name>-recovered.wav` (`-recovered-2`, ...), so none stays stranded in `.epicenter`. Answers the paths it moved; a second run moves none. |
 
 `start` refuses before it opens anything:
 
@@ -87,7 +86,7 @@ read once when the command arrives.
   `root`, the path is not a data path
   the shared path rule accepts (`page_files::data_path` in the folder
   plugin's core, no link on the way), or a file is already at `<path>.wav`
-  or at its unfinished name beside it.
+  or at its place in `.epicenter/recording`.
 - `PermissionDenied`: macOS does not allow Epicenter the microphone.
 - `InputUnavailable`: no microphone with the id `device` is connected.
   Another is never opened in its place. `open_meter` refuses the same way.
@@ -100,26 +99,20 @@ file could not be written. What was captured stays the owner's to `stop`.
 
 ## The file in the folder
 
-While it records, the recording is the hidden sibling of its path:
-`recordings/<id>.wav` is written as `recordings/.<id>.wav.epicenter-pending`
-(`staging::pending`, `pending_name` in the folder plugin's core). A hidden
-path is not the folder's data: no contract claims it, no watcher reports it,
-so its header rewrite wakes no sync, and `epicenter sync` never commits an
-unfinished file, so no reader sees a half-written WAV at a data path. It is
-created with `create_private`: exclusively, so nothing already there is
-written through, and `0600` on Unix. On macOS an access control entry its
-directory passes on is removed before the first sample; for the few
-microseconds before that, an account the entry names could open it. On
-Windows a leading dot does not hide a name, so Explorer shows it while it
-records. Its header states the samples written so far about once a second.
-No sweep removes it: its name is never a staged save's.
+While it records, the recording lives in the folder's own state directory,
+at `.epicenter/recording/<path>.wav`: no listing shows it, no watcher reports
+it, and `epicenter init`'s `.gitignore` keeps it out of history, so sync never
+commits a half-written WAV and no reader sees one at a data path. It is
+created with `create_new` there (`.epicenter` made `0700` when missing, and
+refused when it is a link), so nothing already there is written through. Its
+header states the samples written so far about once a second.
 
 When it finishes, the WAV moves to `<path>.wav` without replacing anything
 there: a hard link to the path, which fails when a name is already there,
 then the staged name removed (`staging::place`). A move cut off between the
 two is finished by the next one. Where the disk has no hard links it is
-renamed only while nothing is at the path. The move stays in one directory.
-A recording that cannot be moved stays unfinished, and `stop` says so.
+renamed only while nothing is at the path. A recording that cannot be moved
+stays in `.epicenter/recording`, and `stop` says so.
 
 The recording is finalized and moved, never deleted, when:
 
@@ -128,8 +121,8 @@ The recording is finalized and moved, never deleted, when:
 - the app exits;
 - `stop` is called after the capture ended on its own.
 
-A process that ends before any of those leaves the WAV unfinished beside its
-path with a header that undercounts the last second.
+A process that ends before any of those leaves the WAV in
+`.epicenter/recording` with a header that undercounts the last second.
 `recover`, which a page calls when it opens its folder, rewrites it from the
 file's length, rounded down to a whole frame, and moves it to its path, or
 beside it when the path is taken. Nothing else in the file changes.

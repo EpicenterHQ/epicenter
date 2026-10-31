@@ -24,6 +24,7 @@ import type { Expectation } from './boundary.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
 import { createDirectoryStorage } from './directory-store.js';
 import { hashBytes } from './hash.js';
+import { scratchDirectory } from './native/directory.js';
 
 type Case = {
 	readonly name: string;
@@ -101,10 +102,11 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 			for (const [path, target] of Object.entries(vector.tree.links ?? {}))
 				await symlink(target, join(root, path));
 
-			// Staged beside each path, as the desktop shell stages.
+			// Staged in the root's `.epicenter`, as the desktop shell stages.
 			const storage = createDirectoryStorage({
 				root,
 				primitives: nodeDirectoryPrimitives,
+				scratch: scratchDirectory(root),
 			});
 			const { method, path = '', bytes = null, expected: wanted } = vector.call;
 			const expected: Expectation =
@@ -153,10 +155,7 @@ test.each(vectors.cases.map((vector) => [vector.name, vector] as const))(
 						() => 'absent',
 					),
 				).toBe('absent');
-			const left = await readdir(root, { recursive: true }).catch(() => []);
-			expect(
-				left.filter((path) => path.endsWith('.epicenter-pending')),
-			).toEqual([]);
+			expect(await readdir(scratchDirectory(root)).catch(() => [])).toEqual([]);
 		} finally {
 			await rm(temp, { recursive: true, force: true });
 		}

@@ -1,9 +1,9 @@
 /**
  * A device store over a directory, in Bun: the directory storage the native
- * folder already uses (`openNativeStorage`). Each write is staged beside
- * its path and renamed over it, with the version it expects checked right
- * before the rename, so a file appears whole and does not land over bytes
- * its writer did not see.
+ * folder already uses (`openNativeStorage`). Each write is staged in the
+ * directory's `.epicenter` and renamed over its path, with the version it
+ * expects checked right before the rename, so a file appears whole and does
+ * not land over bytes its writer did not see.
  */
 import { mkdir } from 'node:fs/promises';
 import { ClientError, type Version } from '@epicenter/definition/contract';

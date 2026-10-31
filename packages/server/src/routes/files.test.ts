@@ -256,7 +256,7 @@ describe('POST writes', () => {
 	test('a hidden path takes text, being outside the contract (decision 58)', async () => {
 		const repo = await repository();
 		const written = await repo.write({
-			files: [{ path: '.obsidian/workspace.json', text: '{}\n' }],
+			files: [{ path: '.epicenter/settings.json', text: '{}\n' }],
 		});
 		expect(written.status).toBe(200);
 	});

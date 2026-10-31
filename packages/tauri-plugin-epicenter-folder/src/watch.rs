@@ -4,7 +4,8 @@ use std::collections::BTreeSet;
 use std::path::{Component, Path};
 use std::sync::{Arc, Mutex};
 
-use epicenter_folder_core::paths::{is_hidden_path, readable_path_problem};
+use epicenter_folder_core::paths::readable_path_problem;
+use epicenter_folder_core::storage::STATE_DIRECTORY;
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -100,14 +101,15 @@ fn observation(root: &Path, event: notify::Result<Event>) -> Option<FolderChange
             };
             parts.push(name);
         }
-        // A hidden path is not the folder's data: Git's state, and an
-        // unfinished file such as a staged save or a recording in progress.
-        // A save does not echo as a change, and a recording's header, written
-        // about once a second, wakes nothing.
-        let path = parts.join("/");
-        if is_hidden_path(&path) {
+        // Git's state, and Epicenter's own at the top of the folder (the save
+        // lock and staged saves), are not the folder's files: a save does not
+        // echo as a change.
+        if parts.iter().any(|name| name.eq_ignore_ascii_case(".git"))
+            || parts.first() == Some(&STATE_DIRECTORY)
+        {
             continue;
         }
+        let path = parts.join("/");
         if readable_path_problem(&path).is_some() {
             return Some(FolderChanged { paths: None });
         }
@@ -188,17 +190,16 @@ mod tests {
         .is_none());
     }
 
-    /// A hidden path is not the folder's data, so it never reports a change:
-    /// a staged save and a recording in progress, beside where they land,
-    /// and anything else hidden at any depth.
+    /// Epicenter's own state in `.epicenter`, staged saves and recordings in
+    /// progress, never reports a change, so a save does not echo.
     #[test]
-    fn hidden_paths_are_not_folder_changes() {
+    fn writes_in_the_state_directory_are_not_folder_changes() {
         let root = Path::new("/folder");
         for path in [
-            ".DS_Store",
-            "notes/.lz0-0123456789abcdef0123456789abcdef-1.epicenter-pending",
-            "recordings/.1.wav.epicenter-pending",
-            "notes/.obsidian/workspace.json",
+            ".epicenter",
+            ".epicenter/recording/notes/a.wav",
+            ".epicenter/scratch",
+            ".epicenter/scratch/lz0-0123456789abcdef0123456789abcdef-1",
         ] {
             assert!(
                 observation(
@@ -209,13 +210,23 @@ mod tests {
                 "{path}"
             );
         }
-        // A rename from a staged sibling onto a note reports only the note.
+        // A rename from staging onto a note reports only the note.
         let landed = Event::new(EventKind::Modify(ModifyKind::Name(RenameMode::Both)))
-            .add_path(root.join("notes/.staged.epicenter-pending"))
+            .add_path(root.join(".epicenter/scratch/staged"))
             .add_path(root.join("notes/a.md"));
         assert_eq!(
             observation(root, Ok(landed)).unwrap().paths,
             Some(vec!["notes/a.md".into()])
+        );
+        // Below the root, `.epicenter` is an ordinary hidden name.
+        assert_eq!(
+            observation(
+                root,
+                Ok(Event::new(EventKind::Any).add_path(root.join("notes/.epicenter")))
+            )
+            .unwrap()
+            .paths,
+            Some(vec!["notes/.epicenter".into()])
         );
     }
 }

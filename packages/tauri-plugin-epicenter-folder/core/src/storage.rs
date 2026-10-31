@@ -13,41 +13,31 @@
 //!   reach `Plan.md`. A name stored under another spelling is another entry:
 //!   a read finds nothing there, and a change refuses to land on it;
 //! - `.git` at the root is Git's, never listed and never named.
+//! - `.epicenter` at the root is Epicenter's own state (`STATE_DIRECTORY`):
+//!   the scratch directory saves stage in, and unfinished files such as a
+//!   recording in progress. No listing shows it, no watcher reports it, and
+//!   `epicenter init`'s `.gitignore` keeps it out of history.
 //!
-//! A path with a hidden segment is not the folder's data (`isHiddenPath` in
-//! `@epicenter/definition`): no contract claims it, and no watcher reports
-//! it. Unfinished files use that rule. Each is a hidden sibling of where it
-//! lands, `.<name>.epicenter-pending` (`pending_name`): a staged save is
-//! `.<scratch name>.epicenter-pending`, and a recording in progress is
-//! `.<id>.wav.epicenter-pending`. Listings show them like any hidden file,
-//! and `epicenter sync` never commits one.
-//!
-//! `put` is the one change of a file. Its bytes are staged in a new file
-//! beside the path (`scratch_sibling`), as the Bun host stages, and renamed
-//! over it: the rename stays in one directory, so it is one step even where
-//! another file system is mounted inside the folder, and a reader and a
-//! crash see the old file or the new one, and a new file never appears
-//! empty. Saving needs no Git: it makes nothing beside the root, nothing in
-//! it but the files saved, their directories, and for the moment of a save
-//! its staged sibling, and never touches `.git`, whatever is there.
+//! `put` is the one change of a file. Its bytes are staged in a new file in
+//! `.epicenter/scratch` inside the root, where the Bun host stages too, and
+//! renamed over the path, so a reader and a crash see the old file or the
+//! new one, and a new file never appears empty. Saving needs no Git: it
+//! makes nothing beside the root, nothing in it but the files saved and
+//! `.epicenter`, and never touches `.git`, whatever is there.
 //!
 //! The version check (what the path holds, against what the page read)
 //! runs right before the rename or the removal, with no lock across the
 //! two: another program that saves in that instant can be overwritten.
 //! External editors never took a lock anyway, and Git history keeps every
-//! version sync committed (ADR-0562, ADR-0568). On Unix no other account can
-//! read staged bytes, before publication or after a stopped save: each
-//! staged file is created `0600` (`create_private`). On macOS it also has no
-//! access control entry (`without_acl`), such as an `everyone allow read`
-//! its directory passes on, or the save is refused before its first byte.
-//! The file carries such an entry for the few microseconds between its
-//! creation and that removal, so an account the person granted an
-//! inheritable entry on a data directory could open it then and keep
-//! reading. Windows has no such bits: a staged file there has the access its
-//! directory passes on, and Explorer shows it, since a leading dot does not
-//! hide a name. Replacing an existing regular file keeps its permission
-//! bits (`keep_mode`); a new file is `0600`. A staged file a stopped save
-//! left behind is removed once it is an hour old (`sweep_scratch`).
+//! version sync committed (ADR-0562, ADR-0568). On Unix no other account can read
+//! staged bytes, before publication or after a stopped save: the scratch
+//! directory is `0700` before anything is staged in it (`make_private`), and
+//! each staged file is `0600` before its first byte. On macOS each also has
+//! no access control entry (`without_acl`), such as an `everyone allow read`
+//! the parent passes on, or the save is refused first. Replacing an existing
+//! regular file keeps its permission bits (`keep_mode`); a new file is
+//! `0600`. A staged file a stopped save left behind is removed once it is an
+//! hour old (`sweep_scratch`).
 //!
 //! A link another program swaps in between the check and the change is not
 //! defended against; a page cannot make one.
@@ -68,60 +58,140 @@ use crate::paths::{path_problem, readable_path_problem};
 /// The folder's private Git directory, which no listing shows.
 const PRIVATE_DIRECTORY: &str = ".git";
 
-/// The end of an unfinished file's name: `.<name>.epicenter-pending`. Namespaced,
-/// so a person's own hidden files are never mistaken for one.
-const PENDING_SUFFIX: &str = ".epicenter-pending";
+/// Epicenter's own state at the top of a folder: the scratch directory
+/// (`scratch_directory`) and unfinished files, such as a recording in
+/// progress. No listing shows it and no watcher reports it.
+pub const STATE_DIRECTORY: &str = ".epicenter";
 
-/// The hidden name an unfinished `name` is written under, beside where it
-/// lands: `.<name>.epicenter-pending`. A staged save is `name` = a scratch
-/// name (`scratch_name`); a recording in progress is `name` = its file's
-/// own name (`<id>.wav`).
-pub fn pending_name(name: &str) -> String {
-    format!(".{name}{PENDING_SUFFIX}")
+/// Where `put` stages a file's bytes: `.epicenter/scratch` inside the
+/// canonical `root`, the directory the Bun host stages in
+/// (`scratchDirectory` in `@epicenter/folder`'s `native/directory.ts`). It
+/// is on the root's own file system, so the rename over a path is one step.
+pub fn scratch_directory(root: &Path) -> PathBuf {
+    root.join(STATE_DIRECTORY).join("scratch")
 }
 
-/// The name an unfinished file stands for: `name` from
-/// `.<name>.epicenter-pending` (`pending_name`), or `None` for any other
-/// file name.
-pub fn unfinished_name(file_name: &str) -> Option<&str> {
-    file_name
-        .strip_prefix('.')?
-        .strip_suffix(PENDING_SUFFIX)
-        .filter(|name| !name.is_empty())
-}
-
-/// A path for new staged bytes in `directory`, beside where they land: a
-/// fresh scratch name made pending (`pending_name(scratch_name(..))`), so
-/// `sweep_scratch` can tell its age and a rename to the destination stays
-/// in one directory, on one file system.
-pub fn scratch_sibling(directory: &Path) -> PathBuf {
-    directory.join(pending_name(&scratch_name(now_ms())))
-}
-
-/// Make a new file at `path`, readable only by this account before its
-/// first byte: created exclusively (`create_new`, so nothing already there,
-/// a link included, is written through), `0600` on Unix, and on macOS with
-/// no access control entry its directory passed on (`without_acl`), or
-/// removed again and refused. Between the create and the removal of such an
-/// entry, a few microseconds, an account the directory's entry names could
-/// open the still-empty file and keep reading it as bytes arrive.
-pub fn create_private(path: &Path) -> io::Result<fs::File> {
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let file = options.open(path)?;
-    if let Err(cause) = without_acl(&file) {
-        drop(file);
-        let _ = fs::remove_file(path);
-        return Err(io::Error::new(
-            cause.kind(),
-            format!(
-                "it could not be made private to this account, so nothing was written to it: {cause}"
-            ),
-        ));
+/// Why the directory at `directory` cannot be used, if it cannot: something
+/// is there that is a link or not a directory. A link is never followed, so
+/// nothing lands somewhere else.
+fn directory_problem(directory: &Path) -> Option<String> {
+    let kind = match fs::symlink_metadata(directory) {
+        Ok(metadata) => metadata.file_type(),
+        Err(cause) => {
+            return Some(format!(
+                "'{}' could not be inspected: {cause}",
+                directory.display()
+            ))
+        }
+    };
+    if kind.is_dir() {
+        return None;
     }
-    Ok(file)
+    Some(format!(
+        "'{}' is {}, so nothing was saved through it. Remove it, then save again.",
+        directory.display(),
+        if kind.is_symlink() {
+            "a symbolic link"
+        } else {
+            "not a directory"
+        }
+    ))
+}
+
+/// Why the scratch directory inside `root` cannot hold staged bytes, if it
+/// cannot: `.epicenter` or `scratch` is a link or not a directory.
+fn scratch_problem(root: &Path) -> Option<String> {
+    directory_problem(&root.join(STATE_DIRECTORY))
+        .or_else(|| directory_problem(&scratch_directory(root)))
+}
+
+/// Make the directory at `directory` `0700` when missing; its parent must be
+/// there. Refused when it is a link or not a directory.
+fn make_directory(directory: &Path) -> Result<(), String> {
+    #[cfg_attr(not(unix), allow(unused_mut))]
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    match builder.create(directory) {
+        Ok(()) => {}
+        Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {}
+        Err(cause) => {
+            return Err(format!(
+                "'{}' could not be made: {cause}",
+                directory.display()
+            ))
+        }
+    }
+    match directory_problem(directory) {
+        Some(problem) => Err(problem),
+        None => Ok(()),
+    }
+}
+
+/// `.epicenter` inside `root`, made `0700` when missing, and refused when it
+/// is a link or not a directory, so staged bytes are never reached through
+/// a link.
+pub fn prepare_state_directory(root: &Path) -> Result<PathBuf, String> {
+    let state = root.join(STATE_DIRECTORY);
+    make_directory(&state)?;
+    Ok(state)
+}
+
+/// The scratch directory inside `root`, private to this account with the
+/// `.epicenter` holding it, as the Bun host makes both: each made `0700`
+/// when missing, refused when it is a link or not a directory, and
+/// tightened (`make_private`) when it is open to others, before anything is
+/// staged.
+fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
+    make_private(&prepare_state_directory(root)?)?;
+    let scratch = scratch_directory(root);
+    make_directory(&scratch)?;
+    make_private(&scratch)?;
+    Ok(scratch)
+}
+
+/// Leave the directory at `scratch` readable only by this account (`0700`,
+/// with no access control entry: `without_acl`), or answer why it cannot
+/// be: it was made `0755`, or its parent passes on an entry. The
+/// mode is read and changed through the open directory, which must be the
+/// entry `symlink_metadata` saw. A swapped link may be opened, but its
+/// different identity is refused before permissions change. A directory
+/// another account owns cannot be tightened. Windows has no such bits:
+/// there the directory has the access its parent passes on.
+#[cfg(unix)]
+fn make_private(scratch: &Path) -> Result<(), String> {
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let refused = |cause: &dyn std::fmt::Display| {
+        format!(
+            "'{}' could not be made private to this account, so nothing was staged there: {cause}",
+            scratch.display()
+        )
+    };
+    let seen = fs::symlink_metadata(scratch).map_err(|cause| refused(&cause))?;
+    let directory = fs::File::open(scratch).map_err(|cause| refused(&cause))?;
+    let opened = directory.metadata().map_err(|cause| refused(&cause))?;
+    if !seen.is_dir()
+        || !opened.is_dir()
+        || (opened.dev(), opened.ino()) != (seen.dev(), seen.ino())
+    {
+        return Err(refused(&"it changed while it was checked"));
+    }
+    if opened.mode() & 0o077 != 0 {
+        directory
+            .set_permissions(fs::Permissions::from_mode(0o700))
+            .map_err(|cause| refused(&cause))?;
+        match directory.metadata() {
+            Ok(tightened) if tightened.mode() & 0o077 == 0 => {}
+            Ok(_) => return Err(refused(&"other accounts can still open it")),
+            Err(cause) => return Err(refused(&cause)),
+        }
+    }
+    without_acl(&directory).map_err(|cause| refused(&cause))
+}
+
+#[cfg(not(unix))]
+fn make_private(_scratch: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 /// On macOS, remove every access control entry on the open `file`, or
@@ -483,9 +553,8 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Every file below `root`, `.git` at the root aside, hidden ones and
-/// unfinished ones included, without following a link. A name that is not
-/// text is left out.
+/// Every file below `root`, `.git` and `.epicenter` at the root aside,
+/// without following a link. A name that is not text is left out.
 pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
     fn visit(directory: &Path, prefix: &str, listing: &mut Vec<ListedFile>) -> io::Result<()> {
         let entries = match fs::read_dir(directory) {
@@ -499,7 +568,7 @@ pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            if prefix.is_empty() && name == PRIVATE_DIRECTORY {
+            if prefix.is_empty() && (name == PRIVATE_DIRECTORY || name == STATE_DIRECTORY) {
                 continue;
             }
             let path = format!("{prefix}{name}");
@@ -663,28 +732,24 @@ fn put_refusal(path: &str, found: &Found) -> Option<StorageError> {
 
 /// Make each missing directory of `names` below `root`, in order, and
 /// answer the ones this call made. One another writer makes meanwhile is
-/// theirs, not this call's. On failure the ones made are removed again.
+/// theirs, not this call's.
 fn make_parents(root: &Path, names: &[&str]) -> io::Result<Vec<PathBuf>> {
     let mut made = Vec::new();
     let mut at = root.to_path_buf();
     for name in names {
         at.push(name);
-        let failure = match fs::create_dir(&at) {
-            Ok(()) => {
-                made.push(at.clone());
-                continue;
-            }
+        match fs::create_dir(&at) {
+            Ok(()) => made.push(at.clone()),
             Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {
-                match fs::symlink_metadata(&at) {
-                    Ok(metadata) if metadata.is_dir() => continue,
-                    Ok(_) => cause,
-                    Err(inspected) => inspected,
+                if !fs::symlink_metadata(&at)?.is_dir() {
+                    return Err(cause);
                 }
             }
-            Err(cause) => cause,
-        };
-        remove_made(&made);
-        return Err(failure);
+            Err(cause) => {
+                remove_made(&made);
+                return Err(cause);
+            }
+        }
     }
     Ok(made)
 }
@@ -725,55 +790,6 @@ fn keep_mode(target: &Path, staged: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// Move the file at `staged` to `target`, never replacing anything there:
-/// a hard link to `target`, which the file system refuses with
-/// `AlreadyExists` when a name is already there, then the staged name
-/// removed. The check and the move are one step, so of two writers placing
-/// at one path, exactly one lands. A link already made by an earlier move
-/// that stopped before the removal counts as placed, and a staged name that
-/// cannot be removed after the link is a second name of the placed file,
-/// which the move still made. Where the disk has no hard links, the file is
-/// renamed only while nothing is at `target`, with no lock between that
-/// check and the rename. A put expecting nothing at its path lands this
-/// way, and so does a finished recording.
-pub fn place(staged: &Path, target: &Path) -> io::Result<()> {
-    match fs::hard_link(staged, target) {
-        Ok(()) => {}
-        Err(error) if error.kind() == ErrorKind::AlreadyExists => {
-            if !same_file(staged, target)? {
-                return Err(error);
-            }
-        }
-        Err(error) if error.kind() == ErrorKind::NotFound => return Err(error),
-        Err(_) => {
-            if fs::symlink_metadata(target).is_ok() {
-                return Err(io::Error::new(
-                    ErrorKind::AlreadyExists,
-                    "a file is already there",
-                ));
-            }
-            return fs::rename(staged, target);
-        }
-    }
-    let _ = fs::remove_file(staged);
-    Ok(())
-}
-
-/// Whether `a` and `b` are one file.
-fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let (a, b) = (fs::symlink_metadata(a)?, fs::symlink_metadata(b)?);
-        Ok((a.dev(), a.ino()) == (b.dev(), b.ino()))
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (a, b);
-        Ok(false)
-    }
-}
-
 /// Publish `bytes` at `path`, or remove its file for `None`, only while the
 /// path holds what `expected` says. `Stale` when it does not, and nothing
 /// changed; `Any` is never stale, and removing nothing that may be absent
@@ -785,16 +801,13 @@ fn same_file(a: &Path, b: &Path) -> io::Result<bool> {
 /// `InvalidPath` otherwise. HEAD can make a plain directory a Git
 /// repository, so it stays private even when it exists.
 ///
-/// A write refuses what cannot land before staging anything, makes a new
-/// file's missing parent directories, stages the bytes beside the path
-/// (`scratch_sibling`), then walks the path again (no link, every name
-/// stored as asked, as `find` checks), checks what the path holds, and
-/// renames the staged bytes over the path. Nothing holds the path between
-/// that check and the rename, except for a new file (`Absent`): it is
-/// placed (`place`), whose hard link refuses a name already there, so of
-/// two writers creating one path exactly one lands. On every answer but `Landed` nothing of the
-/// put is left: the staged file is removed, then each directory it made
-/// that is still empty.
+/// A write refuses what cannot land before staging anything, stages the
+/// bytes, then walks the path again (no link, every name stored as asked, as
+/// `find` checks), checks what the path holds, makes a new file's missing
+/// parent directories, and renames the staged bytes over the path. Nothing
+/// holds the path between that check and the rename. On every answer but
+/// `Landed` nothing of the put is left: not the staged file, and not a
+/// directory it made.
 pub fn put(
     root: &Path,
     path: &str,
@@ -862,23 +875,45 @@ pub fn put(
             return Err(refused.clone());
         }
     }
-    // The staged sibling keeps a directory this made from being pruned
-    // while the put runs.
-    let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
-    let staged = scratch_sibling(target.parent().expect("a folder path is below the root"));
-    let published = (|| -> Result<PutOutcome, StorageError> {
-        let unstaged = |cause: io::Error| {
+    let scratch = prepare_scratch(root)
+        .map_err(|message| failed(&message))?
+        .join(scratch_name(now_ms()));
+    let unstaged = |cause: io::Error| {
+        failed(&format!(
+            "'{}' could not be staged: {cause}",
+            scratch.display()
+        ))
+    };
+    // `create_new`, so nothing already at the name is written through, and
+    // `0600` with no access control entry the scratch directory passed on,
+    // so no other account can read the file before its first byte.
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(&scratch).map_err(unstaged)?;
+    let written = without_acl(&file)
+        .map_err(|cause| {
             failed(&format!(
-                "'{}' could not be staged: {cause}",
-                staged.display()
+                "'{}' could not be made private to this account, so nothing was written to it: {cause}",
+                scratch.display()
             ))
-        };
-        let mut file = create_private(&staged).map_err(unstaged)?;
-        file.write_all(bytes).map_err(unstaged)?;
-        let staged_stamp = file
-            .metadata()
-            .and_then(|metadata| stamp_of(&metadata))
-            .map_err(unstaged)?;
+        })
+        .and_then(|()| file.write_all(bytes).map_err(unstaged));
+    if let Err(error) = written {
+        drop(file);
+        let _ = fs::remove_file(&scratch);
+        return Err(error);
+    }
+    let staged_stamp = match file.metadata().and_then(|metadata| stamp_of(&metadata)) {
+        Ok(stamp) => stamp,
+        Err(cause) => {
+            drop(file);
+            let _ = fs::remove_file(&scratch);
+            return Err(unstaged(cause));
+        }
+    };
+    let published = (|| -> Result<PutOutcome, StorageError> {
         // Staging took time: walk and check again right before the rename.
         if let Found::UnderFile { ancestor } = landing()? {
             return Err(StorageError::NotADirectory { path: ancestor });
@@ -889,17 +924,11 @@ pub fn put(
                 _ => Ok(PutOutcome::Stale),
             };
         }
-        keep_mode(&target, &staged).map_err(|cause| failed(&cause))?;
-        if *expected == Expectation::Absent {
-            match place(&staged, &target) {
-                Ok(()) => {}
-                Err(cause) if cause.kind() == ErrorKind::AlreadyExists => {
-                    return Ok(PutOutcome::Stale)
-                }
-                Err(cause) => return Err(failed(&cause)),
-            }
-        } else {
-            fs::rename(&staged, &target).map_err(|cause| failed(&cause))?;
+        keep_mode(&target, &scratch).map_err(|cause| failed(&cause))?;
+        let made = make_parents(root, &names[..names.len() - 1]).map_err(|cause| failed(&cause))?;
+        if let Err(cause) = fs::rename(&scratch, &target) {
+            remove_made(&made);
+            return Err(failed(&cause));
         }
         let after_rename = file
             .metadata()
@@ -910,9 +939,9 @@ pub fn put(
             .unwrap_or(staged_stamp);
         Ok(PutOutcome::Landed { stamp: Some(stamp) })
     })();
+    drop(file);
     if !matches!(published, Ok(PutOutcome::Landed { .. })) {
-        let _ = fs::remove_file(&staged);
-        remove_made(&made);
+        let _ = fs::remove_file(&scratch);
     }
     published
 }
@@ -948,37 +977,29 @@ pub fn is_stale_scratch(name: &str, now_ms: u64) -> bool {
     }
 }
 
-/// Remove the staged files a stopped save left anywhere below `root` more
-/// than an hour before `now_ms`: regular files named
-/// `.<scratch name>.epicenter-pending` whose scratch name a stager made
-/// (`is_stale_scratch`), in one walk that follows no link and never enters
-/// `.git`. Younger ones may belong to a save still running in another
-/// process. Any other file stays: a recording in progress
-/// (`.<id>.wav.epicenter-pending`) never has a scratch name, nor does
-/// anything a person named. What cannot be read or removed stays: it is
-/// inert.
+/// Remove the staged files in the scratch directory inside `root` that a
+/// stopped save left more than an hour before `now_ms`: regular files whose
+/// names a stager made (`is_stale_scratch`). Younger ones may belong to a
+/// save still running in another process; any other file, a directory, or a
+/// link stays. A scratch directory, or `.epicenter`, that is a link or not a
+/// directory is left alone, and what cannot be removed stays: it is inert.
+/// Nothing else in the root, `.git` included, is touched.
 pub fn sweep_scratch(root: &Path, now_ms: u64) {
-    let mut directories = vec![root.to_path_buf()];
-    while let Some(directory) = directories.pop() {
-        let Ok(entries) = fs::read_dir(&directory) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let Ok(kind) = entry.file_type() else {
-                continue;
-            };
-            let name = entry.file_name();
-            if kind.is_dir() && !name.eq_ignore_ascii_case(PRIVATE_DIRECTORY) {
-                directories.push(entry.path());
-                continue;
-            }
-            let stale = name
-                .to_str()
-                .and_then(unfinished_name)
-                .is_some_and(|scratch| is_stale_scratch(scratch, now_ms));
-            if kind.is_file() && stale {
-                let _ = fs::remove_file(entry.path());
-            }
+    if scratch_problem(root).is_some() {
+        return;
+    }
+    let scratch = scratch_directory(root);
+    let Ok(entries) = fs::read_dir(&scratch) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let is_file = entry.file_type().is_ok_and(|kind| kind.is_file());
+        let stale = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| is_stale_scratch(name, now_ms));
+        if is_file && stale {
+            let _ = fs::remove_file(entry.path());
         }
     }
 }

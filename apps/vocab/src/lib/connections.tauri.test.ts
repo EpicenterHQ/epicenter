@@ -101,8 +101,11 @@ test('the list is connections.md at the top of the root, and the key is in the k
 			hasApiKey: true,
 		},
 	]);
-	// The note, and nothing else: its staged bytes went with the save.
-	expect(await readdir(root)).toEqual(['connections.md']);
+	// The note, beside the engine's own `.epicenter` (where saves stage).
+	expect((await readdir(root)).sort()).toEqual([
+		'.epicenter',
+		'connections.md',
+	]);
 	const text = await note(root);
 	expect(text).toContain(ENDPOINT);
 	expect(text).toContain(id);

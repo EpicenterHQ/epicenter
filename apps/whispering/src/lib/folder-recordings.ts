@@ -1,8 +1,8 @@
 /**
  * Recordings written into Whispering's files as they record (ADR-0543,
- * decision 84): on the desktop the shell's WAV from the first sample, kept
- * beside its path as the hidden `recordings/.<id>.wav.epicenter-pending`
- * until it stops and then moved to `recordings/<id>.wav`; in a browser each piece appended to its file as it
+ * decision 84): on the desktop the shell's WAV from the first sample, kept in
+ * the folder's `.epicenter/recording` until it stops and then moved to
+ * `recordings/<id>.wav`; in a browser each piece appended to its file as it
  * arrives. The note is made when recording starts, so the files always name
  * what they hold, and completed with the length when it stops. A recording
  * a quit, a crash, or a closed tab cut off has a note without a length; the
@@ -86,8 +86,8 @@ function recordedAtOf(id: string): string {
  * Complete every recording whose note has no length once its audio
  * (`<id>.<ext>`) is there: what a quit, a crash, or a closed tab cut off.
  * The capture device's `recover` runs first, and only when some note has
- * no length: on the desktop it is what moves a cut-off recording from its
- * hidden unfinished name to its path (or beside it, `<id>-recovered`, when
+ * no length: on the desktop it is what moves a cut-off recording from
+ * `.epicenter/recording` to its path (or beside it, `<id>-recovered`, when
  * the path is taken), so its audio is not there before it runs; in a
  * browser it reads every recording's audio, which no start should pay for
  * when nothing was cut off. Run it before anything records.

@@ -6,10 +6,8 @@
  *   one predicate, `isNotePath`, for templates, the server and sync, since
  *   a Mac checkout (`core.ignorecase`) reads `*.md` that way anyway.
  * - A hidden path (any segment starting with `.`: `.gitattributes`,
- *   `.DS_Store`, `.obsidian/…`) is outside the contract (decision 58):
- *   `checkContract` skips it, it is stored as it is, and it is not the
- *   folder's data, so no watcher reports it. An unfinished file is a hidden
- *   sibling of where it lands, `.<name>.epicenter-pending`.
+ *   `.DS_Store`, `.epicenter/…`) is outside the contract (decision 58):
+ *   `checkContract` skips it, and it is stored as it is.
  * - Every other file that is not a `.md` note is a Git LFS pointer
  *   (decision 40), whatever a folder's own `.gitattributes` says.
  *
@@ -25,10 +23,8 @@
  *
  * `REPOSITORY_IGNORE` is init's marked block of `.gitignore`, between the
  * same markers: hidden paths stay outside the LFS rule, but operating
- * system clutter (`.DS_Store`) and unfinished files (a staged save, a
- * recording in progress) are never committed at all. `epicenter sync`
- * leaves unfinished files out itself, whatever `.gitignore` says; the line
- * keeps a person's own `git add` from committing one.
+ * system clutter (`.DS_Store`) and a device's own state (`.epicenter/`, the
+ * outbox's sidecars) are never committed at all.
  */
 
 /** Whether a path names a note: a Markdown file, `.md` in any case. Anything else is a file (decision 3). */
@@ -58,8 +54,8 @@ ${EPICENTER_BLOCK_END}
 `;
 
 export const REPOSITORY_IGNORE = `${EPICENTER_BLOCK_BEGIN} (managed by Epicenter; edit outside this block)
-# Operating system clutter and unfinished files never travel.
+# Operating system clutter and each device's own Epicenter state never travel.
 .DS_Store
-.*.epicenter-pending
+.epicenter/
 ${EPICENTER_BLOCK_END}
 `;

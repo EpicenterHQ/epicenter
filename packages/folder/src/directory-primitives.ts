@@ -57,9 +57,7 @@ export type DirectoryPrimitives = {
 	 * Rename `from` to `to`, replacing a file at `to`, if `to` holds what
 	 * `expected` says. Otherwise reject with `UnexpectedTarget` and change
 	 * nothing; `from` stays. A regular file it replaces passes its permission
-	 * bits to `from` first, so it stays private or executable. Expecting
-	 * `'absent'`, the check and the move are one step where the disk has
-	 * hard links: of two renames to one new path, exactly one lands.
+	 * bits to `from` first, so it stays private or executable.
 	 */
 	rename(from: string, to: string, expected: Expectation): Promise<string>;
 	/**
@@ -74,6 +72,11 @@ export type DirectoryPrimitives = {
 			readonly expected?: Expectation;
 		},
 	): Promise<void>;
-	/** Make the directory at `path` and any missing ancestors. */
-	mkdir(path: string): Promise<void>;
+	/**
+	 * Make the directory at `path` and any missing ancestors. With `private`,
+	 * make only `path`, whose parent is there, and leave it readable only by
+	 * this account (`0700` on Unix), tightening one already there; reject
+	 * when it is a link, is not a directory, or cannot be made private.
+	 */
+	mkdir(path: string, options?: { readonly private?: boolean }): Promise<void>;
 };

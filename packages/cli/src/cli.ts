@@ -97,7 +97,7 @@ const DETAILS: Record<string, string> = {
 contract: the JSON at <contract>, a URL or a file path. Prints one line per
 problem, compiler style: a path no collection of the contract names, a note
 whose front matter does not parse, or one whose fields do not fit. Hidden
-paths (.git, .DS_Store, ...) are not the contract's and are skipped. Exits 0
+paths (.git, .epicenter, ...) are not the contract's and are skipped. Exits 0
 when every file fits, 1 when one does not, and 2 when the contract or the
 folder cannot be used. Never writes a file.`,
 	format: `Rewrites every note in <dir>, by default this directory, that a collection

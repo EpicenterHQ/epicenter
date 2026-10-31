@@ -114,10 +114,9 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 /// arrive on `signals`.
 ///
 /// The path must be a data path the shared path rule accepts, with nothing at
-/// it yet. While it records, the file is written as its hidden sibling,
-/// `.<name>.wav.epicenter-pending` (`staging::pending`), with nothing there
-/// yet either; `stop` moves it to its path. Missing directories on the way
-/// are made.
+/// it yet. While it records, the file is written in the folder's
+/// `.epicenter/recording` (`staging`), with nothing there yet either; `stop`
+/// moves it to its path. Missing directories on the way are made.
 /// Microphone access is asked for before the device is resolved. A refusal
 /// opens nothing.
 #[tauri::command]
@@ -151,8 +150,7 @@ pub async fn start<R: Runtime>(
     if let Some((parent, _)) = relative.rsplit_once('/') {
         page_files::mkdir(&root, &root.join(parent)).map_err(RecorderError::refused)?;
     }
-    let staged = page_files::data_path(&root, &crate::staging::pending(&relative))
-        .map_err(RecorderError::refused)?;
+    let staged = crate::staging::prepare(&root, &relative).map_err(RecorderError::refused)?;
 
     // Asked before any device is resolved, off the async runtime: a person
     // not yet asked answers a system prompt.
@@ -198,8 +196,8 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
 }
 
 /// Repair every recording under `under` in `root` (the window's own folder
-/// for `None`, or a root its page opened) that a quit or a crash left
-/// unfinished beside its path, move each to its path, and return those
+/// for `None`, or a root its page opened) that a quit or a crash left in the
+/// folder's `.epicenter/recording`, move each to its path, and return those
 /// folder-relative paths. The recording still being written is left alone.
 /// Running it again changes nothing.
 #[tauri::command]

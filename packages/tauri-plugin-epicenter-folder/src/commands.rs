@@ -51,7 +51,7 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 /// otherwise); it is made, with missing parents, only for `create`, and is
 /// `Missing` when it is not there. Each open root has one watch, whose
 /// changes go to the latest channel the page opened it with, and removes
-/// the staged files a stopped save left anywhere in it an hour or more ago
+/// the staged files a stopped save left an hour or more ago
 /// (`storage::sweep_scratch`).
 #[tauri::command]
 #[specta::specta]
@@ -234,8 +234,8 @@ fn bound<R: Runtime>(
         .map_err(|refusal| failed(path, operation, format!("{refusal:?}")))
 }
 
-/// Every file below the window's root, `.git` aside and hidden ones
-/// included, none of them followed (`storage::list`).
+/// Every file below the window's root, `.git` and `.epicenter` aside, none
+/// of them followed (`storage::list`).
 #[tauri::command]
 #[specta::specta]
 pub async fn list_folder<R: Runtime>(

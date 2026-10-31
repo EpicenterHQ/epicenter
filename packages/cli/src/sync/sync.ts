@@ -256,13 +256,6 @@ async function step(
 /** Paths are literal: a file named `*.md` names only itself. */
 const LITERAL = { GIT_LITERAL_PATHSPECS: '1' };
 
-/**
- * Every unfinished file at any depth, `.<name>.epicenter-pending`
- * (`pendingName` in `@epicenter/folder`), as a pathspec that leaves it out.
- * It needs pathspec magic, so it is never given with `LITERAL`.
- */
-const UNFINISHED = ':(exclude,glob)**/.*.epicenter-pending';
-
 /** The round itself, holding the repository's sync lock. Returns the head it ends at. */
 async function round(
 	folder: string,
@@ -317,11 +310,9 @@ async function round(
 		);
 	await refuseIfLocked(root);
 
-	// Commit what the apps wrote in this folder, through the filters, and
-	// nothing else: never an unfinished file (a staged save, a recording in
-	// progress), whatever the folder's `.gitignore` says.
+	// Commit what the apps wrote in this folder, through the filters, and nothing else.
 	const who = await identity(root);
-	await step(folder, ['add', '-A', '--', '.', UNFINISHED], 'git add');
+	await step(folder, ['add', '-A', '--', '.'], 'git add');
 	if (
 		(await git(folder, ['diff', '--cached', '--quiet', '--', '.'])).code !== 0
 	) {

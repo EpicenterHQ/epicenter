@@ -38,8 +38,8 @@ apps/local-books/.infisical.json
 # Vercel
 .vercel
 
-# Epicenter's unfinished files (a staged save, a recording in progress)
-.*.epicenter-pending
+# Epicenter
+.epicenter
 
 # WXT (browser extension framework)
 .wxt
