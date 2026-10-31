@@ -85,7 +85,7 @@ fixed default. Both contexts keep the same `openFolder({ tables })` page API.
 | --- | --- | --- | --- |
 | Epicenter | Settings (host) | `so.epicenter` (records) | `connections`; the folder editor declares none |
 | [Todos](todos/README.md) | browser, hosted, standalone native | `so.epicenter.todos` | `todos` |
-| [Capture](capture/README.md) | browser, hosted | `so.epicenter.capture` | `captures` |
+| [Capture](capture/README.md) | browser; on the file contract (`capture`) | none; signs in as `so.epicenter.capture` | `captures` |
 | [Honeycrisp](honeycrisp/README.md) | browser, hosted | `so.epicenter.honeycrisp` | `folders`, `notes` |
 | [Whispering](whispering/README.md) | browser, hosted | `so.epicenter.whispering` | `recordings`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`; AI connections in records |
 | [Messages](messages/README.md) | browser, hosted | `so.epicenter.messages` | `drafts`, `attempts` |

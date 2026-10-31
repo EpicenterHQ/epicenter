@@ -1,9 +1,11 @@
 export {
-	CAPTURES_TABLE,
-	type CaptureFields,
-	type CaptureRow,
-	captureTables,
-} from './definition.js';
+	type Capture,
+	type CaptureNote,
+	type CaptureNotes,
+	capture,
+	capturePath,
+	type InvalidCapture,
+} from './contract.js';
 export {
 	type CaptureBody,
 	type CaptureBodyReading,

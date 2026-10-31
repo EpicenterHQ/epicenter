@@ -1,16 +1,13 @@
 # Capture file model
 
-A capture is one Markdown file, `captures/<stem>.md`, in a folder opened with
-`@epicenter/folder`. The file's bytes are the saved data. There is no Yjs
-document, no thought rows, and no IDs for thoughts.
-
-`captureTables` is the tables an application passes to
-`openFolder({ tables: captureTables })`: one TypeBox schema per table. This
-package opens nothing and names no folder.
+A capture is one Markdown note, `captures/<id>.md`. The file's bytes are the
+saved data. There is no Yjs document, no thought rows, and no IDs for
+thoughts. This package holds Capture's contract and the body codec; it opens
+nothing.
 
 ```markdown
 ---
-capturedAt: 2026-10-01T10:30:00+08:00
+capturedAt: "2026-10-01T10:30:00+08:00"
 ---
 
 The original capture text.
@@ -22,24 +19,32 @@ The original capture text.
   It can continue across multiple lines.
 ```
 
-`captureTables` declares the one table, `captures`, with required
-`capturedAt`, an RFC 3339 datetime (`Type.String({ format: 'date-time' })`).
-A UTC time and a time with an offset are both valid, so order captures by
-the parsed instant, never by the string. The schema only interprets:
-unknown frontmatter keys are kept, and a save is never refused by it.
+## The contract
 
-`captureBody` only interprets bodies.
+`capture` (`src/contract.ts`) is Capture's contract: the app's name,
+`capture`, which makes the person's repository `<handle>/capture`, and one
+note collection, `captures`, at `captures/{id}.md`, with required
+`capturedAt`, an RFC 3339 date and time (`{ type: 'string', format:
+'date-time' }`). A UTC time and a time with an offset are both valid, so
+order captures by the parsed instant, never by the string. Other front matter
+keys are kept. Capture has no settings and no other files.
 
-## Reading a capture
+Any client the contract derives (`openDevice` from `@epicenter/folder/browser`
+or `/node`, `openRemote` from `/remote`) reads a capture as a `CaptureNote`:
+`id`, `capturedAt`, any other front matter keys, `body`, and `version`. A file
+at a capture's path whose front matter does not parse or fit is listed in
+`invalid` as an `InvalidCapture`, with its text, not dropped. Every write is
+in house style (decision 29). Ids are `timeId()` from
+`@epicenter/definition/ids`, so they sort by when they were made.
+`capturePath(id)` names a capture's file.
 
-The captures table reads a file as a row (`CaptureRow`): its `path`, `fields`,
-Markdown `body`, and `issues`, which is `null` when
-the frontmatter fits the schema. `captureBody.decode(row.body)` reads the
-body as the capture text and its ordered thoughts. markdown-it decides what
-the blocks are and which lines each owns; this package maps those ranges to
-offsets in the body. The exact source text is `folder.file(row.path)?.data`
-when that value is a string. A failed read produces an `unreadable` issue; the
-folder can retry it at a checkpoint.
+The app publishes the contract as `apps/capture/static/contract.json`.
+
+## Reading a capture's body
+
+`captureBody.decode(note.body)` reads the body as the capture text and its
+ordered thoughts. markdown-it decides what the blocks are and which lines
+each owns; this package maps those ranges to offsets in the body.
 
 | Part | Rule |
 | --- | --- |
@@ -51,10 +56,10 @@ A line reading `## Thoughts` inside a code fence, an HTML block, a block
 quote, or a list item is not the heading.
 
 A body is refused, with the refusal saying why, when its layout is
-ambiguous. Its text and thoughts are then not offered, and the file stays
-editable as text. A file whose frontmatter does not parse, or whose
-`capturedAt` is not valid, is still listed as a row with `issues`; it is not
-a capture until those are repaired.
+ambiguous. Its text and thoughts are then not offered, and the note stays
+editable as text. A note whose front matter does not parse, or whose
+`capturedAt` is not valid, is listed in `invalid` with its text; it is not a
+capture until it is repaired.
 
 | `refusal.code` | Cause |
 | --- | --- |
@@ -66,11 +71,11 @@ a capture until those are repaired.
 
 An app holds one draft of the body shown in its capture editor; this package
 owns only the body codec. Decode that draft, compose the complete desired
-value, encode it over the draft, and submit the resulting body with
-`tables.captures.update`. This keeps a thought command from losing text typed
-within the save throttle. The update keeps unknown frontmatter keys, but writes
-canonical YAML: declared keys first, then other keys sorted. Comments and
-original key spelling or order do not survive a structured update.
+value, encode it over the draft, and submit the resulting body as the note's
+`body` (the Capture app does it through `fieldEdit`). This keeps a thought
+command from losing text typed just before it. The update keeps unknown front
+matter keys and writes house style: declared keys first, then other keys
+sorted. Comments and original key spelling or order do not survive it.
 
 ```text
 body draft -> decode -> { text, thoughts }
@@ -117,8 +122,8 @@ needs no thought IDs.
 `captureBody.locate(body)` answers where each thought sits in the body, as
 `Span`s of offsets from its bullet marker to the end of its last line with
 content. After the app explicitly saves the shown body, it combines those spans
-with the saved file text to select a thought's lines in Edit as text. That view
-keeps unfinished Markdown as typed.
+with the note's text (`noteText` from `@epicenter/definition/contract`) to
+select a thought's lines in Edit as text.
 
 `excerpt(text)` shortens capture text for a list.
 
@@ -145,5 +150,5 @@ bun run --cwd packages/capture typecheck
 ```
 
 The document tests compare every operation's output with literal expected
-bytes. `definition.test.ts` checks `captureTables` the way the folder applies
-it, with TypeBox's `Check`.
+bytes. `contract.test.ts` checks the contract the way every client applies
+it.

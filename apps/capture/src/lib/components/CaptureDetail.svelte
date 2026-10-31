@@ -1,10 +1,10 @@
-<!-- A completed capture. One body edit holds text and thought commands until saves answer. -->
+<!-- One capture as its text and thoughts. One body edit holds both until each save answers, wherever the capture's copy is. -->
 <script lang="ts">
 	import { captureBody } from '@epicenter/capture';
-	import { describeIssues } from '@epicenter/folder';
-	import { edit } from '@epicenter/svelte/folder';
+	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import * as Alert from '@epicenter/ui/alert';
+	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import * as DropdownMenu from '@epicenter/ui/dropdown-menu';
@@ -15,40 +15,44 @@
 
 	import { onDestroy, tick, untrack } from 'svelte';
 	import { createCaptureActions, locateThought } from '$lib/capture-actions.svelte.js';
-	import { type Captures, capturePath, instantOf } from '$lib/captures.svelte.js';
-	import { getFolder } from '$lib/folder.js';
+	import { type Captures, captureText, describeIssues, instantOf } from '$lib/captures.svelte.js';
 	import { copyText, downloadText } from '$lib/download.js';
 	import { confirmDelete } from '$lib/item-actions.js';
 
 	let {
 		captures,
-		stem,
+		id,
 	}: {
 		captures: Captures;
 		/** The capture shown. The parent keys this view by it. */
-		stem: string;
+		id: string;
 	} = $props();
 
 	// The view is keyed by the capture, so neither changes for this view.
-	const path = untrack(() => capturePath(stem));
-	const folder = getFolder();
+	const args = untrack(() => ({ id }));
+	const list = untrack(() => captures.list);
 	let active = true;
 	onDestroy(() => {
 		active = false;
 	});
-	const row = $derived(folder.tables.captures.row(stem));
-	const stored = $derived(row?.issues === null ? row : undefined);
-	const body = edit(
-		() => stored?.body ?? '',
-		(next) => folder.tables.captures.update(stem, { body: next }),
-	);
-	const actions = createCaptureActions(body);
+	/** The capture as shown, wherever its copy is (it may move while this is open). */
+	const note = $derived(list.get(args));
+	/** The file at this capture's path, when it does not read as a capture. */
+	const broken = $derived(list.invalid.find((file) => file.id === args.id));
+	/** The body, showing what was typed until its save answers. */
+	const body = fieldEdit(list, args, 'body');
+	const actions = createCaptureActions({
+		get value() {
+			return body.value ?? '';
+		},
+		set: (value: string) => body.set(value),
+	});
 	/** Opened right after Add: focus goes to Add a thought. */
 	const focusNewThought = untrack(() => captures.opened?.focus === 'new-thought');
-	const reading = $derived(stored && captureBody.decode(body.value));
+	const reading = $derived(note && captureBody.decode(body.value ?? ''));
 	const text = $derived(reading?.data?.text ?? '');
 	const thoughts = $derived(reading?.data?.thoughts ?? []);
-	const capturedAt = $derived(instantOf(stored?.fields.capturedAt));
+	const capturedAt = $derived(instantOf(note?.capturedAt));
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 	/** A thought typed and not added yet. */
@@ -93,34 +97,38 @@
 	}
 
 	function openText() {
-		captures.open(stem, 'text');
+		captures.open(args.id, 'text');
 	}
 
-	/** Export the landed file after the typed body saves. */
+	/** The capture's file text once the typed body has landed, or undefined when it is gone. */
+	async function landedText() {
+		if ((await body.landed()).error !== null || !active) return undefined;
+		const saved = list.get(args);
+		if (saved === undefined) return undefined;
+		const written = captureText(saved);
+		return written.error === null ? { saved, text: written.data } : undefined;
+	}
+
+	/** Export the capture's file after the typed body saves. */
 	async function download() {
-		if ((await body.landed()).error !== null) return;
-		if (!active) return;
-		const data = folder.file(path)?.data;
-		if (typeof data !== 'string') {
-			toast.error('Could not download this capture', { description: 'Its text is not available.' });
+		const landed = await landedText();
+		if (landed === undefined) {
+			if (active) toast.error('Could not download this capture', { description: 'Its text is not available.' });
 			return;
 		}
-		downloadText(`${stem}.md`, data);
+		downloadText(`${args.id}.md`, landed.text);
 	}
 
-	async function editThought(index: number, list: readonly string[]) {
-		// Selection ranges come from the landed file, so wait for the typed body.
-		if ((await body.landed()).error !== null) return;
+	async function editThought(index: number, shown: readonly string[]) {
+		// Selection ranges come from the saved file, so wait for the typed body.
+		const landed = await landedText();
 		if (!active) return;
-		const saved = folder.tables.captures.row(stem);
-		const data = folder.file(path)?.data;
-		const range = saved?.issues === null && typeof data === 'string'
-			? locateThought(data, saved.body, index, list) : undefined;
+		const range = landed && locateThought(landed.text, landed.saved.body, index, shown);
 		if (range === undefined) {
 			actions.refuseChanged();
 			return;
 		}
-		captures.open(stem, 'text', range);
+		captures.open(args.id, 'text', range);
 	}
 
 	function confirmDeleteThought(thought: string, index: number, shown: readonly string[]) {
@@ -140,22 +148,15 @@
 {#if reading === undefined}
 	<div class="flex flex-col gap-4">
 		<Button variant="outline" size="sm" class="self-start" onclick={() => captures.leave()}>Back to timeline</Button>
-		{#if row?.issues && !row.issues.some((issue) => issue.kind === 'unreadable' || issue.kind === 'not-text')}
+		{#if broken !== undefined && broken.text !== null}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This file does not read as a capture</Empty.Title>
-					<Empty.Description>{describeIssues(row.issues)}</Empty.Description>
+					<Empty.Description>{describeIssues(broken.issues)}</Empty.Description>
 				</Empty.Header>
 				<Empty.Content><Button size="sm" onclick={openText}>Edit as text</Button></Empty.Content>
 			</Empty.Root>
-		{:else if row === undefined}
-			<Empty.Root role="alert">
-				<Empty.Header>
-					<Empty.Title>This capture is no longer here</Empty.Title>
-					<Empty.Description>It was deleted, here or in another tab.</Empty.Description>
-				</Empty.Header>
-			</Empty.Root>
-		{:else if row.issues?.some((issue) => issue.kind === 'not-text')}
+		{:else if broken !== undefined}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This file is not text</Empty.Title>
@@ -165,12 +166,9 @@
 		{:else}
 			<Empty.Root role="alert">
 				<Empty.Header>
-					<Empty.Title>This capture could not be read</Empty.Title>
-					<Empty.Description>{row.issues && describeIssues(row.issues)}</Empty.Description>
+					<Empty.Title>This capture is no longer here</Empty.Title>
+					<Empty.Description>It was deleted, here, in another tab, or on another device.</Empty.Description>
 				</Empty.Header>
-				<Empty.Content>
-					<Button variant="outline" size="sm" onclick={() => void folder.refresh()}>Try again</Button>
-				</Empty.Content>
 			</Empty.Root>
 		{/if}
 	</div>
@@ -184,6 +182,9 @@
 			{:else}
 				Capture with no date
 			{/if}
+			{#if captures.uploads && note?.where === 'device'}
+				<Badge variant="outline" class="ml-2 align-middle font-normal text-muted-foreground">Not uploaded yet</Badge>
+			{/if}
 		</h1>
 		<Button variant="outline" size="sm" onclick={openText}>Edit as text</Button>
 		<DropdownMenu.Root>
@@ -196,7 +197,7 @@
 				<DropdownMenu.Item onclick={() => copy(text, 'Capture text')}>Copy capture text</DropdownMenu.Item>
 				<DropdownMenu.Item onclick={() => void download()}>Download file</DropdownMenu.Item>
 				<DropdownMenu.Separator />
-				<DropdownMenu.Item variant="destructive" onclick={() => void confirmDelete(captures, stem)}>Delete capture…</DropdownMenu.Item>
+				<DropdownMenu.Item variant="destructive" onclick={() => void confirmDelete(captures, args.id)}>Delete capture…</DropdownMenu.Item>
 			</DropdownMenu.Content>
 		</DropdownMenu.Root>
 	</div>

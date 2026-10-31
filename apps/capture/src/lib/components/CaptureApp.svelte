@@ -1,43 +1,91 @@
 <!--
-	Capture inside `<OpenFolder>`: builds the store over the opened
-	folder, and shows the timeline or the one open capture under a
-	header that shows when folder writes are in progress.
-
-	The folder keeps no history and syncs nowhere yet: the header offers no
-	Save version, Sync, or Connect.
+	Capture over one list (`createCaptureList`): a header that says where the
+	captures are and who is signed in, then the timeline or the one open
+	capture. Signed out, the captures are this browser's; signed in, they are
+	the person's `capture` repository, and the ones made here count as "not
+	uploaded yet" until they are up.
 -->
 <script lang="ts">
-	import { saveLine } from '@epicenter/svelte/status-line';
-	import { setFolder } from '$lib/folder.js';
+	import StatusPopover from '@epicenter/svelte/status-popover';
+	import StatusRow from '@epicenter/svelte/status-row';
+	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
-	import { type CaptureFolder, createCaptures } from '$lib/captures.svelte.js';
+	import { toast } from '@epicenter/ui/sonner';
+	import { webAuth } from '$lib/auth.js';
+	import { type CaptureList, createCaptures } from '$lib/captures.svelte.js';
 	import CaptureDetail from './CaptureDetail.svelte';
 	import TextDetail from './TextDetail.svelte';
 	import Timeline from './Timeline.svelte';
 
-	let { folder }: { folder: CaptureFolder } = $props();
+	let { list, signedIn }: { list: CaptureList; signedIn: boolean } = $props();
 
-	// The opened folder stays fixed until this app root unmounts.
+	// The list and the account stay fixed until this app root unmounts.
 	// svelte-ignore state_referenced_locally
-	setFolder(folder);
-	// svelte-ignore state_referenced_locally
-	const captures = createCaptures(folder);
+	const captures = createCaptures(list, { uploads: signedIn });
+	const auth = webAuth();
 
-	// One page: the timeline or the one open capture.
+	/** One page: the timeline or the one open capture. */
 	const item = $derived(captures.opened);
+	/** Signed in, the captures made here that have not reached the repository yet. */
+	const waiting = $derived(list.items.filter(({ where }) => where === 'device').length);
+	const status = $derived.by((): StatusLine => {
+		if (list.error !== null)
+			return { label: 'Not readable here', detail: list.error.message, tone: 'error' };
+		if (!signedIn) return { label: 'On this device', tone: 'neutral' };
+		if (auth.state.status === 'reauth-required')
+			return {
+				label: 'Uploads paused',
+				detail: 'Sign in again to upload and to edit your repository.',
+				tone: 'warning',
+			};
+		// New captures still save, to this browser, and upload once it is back.
+		if (list.repositoryError !== null)
+			return {
+				label: 'Offline: new captures wait to upload',
+				short: 'Offline',
+				detail: list.repositoryError.message,
+				tone: 'warning',
+			};
+		if (waiting > 0) return { label: `${waiting} not uploaded yet`, tone: 'busy' };
+		return { label: 'In your repository', tone: 'good' };
+	});
+
+	async function signIn() {
+		const { error } = await auth.startSignIn();
+		if (error !== null) toast.error('Could not sign in', { description: error.message });
+	}
+
+	async function signOut() {
+		const { error } = await auth.signOut();
+		if (error !== null) toast.error('Could not sign out', { description: error.message });
+	}
 </script>
 
 <header class="border-b">
-	<div class="mx-auto flex h-12 max-w-3xl items-center justify-between gap-4 px-4 sm:px-6">
-		<Button
-			variant="ghost"
-			size="sm"
-			class="-ml-2.5"
-			onclick={() => captures.leave()}>Capture</Button
-		>
-		<span role="status" aria-label="Saving" class="text-xs text-muted-foreground"
-			>{saveLine(folder.saving).label}</span
-		>
+	<div class="mx-auto flex h-12 max-w-3xl items-center gap-2 px-4 sm:px-6">
+		<Button variant="ghost" size="sm" class="-ml-2.5" onclick={() => captures.leave()}>Capture</Button>
+		<StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
+			<StatusRow name="Where">
+				<span class="font-medium" data-testid="status-where">{signedIn ? 'Your repository' : 'This browser'}</span>
+				<span class="mt-0.5 block text-xs text-muted-foreground">
+					{#if signedIn}
+						Your Epicenter repository, capture. Captures made here go to this browser first and upload on their own.
+					{:else}
+						Kept in this browser. Sign in to keep them in your Epicenter repository; these upload then.
+					{/if}
+				</span>
+			</StatusRow>
+		</StatusPopover>
+		<div class="ml-auto flex items-center gap-2">
+			{#if auth.state.status === 'signed-out'}
+				<Button size="sm" onclick={() => void signIn()}>Sign in</Button>
+			{:else}
+				{#if auth.state.status === 'reauth-required'}
+					<Button size="sm" onclick={() => void signIn()}>Sign in again</Button>
+				{/if}
+				<Button variant="ghost" size="sm" onclick={() => void signOut()}>Sign out</Button>
+			{/if}
+		</div>
 	</div>
 </header>
 
@@ -47,11 +95,11 @@
 			<Timeline {captures} />
 		{:else if item.mode === 'capture'}
 			{#key item}
-				<CaptureDetail {captures} stem={item.stem} />
+				<CaptureDetail {captures} id={item.id} />
 			{/key}
 		{:else}
 			{#key item}
-				<TextDetail {captures} stem={item.stem} />
+				<TextDetail {captures} id={item.id} />
 			{/key}
 		{/if}
 	</div>

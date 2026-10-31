@@ -1,2 +1,2 @@
+// A client-only single-page app: its files are in the browser, opened after mount.
 export const ssr = false;
-// The browser build serves a fallback page for every route.
