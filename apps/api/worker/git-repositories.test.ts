@@ -22,10 +22,7 @@ function artifactsError(code: ArtifactsErrorCode) {
 	return Object.assign(new Error(code), { name: 'ArtifactsError', code });
 }
 
-function scripted(
-	creates: ('created' | Error)[] = [],
-	{ receiver = false }: { receiver?: boolean } = {},
-) {
+function scripted(creates: ('created' | Error)[] = []) {
 	const calls: string[] = [];
 	const minted: [string | undefined, number | undefined][] = [];
 	let serial = 0;
@@ -62,7 +59,6 @@ function scripted(
 		artifacts,
 		accountId: 'account123',
 		namespace: 'epicenter-test',
-		receiver,
 		now: () => clock,
 	});
 	return {
@@ -88,11 +84,10 @@ function stubFetch(answer: () => Response = () => new Response('ok')) {
 }
 
 const request = (
-	service: 'git-upload-pack' | 'git-receive-pack',
 	advertisement: boolean,
 	body: ReadableStream<Uint8Array> | null = null,
 ) => ({
-	service,
+	service: 'git-upload-pack' as const,
 	advertisement,
 	headers: new Headers({
 		'content-type': 'x-git',
@@ -123,12 +118,12 @@ test('other binding failures propagate', async () => {
 	await expect(scripted([plain]).host.create(ID)).rejects.toBe(plain);
 });
 
-test('serving forwards to the id URL with a minted token, never the client credential', async () => {
+test('serving forwards to the id URL with a minted read token, never the client credential', async () => {
 	const requests = stubFetch();
 	const { host } = scripted();
-	await host.serve(ID, request('git-upload-pack', true));
-	const body = new Blob(['pack']).stream();
-	await host.serve(ID, request('git-receive-pack', false, body));
+	await host.serve(ID, request(true));
+	const body = new Blob(['want']).stream();
+	await host.serve(ID, request(false, body));
 	expect(requests.map(({ url, init }) => [init.method, url])).toEqual([
 		[
 			'GET',
@@ -136,36 +131,31 @@ test('serving forwards to the id URL with a minted token, never the client crede
 		],
 		[
 			'POST',
-			`https://account123.artifacts.cloudflare.net/git/epicenter-test/${ID}.git/git-receive-pack`,
+			`https://account123.artifacts.cloudflare.net/git/epicenter-test/${ID}.git/git-upload-pack`,
 		],
 	]);
-	const [read, write] = requests.map(({ init }) =>
-		new Headers(init.headers).get('authorization'),
-	);
-	expect(read).toBe(`Basic ${btoa('x:art_v2_read_1?expires=1')}`);
-	expect(write).toBe(`Basic ${btoa('x:art_v2_write_2?expires=1')}`);
+	for (const { init } of requests)
+		expect(new Headers(init.headers).get('authorization')).toBe(
+			`Basic ${btoa('x:art_v2_read_1?expires=1')}`,
+		);
 	for (const { init } of requests) expect(init.redirect).toBe('manual');
 	expect(requests[1]?.init.body).toBe(body);
 });
 
-test('a token is minted for 24 hours per repository and scope, cached, and renewed an hour early', async () => {
+test('a token is minted for 24 hours per repository, cached, and renewed an hour early', async () => {
 	stubFetch();
 	const { host, minted, advance } = scripted();
-	await host.serve(ID, request('git-upload-pack', true));
-	await host.serve(ID, request('git-upload-pack', false));
-	await host.serve(ID, request('git-receive-pack', true));
-	expect(minted).toEqual([
-		['read', 86_400],
-		['write', 86_400],
-	]);
+	await host.serve(ID, request(true));
+	await host.serve(ID, request(false));
+	expect(minted).toEqual([['read', 86_400]]);
 	advance(22 * 60 * 60 * 1000);
-	await host.serve(ID, request('git-upload-pack', true));
-	expect(minted).toHaveLength(2);
+	await host.serve(ID, request(true));
+	expect(minted).toHaveLength(1);
 	advance(60 * 60 * 1000);
-	await host.serve(ID, request('git-upload-pack', true));
+	await host.serve(ID, request(true));
+	expect(minted).toHaveLength(2);
+	await host.serve('fedcba9876543210', request(true));
 	expect(minted).toHaveLength(3);
-	await host.serve('fedcba9876543210', request('git-upload-pack', true));
-	expect(minted).toHaveLength(4);
 });
 
 test('a token Artifacts refuses is dropped, so the next request mints another', async () => {
@@ -173,26 +163,22 @@ test('a token Artifacts refuses is dropped, so the next request mints another', 
 	globalThis.fetch = (async () =>
 		new Response(null, { status })) as unknown as typeof fetch;
 	const { host, minted } = scripted();
-	expect((await host.serve(ID, request('git-upload-pack', true))).status).toBe(
-		401,
-	);
+	expect((await host.serve(ID, request(true))).status).toBe(401);
 	status = 200;
-	await host.serve(ID, request('git-upload-pack', true));
-	await host.serve(ID, request('git-upload-pack', true));
+	await host.serve(ID, request(true));
+	await host.serve(ID, request(true));
 	expect(minted).toHaveLength(2);
 });
 
 test('a delete removes the repository by its id and drops its cached tokens', async () => {
 	stubFetch();
 	const { host, calls, minted } = scripted();
-	await host.serve(ID, request('git-upload-pack', true));
-	await host.serve(ID, request('git-receive-pack', true));
+	await host.serve(ID, request(true));
 	await host.delete(ID);
 	expect(calls).toContain(`delete ${ID}`);
-	// The deleted repository's tokens are not kept.
-	await host.serve(ID, request('git-upload-pack', true));
-	await host.serve(ID, request('git-receive-pack', true));
-	expect(minted).toHaveLength(4);
+	// The deleted repository's token is not kept.
+	await host.serve(ID, request(true));
+	expect(minted).toHaveLength(2);
 });
 
 test('the namespace var names the same namespace as the Artifacts binding', async () => {
@@ -210,7 +196,7 @@ test('the namespace var names the same namespace as the Artifacts binding', asyn
 	expect(config.secrets.required).toContain('ARTIFACTS_ACCOUNT_ID');
 });
 
-describe('the receiver waits for an R2 LFS store', () => {
+describe('the receiver', () => {
 	const pkt = (line: string) =>
 		`${(line.length + 4).toString(16).padStart(4, '0')}${line}`;
 	const advertisement = () =>
@@ -224,44 +210,28 @@ describe('the receiver waits for an R2 LFS store', () => {
 				'0000',
 			].join(''),
 		);
-	const withProtocol = () => {
-		const sent = request('git-upload-pack', true);
-		sent.headers.set('git-protocol', 'version=2');
-		return sent;
-	};
 
-	test('without one, the host has no objects and proxies every Git request as before the receiver', async () => {
+	test('pushes and web writes go through the receiver, and clone and fetch pass through in the protocol asked for', async () => {
 		const requests = stubFetch(advertisement);
-		const { host } = scripted([], { receiver: false });
-		expect(host.objects).toBeUndefined();
-		const served = await host.serve(ID, withProtocol());
-		// Protocol v2 is asked for, and the advertisement comes back untouched.
-		expect(new Headers(requests[0]?.init.headers).get('git-protocol')).toBe(
-			'version=2',
-		);
-		expect(await served.text()).toBe(await advertisement().text());
-	});
-
-	test('with one, pushes and web writes go through the receiver, and clone and fetch pass through in the protocol asked for', async () => {
-		const requests = stubFetch(advertisement);
-		const { host } = scripted([], { receiver: true });
+		const { host } = scripted();
 		expect(host.objects).toBeFunction();
 		expect(host.receiveLimits).toEqual({
 			pushBytes: 24 * 1024 * 1024,
 			heldBytes: 24 * 1024 * 1024,
 			mainCommits: 5_000,
 		});
-		const served = await host.serve(ID, withProtocol());
+		const sent = request(true);
+		sent.headers.set('git-protocol', 'version=2');
+		const served = await host.serve(ID, sent);
 		expect(new Headers(requests[0]?.init.headers).get('git-protocol')).toBe(
 			'version=2',
 		);
 		expect(await served.text()).toBe(await advertisement().text());
 	});
 
-	test('the deployment gets the receiver only when every R2 LFS binding is there', () => {
-		const artifacts = {} as ArtifactsNamespace;
+	test('the deployment hosts Git only when Artifacts and every R2 LFS binding are there', () => {
 		const base = {
-			ARTIFACTS: artifacts,
+			ARTIFACTS: {} as ArtifactsNamespace,
 			ARTIFACTS_ACCOUNT_ID: 'account123',
 			ARTIFACTS_NAMESPACE: 'epicenter-test',
 		};
@@ -273,11 +243,11 @@ describe('the receiver waits for an R2 LFS store', () => {
 		};
 		expect(resolveArtifactsGitHost({})).toBeNull();
 		// Production today: Artifacts bound, no LFS bucket.
-		expect(resolveArtifactsGitHost(base)?.objects).toBeUndefined();
-		for (const missing of Object.keys(lfs)) {
-			const partial = { ...base, ...lfs, [missing]: undefined };
-			expect(resolveArtifactsGitHost(partial)?.objects).toBeUndefined();
-		}
+		expect(resolveArtifactsGitHost(base)).toBeNull();
+		for (const missing of Object.keys(lfs))
+			expect(
+				resolveArtifactsGitHost({ ...base, ...lfs, [missing]: undefined }),
+			).toBeNull();
 		expect(
 			resolveArtifactsGitHost({ ...base, ...lfs })?.objects,
 		).toBeFunction();

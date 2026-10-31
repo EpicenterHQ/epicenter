@@ -30,8 +30,7 @@ afterAll(async () => {
 async function fresh(): Promise<{ id: string; objects: GitObjects }> {
 	const id = newRepositoryId();
 	await host.create(id);
-	const objects = host.objects?.(id);
-	if (!objects) throw new Error('the disk host has objects');
+	const objects = host.objects(id);
 	return { id, objects };
 }
 
@@ -144,10 +143,7 @@ describe('disk GitObjects', () => {
 			one.pack,
 		);
 		objects.close();
-		const serve = (
-			headers: Record<string, string>,
-			body: Uint8Array | null,
-		) =>
+		const serve = (headers: Record<string, string>, body: Uint8Array | null) =>
 			host.serve(id, {
 				service: 'git-upload-pack',
 				advertisement: body === null,

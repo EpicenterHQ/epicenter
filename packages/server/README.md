@@ -156,11 +156,7 @@ Refusals answer `{ error, error_description }`: 401 `invalid_token` with
 terminal Git), 403 `insufficient_scope` or `forbidden`, 404 `not_found`,
 413 `too_large` for a push over the store's `pushBytes`, 502 `store_failed`, 503
 `git_unavailable` when the deployment has no store (or, for the LFS routes, no
-LFS store). A store without `objects` answers only Git's smart HTTP under a
-named namespace, as hosted Git did before the receiver; the files, LFS and `~`
-routes are 404 there, and since nothing would stop a push replacing `main`, only
-the owner may push (403 `forbidden` for a member or a write grant).
-Hosted Git takes no billing policy.
+LFS store). Hosted Git takes no billing policy.
 
 `GitHost` is the replaceable part. It names a repository by its immutable id
 (`repository.id`), never by `<namespace>/<name>`, and receives only requests
@@ -168,11 +164,12 @@ the route already authorized, never the client's credential:
 
 ```ts
 type GitHost = {
+  /** Clone and fetch (`git-upload-pack`); every push goes to the receiver. */
   serve(id: string, request: GitRequest): Promise<Response>;
   create(id: string): Promise<void>;
   delete(id: string): Promise<void>;
   /** The receiver's and translator's port (`GitObjects`, `src/git/objects.ts`). */
-  objects?(id: string): GitObjects;
+  objects(id: string): GitObjects;
   /** What one push may cost this store; `RECEIVE_LIMITS` when absent. */
   receiveLimits?: ReceiveLimits;
 };

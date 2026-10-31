@@ -386,9 +386,10 @@ describe('Artifacts GitObjects', () => {
 		expect(reads).not.toContain(`commit ${S}`);
 		expect(applied[0]).toStartWith(`${M} ${y.oid} refs/heads/main`);
 	});
-	test("a desktop offline for 600 captures pushes in one read of main's history, past raw audio from before the receiver", async () => {
-		// Main: 650 commits. Commit 3 added raw audio (pushed before the
-		// receiver existed); every later commit keeps that tree.
+	test("a desktop offline for 600 captures pushes in one read of main's history, checking only its own changes", async () => {
+		// Main: 650 commits. Commit 3 added raw audio, which the receiver
+		// would refuse, so checking more than the push's own changes fails;
+		// every later commit keeps that tree.
 		const note = makeObject('blob', 'x\n');
 		const audio = makeObject('blob', new Uint8Array([0, 0, 0, 0x20, 0x66]));
 		const t0 = treeObject([{ mode: '100644', name: 'a.md', oid: note.oid }]);

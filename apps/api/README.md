@@ -1,19 +1,16 @@
 # Epicenter API (Hosted Personal Cloud)
 
 > [!CAUTION]
-> **The receiver is off on the hosted cloud until R2 LFS is bound; do not
-> bind it casually.** The Artifacts host gets `objects` (pushes through the
-> receiver, web writes, Git LFS) only when all four R2 LFS bindings are there
+> **Hosted Git answers 503 until R2 LFS is bound.** `resolveArtifactsGitHost`
+> returns no host until Artifacts and all four R2 LFS bindings are there
 > (`LFS_BUCKET`, `LFS_BUCKET_NAME`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`;
-> `resolveArtifactsGitHost` in `worker/git-repositories.ts`). `wrangler.jsonc`
-> binds none, so deploying this line proxies every Git request to Artifacts
-> exactly as before the receiver, the LFS, web write and `~` routes answer
-> 404, and only a repository's owner may push (a write grant reads until the
-> receiver is on). Binding them turns the receiver on, which refuses any file other than a
+> `worker/lfs-store.ts`), and `wrangler.jsonc` binds none yet. Then every push
+> and web write goes through the receiver, which refuses any file other than a
 > `.md` note or a hidden path unless it is a stored Git LFS pointer. Before
-> binding: give the bucket a CORS rule for the registered app origins (PUT and
-> GET; headers `x-amz-checksum-sha256`, `if-none-match`, `content-type`), or
-> browser uploads and downloads fail. See [Hosted Git](#hosted-git).
+> binding: give the bucket a CORS rule
+> for the registered app origins (PUT and GET; headers
+> `x-amz-checksum-sha256`, `if-none-match`, `content-type`), or browser
+> uploads and downloads fail. See [Hosted Git](#hosted-git).
 
 Epicenter Cloud Worker. Handles authentication, hosted Git, AI inference, and billing for the hosted personal cloud product. Cloud composes `@epicenter/server` by resolving Better Auth users as principals.
 
@@ -285,14 +282,11 @@ immutable id, so a rename or a move never reaches Artifacts and no URL shows
 an id. It reaches
 `https://<ARTIFACTS_ACCOUNT_ID>.artifacts.cloudflare.net/git/<ARTIFACTS_NAMESPACE>/<id>.git`
 with a token it mints and caches per repository and scope: 24 hours, renewed an
-hour early, `read` for a fetch and `write` for a push. The client's token never
-reaches Artifacts. Without R2 LFS bound (today), every Git request is
-forwarded as it was before the receiver, the host has no `objects`, and
-only the owner may push, since nothing would refuse a push replacing `main`.
-Git LFS objects live in R2 when the Worker binds a bucket (`LFS_BUCKET`,
-`LFS_BUCKET_NAME`, and the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair
-that presigns transfers; `worker/lfs-store.ts`), and only then does the
-receiver come on (`resolveArtifactsGitHost`): clone and fetch are still
+hour early, `read` for a fetch and `write` for the receiver's own writes. The
+client's token never reaches Artifacts. Git LFS objects live in R2 when the
+Worker binds a bucket (`LFS_BUCKET`, `LFS_BUCKET_NAME`, and the
+`R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair that presigns transfers;
+`worker/lfs-store.ts`); until then hosted Git answers 503. Clone and fetch are
 forwarded untouched, in whichever protocol the client asks for; every
 push goes through the receiver and every web write through the translator,
 over `worker/artifacts-objects.ts`. The Worker's receiver takes a push body of

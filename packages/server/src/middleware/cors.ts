@@ -15,17 +15,7 @@ export const corsMiddleware = createMiddleware<Env>(async (c, next) => {
 		origin: (origin) =>
 			origin && trustedOrigins.includes(origin) ? origin : undefined,
 		credentials: true,
-		allowHeaders: [
-			'Content-Type',
-			'Content-Encoding',
-			'Git-Protocol',
-			'Authorization',
-			'X-Epicenter-Principal',
-			'If-Match',
-			'If-Range',
-			'Range',
-		],
+		allowHeaders: ['Content-Type', 'Authorization', 'X-Epicenter-Principal'],
 		allowMethods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-		exposeHeaders: ['ETag', 'Content-Range', 'Accept-Ranges'],
 	})(c, next);
 });

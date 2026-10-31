@@ -6,15 +6,20 @@
  * that names a metadata document, the resource check's 401 and 403 answers through a
  * test-only protected route, and the real protected mounts behind
  * `requireAccessToken` the way the deployments compose them.
- * Requires initdb and pg_ctl on PATH; never connects to a configured database.
+ * Requires initdb, pg_ctl, and git on PATH (a push lands in a disk store);
+ * never connects to a configured database.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { every } from 'hono/combine';
 import type { Client } from 'pg';
 import { createCloudContextMiddleware } from '../create-cloud-context-middleware.js';
 import { createDb, type Db } from '../db/create-db.js';
+import { createDiskGitHost } from '../git-disk-store.js';
 import { requireAccessToken } from '../middleware/require-auth.js';
 import { mountAuthRoutes } from '../routes/auth.js';
 import { type GitHost, mountGitHost } from '../routes/git.js';
@@ -61,19 +66,15 @@ const untrusted = {
 	redirectUri: 'http://127.0.0.1:53222/callback',
 };
 
-/** A Git store that records what it creates and answers every request with an empty body. */
+/** The disk Git store, recording which repositories it creates. */
+const gitRoot = mkdtempSync(join(tmpdir(), 'oauth-server-git-'));
 const createdRepositories: string[] = [];
+const diskHost = createDiskGitHost({ root: gitRoot });
 const recordingHost: GitHost = {
+	...diskHost,
 	async create(id) {
 		createdRepositories.push(id);
-	},
-	async delete() {},
-	async serve() {
-		return new Response('0000', {
-			headers: {
-				'content-type': 'application/x-git-receive-pack-advertisement',
-			},
-		});
+		await diskHost.create(id);
 	},
 };
 
@@ -233,6 +234,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+	rmSync(gitRoot, { recursive: true, force: true });
 	await stop?.();
 });
 

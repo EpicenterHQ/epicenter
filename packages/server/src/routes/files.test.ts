@@ -57,7 +57,7 @@ type Repo = {
 async function repository(): Promise<Repo> {
 	const id = newRepositoryId();
 	await host.create(id);
-	const objects = host.objects?.(id) as GitObjects;
+	const objects = host.objects(id);
 	const gitDir = repositoryPath(join(box.root, 'store'), id);
 	return {
 		id,
@@ -68,7 +68,7 @@ async function repository(): Promise<Repo> {
 			if ('status' in checked)
 				return { status: checked.status, body: checked as never };
 			const response = await applyWrite({
-				objects: host.objects?.(id) as GitObjects,
+				objects: host.objects(id),
 				lfs,
 				repositoryId: id,
 				request: checked,
@@ -177,7 +177,8 @@ describe('POST writes', () => {
 		const text = await repo.show('c/x.md');
 		expect(text.match(/^<<<<<<< /gm)).toHaveLength(1);
 		expect(text.startsWith(first)).toBe(true);
-		for (const line of ['title: Retro', 'second take']) expect(text).toContain(line);
+		for (const line of ['title: Retro', 'second take'])
+			expect(text).toContain(line);
 		expect(resent.body.blobs['c/x.md']).toBe(
 			(await box.ok(repo.gitDir, ['rev-parse', 'main:c/x.md'])).trim(),
 		);
@@ -188,7 +189,9 @@ describe('POST writes', () => {
 		const take1 = await upload(repo, new TextEncoder().encode('take one'));
 		const take2 = await upload(repo, new TextEncoder().encode('take two'));
 		await repo.write({ files: [{ path: 'r/a.m4a', lfs: take1 }] });
-		const resent = await repo.write({ files: [{ path: 'r/a.m4a', lfs: take2 }] });
+		const resent = await repo.write({
+			files: [{ path: 'r/a.m4a', lfs: take2 }],
+		});
 		const sibling = conflictSibling('r/a.m4a', take2.oid);
 		expect(resent.body.outcomes[0]).toEqual({
 			path: 'r/a.m4a',

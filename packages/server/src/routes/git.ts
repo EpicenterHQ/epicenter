@@ -52,13 +52,9 @@
  * Worker, bare repositories on disk for the Bun entry. It names a repository
  * by its immutable id, never by `<namespace>/<name>`, and receives only
  * requests this module already authorized; the client's credential never
- * reaches it. A store with `objects` gets every push through the receiver,
- * and the files and LFS routes; LFS answers 503 until the deployment has an
- * LFS store. A store without `objects` serves pushes itself and answers
- * as hosted Git did before the receiver: smart HTTP under a named
- * namespace, and 404 for every other path, `~` included. Since such a store
- * cannot refuse a push that replaces `main`, it takes pushes only from a
- * role that may rewrite (the owner).
+ * reaches it. The store serves clone and fetch; every push goes through the
+ * receiver, and the files and LFS routes over its `objects`. LFS answers 503
+ * until the deployment has an LFS store.
  *
  * Refusals answer JSON `{ error, error_description }`:
  *   - 401 `invalid_token`        missing, unknown, expired, revoked, or another
@@ -68,8 +64,7 @@
  *   - 403 `insufficient_scope`   the token lacks the operation's scope;
  *   - 403 `forbidden`            the namespace is outside the grant, the account
  *                                is neither a member nor granted the repository,
- *                                or its role may not do this (without the
- *                                receiver, only the owner pushes);
+ *                                or its role may not do this;
  *   - 404 `not_found`            a missing repository's advertisement, for a
  *                                role that may not push, or its upload-pack;
  *   - 413 `too_large`            a push over the store's `pushBytes` (64 MiB on disk);
@@ -139,9 +134,9 @@ import {
 
 export type GitService = 'git-upload-pack' | 'git-receive-pack';
 
-/** One authorized smart-HTTP request, as a store receives it. */
+/** One authorized clone or fetch request, as a store receives it. */
 export type GitRequest = {
-	service: GitService;
+	service: 'git-upload-pack';
 	/** `GET info/refs?service=…` rather than `POST <service>`. */
 	advertisement: boolean;
 	/** The request's `content-type`, `content-encoding`, `accept`, and `git-protocol`; never a credential. */
@@ -158,7 +153,11 @@ export type GitRequest = {
  * never reaches the store.
  */
 export type GitHost = {
-	/** Answer one authorized request for repository `id`. Throws when storage cannot be reached. */
+	/**
+	 * Answer one authorized clone or fetch request for repository `id`; a
+	 * push goes through the receiver over `objects`. Throws when storage
+	 * cannot be reached.
+	 */
 	serve(id: string, request: GitRequest): Promise<Response>;
 	/**
 	 * Make an empty repository `id`, whose default branch is `main`, at the
@@ -173,11 +172,9 @@ export type GitHost = {
 	delete(id: string): Promise<void>;
 	/**
 	 * Repository `id`'s objects and refs, for the push receiver and the
-	 * write translator; the caller closes the handle. A host without it
-	 * serves pushes itself through `serve`, and the files, LFS and `~`
-	 * routes are not served (404), as before the receiver.
+	 * write translator; the caller closes the handle.
 	 */
-	objects?(id: string): GitObjects;
+	objects(id: string): GitObjects;
 	/** What one push may cost this store; the disk server's (`RECEIVE_LIMITS`) by default. */
 	receiveLimits?: ReceiveLimits;
 };
@@ -405,21 +402,13 @@ const pktLine = (line: string) =>
 	`${(line.length + 4).toString(16).padStart(4, '0')}${line}`;
 
 /**
- * Capabilities the empty advertisement offers, for a store that serves
- * pushes itself: what a push needs to stream and report its result.
- */
-const EMPTY_CAPABILITIES: Record<GitService, string> = {
-	'git-upload-pack': 'agent=epicenter',
-	'git-receive-pack': 'report-status side-band-64k agent=epicenter',
-};
-
-/**
- * The protocol v0 advertisement of a repository with no refs
+ * The protocol v0 upload-pack advertisement of a repository with no refs
  * (`gitprotocol-pack`, "no-refs"). A client that asked for protocol v2 reads
  * it as a server that speaks v0, and finds nothing to fetch.
  */
-function emptyAdvertisement(service: GitService): Response {
-	const capabilities = `${'0'.repeat(40)} capabilities^{}\0${EMPTY_CAPABILITIES[service]}\n`;
+function emptyAdvertisement(): Response {
+	const service: GitService = 'git-upload-pack';
+	const capabilities = `${'0'.repeat(40)} capabilities^{}\0agent=epicenter\n`;
 	return new Response(
 		`${pktLine(`# service=${service}\n`)}0000${pktLine(capabilities)}0000`,
 		{
@@ -535,19 +524,6 @@ export function mountGitHost(
 			);
 		const { endpoint } = target;
 		const host = resolveHost(c.env);
-		// A store without objects answers what hosted Git answered before
-		// the receiver: Git's smart HTTP under a named namespace, and nothing
-		// else, so a deployment gains the new routes only with the receiver.
-		if (
-			!host?.objects &&
-			(endpoint.kind !== 'git' || target.namespaceId === PERSONAL_NAMESPACE)
-		)
-			return refuse(
-				c,
-				404,
-				'not_found',
-				'Not a Git request this server answers.',
-			);
 		// Locking is not offered; `git lfs` carries on without it.
 		if (endpoint.kind === 'lfs-locks')
 			return lfsJson({ message: 'Git LFS locking is not supported.' }, 404);
@@ -614,24 +590,6 @@ export function mountGitHost(
 					`Bearer resource_metadata="${protectedResourceMetadataUrl(audience)}"`,
 				],
 			);
-		// Without the receiver the store takes a push as it is, so nothing
-		// would stop one from replacing `main`: only a role that may rewrite
-		// it pushes.
-		if (
-			!host.objects &&
-			endpoint.kind === 'git' &&
-			endpoint.service === 'git-receive-pack' &&
-			!roleAllows(granted.role, 'rewrite')
-		)
-			return refuse(
-				c,
-				403,
-				'forbidden',
-				"Until this server's receiver is on, only the repository's owner may push to it.",
-				[
-					`Bearer resource_metadata="${protectedResourceMetadataUrl(audience)}"`,
-				],
-			);
 		/** The remote as the client named it, ending `.git`. */
 		const remote = `${url.origin}${url.pathname.slice(0, url.pathname.indexOf('.git/') + 4)}`;
 
@@ -648,9 +606,9 @@ export function mountGitHost(
 							'not_found',
 							`No repository is named ${target.namespaceId}/${target.name}.`,
 						);
-					return endpoint.service === 'git-receive-pack' && host.objects
+					return endpoint.service === 'git-receive-pack'
 						? receiveAdvertisement(null)
-						: emptyAdvertisement(endpoint.service);
+						: emptyAdvertisement();
 				}
 				if (endpoint.kind === 'files')
 					return c.json({ commit: null, files: [] });
@@ -687,10 +645,7 @@ export function mountGitHost(
 			}
 		}
 
-		if (
-			endpoint.kind !== 'git' ||
-			(endpoint.service === 'git-receive-pack' && host.objects)
-		)
+		if (endpoint.kind !== 'git' || endpoint.service === 'git-receive-pack')
 			return serveObjects(c, {
 				host,
 				lfs,
@@ -786,9 +741,7 @@ export function mountGitHost(
 					await c.req.json().catch(() => null),
 				);
 		}
-		const objects = host.objects?.(repositoryId);
-		if (!objects)
-			return refuse(c, 503, 'git_unavailable', 'This store has no objects.');
+		const objects = host.objects(repositoryId);
 		try {
 			switch (endpoint.kind) {
 				case 'git': {

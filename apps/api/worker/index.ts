@@ -162,11 +162,11 @@ const accountSession = every(cloudContext, requireSessionCookie());
 // the access token and the namespace membership (`authorizeResourceRequest`),
 // and the listing from a Git-audience token, so they take no guard here.
 // Unmetered. The local dev launcher removes the Artifacts binding and required account secret, so the
-// store resolves to null and hosted Git answers 503. The receiver (pushes,
-// web writes and LFS through `@epicenter/server`) comes only with an R2 LFS
-// store (`LFS_BUCKET`, `LFS_BUCKET_NAME`, `R2_ACCESS_KEY_ID`,
-// `R2_SECRET_ACCESS_KEY`), which this configuration does not bind yet; until
-// then every Git request is proxied to Artifacts as before the receiver.
+// store resolves to null and hosted Git answers 503. Hosted Git also answers
+// 503 until an R2 LFS store (`LFS_BUCKET`, `LFS_BUCKET_NAME`,
+// `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) is bound, which this
+// configuration does not do yet; then every push and web write goes through
+// `@epicenter/server`'s receiver.
 mountGitHost(app, {
 	setup: cloudContext,
 	resolveHost: (env) => resolveArtifactsGitHost(env as GitBindings),
@@ -203,9 +203,6 @@ app.on(
 	}),
 	serveUiShell,
 );
-
-// Legacy redirect: /billing -> /dashboard.
-app.get('/billing', (c) => c.redirect('/dashboard'));
 
 // The Worker exposes the Hono fetch handler (the full URL surface above).
 // `app.fetch` is bound, so destructuring it is safe.

@@ -39,7 +39,7 @@ afterAll(async () => {
 async function setup() {
 	const id = newRepositoryId();
 	await host.create(id);
-	const objects = host.objects?.(id) as GitObjects;
+	const objects = host.objects(id);
 	const work = await box.dir('work');
 	await box.ok(work, ['init', '--quiet']);
 	const commit = async (
@@ -144,8 +144,9 @@ function counting(objects: GitObjects) {
 
 /**
  * Store a `length`-commit history on `main` straight into the bare
- * repository, as pushes before the receiver did: commit 3 adds raw audio,
- * and every commit adds a note. Returns main's tip.
+ * repository, past the receiver: commit 3 adds raw audio, which the receiver
+ * would refuse, so a push that checked more than its own changes would fail.
+ * Every commit adds a note. Returns main's tip.
  */
 async function storeLongHistory(
 	r: Awaited<ReturnType<typeof setup>>,
@@ -170,7 +171,7 @@ async function storeLongHistory(
 }
 
 describe('receivePush over a long history', () => {
-	test("a desktop offline for 600 captures pushes, reading main's history once, past raw bytes from before the receiver", async () => {
+	test("a desktop offline for 600 captures pushes, reading main's history once, checking only its own changes", async () => {
 		const r = await setup();
 		const tip = await storeLongHistory(r, 650);
 		// The desktop last synced 630 captures ago, recorded, then merged main.

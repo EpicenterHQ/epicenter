@@ -1,12 +1,9 @@
 /**
  * The hosted Git store on Cloudflare Artifacts, behind `mountGitHost`
- * (ADR-0546). Clone and fetch are proxied to Artifacts. With the receiver
- * (`receiver: true`, which `resolveArtifactsGitHost` sets only when an R2
- * LFS store is bound), pushes, web writes and LFS go through
- * `@epicenter/server`'s receiver and translator over `objects`
- * (`artifacts-objects.ts`), so Artifacts' own receive-pack is only ever
- * called by this Worker. Without it, every Git request is proxied as before
- * the receiver, and the host has no `objects`.
+ * (ADR-0546). Clone and fetch are proxied to Artifacts. Pushes, web writes
+ * and LFS go through `@epicenter/server`'s receiver and translator over
+ * `objects` (`artifacts-objects.ts`), so Artifacts' own receive-pack is only
+ * ever called by this Worker.
  *
  * One Artifacts namespace per environment holds every repository, each named
  * by its immutable id (`repository.id`), so a rename or a move in Postgres
@@ -71,28 +68,30 @@ function isArtifactsError(cause: unknown, code: ArtifactsErrorCode): boolean {
 
 type CachedToken = { token: Promise<string>; renewAt: number };
 
-/** The bindings hosted Git reads: Artifacts, and the R2 LFS store. */
-export type GitBindings = LfsBindings & {
+/** The Artifacts bindings hosted Git reads. */
+export type GitBindings = {
 	ARTIFACTS?: ArtifactsNamespace;
+	ARTIFACTS_ACCOUNT_ID?: string;
 	ARTIFACTS_NAMESPACE?: string;
 };
 
 /**
- * The deployment's Artifacts host, or null when Artifacts is not bound
- * (the local dev launcher removes it, and hosted Git answers 503). The
- * receiver comes only with an R2 LFS store (`resolveR2Lfs`): without one,
- * it would refuse every push that holds a file other than a note, so the
- * host proxies every request as before the receiver until all four LFS
- * bindings are there.
+ * The deployment's Artifacts host, or null, so hosted Git answers 503, until
+ * both Artifacts and the R2 LFS store (`resolveR2Lfs`) are bound. The local
+ * dev launcher removes Artifacts. Without LFS the receiver would refuse every
+ * push holding a file other than a note, so hosted Git stays off rather than
+ * half on.
  */
-export function resolveArtifactsGitHost(env: GitBindings): GitHost | null {
+export function resolveArtifactsGitHost(
+	env: GitBindings & LfsBindings,
+): GitHost | null {
 	const { ARTIFACTS, ARTIFACTS_ACCOUNT_ID, ARTIFACTS_NAMESPACE } = env;
 	if (!ARTIFACTS || !ARTIFACTS_ACCOUNT_ID || !ARTIFACTS_NAMESPACE) return null;
+	if (resolveR2Lfs(env) === null) return null;
 	return createArtifactsGitHost({
 		artifacts: ARTIFACTS,
 		accountId: ARTIFACTS_ACCOUNT_ID,
 		namespace: ARTIFACTS_NAMESPACE,
-		receiver: resolveR2Lfs(env) !== null,
 	});
 }
 
@@ -100,14 +99,11 @@ export function createArtifactsGitHost({
 	artifacts,
 	accountId,
 	namespace,
-	receiver,
 	now = Date.now,
 }: {
 	artifacts: ArtifactsNamespace;
 	accountId: string;
 	namespace: string;
-	/** Whether pushes, web writes and LFS go through the receiver (`objects`). */
-	receiver: boolean;
 	now?: () => number;
 }): GitHost {
 	const upstream = `https://${accountId}.artifacts.cloudflare.net/git/${namespace}`;
@@ -139,7 +135,7 @@ export function createArtifactsGitHost({
 		return minted;
 	}
 
-	const host: GitHost = {
+	return {
 		async create(id) {
 			try {
 				await artifacts.create(id, { setDefaultBranch: 'main' });
@@ -155,8 +151,7 @@ export function createArtifactsGitHost({
 			tokens.delete(`write:${id}`);
 		},
 		async serve(id, { service, advertisement, headers, body, signal }) {
-			const scope = service === 'git-receive-pack' ? 'write' : 'read';
-			const pending = token(id, scope);
+			const pending = token(id, 'read');
 			const credential = await pending;
 			const upstreamHeaders = new Headers(headers);
 			upstreamHeaders.set('authorization', `Basic ${btoa(`x:${credential}`)}`);
@@ -172,7 +167,7 @@ export function createArtifactsGitHost({
 			});
 			// A refused token is not kept, or every request for a day would
 			// present it again: the next request mints a new one.
-			const key = `${scope}:${id}`;
+			const key = `read:${id}`;
 			if (
 				(response.status === 401 || response.status === 403) &&
 				tokens.get(key)?.token === pending
@@ -180,10 +175,6 @@ export function createArtifactsGitHost({
 				tokens.delete(key);
 			return response;
 		},
-	};
-	if (!receiver) return host;
-	return {
-		...host,
 		receiveLimits: WORKER_RECEIVE_LIMITS,
 		objects(id) {
 			return createArtifactsObjects({
