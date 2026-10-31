@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/honeycrisp",
-	"description": "Markdown notes with a live-preview editor: kept in the browser, uploaded to the signed-in person's repository",
+	"description": "Markdown notes with a live-preview editor: kept in the browser, uploaded to the signed-in person's repository, or, on the desktop, in a folder of your choosing",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
@@ -8,6 +8,9 @@
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"build:desktop-page": "HONEYCRISP_DESKTOP=1 NODE_ENV=production vite build",
+		"dev:desktop": "bun run build:desktop-page && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:desktop-page && tauri build --bundles app",
 		"preview": "vite preview",
 		"deploy": "wrangler deploy",
 		"demo": "bun e2e/stack.ts --demo",
@@ -25,6 +28,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"mode-watcher": "catalog:",
 		"playwright": "^1.61.1",
@@ -47,6 +51,7 @@
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
+		"@tauri-apps/api": "catalog:",
 		"bits-ui": "catalog:",
 		"date-fns": "catalog:",
 		"wellcrafted": "catalog:"

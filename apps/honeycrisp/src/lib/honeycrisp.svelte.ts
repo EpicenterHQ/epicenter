@@ -50,8 +50,12 @@ export const newestFirst = (a: Note, b: Note) =>
 export const byName = (a: Folder, b: Folder) =>
 	folderLabel(a).localeCompare(folderLabel(b)) || (a.id < b.id ? -1 : 1);
 
-/** Which of Honeycrisp's two views a page is: this device's files, or the repository's. */
-export type View = 'device' | 'synced';
+/**
+ * Which view a page is: in a browser, this device's files (`device`) or the
+ * repository's (`synced`); in the desktop app, its folder (`desktop`),
+ * which Epicenter syncs.
+ */
+export type View = 'device' | 'synced' | 'desktop';
 
 /** What the detail shows: a note (read or not), or a folder that needs repair. */
 export type Selection = {

@@ -68,9 +68,46 @@ only (`src/lib/auth.ts`, made on first use). The server is
 not serve web writes yet, so signing in works against a local or
 self-hosted API.
 
-Honeycrisp has no desktop app. Its notes on a computer are a clone of the
-repository (`epicenter clone <handle>/honeycrisp`), which Epicenter syncs and
-any editor can change.
+## The desktop app
+
+Honeycrisp's desktop app (`src-tauri/`, identifier `so.epicenter.honeycrisp`)
+is the same app in its own window, over a folder on the computer instead of
+the browser's files. It never signs in.
+
+- **Its folder is its own** (decisions 81 and 82). On first run a native
+  alert asks "Where should Honeycrisp keep its files?": the Epicenter folder
+  `~/Epicenter/Honeycrisp` (recommended; `~/Epicenter Dev/Honeycrisp` for the
+  dev build, or under `EPICENTER_FOLDER_DIR`), the app's data folder (hidden),
+  or "Choose folder…". It makes the folder, or uses one already there with its
+  files, and remembers the choice as `folder` in `settings.md`, Honeycrisp's
+  machine-local configuration note (`appConfig` from `@epicenter/folder`) in
+  its configuration directory, never in the folder. The status popover shows
+  the folder and offers "Choose folder…" again, which moves the app to the new
+  folder once the old window's saves land. A remembered folder that is gone is
+  asked about again. The notes stay when the app is removed. The shell is
+  `epicenter-standalone` (`packages/tauri-epicenter-standalone`).
+- **Sync is Epicenter's.** "Sync with Epicenter" asks the computer to open
+  `epicenter://init?path=<the folder>&contract=https://honeycrisp.epicenter.so/contract.json`
+  (`syncWithEpicenter` from `@epicenter/folder/tauri`); Epicenter asks the
+  person where to sync and runs `epicenter init`. Until then the folder has no
+  history. Once Epicenter adopted it, the header says "Synced by Epicenter"
+  (read from the folder's Git configuration, each time the window gains
+  focus) and the button goes.
+- **Closing waits for saves.** Quit, Cmd-Q and the close button go through
+  the leave guard: the window closes once every save, a body still being
+  typed included, has landed.
+
+The desktop page is its own build of the same app: `HONEYCRISP_DESKTOP=1`
+makes `src/desktop/` the route tree (in `svelte.config.js`) and writes
+`build-desktop/`, which the shell loads. Its root opens the window's folder
+with `openDevice(honeycrisp)` from `@epicenter/folder/tauri` and renders
+`HoneycrispApp` with `view="desktop"`. The web build never contains it, and
+nothing checks at run time which build is running. `src-tauri/src/main.rs`
+only names Honeycrisp to `epicenter-standalone`.
+
+A clone of the person's repository (`epicenter clone <handle>/honeycrisp`)
+is another folder any editor, or the desktop app via "Choose folder…", can
+change.
 
 ## Editing
 
@@ -106,7 +143,13 @@ From the repository root:
 bun dev:honeycrisp                         # Vite dev server on http://localhost:5175
 bun run --cwd apps/honeycrisp build        # static files in apps/honeycrisp/build/
 bun run --cwd apps/honeycrisp demo         # the whole stack, to try it by hand
+bun dev:honeycrisp:desktop                 # the desktop app (dev identity, ~/Epicenter Dev)
+bun build:honeycrisp:desktop               # Honeycrisp.app, from build-desktop/
 ```
+
+The desktop scripts build the desktop page (`bun run build:desktop-page`)
+first. The native crates share one Cargo workspace and `target/` at the
+repository root.
 
 The build is static: any host that answers unknown paths with `index.html`
 (for `/auth/callback`) serves it, at an origin the API registers. It also
@@ -132,12 +175,17 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 | `src/routes/(app)/+page.svelte` | "On this device": `HoneycrispApp` over `fromClient(device)`. |
 | `src/routes/(app)/synced/` | "Synced": `HoneycrispApp` over `fromClient(getRepo())`, behind a layout that asks for a sign-in. |
 | `src/lib/components/` | The views, which read and write only through the state in context. |
+| `src/desktop/` | The desktop page's route tree (`HONEYCRISP_DESKTOP=1`): the chrome, the leave guard, and `HoneycrispApp` over the window's folder. |
+| `src/lib/desktop-context.ts`, `desktop-folder.svelte.ts`, `sync-request.ts` | What the desktop header shows of its folder (where it is, whether Epicenter syncs it) and its two actions, set only by the desktop root. |
+| `src-tauri/` | The desktop container: `main.rs` names Honeycrisp to `epicenter-standalone`; `capabilities/honeycrisp.json` grants the folder plugin (its folder, and Epicenter's sync request and status) and the shell's `choose_folder` and `folder_path`. |
 
 ## Tests
 
 ```sh
 bun run --cwd apps/honeycrisp test        # contract, state over real devices, the editor over jsdom
 bun run --cwd apps/honeycrisp typecheck
+cargo test -p honeycrisp               # the container's capability and identity
+cargo test -p epicenter-standalone     # first run, the folder setting, Choose folder…, Quit
 bun x playwright test -c apps/honeycrisp/playwright.config.ts                    # both engines
 bun x playwright test -c apps/honeycrisp/playwright.config.ts --project=webkit   # one
 ```

@@ -9,9 +9,12 @@ for the layout and page flow, and verify it against the code.
   `@epicenter/folder/browser` for "On this device" (`/`), `openRemote` from
   `@epicenter/folder/remote` under the signed-in boundary for "Synced"
   (`/synced`), each as Svelte state through `fromClient` at the route. The
-  two views are separate, never merged (decision 76). Components take the
-  state from context and never import a client. Do not add another store,
-  cache, or save queue.
+  two views are separate, never merged (decision 76). The desktop build's
+  root (`src/desktop/+page.svelte`) opens the window's folder with
+  `openDevice` from `@epicenter/folder/tauri` instead; the build, not a
+  run-time check, decides which root runs. Components take the state from
+  context and never import a client. Do not add another store, cache, or
+  save queue.
 - A change to the layout is a change to `src/lib/contract.ts`, then
   `bun run contract`; the fit test fails until the two agree. No migration or
   compatibility code: there is no earlier data to read (decision 72).

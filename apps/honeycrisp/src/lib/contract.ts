@@ -16,6 +16,7 @@
  * (`bun run contract` writes it), so `epicenter check <url>/contract.json
  * <dir>` checks a clone.
  */
+import { APPS } from '@epicenter/constants/apps';
 import { defineContract } from '@epicenter/definition/contract';
 
 export const honeycrisp = defineContract({
@@ -45,3 +46,6 @@ export const honeycrisp = defineContract({
 });
 
 export type Honeycrisp = typeof honeycrisp;
+
+/** Where the contract is published, which the desktop app names when it asks Epicenter to sync its folder. */
+export const CONTRACT_URL = `${APPS.HONEYCRISP.url}/contract.json`;
