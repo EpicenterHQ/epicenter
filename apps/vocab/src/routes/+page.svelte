@@ -1,16 +1,35 @@
+<!--
+	The root: this browser's files (OPFS), always there with no sign-in in
+	front of them (decision 10), and Vocab over them. Signed in, the
+	signed-in subtree adds the learner's `vocab` repository, one per account,
+	and uploads what was made here.
+-->
 <script lang="ts">
-	import { openFolder } from '@epicenter/folder/browser';
-	import OpenFolder from '@epicenter/svelte/open-folder';
-	import { vocabTables } from '$lib/data.js';
+	import { closeDevice, openDevice, outboxOf } from '@epicenter/folder/browser';
+	import { fromClient } from '@epicenter/svelte/client';
+	import { onDestroy } from 'svelte';
+	import { auth } from '$lib/auth.svelte.js';
+	import { setDevice } from '$lib/context.js';
+	import { vocab } from '$lib/contract.js';
+	import { createVocabLists } from '$lib/vocab.svelte.js';
+	import SignedIn from './components/SignedIn.svelte';
 	import VocabApp from './components/VocabApp.svelte';
 
-	// Vocab's words and chats are this browser's local folder, with no
-	// account and no sign-in: they are there whether or not an account is
-	// signed in. Vocab has no desktop build.
+	const client = openDevice(vocab);
+	const device = setDevice({ client, files: fromClient(client) });
+	onDestroy(() => closeDevice(client));
+
+	const lists = createVocabLists({
+		device: device.files,
+		repository: null,
+		outbox: outboxOf(client),
+	});
 </script>
 
-<OpenFolder open={() => openFolder({ tables: vocabTables })}>
-	{#snippet children(folder)}
-		<VocabApp {folder} />
-	{/snippet}
-</OpenFolder>
+{#if auth.state.status === 'signed-out'}
+	<VocabApp {lists} account={undefined} />
+{:else}
+	{#key auth.state.account}
+		<SignedIn account={auth.state.account} />
+	{/key}
+{/if}

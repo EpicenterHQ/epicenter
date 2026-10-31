@@ -8,7 +8,7 @@ import { extractErrorMessage } from 'wellcrafted/error';
  * Where the tutor can run. The endpoints a learner connected are saved for
  * this device, not for an account, so the same ones are there signed out and
  * signed in. Signing in only adds Epicenter's hosted models beside them.
- * Neither decides what the folder holds: a failure here leaves words and
+ * Neither decides where the words and chats are: a failure here leaves words and
  * chats usable and is reported in the model picker.
  */
 export async function openVocabInference(

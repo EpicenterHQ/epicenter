@@ -420,6 +420,59 @@ test('fieldEdit carries typing over another writer’s other field, and surfaces
 	shown.stop();
 });
 
+test('fieldEdit with create makes the note on the first save, then updates it; one made elsewhere first is saved over', async () => {
+	const { open, text } = await folder();
+	const device = open();
+	let creates = 0;
+	const files = fromClient({
+		...device,
+		todos: {
+			...device.todos,
+			create(...args: Parameters<TodoNotes['create']>) {
+				creates++;
+				return device.todos.create(...args);
+			},
+		},
+	} as Client<Todos>);
+	const shown = follow(() => files.todos.items);
+	await until(() => !files.todos.loading);
+
+	const host = setup(() =>
+		fieldEdit(files.todos, { id: 'a' }, 'body', {
+			create: () => ({ title: 'Draft', done: false }),
+		}),
+	);
+	const body = host.made;
+	for (const typed of ['H', 'Hi', 'Hi there']) body.value = typed;
+	expectOk(await body.landed());
+	expect(await text('todos/a.md')).toBe(
+		'---\ntitle: Draft\ndone: false\n---\nHi there',
+	);
+	expect(creates).toBe(1);
+	body.value = 'Hi there!';
+	expectOk(await body.landed());
+	expect(await text('todos/a.md')).toBe(
+		'---\ntitle: Draft\ndone: false\n---\nHi there!',
+	);
+	expect(creates).toBe(1);
+	await host.unmount();
+
+	// Another program made `b` before this page heard of it: the save lands over theirs.
+	expectOk(await open().todos.create({ id: 'b', title: 'Theirs', done: true }));
+	const late = setup(() =>
+		fieldEdit(files.todos, { id: 'b' }, 'body', {
+			create: () => ({ title: 'Draft', done: false }),
+		}),
+	);
+	late.made.value = 'Mine';
+	expectOk(await late.made.landed());
+	expect(await text('todos/b.md')).toBe(
+		'---\ntitle: Theirs\ndone: true\n---\nMine',
+	);
+	await late.unmount();
+	shown.stop();
+});
+
 test('a file collection lists its entries without bytes, and writes over what it shows', async () => {
 	const { open } = await folder();
 	const files = fromClient(open());

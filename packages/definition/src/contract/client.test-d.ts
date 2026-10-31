@@ -169,3 +169,86 @@ export async function refusals() {
 	// @ts-expect-error: a collection the contract does not declare
 	client.photos;
 }
+
+/** Nested fields: an array of objects, a union of objects told apart by a `const`, and any JSON (`{}`). */
+const tutor = defineContract({
+	name: 'tutor',
+	collections: {
+		chats: {
+			path: 'chats/{id}.md',
+			fields: {
+				focus: {
+					type: 'array',
+					items: {
+						type: 'object',
+						properties: {
+							entryId: { type: 'string' },
+							text: { type: 'string' },
+						},
+						required: ['entryId', 'text'],
+					},
+				},
+			},
+			required: ['focus'],
+		},
+		messages: {
+			path: 'messages/{chat}/{id}.md',
+			fields: {
+				parts: {
+					type: 'array',
+					items: {
+						anyOf: [
+							{
+								type: 'object',
+								properties: {
+									type: { const: 'text' },
+									text: { type: 'string' },
+								},
+								required: ['type', 'text'],
+							},
+							{
+								type: 'object',
+								properties: { type: { const: 'tool-call' }, input: {} },
+								required: ['type', 'input'],
+							},
+						],
+					},
+				},
+			},
+			required: ['parts'],
+		},
+	},
+});
+type Tutor = typeof tutor;
+
+export type Nested = [
+	Expect<
+		Equal<
+			NoteOf<Tutor['collections']['chats']>['focus'],
+			{ entryId: string; text: string }[]
+		>
+	>,
+	Expect<
+		Equal<
+			PlaceholdersOf<Tutor['collections']['messages']>,
+			{ chat: string; id: string }
+		>
+	>,
+	Expect<
+		Equal<
+			NoteOf<Tutor['collections']['messages']>['parts'],
+			({ type: 'text'; text: string } | { type: 'tool-call'; input: unknown })[]
+		>
+	>,
+];
+
+export async function nestedRefusals(tutorClient: Client<Tutor>) {
+	// @ts-expect-error: a nested object needs its required keys
+	await tutorClient.chats.create({ id: 'c', focus: [{ entryId: 'a' }] });
+	await tutorClient.messages.create({
+		chat: 'c',
+		id: 'm',
+		// @ts-expect-error: a part is one of the union's objects
+		parts: [{ type: 'image' }],
+	});
+}

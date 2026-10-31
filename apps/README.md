@@ -88,8 +88,8 @@ fixed default. Both contexts keep the same `openFolder({ tables })` page API.
 | [Capture](capture/README.md) | browser; on the file contract (`capture`) | none; signs in as `so.epicenter.capture` | `captures` |
 | [Honeycrisp](honeycrisp/README.md) | browser, hosted | `so.epicenter.honeycrisp` | `folders`, `notes` |
 | [Whispering](whispering/README.md) | browser, hosted | `so.epicenter.whispering` | `recordings`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`; AI connections in records |
-| [Messages](messages/README.md) | browser, hosted | `so.epicenter.messages` | `drafts`, `attempts` |
-| [Vocab](vocab/README.md) | browser only | none | `entries`, `chats`, `messages` |
+| [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | contract `messages`: `drafts`, `attempts` |
+| [Vocab](vocab/README.md) | browser only | none: the origin's OPFS, and signed in the `vocab` repository | contract `vocab`: `entries`, `chats`, `messages` |
 
 Local Books keeps its QuickBooks replica in SQLite under
 `<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,
@@ -111,7 +111,10 @@ application. For the naming rationale, see
 
 ## Messages and Beeper
 
-[Messages](messages/README.md) uses `<OpenFolder>` for authored drafts and send
-recovery state. Conversation history stays in Beeper and is read into memory.
-The app starts with fictional demo chats; only an explicit desktop connection
-reaches Beeper. Its token stays in the device keychain through the CLI.
+[Messages](messages/README.md) keeps its drafts and send attempts as notes of
+its own contract on the device. Conversation history stays in Beeper and is
+read into memory. Messages runs as a local program on the computer where
+Beeper Desktop runs (`bun run --cwd apps/messages start`): its server answers
+the page's Beeper requests through the Epicenter CLI, which keeps the token in
+the device keychain. It starts with fictional demo chats, and a page served
+any other way shows only those.

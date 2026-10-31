@@ -1,15 +1,13 @@
 import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import type { AgentMessage } from '@epicenter/agent';
-import { until } from '@epicenter/folder/testing';
 import OpenAI from 'openai';
 import { expectOk } from 'wellcrafted/testing';
-import { createMemory, tableFiles } from '../folder.test-support.js';
 
+const { openVocabFolder, until } = await import('../vocab.test-support.js');
 const { createVocabChat } = await import('./session.svelte.js');
 const { createChatMessageStore } = await import('./messages.svelte.js');
-
-import { startChat } from './chats.js';
+const { startChat } = await import('./chats.js');
 
 type ChatOptions = Parameters<typeof createVocabChat>[0];
 function sessionDouble<T extends object>(members: Partial<T>): T {
@@ -31,11 +29,11 @@ const asked: AgentMessage = {
 };
 
 async function setup({ question = false } = {}) {
-	const { folder, core, host } = await createMemory();
+	const folder = await openVocabFolder();
 	const chatId = expectOk(
-		await startChat(folder.tables.chats, [{ entryId: 'entry', text: 'lucid' }]),
+		await startChat(folder.lists.chats, [{ entryId: 'entry', text: 'lucid' }]),
 	).id;
-	const store = createChatMessageStore(folder, chatId);
+	const store = createChatMessageStore(folder.lists.messages, chatId);
 	expectOk(await store.set(welcome.id, welcome));
 	if (question) expectOk(await store.set(asked.id, asked));
 	let requests = 0;
@@ -96,7 +94,7 @@ async function setup({ question = false } = {}) {
 		onChange: () => () => {},
 	});
 	const chat = createVocabChat({
-		folder,
+		messages: folder.lists.messages,
 		chatId,
 		focus: [{ text: 'lucid' }],
 		catalog: catalogMock,
@@ -105,8 +103,6 @@ async function setup({ question = false } = {}) {
 	return {
 		chat,
 		folder,
-		core,
-		host,
 		chatId,
 		tutor,
 		get requests() {
@@ -121,7 +117,7 @@ async function settle(chat: ReturnType<typeof createVocabChat>) {
 }
 
 test('a submitted draft stays until its message is saved, then clears', async () => {
-	const { chat, core } = await setup();
+	const { chat, folder } = await setup();
 	chat.inputValue = 'It was a lucid talk.';
 	const sending = chat.sendMessage();
 	expect(chat.inputValue).toBe('It was a lucid talk.');
@@ -134,13 +130,13 @@ test('a submitted draft stays until its message is saved, then clears', async ()
 		'assistant',
 	]);
 	chat[Symbol.dispose]();
-	await core.close();
+	await folder[Symbol.asyncDispose]();
 });
 
 test('typing while a message saves keeps the newer draft', async () => {
-	const { chat, core, host } = await setup();
+	const { chat, folder } = await setup();
 	const gate = Promise.withResolvers<void>();
-	host.control.putGate = gate.promise;
+	folder.control.gate = gate.promise;
 	chat.inputValue = 'First message';
 	const sending = chat.sendMessage();
 	chat.inputValue = 'Next draft';
@@ -149,47 +145,31 @@ test('typing while a message saves keeps the newer draft', async () => {
 	expect(chat.inputValue).toBe('Next draft');
 	await settle(chat);
 	chat[Symbol.dispose]();
-	await core.close();
+	await folder[Symbol.asyncDispose]();
 });
 
 test('a refused learner message stays available and asks no tutor until saved', async () => {
 	const context = await setup();
-	context.host.control.beforePut = (path) => {
-		if (path.startsWith('messages/'))
-			context.host.control.failPut.set(path, {
-				name: 'StorageFailed',
-				message: 'storage refused',
-				cause: 'full',
-			});
-	};
+	context.folder.control.refuse = (collection) => collection === 'messages';
 	context.chat.inputValue = 'Is this lucid?';
 	await context.chat.sendMessage();
 	expect(context.requests).toBe(0);
 	expect(context.chat.inputValue).toBe('Is this lucid?');
 	expect(context.chat.unsaved).toHaveLength(1);
-	context.host.control.beforePut = undefined;
-	context.host.control.failPut.clear();
+	context.folder.control.refuse = undefined;
 	await context.chat.saveAgain();
 	expect(context.chat.inputValue).toBe('');
 	expect(context.chat.unsaved).toHaveLength(0);
 	expect(context.requests).toBe(0);
 	context.chat[Symbol.dispose]();
-	await context.core.close();
+	await context.folder[Symbol.asyncDispose]();
 });
 
 test('a refused tutor answer is retried without another tutor request', async () => {
 	const context = await setup();
-	let messagePuts = 0;
-	context.host.control.beforePut = (path) => {
-		if (!path.startsWith('messages/')) return;
-		messagePuts++;
-		if (messagePuts === 2)
-			context.host.control.failPut.set(path, {
-				name: 'StorageFailed',
-				message: 'storage refused',
-				cause: 'full',
-			});
-	};
+	let messageWrites = 0;
+	context.folder.control.refuse = (collection) =>
+		collection === 'messages' && ++messageWrites === 2;
 	context.chat.inputValue = 'Is this lucid?';
 	await context.chat.sendMessage();
 	await settle(context.chat);
@@ -197,13 +177,12 @@ test('a refused tutor answer is retried without another tutor request', async ()
 	expect(context.chat.unsaved.map((message) => message.role)).toEqual([
 		'assistant',
 	]);
-	context.host.control.beforePut = undefined;
-	context.host.control.failPut.clear();
+	context.folder.control.refuse = undefined;
 	await context.chat.saveAgain();
 	expect(context.chat.unsaved).toHaveLength(0);
 	expect(context.requests).toBe(1);
 	context.chat[Symbol.dispose]();
-	await context.core.close();
+	await context.folder[Symbol.asyncDispose]();
 });
 
 test('an answer cut off at the output limit saves nothing', async () => {
@@ -218,9 +197,9 @@ test('an answer cut off at the output limit saves nothing', async () => {
 		'assistant',
 		'user',
 	]);
-	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	expect(await context.folder.files('messages')).toHaveLength(2);
 	context.chat[Symbol.dispose]();
-	await context.core.close();
+	await context.folder[Symbol.asyncDispose]();
 });
 
 test('a failed tutor request saves nothing and can be retried', async () => {
@@ -232,9 +211,9 @@ test('a failed tutor request saves nothing and can be retried', async () => {
 	expect(context.chat.error).not.toBeNull();
 	expect(context.chat.unsaved).toEqual([]);
 	expect(context.chat.canAsk).toBe(true);
-	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	expect(await context.folder.files('messages')).toHaveLength(2);
 	context.chat[Symbol.dispose]();
-	await context.core.close();
+	await context.folder[Symbol.asyncDispose]();
 });
 
 test('a stopped answer is never saved after the rest arrives', async () => {
@@ -242,7 +221,7 @@ test('a stopped answer is never saved after the rest arrives', async () => {
 	const answering = Promise.withResolvers<void>();
 	context.tutor.held = answering.promise;
 	await context.chat.retry();
-	await until(() => context.chat.streaming !== null, { timeout: 4000 });
+	await until(() => context.chat.streaming !== null);
 	context.chat.stop();
 	answering.resolve();
 	await Promise.all(context.tutor.answers);
@@ -253,18 +232,18 @@ test('a stopped answer is never saved after the rest arrives', async () => {
 		'assistant',
 		'user',
 	]);
-	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	expect(await context.folder.files('messages')).toHaveLength(2);
 	context.chat[Symbol.dispose]();
-	await context.core.close();
+	await context.folder[Symbol.asyncDispose]();
 });
 
 test('stopping while the learner message saves prevents the tutor start', async () => {
 	const context = await setup();
 	const saving = Promise.withResolvers<void>();
-	context.host.control.putGate = saving.promise;
+	context.folder.control.gate = saving.promise;
 	context.chat.inputValue = 'It was a lucid talk.';
 	const sending = context.chat.sendMessage();
-	await until(() => context.chat.isSaving, { timeout: 4000 });
+	await until(() => context.chat.isSaving);
 	context.chat.stop();
 	saving.resolve();
 	await sending;
@@ -276,9 +255,9 @@ test('stopping while the learner message saves prevents the tutor start', async 
 	]);
 	expect(context.chat.unsaved).toEqual([]);
 	expect(context.chat.canAsk).toBe(true);
-	expect(tableFiles(context.folder, 'messages')).toHaveLength(2);
+	expect(await context.folder.files('messages')).toHaveLength(2);
 	context.chat[Symbol.dispose]();
-	await context.core.close();
+	await context.folder[Symbol.asyncDispose]();
 });
 
 test('an opening is not asked twice over a chat that already has one', async () => {
@@ -290,5 +269,5 @@ test('an opening is not asked twice over a chat that already has one', async () 
 		'assistant',
 	]);
 	context.chat[Symbol.dispose]();
-	await context.core.close();
+	await context.folder[Symbol.asyncDispose]();
 });

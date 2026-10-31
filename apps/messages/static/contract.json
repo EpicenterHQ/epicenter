@@ -1,0 +1,52 @@
+{
+	"name": "messages",
+	"description": "Messages: a Markdown note per conversation draft, and one for the latest send from it, kept on the device.",
+	"collections": {
+		"drafts": {
+			"path": "drafts/{id}.md",
+			"fields": {
+				"chatId": {
+					"type": "string"
+				},
+				"profile": {
+					"type": "string"
+				},
+				"mode": {
+					"enum": ["demo", "live"]
+				}
+			},
+			"required": ["chatId", "profile", "mode"]
+		},
+		"attempts": {
+			"path": "attempts/{id}.md",
+			"fields": {
+				"chatId": {
+					"type": "string"
+				},
+				"profile": {
+					"type": "string"
+				},
+				"mode": {
+					"enum": ["demo", "live"]
+				},
+				"state": {
+					"enum": ["sending", "accepted", "acknowledged"]
+				},
+				"attemptId": {
+					"type": "string"
+				},
+				"pendingId": {
+					"type": "string"
+				}
+			},
+			"required": [
+				"chatId",
+				"profile",
+				"mode",
+				"state",
+				"attemptId",
+				"pendingId"
+			]
+		}
+	}
+}

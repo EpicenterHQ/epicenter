@@ -1,209 +1,111 @@
-import { createMemory } from '../../lib/folder.test-support.js';
+/**
+ * A word note that does not read, repaired from the Words view.
+ *
+ * Key behaviors:
+ * - The note is listed by path, and Repair as text opens its text
+ * - Save repair writes the fixed text in house style, and the card gives
+ *   way to the word once it reads
+ * - Switching repairs shows the selected note's text
+ * - A note deleted elsewhere while open says so, and the card closes
+ */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, test } from 'bun:test';
-import { until } from '@epicenter/folder/testing';
 import {
 	click,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
-const { createEntries } = await import('../../lib/entries.svelte.js');
-
-const { flushSync, mount, unmount } = await import('svelte');
-const { default: RepairCardHost } = await import(
-	'./fixtures/RepairCardHost.svelte'
+const { openVocabFolder, until } = await import(
+	'../../lib/vocab.test-support.js'
 );
+const { createEntries } = await import('../../lib/entries.svelte.js');
+const { flushSync, mount, unmount } = await import('svelte');
 const { default: WordsViewHost } = await import(
 	'./fixtures/WordsViewHost.svelte'
 );
 
-test('repair problems follow typed text before its save lands', async () => {
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': 'broken frontmatter',
-	});
-	const entries = createEntries(folder);
-	entries.repair.start('broken');
+const word = (text: string, body = '') =>
+	`---\ntext: ${text}\nstage: new\ncreatedAt: "2026-01-01T00:00:00.000Z"\n---\n${body}`;
+
+async function setup(initial: Record<string, string>) {
+	const folder = await openVocabFolder(initial);
+	const entries = createEntries(folder.lists.entries);
 	const target = document.createElement('div');
 	document.body.append(target);
-	const mounted = mount(RepairCardHost, {
+	const mounted = mount(WordsViewHost, { target, props: { entries } });
+	await until(() => entries.repairs.length > 0);
+	return {
+		folder,
+		entries,
 		target,
-		props: { folder, entries, id: 'broken' },
+		textOf: (path: string) =>
+			target.querySelector<HTMLTextAreaElement>(
+				`textarea[aria-label="Text of ${path}"]`,
+			),
+		async [Symbol.asyncDispose]() {
+			await unmount(mounted);
+			target.remove();
+			await folder[Symbol.asyncDispose]();
+		},
+	};
+}
+
+test('a broken word is repaired as text and shows as a word again', async () => {
+	await using context = await setup({
+		'entries/broken.md': '---\ntext: [lucid\n---\nclear',
 	});
+	const { target, entries, folder } = context;
+	expect(target.textContent).toContain('entries/broken.md');
+	click(target, 'Repair as text');
+	flushSync();
+	const text = context.textOf('entries/broken.md');
+	expect(text?.value).toBe('---\ntext: [lucid\n---\nclear');
+
+	type(text, word('lucid', 'clear'));
+	flushSync();
+	expect(target.textContent).toContain('This text reads.');
+	click(target, 'Save repair');
+	await until(() => entries.repair.open === undefined);
+	expect(await folder.text('entries/broken.md')).toBe(word('lucid', 'clear'));
+	expect(entries.repairs).toEqual([]);
+	expect(entries.words[0]).toMatchObject({ id: 'broken', note: 'clear' });
 	flushSync();
 	expect(
-		target.querySelector('[aria-label="Problems in the current text"]'),
-	).not.toBeNull();
-	const gate = Promise.withResolvers<void>();
-	host.control.putGate = gate.promise;
-	type(
-		target.querySelector('textarea'),
-		'---\ntext: lucid\nnote: clear\nstage: new\ncreatedAt: 2026-01-01\n---\n',
-	);
-	flushSync();
-	expect(
-		target.querySelector('[aria-label="Problems in the current text"]'),
-	).toBeNull();
-	expect(target.textContent).toContain('Show note and stage');
-	gate.resolve();
-	await unmount(mounted);
-	target.remove();
-	await core.close();
+		target.querySelector<HTMLTextAreaElement>(
+			'textarea[aria-label="Your note for lucid"]',
+		)?.value,
+	).toBe('clear');
 });
 
-test('Show note and stage waits for its own write', async () => {
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': 'broken frontmatter',
-	});
-	const entries = createEntries(folder);
-	entries.repair.start('broken');
-	const target = document.createElement('div');
-	document.body.append(target);
-	const mounted = mount(RepairCardHost, {
-		target,
-		props: { folder, entries, id: 'broken' },
-	});
-	flushSync();
-	const gate = Promise.withResolvers<void>();
-	host.control.putGate = gate.promise;
-	const repaired = '---\ntext: lucid\nnote: clear\nstage: new\ncreatedAt: 2026-01-01\n---\n';
-	type(target.querySelector('textarea'), repaired);
-	flushSync();
-	click(target, 'Show note and stage');
-	await until(() => folder.saving, { timeout: 4000 });
-	expect(entries.repair.open).toBe('broken');
-	gate.resolve();
-	await until(() => entries.repair.open === undefined, { timeout: 4000 });
-	expect(host.text('entries/broken.md')).toBe(repaired);
-	await unmount(mounted);
-	await folder.idle();
-	expect(host.log.puts.filter(({ path }) => path === 'entries/broken.md')).toHaveLength(1);
-	target.remove();
-	await core.close();
-});
-
-test('Show note and stage closes an already valid file without rewriting it', async () => {
-	const repaired = '---\ntext: lucid\nnote: clear\nstage: new\ncreatedAt: 2026-01-01\n---\n';
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': repaired,
-	});
-	const entries = createEntries(folder);
-	entries.repair.start('broken');
-	const target = document.createElement('div');
-	document.body.append(target);
-	const mounted = mount(RepairCardHost, {
-		target,
-		props: { folder, entries, id: 'broken' },
-	});
-	flushSync();
-	click(target, 'Show note and stage');
-	await until(() => entries.repair.open === undefined, { timeout: 4000 });
-	expect(host.log.puts).toHaveLength(0);
-	await unmount(mounted);
-	target.remove();
-	await core.close();
-});
-
-test('a failed repair stays visible until Save again lands', async () => {
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': 'broken frontmatter',
-	});
-	const entries = createEntries(folder);
-	entries.repair.start('broken');
-	const target = document.createElement('div');
-	document.body.append(target);
-	const mounted = mount(RepairCardHost, {
-		target,
-		props: { folder, entries, id: 'broken' },
-	});
-	flushSync();
-	host.control.failPut.set('entries/broken.md', {
-		name: 'StorageFailed',
-		message: 'storage refused',
-		cause: 'full',
-	});
-	const repaired = '---\ntext: lucid\nnote: clear\nstage: new\ncreatedAt: 2026-01-01\n---\n';
-	type(
-		target.querySelector('textarea'),
-		repaired,
-	);
-	await until(() => {
-		flushSync();
-		return target.textContent?.includes('Not saved:') ?? false;
-	}, { timeout: 4000 });
-	expect(target.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(repaired);
-	const attempts = host.log.puts.length;
-	click(target, 'Show note and stage');
-	await folder.idle();
-	flushSync();
-	expect(host.log.puts).toHaveLength(attempts);
-	expect(target.textContent).not.toContain('The file was not saved');
-	expect(entries.repair.open).toBe('broken');
-	host.control.failPut.delete('entries/broken.md');
-	click(target, 'Save again');
-	await until(() => folder.tables.entries.row('broken')?.issues === null, { timeout: 4000 });
-	flushSync();
-	expect(target.textContent).not.toContain('Not saved:');
-	click(target, 'Show note and stage');
-	await until(() => entries.repair.open === undefined, { timeout: 4000 });
-	await unmount(mounted);
-	target.remove();
-	await core.close();
-});
-
-test('switching repairs remounts the editor with the selected file', async () => {
-	const { folder, core, host } = await createMemory({
+test('switching repairs shows the selected note’s text', async () => {
+	await using context = await setup({
 		'entries/a.md': 'broken a',
 		'entries/b.md': 'broken b',
 	});
-	const entries = createEntries(folder);
-	entries.repair.start('a');
-	const target = document.createElement('div');
-	document.body.append(target);
-	const mounted = mount(WordsViewHost, { target, props: { folder, entries } });
+	await until(() => context.entries.repairs.length === 2);
+	context.entries.repair.start('a');
 	flushSync();
-	const gate = Promise.withResolvers<void>();
-	host.control.putGate = gate.promise;
-	type(target.querySelector('textarea[aria-label="File text for entries/a.md"]'), 'changed a');
-	entries.repair.start('b');
+	type(context.textOf('entries/a.md'), 'changed a');
+	context.entries.repair.start('b');
 	flushSync();
-	expect(target.querySelector('textarea[aria-label="File text for entries/a.md"]')).toBeNull();
-	expect((target.querySelector('textarea[aria-label="File text for entries/b.md"]') as HTMLTextAreaElement).value).toBe('broken b');
-	gate.resolve();
-	await until(() => host.text('entries/a.md') === 'changed a', { timeout: 4000 });
-	flushSync();
-	expect((target.querySelector('textarea[aria-label="File text for entries/b.md"]') as HTMLTextAreaElement).value).toBe('broken b');
-	await unmount(mounted);
-	target.remove();
-	await core.close();
+	expect(context.textOf('entries/a.md')).toBeNull();
+	expect(context.textOf('entries/b.md')?.value).toBe('broken b');
+	// Nothing typed is written until it is saved.
+	expect(await context.folder.text('entries/a.md')).toBe('broken a');
 });
 
-test('a repair edit refuses a file deleted outside the folder', async () => {
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': 'broken frontmatter',
-	});
-	const entries = createEntries(folder);
-	entries.repair.start('broken');
-	const target = document.createElement('div');
-	document.body.append(target);
-	const mounted = mount(RepairCardHost, {
-		target,
-		props: { folder, entries, id: 'broken' },
-	});
+test('a note deleted elsewhere while open says so, and the card closes', async () => {
+	await using context = await setup({ 'entries/broken.md': 'broken' });
+	context.entries.repair.start('broken');
 	flushSync();
-	host.outside('entries/broken.md', null, { hint: true });
-	await folder.refresh();
-	await until(() => folder.file('entries/broken.md') === undefined, { timeout: 4000 });
-	const repaired = '---\ntext: lucid\nnote: clear\nstage: new\ncreatedAt: 2026-01-01\n---\n';
-	type(target.querySelector('textarea'), repaired);
-	await until(() => {
-		flushSync();
-		return target.textContent?.includes('Not saved:') ?? false;
-	}, { timeout: 4000 });
-	expect(host.text('entries/broken.md')).toBeUndefined();
-	expect(target.querySelector<HTMLTextAreaElement>('textarea')?.value).toBe(repaired);
-	expect(target.textContent).toContain('Save again');
-	expect(target.textContent).toContain('Copy');
-	await unmount(mounted);
-	target.remove();
-	await core.close();
+	const other = context.folder.other();
+	const listed = await other.entries.list();
+	const broken = listed.data?.invalid[0];
+	if (broken?.id !== 'broken') throw new Error('the broken note is not listed');
+	await other.entries.delete({ id: 'broken' }, { over: broken.version });
+	await until(
+		() => context.target.textContent?.includes('is no longer here') ?? false,
+	);
+	click(context.target, 'Close');
+	expect(context.entries.repair.open).toBeUndefined();
 });

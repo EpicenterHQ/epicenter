@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/vocab",
-	"description": "English vocabulary tutor whose words and chats are files in one local folder",
+	"description": "English vocabulary tutor whose words and chats are Markdown notes, kept in the browser and uploaded to the learner's repository when signed in",
 	"private": true,
 	"version": "0.0.2",
 	"type": "module",
@@ -12,6 +12,9 @@
 		"test": "bun test --conditions=browser --conditions=svelte src/lib && bun run test:svelte",
 		"test:svelte": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --conditions=browser --conditions=svelte src/routes",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"contract": "bun scripts/write-contract.ts",
+		"demo": "bun e2e/stack.ts --demo",
+		"test:e2e": "playwright test -c playwright.config.ts",
 		"deploy": "wrangler deploy"
 	},
 	"dependencies": {
@@ -27,7 +30,6 @@
 		"mode-watcher": "^1.1.0",
 		"openai": "^7.12.1",
 		"runed": "catalog:",
-		"typebox": "catalog:",
 		"wellcrafted": "catalog:",
 		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*"
@@ -41,6 +43,7 @@
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"jsdom": "26.1.0",
+		"playwright": "^1.61.1",
 		"svelte": "catalog:",
 		"svelte-check": "catalog:",
 		"tailwindcss": "catalog:",

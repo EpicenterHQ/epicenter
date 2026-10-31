@@ -41,6 +41,7 @@ import {
 	type ClientError,
 	type Collection,
 	type Contract,
+	type FieldsOf,
 	type FileClient,
 	type FileEntryOf,
 	type InvalidNoteOf,
@@ -344,6 +345,11 @@ function fromCollection(collection: Raw) {
  * to this field surfaces as a `Conflict` (the adapter then shows theirs).
  * Saving again after that (`retry`, or typing on) applies over theirs.
  *
+ * With `create`, the note need not exist yet: a save while none is shown
+ * creates it, with `create()`'s fields and the typed value (a draft that
+ * starts with its first keystroke). When another writer created it first
+ * (`Occupied`), the value is written over theirs as an ordinary save.
+ *
  * Call it during component setup, like `edit`.
  */
 export function fieldEdit<
@@ -353,12 +359,31 @@ export function fieldEdit<
 	notes: ReactiveNotes<TCollection>,
 	args: PlaceholdersOf<TCollection>,
 	field: TField,
+	options: {
+		create?: () => Omit<FieldsOf<TCollection> & { body?: string }, TField>;
+	} = {},
 ) {
 	type Value = NotePatch<TCollection>[TField];
 	/** What this run of typing is made over; none between runs. */
 	let base: Base<TCollection> | undefined;
 	let newest = 0;
 	let running: Promise<unknown> = Promise.resolve();
+
+	/** Write `value`: a new note when none is there to write over and `create` says how. */
+	async function write(
+		value: Value | undefined,
+	): Promise<Result<unknown, ClientError>> {
+		const patch = { [field]: value } as NotePatch<TCollection>;
+		if (options.create && base === undefined && !notes.get(args)) {
+			const created = await notes.create({
+				...options.create(),
+				...args,
+				...patch,
+			} as Parameters<ReactiveNotes<TCollection>['create']>[0]);
+			if (created.error?.name !== 'Occupied') return created;
+		}
+		return notes.update(args, patch, base ? { base } : {});
+	}
 
 	const editor = edit(
 		() =>
@@ -371,11 +396,7 @@ export function fieldEdit<
 			const saved = running.then(async () => {
 				// A newer value is waiting: it is the one to send.
 				if (ticket !== newest) return Ok(undefined);
-				const written = await notes.update(
-					args,
-					{ [field]: value } as NotePatch<TCollection>,
-					base ? { base } : {},
-				);
+				const written = await write(value);
 				if (written.error === null)
 					base =
 						ticket === newest ? undefined : (written.data as Base<TCollection>);

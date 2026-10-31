@@ -11,13 +11,16 @@ const server = SELF_HOST_ORIGIN
 	? selfHostedServer(SELF_HOST_ORIGIN)
 	: epicenterCloud(APP_URLS.API);
 
-// Vocab's account calls are inference, served by the API audience, and the
-// profile read from userinfo, which answers the email only under `email`.
+// One sign-in covers both of Vocab's audiences (decision 65): the API, for
+// the hosted tutor and the profile read from userinfo (which answers the
+// email only under `email`), and Git, where the learner's `vocab` repository
+// lives (`openRemote`). `account.fetch` picks each request's token.
+const audiences = resolveOAuthAudiences(server.baseURL);
 const client = createBrowserOAuth({
 	server,
 	clientId: APPS.VOCAB.id,
-	resources: [resolveOAuthAudiences(server.baseURL).api],
-	scope: 'openid profile email ai',
+	resources: [audiences.api, audiences.git],
+	scope: 'openid profile email ai folders:read folders:write',
 	accountManagement: !SELF_HOST_ORIGIN,
 });
 

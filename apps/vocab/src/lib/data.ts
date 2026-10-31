@@ -1,17 +1,12 @@
 import type { AgentMessage } from '@epicenter/agent';
 import type { ServableModel } from '@epicenter/constants/ai-providers';
-import type { Row } from '@epicenter/folder';
-import type { SvelteFolder } from '@epicenter/svelte/folder';
-import { Type } from 'typebox';
+import type { NoteOf } from '@epicenter/definition/contract';
+import type { Vocab } from './contract.js';
 
 /**
- * Vocab's tables and how its rows read. Isomorphic and inert: importing it
- * opens nothing.
- *
- * This browser's local folder, `openFolder({ tables: vocabTables })`, holds
- * everything Vocab saves: the learner's words, each chat's fixed focus, and
- * every finished message. A saved thing is one Markdown file. Nothing here
- * has an account in it.
+ * What Vocab's notes mean to the app: the tutor's prompt, the stages, and
+ * the shapes the views read. Isomorphic and inert: importing it opens
+ * nothing. The files themselves are `contract.ts`'s.
  */
 
 /**
@@ -51,83 +46,14 @@ export const STAGE_LABELS: Record<Stage, string> = {
 	usable: 'Use',
 };
 
-const focusItem = Type.Object({ entryId: Type.String(), text: Type.String() });
+/** A note of each of Vocab's collections, as read. */
+export type EntryNote = NoteOf<Vocab['collections']['entries']>;
+export type ChatNote = NoteOf<Vocab['collections']['chats']>;
+export type MessageNote = NoteOf<Vocab['collections']['messages']>;
 
 /**
- * The tables Vocab reads, each a top-level directory of Markdown rows with
- * its fields in frontmatter. A schema only interprets: a save keeps fields it
- * does not name, and a file that does not fit is listed with its source and
- * issues.
- *
- * - `entries/<SHA-256 of the text>.md`: one learner-selected expression, the
- *   learner's note, and the self-reported stage. Only the learner sets the
- *   note and the stage.
- * - `chats/<id>.md`: when the chat started and the focus chosen for it.
- * - `messages/<chat id>.<message id>.md`: one finished message, whole, and
- *   the ID of its chat.
- */
-export const vocabTables = {
-	entries: Type.Object({
-		text: Type.String(),
-		note: Type.String(),
-		stage: Type.Union([
-			Type.Literal('new'),
-			Type.Literal('recognized'),
-			Type.Literal('understood'),
-			Type.Literal('usable'),
-		]),
-		createdAt: Type.String(),
-	}),
-	chats: Type.Object({
-		createdAt: Type.String(),
-		focus: Type.Array(focusItem, { minItems: 1, maxItems: 3 }),
-	}),
-	messages: Type.Object({
-		chat: Type.String(),
-		message: Type.Object({
-			id: Type.String(),
-			role: Type.Union([Type.Literal('user'), Type.Literal('assistant')]),
-			createdAt: Type.Number(),
-			parts: Type.Array(
-				Type.Union([
-					Type.Object({ type: Type.Literal('text'), text: Type.String() }),
-					Type.Object({
-						type: Type.Literal('tool-call'),
-						toolCallId: Type.String(),
-						toolName: Type.String(),
-						input: Type.Unknown(),
-					}),
-					Type.Object({
-						type: Type.Literal('tool-result'),
-						toolCallId: Type.String(),
-						toolName: Type.String(),
-						content: Type.String(),
-						details: Type.Optional(Type.Unknown()),
-						isError: Type.Boolean(),
-					}),
-				]),
-			),
-		}),
-	}),
-};
-
-export type VocabTables = typeof vocabTables;
-export type VocabFolder = SvelteFolder<VocabTables>;
-
-/** A row of `table`, as it reads: its source, its fields, and any issues. */
-export type RowOf<TName extends keyof VocabTables> = Row<VocabTables[TName]>;
-/** A row of `table` that reads as one: its fields fit the schema. */
-export type ValidRowOf<TName extends keyof VocabTables> = Extract<
-	RowOf<TName>,
-	{ issues: null }
->;
-
-/** The file of row `id` of `table`. */
-export const rowPath = (table: keyof VocabTables, id: string) =>
-	`${table}/${id}.md`;
-
-/**
- * One saved word from the mirror. `id` is the file's name.
+ * One saved word. `id` is its file's name, the SHA-256 of `text`; `note` is
+ * the note's body.
  */
 export type Entry = {
 	id: string;
@@ -135,11 +61,12 @@ export type Entry = {
 	note: string;
 	stage: Stage;
 	createdAt: string;
+	/** Signed in, and its copy is still on this device: not uploaded yet. */
+	waiting?: boolean;
 };
 
 export type FocusItem = { entryId: string; text: string };
 export type Chat = { id: string; createdAt: string; focus: FocusItem[] };
-export type ChatMessage = { id: string; chat: string; message: AgentMessage };
 
 /**
  * The saved word a focus item's stage control acts on, if there is one. A
@@ -155,64 +82,30 @@ export function focusWord(
 	);
 }
 
-/**
- * A row file Vocab cannot show as a row, and why. It is never dropped
- * silently. `id` is set when the file is text, so it can be repaired as text.
- */
-export type UnreadableFile = { path: string; reason: string; id?: string };
-type ReadRows<TRow> = { rows: TRow[]; unreadable: UnreadableFile[] };
+/** A note Vocab cannot show, and why, by its path. It is never dropped silently. */
+export type UnreadableFile = { path: string; reason: string };
 
-export function readEntry(row: ValidRowOf<'entries'>): Entry {
-	const { text, note, stage, createdAt } = row.fields;
-	return { id: row.id, text, note, stage, createdAt };
+/** Why a note does not read, in one line. */
+export const reasonOf = (issues: readonly { message: string }[]) =>
+	issues.map(({ message }) => message).join(' ');
+
+export function readEntry(note: EntryNote): Entry {
+	const { id, text, body, stage, createdAt } = note;
+	return { id, text, note: body, stage, createdAt };
 }
 
-export function readChat(row: ValidRowOf<'chats'>): Chat {
-	const { createdAt, focus } = row.fields;
+export function readChat(note: ChatNote): Chat {
+	const { id, createdAt, focus } = note;
 	return {
-		id: row.id,
+		id,
 		createdAt,
 		focus: focus.map(({ entryId, text }) => ({ entryId, text })),
 	};
 }
 
-export function readMessage(row: ValidRowOf<'messages'>): ChatMessage {
-	const { chat, message } = row.fields;
-	// The tutor loop owns a plain copy of the message.
-	return {
-		id: row.id,
-		chat,
-		// SAFETY: cloning a schema-validated message preserves its shape.
-		message: structuredClone(message) as AgentMessage,
-	};
-}
-
-/**
- * Split a table's rows into the ones Vocab can show and the files it cannot,
- * each named by its path with why. A non-text or unreadable file has no `id`:
- * it is only named, never repaired here.
- */
-export function readRows<TName extends keyof VocabTables, TRow>(
-	table: TName,
-	rows: readonly RowOf<TName>[],
-	read: (row: ValidRowOf<TName>) => TRow,
-): ReadRows<TRow> {
-	const readable: TRow[] = [];
-	const unreadable: UnreadableFile[] = [];
-	for (const row of rows) {
-		if (row.issues === null) {
-			// SAFETY: the valid branch has fields of the table's schema.
-			readable.push(read(row as ValidRowOf<TName>));
-			continue;
-		}
-		const text = !row.issues.some(
-			(issue) => issue.kind === 'not-text' || issue.kind === 'unreadable',
-		);
-		unreadable.push({
-			path: row.path,
-			reason: row.issues.map((issue) => issue.message).join(' '),
-			...(text ? { id: row.id } : {}),
-		});
-	}
-	return { rows: readable, unreadable };
+/** A finished message as the tutor loop holds it: a plain copy, its own. */
+export function readMessage(note: MessageNote): AgentMessage {
+	const { id, role, createdAt, parts } = note;
+	// SAFETY: the contract's parts are the agent's parts, as JSON.
+	return structuredClone({ id, role, createdAt, parts }) as AgentMessage;
 }

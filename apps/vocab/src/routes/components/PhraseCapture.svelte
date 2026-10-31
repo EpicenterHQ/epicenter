@@ -47,7 +47,7 @@
 	let open = $state(false);
 	let pending = $state(false);
 	let added = $state('');
-	// The phrase the folder answered was already a saved word.
+	// The phrase saving answered was already a saved word.
 	let already = $state('');
 	let problem = $state('');
 	let content = $state<HTMLElement | null>(null);
@@ -63,8 +63,8 @@
 			(!typed || sourceHoldsPhrase(candidate.message, phrase)),
 	);
 	// The list on screen never decides that a phrase is already saved: another
-	// tab may have removed the word since it was read. Saving asks the folder,
-	// which answers that the word is there or saves it.
+	// tab may have removed the word since it was read. Saving answers that the
+	// word is there, or saves it.
 	const blocked = $derived(!valid || pending);
 
 	function focusInside() {

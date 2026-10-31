@@ -4,9 +4,8 @@
 	import CircleUser from '@lucide/svelte/icons/circle-user';
 	import { auth } from '$lib/auth.svelte.js';
 
-	// Sign-in is optional here. An account adds Epicenter's hosted models; it
-	// does not hold, move, or sync the words and chats, so this says so instead
-	// of offering sync.
+	// Sign-in is optional here. An account keeps the words and chats in the
+	// learner's repository, and adds Epicenter's hosted models.
 	let open = $state(false);
 	let pending = $state(false);
 	let problem = $state('');
@@ -42,8 +41,8 @@
 			pending = false;
 			return;
 		}
-		// The page reopens the same folder, signed out.
-		location.reload();
+		// The page follows: it shows this browser's files alone, signed out.
+		pending = false;
 	}
 </script>
 
@@ -59,13 +58,13 @@
 		{#if auth.state.status === 'signed-out'}
 			<p class="text-sm font-medium">Sign in is optional</p>
 			<p class="text-xs leading-relaxed text-muted-foreground">
-				Your words and chats are saved in this browser and stay here whether or not you sign in. They are not synced to other devices. Signing in adds Epicenter's hosted tutor models.
+				Your words and chats are saved in this browser. Signing in moves them to your Epicenter repository, where your other devices and Epicenter's desktop app reach them, and adds Epicenter's hosted tutor models.
 			</p>
 			<Button class="w-full" disabled={pending} onclick={signIn}>{pending ? 'Signing in…' : 'Sign in'}</Button>
 		{:else}
 			<p class="text-sm font-medium">{email || 'Signed in'}</p>
 			<p class="text-xs leading-relaxed text-muted-foreground">
-				This account provides hosted tutor models. Your words and chats stay in this browser and are not synced.
+				Your words and chats are in your repository; one made while offline waits in this browser and uploads when it can. This account also provides hosted tutor models.
 			</p>
 			<div class="flex flex-col gap-1">
 				{#if auth.accountManagementUrl}

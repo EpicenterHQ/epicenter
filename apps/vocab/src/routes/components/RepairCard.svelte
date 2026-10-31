@@ -1,50 +1,27 @@
+<!--
+	A word note that does not read, repaired as text (`NoteRepair`): what is
+	wrong shows as the learner types, and Save repair writes the fixed text
+	(`replace`); the card closes once it reads as a word again.
+-->
 <script lang="ts">
-	import { readRow } from '@epicenter/folder';
-	import { fileEdit } from '@epicenter/svelte/folder';
-	import RowIssues from '@epicenter/svelte/row-issues';
-	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
+	import NoteRepair from '@epicenter/svelte/note-repair';
 	import { Button } from '@epicenter/ui/button';
-	import { Textarea } from '@epicenter/ui/textarea';
-	import { rowPath, vocabTables } from '$lib/data.js';
+	import { vocab } from '$lib/contract.js';
 	import type { Entries } from '$lib/entries.svelte.js';
-	import { getFolder } from '$lib/folder.js';
 
 	let { entries, id }: { entries: Entries; id: string } = $props();
-	const folder = getFolder();
-	// svelte-ignore state_referenced_locally
-	const path = rowPath('entries', id);
-	const file = $derived(folder.file(path));
-	let closeProblem = $state('');
-	const raw = fileEdit(folder, path);
-	const problems = $derived(readRow(raw.value, vocabTables.entries).issues);
-
-	async function close() {
-		closeProblem = '';
-		const value = raw.value;
-		// Closing reads the saved row, so the typed text must have landed.
-		if ((await raw.landed()).error || entries.repair.open !== id || raw.value !== value) return;
-		if (entries.repair.close(value)) return;
-		const row = folder.tables.entries.row(id);
-		if (row === undefined)
-			closeProblem = 'The file is missing. Restore it before continuing.';
-		else if (row.issues !== null)
-			closeProblem = 'The saved file still has problems. Review its text and try again.';
-	}
+	const note = $derived(entries.list.invalid.find((candidate) => candidate.id === id));
 </script>
 
-<section class="space-y-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair {path}">
-	<p><code>{path}</code> {problems ? 'is not a valid word, so its note and stage cannot be shown.' : 'reads as a word in this editor and appears as one after saving.'} Changes save as you type.</p>
-	<Textarea class="min-h-32 font-mono text-xs" aria-label="File text for {path}" bind:value={raw.value} oninput={() => closeProblem = ''} />
-	<UnsavedEdit edit={raw} />
-	{#if file?.readError}
-		<div role="alert" class="text-destructive">Could not read <code>{path}</code>: {file.readError.message}
-			<Button size="sm" variant="outline" onclick={() => void folder.refresh()}>Read again</Button>
-		</div>
-	{/if}
-	{#if problems}
-		<div role="alert" class="text-destructive [&_ul]:space-y-1" aria-label="Problems in the current text"><RowIssues issues={problems} /></div>
+<section class="flex flex-col gap-2 rounded-lg border border-destructive/50 p-4 text-xs" aria-label="Repair entries/{id}.md">
+	{#if note}
+		<p><code>{note.path}</code> is not a valid word, so its note and stage cannot be shown. Fix its text and save it.</p>
+		<NoteRepair contract={vocab} {note} replace={(text) => entries.list.replace({ id }, text)} onRepaired={() => entries.repair.close()} />
 	{:else}
-		<Button size="sm" variant="outline" onclick={() => void close()}>Show note and stage</Button>
+		<p>
+			<code>entries/{id}.md</code>
+			{entries.list.get({ id }) ? 'reads as a word now.' : 'is no longer here.'}
+		</p>
+		<Button size="sm" variant="outline" class="self-start" onclick={() => entries.repair.close()}>Close</Button>
 	{/if}
-	{#if closeProblem}<p role="alert" class="text-destructive">{closeProblem}</p>{/if}
 </section>

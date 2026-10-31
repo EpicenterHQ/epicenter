@@ -2,25 +2,21 @@ import staticAdapter from '@sveltejs/adapter-static';
 import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /**
- * Epicenter serves an installed app below `/apps/<workspace-id>/` (ADR-0210),
- * so a build headed there has to write that prefix into its own asset URLs: nothing
- * rewrites them afterwards, and a build that assumes it owns the site root asks
- * for `/_app/...`, gets the host's 404, and shows a blank window.
- *
- * The prefix arrives as an environment variable rather than a constant because
- * the workspace id is declared once, in the workspace, and `build:epicenter` reads it
- * from there. Vocab's own deploy sets nothing and keeps the site root.
+ * Where a build writes the static app, when not `build/`: the end-to-end
+ * stack builds against a test server into a scratch directory.
  */
-const epicenterBase = process.env.EPICENTER_APP_BASE;
+const out = process.env.VOCAB_BUILD_DIR;
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
 	preprocess: vitePreprocess(),
 	kit: {
+		// A static single-page app: any host that answers unknown paths with
+		// `index.html` (for `/auth/callback`) serves it.
 		adapter: staticAdapter({
 			fallback: 'index.html',
+			...(out && { pages: out, assets: out }),
 		}),
-		...(epicenterBase && { paths: { base: epicenterBase } }),
 	},
 };
 

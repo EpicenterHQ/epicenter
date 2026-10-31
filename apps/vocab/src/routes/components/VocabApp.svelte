@@ -2,40 +2,43 @@
 	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
 	import { createInferenceCatalog } from '@epicenter/ai/picker';
 	import { toHostedCatalog } from '@epicenter/constants/ai-providers';
-	import { saveLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { LightSwitch } from '@epicenter/ui/light-switch';
 	import { toast } from '@epicenter/ui/sonner';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
 	import { onDestroy } from 'svelte';
-	import { auth } from '$lib/auth.svelte.js';
+	import type { Account } from '@epicenter/auth';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
 	import { openVocabInference } from '$lib/inference.js';
-	import { setFolder } from '$lib/folder.js';
-	import type { VocabFolder } from '$lib/data.js';
-	import { createVocab } from '$lib/vocab.svelte.js';
+	import { createVocab, type VocabLists } from '$lib/vocab.svelte.js';
 	import AccountMenu from './AccountMenu.svelte';
 	import ConversationView from './ConversationView.svelte';
 	import FocusWords from './FocusWords.svelte';
 	import WordsView from './WordsView.svelte';
 
-	let { folder }: { folder: VocabFolder } = $props();
+	// One account for this component's life (undefined signed out): the root
+	// mounts a new Vocab for a new account. Signed in, the lists include the
+	// learner's repository; signed out, they are this browser's files alone.
+	let { lists, account }: { lists: VocabLists; account: Account | undefined } = $props();
 	// svelte-ignore state_referenced_locally
-	setFolder(folder);
-	// svelte-ignore state_referenced_locally
-	const { entries, chats } = createVocab(folder);
+	const { entries, chats } = createVocab(lists, { uploads: account !== undefined });
 
-	// The account adds hosted models and nothing else. It is read once:
-	// sign-in and sign-out replace this page, and a change made in another tab
-	// is offered as a reload below. The folder, the endpoints connected on this
-	// device, and the chosen model are the same either way.
-	const account = auth.state.account;
+	// The account also adds hosted models. The endpoints connected on this
+	// device and the chosen model are the same either way.
+	// svelte-ignore state_referenced_locally
+	const tutorAccount = account;
 	const departure = new AbortController();
-	const sources = openVocabInference(account);
+	const sources = openVocabInference(tutorAccount);
 	const catalog = createInferenceCatalog({ ai: sources, signal: departure.signal, hostedModels: toHostedCatalog([VOCAB_MODEL]) });
 	const selections = createBrowserInferenceSelections('vocab');
-	const accountChanged = $derived(auth.state.account !== account);
+	/** Where the words are, in a line. */
+	const where = $derived.by(() => {
+		if (account === undefined) return 'On this device';
+		const waiting = entries.words.filter((word) => word.waiting).length;
+		if (lists.entries.repositoryError) return 'Offline: new words wait to upload';
+		return waiting > 0 ? `Uploading ${waiting} ${waiting === 1 ? 'word' : 'words'}…` : 'In your repository';
+	});
 
 	const VIEWS = [
 		{ id: 'words', label: 'Words', icon: BookOpenIcon },
@@ -53,7 +56,7 @@
 
 	/**
 	 * Save the focus as a new chat, then show it. The opening it requests
-	 * starts only once the folder holds the chat's file. Answers whether the
+	 * starts only once the chat's note is saved. Answers whether the
 	 * chat started, so Words keeps the selection when it did not.
 	 */
 	async function begin(focus: FocusItem[]): Promise<boolean> {
@@ -100,7 +103,7 @@
 	<header class="contents md:flex md:items-center md:gap-2 md:border-b md:px-4 md:py-2">
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
 			<h1 class="text-lg font-semibold">Vocab</h1>
-			<span class="text-xs text-muted-foreground" role="status">{saveLine(folder.saving).label}</span>
+			<span class="text-xs text-muted-foreground" role="status" data-testid="where">{where}</span>
 			<div class="flex items-center gap-1 md:order-last md:ml-auto"><LightSwitch variant="ghost" /><AccountMenu /></div>
 		</div>
 		<!--
@@ -129,16 +132,10 @@
 			</ul>
 		</details>
 	{/if}
-	{#if accountChanged}
-		<div role="status" class="flex items-center justify-between gap-2 border-b px-3 py-2 text-xs">
-			<span>Your sign-in changed in another tab. Reload to use it for the tutor. Your words and chats are not affected.</span>
-			<Button variant="ghost" size="sm" onclick={() => location.reload()}>Reload</Button>
-		</div>
-	{/if}
 	<div class="min-h-0 flex-1" class:hidden={view !== 'words'}><WordsView {entries} {starting} onStart={begin} /></div>
 	<div class="flex min-h-0 flex-1" class:hidden={view !== 'chat'}>
 		<aside class="hidden w-56 shrink-0 overflow-y-auto border-r p-3 md:block" aria-label="Chat history">
-			<h2 class="mb-2 text-sm font-semibold">Chats in this browser</h2>
+			<h2 class="mb-2 text-sm font-semibold">Chats</h2>
 			{#each chatSummaries as chat (chat.id)}<Button class="mb-1 w-full justify-start truncate" variant={chat.id === selectedChatId ? 'secondary' : 'ghost'} onclick={() => openChat(chat.id)}>{chat.title}</Button>{/each}
 		</aside>
 		<div class="flex min-w-0 flex-1 flex-col">
@@ -147,7 +144,7 @@
 			{#if focusOpen && selectedChat}<div class="border-b p-3 md:hidden"><FocusWords focus={selectedChat.focus} {entries} /></div>{/if}
 			{#if !selectedChatId}<p class="m-auto text-center text-muted-foreground">Choose a chat from history.</p>{/if}
 			{#if selectedChatId && selectedChat}
-				{#key selectedChatId}<ConversationView chatId={selectedChatId} {account} {folder} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
+				{#key selectedChatId}<ConversationView chatId={selectedChatId} account={tutorAccount} messages={lists.messages} {catalog} {selections} {entries} focus={selectedChat.focus} visible={view === 'chat'} startOpening={openingId === selectedChatId} onOpeningStarted={() => openingId = null} />{/key}
 			{/if}
 		</div>
 		<aside class="hidden w-60 shrink-0 overflow-y-auto border-l p-3 md:block" aria-label="Focus words">

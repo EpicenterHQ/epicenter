@@ -33,5 +33,11 @@ export default defineConfig(
 		optimizeDeps: {
 			exclude: ['onnxruntime-web', 'onnxruntime-web/wasm'],
 		},
+		// localhost, not 127.0.0.1: the API registers Vocab's sign-in callback
+		// at `http://localhost:8888`.
+		server: { host: 'localhost' },
+		preview: { port: APPS.VOCAB.port, strictPort: true, host: 'localhost' },
+		// The device's OPFS Worker is a module Worker.
+		worker: { format: 'es' },
 	}),
 );
