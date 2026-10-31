@@ -5,19 +5,19 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  Open a root for the calling window and watch it, answering its canonical
-	 *  path, by which the page names it from then on. With no `root`, or the
-	 *  window's own directory's path, it is that directory, which the shell
-	 *  bound before the window existed: refused when gone, never made again.
-	 *  Any other absolute `root` must be a folder an app may keep its files in
-	 *  (`Refused` otherwise) that Tauri's file-system scope allows (`NotGranted`
-	 *  otherwise); it is made, with missing parents, only for `create`, and is
-	 *  `Missing` when it is not there. Each open root has one watch, whose
+	 *  Open the root at the absolute path `root` for the calling window and
+	 *  watch it, answering its canonical path, by which the page names it from
+	 *  then on. The window's own directory, by any path that resolves to it, is
+	 *  the directory the shell bound before the window existed: refused when
+	 *  gone, never made again. Any other `root` must be a folder an app may keep
+	 *  its files in (`Refused` otherwise, a relative path included) that Tauri's
+	 *  file-system scope allows (`NotGranted` otherwise); it is made, with
+	 *  missing parents, only for `create`, and is `Missing` when it is not there. Each open root has one watch, whose
 	 *  changes go to the latest channel the page opened it with, and removes
 	 *  the staged files a stopped save left an hour or more ago
 	 *  (`storage::sweep_scratch`).
 	 */
-	openFolder: (root: string | null, create: boolean, onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { root, create, onChange })),
+	openFolder: (root: string, create: boolean, onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { root, create, onChange })),
 	/**
 	 *  The canonical path of `root`, a folder this window may open: what a page
 	 *  remembers for a folder the person picked, since the picker answers the
@@ -32,10 +32,10 @@ export const commands = {
 	/**  The caller can destroy only its own bound window after its writes drain. */
 	destroyBoundWindow: (token: number) => typedError<boolean, string>(__TAURI_INVOKE("plugin:epicenter-folder|destroy_bound_window", { token })),
 	/**
-	 *  Every file below the window's root, `.git` aside, hidden ones included,
+	 *  Every file below the root `root`, `.git` aside, hidden ones included,
 	 *  none of them followed (`storage::list`).
 	 */
-	listFolder: (root: string | null) => typedError<ListedFile[], StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
+	listFolder: (root: string) => typedError<ListedFile[], StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
 	/**
 	 *  Ask the operating system to open Epicenter with a request to sync the
 	 *  folder at `path` under `contract`, the URL its contract is published at.

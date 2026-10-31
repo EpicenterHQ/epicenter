@@ -218,7 +218,7 @@ additional current APIs.
 
 | Source | Names and current behavior |
 | --- | --- |
-| `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { path? })` from `/tauri`, and `openRemote(contract, { account })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
+| `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { path })` from `/tauri` (the root's absolute path), and `openRemote(contract, { account })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
 | CLI | Implemented commands include `auth`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. External-schema flags and CLI `open` remain deferred. |
 | Stored records | Existing fields such as `recordingId` retain their names and values. A noun cleanup is not a data-format migration. |
 

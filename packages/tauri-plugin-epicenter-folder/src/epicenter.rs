@@ -85,7 +85,7 @@ fn reached<R: Runtime>(
     webview
         .app_handle()
         .state::<Folders>()
-        .bound_root(webview.label(), Some(path))
+        .bound_root(webview.label(), Path::new(path))
         .map_err(|_| SyncRequestError::Folder {
             path: path.to_owned(),
         })

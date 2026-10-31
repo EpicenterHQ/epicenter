@@ -15,7 +15,7 @@
  * - Local transcription runs the recording's file in the data folder with
  *   the active model; a request prepared for one route never goes to another
  * - The shell's microphone records `recordings/<id>` in the data folder and
- *   repairs by ids; without the data folder's root nothing is made
+ *   repairs by ids
  */
 import { afterEach, expect, mock, test } from 'bun:test';
 import type { Client } from '@epicenter/definition/contract';
@@ -124,7 +124,11 @@ mock.module('@epicenter/transcription-native', () => ({
 /** The data folder's client, by the root the shell answered when it opened. */
 const dataFolder = {} as Client<Whispering>;
 mock.module('@epicenter/folder/tauri', () => ({
-	rootOf: (client: unknown) => (client === dataFolder ? ROOT : undefined),
+	rootOf: (client: unknown) => {
+		if (client !== dataFolder)
+			throw new Error('expected a client openDevice from /tauri returned');
+		return ROOT;
+	},
 }));
 
 /** What the recorder was asked to start or repair. */
@@ -327,8 +331,4 @@ test('the shell’s microphone records recordings/<id> into the data folder’s 
 	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
 	expect(expectOk(await capture.recover())).toEqual(['a', 'b']);
 	expect(started.at(-1)).toEqual({ device: dataFolder, under: 'recordings' });
-});
-
-test('without the data folder’s root nothing is made, so nothing records into AppData', () => {
-	expect(() => createServices({} as Client<Whispering>)).toThrow('data folder');
 });

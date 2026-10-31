@@ -32,19 +32,18 @@ export {
 } from './settings.js';
 
 /**
- * The typed client of `contract` over a directory the desktop shell lets
- * this window reach, once the shell opened it and started watching it. With
- * no `path`, or a relative one, it is the window's own folder, or a folder
- * inside it (a data folder may sit at any depth). An absolute `path` names
- * a root by its path: the window's own folder, or any folder Tauri's
- * runtime file-system scope allows, which the standalone shell does for the
- * app's default data folder at startup and the folder picker
- * (`pickDataFolder`) does for the folder a person picks. `create` makes a
- * missing root (only a default should be made); otherwise a missing one is
- * `Missing`.
+ * The typed client of `contract` over the root at the absolute path `path`,
+ * once the desktop shell opened it and started watching it: the window's
+ * own folder (the AppData root the shell bound before the window existed),
+ * or any folder Tauri's runtime file-system scope allows, which the
+ * standalone shell does for the app's default data folder at startup and the
+ * folder picker (`pickDataFolder`) does for the folder a person picks.
+ * `create` makes a missing root (only a default should be made); otherwise a
+ * missing one is `Missing`. A relative `path` names no root: the shell
+ * refuses it (`Refused`).
  *
  * An `Err` says why nothing opened (`OpenDeviceError`); a contract that is
- * not well formed, or a relative `path` that leaves the folder, throws.
+ * not well formed throws.
  *
  * ```ts
  * const device = await openDevice(notes, { path: '/Users/me/Notes' });
@@ -53,48 +52,35 @@ export {
  */
 export async function openDevice<TContract extends Contract>(
 	contract: TContract,
-	{ path, create = false }: { path?: string; create?: boolean } = {},
+	{ path, create = false }: { path: string; create?: boolean },
 ): Promise<Result<Client<TContract>, OpenDeviceError>> {
-	const root = path !== undefined && isAbsolute(path) ? path : undefined;
 	if (!isTauri())
 		return OpenDeviceError.StorageUnavailable({
 			cause: 'openDevice from /tauri runs only in a Tauri window',
 		});
-	const opened = await openRoot(root ?? null, create);
-	if (opened.error !== null)
-		return deviceRefusal(opened.error.cause, root ?? "this window's folder");
-	const { root: openedRoot, watch } = opened.data;
-	const device = createDeviceClient(
-		contract,
-		tauriStore({
-			root: openedRoot,
-			inside: root === undefined ? path : undefined,
-			watch,
-		}),
-	);
-	if (root !== undefined) roots.set(device, openedRoot);
+	const opened = await openRoot(path, create);
+	if (opened.error !== null) return deviceRefusal(opened.error.cause, path);
+	const { root, watch } = opened.data;
+	const device = createDeviceClient(contract, tauriStore({ root, watch }));
+	roots.set(device, root);
 	return Ok(device);
 }
 
-/** The root each client opened by an absolute path, as the shell answered it. */
+/** The root each client opened, as the shell answered it. */
 const roots = new WeakMap<object, string>();
 
 /**
- * The root `device` was opened at by an absolute path, exactly as the shell
- * answered it (its canonical path): what the window's other native commands
- * take to reach the same folder, such as the recorder's `root`. Undefined
- * for a client of the window's own folder, which those commands reach by
- * naming no root.
+ * The root `device` was opened at, exactly as the shell answered it (its
+ * canonical path): what the window's other native commands take to reach
+ * the same folder, such as the recorder's and local transcription's `root`.
+ * Throws for a client `openDevice` from `/tauri` did not return.
  */
-export function rootOf(device: Client<Contract>): string | undefined {
-	return roots.get(device);
+export function rootOf(device: Client<Contract>): string {
+	const root = roots.get(device);
+	if (root === undefined)
+		throw new Error('expected a client openDevice from /tauri returned');
+	return root;
 }
-
-/** An absolute path on macOS, Linux, or Windows (a drive or a UNC path). */
-const isAbsolute = (path: string) =>
-	path.startsWith('/') ||
-	/^[A-Za-z]:[\\/]/.test(path) ||
-	path.startsWith('\\\\');
 
 /** A root the shell opened: its canonical path, and its watcher's changes. */
 type OpenedRoot = { root: string; watch: ChangeSource };
@@ -111,12 +97,11 @@ type NotOpened = { cause: unknown };
 const listeners = new Map<string, Set<ChangeListener>>();
 
 /**
- * Ask the shell to open `root` (the window's own folder for `null`) and watch
- * it: each call asks again, so a folder that came back opens, and one that
- * went is refused.
+ * Ask the shell to open `root` and watch it: each call asks again, so a
+ * folder that came back opens, and one that went is refused.
  */
 async function openRoot(
-	root: string | null,
+	root: string,
 	create: boolean,
 ): Promise<Result<OpenedRoot, NotOpened>> {
 	let heard: Set<ChangeListener> | undefined;

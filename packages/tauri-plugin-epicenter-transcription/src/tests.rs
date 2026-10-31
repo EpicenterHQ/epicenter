@@ -91,15 +91,21 @@ fn invoke(window: &WebviewWindow<MockRuntime>, command: &str, args: Value) -> Re
     .map(|body| body.deserialize::<Value>().expect("a JSON response"))
 }
 
+/// `transcribe_file` in the root bound to `window`, as its page names it. A
+/// window the shell no longer reaches names a root it never had.
 fn transcribe(
     window: &WebviewWindow<MockRuntime>,
     model_id: &str,
     path: &str,
 ) -> Result<Value, Value> {
+    let root = window.folders().bound(window.label()).map_or_else(
+        |_| PathBuf::from("/never-bound"),
+        |directory| directory.root().to_path_buf(),
+    );
     invoke(
         window,
         "transcribe_file",
-        json!({ "modelId": model_id, "root": null, "path": path, "hints": {} }),
+        json!({ "modelId": model_id, "root": root, "path": path, "hints": {} }),
     )
 }
 

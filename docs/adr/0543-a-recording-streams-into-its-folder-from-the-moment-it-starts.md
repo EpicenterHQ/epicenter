@@ -124,3 +124,15 @@ scratch file in `.epicenter/saves`. The folder's sweep never reads
 under a hidden path, which no watcher reports, so the header rewrite about
 once a second wakes no sync round. [ADR-0562's amendment](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md#amendment-2026-11-01-epicenter-holds-only-unfinished-writes-in-saves-and-recordings)
 gives the layout.
+
+## Amendment, 2026-11-01: a desktop recording always names its folder
+
+`start` and `recover` take the root the recording is in as a required
+absolute path, the one the folder plugin answered when the page opened the
+data folder (`rootOf(device)` from `@epicenter/folder/tauri`). No command of
+the folder, recorder, or transcription plugin falls back to the directory the
+shell bound to the window, which in a standalone app is its AppData, so a
+recording can no longer land there because a page named no root.
+`openDevice` from `@epicenter/folder/tauri` takes the root's absolute path
+too: the window's own folder, a folder inside it, and a client with no root
+are gone.

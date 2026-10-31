@@ -4,8 +4,9 @@
  * (`@epicenter/folder/tauri`) and everything above it.
  *
  * The shell bound the window one directory before the window existed, and
- * the page opens it (`open_folder`), naming none or its path; other roots
- * open only when allowed, as Tauri's file-system scope allows them. The page's storage is the
+ * the page opens it (`open_folder`) by its path; other roots open only when
+ * allowed, as Tauri's file-system scope allows them. Every command names its
+ * root, as the plugin's do. The page's storage is the
  * folder plugin's commands, one per storage method
  * (ADR-0581). Here the Bun directory storage over `node:fs`
  * (`directory-store.ts`), whose outcomes the plugin's `storage.rs` matches,
@@ -30,7 +31,7 @@
  */
 import * as nodeFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import type { Result } from 'wellcrafted/result';
 import { isStaleScratch } from './boundary.js';
 import { nodeDirectoryPrimitives } from './directory-node.js';
@@ -110,8 +111,8 @@ export function createGrantedShell(
 	root: string,
 	{ grants = [] }: { grants?: readonly string[] } = {},
 ) {
-	/** Each `open_folder`: the root asked for (null for the window's own) and its channel. */
-	const opened: { root: string | null; onChange: unknown }[] = [];
+	/** Each `open_folder`: the root asked for and its channel. */
+	const opened: { root: string; onChange: unknown }[] = [];
 	/** Allowed roots the page has opened. */
 	const admitted = new Set<string>();
 	const calls: ShellCall[] = [];
@@ -203,7 +204,7 @@ export function createGrantedShell(
 	/** The storage of the root a call named, or the plugin's refusal. */
 	function storageFor(args: Record<string, unknown>) {
 		const named = args.root;
-		if (named === undefined || named === null || named === root) return storage;
+		if (named === root) return storage;
 		const found = granted.get(named as string);
 		if (found !== undefined && admitted.has(named as string)) return found;
 		throw {
@@ -227,10 +228,17 @@ export function createGrantedShell(
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
 		async open_folder(args) {
-			const named = (args.root as string | null | undefined) ?? null;
+			const named = args.root as string;
 			opened.push({ root: named, onChange: args.onChange });
 			const answer = control.open();
-			if (named === null || named === root) {
+			// As `scope.rs` refuses a root that is not an absolute path.
+			if (!isAbsolute(named))
+				throw {
+					name: 'Refused',
+					root: named,
+					reason: `${named} is not a full path to a folder.`,
+				};
+			if (named === root) {
 				await sweep();
 				// The shell answers the root it watches.
 				return answer === null ? root : answer;

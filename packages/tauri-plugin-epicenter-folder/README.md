@@ -10,11 +10,12 @@ its window
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-It names no scope or window: every command answers in the directory bound to
-the calling WebView's label
+It names no scope or window, and every command names its root by the
+absolute path `open_folder` answered: the directory bound to the calling
+WebView's label
 ([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)),
-or in another root the page opened by its exact path, which Tauri's runtime
-file-system scope must allow (see Other roots).
+or another root the page opened, which Tauri's runtime file-system scope must
+allow (see Other roots). No command falls back to the bound directory.
 
 ## Layout
 
@@ -133,8 +134,8 @@ open (Other roots).
 ## Opening
 
 The page's `@epicenter/folder` adapter calls `open_folder` with a private
-change channel and, for the window's own directory, no root (or that
-directory's path). A window with no binding is refused `NotBound`, a bound
+change channel and the root's absolute path; for the window's own directory,
+any path that resolves to it. A window with no binding is refused `NotBound`, a bound
 directory that is gone `Missing`, and one that cannot be inspected
 `Unavailable`; the window's own directory is never made again here, since
 making it belongs to the shell's launch. After shutdown the answer is

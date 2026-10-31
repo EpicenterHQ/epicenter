@@ -1,10 +1,12 @@
 //! Live window-to-directory bindings. Each command keeps its admitted directory.
 //!
 //! A binding has one primary directory, fixed for the window's life: its
-//! identity, and the root a page reaches by naming none. A page may also
-//! open other roots by their exact paths (`open_folder`), each one Tauri's
-//! file-system scope allows (`scope`); every root a page opened has its own
-//! watch and is reached by its exact path until the window closes.
+//! identity, which a page reaches by its exact path like any other root. A
+//! page may also open other roots by their exact paths (`open_folder`), each
+//! one Tauri's file-system scope allows (`scope`); every root a page opened
+//! has its own watch and is reached by its exact path until the window
+//! closes. A page always names the root it means: no command falls back to
+//! the primary directory.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -162,10 +164,10 @@ impl Folders {
     }
 
     /// The root a page named, cloned for one admitted operation: the primary
-    /// directory for `None` or its exact path, or a root the page opened by
-    /// its exact canonical path. Any other path is `NotGranted`, whatever it
-    /// contains: a page opens a root before it reads or writes there.
-    pub fn bound_root(&self, label: &str, root: Option<&str>) -> Result<Directory, WindowError> {
+    /// directory by its exact path, or a root the page opened by its exact
+    /// canonical path. Any other path is `NotGranted`, whatever it contains:
+    /// a page opens a root before it reads or writes there.
+    pub fn bound_root(&self, label: &str, root: &Path) -> Result<Directory, WindowError> {
         let state = self.state();
         if state.stopped {
             return Err(WindowError::ShuttingDown);
@@ -175,18 +177,15 @@ impl Folders {
             .get(label)
             .filter(|binding| !binding.retiring)
             .ok_or(WindowError::NotBound)?;
-        let Some(root) = root else {
-            return Ok(binding.directory.clone());
-        };
-        if binding.directory.root() == Path::new(root) {
+        if binding.directory.root() == root {
             return Ok(binding.directory.clone());
         }
         binding
             .opened
-            .get(Path::new(root))
+            .get(root)
             .map(|opened| opened.directory.clone())
             .ok_or_else(|| WindowError::NotGranted {
-                root: root.to_string(),
+                root: root.to_string_lossy().into_owned(),
             })
     }
 

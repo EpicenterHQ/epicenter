@@ -57,9 +57,10 @@ folder so the person can remove it with Hugging Face's tools.
 ## Transcribing a file
 
 `transcribe_file(model_id, root, path, hints)` transcribes an audio file in a
-folder the folder plugin opened for the calling window: `root` is a root its
-page opened (`openDevice` with a path, such as a standalone app's data folder),
-by the exact path the shell answered, or `null` for the window's own folder.
+folder the folder plugin opened for the calling window: `root` is the window's
+own folder or a root its page opened (`openDevice`, such as a standalone app's
+data folder), by the exact path the shell answered (`rootOf`). It is required:
+no command falls back to the window's own folder.
 `path` is folder-relative, such as `recordings/20261031T101500123.wav`. Rust
 reads the file, so audio never crosses IPC.
 

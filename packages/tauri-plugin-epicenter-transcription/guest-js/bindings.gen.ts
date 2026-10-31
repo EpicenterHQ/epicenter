@@ -74,9 +74,9 @@ export const commands = {
 	/**
 	 *  Transcribe the audio file at the folder-relative data path `path` (such as
 	 *  `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-	 *  model `model_id`. `root` is a folder the calling window's page opened, by
-	 *  the exact path the shell answered it with, or `None` for the window's own
-	 *  folder; any other root is refused, whatever it holds.
+	 *  model `model_id`. `root` is the calling window's own folder or a folder
+	 *  its page opened, by the exact path the shell answered it with; any other
+	 *  root is refused, whatever it holds.
 	 *
 	 *  A root the window did not open, a path the folder rule refuses, and a
 	 *  missing file are refused before any model is resolved. An unknown or
@@ -85,7 +85,7 @@ export const commands = {
 	 *  input until inference finishes, including after the caller abandons the
 	 *  call.
 	 */
-	transcribeFile: (modelId: string, root: string | null, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, root, path, hints })),
+	transcribeFile: (modelId: string, root: string, path: string, hints: TranscriptionHints) => typedError<TranscriptionOutcome, TranscriptionError>(__TAURI_INVOKE("plugin:epicenter-transcription|transcribe_file", { modelId, root, path, hints })),
 	/**
 	 *  Open this app's model settings through the callback given to
 	 *  `Builder::open_settings`. Refused when the app gave none.

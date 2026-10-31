@@ -14,7 +14,7 @@ use crate::PluginState;
 use epicenter_folder_core::page_files;
 use epicenter_folder_core::paths::path_problem;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Runtime, State, Webview};
 use tauri_plugin_epicenter_folder::FolderExt;
 
@@ -219,12 +219,12 @@ pub fn list_inference_models<R: Runtime>(
 }
 
 /// The audio file at the data path `path` in `root`, checked on arrival:
-/// `root` must be the calling window's own folder (`None`) or a root its page
-/// opened (`open_folder`), read once; the path must pass the folder's path
+/// `root` must be the calling window's own folder or a root its page opened
+/// (`open_folder`), by its exact path, read once; the path must pass the folder's path
 /// rule with no link on the way, and a regular file must be there.
 fn audio_file<R: Runtime>(
     webview: &Webview<R>,
-    root: Option<&str>,
+    root: &Path,
     path: &str,
 ) -> Result<PathBuf, TranscriptionError> {
     let directory = webview
@@ -256,9 +256,9 @@ fn audio_file<R: Runtime>(
 
 /// Transcribe the audio file at the folder-relative data path `path` (such as
 /// `recordings/20261031T101500123.wav`) in `root`, with the exact catalog
-/// model `model_id`. `root` is a folder the calling window's page opened, by
-/// the exact path the shell answered it with, or `None` for the window's own
-/// folder; any other root is refused, whatever it holds.
+/// model `model_id`. `root` is the calling window's own folder or a folder
+/// its page opened, by the exact path the shell answered it with; any other
+/// root is refused, whatever it holds.
 ///
 /// A root the window did not open, a path the folder rule refuses, and a
 /// missing file are refused before any model is resolved. An unknown or
@@ -270,13 +270,13 @@ fn audio_file<R: Runtime>(
 #[specta::specta]
 pub async fn transcribe_file<R: Runtime>(
     model_id: String,
-    root: Option<String>,
+    root: PathBuf,
     path: String,
     hints: TranscriptionHints,
     webview: Webview<R>,
     state: State<'_, PluginState<R>>,
 ) -> Result<TranscriptionOutcome, TranscriptionError> {
-    let audio = audio_file(&webview, root.as_deref(), &path)?;
+    let audio = audio_file(&webview, &root, &path)?;
     let cache = state.cache();
     tauri::async_runtime::spawn_blocking(move || cache.transcribe_explicit(model_id, &audio, hints))
         .await

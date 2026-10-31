@@ -1,6 +1,6 @@
 /**
  * A device store in a Tauri window: a root the window opened (`root`, by the
- * exact path the shell answered), or a folder `inside` it. Each method is one
+ * exact path the shell answered), named in every call. Each method is one
  * command of the folder plugin (ADR-0581), which the shell answers over that
  * root and refuses for a root the window did not open. The shell checks
  * every path itself (`storage.rs`: literal names, no link followed, `.git`
@@ -26,41 +26,21 @@ import { Ok } from 'wellcrafted/result';
 import { type ChangeSource, createChanges } from '../changes.js';
 import { hashBytes } from '../hash.js';
 import { commands, type PutOutcome } from '../native/bindings.gen.js';
-import { pathProblem } from '../paths.js';
 import type { DeviceStore } from './store.js';
 
 /**
- * The store of the root, or of the folder at the relative path `inside` it,
- * hearing changes from `watch` (the shell's watcher, whose paths are
- * relative to the root). A path that is not plainly relative throws here, at
- * once; outside Tauri, and whenever the shell refuses, a call is
- * `Unavailable`.
+ * The store of `root`, hearing changes from `watch` (the shell's watcher,
+ * whose paths are relative to the root). Outside Tauri, and whenever the
+ * shell refuses, a call is `Unavailable`.
  */
 export function tauriStore({
 	root,
-	inside,
 	watch,
 }: {
-	root?: string;
-	inside?: string;
+	root: string;
 	watch: ChangeSource;
 }): DeviceStore {
-	if (inside !== undefined) {
-		const problem = pathProblem(inside);
-		if (problem !== undefined)
-			throw new Error(`openDevice: '${inside}' cannot be opened: ${problem}`);
-	}
-	const named = root ?? null;
-	const prefix = inside === undefined ? '' : `${inside}/`;
-	const changes = createChanges((emit) =>
-		watch((paths) => {
-			if (paths === null) return emit(null);
-			const inner = paths
-				.filter((path) => path.startsWith(prefix))
-				.map((path) => path.slice(prefix.length));
-			if (inner.length > 0) emit(inner);
-		}),
-	);
+	const changes = createChanges(watch);
 	const unavailable = (cause: unknown) => ClientError.Unavailable({ cause });
 	const notTauri = () =>
 		unavailable(
@@ -72,19 +52,12 @@ export function tauriStore({
 			if (!isTauri()) return notTauri();
 			let listed: Awaited<ReturnType<typeof commands.listFolder>>;
 			try {
-				listed = await commands.listFolder(named);
+				listed = await commands.listFolder(root);
 			} catch (cause) {
 				return unavailable(cause);
 			}
 			if (listed.error !== null) return unavailable(listed.error);
-			return Ok(
-				listed.data
-					.filter(({ path }) => path.startsWith(prefix))
-					.map(({ path, stamp }) => ({
-						path: path.slice(prefix.length),
-						stamp,
-					})),
-			);
+			return Ok(listed.data);
 		},
 		async read(path) {
 			if (!isTauri()) return notTauri();
@@ -93,7 +66,7 @@ export function tauriStore({
 				response = new Uint8Array(
 					await invoke<ArrayBuffer>(
 						'plugin:epicenter-folder|read_folder_file',
-						{ path: prefix + path, root: named },
+						{ path, root },
 					),
 				);
 			} catch (cause) {
@@ -110,12 +83,12 @@ export function tauriStore({
 		async write(path, bytes, expected) {
 			if (!isTauri()) return notTauri();
 			const headers: Record<string, string> = {
-				path: encodeURIComponent(prefix + path),
+				path: encodeURIComponent(path),
+				root: encodeURIComponent(root),
 				remove: String(bytes === null),
 				expected:
 					typeof expected === 'string' ? expected : `sha256:${expected.sha256}`,
 			};
-			if (root !== undefined) headers.root = encodeURIComponent(root);
 			try {
 				const outcome = await invoke<PutOutcome>(
 					'plugin:epicenter-folder|put_folder_file',

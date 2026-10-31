@@ -22,15 +22,15 @@ use tauri_plugin_fs::FsExt;
 
 use crate::{Directory, WindowError};
 
-/// Admit `root` for the calling window: refused (`Refusals`), not allowed by
+/// Admit the root at `path` for the calling window: refused (`Refusals`), not allowed by
 /// Tauri's runtime file-system scope (`NotGranted`), or missing (`Missing`,
 /// unless `create`, which makes it and its missing parents), in that order.
 pub(crate) fn admit<R: Runtime>(
     webview: &Webview<R>,
-    root: &str,
+    path: &Path,
     create: bool,
 ) -> Result<Directory, WindowError> {
-    let path = Path::new(root);
+    let root = path.display();
     if let Some(reason) = Refusals::resolve(webview)?.refusal(path) {
         return Err(WindowError::Refused {
             root: root.to_string(),

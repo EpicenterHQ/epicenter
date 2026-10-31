@@ -73,8 +73,13 @@ fn observations_use_only_the_callers_channel() {
         }
         Ok(())
     });
-    tauri::async_runtime::block_on(crate::commands::open_folder(webview, None, false, channel))
-        .unwrap();
+    tauri::async_runtime::block_on(crate::commands::open_folder(
+        webview,
+        fixture.root.clone(),
+        false,
+        channel,
+    ))
+    .unwrap();
     std::fs::write(fixture.root.join("change.md"), b"changed").unwrap();
     let until = std::time::Instant::now() + Duration::from_secs(5);
     loop {
@@ -103,7 +108,7 @@ fn observations_use_only_the_callers_channel() {
     let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
     tauri::async_runtime::block_on(crate::commands::open_folder(
         webview,
-        None,
+        fixture.root.clone(),
         false,
         next_channel,
     ))
@@ -156,14 +161,14 @@ fn external_writes_and_atomic_replacements_reach_only_the_bound_webview() {
     let other_view: tauri::Webview<MockRuntime> = other.as_ref().clone();
     tauri::async_runtime::block_on(crate::commands::open_folder(
         view,
-        None,
+        fixture.root.clone(),
         false,
         channel(send),
     ))
     .unwrap();
     tauri::async_runtime::block_on(crate::commands::open_folder(
         other_view,
-        None,
+        elsewhere.clone(),
         false,
         channel(other_send),
     ))
@@ -446,12 +451,22 @@ fn response(
     )
 }
 
+/// The directory bound to `window`, which its page names as `root`, or a
+/// root it was never bound to once the shell no longer reaches it.
+fn root_of(window: &WebviewWindow<MockRuntime>) -> PathBuf {
+    window.folders().bound(window.label()).map_or_else(
+        |_| PathBuf::from("/never-bound"),
+        |directory| directory.root().to_path_buf(),
+    )
+}
+
+/// `open_folder` of the directory bound to `window`, as its page opens it.
 fn open(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
     use tauri::ipc::{Channel, InvokeResponseBody};
     let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
     tauri::async_runtime::block_on(crate::commands::open_folder(
         webview,
-        None,
+        root_of(window),
         false,
         Channel::new(|_: InvokeResponseBody| Ok(())),
     ))
@@ -470,20 +485,21 @@ fn open_root(
     let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
     tauri::async_runtime::block_on(crate::commands::open_folder(
         webview,
-        Some(root.to_string_lossy().into_owned()),
+        root.to_path_buf(),
         create,
         Channel::new(|_: InvokeResponseBody| Ok(())),
     ))
     .map_err(|error| serde_json::to_value(error).unwrap())
 }
 
-/// `read_folder_file` as `device/tauri-store.ts` asks for it: the bytes, which
-/// arrive raw, or the refusal.
+/// `read_folder_file` in the root bound to `window`, as
+/// `device/tauri-store.ts` asks for it: the bytes, which arrive raw, or the
+/// refusal.
 fn read_file(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>, Value> {
     match response(
         window,
         "read_folder_file",
-        InvokeBody::Json(json!({ "path": path })),
+        InvokeBody::Json(json!({ "path": path, "root": root_of(window) })),
         Default::default(),
     )? {
         InvokeResponseBody::Raw(bytes) => {
@@ -500,8 +516,9 @@ fn read_file(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>,
     }
 }
 
-/// `put_folder_file` as `device/tauri-store.ts` sends it: the bytes as the raw
-/// body, the rest in percent-encoded headers. `None` removes the file.
+/// `put_folder_file` in the root bound to `window`, as
+/// `device/tauri-store.ts` sends it: the bytes as the raw body, the rest in
+/// percent-encoded headers. `None` removes the file.
 fn put(
     window: &WebviewWindow<MockRuntime>,
     path: &str,
@@ -512,16 +529,22 @@ fn put(
         window,
         "put_folder_file",
         InvokeBody::Raw(bytes.unwrap_or_default().to_vec()),
-        put_headers(path, bytes.is_none(), if_match),
+        put_headers(window, path, bytes.is_none(), if_match),
     )
     .map(|outcome| outcome["kind"].clone())
 }
 
-/// The headers of a put expecting the file whose SHA-256 is `if_match`, or
-/// nothing there for `None`.
-fn put_headers(path: &str, remove: bool, if_match: Option<&str>) -> HeaderMap {
+/// The headers of a put in the root bound to `window` expecting the file
+/// whose SHA-256 is `if_match`, or nothing there for `None`.
+fn put_headers(
+    window: &WebviewWindow<MockRuntime>,
+    path: &str,
+    remove: bool,
+    if_match: Option<&str>,
+) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("path", encoded(path));
+    headers.insert("root", encoded(&root_of(window).to_string_lossy()));
     headers.insert("remove", encoded(&remove.to_string()));
     let expected = if_match.map_or("absent".to_string(), |hash| format!("sha256:{hash}"));
     headers.insert("expected", encoded(&expected));
@@ -595,7 +618,8 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
     assert_eq!(read_file(&main, "mine.md").unwrap(), b"main's");
     assert_eq!(read_file(&other, "mine.md").unwrap(), b"other's");
     // Other arguments a page adds name nothing: the root is the calling window's.
-    let extra = json!({ "path": "mine.md", "scope": "other", "window": "other" });
+    let extra =
+        json!({ "path": "mine.md", "root": root_of(&main), "scope": "other", "window": "other" });
     let InvokeResponseBody::Raw(bytes) = response(
         &main,
         "read_folder_file",
@@ -623,7 +647,7 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
         .as_str()
         .unwrap()
         .starts_with("NotGranted"));
-    let mut headers = put_headers("mine.md", false, Some(&sha256(b"other's")));
+    let mut headers = put_headers(&main, "mine.md", false, Some(&sha256(b"other's")));
     headers.insert("root", encoded(other_path));
     assert!(request(
         &main,
@@ -632,7 +656,7 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
         headers,
     )
     .is_err());
-    let mut headers = put_headers("mine.md", false, Some(&sha256(b"main's")));
+    let mut headers = put_headers(&main, "mine.md", false, Some(&sha256(b"main's")));
     headers.insert("scope", encoded("other"));
     request(
         &main,
@@ -666,7 +690,7 @@ fn a_root_the_scope_allows_opens_and_is_reached_by_its_path() {
     let main = fixture.bound_window("main", &fixture.root);
     open(&main).unwrap();
     let data_path = data.to_str().unwrap();
-    let list = |root: Option<&str>| {
+    let list = |root: &str| {
         invoke(&main, "list_folder", json!({ "root": root }))
             .map(|listing| listing[0]["path"].clone())
     };
@@ -674,18 +698,14 @@ fn a_root_the_scope_allows_opens_and_is_reached_by_its_path() {
         open_root(&main, &data, false).unwrap_err(),
         json!({ "name": "NotGranted", "root": data_path })
     );
-    assert!(text(&list(Some(data_path)).unwrap_err()).contains("NotGranted"));
+    assert!(text(&list(data_path).unwrap_err()).contains("NotGranted"));
 
     fixture.app.fs_scope().allow_directory(&data, true).unwrap();
-    assert!(text(&list(Some(data_path)).unwrap_err()).contains("NotGranted"));
+    assert!(text(&list(data_path).unwrap_err()).contains("NotGranted"));
     assert_eq!(open_root(&main, &data, false).unwrap(), data_path);
-    assert_eq!(list(Some(data_path)).unwrap(), "note.md");
-    assert_eq!(list(None).unwrap(), "settings.md");
-    assert_eq!(
-        list(Some(fixture.root.to_str().unwrap())).unwrap(),
-        "settings.md"
-    );
-    let mut headers = put_headers("theme.md", false, None);
+    assert_eq!(list(data_path).unwrap(), "note.md");
+    assert_eq!(list(fixture.root.to_str().unwrap()).unwrap(), "settings.md");
+    let mut headers = put_headers(&main, "theme.md", false, None);
     headers.insert("root", encoded(data_path));
     request(
         &main,
@@ -701,7 +721,7 @@ fn a_root_the_scope_allows_opens_and_is_reached_by_its_path() {
         "/".to_string(),
     ] {
         assert!(
-            text(&list(Some(&refused)).unwrap_err()).contains("NotGranted"),
+            text(&list(&refused).unwrap_err()).contains("NotGranted"),
             "{refused}"
         );
     }
@@ -762,7 +782,7 @@ fn a_window_with_no_binding_is_refused_and_nothing_is_made() {
     let fixture = fixture("unbound");
     let stray = window(&fixture.app, "stray");
     assert_eq!(open(&stray).unwrap_err(), json!({ "name": "NotBound" }));
-    for (command, args) in [("list_folder", json!({}))] {
+    for (command, args) in [("list_folder", json!({ "root": root_of(&stray) }))] {
         let refused = invoke(&stray, command, args).unwrap_err();
         assert_eq!(refused["name"], "Io", "{command}: {refused}");
         assert!(text(&refused["message"]).contains("NotBound"), "{refused}");
@@ -960,7 +980,7 @@ fn a_save_lands_only_on_what_the_page_expected() {
 fn a_save_expecting_anything_says_so_and_a_hash_is_tagged() {
     let (fixture, main) = opened("expected-any");
     let any = |path: &str, bytes: &[u8]| {
-        let mut headers = put_headers(path, false, None);
+        let mut headers = put_headers(&main, path, false, None);
         headers.insert("expected", encoded("any"));
         request(
             &main,
@@ -976,7 +996,7 @@ fn a_save_expecting_anything_says_so_and_a_hash_is_tagged() {
         "again\n"
     );
     for refused in [sha256(b"again\n"), "sha256:any".to_string()] {
-        let mut headers = put_headers("a.md", false, None);
+        let mut headers = put_headers(&main, "a.md", false, None);
         headers.insert("expected", encoded(&refused));
         let answer = request(
             &main,
@@ -1015,7 +1035,7 @@ fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
         &main,
         "put_folder_file",
         InvokeBody::Json(json!([0, 120, 255])),
-        put_headers("fallback.bin", false, None),
+        put_headers(&main, "fallback.bin", false, None),
     )
     .unwrap();
     assert_eq!(
@@ -1028,12 +1048,12 @@ fn a_put_takes_its_bytes_raw_and_its_path_percent_encoded() {
         &main,
         "put_folder_file",
         InvokeBody::Json(json!({ "bytes": [1] })),
-        put_headers("refused.bin", false, None),
+        put_headers(&main, "refused.bin", false, None),
     )
     .unwrap_err();
     assert!(text(&json["message"]).contains("raw body"), "{json}");
-    for header in ["remove", "path"] {
-        let mut headers = put_headers("refused.bin", false, None);
+    for header in ["remove", "path", "root"] {
+        let mut headers = put_headers(&main, "refused.bin", false, None);
         headers.remove(header);
         let missing = request(
             &main,
@@ -1055,7 +1075,7 @@ fn storage_reaches_the_data_paths_of_the_bound_root_and_nothing_else() {
     write(&fixture, &main, "todos/a.md", "first\n").unwrap();
     std::fs::create_dir(fixture.root.join("empty")).unwrap();
 
-    let mut listed = invoke(&main, "list_folder", json!({})).unwrap();
+    let mut listed = invoke(&main, "list_folder", json!({ "root": root_of(&main) })).unwrap();
     assert!(listed[0]["stamp"].as_str().unwrap().starts_with("v1:"));
     listed[0].as_object_mut().unwrap().remove("stamp");
     assert_eq!(listed, json!([{ "path": "todos/a.md" }]));
@@ -1122,7 +1142,7 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
         );
     }
     // A link is listed as a file, never followed.
-    let listed = invoke(&main, "list_folder", json!({})).unwrap();
+    let listed = invoke(&main, "list_folder", json!({ "root": root_of(&main) })).unwrap();
     let mut files: Vec<String> = listed
         .as_array()
         .unwrap()
@@ -1190,7 +1210,7 @@ fn a_folder_with_a_git_file_or_link_opens_and_saves() {
         std::fs::read_to_string(worktree.root.join(".git")).unwrap(),
         gitdir
     );
-    let listed = invoke(&main, "list_folder", json!({})).unwrap();
+    let listed = invoke(&main, "list_folder", json!({ "root": root_of(&main) })).unwrap();
     assert_eq!(listed[0]["path"], "todos/a.md");
     assert_eq!(listed.as_array().unwrap().len(), 1);
     assert_eq!(staged(&worktree), Vec::<String>::new());
@@ -1260,7 +1280,7 @@ fn opening_in_an_app_that_already_scopes_a_permission_still_reads() {
     std::fs::write(fixture.root.join("a.md"), b"read").unwrap();
     assert_eq!(read_file(&main, "a.md").unwrap(), b"read");
     assert_eq!(
-        invoke(&main, "list_folder", json!({})).unwrap()[0]["path"],
+        invoke(&main, "list_folder", json!({ "root": root_of(&main) })).unwrap()[0]["path"],
         "a.md"
     );
 }

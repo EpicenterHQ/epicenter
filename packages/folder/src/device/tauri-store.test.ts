@@ -6,7 +6,8 @@
  * emulated shell.
  *
  * Key behaviors:
- * - A listing and a read keep the shell's stamps, below `inside`
+ * - A listing and a read keep the shell's stamps, and every call names the
+ *   root
  * - A write sends its expectation in its own spelling: absent, any, or a
  *   tagged hash
  * - A read the shell answers `NotFound` is no file
@@ -16,23 +17,23 @@ import type { Version } from '@epicenter/definition/contract';
 import { expectOk } from 'wellcrafted/testing';
 
 let putHeaders: Record<string, string> | undefined;
-let readPath: string | undefined;
+let readArgs: { path?: string; root?: string } | undefined;
+let listedRoot: string | undefined;
 
 mock.module('@tauri-apps/api/core', () => ({
 	isTauri: () => true,
 	transformCallback: () => 0,
 	invoke: async (
 		command: string,
-		body?: { path?: string },
+		body?: { path?: string; root?: string },
 		options?: { headers?: Record<string, string> },
 	) => {
-		if (command === 'plugin:epicenter-folder|list_folder')
-			return [
-				{ path: 'notes/a.md', stamp: 'v1:3:1:3:4' },
-				{ path: 'other.md', stamp: 'v1:9:1:3:4' },
-			];
+		if (command === 'plugin:epicenter-folder|list_folder') {
+			listedRoot = body?.root;
+			return [{ path: 'notes/a.md', stamp: 'v1:3:1:3:4' }];
+		}
 		if (command === 'plugin:epicenter-folder|read_folder_file') {
-			readPath = body?.path;
+			readArgs = body;
 			if (body?.path === 'notes/missing.md')
 				throw { name: 'NotFound', path: body.path };
 			return Uint8Array.from([
@@ -50,22 +51,25 @@ mock.module('@tauri-apps/api/core', () => ({
 }));
 
 const { tauriStore } = await import('./tauri-store.js');
-const store = () => tauriStore({ inside: 'notes', watch: () => () => {} });
+const ROOT = '/Users/me/Notes';
+const store = () => tauriStore({ root: ROOT, watch: () => () => {} });
 
 afterEach(() => {
 	putHeaders = undefined;
-	readPath = undefined;
+	readArgs = undefined;
+	listedRoot = undefined;
 });
 
-test('a listing and a read keep the shell stamps, below inside', async () => {
+test('a listing and a read keep the shell stamps, and each names the root', async () => {
 	expect(expectOk(await store().list())).toEqual([
-		{ path: 'a.md', stamp: 'v1:3:1:3:4' },
+		{ path: 'notes/a.md', stamp: 'v1:3:1:3:4' },
 	]);
-	const read = expectOk(await store().read('a.md'));
-	expect(readPath).toBe('notes/a.md');
+	expect(listedRoot).toBe(ROOT);
+	const read = expectOk(await store().read('notes/a.md'));
+	expect(readArgs).toEqual({ path: 'notes/a.md', root: ROOT });
 	expect(read?.stamp).toBe('v1:3:1:3:4');
 	expect(new TextDecoder().decode(read?.bytes)).toBe('old');
-	expect(expectOk(await store().read('missing.md'))).toBeNull();
+	expect(expectOk(await store().read('notes/missing.md'))).toBeNull();
 });
 
 test('a write sends each expectation in its own spelling: absent, any, or a tagged hash', async () => {
@@ -73,7 +77,8 @@ test('a write sends each expectation in its own spelling: absent, any, or a tagg
 		expectOk(await store().write('a.md', new Uint8Array([1]), 'absent')),
 	).toBe('landed');
 	expect(putHeaders?.expected).toBe('absent');
-	expect(putHeaders?.path).toBe(encodeURIComponent('notes/a.md'));
+	expect(putHeaders?.path).toBe(encodeURIComponent('a.md'));
+	expect(putHeaders?.root).toBe(encodeURIComponent(ROOT));
 	expectOk(
 		await store().write('a.md', null, {
 			sha256: 'exact-hash' as Version,

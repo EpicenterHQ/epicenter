@@ -19,10 +19,11 @@
 //!
 //! The binding is the window's for its lifetime: a live label is never bound
 //! again, and the plugin removes the binding when the window is destroyed. A
-//! page names no root, scope, or label. It runs `@epicenter/folder`'s engine
-//! over its window's directory, whose storage is this plugin's commands, one
-//! per storage method (ADR-0581); each derives the directory from the calling
-//! WebView. The `epicenter` CLI owns Git over explicit directories
+//! page names no scope or label, and names every root by the absolute path
+//! `open_folder` answered for it: its window's own directory, or one Tauri's
+//! file-system scope allows. It runs `@epicenter/folder`'s engine over that
+//! root, whose storage is this plugin's commands, one per storage method
+//! (ADR-0581); each checks the root against the calling WebView's. The `epicenter` CLI owns Git over explicit directories
 //! (ADR-0559); this plugin offers file storage.
 //!
 //! Several windows may be bound to one directory: the shell checks each save

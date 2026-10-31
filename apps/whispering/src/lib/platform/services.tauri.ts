@@ -263,13 +263,7 @@ async function transcribeHere(
 
 /** Whispering's services in its desktop app, over the data folder `client` opened. */
 export const createServices: CreateServices = (client) => {
-	// The data folder is always opened by its path (`openDataFolder`); with
-	// no root the shell would record into the window's own folder, AppData.
 	const root = rootOf(client);
-	if (root === undefined)
-		throw new Error(
-			'Whispering’s desktop services need the data folder, opened by its path.',
-		);
 	return {
 		capture: createShellMicrophone(client),
 		async transcribe(request) {

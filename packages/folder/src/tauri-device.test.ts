@@ -7,15 +7,14 @@
  * Tauri's file-system scope, so what lands is what a desktop folder holds.
  *
  * Key behaviors:
- * - The default is the bound directory itself; a relative `path` names a
- *   folder inside it, and the client sees only that folder
- * - An absolute `path` opens a root the shell allows; any other is
- *   `NotGranted`, a missing one `Missing` unless `create`. `rootOf` answers
- *   the root as the shell answered it
+ * - `path` is the root's absolute path: the bound directory, or a root the
+ *   shell allows; any other is `NotGranted`, a missing one `Missing` unless
+ *   `create`. `rootOf` answers the root as the shell answered it, and every
+ *   storage call names it
  * - Versions are sha256, so a stale `over` is a `Conflict` and lands nothing
  * - A storage refusal is `Unavailable`; a page outside Tauri opens nothing
- * - The shell's watcher reaches a collection's listeners, inside `path`
- *   only, and every handle over a root hears it whichever opened last
+ * - The shell's watcher reaches a collection's listeners, and every handle
+ *   over a root hears it whichever opened last
  * - The data folder is the one `settings.md` names, or
  *   `~/Epicenter/<productName>`, which alone is made when missing
  * - The folder picker answers the folder picked by its canonical path, or
@@ -121,15 +120,15 @@ async function allowed(prefix: string) {
 	return directory;
 }
 
-/** The latest channel the shell was handed for `root` (null: the window's own). */
-function channel(root: string | null): Channel {
+/** The latest channel the shell was handed for `root`. */
+function channel(root: string): Channel {
 	const found = shell.opened.findLast((open) => open.root === root);
 	if (found === undefined) throw new Error(`nothing opened ${root}`);
 	return found.onChange as Channel;
 }
 
 test('the default is the bound directory: a create lands there in house style', async () => {
-	const device = unwrap(await openDevice(notes));
+	const device = unwrap(await openDevice(notes, { path: shell.root }));
 	const created = expectOk(
 		await device.notes.create({ id: 'a', title: 'First', body: 'Hello.\n' }),
 	);
@@ -143,7 +142,7 @@ test('the default is the bound directory: a create lands there in house style', 
 });
 
 test('a stale write is a Conflict and lands nothing; a current one lands', async () => {
-	const device = unwrap(await openDevice(notes));
+	const device = unwrap(await openDevice(notes, { path: shell.root }));
 	const first = expectOk(await device.notes.create({ id: 'a', title: 'One' }));
 	const second = expectOk(
 		await device.notes.update(
@@ -166,7 +165,7 @@ test('a stale write is a Conflict and lands nothing; a current one lands', async
 });
 
 test('a write expecting anything lands over whatever is there, and a version is checked as one', async () => {
-	const device = unwrap(await openDevice(notes));
+	const device = unwrap(await openDevice(notes, { path: shell.root }));
 	const store = storeOf(device);
 	const bytes = (text: string) => new TextEncoder().encode(text);
 	expect(expectOk(await store.write('cache.bin', bytes('one'), 'any'))).toBe(
@@ -195,7 +194,7 @@ test('a write expecting anything lands over whatever is there, and a version is 
 });
 
 test('another program’s edit is read with its own version', async () => {
-	const device = unwrap(await openDevice(notes));
+	const device = unwrap(await openDevice(notes, { path: shell.root }));
 	await shell.write('notes/b.md', '---\ntitle: From git\n---\n');
 	const read = expectOk(await device.notes.get({ id: 'b' }));
 	expect(read.title).toBe('From git');
@@ -209,42 +208,32 @@ test('another program’s edit is read with its own version', async () => {
 	expect(await shell.text('notes/b.md')).toBe('---\ntitle: Edited\n---\n');
 });
 
-test('path names a folder inside the bound directory, and the client sees only it', async () => {
-	await shell.write('notes/outside.md', '---\ntitle: Outside\n---\n');
-	const device = unwrap(await openDevice(notes, { path: 'apps/notes' }));
-	expectOk(await device.notes.create({ id: 'a', title: 'Inside' }));
-	expect(await shell.text('apps/notes/notes/a.md')).toBe(
-		'---\ntitle: Inside\n---\n',
-	);
-	expect(
-		expectOk(await device.notes.list()).items.map((note) => note.id),
-	).toEqual(['a']);
-});
-
-test('a relative path that leaves the bound directory throws', async () => {
-	for (const path of ['../elsewhere', 'a//b', 'a/./b'])
-		await expect(openDevice(notes, { path })).rejects.toThrow();
-});
-
-test('an absolute path opens a root the shell allows; any other is NotGranted, a missing one Missing', async () => {
+test('a path opens a root the shell allows; any other is NotGranted, a missing one Missing', async () => {
 	const other = await allowed('tauri-device-other-');
 	shell = createGrantedShell(shell.root, { grants: [other, `${other}-new`] });
 	removed.push(`${other}-new`);
 	const there = unwrap(await openDevice(notes, { path: other }));
 	expectOk(await there.notes.create({ id: 'a', title: 'There' }));
 	expect(rootOf(there)).toBe(await realpath(other));
-	expect(rootOf(unwrap(await openDevice(notes)))).toBeUndefined();
 	expect(await readFile(join(other, 'notes/a.md'), 'utf8')).toContain(
 		'title: There',
 	);
 	// The window's own folder, named by its path, is the bound directory.
-	expectOk(
-		await unwrap(await openDevice(notes, { path: shell.root })).notes.create({
-			id: 'b',
-			title: 'Here',
-		}),
-	);
+	const here = unwrap(await openDevice(notes, { path: shell.root }));
+	expect(rootOf(here)).toBe(shell.root);
+	expectOk(await here.notes.create({ id: 'b', title: 'Here' }));
 	expect(await shell.text('notes/b.md')).toContain('title: Here');
+	// Every storage call names the root it means.
+	expect(
+		shell.calls
+			.filter(({ cmd }) => cmd !== 'open_folder')
+			.every(({ args }) => args.root === shell.root || args.root === other),
+	).toBe(true);
+	// A relative path names no root, and the shell refuses it.
+	expect(expectErr(await openDevice(notes, { path: 'notes' }))).toMatchObject({
+		name: 'Refused',
+		folder: 'notes',
+	});
 	expect(
 		expectErr(await openDevice(notes, { path: '/Users/me/Notes' })),
 	).toMatchObject({ name: 'NotGranted', folder: '/Users/me/Notes' });
@@ -255,7 +244,7 @@ test('an absolute path opens a root the shell allows; any other is NotGranted, a
 });
 
 test('a storage refusal is Unavailable, and the next call tries again', async () => {
-	const device = unwrap(await openDevice(notes));
+	const device = unwrap(await openDevice(notes, { path: shell.root }));
 	shell.control.refuseNext = 1;
 	const refused = expectErr(
 		await device.notes.create({ id: 'a', title: 'One' }),
@@ -266,38 +255,33 @@ test('a storage refusal is Unavailable, and the next call tries again', async ()
 
 test('outside Tauri nothing opens and the shell is never asked', async () => {
 	inTauri = false;
-	expect(expectErr(await openDevice(notes)).name).toBe('StorageUnavailable');
+	expect(expectErr(await openDevice(notes, { path: shell.root })).name).toBe(
+		'StorageUnavailable',
+	);
 	expect(shell.calls).toEqual([]);
 });
 
-test("the shell's watcher reaches a collection's listeners, and a folder inside hears only its own paths", async () => {
-	const device = unwrap(await openDevice(notes));
-	const inside = unwrap(await openDevice(notes, { path: 'inner' }));
+test("the shell's watcher reaches a collection's listeners", async () => {
+	const device = unwrap(await openDevice(notes, { path: shell.root }));
 	let heard = 0;
-	let heardInside = 0;
 	const stop = device.notes.subscribe(() => heard++);
-	const stopInside = inside.notes.subscribe(() => heardInside++);
-	// The shell sends to the channel opened last; both handles hear it.
-	const watcher = channel(null);
+	const watcher = channel(shell.root);
 	if (watcher.onmessage === undefined) throw new Error('no watcher was opened');
 	watcher.onmessage({ paths: ['notes/a.md'] });
-	expect([heard, heardInside]).toEqual([1, 0]);
-	watcher.onmessage({ paths: ['inner/notes/a.md'] });
-	expect([heard, heardInside]).toEqual([1, 1]);
+	expect(heard).toBe(1);
 	watcher.onmessage({ paths: ['elsewhere/x.md'] });
-	expect([heard, heardInside]).toEqual([1, 1]);
+	expect(heard).toBe(1);
 	watcher.onmessage({ paths: null });
-	expect([heard, heardInside]).toEqual([2, 2]);
+	expect(heard).toBe(2);
 	stop();
-	stopInside();
 	watcher.onmessage({ paths: ['notes/a.md'] });
-	expect([heard, heardInside]).toEqual([2, 2]);
+	expect(heard).toBe(2);
 });
 
 test('each root hears only its own watcher', async () => {
 	const other = await allowed('tauri-device-other-');
 	shell = createGrantedShell(shell.root, { grants: [other] });
-	const own = unwrap(await openDevice(notes));
+	const own = unwrap(await openDevice(notes, { path: shell.root }));
 	const there = unwrap(await openDevice(notes, { path: other }));
 	let heard = 0;
 	let heardThere = 0;
@@ -305,7 +289,7 @@ test('each root hears only its own watcher', async () => {
 	const stopThere = there.notes.subscribe(() => heardThere++);
 	channel(other).onmessage?.({ paths: ['notes/a.md'] });
 	expect([heard, heardThere]).toEqual([0, 1]);
-	channel(null).onmessage?.({ paths: null });
+	channel(shell.root).onmessage?.({ paths: null });
 	expect([heard, heardThere]).toEqual([1, 1]);
 	stop();
 	stopThere();

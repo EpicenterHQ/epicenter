@@ -4,8 +4,7 @@
  * Key behaviors:
  * - `start` names the path and the chosen microphone by the ID the shell
  *   listed it under, and the device's root as the shell answered it when
- *   the device opened (`null` for the window's own folder), and passes the
- *   channel levels and endings arrive on
+ *   the device opened, and passes the channel levels and endings arrive on
  * - `listInputs` answers the shell's inputs; `openMeter` opens one by ID,
  *   hears its levels, and closes it, and a meter withdrawn while opening is
  *   closed
@@ -15,6 +14,8 @@
  * - A start withdrawn while the shell opened the microphone is stopped:
  *   released, with what the shell wrote kept
  * - `recover` names the directory, in the device's root
+ * - A device the page did not open from `@epicenter/folder/tauri` has no
+ *   root, and the shell is never asked to record or recover in it
  */
 import { beforeEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
@@ -37,20 +38,24 @@ mock.module('@tauri-apps/api/core', () => ({
 	},
 }));
 
-/** Devices the page opened by an absolute path, and the root the shell answered for each. */
+/** Devices the page opened, and the root the shell answered for each. */
 const roots = new Map<object, string>();
 mock.module('@epicenter/folder/tauri', () => ({
-	rootOf: (device: object) => roots.get(device),
+	rootOf(device: object) {
+		const root = roots.get(device);
+		if (root === undefined)
+			throw new Error('expected a client openDevice from /tauri returned');
+		return root;
+	},
 }));
 
 const { listInputs, openMeter, startRecording, recoverRecordings } =
 	await import('./tauri.js');
 
-/** The window's own folder, which the shell is told by no root. */
+const ROOT = '/Users/me/Epicenter/App';
+/** The data folder the page opened by its path. */
 const device = {} as Parameters<typeof startRecording>[0]['device'];
-/** A data folder the page opened by its path. */
-const dataFolder = {} as typeof device;
-roots.set(dataFolder, '/Users/me/Epicenter/App');
+roots.set(device, ROOT);
 
 const started = {
 	id: '7',
@@ -68,7 +73,7 @@ beforeEach(() => {
 				: null;
 });
 
-test('a recording starts in the window folder and stops by the id the shell minted', async () => {
+test('a recording starts in the device’s root and stops by the id the shell minted', async () => {
 	const recording = expectOk(
 		await startRecording({
 			device,
@@ -81,7 +86,7 @@ test('a recording starts in the window folder and stops by the id the shell mint
 	const [start] = calls;
 	expect(start?.cmd).toBe('plugin:epicenter-recorder|start');
 	expect(start?.args).toMatchObject({
-		root: null,
+		root: ROOT,
 		path: 'recordings/a',
 		device: 'coreaudio:desk-uid',
 	});
@@ -176,41 +181,31 @@ test('a start withdrawn while the shell opened the microphone is finalized, neve
 	expect(calls[1]?.args).toEqual({ id: '7' });
 });
 
-test('a recording in a data folder the page opened names its root', async () => {
-	expectOk(
-		await startRecording({
-			device: dataFolder,
-			path: 'recordings/a',
-		}),
-	);
-	expect(calls[0]?.args).toMatchObject({
-		root: '/Users/me/Epicenter/App',
-		path: 'recordings/a',
-		device: null,
-	});
-});
-
-test('recover names the directory in the window folder, and answers what it repaired', async () => {
+test('recover names the directory in the device’s root, and answers what it repaired', async () => {
 	answer = () => ['recordings/a.wav'];
 	expect(
 		expectOk(await recoverRecordings({ device, under: 'recordings' })),
 	).toEqual(['recordings/a.wav']);
-	expectOk(
-		await recoverRecordings({
-			device: dataFolder,
-			under: 'recordings',
-		}),
-	);
 	expect(calls).toEqual([
 		{
 			cmd: 'plugin:epicenter-recorder|recover',
-			args: { root: null, under: 'recordings' },
-		},
-		{
-			cmd: 'plugin:epicenter-recorder|recover',
-			args: { root: '/Users/me/Epicenter/App', under: 'recordings' },
+			args: { root: ROOT, under: 'recordings' },
 		},
 	]);
+});
+
+test('a device with no root records and recovers nothing, and the shell is never asked', async () => {
+	const unopened = {} as typeof device;
+	expect(
+		expectErr(await startRecording({ device: unopened, path: 'recordings/a' }))
+			.name,
+	).toBe('Failed');
+	expect(
+		expectErr(
+			await recoverRecordings({ device: unopened, under: 'recordings' }),
+		).name,
+	).toBe('Failed');
+	expect(calls).toEqual([]);
 });
 
 test('a reply that is none of the shell’s refusals is a failure, not an answer', async () => {

@@ -7,8 +7,7 @@
  * reports and sync never commits, its header updated about once a second.
  * The folder is
  * named to the shell by the root it answered when the page opened the device
- * (`rootOf` from `@epicenter/folder/tauri`), or, for the window's own folder,
- * by none. `stop` finalizes it, encodes it to Opus in WebM, and places that
+ * (`rootOf` from `@epicenter/folder/tauri`). `stop` finalizes it, encodes it to Opus in WebM, and places that
  * at `<path>.webm`, never over a file there: the recording appears at its
  * path whole. (A WAV the encoder refuses is placed at `<path>.wav` instead,
  * and `stop` fails saying so.) When the page reloads or its window closes,
@@ -120,7 +119,7 @@ export const startRecording: StartRecording = async ({
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
 		answer = await commands.start(
-			rootOf(device) ?? null,
+			rootOf(device),
 			path,
 			input?.deviceId ?? null,
 			signals.channel,
@@ -169,10 +168,7 @@ export const recoverRecordings: RecoverRecordings = async ({
 	under,
 }) => {
 	try {
-		const { data, error } = await commands.recover(
-			rootOf(device) ?? null,
-			under,
-		);
+		const { data, error } = await commands.recover(rootOf(device), under);
 		if (error !== null) return fromNative(error);
 		return Ok(data);
 	} catch (cause) {

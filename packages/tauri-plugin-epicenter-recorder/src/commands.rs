@@ -4,11 +4,13 @@
 //! A microphone is named by the id `inputs` answers, never by the name a
 //! WebView gives it: on the desktop the page opens no microphone of its own.
 //!
-//! A page names a folder-relative path, never a root or a folder. The folder
-//! plugin answers which directory the shell bound to the calling window; the
+//! A page names the root it records into, by the absolute path the folder
+//! plugin answered when the page opened it, and a folder-relative path. The
+//! folder plugin answers whether the calling window reaches that root; the
 //! shared path rule decides whether the path is a data path. Only then is the
 //! microphone opened.
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use epicenter_folder_core::page_files;
@@ -24,10 +26,10 @@ use crate::recorder::{Input, Result, StartedRecording, StoppedRecording};
 use crate::{refresh_capturing, Recorders};
 
 /// The directory `root` names, read once for this operation: the window's
-/// own folder for `None`, or a root its page opened (`open_folder`), by the
-/// exact path the shell answered. Any other root is refused, and a window
-/// closed and replaced under the same label meanwhile does not redirect it.
-fn bound_root<R: Runtime>(webview: &Webview<R>, root: Option<&str>) -> Result<std::path::PathBuf> {
+/// own folder or a root its page opened (`open_folder`), by the exact path
+/// the shell answered. Any other root is refused, and a window closed and
+/// replaced under the same label meanwhile does not redirect it.
+fn bound_root<R: Runtime>(webview: &Webview<R>, root: &Path) -> Result<PathBuf> {
     webview
         .folders()
         .bound_root(webview.label(), root)
@@ -108,8 +110,8 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
     result
 }
 
-/// Start recording `<path>.webm` in `root` (the window's own folder for
-/// `None`, or a root its page opened), from the microphone whose id is
+/// Start recording `<path>.webm` in `root` (the window's own folder or a
+/// root its page opened), from the microphone whose id is
 /// `device` or the system default. Levels, and an ending nobody asked for,
 /// arrive on `signals`.
 ///
@@ -124,7 +126,7 @@ pub async fn close_meter<R: Runtime>(webview: Webview<R>, id: String) -> Result<
 #[specta::specta]
 pub async fn start<R: Runtime>(
     webview: Webview<R>,
-    root: Option<String>,
+    root: PathBuf,
     path: String,
     device: Option<String>,
     signals: Channel<RecordingSignal>,
@@ -136,7 +138,7 @@ pub async fn start<R: Runtime>(
     // time it would record, and nobody could stop what it started.
     let page = recorders.lock().page(&owner);
 
-    let root = bound_root(&webview, root.as_deref())?;
+    let root = bound_root(&webview, &root)?;
     // The path the page named is checked too, so an empty one is not `.webm`.
     if let Some(problem) = path_problem(&path) {
         return Err(RecorderError::refused(format!("{path:?}: {problem}")));
@@ -205,19 +207,19 @@ pub async fn stop<R: Runtime>(webview: Webview<R>, id: String) -> Result<Stopped
 }
 
 /// Repair every recording under `under` in `root` (the window's own folder
-/// for `None`, or a root its page opened) that a quit or a crash left in the
-/// folder's `.epicenter/recordings`, encode each and place it at its path, and
-/// return those folder-relative paths. The recording still being written, and
+/// or a root its page opened) that a quit or a crash left in the folder's
+/// `.epicenter/recordings`, encode each and place it at its path, and return
+/// those folder-relative paths. The recording still being written, and
 /// those a stop is still settling, are left alone. Running it again changes
 /// nothing.
 #[tauri::command]
 #[specta::specta]
 pub async fn recover<R: Runtime>(
     webview: Webview<R>,
-    root: Option<String>,
+    root: PathBuf,
     under: String,
 ) -> Result<Vec<String>> {
-    let root = bound_root(&webview, root.as_deref())?;
+    let root = bound_root(&webview, &root)?;
     let app = webview.app_handle().clone();
     tauri::async_runtime::spawn_blocking(move || {
         // Asked per file, under the recorder lock: a `start` holds that lock

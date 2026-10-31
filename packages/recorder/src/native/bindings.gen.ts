@@ -19,8 +19,8 @@ export const commands = {
 	/**  Close the meter `id` this window opened, releasing its microphone. */
 	closeMeter: (id: string) => typedError<null, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|close_meter", { id })),
 	/**
-	 *  Start recording `<path>.webm` in `root` (the window's own folder for
-	 *  `None`, or a root its page opened), from the microphone whose id is
+	 *  Start recording `<path>.webm` in `root` (the window's own folder or a
+	 *  root its page opened), from the microphone whose id is
 	 *  `device` or the system default. Levels, and an ending nobody asked for,
 	 *  arrive on `signals`.
 	 *
@@ -32,7 +32,7 @@ export const commands = {
 	 *  Microphone access is asked for before the device is resolved. A refusal
 	 *  opens nothing.
 	 */
-	start: (root: string | null, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
+	start: (root: string, path: string, device: string | null, signals: Channel<RecordingSignal>) => typedError<StartedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|start", { root, path, device, signals })),
 	/**
 	 *  Stop the recording `id` this window started, finalize it, encode it, and
 	 *  place it at its path (`Finalized::settle`). Encoding runs after the
@@ -41,13 +41,13 @@ export const commands = {
 	stop: (id: string) => typedError<StoppedRecording, RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|stop", { id })),
 	/**
 	 *  Repair every recording under `under` in `root` (the window's own folder
-	 *  for `None`, or a root its page opened) that a quit or a crash left in the
-	 *  folder's `.epicenter/recordings`, encode each and place it at its path, and
-	 *  return those folder-relative paths. The recording still being written, and
+	 *  or a root its page opened) that a quit or a crash left in the folder's
+	 *  `.epicenter/recordings`, encode each and place it at its path, and return
+	 *  those folder-relative paths. The recording still being written, and
 	 *  those a stop is still settling, are left alone. Running it again changes
 	 *  nothing.
 	 */
-	recover: (root: string | null, under: string) => typedError<string[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
+	recover: (root: string, under: string) => typedError<string[], RecorderError>(__TAURI_INVOKE("plugin:epicenter-recorder|recover", { root, under })),
 };
 
 /* Types */
