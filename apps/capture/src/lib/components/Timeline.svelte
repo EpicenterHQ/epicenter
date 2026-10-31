@@ -9,6 +9,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { Loading } from '@epicenter/ui/loading';
+	import { variant } from '#platform/variant';
 	import type { Captures } from '$lib/captures.svelte.js';
 	import NewCapture from './NewCapture.svelte';
 
@@ -89,5 +90,9 @@
 {/if}
 
 <footer class="mt-10 border-t pt-4 text-xs text-muted-foreground">
-	<p>These captures are kept in your Epicenter repository, each as a Markdown file in <code>captures</code>. Nothing is kept in this browser.</p>
+	{#if variant === 'desktop'}
+		<p>These captures are kept in Capture's folder on this computer, each as a Markdown file in <code>captures</code>.</p>
+	{:else}
+		<p>These captures are kept in your Epicenter repository, each as a Markdown file in <code>captures</code>. Nothing is kept in this browser.</p>
+	{/if}
 </footer>

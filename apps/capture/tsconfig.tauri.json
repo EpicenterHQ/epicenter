@@ -1,0 +1,6 @@
+{
+	// The desktop build's leaves: `#platform/*` resolved under the `tauri`
+	// condition, as `bun run build:native` resolves them.
+	"extends": "./tsconfig.json",
+	"compilerOptions": { "customConditions": ["tauri"] }
+}

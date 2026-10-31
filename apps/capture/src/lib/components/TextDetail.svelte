@@ -7,6 +7,7 @@
 	person types. A saved capture whose Thoughts read opens as a capture.
 -->
 <script lang="ts">
+	import { variant } from '#platform/variant';
 	import { capture, capturePath } from '@epicenter/capture';
 	import { type ClientError, describeIssues, readNoteText, type Version } from '@epicenter/definition/contract';
 	import * as Alert from '@epicenter/ui/alert';
@@ -166,7 +167,11 @@
 			<Empty.Header>
 				<Empty.Title>This capture is no longer here</Empty.Title>
 				<Empty.Description>
-					It was deleted, here, in another tab, or on another device.
+					{#if variant === 'desktop'}
+						It was deleted, here or by another program using Capture's folder.
+					{:else}
+						It was deleted, here, in another tab, or on another device.
+					{/if}
 				</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>

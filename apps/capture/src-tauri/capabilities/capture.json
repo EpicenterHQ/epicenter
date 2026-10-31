@@ -1,0 +1,8 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "capture",
+	"description": "The one Capture window. Rust binds it, before its WebView exists, to the folder Capture keeps its files in (folder in its settings.md) with Capture's configuration directory granted beside it, or to the configuration directory alone until the person chooses a folder. The page opens each by its path (openDevice from @epicenter/folder/tauri); the folder plugin refuses any other root. On close it waits for queued writes, then destroys the window. Through the folder plugin it may ask Epicenter to sync the folder (epicenter://init) and whether Epicenter already does. It may ask to choose a folder (choose_folder: the Epicenter folder, the app data folder, or a native picker), which Rust admits and moves the window to.",
+	"local": true,
+	"windows": ["capture:*"],
+	"permissions": ["epicenter-folder:default", "allow-choose-folder"]
+}

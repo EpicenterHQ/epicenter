@@ -1,5 +1,6 @@
 <!-- One capture as its text and thoughts. One body edit holds both until each save answers. -->
 <script lang="ts">
+	import { variant } from '#platform/variant';
 	import { captureBody } from '@epicenter/capture';
 	import { describeIssues } from '@epicenter/definition/contract';
 	import { fieldEdit } from '@epicenter/svelte/client';
@@ -168,7 +169,11 @@
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
 					<Empty.Description>
-						It was deleted, here, in another tab, or on another device.
+						{#if variant === 'desktop'}
+							It was deleted, here or by another program using Capture's folder.
+						{:else}
+							It was deleted, here, in another tab, or on another device.
+						{/if}
 					</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>

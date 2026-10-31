@@ -1,33 +1,13 @@
 <!--
-	Capture's root, which decides the store: the person's `capture`
-	repository. Signed in, `Online` sets it for every page under it; signed
-	out, a sign-in instead. Capture keeps nothing in the browser (ADR-0700).
-	The sign-in callback is outside this group.
+	Capture's root, which decides the store (decision 78): the variant's
+	`Root` (`#platform/root`) sets it for every page under it. The web app's is
+	the person's repository behind sign-in; the desktop window's is the folder
+	Capture keeps its files in. The sign-in callback is outside this group.
 -->
 <script lang="ts">
-	import { Button } from '@epicenter/ui/button';
-	import * as Empty from '@epicenter/ui/empty';
-	import { toast } from '@epicenter/ui/sonner';
-	import Online from '$lib/components/Online.svelte';
-	import { webAuth } from '$lib/auth.js';
+	import { Root } from '#platform/root';
 
 	let { children } = $props();
-	const auth = webAuth();
-
-	async function signIn() {
-		const { error } = await auth.startSignIn();
-		if (error !== null) toast.error('Could not sign in', { description: error.message });
-	}
 </script>
 
-{#if auth.state.status !== 'signed-out'}
-	{#key auth.state.account}
-		<Online account={auth.state.account}>{@render children()}</Online>
-	{/key}
-{:else}
-	<Empty.Root class="h-dvh">
-		<Empty.Title>Capture</Empty.Title>
-		<Empty.Description>Sign in to use the captures in your Epicenter repository.</Empty.Description>
-		<Button size="sm" onclick={() => void signIn()}>Sign in</Button>
-	</Empty.Root>
-{/if}
+<Root>{@render children()}</Root>

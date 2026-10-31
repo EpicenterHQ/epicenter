@@ -384,6 +384,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "capture"
+version = "0.0.1"
+dependencies = [
+ "epicenter-standalone",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-epicenter-folder",
+]
+
+[[package]]
 name = "cargo-platform"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

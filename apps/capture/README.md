@@ -10,9 +10,12 @@ as `static/contract.json` (`bun run contract` rewrites it after a change), the
 file `epicenter check <url>/contract.json <dir>` checks a folder against. Any
 program that writes the layout is a valid writer.
 
-Capture is a web app only; it has no desktop app of its own. A folder of
-captures on a computer is a clone of the person's repository, kept with
-`epicenter clone` and `epicenter sync`.
+Capture has two variants, one store each and nothing moving between them
+(decisions 77 to 79): the online web app over the signed-in person's
+repository, and a desktop app over a folder of captures it keeps on the
+computer (below). A folder of captures on a computer, the desktop app's or a
+clone of the person's repository (`epicenter clone`), is synced by Epicenter
+(`epicenter sync`), never by Capture.
 
 ## What it does
 
@@ -93,26 +96,30 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 
 ```text
 routes/+layout.svelte          every page: the chrome and the leave guard
-routes/(app)/+layout.svelte    the root that decides the store, the signed-in layout:
-                               signed out, a sign-in; signed in,
-  Online.svelte                {#key account}: setRepo(openRemote(capture, { account }))
+routes/(app)/+layout.svelte    the root that decides the store: Root from #platform/root
+  OnlineRoot.svelte            web: signed out, a sign-in; signed in,
+    Online.svelte              {#key account}: setRepo(openRemote(capture, { account }))
+  DesktopRoot.svelte           desktop: ChooseFolder, or setRepo(the folder's client)
 routes/(app)/+page.svelte      CaptureApp over fromClient(getRepo<Capture>()).captures
-  CaptureApp.svelte            header (where, status, account), then
+  CaptureApp.svelte            header (Chrome from #platform/root), then
     Timeline | CaptureDetail | TextDetail
 routes/auth/callback           finishes sign-in, outside (app), then returns to /
 ```
 
 Components read and write only through the captures they are given
 (`createCaptures`, in `src/lib/captures.svelte.ts`), never a client of their
-own; only the `(app)` layout chooses the store. Another variant needs only
-a new root that passes `CaptureApp` its own store's captures.
+own; only the variant's root chooses the store. Another variant needs only
+a new root that sets its own store, and a header that says what it is.
 
 | Path | Role |
 | --- | --- |
 | `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
-| `src/routes/(app)/+layout.svelte` | The signed-in layout: asks for a sign-in, or opens the repository per account. |
+| `src/routes/(app)/+layout.svelte` | The variant's root (`#platform/root`). |
+| `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
 | `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
-| `src/routes/(app)/+page.svelte` | Capture over the repository's captures. |
+| `src/lib/components/DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: the folder (`setRepo`) or the question of where; the header's sync status, Sync with Epicenter, and Choose folder…. |
+| `src/lib/folder.tauri.ts` | The desktop window's folder and settings (`desktopFolder`), and the folder's client. |
+| `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
 | `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures it is given. |
 | `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |
 | `src/lib/capture-actions.svelte.ts` | Thought and text commands over one body edit; a thought's lines in the note's text. |
@@ -120,13 +127,54 @@ a new root that passes `CaptureApp` its own store's captures.
 | `src/lib/components/TextDetail.svelte` | A capture's note as text, saved with `replace`. |
 | `src/lib/components/Timeline.svelte` | New capture, captures, files to repair. |
 
+## The desktop app
+
+```sh
+bun run --cwd apps/capture dev:desktop     # needs a Rust toolchain
+bun run --cwd apps/capture build:desktop   # a local, unsigned macOS app bundle
+```
+
+Its Tauri shell (`src-tauri/`, on the shared
+[`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
+crate) gives the window two roots (decision 82): Capture's configuration
+directory, whose `settings.md` (`appConfig`, machine-local, never synced)
+records `folder`, and that folder, where the captures are. On first run there
+is no folder, and the page asks "Where should Capture keep its files?"
+(`ChooseFolder` from `@epicenter/svelte`): the Epicenter folder
+`~/Epicenter/Capture` (recommended; `~/Epicenter Dev/Capture` for
+`dev:desktop`), the app data folder, or "Choose folder…". The shell refuses an
+unsafe answer in one line, creates the folder or reuses it with its files,
+and reopens the window there; the page then records it in `settings.md`.
+
+The page is the same UI as the web, built as the desktop variant
+(`bun run build:native`, into `build-desktop/`), over the folder
+(`openDevice(capture, { path: folder })`) with no sign-in: Capture makes no
+inference calls, and Epicenter syncs the folder. Its header says whether
+Epicenter syncs the folder, offers **Sync with Epicenter** until it does
+(`syncWithEpicenter({ path, contract })`, the contract at `APPS.CAPTURE.url`'s
+`contract.json`), and holds **Choose folder…** in the status details. Closing
+the window or quitting waits for saves (the leave guard), and so does Choose
+folder….
+
+The variant is chosen at build time through `#platform/*` seams, as
+[the shared pattern](../../packages/tauri-epicenter-standalone/README.md#making-a-web-apps-desktop-variant)
+describes: `desktopVariant()` in `vite.config.ts`, `tsconfig.tauri.json`, and
+`src/lib/platform.test.ts`, which names a seam whose desktop leaf went
+missing.
+
+| Seam | Web leaf | Desktop leaf |
+| --- | --- | --- |
+| `#platform/root` | `root.ts`: the repository behind sign-in, and the account | `root.tauri.ts`: the folder or the question of where, and its sync |
+| `#platform/variant` | `variant.ts`: `'online'` | `variant.tauri.ts`: `'desktop'`, for the few sentences that name the store |
+
 ## Checks
 
 | Command | What it checks |
 | --- | --- |
 | `bun test packages/capture` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
-| `bun run --cwd apps/capture test` | The contract's fit, and the store and mounted components over a stand-in client (a folder client in a temporary directory). |
+| `bun run --cwd apps/capture test` | The contract's fit, the store and mounted components over a stand-in client (a folder client in a temporary directory), and both builds' seams. |
+| `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the first-run folder choice, moving the folder, guarded Quit. |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in

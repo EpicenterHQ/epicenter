@@ -1,7 +1,7 @@
 <!--
-	Capture over its one store: the person's `capture` repository, which the
-	signed-in layout set. Every edit is a commit there; nothing is kept in
-	the browser.
+	Capture over its one store, which the variant's root set: the person's
+	`capture` repository on the web, where every edit is a commit and nothing
+	is kept in the browser, or the desktop window's folder.
 -->
 <script lang="ts">
 	import type { Capture } from '@epicenter/capture';
