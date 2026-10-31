@@ -54,28 +54,15 @@ front end over `status`, `init`, `clone`, `sync`, `forget`, `share`, and
 | `epicenter auth git-credential get \| store \| erase` | built | `src/auth.ts` |
 | `epicenter auth key set \| remove \| state <id>` | built | `saveKey`, `removeKey`, `keyState` in `@epicenter/ai/send` |
 | `epicenter send` | built, hidden | `sendRequest` and `responseEvents` in `@epicenter/ai/send` |
-| `epicenter whispering-connection read \| set <transcription\|text>` | built, hidden | `src/connection-rows.ts` over `openFolder` in `@epicenter/folder/bun` |
 | `epicenter messages` | built, hidden | Local Beeper operations on stdin; token in the device keychain |
 | `epicenter install-command` | built, hidden | `src/install-command.ts` |
 
-`messages`, `documents-query`, `send`, `whispering-connection`, `install-command`,
+`messages`, `documents-query`, `send`, `install-command`,
 `merge-driver`, `sync --interval`, and `--desktop` are left out of `--help`:
 the desktop app or Git runs them.
 
 The hidden desktop SQL operation, `documents-query`, reads the generic
 `documents` relation through one read-only SQLite executor.
-
-## Folder locations on this computer
-
-Epicenter's portable records directory is always
-`<EPICENTER_FOLDER_DIR>/so.epicenter`, by default `~/Epicenter/so.epicenter`,
-the same directory the desktop binds for Settings (ADR-0672). No
-configuration selects it, and the CLI reads and writes none to find it. A
-read creates nothing; a save creates the root and the directory when missing
-and reuses one that is there. Before either, the location is admitted: it
-may not be or sit inside a save staging directory, overlap application data,
-or be a file or a link. The CLI and native admissions run the same cases
-from `records-default.json` in the folder plugin's fixtures.
 
 ## Hosted repositories
 
@@ -187,9 +174,8 @@ Every command also accepts the hidden `--desktop`, which Rust passes to select
 the desktop grant (ADR-0558); `auth token`, `auth logout`,
 `auth git-credential`, and `send` act on that grant only with it.
 
-`auth key` and `send` are ADR-0557's. An AI connection is a row of
-the records directory’s `connections/`; its endpoint and key live in this computer's
-keychain under the row's id, through `Bun.secrets` (service
+`auth key` and `send` are ADR-0557's. An AI connection is named by an id;
+its endpoint and key live in this computer's keychain under that id, through `Bun.secrets` (service
 `so.epicenter.connections`). `auth key set <id>` reads `{"endpoint", "key"}`
 as JSON on stdin, never from the command line, and `state` prints the
 endpoint and whether a key is saved, never the key. `send` reads one JSON
@@ -211,33 +197,6 @@ Without `Bun.secrets` in the binary, every keychain command fails and says
 so. `EPICENTER_TEST_SECRETS` replaces the keychain with in-memory stores,
 the AI connections' seeded from its JSON and the sign-ins' empty, so tests
 never touch the real one.
-
-`whispering-connection read|set <transcription|text>` reads or saves one of
-Whispering's two rows of `so.epicenter/connections`,
-`whispering-transcription` or `whispering-text`
-(`WHISPERING_CONNECTION_IDS` in `@epicenter/ai/connection-table`), for the
-desktop shell's `whispering_connection_read` and `whispering_connection_set`.
-It takes no path: the records are the fixed `so.epicenter` under
-`EPICENTER_FOLDER_DIR`'s folder, and a save creates it when missing. Each
-run opens it with `connectionsTables`, reads or saves the one row, and closes
-it; a save is checked against the version it read, as Settings' saves are. The command
-awaits its save before answering, while a stop signal may interrupt that
-ordinary work. Token refresh keeps its separate persistence protection.
-It needs no
-account, keychain, network, Git, or `epicenter.json`. `read` answers
-`{"row": {"text", "issues", "fields"} | null}`: `text` is the file's exact
-source, and `fields` is the schema's `kind`, `title`, and `model`, or `null`
-when the row does not read. `set` reads
-`{"fields": {"kind"?, "title"?, "model"?}}` on stdin. The only assignable kind
-is `openai-compatible`. It patches the current row without a source precondition
-and answers the row once its write lands. A new row is written with only the
-assigned fields; reads report schema issues until the row is complete.
-Updates keep unnamed keys and the body but write canonical frontmatter, dropping
-comments and ordering declared keys first. Anything else
-on stdin is refused. A refusal is `{"error", "name"}` and exit 2, and the file
-is as it was. Reading a missing `so.epicenter` answers no row and creates
-nothing; a save creates the Epicenter root and its `so.epicenter` child when
-missing. A link or a file at `so.epicenter` is refused.
 
 `install-command` is ADR-0558's hidden command. It keeps one link
 (ADR-0566, ADR-0567), and never needs `sudo`:
@@ -356,7 +315,6 @@ command holds a timer, since Bun 1.3.14 can otherwise end the process while
 | `src/repository-commands.ts` | `repos`, and the token `sync` and `clone` send to the deployment's Git. |
 | `src/app-paths.ts` | Where the Epicenter folder, the sign-in locks, and the command link live, by the shell's rule. |
 | `src/ai-commands.ts` | `auth key` and `send`, printing what `@epicenter/ai/send` returns. |
-| `src/connection-rows.ts` | `whispering-connection`: Whispering's two connection rows in `so.epicenter`. |
 | `src/auth.ts` | The two grants: device and desktop sign-in, the one refresh, status, sign-out, and Git's credential helper. |
 | `src/auth-commands.ts` | `auth login`, `logout`, `status`, `token`, and `git-credential`, printing what `src/auth.ts` returns. |
 | `src/secrets.ts` | The keychain through `Bun.secrets`, by service, or the test stores. |
@@ -371,9 +329,7 @@ bun run typecheck
 ```
 
 `src/epicenter.test.ts` runs every command in a fresh process against real
-directories, `src/connection-rows.test.ts` runs `whispering-connection` over a
-new Epicenter folder that `EPICENTER_FOLDER_DIR` names, and
-`src/ai-commands.test.ts` runs `send` and `auth key`
+directories, and `src/ai-commands.test.ts` runs `send` and `auth key`
 against a local fake OpenAI-compatible server, so both can run against the
 compiled binary too.
 `src/auth.postgres.test.ts` signs in against `@epicenter/server`'s

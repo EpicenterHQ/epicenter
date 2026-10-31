@@ -105,7 +105,7 @@ field to an immediate editor. See [Todos](todos/README.md),
 [Svelte package](../packages/svelte/README.md).
 
 Only the Epicenter app itself still opens folders with the older
-`openFolder` and `<OpenFolder>` (its folder editor and AI connections).
+`openFolder` and `<OpenFolder>` (its folder editor).
 
 ## Running an app
 

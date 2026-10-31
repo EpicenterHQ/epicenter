@@ -31,7 +31,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime, Webview};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -624,109 +624,6 @@ pub(crate) fn spawn_command_link_refresh(paths: &DesktopPaths) {
 }
 
 // ---------------------------------------------------------------------------
-// AI connection keys (ADR-0557): each connection's key in the keychain. The
-// CLI holds it; these commands only carry Settings' typed input to one fixed
-// invocation, so no page reads a saved key.
-// ---------------------------------------------------------------------------
-
-/// What this computer's keychain holds for a connection. Never the key.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-#[serde(tag = "state", rename_all = "camelCase")]
-pub enum AiKeyState {
-    Missing,
-    Saved {
-        endpoint: String,
-        #[serde(rename = "hasKey")]
-        has_key: bool,
-    },
-}
-
-/// A connection id, as `@epicenter/ai/send` reads one: it goes into the
-/// CLI's arguments, so it may never look like an option.
-fn connection_id(id: &str) -> Result<&str, CliError> {
-    let valid = (1..=128).contains(&id.len())
-        && id.chars().next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'));
-    if valid {
-        Ok(id)
-    } else {
-        Err(CliError::Refused {
-            message: format!("'{id}' is not a connection id"),
-        })
-    }
-}
-
-/// Run one `epicenter auth key <action> <connection> --json` and read its
-/// answer.
-async fn key_command<T: serde::de::DeserializeOwned>(
-    invocation: &Invocation,
-    action: &str,
-    connection: &str,
-    stdin: Option<Vec<u8>>,
-) -> Result<T, CliError> {
-    let connection = connection_id(connection)?;
-    invocation
-        .answer(&["auth", "key", action, connection, "--json"], stdin)
-        .await
-}
-
-async fn key_set_with(
-    invocation: &Invocation,
-    connection: &str,
-    endpoint: &str,
-    key: &str,
-) -> Result<AiKeyState, CliError> {
-    let input = serde_json::to_vec(&json!({ "endpoint": endpoint, "key": key }))
-        .map_err(|error| failed(error.to_string()))?;
-    key_command(invocation, "set", connection, Some(input)).await
-}
-
-async fn key_state_with(invocation: &Invocation, connection: &str) -> Result<AiKeyState, CliError> {
-    key_command(invocation, "state", connection, None).await
-}
-
-/// What `epicenter auth key remove` answers.
-#[derive(Deserialize)]
-struct KeyRemoved {
-    removed: bool,
-}
-
-async fn key_remove_with(invocation: &Invocation, connection: &str) -> Result<bool, CliError> {
-    let answer: KeyRemoved = key_command(invocation, "remove", connection, None).await?;
-    Ok(answer.removed)
-}
-
-/// Save `endpoint` and `key` for `connection` in this computer's keychain,
-/// through `epicenter auth key set`, which reads both on stdin. An empty key
-/// confirms a keyless endpoint.
-#[tauri::command]
-#[specta::specta]
-pub async fn ai_key_set(
-    webview: Webview,
-    connection: String,
-    endpoint: String,
-    key: String,
-) -> Result<AiKeyState, CliError> {
-    key_set_with(&window_invocation(&webview)?, &connection, &endpoint, &key).await
-}
-
-/// Remove what this computer saved for `connection`; whether there was anything.
-#[tauri::command]
-#[specta::specta]
-pub async fn ai_key_remove(webview: Webview, connection: String) -> Result<bool, CliError> {
-    key_remove_with(&window_invocation(&webview)?, &connection).await
-}
-
-/// Whether a key is saved for `connection`, and for which endpoint. Never the key.
-#[tauri::command]
-#[specta::specta]
-pub async fn ai_key_state(webview: Webview, connection: String) -> Result<AiKeyState, CliError> {
-    key_state_with(&window_invocation(&webview)?, &connection).await
-}
-
-// ---------------------------------------------------------------------------
 // The app's sign-in (ADR-0549, ADR-0558): the CLI's desktop grant, client
 // `so.epicenter`, which only these commands and `send` select with
 // `--desktop`. Rust holds no token; it opens the authorization page the CLI
@@ -1241,50 +1138,6 @@ process.exitCode = 1;
                 entry.into_os_string(),
             ],
         }
-    }
-
-    /// Through the real CLI: the key state names the endpoint and never the
-    /// key, a save canonicalizes the endpoint and refuses one that is not
-    /// HTTP, and removing nothing says so.
-    #[tokio::test]
-    async fn the_key_commands_run_the_cli() {
-        let dir = scratch("key-cli");
-        let endpoint = "https://api.groq.test/v1".to_string();
-        let program = invocation_in(
-            cli_with_secrets(
-                &dir,
-                json!({ "groq": { "endpoint": endpoint, "key": "sk-rust" } }),
-            ),
-            &dir,
-        );
-
-        assert_eq!(
-            key_state_with(&program, "groq").await.unwrap(),
-            AiKeyState::Saved {
-                endpoint: endpoint.clone(),
-                has_key: true
-            }
-        );
-        assert_eq!(
-            key_state_with(&program, "other").await.unwrap(),
-            AiKeyState::Missing
-        );
-        assert_eq!(
-            key_set_with(&program, "other", "https://API.example.com/v1/", "")
-                .await
-                .unwrap(),
-            AiKeyState::Saved {
-                endpoint: "https://api.example.com/v1".into(),
-                has_key: false
-            }
-        );
-        let refused = key_set_with(&program, "other", "ftp://x", "k")
-            .await
-            .unwrap_err();
-        assert!(matches!(refused, CliError::Refused { .. }), "{refused:?}");
-        assert!(!key_remove_with(&program, "other").await.unwrap());
-
-        let _ = fs::remove_dir_all(dir);
     }
 
     /// Through the real CLI, with a keychain that holds nothing: status names

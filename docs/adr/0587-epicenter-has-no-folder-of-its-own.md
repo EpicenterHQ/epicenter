@@ -14,7 +14,7 @@ inspect one with `git show commit:path`.
 
 Epicenter kept one folder for itself, `~/Epicenter/so.epicenter/`
 (ADR-0539), whose only table is `connections`: `connectionsTable` in
-`packages/ai/src/connection-table.ts`, one row per AI connection holding
+`b66ad7fbdf:packages/ai/src/connection-table.ts`, one row per AI connection holding
 `kind`, `title`, and `model`. The endpoint and key of an `openai-compatible`
 connection live in this machine's keychain, in one entry per connection id
 under the service `so.epicenter.connections` (ADR-0564;
@@ -36,7 +36,7 @@ again. Holding the row required a folder no person chose:
   `a3b5be346e96:apps/epicenter/src-tauri/src/data_folders.rs:73-90`), and permits every
   installed app's window into it (ADR-0570).
 - Settings opens it (`openFolder({ app: EPICENTER_FOLDER_ID, ... })` in
-  `apps/epicenter/src/ui/connections/AiConnections.svelte:29-30`) and lists
+  `b66ad7fbdf:apps/epicenter/src/ui/connections/AiConnections.svelte`) and lists
   `connections` (`ConnectionList.svelte`). Whispering's desktop workspace
   opens it through `connectionsDefinition`
   (`caf928c446fc:apps/whispering/src/lib/workspace/desktop.ts`) and reads and
@@ -93,7 +93,7 @@ account. Whispering's fixed ids `whispering-transcription` and
   `register_epicenter_folder` (`data_folders.rs`), the last path that
   creates a folder on its first grant;
 - `connectionsTable`, `connectionsDefinition`, and `CONNECTIONS_FOLDER_ID`
-  (`packages/ai/src/connection-table.ts` and its `./connection-table`
+  (`b66ad7fbdf:packages/ai/src/connection-table.ts` and its `./connection-table`
   export);
 - `a4fa6201aa89:packages/cli/src/epicenter-folder.ts` and its test, with
   `epicenterDefinition` and `EPICENTER_FOLDER_ID`, and Epicenter's own

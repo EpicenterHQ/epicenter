@@ -7,7 +7,6 @@
 	"exports": {
 		".": "./src/ai.ts",
 		"./codex": "./src/codex-connection.ts",
-		"./connection-table": "./src/connection-table.ts",
 		"./connections": "./src/ai-connections.ts",
 		"./picker": "./src/picker/index.ts",
 		"./selections": "./src/selections.ts",
@@ -17,7 +16,6 @@
 	"dependencies": {
 		"@epicenter/auth": "workspace:*",
 		"@epicenter/client": "workspace:*",
-		"@epicenter/folder": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",

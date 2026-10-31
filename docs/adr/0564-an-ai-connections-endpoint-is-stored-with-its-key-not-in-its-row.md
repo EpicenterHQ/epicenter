@@ -43,7 +43,7 @@ Keychain service so.epicenter.connections         this machine only; read and wr
   <id> → {"endpoint": "https://api.groq.com/openai/v1", "key": "…"}     key is "" for a keyless endpoint
 ```
 
-The row is `connectionsTable` in `packages/ai/src/connection-table.ts`. The
+The row is `connectionsTable` in `b66ad7fbdf:packages/ai/src/connection-table.ts`. The
 entry is written by `saveKey` and read by `readKeyEntry` in
 `packages/ai/src/send.ts`, which stores the endpoint as `canonicalEndpoint`
 spells it: an `http` or `https` URL with a lowercase host, no default port, no
@@ -73,7 +73,7 @@ sent on a refusal.
 
 ADR-0557's `savedForAnotherAddress` state does not exist. No synced row holds an
 endpoint, so nothing synced can disagree with the keychain. Settings
-(`apps/epicenter/src/ui/connections/ConnectionEditor.svelte`) shows one of:
+(`b66ad7fbdf:apps/epicenter/src/ui/connections/ConnectionEditor.svelte`) shows one of:
 
 ```txt
 Sends to <endpoint> with the key saved on this computer.

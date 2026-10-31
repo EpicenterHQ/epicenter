@@ -4,7 +4,7 @@ Two surfaces open an app's files. The contract openers, `openDevice` and
 `openRemote`, return the typed client an app's file contract derives
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md));
 see [Contract openers](#contract-openers). The legacy `openFolder` below serves
-only the Epicenter app's own folder editor and AI connections; every other
+only the Epicenter app's own folder editor; every other
 app is on a contract.
 
 A Folder mirrors the files that storage last returned or accepted. It owns a

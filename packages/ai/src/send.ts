@@ -1,11 +1,10 @@
 /**
  * One request over an AI connection, and the key it carries (ADR-0557).
  *
- * A connection is a row of `so.epicenter`'s `connections` table: its id,
- * kind, title, and model. The endpoint and key of an `openai-compatible`
- * connection are not in the row. They live in this computer's keychain
- * under the connection's id, written and read only by the `epicenter` CLI,
- * so a synced edit of a row can never send a key somewhere new.
+ * A connection is named by its id. The endpoint and key of an
+ * `openai-compatible` connection live in this computer's keychain under that
+ * id, written and read only by the `epicenter` CLI, so nothing synced can
+ * send a key somewhere new.
  *
  * The same command carries account requests: an `account` target names one
  * of the deployment's resources (ADR-0549), and `epicenter send` adds the
@@ -42,7 +41,7 @@ export type ConnectionKind = (typeof CONNECTION_KINDS)[number];
 
 const CONNECTION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-/** A connection id is its row's stem and its keychain name: letters, digits, `.`, `_`, and `-`. */
+/** A connection id is its keychain name: letters, digits, `.`, `_`, and `-`. */
 export function isConnectionId(value: unknown): value is string {
 	return typeof value === 'string' && CONNECTION_ID.test(value);
 }

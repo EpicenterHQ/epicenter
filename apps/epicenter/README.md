@@ -39,16 +39,11 @@ document's policy admits each of its inline scripts by hash. Each window
 navigates only below the path it opened at; a new-window link opens in the
 system browser only when it is the hosted account website.
 
-The editor and Settings reach native folders through the shared Folder
-plugin. Each opens the directory the shell binds to its window (ADR-0531).
+The editor reaches native folders through the shared Folder plugin. It
+opens the directory the shell binds to its window (ADR-0531).
 
 The shell holds no credential: the `epicenter` CLI holds the account and
-every key (ADR-0556). Settings opens its records folder through
-`<OpenFolder>`, creates connection rows with
-`folder.tables.connections.create`, and updates title and model through row
-patches. Each text field keeps its own edit until its write answers. Failed
-writes keep the typed value and show Save again, Discard, and Copy beside the
-field. Connection creation and deletion report their own failures beside the action.
+every key (ADR-0556).
 
 ## The epicenter binary
 
@@ -78,8 +73,6 @@ The one binary has these uses:
   `/auth/oauth2/authorize`, then `{"signedIn"}` or `{"error"}`; every line
   goes to `onEvent`. `auth_status()` runs `epicenter auth status --desktop
   --json` and `auth_logout()` runs `epicenter auth logout --desktop --json`.
-  Settings saves, removes, and reads each AI connection's key through
-  `ai_key_set`, `ai_key_remove`, and `ai_key_state` (`epicenter auth key`).
   Each of these passes the shell's configured server as `EPICENTER_API_URL`,
   so the CLI and the shell name one deployment. The grant's refresh token and
   cached access tokens are in the CLI's keychain entry; no token reaches a
@@ -125,8 +118,10 @@ is `~/Epicenter Dev`. `EPICENTER_FOLDER_DIR` overrides the library at startup
 and must be absolute; changing it opens another library and moves no files.
 Native locations live in `tauri_plugin_epicenter_folder::defaults::DesktopPaths`.
 Epicenter's records are a fixed reverse-DNS child from the `library` table
-(ADR-0672), `library::RECORDS`; the standalone apps keep their data at
-`~/Epicenter/<productName>` instead, outside that table.
+(ADR-0672), `library::RECORDS`. Nothing writes them any more (Settings kept
+AI connections there); no window or `epicenter init` may claim them, so files
+already there stay as they are. The standalone apps keep their data at
+`~/Epicenter/<productName>`, outside that table.
 The shell resolves both directories once and sets `EPICENTER_DATA_DIR` and
 `EPICENTER_FOLDER_DIR` on every `epicenter` command it runs, so the CLI
 writes where the shell reads. A terminal's `epicenter` uses the same
@@ -137,8 +132,7 @@ Files split by what they cost to lose (ADR-0539):
 
 ```txt
 ~/Epicenter/                                  read, edited, and versioned as files
-  so.epicenter/                               Epicenter’s portable records (Settings)
-    connections/<id>.md                       one row per AI connection
+  so.epicenter/                               Epicenter’s records, no longer written
   <name>/                                     a folder `epicenter clone` made
 ~/Library/Application Support/so.epicenter/   written only by Epicenter
   auth/<grant>.lock                           the lock a sign-in refreshes under (the CLI writes it)
@@ -475,7 +469,7 @@ directories.
 Each kind of window has one capability file, and every file is `"local": true`
 because its page is served on the scheme: `folders.json`, which alone grants
 the Folders window's CLI commands (`src-tauri/src/command_names.rs` lists every
-app command); `home.json`, which alone grants sign-in, AI keys, and model
+app command); `home.json`, which alone grants sign-in and model
 administration; and `folder-editor.json`, which selects `files:*` and grants
 the folder plugin, its private observation and close channels, and
 `folder_query`. A development build selects the same three. This is wiring,
@@ -559,13 +553,10 @@ their own folders.
 
 The shared origin is recorded in [ADR-0118](../../docs/adr/0118-epicenter-is-one-trusted-bun-hosted-spa-origin.md) and [ADR-0561](../../docs/adr/0561-rust-serves-every-app-from-one-epicenter-app-origin.md). App hosting, removed by [ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md), is archived at the tag `archive/app-hosting`; that record says how to restore it.
 
-## Shared AI connections
+## AI connections
 
-The shell keeps no AI connections and serves no `/_epicenter/ai` routes.
-[ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)
-makes each connection a row of a `connections` table in Epicenter's records
-folder, keeps its key in this machine's keychain bound to the endpoint it was saved for, and
-sends every AI request through `epicenter send`. Check that record's Unbuilt
-line for what has landed.
-[ADR-0672](../../docs/adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)
-fixes that folder at `<folderDir>/so.epicenter`; no configuration selects it.
+The shell keeps no AI connections and serves no `/_epicenter/ai` routes, and
+Settings no longer lists or edits them. The `epicenter` CLI keeps
+[ADR-0557](../../docs/adr/0557-an-ai-connection-is-a-row-in-so-epicenter-whose-key-stays-in-this-machines-keychain.md)'s
+keychain half: `epicenter auth key` saves an endpoint and key under a
+connection id, and `epicenter send` sends a request with it.

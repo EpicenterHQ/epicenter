@@ -24,7 +24,7 @@ file-system scope must allow (see Other roots).
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), which roots a page may open (`scope.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
-| `fixtures/records-default.json` | Where the records default is admitted and refused. `core/src/library.rs` and `records-default.test.ts` in the CLI both run it. |
+| `fixtures/records-default.json` | Where the records default is admitted and refused. `core/src/library.rs` runs it. |
 | `fixtures/storage-outcomes.json` | Storage calls and what each answers. `core/src/storage_tests.rs` runs them over the shell's storage and `storage-outcomes.test.ts` in `@epicenter/folder` over the Bun directory storage, so both give the same outcomes. |
 
 This crate has no JavaScript package of its own. A page reaches it through
@@ -92,7 +92,7 @@ and folder editor windows, also refuses records, anything in them, and any
 directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
-anything is made. Native and CLI records admission run the same cases from
+anything is made. Records admission runs the cases in
 `fixtures/records-default.json`.
 
 `Directory::create(path)` prepares a fixed default computed by the shell,

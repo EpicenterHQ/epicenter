@@ -118,16 +118,13 @@
       "name": "@epicenter/epicenter",
       "version": "0.0.2",
       "dependencies": {
-        "@epicenter/ai": "workspace:*",
         "@epicenter/cli": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
-        "@tanstack/svelte-query": "catalog:",
         "@tauri-apps/api": "catalog:",
         "runed": "catalog:",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -456,7 +453,6 @@
       "dependencies": {
         "@epicenter/auth": "workspace:*",
         "@epicenter/client": "workspace:*",
-        "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
         "@tanstack/svelte-query": "catalog:",

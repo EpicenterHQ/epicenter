@@ -5,7 +5,6 @@
  * the CLI the app runs read and write the same places.
  *
  * ```txt
- * <folderDir>/so.epicenter/                  Epicenter's records, such as AI connections
  * <folderDir>/<name>/                        a data folder `epicenter clone` makes by default
  * <dataDir>/auth/<grant>.lock                the lock a grant refreshes under (auth.ts)
  * ~/.local/bin/epicenter                     the link Git's configuration runs (install-command.ts)
@@ -28,7 +27,7 @@ const IDENTIFIER = 'so.epicenter';
 const FOLDER_NAME = 'Epicenter';
 
 export type AppPaths = {
-	/** The library root: where `epicenter clone` puts a folder, with records at its `so.epicenter/` child. */
+	/** The library root: where `epicenter clone` puts a folder. */
 	readonly folderDir: string;
 	/** Machine state worth keeping, including sign-in locks. */
 	readonly dataDir: string;

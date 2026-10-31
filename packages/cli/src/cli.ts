@@ -116,18 +116,6 @@ const HANDLERS: Record<string, Run> = {
 			action as string,
 			grant,
 		),
-	'whispering-connection read': async ({ positionals: [operation], json }) =>
-		(await import('./connection-rows.ts')).whisperingConnection(
-			'read',
-			operation as string,
-			json,
-		),
-	'whispering-connection set': async ({ positionals: [operation], json }) =>
-		(await import('./connection-rows.ts')).whisperingConnection(
-			'set',
-			operation as string,
-			json,
-		),
 	'install-command': async ({ json }) =>
 		(await import('./install-command.ts')).installCommand({ json }),
 };
@@ -149,8 +137,7 @@ left as it is and named. Each note is replaced only while it still holds the
 bytes read. Exits 0 when every note is in house style, 1 when one was left as
 it is, and 2 when the contract or the folder cannot be used.`,
 	'auth key': `Keeps an AI connection's endpoint and key in this computer's keychain,
-under the connection's id, the stem of its row in so.epicenter/connections
-(ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on
+under the connection's id (ADR-0557). set reads {"endpoint": "<url>", "key": "<key>"} as JSON on
 stdin, never from the command line; an empty or missing key saves a keyless
 endpoint. state prints the endpoint and whether a key is saved, never the
 key. remove deletes the entry. Exits 0, or 2 when the id, the input, or the

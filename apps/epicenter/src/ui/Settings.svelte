@@ -3,17 +3,14 @@
 	import { Channel } from '@tauri-apps/api/core';
 	import { onMount } from 'svelte';
 	import { type AuthGrant, commands } from './bindings.gen';
-	import { failureText } from './connections/connections';
 	import { isTauri } from '@tauri-apps/api/core';
 	import * as Empty from '@epicenter/ui/empty';
-	import AiConnections from './connections/AiConnections.svelte';
 	import LocalModelAdministration from './LocalModelAdministration.svelte';
 	import { localModels } from './local-models.svelte';
 
 	/**
-	 * Host-level administration (ADR-0189) includes the app's sign-in, the AI
-	 * connections the `epicenter` CLI sends over (ADR-0557), and the local
-	 * transcription model (ADR-0180).
+	 * Host-level administration (ADR-0189) includes the app's sign-in and the
+	 * local transcription model (ADR-0180).
 	 *
 	 * The sign-in is the `epicenter` CLI's desktop grant (ADR-0558): Sign in
 	 * runs its loopback sign-in through the shell, which opens the browser, and
@@ -34,7 +31,7 @@
 	async function readStatus() {
 		const { data, error } = await commands.authStatus();
 		if (error !== null) {
-			accountError = failureText(error);
+			accountError = error.message;
 			return;
 		}
 		origin = data.origin;
@@ -56,7 +53,7 @@
 			if (value.error) accountError = value.error;
 		};
 		const { error } = await commands.authLogin(lines);
-		if (error !== null) accountError = failureText(error);
+		if (error !== null) accountError = error.message;
 		waitingForBrowser = false;
 		await readStatus();
 		busy = null;
@@ -66,7 +63,7 @@
 		busy = 'signing-out';
 		accountError = '';
 		const { data, error } = await commands.authLogout();
-		if (error !== null) accountError = failureText(error);
+		if (error !== null) accountError = error.message;
 		else if (data.signedOut && !data.revoked)
 			accountError = `${new URL(origin).host} could not be reached, so this computer's sign-in was removed but not revoked there.`;
 		await readStatus();
@@ -103,7 +100,6 @@
 		{/if}
 		{#if accountError}<p role="alert" class="text-destructive">{accountError}</p>{/if}
 	</div>
-	<AiConnections />
 {/if}
 
 {#if localModels.available}

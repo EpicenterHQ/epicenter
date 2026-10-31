@@ -19,20 +19,17 @@
 		"release:build": "bun scripts/release.ts build",
 		"release:rehearse": "bun scripts/rehearse-release.ts",
 		"test": "bun test",
-		"test:mounted": "bun test --conditions=browser --conditions=svelte src/folders/*.mounted.test.ts src/ui/connections/*.mounted.test.ts",
+		"test:mounted": "bun test --conditions=browser --conditions=svelte src/folders/*.mounted.test.ts",
 		"typecheck": "tsc --noEmit && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"dependencies": {
-		"@epicenter/ai": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/cli": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
-		"@tanstack/svelte-query": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"runed": "catalog:",
-		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

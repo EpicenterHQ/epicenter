@@ -80,16 +80,6 @@ export const commands = {
 	restartSyncService: () => __TAURI_INVOKE<void>("restart_sync_service"),
 	folderQuery: (sql: string) => typedError<QueryAnswer, CliError>(__TAURI_INVOKE("folder_query", { sql })),
 	/**
-	 *  Save `endpoint` and `key` for `connection` in this computer's keychain,
-	 *  through `epicenter auth key set`, which reads both on stdin. An empty key
-	 *  confirms a keyless endpoint.
-	 */
-	aiKeySet: (connection: string, endpoint: string, key: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_set", { connection, endpoint, key })),
-	/**  Remove what this computer saved for `connection`; whether there was anything. */
-	aiKeyRemove: (connection: string) => typedError<boolean, CliError>(__TAURI_INVOKE("ai_key_remove", { connection })),
-	/**  Whether a key is saved for `connection`, and for which endpoint. Never the key. */
-	aiKeyState: (connection: string) => typedError<AiKeyState, CliError>(__TAURI_INVOKE("ai_key_state", { connection })),
-	/**
 	 *  Sign the app in: the CLI's loopback sign-in as `so.epicenter`. The shell
 	 *  opens the authorization page in the person's browser; each line the CLI
 	 *  prints (`{"open"}`, then `{"signedIn"}` or `{"error"}`) goes to
@@ -179,9 +169,6 @@ export type ActiveModel = {
 	/**  Whether this model takes a spoken-language hint. */
 	supportsLanguage: boolean,
 };
-
-/**  What this computer's keychain holds for a connection. Never the key. */
-export type AiKeyState = { state: "missing" } | { state: "saved"; endpoint: string; hasKey: boolean };
 
 /**  Who approved a grant, as the server's userinfo answered at sign-in. */
 export type AuthAccount = {

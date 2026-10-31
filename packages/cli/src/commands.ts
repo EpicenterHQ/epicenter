@@ -168,24 +168,6 @@ export const COMMANDS: readonly CommandSpec[] = [
 		hidden: true,
 	},
 	{
-		path: ['whispering-connection', 'read'],
-		args: '<transcription|text>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary:
-			"read one of Whispering's connection rows in so.epicenter for the desktop app",
-		hidden: true,
-	},
-	{
-		path: ['whispering-connection', 'set'],
-		args: '<transcription|text>',
-		minArgs: 1,
-		maxArgs: 1,
-		summary:
-			"save one of Whispering's connection rows in so.epicenter for the desktop app, change on stdin",
-		hidden: true,
-	},
-	{
 		path: ['install-command'],
 		args: '',
 		minArgs: 0,

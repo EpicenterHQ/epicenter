@@ -6,7 +6,6 @@ use tauri::{
 };
 use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
-use tauri_plugin_epicenter_folder::FolderExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// The command list, shared with `build.rs` through `include!`. Only the tests
@@ -18,7 +17,6 @@ mod cli;
 mod folder_query;
 mod folder_windows;
 mod synced_folders;
-use epicenter_folder_core::library;
 use tauri_plugin_epicenter_folder::defaults::DesktopPaths;
 #[cfg(target_os = "macos")]
 mod macos_tabs;
@@ -119,9 +117,6 @@ macro_rules! shell_commands {
             synced_folders::unshare_folder,
             synced_folders::restart_sync_service,
             folder_query::folder_query,
-            cli::ai_key_set,
-            cli::ai_key_remove,
-            cli::ai_key_state,
             cli::auth_login::<tauri::Wry>,
             cli::auth_status,
             cli::auth_logout,
@@ -552,40 +547,24 @@ fn open_account_website<R: Runtime>(app: &AppHandle<R>, url: &tauri::Url) -> New
 /// Make sure the one window for this built-in app exists, and reveal it.
 ///
 /// The window label is the app's ID, which is what every capability file in
-/// `src-tauri/capabilities/` selects on. One built-in app has one window.
-/// Settings binds Epicenter's records, `<library>/so.epicenter`, before its
-/// WebView exists, creating the directory when it is missing.
-/// The Folders window is a launcher and is bound to no folder.
+/// `src-tauri/capabilities/` selects on. One built-in app has one window,
+/// and neither is bound to a folder.
 fn ensure_window(app: &DesktopAppHandle, built_in: BuiltInApp) -> Result<()> {
     if let Some(window) = app.get_webview_window(built_in.id()) {
         focus(window);
         return Ok(());
     }
 
-    let build = || {
-        let builder = WebviewWindowBuilder::new(
-            app,
-            built_in.id(),
-            WebviewUrl::CustomProtocol(scheme::url(built_in.path())?),
-        );
-        let builder =
-            configure_app_window(builder, app, built_in.title(), built_in.path().to_owned());
-        // These singleton windows hide on close and stay outside folder tab groups.
-        #[cfg(target_os = "macos")]
-        let builder = builder.tabbing_identifier(built_in.id());
-        Ok::<_, anyhow::Error>(builder.build()?)
-    };
-    let window = match built_in {
-        BuiltInApp::Home => {
-            let paths = app.state::<DesktopPaths>();
-            let directory = paths
-                .open_default(library::RECORDS)
-                .map_err(anyhow::Error::msg)?;
-            app.folders()
-                .bind_while_building(built_in.id(), directory, build)?
-        }
-        BuiltInApp::Folders => build()?,
-    };
+    let builder = WebviewWindowBuilder::new(
+        app,
+        built_in.id(),
+        WebviewUrl::CustomProtocol(scheme::url(built_in.path())?),
+    );
+    let builder = configure_app_window(builder, app, built_in.title(), built_in.path().to_owned());
+    // These singleton windows hide on close and stay outside folder tab groups.
+    #[cfg(target_os = "macos")]
+    let builder = builder.tabbing_identifier(built_in.id());
+    let window = builder.build()?;
     let close_window = window.clone();
     window.on_window_event(move |event| {
         if let WindowEvent::CloseRequested { api, .. } = event {
@@ -689,29 +668,6 @@ mod tests {
         let development: serde_json::Value =
             serde_json::from_str(include_str!("../tauri.dev.conf.json")).unwrap();
         assert!(development.get("app").is_none());
-    }
-
-    /// The AI key commands reach Settings alone (ADR-0557). Each is one fixed
-    /// CLI invocation that never hands a page a saved key.
-    #[test]
-    fn ai_key_commands_are_granted_to_settings_alone() {
-        const AI: [&str; 3] = [
-            "allow-ai-key-set",
-            "allow-ai-key-remove",
-            "allow-ai-key-state",
-        ];
-        for encoded in ALL_CAPABILITIES {
-            let capability: serde_json::Value = serde_json::from_str(encoded).unwrap();
-            let permissions = capability["permissions"].as_array().unwrap();
-            for permission in AI {
-                assert_eq!(
-                    permissions.contains(&serde_json::json!(permission)),
-                    *encoded == HOME,
-                    "{} {permission}",
-                    capability["identifier"]
-                );
-            }
-        }
     }
 
     /// A folder editor window, one per synced folder (`synced_folders.rs`), is

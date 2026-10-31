@@ -25,8 +25,9 @@ pub struct LibraryDefault {
     pub title: &'static str,
 }
 
-/// Epicenter's own records, such as AI connections. Only Settings and
-/// folder editors open it; ordinary apps are refused.
+/// Epicenter's own records folder, where Settings once kept AI connections.
+/// No window binds it now; it stays refused to apps and folder editors so
+/// nothing claims the files a person may still have there.
 pub const RECORDS: LibraryDefault = LibraryDefault {
     id: "so.epicenter",
     title: "Epicenter",
@@ -348,11 +349,10 @@ mod tests {
         }
     }
 
-    /// The CLI runs these same cases for Epicenter's records
-    /// (`records-default.test.ts`), so both agree on what is admitted.
+    /// Where Epicenter's records are admitted and refused, case by case.
     #[cfg(unix)]
     #[test]
-    fn records_default_matches_the_shared_cli_cases() {
+    fn records_default_matches_its_cases() {
         #[derive(Deserialize)]
         struct Case {
             name: String,
