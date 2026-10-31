@@ -54,7 +54,9 @@ drafts never share a file. The files are this browser's for the origin
 Messages is served on (OPFS, `openDevice` from `@epicenter/folder/browser`).
 Messages never signs in, and nothing uploads: a draft and its send attempt
 belong to the Beeper installation on this computer, and the send protocol
-below needs its writes to land at once, offline or not.
+below needs its writes to land at once, offline or not. So where other apps
+have two views (decision 76), "On this device" and "Synced", Messages has
+only the first, and its interface does not name it.
 
 | Data | Where |
 | --- | --- |
