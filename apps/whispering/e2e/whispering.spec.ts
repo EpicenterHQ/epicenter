@@ -20,6 +20,8 @@
  *    here. Signing in moved nothing: this browser's files are as they were,
  *    and the person has no `whispering` repository (`epicenter repos`).
  * 5. Signing out keeps every recording.
+ * 6. The page, loaded once, reopens offline from its service worker's
+ *    cache (decision 85), with this browser's recordings.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -67,6 +69,9 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
 		viewport: { width: 1280, height: 800 },
+		// A service worker would answer the page's requests out of sight of
+		// the routes these steps stub; the last step reopens without this.
+		serviceWorkers: 'block',
 	});
 	await context.route(`${TRANSCRIBE}/**`, (route) => {
 		transcribed += 1;
@@ -129,6 +134,62 @@ async function audioFileOf(id: string) {
 		}
 		return null;
 	}, id);
+}
+
+/**
+ * Reload the page once its service worker is ready, so the worker controls
+ * it, and answer what the worker cached. In Chromium also reload with the
+ * browser offline (`context.setOffline`) and answer whether a request the
+ * worker did not cache failed: proof the page came from the cache. WebKit
+ * under Playwright blocks an offline navigation before any service worker
+ * sees it ("WebKit encountered an internal error"), so there the check is
+ * that the worker controls the page and holds every file it needs.
+ */
+async function reloadOffline(browserName: string) {
+	await page.evaluate(async () => {
+		await navigator.serviceWorker.ready;
+	});
+	await page.reload();
+	const cached = await page.evaluate(async () => {
+		const name = (await caches.keys()).find((key) =>
+			key.startsWith('epicenter-site-'),
+		);
+		if (name === undefined) return { home: false, scripts: 0 };
+		const cache = await caches.open(name);
+		const scripts = [
+			...document.querySelectorAll('script[src], link[rel="modulepreload"]'),
+		].map(
+			(element) => element.getAttribute('src') ?? element.getAttribute('href'),
+		);
+		return {
+			home: (await cache.match('/')) !== undefined,
+			scripts: (
+				await Promise.all(scripts.map((url) => cache.match(url!)))
+			).filter((hit) => hit === undefined).length,
+		};
+	});
+	const controlled = await page.evaluate(
+		() => navigator.serviceWorker.controller !== null,
+	);
+	if (browserName !== 'chromium') return { controlled, cached, uncached: null };
+	await context.setOffline(true);
+	try {
+		await page.reload();
+		return {
+			controlled: await page.evaluate(
+				() => navigator.serviceWorker.controller !== null,
+			),
+			cached,
+			uncached: await page.evaluate(() =>
+				fetch(`/not-cached-${Date.now()}`).then(
+					() => 'answered',
+					() => 'failed',
+				),
+			),
+		};
+	} finally {
+		await context.setOffline(false);
+	}
 }
 
 /** Record about a second and a half from the home page; answers the new recording's id. */
@@ -438,4 +499,34 @@ test('5. signing out keeps every recording', async () => {
 	await expect(row(kept)).toContainText('Standup notes');
 	await expect(row(offline)).toContainText('Offline take');
 	expect(await opfsFiles(page)).toEqual(localFiles);
+});
+
+test('6. the page, loaded once, reopens offline from its service worker', async ({
+	playwright,
+	browserName,
+	launchOptions,
+}) => {
+	// The same profile, now letting the service worker register.
+	await context.close();
+	context = await playwright[browserName].launchPersistentContext(profile, {
+		...launchOptions,
+		viewport: { width: 1280, height: 800 },
+	});
+	page = context.pages()[0] ?? (await context.newPage());
+	await page.goto(app);
+	const reopened = await reloadOffline(browserName);
+	expect(reopened).toMatchObject({
+		controlled: true,
+		cached: { home: true, scripts: 0 },
+		uncached: browserName === 'chromium' ? 'failed' : null,
+	});
+	if (browserName !== 'chromium') return;
+	await context.setOffline(true);
+	try {
+		await expect(page.getByTestId('start-recording')).toBeVisible();
+		await pageLink('Recordings').click();
+		await expect(row(kept)).toContainText('Standup notes');
+	} finally {
+		await context.setOffline(false);
+	}
 });

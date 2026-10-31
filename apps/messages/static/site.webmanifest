@@ -1,0 +1,6 @@
+{
+	"name": "Messages",
+	"short_name": "Messages",
+	"start_url": "/",
+	"display": "standalone"
+}

@@ -15,6 +15,8 @@
  *    typed, and saving fixed text repairs it.
  * 5. This browser's files fit the published contract (`epicenter check`).
  * 6. Live Beeper goes through the local program: connect, read, send.
+ * 7. The page, loaded once, reopens offline from its service worker's
+ *    cache (decision 85), in demo mode with this browser's drafts.
  */
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -68,6 +70,62 @@ const conversation = (title: string) =>
 		.getByRole('complementary', { name: 'Conversations' })
 		.getByRole('button', { name: title });
 const composer = () => page.getByLabel('Message', { exact: true });
+
+/**
+ * Reload the page once its service worker is ready, so the worker controls
+ * it, and answer what the worker cached. In Chromium also reload with the
+ * browser offline (`context.setOffline`) and answer whether a request the
+ * worker did not cache failed: proof the page came from the cache. WebKit
+ * under Playwright blocks an offline navigation before any service worker
+ * sees it ("WebKit encountered an internal error"), so there the check is
+ * that the worker controls the page and holds every file it needs.
+ */
+async function reloadOffline(browserName: string) {
+	await page.evaluate(async () => {
+		await navigator.serviceWorker.ready;
+	});
+	await page.reload();
+	const cached = await page.evaluate(async () => {
+		const name = (await caches.keys()).find((key) =>
+			key.startsWith('epicenter-site-'),
+		);
+		if (name === undefined) return { home: false, scripts: 0 };
+		const cache = await caches.open(name);
+		const scripts = [
+			...document.querySelectorAll('script[src], link[rel="modulepreload"]'),
+		].map(
+			(element) => element.getAttribute('src') ?? element.getAttribute('href'),
+		);
+		return {
+			home: (await cache.match('/')) !== undefined,
+			scripts: (
+				await Promise.all(scripts.map((url) => cache.match(url!)))
+			).filter((hit) => hit === undefined).length,
+		};
+	});
+	const controlled = await page.evaluate(
+		() => navigator.serviceWorker.controller !== null,
+	);
+	if (browserName !== 'chromium') return { controlled, cached, uncached: null };
+	await context.setOffline(true);
+	try {
+		await page.reload();
+		return {
+			controlled: await page.evaluate(
+				() => navigator.serviceWorker.controller !== null,
+			),
+			cached,
+			uncached: await page.evaluate(() =>
+				fetch(`/not-cached-${Date.now()}`).then(
+					() => 'answered',
+					() => 'failed',
+				),
+			),
+		};
+	} finally {
+		await context.setOffline(false);
+	}
+}
 
 test('1. a draft is a note in this browser: created by the first keystroke, edited, kept across a reload, and cleared when emptied', async () => {
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
@@ -275,4 +333,27 @@ test('6. live Beeper goes through the local program', async () => {
 
 	await page.getByRole('button', { name: 'Disconnect' }).click();
 	await expect(page.getByText('Demo · fictional conversations')).toBeVisible();
+});
+
+test('7. the page, loaded once, reopens offline from its service worker', async ({
+	browserName,
+}) => {
+	await page.goto(`${app}/`);
+	const reopened = await reloadOffline(browserName);
+	expect(reopened).toMatchObject({
+		controlled: true,
+		cached: { home: true, scripts: 0 },
+		uncached: browserName === 'chromium' ? 'failed' : null,
+	});
+	if (browserName !== 'chromium') return;
+	await context.setOffline(true);
+	try {
+		await expect(
+			page.getByText('Demo · fictional conversations'),
+		).toBeVisible();
+		await conversation('Maya Chen').click();
+		await expect(composer()).toBeVisible();
+	} finally {
+		await context.setOffline(false);
+	}
 });

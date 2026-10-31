@@ -13,6 +13,9 @@
  * - The desktop build carries the window's two roots, the shell's microphone,
  *   requests and local models, and sign-in through the shell, and none of the
  *   web's leaves
+ * - Only the web build has a service worker (decision 85): the desktop
+ *   build's names an entry that does not exist, so Kit builds and registers
+ *   none
  */
 import { expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -103,3 +106,23 @@ test(
 	},
 	BUNDLE_TIMEOUT,
 );
+
+test('only the web build has a service worker', async () => {
+	for (const desktop of [false, true]) {
+		const before = process.env.EPICENTER_DESKTOP;
+		if (desktop) process.env.EPICENTER_DESKTOP = '1';
+		else delete process.env.EPICENTER_DESKTOP;
+		try {
+			const { default: config } = await import(
+				`${join(appDir, 'svelte.config.js')}?desktop=${desktop}`
+			);
+			const entry: string = config.kit.files.serviceWorker;
+			expect(await Bun.file(join(appDir, `${entry}.js`)).exists()).toBe(
+				!desktop,
+			);
+		} finally {
+			if (before === undefined) delete process.env.EPICENTER_DESKTOP;
+			else process.env.EPICENTER_DESKTOP = before;
+		}
+	}
+});

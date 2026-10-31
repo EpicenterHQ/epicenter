@@ -196,7 +196,14 @@ bun run --cwd apps/whispering test:e2e     # Playwright, Chromium and WebKit
 ```
 
 The build is static: any host that answers unknown paths with `index.html`
-(for `/auth/callback`) serves it, at an origin the API registers.
+(for `/auth/callback`) serves it, at an origin the API registers. The web
+build has a service worker (`src/service-worker.js`, the shared `cacheSite`
+from `@epicenter/vite-config/offline`) that caches the page and its static
+files, so a page loaded once reopens offline, and a web manifest
+(`static/site.webmanifest`) that makes it installable (decision 85). It
+passes data and other origins' requests through untouched. The desktop
+build (`build:native`) has neither worker nor registration:
+`svelte.config.js` points Kit at no service worker there.
 
 `test:e2e` starts `e2e/stack.ts`: a disposable Postgres, the local API with
 temporary Git and LFS stores, a person per browser with a desktop sandbox for
@@ -211,8 +218,13 @@ and edits; it shows the
 Epicenter account route refused until sign-in, then, signed in, sending the
 account's API token (to a stub of the API's transcription route) and
 keeping the transcript here, with this browser's files otherwise unchanged
-and no `whispering` repository in `epicenter repos`; and signing out keeps
-every recording. `bun apps/whispering/e2e/stack.ts --demo` runs the same
+and no `whispering` repository in `epicenter repos`; signing out keeps
+every recording; and the page, loaded once, reopens offline from its
+service worker (in Chromium with `context.setOffline`; WebKit under
+Playwright blocks an offline navigation before any service worker sees it,
+so there the step checks that the worker controls the page and has cached
+it). The earlier steps run with service workers blocked, so the routes they
+stub see every request. `bun apps/whispering/e2e/stack.ts --demo` runs the same
 stack to try by hand. It needs `initdb`, `pg_ctl`, `git`, and `git-lfs` on
 `PATH`.
 

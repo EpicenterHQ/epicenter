@@ -10,6 +10,12 @@ in the device keychain. It always starts with fictional demo chats.
 bun run --cwd apps/messages start    # build, then serve http://127.0.0.1:5188
 ```
 
+A page loaded once reopens offline: Kit registers `src/service-worker.js`
+(the shared `cacheSite` from `@epicenter/vite-config/offline`), which caches
+the page and its static files and passes everything else through, and
+`static/site.webmanifest` makes it installable (decision 85). Messages has
+no icons of its own, so the manifest names none.
+
 Epicenter no longer hosts apps
 ([ADR-0701](../../docs/adr/0701-apps-run-as-separate-programs.md)), and
 Beeper Desktop listens only on this computer, so a page served from anywhere
@@ -31,7 +37,11 @@ program on port 5189 (which must be free), with a fake Beeper in place of the
 CLI's connection, in Chromium and WebKit. It covers drafts in this browser
 (created, edited, cleared, kept across a reload, and made and edited offline
 in demo mode), demo sends and their check, repair, `epicenter check` of the
-browser's files, and live Beeper through the local program. No check reads the keychain, needs
+browser's files, live Beeper through the local program, and reopening the
+page offline from its service worker (in Chromium with
+`context.setOffline`; WebKit under Playwright blocks an offline navigation
+before any service worker sees it, so there it checks that the worker
+controls the page and has cached it). No check reads the keychain, needs
 a real Beeper account, or reaches a real recipient. Demo replies and incoming
 messages stay in memory and reset on reload.
 

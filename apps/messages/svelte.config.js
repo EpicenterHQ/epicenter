@@ -16,6 +16,8 @@ const config = {
 			fallback: 'index.html',
 			...(out && { pages: out, assets: out }),
 		}),
+		// Kit registers `src/service-worker.js`, which caches the built page
+		// so a page loaded once reopens offline (decision 85).
 	},
 	preprocess: vitePreprocess(),
 	// `Startup` awaits this browser's files at the top level, under the
