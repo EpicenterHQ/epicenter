@@ -7,11 +7,14 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 NODE_ENV=production vite build",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:native && tauri build --bundles app",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --conditions=browser --conditions=svelte src/lib && bun run test:svelte",
 		"test:svelte": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --conditions=browser --conditions=svelte src/routes",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && EPICENTER_DESKTOP=1 svelte-kit sync && svelte-check --tsconfig ./tsconfig.tauri.json; status=$?; svelte-kit sync; exit $status",
 		"contract": "bun scripts/write-contract.ts",
 		"demo": "bun e2e/stack.ts --demo",
 		"test:e2e": "playwright test -c playwright.config.ts",
@@ -32,7 +35,8 @@
 		"runed": "catalog:",
 		"wellcrafted": "catalog:",
 		"@epicenter/ai": "workspace:*",
-		"@epicenter/definition": "workspace:*"
+		"@epicenter/definition": "workspace:*",
+		"@tauri-apps/api": "catalog:"
 	},
 	"devDependencies": {
 		"@epicenter/vite-config": "workspace:*",
@@ -40,6 +44,7 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"jsdom": "26.1.0",
@@ -51,5 +56,15 @@
 		"vite": "catalog:",
 		"vite-plugin-static-copy": "^4.1.1"
 	},
-	"license": "AGPL-3.0-or-later"
+	"license": "AGPL-3.0-or-later",
+	"imports": {
+		"#platform/auth": {
+			"tauri": "./src/lib/platform/auth.tauri.ts",
+			"default": "./src/lib/platform/auth.browser.ts"
+		},
+		"#platform/connections": {
+			"tauri": "./src/lib/platform/connections.tauri.ts",
+			"default": "./src/lib/platform/connections.browser.ts"
+		}
+	}
 }

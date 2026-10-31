@@ -1,8 +1,9 @@
 <!--
-	One of Vocab's two views (decision 76): Words and Chat over one client's
-	words, chats and messages, this browser's ("On this device") or the
-	learner's repository's ("Synced"). The header links the two views and says
-	which is open; Words and Chat are this view's sections.
+	One of Vocab's views: Words and Chat over one client's words, chats and
+	messages, this browser's ("On this device"), the learner's repository's
+	("Synced"), or the desktop program's folder. The header shows what its
+	page hands it (`views`) and says which is open; Words and Chat are this
+	view's sections.
 -->
 <script lang="ts">
 	import { createBrowserInferenceSelections } from '@epicenter/ai/selections';
@@ -13,9 +14,8 @@
 	import { toast } from '@epicenter/ui/sonner';
 	import BookOpenIcon from '@lucide/svelte/icons/book-open';
 	import MessageCircleIcon from '@lucide/svelte/icons/message-circle';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, type Snippet } from 'svelte';
 	import type { ReactiveClient } from '@epicenter/svelte/client';
-	import { resolve } from '$app/paths';
 	import { auth } from '$lib/auth.svelte.js';
 	import type { Vocab } from '$lib/contract.js';
 	import { type FocusItem, VOCAB_MODEL } from '$lib/data.js';
@@ -29,11 +29,18 @@
 	let {
 		view,
 		vocab,
+		views,
 	}: {
-		/** Which view this is: this browser's files, or the learner's repository. */
+		/** Which view this is: this browser's files, the learner's repository, or the desktop folder. */
 		view: View;
 		/** That view's client, whose collections every section reads and edits. */
 		vocab: ReactiveClient<Vocab>;
+		/**
+		 * Where the header says what this is beside the name: the web build's
+		 * links to its two views (`ViewLinks`), or the desktop program's
+		 * folder. The page that roots a build chooses it.
+		 */
+		views: Snippet;
 	} = $props();
 	// A page shows one client for its life.
 	// svelte-ignore state_referenced_locally
@@ -51,8 +58,10 @@
 	/** What the open view shows, in a line; `problem` says why it is a warning. */
 	const status = $derived.by((): { label: string; problem?: string } => {
 		const error = vocab.entries.error ?? vocab.chats.error;
-		if (view === 'device')
-			return error === null ? { label: 'On this device' } : { label: 'Not readable here', problem: error.message };
+		if (view === 'device' || view === 'folder')
+			return error === null
+				? { label: view === 'folder' ? 'On this computer' : 'On this device' }
+				: { label: 'Not readable here', problem: error.message };
 		if (auth.state.status === 'reauth-required')
 			return { label: 'Sign in again', problem: 'Sign in again to see and edit your repository.' };
 		return error === null ? { label: 'Synced' } : { label: 'Offline', problem: error.message };
@@ -123,10 +132,7 @@
 		<div class="flex items-center justify-between gap-2 border-b px-4 py-2 md:contents">
 			<!-- On narrow screens the views say what this is; the width goes to them. -->
 			<h1 class="text-lg font-semibold max-sm:sr-only">Vocab</h1>
-			<nav class="flex items-center gap-1" aria-label="Views">
-				<Button size="sm" variant={view === 'device' ? 'secondary' : 'ghost'} href={resolve('/')} aria-current={view === 'device' ? 'page' : undefined}>On this device</Button>
-				<Button size="sm" variant={view === 'synced' ? 'secondary' : 'ghost'} href={resolve('/synced')} aria-current={view === 'synced' ? 'page' : undefined}>Synced</Button>
-			</nav>
+			{@render views()}
 			<span class="text-xs {status.problem === undefined ? 'text-muted-foreground' : 'text-destructive'}" role="status" title={status.problem} data-testid="where">{status.label}</span>
 			<div class="flex items-center gap-1 md:order-last md:ml-auto"><LightSwitch variant="ghost" /><AccountMenu /></div>
 		</div>

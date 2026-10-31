@@ -8,6 +8,9 @@
 	import { getRepo } from '@epicenter/svelte/repo';
 	import type { Vocab } from '$lib/contract.js';
 	import VocabApp from '../../components/VocabApp.svelte';
+	import ViewLinks from '../ViewLinks.svelte';
 </script>
 
-<VocabApp view="synced" vocab={fromClient(getRepo<Vocab>())} />
+<VocabApp view="synced" vocab={fromClient(getRepo<Vocab>())}>
+	{#snippet views()}<ViewLinks view="synced" />{/snippet}
+</VocabApp>

@@ -1,13 +1,14 @@
 import { openEpicenterInference } from '@epicenter/ai';
-import { openLocalConnectionCatalog } from '@epicenter/ai/connections';
 import type { InferenceSources } from '@epicenter/ai/target';
 import type { Account } from '@epicenter/auth';
 import { extractErrorMessage } from 'wellcrafted/error';
+import { openConnections } from '#platform/connections';
 
 /**
  * Where the tutor can run. The endpoints a learner connected are saved for
  * this device, not for an account, so the same ones are there signed out and
- * signed in. Signing in only adds Epicenter's hosted models beside them.
+ * signed in (in the desktop program, their keys are in the keychain:
+ * `#platform/connections`). Signing in only adds Epicenter's hosted models beside them.
  * Neither decides where the words and chats are: a failure here leaves words and
  * chats usable and is reported in the model picker.
  */
@@ -20,7 +21,7 @@ export async function openVocabInference(
 		connections: () => Promise<NonNullable<InferenceSources['connections']>>;
 	} = {
 		hosted: openEpicenterInference,
-		connections: openLocalConnectionCatalog,
+		connections: openConnections,
 	},
 ): Promise<InferenceSources> {
 	const [hosted, connections] = await Promise.allSettled([

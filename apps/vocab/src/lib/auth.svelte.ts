@@ -1,39 +1,8 @@
-import {
-	createBrowserOAuth,
-	epicenterCloud,
-	selfHostedServer,
-} from '@epicenter/auth';
-import { fromAuth } from '@epicenter/auth/svelte';
-import { APPS, resolveOAuthAudiences } from '@epicenter/constants/apps';
-import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
-
-const server = SELF_HOST_ORIGIN
-	? selfHostedServer(SELF_HOST_ORIGIN)
-	: epicenterCloud(APP_URLS.API);
-
-// One sign-in covers both of Vocab's audiences (decision 65): the API, for
-// the hosted tutor and the profile read from userinfo (which answers the
-// email only under `email`), and Git, where the learner's `vocab` repository
-// lives (`openRemote`). `account.fetch` picks each request's token.
-const audiences = resolveOAuthAudiences(server.baseURL);
-const client = createBrowserOAuth({
-	server,
-	clientId: APPS.VOCAB.id,
-	resources: [audiences.api, audiences.git],
-	scope: 'openid profile email ai folders:read folders:write',
-	accountManagement: !SELF_HOST_ORIGIN,
-});
-
-export const auth = fromAuth(client);
-
-if (import.meta.hot) {
-	import.meta.hot.dispose(() => client[Symbol.dispose]());
-
-	// `accept` is what makes the `dispose` run. Vite disposes only the module an
-	// update was ACCEPTED at, so a leaf with a disposer and no accept is never
-	// one: the update walks up to the nearest self-accepting importer and that
-	// module's disposer runs instead, leaving this client's credential
-	// authority alive beside its replacement. Invalidating immediately hands
-	// the update back up exactly as before, with this leaf released first.
-	import.meta.hot.accept(() => import.meta.hot?.invalidate());
-}
+/**
+ * Vocab's sign-in with Epicenter, chosen by the build (`#platform/auth`):
+ * in the browser, one OAuth sign-in for the API and the learner's
+ * repository (`platform/auth.browser.ts`); in the desktop program, a
+ * sign-in through the system browser for hosted models only, held by its
+ * native shell (`platform/auth.tauri.ts`).
+ */
+export { auth } from '#platform/auth';

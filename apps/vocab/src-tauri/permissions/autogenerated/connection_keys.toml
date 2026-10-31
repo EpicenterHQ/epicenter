@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-connection-keys"
+description = "Enables the connection_keys command without any pre-configured scope."
+commands.allow = ["connection_keys"]
+
+[[permission]]
+identifier = "deny-connection-keys"
+description = "Denies the connection_keys command without any pre-configured scope."
+commands.deny = ["connection_keys"]

@@ -1,0 +1,19 @@
+{
+	"$schema": "../gen/schemas/desktop-schema.json",
+	"identifier": "vocab",
+	"description": "Vocab's one window. Rust bound the folder Vocab keeps its files in (asked for on first run, kept in settings.md) to the window before its WebView existed; the page opens it as Vocab's contract client (openDevice from @epicenter/folder/tauri). It may read the folder's path to ask Epicenter to sync it (epicenter://init, through the folder plugin) and to show whether Epicenter does, choose another folder, read and save its connected endpoints' keys in the keychain, and sign in with Epicenter for hosted models, whose requests Rust sends to the deployment with a token the page never holds.",
+	"local": true,
+	"windows": ["vocab:*"],
+	"permissions": [
+		"epicenter-folder:default",
+		"allow-folder-path",
+		"allow-choose-folder",
+		"allow-connection-keys",
+		"allow-set-connection-key",
+		"allow-account-state",
+		"allow-account-sign-in",
+		"allow-account-sign-out",
+		"allow-account-fetch",
+		"allow-account-fetch-cancel"
+	]
+}

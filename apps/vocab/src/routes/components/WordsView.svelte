@@ -13,7 +13,7 @@
 	import EntryCard from './EntryCard.svelte';
 	import RepairCard from './RepairCard.svelte';
 	let { view, entries, starting, onStart }: {
-		/** Which view's words these are: this browser's, or the learner's repository's. */
+		/** Which view's words these are: this browser's, the learner's repository's, or the desktop folder's. */
 		view: View;
 		entries: Entries;
 		/** A chat is being saved; another cannot be started yet. */
@@ -85,7 +85,7 @@
 		<div>
 			<h2 class="text-2xl font-semibold">Words</h2>
 			<p class="text-sm text-muted-foreground">Save expressions, write your own notes, and choose up to three for a tutor-led chat.
-				{#if view === 'device'}These are saved in this browser, with no sign-in. Signed in, they upload to your Epicenter repository and show under Synced.{:else}These are in your Epicenter repository, on every device you sign in on.{/if}
+				{#if view === 'device'}These are saved in this browser, with no sign-in. Signed in, they upload to your Epicenter repository and show under Synced.{:else if view === 'folder'}These are Markdown files in Vocab's folder on this computer, with no sign-in.{:else}These are in your Epicenter repository, on every device you sign in on.{/if}
 			</p>
 		</div>
 		<div class="flex flex-wrap items-end gap-2">

@@ -8,6 +8,9 @@
 	import { fromClient } from '@epicenter/svelte/client';
 	import { device } from '$lib/device.js';
 	import VocabApp from '../components/VocabApp.svelte';
+	import ViewLinks from './ViewLinks.svelte';
 </script>
 
-<VocabApp view="device" vocab={fromClient(device)} />
+<VocabApp view="device" vocab={fromClient(device)}>
+	{#snippet views()}<ViewLinks view="device" />{/snippet}
+</VocabApp>

@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Loading } from '@epicenter/ui/loading';
-	import { auth } from '$lib/auth.svelte.js';
+	// The web build's own client: only it returns to this page to finish.
+	import { browserAuth as auth } from '$lib/platform/auth.browser.js';
 
 	// Completion only, and it opens nothing: the store is opened by
 	// `+page.svelte`, which is a sibling under the same chrome-only root layout

@@ -8,11 +8,26 @@ import {
 	vadAssetSources,
 } from '@epicenter/recorder/vad-assets';
 import { workspaceAppViteConfig } from '@epicenter/vite-config';
-import { defineConfig, mergeConfig } from 'vite';
+import {
+	defaultClientConditions,
+	defaultServerConditions,
+	defineConfig,
+	mergeConfig,
+} from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
+
+/** The desktop program's pages (`build:native`); see `svelte.config.js`. */
+const desktop = process.env.EPICENTER_DESKTOP === '1';
 
 export default defineConfig(
 	mergeConfig(workspaceAppViteConfig(APPS.VOCAB), {
+		// The desktop build resolves each `#platform/*` seam to its `tauri`
+		// leaf, in SvelteKit's server pass too. Custom conditions replace
+		// Vite's defaults, so the spread of the defaults is load-bearing.
+		...(desktop && {
+			resolve: { conditions: ['tauri', ...defaultClientConditions] },
+			ssr: { resolve: { conditions: ['tauri', ...defaultServerConditions] } },
+		}),
 		plugins: [
 			viteStaticCopy({
 				// `stripBase` drops the source's directory segments so each file

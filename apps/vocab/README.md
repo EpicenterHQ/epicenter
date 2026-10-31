@@ -46,20 +46,41 @@ src/routes/(app)/+layout.svelte              the leave guard, and signed in, the
 src/routes/(app)/+page.svelte                "On this device": VocabApp over fromClient(device)
 src/routes/(app)/synced/+layout.svelte       signed out, asks for a sign-in
 src/routes/(app)/synced/+page.svelte         "Synced": VocabApp over fromClient(getRepo())
+src/routes/(app)/ViewLinks.svelte            the two views' links, which each web page hands VocabApp's header
 src/routes/components/SignedIn.svelte        the repository (setRepo) and the uploader, one per account
-src/routes/components/VocabApp.svelte        one view: the header, Words, and Chat over one client
+src/routes/components/VocabApp.svelte        one view: the header, Words, and Chat over one client (also the desktop root's)
 ```
 
 The tutor model chosen and the endpoints connected are this device's settings (browser storage), not the learner's data, so they are not in the contract. One sign-in asks for both audiences, the API (tutor, dictation, profile) and Git (the repository).
 
 A new word's note is named by the SHA-256 of its exact UTF-8 text. An add first checks the listed words for that text, then the note at the hashed path; it creates only when the path is free, and a different note already there is refused. A message's note is named by its chat and its own id, so saving it twice never makes two, and a different message at that id is refused. The tutor loop reads the chat's saved messages sorted by creation time. A failed learner-message save asks nothing of the tutor; the conversation keeps the unsaved message available for retry. A failed finished-answer save likewise keeps the answer visible and copyable.
 
+## Desktop
+
+Vocab's desktop program is its own small Tauri app (`src-tauri/`, identifier `so.epicenter.vocab`) on the shared standalone startup (`packages/tauri-epicenter-standalone`). It shows the same Vocab as the web, over a folder on this computer:
+
+- **Its folder.** On first run it asks "Where should Vocab keep its files?": the Epicenter folder `~/Epicenter/Vocab` (recommended; `~/Epicenter Dev/Vocab` for the `.dev` build), the app's data folder, or any folder. The choice is `folder` in `settings.md` in Vocab's configuration directory (`appConfig`), never in the folder. Rust binds the folder to the window before the page loads; the page opens it with `openDevice(vocab)` from `@epicenter/folder/tauri`. The words, chats and messages there are the same Markdown files as everywhere (`epicenter check <url>/contract.json <folder>`).
+- **The folder menu**, where the web shows its two views: where the folder is, whether Epicenter syncs it (`syncedWithEpicenter`), "Sync with Epicenter" (`syncWithEpicenter({ path, contract })`, which opens `epicenter://init?path=…&contract=https://vocab.epicenter.so/contract.json` for Epicenter to set up), and "Choose folder…" (waits for saves, then moves the window to the new folder). Vocab never commits; Epicenter syncs.
+- **Sign-in is for hosted models and dictation only.** It runs through the system browser (RFC 8252 loopback, PKCE) as the native client `so.epicenter.vocab.desktop`, which asks for the API alone. The refresh token is in the keychain; the page never holds a token: Rust sends the account's requests to Epicenter's API (`src-tauri/src/account.rs`, `src/lib/platform/auth.tauri.ts`).
+- **Connected endpoints' API keys are in the keychain**, each saved with the endpoint it was entered for (`src-tauri/src/keychain.rs`, `src/lib/platform/connections.tauri.ts`); the list itself stays in the window's storage.
+- **Closing waits for saves**: Cmd-Q and the close button go through the leave guard.
+
+The variant is chosen at build time. `bun run build:native` (`EPICENTER_DESKTOP=1`) builds the root in `src/desktop` into `build-desktop/`, and resolves `#platform/auth` and `#platform/connections` to their `.tauri.ts` leaves; the web build keeps `src/routes` and the `.browser.ts` leaves. `src/lib/platform.test.ts` bundles both and names a seam whose desktop leaf went missing.
+
+```sh
+bun run --cwd apps/vocab dev:desktop      # the .dev build (so.epicenter.vocab.dev)
+bun run --cwd apps/vocab build:desktop    # Vocab.app
+cargo test -p vocab -p epicenter-standalone
+```
+
+A debug build reads `EPICENTER_API_URL` (a local API) and, with `EPICENTER_TEST_SECRETS` set, keeps its secrets in memory instead of the keychain.
+
 ## Development
 
 From the repository root, run `bun dev:vocab`. Verify with:
 
 ```sh
-bun run --cwd apps/vocab typecheck
+bun run --cwd apps/vocab typecheck   # the web build and the desktop build
 bun run --cwd apps/vocab test
 bun x playwright test -c apps/vocab/playwright.config.ts
 ```

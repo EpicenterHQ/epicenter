@@ -11,8 +11,12 @@ import { createChats } from './chat/chats.js';
 import type { Vocab } from './contract.js';
 import { createEntries } from './entries.svelte.js';
 
-/** Which of Vocab's two views a page is: this device's files, or the repository's. */
-export type View = 'device' | 'synced';
+/**
+ * Which of Vocab's views a page is: this browser's files ("On this
+ * device"), the learner's repository ("Synced"), or, in the desktop
+ * program, the folder Vocab keeps its files in on this computer.
+ */
+export type View = 'device' | 'synced' | 'folder';
 
 export function createVocab(client: ReactiveClient<Vocab>) {
 	return {

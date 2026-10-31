@@ -1,0 +1,16 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		// The desktop build's leaves of each `#platform/*` seam.
+		"customConditions": ["tauri"]
+	},
+	// What the desktop build contains: its root (`src/desktop`), `src/lib`,
+	// and the shared components, not the web build's routes.
+	"exclude": [
+		"node_modules/**",
+		"src/routes/+*",
+		"src/routes/(app)/**",
+		"src/routes/auth/**",
+		"src/routes/components/SignedIn.svelte"
+	]
+}
