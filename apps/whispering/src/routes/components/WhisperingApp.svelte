@@ -43,7 +43,10 @@
 	const whispering = createWhispering({ client });
 	setWhispering(whispering);
 	// svelte-ignore state_referenced_locally
-	const library = createLibrary({ whispering, files: filesOf(client, files) });
+	const library = createLibrary({
+		whispering,
+		files: filesOf(client, files, () => whispering.recordingId),
+	});
 	setLibrary(library);
 	// Leaving waits for nothing; a recording under way ends with the page.
 	onDestroy(() => {

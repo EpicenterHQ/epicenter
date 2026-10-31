@@ -6,6 +6,7 @@
  * Key behaviors:
  * - A recording's note is made when it starts and its audio is written into
  *   the files as it records; Stop completes the note with its length
+ * - While it records, a recording's audio is not played, sent, or deleted
  * - A recording the files cannot take does not start, or leaves no note
  * - A start completes the length of a recording a closed tab cut off
  * - A result is kept when its answer arrives, even if the pages have since
@@ -109,6 +110,33 @@ test('a recording’s note is made when it starts, its audio written beside it, 
 		(await readdir(join(test.root, 'device', 'recordings'))).sort(),
 	).toEqual([`${recording.id}.md`, `${recording.id}.wav`]);
 	expect(headerLine(library).label).toBe('On this browser');
+});
+
+test('while it records, a recording’s audio is recording: not played, sent, or deleted until it stops', async () => {
+	const opened = await fixture();
+	const { test, whispering, library } = opened;
+	await whispering.startRecording();
+	expect(whispering.recorder.phase).toBe('recording');
+	await eventually(() => library.entries.length === 1);
+	const { id } = library.entries[0]!;
+
+	// The fixture writes its audio at Stop, as the desktop moves its WAV
+	// into place then: nothing is at the recording's path yet.
+	expect(library.audioOf(id)).toEqual({ kind: 'recording' });
+	expect(await library.readAudio(id)).toEqual(
+		Err('This recording is still recording. Stop it first.'),
+	);
+	expect(await library.transcribe(id)).toBe(
+		'This recording is still recording. Stop it, then transcribe.',
+	);
+	expect(library.transcriptionRun(id)).toBeUndefined();
+	expect(test.transcribed).toHaveLength(0);
+	expect(library.deletionFor({ collection: 'recordings', id })).toEqual(
+		Err('This recording is still recording. Stop it first.'),
+	);
+
+	await whispering.stopRecording();
+	await eventually(() => library.audioOf(id).kind === 'here');
 });
 
 test('a recording whose note cannot be made does not start, and nothing is written', async () => {

@@ -109,7 +109,7 @@ export function createWhispering({
 	type Take = { id: string; capture: Capture };
 	type CaptureState =
 		| { phase: 'idle' }
-		| { phase: 'starting'; attempt: AbortController }
+		| { phase: 'starting'; id: string; attempt: AbortController }
 		| { phase: 'recording'; at: Date; take: Take }
 		| { phase: 'stopping'; at: Date; take: Take };
 	let captureState = $state.raw<CaptureState>({ phase: 'idle' });
@@ -133,11 +133,11 @@ export function createWhispering({
 	 * first, and removed again when the microphone does not open.
 	 */
 	async function startTake(
+		id: string,
 		at: Date,
 		signal: AbortSignal,
 	): Promise<Result<Take, { message: string; capture?: CaptureError }>> {
 		const capture = services.capture;
-		const id = timeId(at);
 		const made = await holdLeave(
 			beginRecording(client, {
 				id,
@@ -339,6 +339,18 @@ export function createWhispering({
 			return recorderError;
 		},
 		/**
+		 * The recording this window is making now, from its Start until its
+		 * Stop has finished: its note is listed, its audio is still being
+		 * written (on the desktop outside `recordings/` until it stops).
+		 */
+		get recordingId(): string | undefined {
+			return captureState.phase === 'idle'
+				? undefined
+				: captureState.phase === 'starting'
+					? captureState.id
+					: captureState.take.id;
+		},
+		/**
 		 * Start a recording from the chosen microphone: its note is made first,
 		 * and its audio is written into the files as it records.
 		 */
@@ -346,10 +358,11 @@ export function createWhispering({
 			if (captureState.phase !== 'idle' || refused() !== undefined) return;
 			recorderError = undefined;
 			const attempt = new AbortController();
-			captureState = { phase: 'starting', attempt };
-			input.release();
 			const at = new Date();
-			const started = await startTake(at, attempt.signal);
+			const id = timeId(at);
+			captureState = { phase: 'starting', id, attempt };
+			input.release();
+			const started = await startTake(id, at, attempt.signal);
 			// Closed while the microphone was opening: an aborted opener releases it.
 			if (attempt.signal.aborted || disposed) {
 				captureState = { phase: 'idle' };

@@ -7,12 +7,14 @@
 
 <p
 	class="text-sm {audio.kind === 'ambiguous' ? 'text-destructive' : 'text-muted-foreground'}"
-	role={audio.kind === 'listing' ? 'status' : 'alert'}
+	role={audio.kind === 'listing' || audio.kind === 'recording' ? 'status' : 'alert'}
 	data-testid="audio-missing"
 	data-audio={audio.kind}
 >
 	{#if audio.kind === 'listing'}
 		Looking for this recording’s audio…
+	{:else if audio.kind === 'recording'}
+		Recording… Its audio can be played and transcribed once it stops.
 	{:else if audio.kind === 'ambiguous'}
 		More than one audio file has this recording’s id ({audio.exts.join(', ')}). Keep one.
 	{:else}

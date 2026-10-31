@@ -224,7 +224,11 @@ export function createLibrary({
 	const deletionContext = () => ({
 		files,
 		busy: (id: string) =>
-			deleting.has(id) ? 'This recording is being deleted.' : runs.busy(id),
+			deleting.has(id)
+				? 'This recording is being deleted.'
+				: whispering.recordingId === id
+					? 'This recording is still recording. Stop it first.'
+					: runs.busy(id),
 	});
 
 	return {

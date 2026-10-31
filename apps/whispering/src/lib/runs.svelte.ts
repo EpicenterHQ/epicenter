@@ -339,6 +339,9 @@ export function createRuns({
 			const key = transcriptionKey(id);
 			if (underWay(key)) return 'This recording is already being transcribed.';
 			if (deleting.has(id)) return BEING_DELETED;
+			// Refused, not failed: nothing is wrong with it, it has not stopped.
+			if (files.audioOf(id).kind === 'recording')
+				return 'This recording is still recording. Stop it, then transcribe.';
 			const fail = (message: string) => {
 				runs.set(key, {
 					collection: 'transcriptions',

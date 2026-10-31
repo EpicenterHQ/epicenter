@@ -52,6 +52,11 @@ export type AudioFile = {
 export type RecordingAudio =
 	/** Nothing has been listed yet. */
 	| { readonly kind: 'listing' }
+	/**
+	 * This window is recording it: its audio is still being written, and is
+	 * not played or sent until it stops.
+	 */
+	| { readonly kind: 'recording' }
 	| { readonly kind: 'here'; readonly file: AudioFile }
 	/** No audio file has the recording's id. */
 	| { readonly kind: 'absent' }
@@ -110,6 +115,8 @@ function readable(audio: RecordingAudio): Result<AudioFile, string> {
 		);
 	if (audio.kind === 'listing')
 		return Err('This recording’s audio has not been listed yet.');
+	if (audio.kind === 'recording')
+		return Err('This recording is still recording. Stop it first.');
 	return Err('This recording has no audio file.');
 }
 
@@ -117,15 +124,20 @@ function readable(audio: RecordingAudio): Result<AudioFile, string> {
  * Whispering's files over `client`, which every page reads and edits:
  * listed and written through `files`, the same client as Svelte state
  * (wrapped once where the store was opened), and audio bytes read through
- * `client`.
+ * `client`. `recording` names the recording this window is making now,
+ * whose audio is `recording` until it stops.
  */
 export function filesOf(
 	client: Client<Whispering>,
 	files: ReactiveClient<Whispering>,
+	recording: () => string | undefined,
 ): WhisperingFiles {
 	const { audio } = files;
 
 	function audioOf(id: string): RecordingAudio {
+		// Written as it records, but not played or sent until it stops: on
+		// the desktop it is not even at its path yet.
+		if (recording() === id) return { kind: 'recording' };
 		const playable = audio.items.filter(
 			(file) =>
 				file.id === id && audioMimeTypeOf(`x.${file.ext}`) !== undefined,
