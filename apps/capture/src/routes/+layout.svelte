@@ -1,27 +1,20 @@
 <!--
-	Every page of Capture: the chrome only. The views and their signed-in
-	boundary are the `(app)` group's; the sign-in callback is outside it.
+	Every page of Capture: the chrome and the leave guard. The app is the
+	`(app)` group, whose layout decides the store; the sign-in callback is
+	outside it.
 -->
 <script lang="ts">
+	import { guardLeave } from '@epicenter/svelte/leave-guard';
 	import { ConfirmationDialog } from '@epicenter/ui/confirmation-dialog';
 	import { Toaster } from '@epicenter/ui/sonner';
 	import * as Tooltip from '@epicenter/ui/tooltip';
 	import { onMount } from 'svelte';
-	import { dev } from '$app/environment';
-	import { base } from '$app/paths';
 	import '@epicenter/ui/app.css';
 
 	let { children } = $props();
 
-	// The page opens offline through its service worker
-	// (`src/service-worker.js`): a module in dev, a classic script in a build.
-	onMount(() => {
-		if (!('serviceWorker' in navigator)) return;
-		// Offline opening is best effort: the page works without it.
-		navigator.serviceWorker
-			.register(`${base}/service-worker.js`, { type: dev ? 'module' : 'classic' })
-			.catch(() => {});
-	});
+	// Leaving while a save is out asks first.
+	onMount(guardLeave);
 </script>
 
 <svelte:head><title>Capture</title></svelte:head>

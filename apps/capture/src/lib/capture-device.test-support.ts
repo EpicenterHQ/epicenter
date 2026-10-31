@@ -1,8 +1,9 @@
 /**
- * Capture over a real device client (`@epicenter/folder/node`) in a
- * temporary directory, as one view composes it. The client the list writes
- * through can be made to fail, or to hold its writes until released, the
- * way a full disk or a slow write would.
+ * Capture over a stand-in client: a real device client
+ * (`@epicenter/folder/node`) in a temporary directory, the same contract's
+ * client at the same paths, in place of the repository the page is given.
+ * The client the list writes through can be made to fail, or to hold its
+ * writes until released, the way a lost connection or a slow write would.
  *
  * Import `svelte-dom.test-support.js` (or `svelte-modules`) first: the store
  * and `fromClient` need Svelte's client runtime.
@@ -10,6 +11,7 @@
 import {
 	mkdir,
 	mkdtemp,
+	readdir,
 	readFile,
 	rm,
 	unlink,
@@ -20,7 +22,6 @@ import { join } from 'node:path';
 import { type Capture, capture } from '@epicenter/capture';
 import { type Client, ClientError } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
-import type { View } from './captures.svelte.ts';
 
 const { fromClient } = await import('@epicenter/svelte/client');
 const { follow } = await import(
@@ -59,13 +60,10 @@ export async function until(
 }
 
 /**
- * The capture store of the view `view` over a client holding `files`, as
- * its page composes it. Writes fail or wait on command.
+ * The capture store over a client holding `files`, as the page composes it.
+ * Writes fail or wait on command.
  */
-export async function openCaptures(
-	files: Files = {},
-	{ view = 'device' }: { view?: View } = {},
-) {
+export async function openCaptures(files: Files = {}) {
 	const root = await directory(files);
 	const device = openDevice(capture, { path: root });
 
@@ -92,21 +90,28 @@ export async function openCaptures(
 	};
 
 	const list = fromClient(client).captures;
-	const captures = createCaptures(list, { view });
-	// Read the list in an effect, as the views do, so it lists and listens.
+	const captures = createCaptures(list);
+	// Read the list in an effect, as the page does, so it lists and listens.
 	const watching = follow(() => [list.items, list.invalid, list.loading]);
 	await until(() => !list.loading);
 
 	return {
 		captures,
 		list,
-		device,
-		/** The text at `path` on the device, or null. */
+		/** The text at `path` in the client's folder, or null. */
 		text: (path: string) =>
 			readFile(join(root, path), 'utf8').catch(() => null),
-		/** Write `path` on the device as another tab or program would. */
+		/** Every file in the client's folder, by path. */
+		files: async () =>
+			(await readdir(root, { recursive: true, withFileTypes: true }))
+				.filter((entry) => entry.isFile())
+				.map((entry) =>
+					join(entry.parentPath, entry.name).slice(root.length + 1),
+				)
+				.sort(),
+		/** Write `path` in the client's folder as another tab or program would. */
 		writeElsewhere: (path: string, text: string) => put(root, path, text),
-		/** Delete `path` on the device as another tab or program would. */
+		/** Delete `path` in the client's folder as another tab or program would. */
 		deleteElsewhere: (path: string) => unlink(join(root, path)),
 		/** Fail every write until the returned function is called. */
 		failWrites(reason = 'the disk is full') {

@@ -1,13 +1,11 @@
 /**
- * What one of Capture's views does with its list: the timeline, which
- * capture is open and how, Add, and deletion.
+ * What Capture does with the list it is given: the timeline, which capture
+ * is open and how, Add, and deletion.
  *
- * Capture has two views (decision 76), each over one client's captures:
- * "On this device" over this browser's files, "Synced" over the person's
- * `capture` repository. Add writes to the view's own client, so on this
- * device it never waits on the server and works offline; signed in, the
- * uploader then moves the capture to the repository, where "Synced" shows
- * it. The timeline shows the list newest first.
+ * The list is one store's captures for the page's whole life; the root that
+ * passes it chooses the store (the person's `capture` repository, ADR-0700).
+ * Add writes a capture to that store, where it is a commit. The timeline
+ * shows the list newest first.
  */
 import {
 	type CaptureNote,
@@ -30,9 +28,7 @@ import { defineErrors, type InferErrors } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import type { TextRange } from './capture-actions.svelte.js';
 
-/** Which of Capture's two views a page is: this browser's files, or the repository's. */
-export type View = 'device' | 'synced';
-/** The captures a view reads and edits: that view's client's. */
+/** The captures a page reads and edits: its store's. */
 export type CaptureList = ReactiveNotes<CaptureNotes>;
 export type Captures = ReturnType<typeof createCaptures>;
 export type Mode = 'capture' | 'text';
@@ -135,8 +131,8 @@ export function timelineOf(
 	return { rows, repairs: repairs.sort(byPath), notText };
 }
 
-/** What the view `view` does with `list`, its client's captures. */
-export function createCaptures(list: CaptureList, { view }: { view: View }) {
+/** What the page does with `list`, its store's captures. */
+export function createCaptures(list: CaptureList) {
 	let opened = $state.raw<Opened | undefined>();
 	let navigation = 0;
 	const timeline = $derived(timelineOf(list.items, list.invalid));
@@ -157,7 +153,6 @@ export function createCaptures(list: CaptureList, { view }: { view: View }) {
 
 	return {
 		list,
-		view,
 		get timeline() {
 			return timeline;
 		},

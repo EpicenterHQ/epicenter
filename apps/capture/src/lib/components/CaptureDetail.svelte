@@ -168,11 +168,7 @@
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
 					<Empty.Description>
-						{#if captures.view === 'device'}
-							It was deleted, here or in another tab, or it uploaded to your repository and is under Synced.
-						{:else}
-							It was deleted, here, in another tab, or on another device.
-						{/if}
+						It was deleted, here, in another tab, or on another device.
 					</Empty.Description>
 				</Empty.Header>
 			</Empty.Root>

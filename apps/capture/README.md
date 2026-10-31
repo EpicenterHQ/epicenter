@@ -16,30 +16,20 @@ captures on a computer is a clone of the person's repository, kept with
 
 ## What it does
 
-Capture opens without an account and has two views (decision 76), each
-over its own files:
+Capture in a browser is its online variant only: the person's own
+repository, `<handle>/capture`, through Epicenter, at `/`. Signed out it
+asks for a sign-in; signed in, every add, edit and delete is a commit
+there, and nothing is kept in the browser. It needs the network; there is
+no browser copy to fall back on
+([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
-- **On this device** (`/`): the captures in this browser's private files
-  (OPFS), at the same paths a folder holds. It works signed out and
-  offline.
-- **Synced** (`/synced`, signed in): the person's own repository,
-  `<handle>/capture`, through Epicenter. Signed out it asks for a sign-in.
-
-Each view adds, edits, deletes and repairs its own captures. **Add** (or
-Ctrl or ⌘ + Enter) writes a finished capture to the view's own files and
-opens it at Add a thought; on this device it never waits on the server.
-Signed in, the uploader moves every capture on this device into the
-repository in the background, once it has gone a few seconds without a
-change: it leaves "On this device" and appears in "Synced", whenever it was
-made. Nothing keeps it on screen across the move; a capture open on this
-device when it uploads says it is now under Synced. The two views are not
-merged; one merged list may come back later.
+**Add** (or Ctrl or ⌘ + Enter) writes a finished capture to the repository
+and opens it at Add a thought. The header says where the captures are and
+whether the repository answers: Online, Offline when it does not, or Sign in
+again when the session needs renewing; Sign out is beside it.
 
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload.
-- The page opens offline once it has been loaded, through its service worker.
-
-Signing out leaves the browser with only the captures it never uploaded.
 
 ## A capture
 
@@ -63,9 +53,8 @@ note whose Thoughts read opens as a capture. A thought's Edit as text first
 saves the shown body, then selects that thought's lines.
 
 **More** holds Copy capture text, Download file (the note's text once the
-shown body has saved), and Delete capture. Deletion asks first. A capture
-on this device has no history; one in "Synced" stays in the repository's
-Git history.
+shown body has saved), and Delete capture. Deletion asks first; a deleted
+capture stays in the repository's Git history.
 
 The timeline lists captures newest first by the instant captured (a
 `capturedAt` with an offset sorts by when it was), then files at a capture's
@@ -74,11 +63,11 @@ or an ambiguous Thoughts layout), then files that are not text.
 
 ## Sign-in
 
-The app signs in as `so.epicenter.capture` for the server's Git audience
+Capture signs in as `so.epicenter.capture` for the server's Git audience
 only (`src/lib/auth.ts`, made on first use). The server is
-`VITE_EPICENTER_SERVER` at build time, else Epicenter's. The hosted API does
-not serve web writes yet, so signing in works against a local or self-hosted
-API.
+`VITE_EPICENTER_SERVER` at build time, else Epicenter's. The hosted API
+does not serve web writes yet, so signing in works against a local or
+self-hosted API.
 
 ## Run it
 
@@ -103,31 +92,28 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 ## How it is wired
 
 ```text
-lib/device.ts                openDevice(capture), the page's device
-routes/+layout.svelte        the leave guard; signed in, every page under
-  SignedIn.svelte            {#key account}: setRepo(openRemote(capture, { account })),
-                             startUploading
-routes/+page.svelte          "On this device": CaptureApp over fromClient(device).captures
-routes/synced/+layout.svelte signed out: asks for a sign-in
-  synced/+page.svelte        "Synced": CaptureApp over fromClient(getRepo<Capture>()).captures
-    CaptureApp.svelte        header (views, status, sign-in), then
-      Timeline | CaptureDetail | TextDetail
+routes/+layout.svelte          every page: the chrome and the leave guard
+routes/(app)/+layout.svelte    the root that decides the store, the signed-in layout:
+                               signed out, a sign-in; signed in,
+  Online.svelte                {#key account}: setRepo(openRemote(capture, { account }))
+routes/(app)/+page.svelte      CaptureApp over fromClient(getRepo<Capture>()).captures
+  CaptureApp.svelte            header (where, status, account), then
+    Timeline | CaptureDetail | TextDetail
+routes/auth/callback           finishes sign-in, outside (app), then returns to /
 ```
 
-Views read and write only through the store they are given
-(`createCaptures`, in `src/lib/captures.svelte.ts`), over the one client's
-captures their page passes, never a client of their own; the timeline shows
-them newest first.
+Components read and write only through the captures they are given
+(`createCaptures`, in `src/lib/captures.svelte.ts`), never a client of their
+own; only the `(app)` layout chooses the store. Another variant needs only
+a new root that passes `CaptureApp` its own store's captures.
 
 | Path | Role |
 | --- | --- |
-| `src/lib/device.ts` | The device. |
-| `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome only. |
-| `src/routes/(app)/+layout.svelte` | The leave guard; signed in, the signed-in boundary around both views. |
-| `src/lib/components/SignedIn.svelte` | The repository (`setRepo`) and the uploader, per account. |
-| `src/routes/(app)/+page.svelte` | "On this device", over the device's captures. |
-| `src/routes/(app)/synced/` | "Synced", over the repository's captures, behind a layout that asks for a sign-in. |
-| `src/lib/components/CaptureApp.svelte` | One view: the header and the page it shows. |
+| `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
+| `src/routes/(app)/+layout.svelte` | The signed-in layout: asks for a sign-in, or opens the repository per account. |
+| `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
+| `src/routes/(app)/+page.svelte` | Capture over the repository's captures. |
+| `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures it is given. |
 | `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |
 | `src/lib/capture-actions.svelte.ts` | Thought and text commands over one body edit; a thought's lines in the note's text. |
 | `src/lib/components/CaptureDetail.svelte` | A capture as its text and thoughts. |
@@ -140,19 +126,15 @@ them newest first.
 | --- | --- |
 | `bun test packages/capture` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
-| `bun run --cwd apps/capture test` | The contract's fit, the store over real device clients, and the mounted views. |
+| `bun run --cwd apps/capture test` | The contract's fit, and the store and mounted components over a stand-in client (a folder client in a temporary directory). |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in
-`packages/cli/src/app-stack.test-support.ts`) runs, per engine: add, give
-thoughts, edit and delete captures on this device signed out, while
-"Synced" asks for a sign-in; sign in, and they upload, leaving "On this
-device" and the browser's files and appearing in "Synced", as does one added
-on this device signed in, while one added in "Synced" and a thought added
-there go to the repository; `epicenter clone` holds the files byte for byte
-and `epicenter check` passes; a desktop thought shows in "Synced" without a
-reload and a thought added there reaches the desktop; a broken note written
-on the desktop is repaired in "Synced"; sign-out leaves the browser empty
-and "Synced" asks for a sign-in again; and, in Chromium, the page opens with
-no network and a capture added then is kept in the browser. It needs port
-5179 free.
+`packages/cli/src/app-stack.test-support.ts`) walks one person through five
+steps per engine: Capture asks for a sign-in, and signed in shows an empty
+repository where captures are added, given thoughts, edited, downloaded and
+deleted, never in the browser's files, and survive a reload; `epicenter
+clone` holds them byte for byte and `epicenter check` passes; a desktop
+thought shows without a reload and a thought added in the browser reaches
+the desktop; a broken note written on the desktop is repaired; and signing
+out asks for a sign-in again. It needs port 5179 free.

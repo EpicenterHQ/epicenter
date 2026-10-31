@@ -1,12 +1,12 @@
 /**
  * Capture Store Tests
  *
- * The store over a real device client (`capture-device.test-support.ts`):
+ * The store over a stand-in client (`capture-device.test-support.ts`):
  * Add, the timeline, edits through the list, navigation, and deletion.
  *
  * Key behaviors:
  * - Add writes one finished capture at `captures/<timeId>.md`, in house
- *   style, to the view's own client, and opens it at Add a thought
+ *   style, to the list's store, and opens it at Add a thought
  * - Blank or failed Add leaves no file
  * - The timeline orders by the instant captured and lists files to repair
  *   and files that are not text
@@ -18,7 +18,6 @@
 import '../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
 import { composeBody } from '@epicenter/capture';
-import { outboxOf } from '@epicenter/folder/node';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import {
 	type CapturesHarness,
@@ -43,7 +42,7 @@ const AT = '2026-10-01T10:30:00+08:00';
 const PATH = 'captures/one.md';
 const HAND = `---\ncapturedAt: ${AT}\ncustom: kept\n---\n\nText\n\n## Thoughts\n\n- first\n`;
 
-test('Add writes one finished capture in house style, keeps it in this browser, and opens Add a thought', async () => {
+test('Add writes one finished capture in house style to the store, and opens Add a thought', async () => {
 	const h = await open();
 	const { id } = expectOk(await h.captures.create('Hello\nworld'));
 	expect(id).toMatch(
@@ -60,9 +59,8 @@ test('Add writes one finished capture in house style, keeps it in this browser, 
 		`---\ncapturedAt: "${note?.capturedAt}"\n---\n${composeBody('Hello\nworld').body}`,
 	);
 	expect(h.captures.timeline.rows[0]?.id).toBe(id);
-	// Signed out nothing is queued: the uploader's first run at sign-in
-	// adopts every capture in this browser that no upload names.
-	expect(expectOk(await outboxOf(h.device).list()).items).toEqual([]);
+	// One write, the note: nothing else is kept beside it.
+	expect(await h.files()).toEqual([`captures/${id}.md`]);
 });
 
 test('blank and failed Add leave no file and keep the timeline empty', async () => {
@@ -75,7 +73,7 @@ test('blank and failed Add leave no file and keep the timeline empty', async () 
 	restore();
 	expect(h.captures.timeline.rows).toEqual([]);
 	expect(h.captures.opened).toBeUndefined();
-	expect(expectOk(await outboxOf(h.device).list()).items).toEqual([]);
+	expect(await h.files()).toEqual([]);
 });
 
 test('timeline orders captured instants and lists files to repair and files that are not text', async () => {

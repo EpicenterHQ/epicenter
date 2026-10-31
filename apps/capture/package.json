@@ -1,6 +1,6 @@
 {
 	"name": "@epicenter/capture-app",
-	"description": "Capture and glance: a Markdown note per capture, kept in the browser and uploaded to the signed-in person's repository",
+	"description": "Capture and glance: a Markdown note per capture in the signed-in person's Epicenter repository, online only",
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",

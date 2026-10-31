@@ -17,9 +17,6 @@ const config = {
 			fallback: 'index.html',
 			...(out && { pages: out, assets: out }),
 		}),
-		// `+layout.svelte` registers it, as a module in dev and classic in a
-		// build, and never lets a refusal reach the page.
-		serviceWorker: { register: false },
 	},
 	preprocess: vitePreprocess(),
 };

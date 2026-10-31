@@ -8,7 +8,5 @@ export default defineConfig(
 		// callback at `http://localhost:5179`.
 		server: { host: 'localhost' },
 		preview: { port: APPS.CAPTURE.port, strictPort: true, host: 'localhost' },
-		// The device's OPFS Worker is a module Worker.
-		worker: { format: 'es' },
 	}),
 );

@@ -1,2 +1,3 @@
-// A client-only single-page app: its files are in the browser, opened after mount.
+// A client-only single-page app: its captures are in the person's
+// repository, opened after mount.
 export const ssr = false;

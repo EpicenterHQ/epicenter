@@ -1,27 +1,33 @@
 <!--
-	Capture's two views (decision 76), "On this device" (`/`) and "Synced"
-	(`/synced`). Signed in, the signed-in boundary (`SignedIn`) wraps both:
-	the person's repository for "Synced", and the uploader that moves this
-	browser's captures into it while either is open. The sign-in callback is
-	outside this group, so it opens neither.
+	Capture's root, which decides the store: the person's `capture`
+	repository. Signed in, `Online` sets it for every page under it; signed
+	out, a sign-in instead. Capture keeps nothing in the browser (ADR-0700).
+	The sign-in callback is outside this group.
 -->
 <script lang="ts">
-	import { guardLeave } from '@epicenter/svelte/leave-guard';
-	import { onMount } from 'svelte';
-	import SignedIn from '$lib/components/SignedIn.svelte';
+	import { Button } from '@epicenter/ui/button';
+	import * as Empty from '@epicenter/ui/empty';
+	import { toast } from '@epicenter/ui/sonner';
+	import Online from '$lib/components/Online.svelte';
 	import { webAuth } from '$lib/auth.js';
 
 	let { children } = $props();
 	const auth = webAuth();
 
-	// Leaving while a save is out asks first.
-	onMount(guardLeave);
+	async function signIn() {
+		const { error } = await auth.startSignIn();
+		if (error !== null) toast.error('Could not sign in', { description: error.message });
+	}
 </script>
 
-{#if auth.state.status === 'signed-out'}
-	{@render children()}
-{:else}
+{#if auth.state.status !== 'signed-out'}
 	{#key auth.state.account}
-		<SignedIn account={auth.state.account}>{@render children()}</SignedIn>
+		<Online account={auth.state.account}>{@render children()}</Online>
 	{/key}
+{:else}
+	<Empty.Root class="h-dvh">
+		<Empty.Title>Capture</Empty.Title>
+		<Empty.Description>Sign in to use the captures in your Epicenter repository.</Empty.Description>
+		<Button size="sm" onclick={() => void signIn()}>Sign in</Button>
+	</Empty.Root>
 {/if}

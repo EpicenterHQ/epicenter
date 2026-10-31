@@ -1,31 +1,25 @@
 /**
  * Capture end to end, per engine, as one person in one persistent browser
- * profile with a desktop sandbox beside it (see `stack.ts`):
+ * profile with a desktop sandbox beside it (see `stack.ts`).
  *
- * Capture has two views (decision 76): "On this device" (`/`), this
- * browser's files, and "Synced" (`/synced`), the person's repository.
+ * Capture is online web only: the person's `capture` repository, behind
+ * sign-in, with nothing kept in the browser (ADR-0700). The sandbox's CLI
+ * stands in for a desktop that clones and syncs the repository.
  *
- * 1. Signed out, captures are added on this device (opening at Add a
- *    thought), given thoughts, edited and deleted in the browser (OPFS), as
- *    Markdown notes at `captures/<id>.md`, and are still there after a
- *    reload; "Synced" asks for a sign-in.
- * 2. Signed in, they upload on their own: each leaves "On this device" and
- *    the browser's files, and appears in "Synced". One added on this device
- *    while signed in follows; one added in "Synced", and a thought added
- *    there, go to the repository.
- * 3. `epicenter clone` holds them byte for byte, and `epicenter check`
+ * 1. Signed out, Capture asks for a sign-in. Signed in, the repository is
+ *    empty; captures are added (opening at Add a thought), given thoughts,
+ *    edited, downloaded and deleted there, never in this browser's files,
+ *    and a reload shows them again.
+ * 2. `epicenter clone` holds them byte for byte, and `epicenter check`
  *    passes against the published contract.
- * 4. A thought added on the desktop and synced shows in the capture open in
- *    "Synced" with no reload; a thought added there reaches the desktop.
- * 5. A note the desktop wrote that does not read as a capture is listed in
- *    "Synced" with its text; Save refuses a fix that still does not fit and
- *    repairs it with one that does.
- * 6. Signing out leaves this browser with no captures, and "Synced" asks for
- *    a sign-in again.
- * 7. (Chromium) The page opens with no network, through its service worker,
- *    and a capture added then is kept in the browser.
+ * 3. A thought added on the desktop and synced shows in the open capture
+ *    with no reload; a thought added in the browser reaches the desktop.
+ * 4. A note the desktop wrote that does not read as a capture is listed
+ *    with its text; Save refuses a fix that still does not fit and repairs
+ *    it with one that does.
+ * 5. Signing out asks for a sign-in again, and the browser holds nothing.
  */
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type BrowserContext, expect, type Page } from 'playwright/test';
@@ -33,11 +27,8 @@ import {
 	emptyOpfs,
 	epicenter,
 	opfsFiles,
-	opfsText,
-	recordUploaderStarts,
 	stackTest,
 	sync,
-	uploaderStarts,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 const test = stackTest('CAPTURE_E2E_STATE');
@@ -51,18 +42,16 @@ let page: Page;
 /** What the first steps learn, for the later ones. */
 let milk: string;
 let milkFile: string;
-let train: string;
+let bakery: string;
 let clone: string;
 
 test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	profile = await mkdtemp(join(tmpdir(), `capture-${browserName}-`));
-	// A persistent profile: WebKit refuses OPFS in an ephemeral context.
+	// A persistent profile: WebKit refuses OPFS in an ephemeral context, and
+	// the steps look there to show nothing is kept in the browser.
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
 		viewport: { width: 1280, height: 800 },
-		// The steps here run without the service worker; step 7 opens
-		// offline in a context of its own.
-		serviceWorkers: 'block',
 	});
 	page = context.pages()[0] ?? (await context.newPage());
 });
@@ -72,7 +61,8 @@ test.afterAll(async () => {
 	if (profile) await rm(profile, { recursive: true, force: true });
 });
 
-const views = () => page.getByRole('navigation', { name: 'Views' });
+const signInPrompt = () =>
+	page.getByText('Sign in to use the captures in your Epicenter repository.');
 const status = () => page.getByTestId('status-summary');
 const rows = () => page.locator('[data-id]');
 const row = (id: string) => page.locator(`[data-id="${id}"]`);
@@ -115,146 +105,82 @@ const captureFile = (capturedAt: string, body: string) =>
 const capturedAtOf = (text: string | null) =>
 	text?.match(/^capturedAt: "(.+)"$/m)?.[1] ?? '';
 
-test('1. signed out, captures are added, given thoughts, edited and deleted in the browser', async ({
+test('1. signed in, captures are added, given thoughts, edited, downloaded and deleted in the repository, never in the browser', async ({
 	stack,
+	person,
 }) => {
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
 	await page.goto(`${stack.app}/`);
 	await emptyOpfs(page);
 	await page.goto(`${stack.app}/`);
-	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-	await expect(
-		views().getByRole('link', { name: 'On this device' }),
-	).toHaveAttribute('aria-current', 'page');
+	await expect(signInPrompt()).toBeVisible();
+
+	// A signed-in session on the API; the real authorization redirect does the rest.
+	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
+	await page.getByRole('button', { name: 'Sign in' }).click();
+	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+	await expect(page).toHaveURL(`${stack.app}/`);
+	await expect(status()).toHaveAttribute('aria-label', /^Status: Online\./);
 	await expect(page.getByText('No captures yet')).toBeVisible();
-	await expect(status()).toHaveAttribute(
-		'aria-label',
-		/^Status: On this device\./,
-	);
 
 	milk = await add('Buy oat milk');
 	await row(milk).click();
 	await addThought('Ask about soy');
 	await addThought('Two cartons');
 	await page.getByLabel('Capture text').fill('Buy oat milk, unsweetened');
-	await expect
-		.poll(() => opfsText(page, `captures/${milk}.md`))
-		.toContain('unsweetened');
-	const text = await opfsText(page, `captures/${milk}.md`);
-	const capturedAt = capturedAtOf(text);
-	expect(Date.now() - new Date(capturedAt).getTime()).toBeLessThan(120_000);
-	milkFile = captureFile(
-		capturedAt,
-		'\nBuy oat milk, unsweetened\n\n## Thoughts\n\n- Ask about soy\n- Two cartons\n',
-	);
-	expect(text).toBe(milkFile);
 
-	// Moving a thought rewrites the list in the file.
+	// Moving a thought rewrites the list in the note.
 	await thoughts()
 		.nth(1)
 		.getByRole('button', { name: 'Thought actions' })
 		.click();
 	await page.getByRole('menuitem', { name: 'Move up' }).click();
 	await expect(thoughts()).toHaveText([/Two cartons/, /Ask about soy/]);
-	await thoughts()
-		.nth(1)
-		.getByRole('button', { name: 'Thought actions' })
-		.click();
-	await page.getByRole('menuitem', { name: 'Move up' }).click();
-	await expect(thoughts()).toHaveText([/Ask about soy/, /Two cartons/]);
-	await expect.poll(() => opfsText(page, `captures/${milk}.md`)).toBe(milkFile);
+
+	// Download file hands over the note's text once the shown body has saved.
+	await page.getByRole('button', { name: 'More capture actions' }).click();
+	const downloading = page.waitForEvent('download');
+	await page.getByRole('menuitem', { name: 'Download file' }).click();
+	const download = await downloading;
+	expect(download.suggestedFilename()).toBe(`${milk}.md`);
+	const text = await readFile(await download.path(), 'utf8');
+	const capturedAt = capturedAtOf(text);
+	expect(Date.now() - new Date(capturedAt).getTime()).toBeLessThan(120_000);
+	milkFile = captureFile(
+		capturedAt,
+		'\nBuy oat milk, unsweetened\n\n## Thoughts\n\n- Two cartons\n- Ask about soy\n',
+	);
+	expect(text).toBe(milkFile);
 	await back();
 
 	const gone = await add('Never mind');
 	await row(gone).click();
 	await page.getByRole('button', { name: 'More capture actions' }).click();
 	await page.getByRole('menuitem', { name: 'Delete capture…' }).click();
+	await expect(page.getByRole('alertdialog')).toContainText(
+		'Its Git history keeps them',
+	);
 	await page
 		.getByRole('alertdialog')
 		.getByRole('button', { name: 'Delete' })
 		.click();
 	await expect(row(gone)).toHaveCount(0);
-	await expect(rows()).toHaveCount(1);
-	expect(
-		Object.keys(await opfsFiles(page)).filter((path) =>
-			path.startsWith('captures/'),
-		),
-	).toEqual([`captures/${milk}.md`]);
 
-	// Still there after a reload.
+	bakery = await add('Call the bakery');
+	await expect(rows()).toHaveCount(2);
+	// Nothing is kept in this browser.
+	expect(await opfsFiles(page)).toEqual({});
+
+	// The repository still has them after a reload.
 	await page.reload();
 	await expect(row(milk)).toContainText('Buy oat milk, unsweetened');
 	await expect(row(milk)).toContainText('2 thoughts');
-
-	// "Synced" is the repository's, which needs a sign-in.
-	await views().getByRole('link', { name: 'Synced' }).click();
-	await expect(
-		page.getByText('Sign in to see the captures in your Epicenter repository.'),
-	).toBeVisible();
-	await page.getByRole('link', { name: 'On this device' }).click();
-	await expect(rows()).toHaveCount(1);
-});
-
-test('2. signed in, the captures upload: each leaves this device and appears in Synced', async ({
-	stack,
-	person,
-}) => {
-	// A signed-in session on the API; the real authorization redirect does the rest.
-	await recordUploaderStarts(context);
-	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
-	await page.getByRole('button', { name: 'Sign in' }).click();
-	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
-	// The callback page only finishes sign-in: no repository, no uploader.
-	const uploaders = await uploaderStarts(page);
-	expect(uploaders.length).toBeGreaterThan(0);
-	expect(uploaders.filter((path) => path.includes('/auth/callback'))).toEqual(
-		[],
-	);
-
-	// The uploader moves them: this device's view and files empty.
-	await expect(row(milk)).toHaveCount(0);
-	await expect(page.getByText('No captures yet')).toBeVisible();
-	await expect.poll(() => opfsFiles(page)).toEqual({});
-
-	// One added on this device while signed in follows on its own: it opens,
-	// then leaves this device for the repository.
-	await page
-		.getByLabel('New capture', { exact: true })
-		.fill('Idea on the train');
-	await page
-		.getByLabel('New capture', { exact: true })
-		.press('ControlOrMeta+Enter');
-	await expect(
-		page.getByText('it uploaded to your repository and is under Synced'),
-	).toBeVisible();
-	await expect.poll(() => opfsFiles(page)).toEqual({});
-	await back();
-	await expect(rows()).toHaveCount(0);
-
-	await views().getByRole('link', { name: 'Synced' }).click();
-	await expect(views().getByRole('link', { name: 'Synced' })).toHaveAttribute(
-		'aria-current',
-		'page',
-	);
-	await expect(status()).toHaveAttribute('aria-label', /^Status: Synced\./);
-	await expect(row(milk)).toContainText('Buy oat milk, unsweetened');
-	await expect(row(milk)).toContainText('2 thoughts');
-	const trainRow = rows().filter({ hasText: 'Idea on the train' });
-	await expect(trainRow).toHaveCount(1);
-	train = (await trainRow.getAttribute('data-id')) as string;
-
-	// A thought added in "Synced" goes to the repository.
-	await trainRow.click();
-	await addThought('Written in Synced');
-	await back();
-
-	// One added in "Synced" goes to the repository, never this device.
-	await add('Call the bakery');
-	await expect(rows()).toHaveCount(3);
+	await expect(row(bakery)).toContainText('Call the bakery');
+	await expect(rows()).toHaveCount(2);
 	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('3. a desktop clone holds the captures as written, and the folder fits the contract', async ({
+test('2. a desktop clone holds the captures byte for byte, and the folder fits the contract', async ({
 	stack,
 	person,
 }) => {
@@ -271,12 +197,15 @@ test('3. a desktop clone holds the captures as written, and the folder fits the 
 	expect(await readFile(join(clone, `captures/${milk}.md`), 'utf8')).toBe(
 		milkFile,
 	);
-	const trainFile = await readFile(join(clone, `captures/${train}.md`), 'utf8');
-	expect(trainFile).toBe(
-		captureFile(
-			capturedAtOf(trainFile),
-			'\nIdea on the train\n\n## Thoughts\n\n- Written in Synced\n',
-		),
+	const bakeryFile = await readFile(
+		join(clone, `captures/${bakery}.md`),
+		'utf8',
+	);
+	expect(bakeryFile).toBe(
+		captureFile(capturedAtOf(bakeryFile), '\nCall the bakery\n\n## Thoughts\n'),
+	);
+	expect((await readdir(join(clone, 'captures'))).sort()).toEqual(
+		[`${bakery}.md`, `${milk}.md`].sort(),
 	);
 
 	const checked = await epicenter(
@@ -289,7 +218,7 @@ test('3. a desktop clone holds the captures as written, and the folder fits the 
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('4. a thought added on the desktop shows in the capture open in Synced with no reload, and one added there reaches the desktop', async ({
+test('3. a thought added on the desktop shows in the open capture with no reload, and one added in the browser reaches the desktop', async ({
 	stack,
 	person,
 }) => {
@@ -297,13 +226,13 @@ test('4. a thought added on the desktop shows in the capture open in Synced with
 	await expect(thoughts()).toHaveCount(2);
 
 	const path = join(clone, `captures/${milk}.md`);
-	await writeFile(path, `${await readFile(path, 'utf8')}- From the desktop\n`);
+	await writeFile(path, `${milkFile}- From the desktop\n`);
 	await sync(stack, person, clone);
 
 	// The remote hears main move (a poll until the notify Durable Object).
 	await expect(thoughts()).toHaveText([
-		/Ask about soy/,
 		/Two cartons/,
+		/Ask about soy/,
 		/From the desktop/,
 	]);
 
@@ -313,16 +242,11 @@ test('4. a thought added on the desktop shows in the capture open in Synced with
 			await sync(stack, person, clone);
 			return readFile(path, 'utf8');
 		})
-		.toBe(
-			milkFile.replace(
-				'- Two cartons\n',
-				'- Two cartons\n- From the desktop\n- From the web\n',
-			),
-		);
+		.toBe(`${milkFile}- From the desktop\n- From the web\n`);
 	await back();
 });
 
-test('5. a note that does not read as a capture is listed in Synced with its text, and repaired there', async ({
+test('4. a note that does not read as a capture is listed with its text, and repaired', async ({
 	stack,
 	person,
 }) => {
@@ -371,68 +295,14 @@ test('5. a note that does not read as a capture is listed in Synced with its tex
 	expect(await readFile(join(clone, 'captures/found.md'), 'utf8')).toBe(
 		'---\ncapturedAt: "2026-10-30T09:00:00Z"\n---\n\nFound note\n\n## Thoughts\n',
 	);
-});
-
-test('6. signed out, the browser holds no captures, and Synced asks for a sign-in', async () => {
-	await page.getByRole('button', { name: 'Sign out' }).click();
-	await expect(
-		page.getByText('Sign in to see the captures in your Epicenter repository.'),
-	).toBeVisible();
-	await page.getByRole('link', { name: 'On this device' }).click();
-	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
-	await expect(page.getByText('No captures yet')).toBeVisible();
+	expect((await readdir(join(clone, 'captures'))).sort()).toEqual(
+		['found.md', `${bakery}.md`, `${milk}.md`].sort(),
+	);
 	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('7. the page opens with no network through its service worker, and a capture is kept in the browser', async ({
-	playwright,
-	browserName,
-	launchOptions,
-	stack,
-}) => {
-	// WebKit's offline emulation also fails OPFS reads.
-	test.skip(browserName !== 'chromium', 'Chromium only');
-	const own = await mkdtemp(join(tmpdir(), `capture-offline-${browserName}-`));
-	const offlineContext = await playwright[browserName].launchPersistentContext(
-		own,
-		{ ...launchOptions, serviceWorkers: 'allow' },
-	);
-	try {
-		const tab = offlineContext.pages()[0] ?? (await offlineContext.newPage());
-		const errors: string[] = [];
-		tab.on('pageerror', (error) => errors.push(error.message));
-		await tab.goto(`${stack.app}/`);
-		await expect(tab.getByLabel('New capture', { exact: true })).toBeVisible();
-		await tab.evaluate(async () => {
-			await navigator.serviceWorker.ready;
-		});
-		// The worker controls the page once it reloads.
-		await tab.reload();
-		await expect
-			.poll(() =>
-				tab.evaluate(() => navigator.serviceWorker.controller !== null),
-			)
-			.toBe(true);
-
-		await offlineContext.setOffline(true);
-		await tab.reload();
-		await tab
-			.getByLabel('New capture', { exact: true })
-			.fill('Written with no network');
-		await tab
-			.getByLabel('New capture', { exact: true })
-			.press('ControlOrMeta+Enter');
-		await expect(tab.getByLabel('Add a thought')).toBeFocused();
-		const written = async () => {
-			const path = Object.keys(await opfsFiles(tab)).find((one) =>
-				one.startsWith('captures/'),
-			);
-			return path ? opfsText(tab, path) : null;
-		};
-		await expect.poll(written).toContain('\nWritten with no network\n');
-		expect(errors).toEqual([]);
-	} finally {
-		await offlineContext.close();
-		await rm(own, { recursive: true, force: true });
-	}
+test('5. signed out, Capture asks for a sign-in again, and the browser holds nothing', async () => {
+	await page.getByRole('button', { name: 'Sign out' }).click();
+	await expect(signInPrompt()).toBeVisible();
+	expect(await opfsFiles(page)).toEqual({});
 });

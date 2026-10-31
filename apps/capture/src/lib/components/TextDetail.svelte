@@ -1,7 +1,7 @@
 <!--
 	One capture's file as Markdown, front matter included: the text of a
 	capture that reads (in house style), or the file's own text when it does
-	not, to repair. What is typed is this view's draft until Save, which
+	not, to repair. What is typed is this editor's draft until Save, which
 	replaces the whole note (`replace`) and is refused, with why, when the
 	front matter does not parse or fit. Whether it reads is checked as the
 	person types. A saved capture whose Thoughts read opens as a capture.
@@ -22,7 +22,7 @@
 
 	let { captures, id }: { captures: Captures; id: string } = $props();
 
-	// The view is keyed by the capture, so neither changes for this view.
+	// The editor is keyed by the capture, so neither changes for its life.
 	const args = untrack(() => ({ id }));
 	const list = untrack(() => captures.list);
 	const path = capturePath(args.id);
@@ -166,11 +166,7 @@
 			<Empty.Header>
 				<Empty.Title>This capture is no longer here</Empty.Title>
 				<Empty.Description>
-					{#if captures.view === 'device'}
-						It was deleted, here or in another tab, or it uploaded to your repository and is under Synced.
-					{:else}
-						It was deleted, here, in another tab, or on another device.
-					{/if}
+					It was deleted, here, in another tab, or on another device.
 				</Empty.Description>
 			</Empty.Header>
 		</Empty.Root>

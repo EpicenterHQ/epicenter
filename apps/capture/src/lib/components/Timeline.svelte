@@ -1,5 +1,5 @@
 <!--
-	The timeline of one view's captures: New capture, then every capture
+	The timeline of one page's captures: New capture, then every capture
 	newest first, then the files at a capture's path that open as text to
 	repair, and those that are not text.
 -->
@@ -89,9 +89,5 @@
 {/if}
 
 <footer class="mt-10 border-t pt-4 text-xs text-muted-foreground">
-	{#if captures.view === 'synced'}
-		<p>These captures are kept in your Epicenter repository, each as a Markdown file in <code>captures</code>.</p>
-	{:else}
-		<p>These captures are kept in this browser, each as a Markdown file in <code>captures</code>. Signed in, they upload to your Epicenter repository on their own and are then under Synced.</p>
-	{/if}
+	<p>These captures are kept in your Epicenter repository, each as a Markdown file in <code>captures</code>. Nothing is kept in this browser.</p>
 </footer>

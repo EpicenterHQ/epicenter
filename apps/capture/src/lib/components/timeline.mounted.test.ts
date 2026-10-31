@@ -1,7 +1,7 @@
 /**
  * Mounted Timeline Tests
  *
- * The real timeline over real device clients: New capture, the files it
+ * The real timeline over stand-in clients: New capture, the files it
  * lists, and another writer's change.
  *
  * Key behaviors:

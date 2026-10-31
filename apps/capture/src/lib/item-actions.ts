@@ -1,7 +1,6 @@
 /**
- * Deleting a capture, with the confirmation it needs. A capture on this
- * device has no history, so deleting it cannot be undone here; one in the
- * repository ("Synced") stays in its Git history.
+ * Deleting a capture, with the confirmation it needs. The capture is
+ * deleted from the person's repository, whose Git history keeps it.
  */
 
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
@@ -14,10 +13,7 @@ export function confirmDelete(captures: Captures, id: string) {
 	const named = deletion.title ? `“${deletion.title}” ` : 'This capture ';
 	confirmationDialog.open({
 		title: 'Delete this capture?',
-		description:
-			captures.view === 'synced'
-				? `${named}and its thoughts are deleted from your repository. Its Git history keeps them.`
-				: `${named}and its thoughts are deleted from this browser. A deleted capture cannot be brought back.`,
+		description: `${named}and its thoughts are deleted from your repository. Its Git history keeps them.`,
 		confirm: {
 			text: 'Delete',
 			variant: 'destructive',
