@@ -18,7 +18,7 @@ bound to the calling WebView's label
 
 | Path | What it is |
 | --- | --- |
-| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), the fixed app defaults (`library.rs`), and bookmarks (`bookmarks.rs`). No Tauri; its tests need only `git` and `bun`. |
+| `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), the fixed app defaults (`library.rs`), and pinned and recent folders (`navigation.rs`). No Tauri; its tests need only `git` and `bun`. |
 | `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
@@ -93,14 +93,12 @@ any directory holding them, such as the root. Overlap compares canonical
 paths and directory identity, so a linked parent or another spelling of a
 protected directory is no route around it. A root override is admitted before
 anything is made. Native and CLI records admission run the same cases from
-`fixtures/records-default.json`, each with an earlier build's `folders.json`
-present that neither reads.
+`fixtures/records-default.json`.
 
-`bookmarks` is the machine's remembered folders: a JSON array of path
-strings in `<AppData>/bookmarks.json`, changed under the exclusive lock
-`.bookmarks.json.epicenter-save-lock` by native shells and the CLI alike. A
-bookmark is a shortcut, never a permission or a default. Contents in another
-shape are reported and left as they are.
+`navigation` is the machine's pinned and recently opened folders in
+`<AppData>/navigation.sqlite`, written in SQLite transactions by native shells
+and the CLI alike. A pin is a shortcut, never a permission or a default. A
+foreign or corrupt database is refused and left as it is.
 
 `Directory::create(path)` prepares a fixed default computed by the shell,
 creating it and its parents when missing and retaining its canonical root.
@@ -181,7 +179,6 @@ it, the same rule as `isStaleScratch` in `@epicenter/folder`. Younger ones
 may belong to a save still running in another process. Only regular files
 with a name a stager made are removed: any other file, a directory, or a link
 stays, and a scratch path that is a link or not a directory is not read.
-Files an older shell staged in `.git/epicenter/scratch` are left as they are.
 
 Each command clones the window's `Directory` when it arrives and works in
 that root until it ends. A window closed and replaced under the same label
@@ -268,14 +265,13 @@ stages in (opened with `create_new`, so nothing already there is written
 through). A scratch path that is a link or not a directory refuses the put as
 `Io`, and nothing changes. On Unix the scratch directory is `0700` before
 anything is staged in it: made so, or tightened through the opened directory
-when an older shell left it `0755`, and a put that cannot make it so is `Io`.
+when it is open to others, and a put that cannot make it so is `Io`.
 Each staged file is `0600` before its first byte, so no other account reads
 a save that has not landed or one that stopped. On macOS an access control
 entry lets other accounts past those bits, and a parent can pass one on
 (`everyone allow read`), so the scratch directory and each staged file have
 every entry removed through the open descriptor before anything is staged or
-written; a put that cannot remove them is `Io`. An open's sweep removes them
-from an existing scratch directory too. Replacing a file keeps its
+written; a put that cannot remove them is `Io`. Replacing a file keeps its
 permission bits; a new file is `0600`. Windows has no such bits: there the
 scratch directory has the access its parent passes on. The scratch
 directory is on the parent's file

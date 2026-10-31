@@ -422,15 +422,9 @@ test('a save creates the fixed records folder and its missing root', async () =>
 });
 
 test('a connection save uses the fixed records folder, reading and writing no configuration', async () => {
-	const { scratch, epicenter, rowFile, run } = await setup();
+	const { scratch, rowFile, run } = await setup();
 	const data = join(scratch, 'data');
 	await mkdir(data);
-	const config = join(data, 'folders.json');
-	const original = JSON.stringify({
-		homes: { todos: epicenter, epicenter: join(scratch, 'Old records') },
-		folders: [],
-	});
-	await writeFile(config, original);
 	const result = await run(['set', 'text'], {
 		fields: { kind: 'openai-compatible', title: 'Text', model: 'm' },
 	});
@@ -438,9 +432,7 @@ test('a connection save uses the fixed records folder, reading and writing no co
 	expect(await readFile(rowFile(), 'utf8')).toBe(
 		'---\nkind: openai-compatible\ntitle: Text\nmodel: m\n---\n',
 	);
-	expect(existsSync(join(scratch, 'Old records'))).toBe(false);
-	expect(await readFile(config, 'utf8')).toBe(original);
-	expect(await readdir(data)).toEqual(['folders.json']);
+	expect(await readdir(data)).toEqual([]);
 });
 
 test('a connection save refuses a records folder inside application data', async () => {

@@ -11,16 +11,14 @@
 //!   `Io` and changes nothing; no staged file outlives a put.
 //! - A put stages beside the root, in `.<name>.epicenter-scratch`, and
 //!   makes and changes nothing in `.git`: a folder with no `.git`, or with a
-//!   `.git` file or link, saves alike, and old `.git/epicenter/scratch`
-//!   data stays as it is.
+//!   `.git` file or link, saves alike.
 //! - A scratch directory that is a link or not a directory refuses a put as
 //!   `Io`, and the file at the path stays as it was.
 //! - On Unix staged bytes are this account's alone: the scratch directory is
-//!   `0700`, an open one an older shell made is tightened first, and each
+//!   `0700`, an open one is tightened first, and each
 //!   staged file is `0600`. A replaced file keeps its mode; a new one is
 //!   `0600`. On macOS neither keeps an access control entry the parent
-//!   passes on, a sweep removes one from an existing scratch directory, and
-//!   one that cannot be removed refuses the put before anything is staged.
+//!   passes on, and one that cannot be removed refuses the put before anything is staged.
 //! - A directory is made with its ancestors and removed only when empty.
 //! - Staged files an hour old are swept, and nothing younger or foreign: no
 //!   other file, no directory, no link.
@@ -570,29 +568,6 @@ fn a_git_file_or_link_is_left_as_it_is_and_saves_land() {
     }
 }
 
-/// Staged files an older shell left in `.git/epicenter/scratch` are not its
-/// scratch any more: a put stages beside the root, and neither a put nor a
-/// sweep touches them.
-#[test]
-fn old_git_scratch_is_left_untouched() {
-    let old = scratch_name(1);
-    let (_temp, root) = folder(
-        "storage-old-git-scratch",
-        &[(&format!(".git/epicenter/scratch/{old}"), b"older shell")],
-    );
-    assert_eq!(
-        put_now(&root, "a.md", b(b"a"), None),
-        Ok(PutOutcome::Landed { stamp: None })
-    );
-    sweep_scratch(&root, now_ms());
-    assert_eq!(
-        fs::read(root.join(".git/epicenter/scratch").join(&old)).unwrap(),
-        b"older shell"
-    );
-    assert_eq!(names(&root.join(".git/epicenter/scratch")), [old]);
-    assert!(staged(&root).is_empty());
-}
-
 #[cfg(unix)]
 #[test]
 fn a_hard_link_is_replaced_not_written_through() {
@@ -658,8 +633,8 @@ fn replacing_a_file_keeps_its_permission_bits() {
 }
 
 /// Staged bytes are this account's alone while a save waits for its turn,
-/// as they are after a save that stopped there: the scratch directory an
-/// older shell left `0755` is `0700` before anything is staged in it, and
+/// as they are after a save that stopped there: a scratch directory made
+/// `0755` is `0700` before anything is staged in it, and
 /// the staged file is `0600`. The refused turn changes nothing; the save
 /// that lands keeps the file's `0644`.
 #[cfg(unix)]
@@ -807,27 +782,6 @@ fn staged_bytes_keep_no_acl_the_parent_passes_on() {
     );
     assert_eq!(fs::read(root.join("shared.md")).unwrap(), b"new");
     assert!(acl(&scratch(&root)).is_empty());
-}
-
-/// A scratch directory made under a parent that passed an entry on, as an
-/// older shell left one, loses the entry at the sweep an open runs, before
-/// a save has reason to use it.
-#[cfg(target_os = "macos")]
-#[test]
-fn a_sweep_removes_an_acl_from_an_existing_scratch_directory() {
-    use std::os::unix::fs::PermissionsExt;
-    let (temp, root) = folder("storage-sweep-acl", &[]);
-    share_with_everyone(temp.path());
-    let scratch = scratch(&root);
-    fs::create_dir(&scratch).unwrap();
-    fs::set_permissions(&scratch, fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(!acl(&scratch).is_empty());
-    sweep_scratch(&root, now_ms());
-    assert!(acl(&scratch).is_empty());
-    assert_eq!(
-        fs::metadata(&scratch).unwrap().permissions().mode() & 0o777,
-        0o700
-    );
 }
 
 /// A scratch directory whose entry cannot be removed (here it is locked
@@ -988,11 +942,6 @@ fn a_sweep_removes_only_staged_files_an_hour_old() {
     let (temp, root) = folder("storage-sweep", &[]);
     let scratch = scratch(&root);
     fs::create_dir_all(&scratch).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&scratch, fs::Permissions::from_mode(0o755)).unwrap();
-    }
     let now = now_ms();
     let hour = 60 * 60 * 1000;
     let old = scratch_name(now - hour - 1);
@@ -1014,14 +963,6 @@ fn a_sweep_removes_only_staged_files_an_hour_old() {
         expected.push(old_link);
     }
     sweep_scratch(&root, now);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(
-            fs::metadata(&scratch).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
-    }
     let mut left = staged(&root);
     left.sort();
     expected.sort();

@@ -795,34 +795,6 @@ mod tests {
         }
     }
 
-    /// An earlier build's `folders.json` names another location; ordinary
-    /// launches ignore it and leave it as it was.
-    #[test]
-    fn an_old_folder_configuration_neither_redirects_nor_blocks_a_launch() {
-        let fixture = fixture();
-        let old = fixture.elsewhere("Old Todos");
-        let config = fixture.data_dir.join("folders.json");
-        let contents = serde_json::to_string(&json!({
-            "homes": { "todos": old, "epicenter": old },
-            "folders": [],
-        }))
-        .unwrap();
-        fs::write(&config, &contents).unwrap();
-        let label = fixture.default(Todos).unwrap();
-        assert_eq!(
-            bound_root(&fixture, &label),
-            fixture.folder_dir.join(library::TODOS.id)
-        );
-        fs::write(&config, "not json").unwrap();
-        let capture = fixture.default(Capture).unwrap();
-        assert_eq!(
-            bound_root(&fixture, &capture),
-            fixture.folder_dir.join(library::CAPTURE.id)
-        );
-        assert_eq!(fs::read_to_string(&config).unwrap(), "not json");
-        assert_eq!(fs::read_dir(&old).unwrap().count(), 0);
-    }
-
     /// The default is not a link the shell would follow out of the root.
     #[cfg(unix)]
     #[test]

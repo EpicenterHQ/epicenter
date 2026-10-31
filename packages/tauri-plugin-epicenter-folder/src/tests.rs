@@ -23,7 +23,7 @@
 //!   never `.git`, never another window's root, never through a link. A save
 //!   stages beside the root and makes no `.git`; a `.git` file or link opens
 //!   and saves and is left as it is. Opening sweeps staged files a stopped
-//!   save left, and not an older shell's in `.git/epicenter/scratch`.
+//!   save left.
 //! - A put takes its bytes as a raw body and its arguments as
 //!   percent-encoded headers; a JSON array of bytes, Tauri's postMessage
 //!   fallback, is accepted too. A file read returns its bytes raw. A
@@ -1035,15 +1035,12 @@ fn a_path_through_a_link_or_naming_one_is_refused() {
 
 /// A save that stopped before its rename leaves its staged file beside the
 /// folder. Opening removes the ones an hour old, and none younger, which
-/// another process's save may still be about to rename. What an older shell
-/// staged in `.git/epicenter/scratch` is left as it is.
+/// another process's save may still be about to rename.
 #[test]
 fn opening_sweeps_staged_files_a_stopped_save_left() {
     let fixture = fixture("sweep");
     let scratch = scratch(&fixture);
-    let old_git_scratch = fixture.root.join(".git/epicenter/scratch");
     std::fs::create_dir_all(&scratch).unwrap();
-    std::fs::create_dir_all(&old_git_scratch).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -1066,14 +1063,9 @@ fn opening_sweeps_staged_files_a_stopped_save_left() {
     for staged in [&old, &young] {
         std::fs::write(scratch.join(staged), b"x").unwrap();
     }
-    std::fs::write(old_git_scratch.join(&old), b"older shell").unwrap();
     let main = fixture.bound_window("main", &fixture.root);
     open(&main).unwrap();
     assert_eq!(staged(&fixture), [young]);
-    assert_eq!(
-        std::fs::read(old_git_scratch.join(&old)).unwrap(),
-        b"older shell"
-    );
 }
 
 /// A linked worktree's or submodule's `.git` file, or a `.git` link, does

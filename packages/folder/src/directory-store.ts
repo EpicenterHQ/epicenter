@@ -369,9 +369,6 @@ export async function sweepStaleScratch(
 ): Promise<void> {
 	try {
 		if ((await files.lstat(scratch))?.kind !== 'directory') return;
-		// An older version may have left staged bytes in a 0755 directory.
-		// Tighten it at open, before a later save has reason to use it.
-		await files.mkdir(scratch, { private: true });
 		const now = Date.now();
 		for (const entry of await files.readDir(scratch))
 			if (entry.kind === 'file' && isStaleScratch(entry.name, now))

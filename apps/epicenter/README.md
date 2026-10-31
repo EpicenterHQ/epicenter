@@ -209,22 +209,8 @@ Files split by what they cost to lose (ADR-0539):
 
 Defaults are derived, never saved: an ordinary launch creates its missing
 default and reuses an existing one with its files, without an ownership
-claim. No configuration selects or remembers them. Ordinary launches ignore
-an earlier build's `folders.json` and earlier default names such as
-`~/Epicenter/Todos`. Those folders stay listed as root children and open
-explicitly; nothing moves their data. Release and development data remain separate.
-
-An earlier version installed apps from Git repositories. Its bare clones in
-`apps/<app-id>/` under the application-data directory, and its builds, logs,
-and lock under `~/Library/Caches/so.epicenter/` (or `EPICENTER_CACHE_DIR`),
-stay on disk. Epicenter never reads them and never removes them; delete them
-by hand to reclaim the space. The folders those apps opened under the same
-reverse-DNS names, such as `~/Epicenter/so.epicenter.todos`, are now those
-apps' defaults, reused with their files.
-
-The earlier archive implementation stored `sites/<hostname>/release.tar` and
-`associated` under application data. Current site windows leave those files
-untouched and load the publisher's HTTPS page instead.
+claim. No configuration selects or remembers them. Release and development
+data remain separate.
 
 Overrides select an explicit location, so pointing both builds at the same
 location deliberately shares those files. Development starts signed out after
@@ -239,18 +225,9 @@ they are in the shared Hugging Face cache (`~/.cache/huggingface/hub`, or
 `$HF_HOME/hub`), which Epicenter downloads into and never deletes from (ADR-0579).
 Settings shows a model's folder there; deleting that folder removes the model.
 Local transcription settings, `local-transcription.json`, are in the data
-directory. A file an earlier build kept in Tauri's config directory, which
-differs from the data directory on Linux and Windows, is not read.
+directory.
 Standalone Local Books still defaults to production data; use
 `EPICENTER_DATA_DIR` when directing its CLI to development storage.
-
-Earlier Windows builds used `%APPDATA%\so.epicenter`. Existing files are not
-moved automatically. To carry them forward, stop Epicenter and any CLI using
-its data, back up the old directory, then copy it to
-`%LOCALAPPDATA%\so.epicenter` before launching the new build. If the destination
-already contains data, do not merge or overwrite the directories. Set
-`EPICENTER_DATA_DIR` to the full path of the directory you intend to use instead.
-The same override can keep an existing installation at its old location.
 
 ### Start the app
 
@@ -397,11 +374,7 @@ opening history. SQLite immediate write transactions serialize both writers;
 a deferred read transaction returns one consistent listing. The database uses
 the DELETE rollback journal and a 10-second busy timeout. Foreign, future,
 corrupt, or non-DELETE-journal databases are refused without replacement.
-On startup, Epicenter also discards obsolete `bookmarks.json` under its old
-save lock without reading it or following a symlink; each CLI folders command
-does the same. A cleanup problem is reported. The earlier `folders.json`, its
-lock, and app-scoped device storage remain separate. Stray `navigation.json`
-files are ignored. Navigation is machine-local.
+Navigation is machine-local.
 
 ### Folder editor windows
 

@@ -2138,18 +2138,12 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
 
     /// The directory the shell binds for Settings is the one the real CLI
     /// it starts saves connection rows in: both compute `<root>/so.epicenter`,
-    /// and neither reads or writes configuration. An earlier build's
-    /// `folders.json` naming another records folder changes neither.
+    /// and neither reads or writes configuration.
     #[tokio::test]
     async fn settings_and_the_cli_agree_on_the_records_folder_without_configuration() {
         let dir = scratch("records-agreement");
         let paths = paths_in(&dir);
-        let elsewhere = dir.join("Old records");
-        fs::create_dir_all(&elsewhere).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
-        let config = paths.data_dir.join("folders.json");
-        let contents = json!({ "homes": { "epicenter": elsewhere }, "folders": [] }).to_string();
-        fs::write(&config, &contents).unwrap();
 
         let records = paths
             .open_default(epicenter_folder_core::library::RECORDS)
@@ -2171,14 +2165,7 @@ console.log(JSON.stringify({ argv: Bun.argv.slice(2), head, body: new TextDecode
             .root()
             .join("connections/whispering-text.md")
             .is_file());
-        assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
-        let mut data: Vec<String> = fs::read_dir(&paths.data_dir)
-            .unwrap()
-            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        data.sort();
-        assert_eq!(data, ["folders.json"]);
-        assert_eq!(fs::read_to_string(&config).unwrap(), contents);
+        assert_eq!(fs::read_dir(&paths.data_dir).unwrap().count(), 0);
         let _ = fs::remove_dir_all(dir);
     }
 

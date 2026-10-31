@@ -1,38 +1,14 @@
 //! Machine-local pins and successful recent openings in navigation.sqlite.
-//! Earlier bookmarks.json is discarded under its old save lock. folders.json
-//! is unrelated device state and is left alone.
 
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::lock::{SaveLock, SAVE_LOCK_WAIT};
+use crate::lock::SAVE_LOCK_WAIT;
 
 pub const RECENT_LIMIT: usize = 20;
 
 pub const FILE: &str = "navigation.sqlite";
-
-/// Discard obsolete bookmark metadata without following a link or touching
-/// any directory it named. This is safe to repeat at startup and from the CLI.
-pub fn discard_bookmarks(data_dir: &Path) -> Result<(), String> {
-    let old = data_dir.join("bookmarks.json");
-    match fs::symlink_metadata(&old) {
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(format!("{} could not be inspected: {error}", old.display())),
-        Ok(_) => {}
-    }
-    let _turn = SaveLock::acquire(&old, SAVE_LOCK_WAIT)?;
-    match fs::symlink_metadata(&old) {
-        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(format!("{} could not be inspected: {error}", old.display())),
-        Ok(stats) if stats.is_dir() => Err(format!(
-            "{} is a directory; remove it manually",
-            old.display()
-        )),
-        Ok(_) => fs::remove_file(&old)
-            .map_err(|error| format!("{} could not be removed: {error}", old.display())),
-    }
-}
 
 pub fn file(data_dir: &Path) -> PathBuf {
     data_dir.join(FILE)
@@ -449,26 +425,6 @@ mod tests {
         assert!(remove(temp.path(), List::Pins, |entry| entry == "/pinned").unwrap());
         assert!(!remove(temp.path(), List::Pins, |entry| entry == "/pinned").unwrap());
         assert_eq!(read(temp.path()).unwrap().recent[0], "/alias-10");
-    }
-
-    #[test]
-    fn old_metadata_unlinks_only_itself_and_no_fresh_lock_appears() {
-        let temp = tempfile::tempdir().unwrap();
-        discard_bookmarks(temp.path()).unwrap();
-        assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
-        let old = temp.path().join("bookmarks.json");
-        let target = temp.path().join("authored");
-        fs::write(&target, "keep").unwrap();
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(&target, &old).unwrap();
-        }
-        discard_bookmarks(temp.path()).unwrap();
-        assert_eq!(fs::read_to_string(&target).unwrap(), "keep");
-        assert!(!old.exists());
-        fs::create_dir(&old).unwrap();
-        assert!(discard_bookmarks(temp.path()).is_err());
-        assert!(old.is_dir());
     }
 
     #[test]

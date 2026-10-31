@@ -74,11 +74,6 @@ pub(crate) fn list(paths: &DesktopPaths, openings: &FolderOpenings) -> FolderLis
             .into_owned(),
         problems: Vec::new(),
     };
-    if let Err(problem) = navigation::discard_bookmarks(&paths.data_dir) {
-        result.problems.push(format!(
-            "Obsolete bookmarks could not be removed: {problem}"
-        ));
-    }
     let saved = match navigation::read(&paths.data_dir) {
         Ok(saved) => saved,
         Err(problem) => {

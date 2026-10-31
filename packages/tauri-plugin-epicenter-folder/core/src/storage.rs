@@ -99,7 +99,7 @@ fn scratch_problem(scratch: &Path) -> Option<String> {
 
 /// The scratch directory beside `root`, private to this account: made
 /// `0700` when missing, refused when it is a link or not a directory, and
-/// tightened (`make_private`) when an older shell left it open, before
+/// tightened (`make_private`) when it is open to others, before
 /// anything is staged in it.
 fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
     let scratch = scratch_directory(root)?;
@@ -126,7 +126,7 @@ fn prepare_scratch(root: &Path) -> Result<PathBuf, String> {
 
 /// Leave the directory at `scratch` readable only by this account (`0700`,
 /// with no access control entry: `without_acl`), or answer why it cannot
-/// be: an older shell made it `0755`, or its parent passes on an entry. The
+/// be: it was made `0755`, or its parent passes on an entry. The
 /// mode is read and changed through the open directory, which must be the
 /// entry `symlink_metadata` saw. A swapped link may be opened, but its
 /// different identity is refused before permissions change. A directory
@@ -1131,11 +1131,6 @@ pub fn sweep_scratch(root: &Path, now_ms: u64) {
         return;
     };
     if scratch_problem(&scratch).is_some() {
-        return;
-    }
-    // An older shell may have left staged bytes in a 0755 directory. Make
-    // them private at open, before the next save has reason to use it.
-    if make_private(&scratch).is_err() {
         return;
     }
     let Ok(entries) = fs::read_dir(&scratch) else {

@@ -415,22 +415,15 @@ mod tests {
         assert_eq!(fs::read_to_string(occupied).unwrap(), "keep");
     }
 
-    /// Settings' folder is the fixed `so.epicenter` child. An earlier build's
-    /// records selection names an ordinary directory now, and stays unread.
+    /// Settings' folder is the fixed `so.epicenter` child; any other directory
+    /// is ordinary, and listing writes nothing to AppData.
     #[test]
-    fn records_are_the_fixed_child_whatever_an_old_selection_names() {
+    fn records_are_the_fixed_child_and_other_directories_are_ordinary() {
         let fixture = fixture("fixed-records");
         let data = fixture.folder_dir.join(".app-data");
         fs::create_dir(&data).unwrap();
         let selected = fixture.folder_dir.join("My setup");
         fs::create_dir(&selected).unwrap();
-        let config = data.join("folders.json");
-        let contents = serde_json::to_string(&json!({
-            "homes": { "epicenter": selected },
-            "folders": [],
-        }))
-        .unwrap();
-        fs::write(&config, &contents).unwrap();
         let paths = DesktopPaths {
             data_dir: data.clone(),
             folder_dir: fixture.folder_dir.clone(),
@@ -458,8 +451,7 @@ mod tests {
         );
         assert!(!row(&selected).protected);
         assert_eq!(row(&selected).default_for, None);
-        assert_eq!(fs::read_to_string(&config).unwrap(), contents);
-        assert_eq!(fs::read_dir(&data).unwrap().count(), 1);
+        assert_eq!(fs::read_dir(&data).unwrap().count(), 0);
     }
 
     #[test]
@@ -600,27 +592,6 @@ mod tests {
         let directory = Directory::existing(&ordinary).unwrap();
         assert!(!overlaps_epicenter_files(&paths, &directory));
         assert!(!fixture.folder_dir.join(RECORDS).exists());
-    }
-
-    /// Admission reads no configuration, so a corrupt earlier file neither
-    /// blocks ordinary folders nor admits protected ones, and stays as it was.
-    #[test]
-    fn a_corrupt_old_configuration_changes_no_admission() {
-        let fixture = fixture("corrupt-config");
-        let paths = DesktopPaths {
-            data_dir: fixture.folder_dir.join(".app-data"),
-            folder_dir: fixture.folder_dir.clone(),
-        };
-        fs::create_dir(&paths.data_dir).unwrap();
-        let config = paths.data_dir.join("folders.json");
-        fs::write(&config, "needs repair").unwrap();
-        let ordinary = Directory::create(&fixture.folder_dir.join("ordinary")).unwrap();
-        let private = Directory::existing(&paths.data_dir).unwrap();
-        let records = paths.open_default(library::RECORDS).unwrap();
-        assert!(!overlaps_epicenter_files(&paths, &ordinary));
-        assert!(overlaps_epicenter_files(&paths, &private));
-        assert!(overlaps_epicenter_files(&paths, &records));
-        assert_eq!(fs::read_to_string(config).unwrap(), "needs repair");
     }
 
     /// A listed folder that is gone, a name that is not one directory entry,

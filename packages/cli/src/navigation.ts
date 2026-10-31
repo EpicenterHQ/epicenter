@@ -1,9 +1,9 @@
 /** Machine-local pins and successful openings in one SQLite database. */
-import { lstat, mkdir, realpath, rm } from 'node:fs/promises';
-import { lstatSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+
 import { Database } from 'bun:sqlite';
-import { holdingFileLock } from '@epicenter/folder/bun';
+import { lstatSync, realpathSync } from 'node:fs';
+import { lstat, mkdir, realpath } from 'node:fs/promises';
+import { isAbsolute, join, resolve } from 'node:path';
 import { resolveAppPaths } from './app-paths.js';
 import { EXIT, writeJson, writeOut } from './output.js';
 
@@ -224,33 +224,6 @@ export async function removeNavigation(
 		}) ?? false
 	);
 }
-/** Remove obsolete metadata under the same lock an old writer used. */
-export async function discardBookmarks(dataDir: string): Promise<void> {
-	const path = join(dataDir, 'bookmarks.json');
-	const before = await lstat(path).catch((cause: NodeJS.ErrnoException) => {
-		if (cause.code === 'ENOENT') return undefined;
-		throw cause;
-	});
-	if (before === undefined) return;
-	await holdingFileLock(
-		join(dataDir, '.bookmarks.json.epicenter-save-lock'),
-		{
-			waitMs: 10_000,
-			held: `${path} could not be removed while another writer held its save lock.`,
-		},
-		async () => {
-			const kind = await lstat(path).catch((cause: NodeJS.ErrnoException) => {
-				if (cause.code === 'ENOENT') return undefined;
-				throw cause;
-			});
-			if (kind === undefined) return;
-			if (kind.isDirectory())
-				throw new Error(`${path} is a directory; remove it manually.`);
-			await rm(path);
-		},
-	);
-}
-
 /** Folder navigation changes never alter authored files or launch defaults. */
 export async function foldersCommand(
 	action: 'pin' | 'unpin' | 'list' | 'remove-recent',
@@ -258,7 +231,6 @@ export async function foldersCommand(
 	json: boolean,
 ) {
 	const { dataDir } = resolveAppPaths();
-	await discardBookmarks(dataDir);
 	if (action === 'list') {
 		const saved = await readNavigation(dataDir);
 		const inspect = async (entries: string[]) =>

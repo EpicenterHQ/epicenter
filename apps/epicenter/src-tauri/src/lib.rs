@@ -395,14 +395,6 @@ pub fn run() {
             macos_tabs::install(app.handle()).context("install native window menu")?;
 
             let desktop_paths = DesktopPaths::resolve(app.handle()).map_err(anyhow::Error::msg)?;
-            let old_data_dir = desktop_paths.data_dir.clone();
-            std::thread::spawn(move || {
-                if let Err(problem) =
-                    epicenter_folder_core::navigation::discard_bookmarks(&old_data_dir)
-                {
-                    log::warn!("obsolete folder bookmarks could not be discarded: {problem}");
-                }
-            });
             match data_folders::watch_data_folders(
                 app.handle(),
                 &desktop_paths.folder_dir,
@@ -1377,9 +1369,6 @@ mod tests {
         }
 
         for denied in [
-            // Both retired spellings. Neither is kept as a compatibility alias.
-            "epicenter://surface/home",
-            "epicenter://window/home",
             "epicenter://app/unknown",
             // Bundled apps are opened from the Folders window, which assigns
             // a folder, not by link.

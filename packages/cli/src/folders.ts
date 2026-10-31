@@ -3,9 +3,8 @@
  *
  * Records are the fixed `<folderDir>/so.epicenter`, the directory the desktop
  * binds for Settings (`library::RECORDS` in `epicenter-folder-core`). Nothing
- * selects, saves, or locks the location, and no configuration is read: an
- * earlier build's `folders.json` is ignored. Folder navigation lives in
- * `navigation.ts`.
+ * selects, saves, or locks the location, and no configuration is read.
+ * Folder navigation lives in `navigation.ts`.
  */
 import { lstat, mkdir, realpath, stat } from 'node:fs/promises';
 import {

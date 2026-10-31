@@ -269,32 +269,6 @@ mod tests {
         assert!(entries(&todos).is_empty());
     }
 
-    /// An earlier build's configuration neither redirects nor blocks a launch,
-    /// and is left byte for byte.
-    #[test]
-    fn old_and_corrupt_folders_json_is_never_read_or_changed() {
-        for contents in [
-            r#"{"homes":{"epicenter":"/elsewhere/records","todos":"/elsewhere/Todos"},"folders":[]}"#,
-            "not json",
-            "\u{feff}[7]",
-        ] {
-            let library = library();
-            fs::create_dir_all(&library.data).unwrap();
-            let config = library.data.join("folders.json");
-            fs::write(&config, contents).unwrap();
-            for default in [RECORDS, TODOS] {
-                assert_eq!(
-                    open_default(&library.data, &library.root, default)
-                        .unwrap()
-                        .root(),
-                    default.path(&library.root)
-                );
-            }
-            assert_eq!(fs::read_to_string(&config).unwrap(), contents);
-            assert_eq!(entries(&library.data), ["folders.json"]);
-        }
-    }
-
     #[test]
     fn a_file_at_the_default_is_refused_and_kept() {
         let library = library();
@@ -450,7 +424,6 @@ mod tests {
         }
         let fixture: serde_json::Value =
             serde_json::from_str(include_str!("../../fixtures/records-default.json")).unwrap();
-        let legacy = fixture["legacyConfig"].as_str().unwrap();
         let cases: Vec<Case> = serde_json::from_value(fixture["cases"].clone()).unwrap();
         for case in cases {
             let temp = tempfile::tempdir().unwrap();
@@ -471,7 +444,6 @@ mod tests {
                 std::os::unix::fs::symlink(base.join(target), path).unwrap();
             }
             fs::create_dir_all(&data).unwrap();
-            fs::write(data.join("folders.json"), legacy).unwrap();
             let candidate = RECORDS.path(&root);
             let existed = fs::symlink_metadata(&candidate).is_ok();
             let opened = open_default(&data, &root, RECORDS);
@@ -491,11 +463,7 @@ mod tests {
                     case.name
                 );
             }
-            assert_eq!(entries(&data), ["folders.json"], "{}", case.name);
-            assert_eq!(
-                fs::read_to_string(data.join("folders.json")).unwrap(),
-                legacy
-            );
+            assert!(entries(&data).is_empty(), "{}", case.name);
             for path in &case.files {
                 assert_eq!(
                     fs::read_to_string(base.join(path)).unwrap(),

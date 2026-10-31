@@ -350,26 +350,18 @@ mod tests {
         );
     }
 
-    /// An earlier build's `folders.json` naming another Todos home neither
-    /// redirects nor blocks the launch, and nothing is written to AppData.
+    /// A launch binds the fixed Todos default and writes nothing to AppData.
     #[test]
-    fn an_old_home_selection_is_ignored_and_no_configuration_is_written() {
+    fn a_launch_writes_no_configuration() {
         let fixture = fixture();
         let paths = fixture.app.state::<DesktopPaths>().inner().clone();
-        let chosen = fixture._temp.path().join("different");
-        fs::create_dir_all(&chosen).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
-        let config = paths.data_dir.join("folders.json");
-        let contents = json!({ "homes": { "todos": chosen }, "folders": [] }).to_string();
-        fs::write(&config, &contents).unwrap();
         let label = fixture.launch();
         assert_eq!(
             fixture.app.folders().bound(&label).unwrap().root(),
             fixture.root
         );
-        assert_eq!(entries(&paths.data_dir), ["folders.json"]);
-        assert_eq!(fs::read_to_string(&config).unwrap(), contents);
-        assert!(entries(&chosen).is_empty());
+        assert!(entries(&paths.data_dir).is_empty());
     }
 
     /// Standalone and hosted Todos name the same row of the shared table.

@@ -157,8 +157,8 @@ async function keepMode(target: string, staged: string): Promise<void> {
 
 /**
  * Make the directory at `path`, whose parent is there, readable only by
- * this account: made `0700`, or tightened to it when an older version left
- * it open (`0755`), with no access control entry, such as one its parent
+ * this account: made `0700`, or tightened to it when it is open to others
+ * (`0755`), with no access control entry, such as one its parent
  * passes on (`withoutAcl`). Its mode is read and changed through the
  * directory opened without following a link, so a link swapped in is
  * refused, never followed and never changed. One another account owns
@@ -240,7 +240,10 @@ export const nodeDirectoryPrimitives: DirectoryPrimitives = {
 		return new Uint8Array(await readFile(path));
 	},
 	async readStamped(path) {
-		const file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+		const file = await open(
+			path,
+			constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+		);
 		try {
 			const stats = await file.stat({ bigint: true });
 			if (!stats.isFile()) throw new Error(`'${path}' is not a regular file`);

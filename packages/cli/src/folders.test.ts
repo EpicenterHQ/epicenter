@@ -2,6 +2,8 @@
  * Navigation command tests across fresh CLI processes and isolated AppData.
  * Checks strict storage, reset cleanup, path identity, and concurrent writers.
  */
+
+import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
 import {
@@ -11,12 +13,10 @@ import {
 	readFile,
 	realpath,
 	rm,
-	symlink,
 	writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { Database } from 'bun:sqlite';
 
 const temporary: string[] = [];
 afterEach(async () => {
@@ -37,15 +37,6 @@ async function setup() {
 	const authored = join(root, 'Epicenter');
 	await Promise.all([folder, authored].map((path) => mkdir(path)));
 	const navigation = join(data, 'navigation.sqlite');
-	const bookmarks = join(data, 'bookmarks.json');
-	const legacy = join(data, 'folders.json');
-	async function write(path: string, value: unknown) {
-		await mkdir(data, { recursive: true });
-		await writeFile(
-			path,
-			typeof value === 'string' ? value : JSON.stringify(value),
-		);
-	}
 	async function run(...args: string[]) {
 		const child = Bun.spawn(
 			[process.execPath, resolve(import.meta.dir, 'bin.ts'), ...args, '--json'],
@@ -73,9 +64,6 @@ async function setup() {
 		folder,
 		authored,
 		navigation,
-		bookmarks,
-		legacy,
-		write,
 		run,
 	};
 }
@@ -153,31 +141,6 @@ test('unpin and remove-recent change independent facts without touching authored
 	expect(await readFile(join(folder, 'keep.md'), 'utf8')).toBe('Keep');
 });
 
-test('obsolete bookmarks are unlinked without parsing or affecting folders.json', async () => {
-	const { folder, bookmarks, legacy, navigation, write, run } = await setup();
-	await write(bookmarks, 'not json');
-	await write(legacy, 'not json');
-	expect((await run('folders', 'list')).code).toBe(0);
-	expect(existsSync(bookmarks)).toBe(false);
-	expect(existsSync(folder)).toBe(true);
-	expect(await readFile(legacy, 'utf8')).toBe('not json');
-	expect(existsSync(navigation)).toBe(false);
-});
-
-test('legacy symlink is unlinked, while a directory is refused', async () => {
-	const { data, bookmarks, run } = await setup();
-	await mkdir(data);
-	const target = join(data, 'target');
-	await writeFile(target, 'keep');
-	await symlink(target, bookmarks);
-	expect((await run('folders', 'list')).code).toBe(0);
-	expect(await readFile(target, 'utf8')).toBe('keep');
-	expect(existsSync(bookmarks)).toBe(false);
-	await mkdir(bookmarks);
-	expect((await run('folders', 'list')).code).toBe(2);
-	expect(existsSync(bookmarks)).toBe(true);
-});
-
 test('missing references remain visible and removable', async () => {
 	const { root, data, navigation, run } = await setup();
 	const missing = join(root, 'Missing');
@@ -244,30 +207,8 @@ test('alias membership is evaluated inside each SQLite write', async () => {
 	expect(facts(navigation)).toMatchObject({ pins: [], recent: [] });
 });
 
-test('stray JSON navigation is ignored during the clean SQLite reset', async () => {
-	const { data, navigation, folder, run } = await setup();
-	await mkdir(data);
-	const old = join(data, 'navigation.json');
-	await writeFile(old, 'broken');
-	expect((await run('folders', 'list')).reply).toEqual({
-		pins: [],
-		recent: [],
-	});
-	expect((await run('folders', 'pin', folder)).code).toBe(0);
-	expect(facts(navigation).pins).toEqual([folder]);
-	expect(await readFile(old, 'utf8')).toBe('broken');
-});
-
-test('connection commands use the fixed records folder whatever folders.json names', async () => {
-	const { root, authored, legacy, write, run } = await setup();
-	const old = join(root, 'My setup');
-	await mkdir(join(old, 'connections'), { recursive: true });
-	await writeFile(
-		join(old, 'connections/whispering-text.md'),
-		'---\nkind: openai-compatible\ntitle: Old model\nmodel: old\n---\n',
-	);
-	const original = JSON.stringify({ homes: { epicenter: old }, folders: [] });
-	await write(legacy, original);
+test('connection commands read the fixed records folder and write no app data', async () => {
+	const { root, authored, run } = await setup();
 	const records = join(authored, 'so.epicenter');
 	expect(await run('whispering-connection', 'read', 'text')).toMatchObject({
 		code: 0,
@@ -282,6 +223,5 @@ test('connection commands use the fixed records folder whatever folders.json nam
 	const fixed = await run('whispering-connection', 'read', 'text');
 	expect(fixed.code).toBe(0);
 	expect(fixed.reply.row.text).toContain('My model');
-	expect(await readFile(legacy, 'utf8')).toBe(original);
-	expect(await readdir(join(root, 'app-data'))).toEqual(['folders.json']);
+	expect(existsSync(join(root, 'app-data'))).toBe(false);
 });

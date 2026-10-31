@@ -395,13 +395,8 @@ mod tests {
             body(&get(&pages, "/folders/assets/index-abc.js")),
             "export {};"
         );
-        // A page Epicenter does not have, and the installed-app route an
-        // earlier build served, which is gone.
+        // A page Epicenter does not have.
         for missing in [
-            "/apps/com.example.board/0123456789abcdef0123456789abcdef01234567/",
-            "/apps/so.epicenter.todos/0123456789abcdef0123456789abcdef01234567/",
-            "/apps/",
-            "/apps",
             "/unknown/",
             "/",
         ] {
