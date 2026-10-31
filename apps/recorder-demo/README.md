@@ -7,18 +7,26 @@ to the other ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-cont
 - **On this browser** (`/`, the local variant): the recordings in this
   browser's private files (OPFS, `openDevice`), for good. It needs no
   account and offers no sign-in, works offline, and never uploads. A
-  recording is two writes through the device client: its audio, then its
-  note.
+  recording is written into those files as it records
+  (`startRecording({ device, path })` from `@epicenter/recorder/browser`,
+  decision 84): each piece of audio, about a second, is appended to its file
+  as it arrives, and its note follows at Stop. When the page opens, a
+  recording a closed tab cut off is cut back to its last whole piece
+  (`recoverRecordings`) and given its note, its length read from the audio.
 - **Online** (`/online`, the online variant): the person's repository,
   `<handle>/recorder-demo`, through Epicenter (`openRemote`), behind a
-  sign-in. A recording goes straight into it, its audio (a Git LFS object)
-  and then its note, and plays from it; nothing is kept in the browser, and
-  without the server it can do nothing. Signed out it asks for a sign-in.
+  sign-in. A recording is held in the page while it records
+  (`startPageRecording`) and goes straight into the repository at Stop, its
+  audio (a Git LFS object) and then its note, and plays from it; nothing is
+  kept in the browser's files, and without the server it can do nothing.
+  Signed out it asks for a sign-in.
 
 The header links the two as ways to use the recorder; each link loads a new
-page. Both play, rename and delete their own recordings. A recording the
-store does not take (a private window has no file storage; an unreachable
-server refuses) stays in the page with **Save again** and **Download it**.
+page. Both play, rename and delete their own recordings. Online, a recording
+the repository does not take (an unreachable server refuses) stays in the
+page with **Save again** and **Download it**. On this browser, a private
+window keeps no files, so Record says why it cannot start before any
+microphone opens.
 
 The contract is `src/contract.ts`: a note per recording at
 `recordings/{id}.md` (`title`, `recordedAt`, `durationMs`) and its audio at
@@ -92,10 +100,14 @@ account's own.
   (`openRemote`) and hands it to the recorder.
 - `src/Recorder.svelte`, `src/Library.svelte`, `src/RecordingRow.svelte`:
   recording, the list and one row, each over the client the recorder is
-  given and that client alone. The recorder wraps it once for Svelte
+  given and that client alone. The variant also hands the recorder how it
+  records (`src/lib/record.ts`: `recordInto(device)` on this browser,
+  `recordInPage` online). The recorder wraps it once for Svelte
   (`fromClient`) and hands both down: a row reads audio bytes through the
   client and shows and edits through the wrapped one.
-- `src/lib/recordings.ts`: one client's notes and audio, joined by id.
+- `src/lib/recordings.ts`: one client's notes and audio, joined by id, and
+  `finishCutOffRecordings`, which gives audio a closed tab left alone its
+  note.
 
 ## Tests
 
@@ -109,7 +121,8 @@ bun x playwright test -c apps/recorder-demo/playwright.config.ts --project=webki
 The Playwright suite (`e2e/demo.spec.ts`) starts the same environment as
 `demo` (`e2e/stack.ts`) and walks one person through the two variants per
 engine. On this browser, with no sign-in offered and no request to the
-server: a recording lands in OPFS as its audio and its note, plays, is
+server: a recording's audio appears in OPFS and grows while it records,
+its note lands at Stop, and it plays, is
 renamed, another is deleted, and all of it survives a reload; offline
 (`goOffline`), recording and renaming still work. Online: it asks for a
 sign-in; signed in, the repository holds none of this browser's recordings,
@@ -121,9 +134,8 @@ rename over a desktop rename is refused as `Conflict`, keeps its draft, and
 lands on a second save; `epicenter share` with a second person, whose own
 signed-in browser shows and plays the recording. Back on this browser,
 signing in and out moved nothing. In WebKit a last step opens an ephemeral
-context, which refuses OPFS as Safari's private windows do: a recording
-the browser cannot keep stays in the page, with "Save again" and
-"Download it". Chromium records from its fake capture device and WebKit
+context, which refuses OPFS as Safari's private windows do: Record says it
+cannot start, and nothing is held in the page. Chromium records from its fake capture device and WebKit
 from the tone; both use persistent profiles, the only kind in which WebKit
 opens OPFS. WebKit keeps OPFS outside the profile directory, so the first
 step empties the origin's files before it records.

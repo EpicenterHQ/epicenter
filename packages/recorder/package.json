@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"sideEffects": false,
-	"description": "Recordings written into a folder on the desktop and in the browser, microphone streams, and voice activity detection.",
+	"description": "Recordings written into the app's store as they record, on the desktop and in the browser, microphone streams, and voice activity detection.",
 	"keywords": [
 		"audio",
 		"recorder",
@@ -20,6 +20,8 @@
 		"./vad-assets": "./src/vad-assets.ts"
 	},
 	"dependencies": {
+		"@epicenter/definition": "workspace:*",
+		"@epicenter/folder": "workspace:*",
 		"@ricky0123/vad-web": "catalog:",
 		"@tauri-apps/api": "catalog:",
 		"wellcrafted": "catalog:"

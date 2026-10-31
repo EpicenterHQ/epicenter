@@ -17,7 +17,7 @@ import type { ReactiveAuthClient } from '@epicenter/auth/svelte';
 import type { Client } from '@epicenter/definition/contract';
 import type { Component, Snippet } from 'svelte';
 import type { Result } from 'wellcrafted/result';
-import type { AnyCaptureDevice } from '../capture.js';
+import type { CaptureDevice } from '../capture.js';
 import type {
 	ConnectionChange,
 	ConnectionDefaults,
@@ -69,11 +69,12 @@ export type PlatformAuth = ReactiveAuthClient<AuthClient>;
 
 export type WhisperingServices = {
 	/**
-	 * What this app records from, and how: a browser answers the audio at
-	 * Stop, the desktop writes it into the data folder from the first
-	 * sample. Fixed when the services are constructed.
+	 * What this app records from, writing each recording into the store as
+	 * it records: the desktop a WAV in the data folder from the first sample,
+	 * a browser each piece into this browser's files. Fixed when the services
+	 * are constructed.
 	 */
-	readonly capture: AnyCaptureDevice;
+	readonly capture: CaptureDevice;
 	/**
 	 * Send a recording's audio over the transcription connection, only while
 	 * that connection is still the base URL the request was prepared for.
@@ -127,7 +128,7 @@ export type WhisperingServices = {
 
 /**
  * Construct the capabilities this build offers over `client`, the store the
- * app keeps its files in, without I/O. The desktop records into and
- * transcribes from the folder `client` opened; a browser needs nothing of it.
+ * app keeps its files in, without I/O. Both builds record into `client`; the
+ * desktop also transcribes from the folder it opened.
  */
 export type CreateServices = (client: Client<Whispering>) => WhisperingServices;

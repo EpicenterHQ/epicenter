@@ -99,6 +99,14 @@ function observed(store: DeviceStore): DeviceStore {
 			if (written.data === 'landed') changes.emit([path]);
 			return written;
 		},
+		...(store.append && {
+			async append(path, bytes, options) {
+				const appended = await store.append!(path, bytes, options);
+				if (appended.data === 'landed' && (options.create || options.announce))
+					changes.emit([path]);
+				return appended;
+			},
+		}),
 		watch: changes.watch,
 		close: store.close,
 	};

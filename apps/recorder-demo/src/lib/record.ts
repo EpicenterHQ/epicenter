@@ -1,55 +1,87 @@
 /**
- * One recording from a `MediaStream`, in the format decision 56 picks.
- * `stop()` answers the bytes, the extension of the type the browser actually
- * produced, and how long it ran.
+ * How each variant records, both through `@epicenter/recorder/browser`
+ * (decision 84):
+ *
+ * - The local variant writes into this browser's files as it records
+ *   (`recordInto`): each piece of audio is appended to
+ *   `recordings/{id}.{ext}` as it arrives, so a closed tab keeps it, and
+ *   only the note waits for Stop (the contract requires its length).
+ * - The online variant's store is the repository, written when a recording
+ *   stops, so it holds the audio in the page until then (`recordInPage`).
+ *
+ * Under `?fixture=tone` both record a 440 Hz oscillator instead of the
+ * microphone, for browsers under test that have no fake capture device
+ * (WebKit under Playwright).
  */
-import { chooseRecordingType, extensionOf } from './recording-format.ts';
+import type { Client } from '@epicenter/definition/contract';
+import {
+	browserEnvironment,
+	createBrowserRecorder,
+	type RecorderError,
+	toneMicrophone,
+} from '@epicenter/recorder/browser';
+import { Ok, type Result } from 'wellcrafted/result';
+import type { Recorder } from '../contract.ts';
 
-export type Recorded = {
-	bytes: Uint8Array;
-	ext: string;
-	durationMs: number;
+/** A stopped recording: its audio already in the store, or its bytes, still in the page. */
+export type Stopped = { ext: string; durationMs: number } & (
+	| { written: true }
+	| { written: false; bytes: Uint8Array }
+);
+
+/** A recording under way. */
+export type Take = {
+	stop(): Promise<Result<Stopped, RecorderError>>;
 };
 
-export function startRecording(stream: MediaStream) {
-	const mimeType = chooseRecordingType((type) =>
-		MediaRecorder.isTypeSupported(type),
+/** Start recording `id`. */
+export type Record = (id: string) => Promise<Result<Take, RecorderError>>;
+
+/** The browser's recorder, over the tone under `?fixture=tone`. */
+function recorder() {
+	const tone = new URL(location.href).searchParams.get('fixture') === 'tone';
+	return createBrowserRecorder(
+		tone
+			? { ...browserEnvironment(), mediaDevices: toneMicrophone() }
+			: browserEnvironment(),
 	);
-	const recorder = new MediaRecorder(
-		stream,
-		mimeType ? { mimeType } : undefined,
-	);
-	const chunks: Blob[] = [];
-	const startedAt = performance.now();
-	recorder.addEventListener('dataavailable', (event) => {
-		if (event.data.size > 0) chunks.push(event.data);
-	});
-	const stopped = new Promise<Recorded>((resolve, reject) => {
-		recorder.addEventListener('error', (event) =>
-			reject((event as ErrorEvent).error ?? new Error('Recording failed')),
-		);
-		recorder.addEventListener('stop', async () => {
-			for (const track of stream.getTracks()) track.stop();
-			// The produced type, not the requested one: read it from the data.
-			const type = chunks[0]?.type || recorder.mimeType;
-			const ext = extensionOf(type);
-			if (ext === null) {
-				reject(new Error(`The browser recorded ${type || 'an unknown type'}`));
-				return;
-			}
-			const blob = new Blob(chunks, { type });
-			resolve({
-				bytes: new Uint8Array(await blob.arrayBuffer()),
-				ext,
-				durationMs: Math.round(performance.now() - startedAt),
-			});
+}
+
+/** Record into `device`, this browser's files, as it records. */
+export function recordInto(device: Client<Recorder>): Record {
+	return async (id) => {
+		const started = await recorder().startRecording({
+			device,
+			path: `recordings/${id}`,
 		});
-	});
-	recorder.start(250);
-	return {
-		stop(): Promise<Recorded> {
-			if (recorder.state !== 'inactive') recorder.stop();
-			return stopped;
-		},
+		if (started.error !== null) return started;
+		const recording = started.data;
+		return Ok({
+			async stop() {
+				const stopped = await recording.stop();
+				if (stopped.error !== null) return stopped;
+				const { path, durationMs } = stopped.data;
+				return Ok({
+					written: true,
+					ext: path.slice(path.lastIndexOf('.') + 1),
+					durationMs,
+				});
+			},
+		});
 	};
 }
+
+/** Record in the page; Stop answers the audio for the store to take. */
+export const recordInPage: Record = async () => {
+	const started = await recorder().startPageRecording();
+	if (started.error !== null) return started;
+	const recording = started.data;
+	return Ok({
+		async stop() {
+			const stopped = await recording.stop();
+			if (stopped.error !== null) return stopped;
+			const { bytes, extension, durationMs } = stopped.data;
+			return Ok({ written: false, bytes, ext: extension, durationMs });
+		},
+	});
+};

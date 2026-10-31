@@ -3,13 +3,15 @@
  * (`tauri-plugin-epicenter-recorder`, ADR-0571), never the WebView's. The
  * shell lists the inputs by name without asking for access, reads one's
  * level without recording, and records `recordings/<id>.wav` into the data
- * folder from the first sample (ADR-0543), named by the root the page
- * opened it at. A quit, a crash, or a closed window keeps the audio up to
- * the cut, and `recover` repairs its header on the next launch.
+ * folder from the first sample (ADR-0543), through `@epicenter/recorder/tauri`,
+ * the same recording API a browser build imports from `/browser`. A quit, a
+ * crash, or a closed window keeps the audio up to the cut, and `recover`
+ * repairs its header on the next launch.
  *
  * A chosen microphone is asked for by the id the shell listed it under;
  * one that is not connected is refused, never replaced.
  */
+import type { Client } from '@epicenter/definition/contract';
 import type { RecordingEndedReason } from '@epicenter/recorder';
 import {
 	listInputs,
@@ -19,15 +21,12 @@ import {
 } from '@epicenter/recorder/tauri';
 import { Err, Ok } from 'wellcrafted/result';
 import {
+	type CaptureDevice,
 	CaptureError,
-	type FolderCaptureDevice,
 	type MicrophoneInputs,
 } from '../capture.js';
-import { captureErrorOf } from '../microphone.js';
-
-/** Where recordings are written, and under which extension. */
-const DIRECTORY = 'recordings';
-const EXT = 'wav';
+import type { Whispering } from '../contract.js';
+import { captureErrorOf, createMicrophoneDevice } from '../microphone.js';
 
 const endedError = (reason: RecordingEndedReason, label: string) =>
 	reason === 'permissionRevoked'
@@ -59,11 +58,11 @@ function inputsOf(): MicrophoneInputs {
 			});
 			let stopped = false;
 			return Ok({
-				label: meter.device,
+				label: meter.microphone,
 				level: () => (stopped ? 0 : level),
 				onEnded(listener) {
 					return meter.onEnded((reason) =>
-						listener(endedError(reason, meter.device)),
+						listener(endedError(reason, meter.microphone)),
 					);
 				},
 				stop() {
@@ -81,46 +80,15 @@ function inputsOf(): MicrophoneInputs {
 }
 
 /**
- * The desktop shell's microphone, recording into `root`: the data folder, by
- * the path the shell answered when the page opened it (`rootOf`).
+ * The desktop shell's microphone, recording into `device`: the data folder,
+ * whose root the shell answered when the page opened it.
  */
-export function createShellMicrophone(root: string): FolderCaptureDevice {
-	return {
-		keeps: 'folder',
-		source: 'microphone',
-		label: 'Microphone',
-		ext: EXT,
+export function createShellMicrophone(
+	device: Client<Whispering>,
+): CaptureDevice {
+	return createMicrophoneDevice({
+		device,
 		inputs: inputsOf(),
-		async start({ id, input, signal }) {
-			const { data: recording, error } = await startRecording({
-				root,
-				path: `${DIRECTORY}/${id}`,
-				input,
-				signal,
-			});
-			if (error !== null) return Err(captureErrorOf(error));
-			const startedAt = performance.now();
-			return Ok({
-				startedAt,
-				onEnded: recording.onEnded,
-				async stop() {
-					const { data, error: stopError } = await recording.stop();
-					if (stopError !== null) return Err(captureErrorOf(stopError));
-					return Ok({ durationMs: data.durationMs });
-				},
-			});
-		},
-		async recover() {
-			const { data, error } = await recoverRecordings({
-				root,
-				under: DIRECTORY,
-			});
-			if (error !== null) return Err(captureErrorOf(error));
-			return Ok(
-				data.map((path) =>
-					path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]+$/, ''),
-				),
-			);
-		},
-	};
+		recorder: { startRecording, recoverRecordings },
+	});
 }

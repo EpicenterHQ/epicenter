@@ -135,6 +135,7 @@ export async function openTestServices({
 
 	const services: WhisperingServices = {
 		capture: createFixtureDevice({
+			device,
 			name: 'tone.wav',
 			load: async () => ({ name: 'tone.wav', bytes: toneWav() }),
 		}),

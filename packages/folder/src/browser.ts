@@ -16,6 +16,7 @@ import { openRepository } from './browser/repository.js';
 import { snapshotContent } from './browser/storage.js';
 import { createDeviceClient, storeOf } from './device/client.js';
 import { DeviceError, opfsStore } from './device/opfs-store.js';
+import type { DeviceStore } from './device/store.js';
 import { OpenDeviceError, OpenFolderError } from './errors.js';
 import {
 	createFolder,
@@ -66,6 +67,26 @@ export async function openDevice<TContract extends Contract>(
  */
 export function closeDevice(device: Client<Contract>): void {
 	storeOf(device).close?.();
+}
+
+/** A device's files by path: what `deviceFiles` answers. */
+export type DeviceFiles = Pick<DeviceStore, 'list' | 'read' | 'write'> &
+	Required<Pick<DeviceStore, 'append'>>;
+
+/**
+ * The files under a client `openDevice` returned, by path, for code that
+ * writes a file while it is made: a recording appended as it records
+ * (`append`), and repaired after a closed tab cut it off (`read`, then
+ * `write` over the version read). Every change lands as the client's own
+ * do, and its listeners hear it the same way. Nothing here checks a path
+ * against the contract: a caller writes only paths its contract gives a
+ * file collection, such as `recordings/{id}.{ext}`.
+ */
+export function deviceFiles(device: Client<Contract>): DeviceFiles {
+	const { list, read, write, append } = storeOf(device);
+	if (append === undefined)
+		throw new Error('expected a client openDevice from /browser returned');
+	return { list, read, write, append };
 }
 
 /** The same fixed key as the browser's default folder, so its files carry over. */

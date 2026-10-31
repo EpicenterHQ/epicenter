@@ -1,10 +1,16 @@
 /**
- * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`.
+ * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`
+ * (ADR-0543, decision 84).
  *
- * The shell's recorder writes `<path>.wav` into the folder the shell bound
- * to this window, or into a `root` the page opened, from the first sample, so the file exists and grows while the
- * recording runs. `stop` finalizes its header. When the page reloads or its
- * window closes, the shell finalizes the recording itself: the file is kept.
+ * The shell's recorder writes `<path>.wav` into the `device`'s folder from
+ * the first sample, so the file exists and grows while the recording runs,
+ * its header updated about once a second. The folder is named to the shell
+ * by the root it answered when the page opened the device (`rootOf` from
+ * `@epicenter/folder/tauri`), or, for the window's own folder, by none.
+ * `stop` finalizes its header. When the page reloads or its window closes,
+ * the shell finalizes the recording itself: the file is kept. A process that
+ * ends before then leaves a header that undercounts the last second, which
+ * `recoverRecordings` rewrites from the file's length.
  *
  * Levels and an ending nobody asked for arrive on a channel this page alone
  * hears.
@@ -13,6 +19,7 @@
  * (`listInputs`), reads one's level without recording (`openMeter`), and
  * records from one, each named by the id the shell lists it under.
  */
+import { rootOf } from '@epicenter/folder/tauri';
 import { Channel } from '@tauri-apps/api/core';
 import { Ok, type Result } from 'wellcrafted/result';
 import {
@@ -96,8 +103,9 @@ function createRecordingSignals() {
 	};
 }
 
+/** Record into `device`'s folder at `<path>.wav`, from the first sample. */
 export const startRecording: StartRecording = async ({
-	root,
+	device,
 	path,
 	input,
 	signal,
@@ -107,7 +115,7 @@ export const startRecording: StartRecording = async ({
 	let answer: Awaited<ReturnType<typeof commands.start>>;
 	try {
 		answer = await commands.start(
-			root ?? null,
+			rootOf(device) ?? null,
 			path,
 			input?.deviceId ?? null,
 			signals.channel,
@@ -116,7 +124,7 @@ export const startRecording: StartRecording = async ({
 		return RecorderError.Failed({ cause });
 	}
 	if (answer.error !== null) return fromNative(answer.error, input?.label);
-	const { id, path: file, device } = answer.data;
+	const { id, path: file, device: microphone } = answer.data;
 	// Withdrawn while the shell was opening the microphone: it is released,
 	// and what the shell already wrote is finalized and kept, never deleted.
 	if (signal?.aborted) {
@@ -129,7 +137,7 @@ export const startRecording: StartRecording = async ({
 	return Ok({
 		path: file,
 		startedAt,
-		device,
+		microphone,
 		onLevel: signals.onLevel,
 		onEnded: signals.onEnded,
 		async stop() {
@@ -145,9 +153,16 @@ export const startRecording: StartRecording = async ({
 	});
 };
 
-export const recoverRecordings: RecoverRecordings = async ({ root, under }) => {
+/** Rewrite the header of every WAV under `under` that a quit cut short. */
+export const recoverRecordings: RecoverRecordings = async ({
+	device,
+	under,
+}) => {
 	try {
-		const { data, error } = await commands.recover(root ?? null, under);
+		const { data, error } = await commands.recover(
+			rootOf(device) ?? null,
+			under,
+		);
 		if (error !== null) return fromNative(error);
 		return Ok(data);
 	} catch (cause) {
@@ -169,7 +184,7 @@ export async function listInputs(): Promise<Result<Input[], RecorderError>> {
 /** A microphone open for its level only: nothing is recorded or written. */
 export type Meter = {
 	/** The name of the microphone that is open. */
-	readonly device: string;
+	readonly microphone: string;
 	/** Hear how loud the input is, from 0 to 1, at most twenty times a second. Returns the unsubscribe. */
 	onLevel(listener: (level: number) => void): () => void;
 	/** Hear the first unexpected ending, including one before subscription. Retired by close. */
@@ -200,7 +215,7 @@ export async function openMeter({
 		return RecorderError.Failed({ cause });
 	}
 	if (answer.error !== null) return fromNative(answer.error, input?.label);
-	const { id, device } = answer.data;
+	const { id, device: microphone } = answer.data;
 	const close = async () => {
 		signals.retire();
 		await commands.closeMeter(id).catch(() => {});
@@ -210,7 +225,7 @@ export async function openMeter({
 		return RecorderError.Cancelled();
 	}
 	return Ok({
-		device,
+		microphone,
 		onLevel: signals.onLevel,
 		onEnded: signals.onEnded,
 		close,

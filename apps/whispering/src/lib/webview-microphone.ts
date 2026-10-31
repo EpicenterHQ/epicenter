@@ -1,8 +1,9 @@
 /**
  * The microphone in a browser tab: listing the inputs the WebView knows,
  * allowing access, reading a level from one without recording, and
- * recording with `@epicenter/recorder`'s browser recorder, which asks for the
- * chosen microphone by ID and answers the audio on stop.
+ * recording with `@epicenter/recorder/browser`, which asks for the chosen
+ * microphone by ID and appends each piece to the recording's file in this
+ * browser's files as it arrives (decision 84).
  *
  * A chosen microphone is asked for by its exact ID. When the WebView cannot
  * open exactly that one, the answer is a refusal: no other microphone is
@@ -16,11 +17,13 @@
  * Listing never asks for access. A WebView lists inputs by name only after
  * access was allowed, so `allow` is a separate action the person takes.
  */
+import type { Client } from '@epicenter/definition/contract';
 import {
 	browserEnvironment,
 	createBrowserRecorder,
-	type StartBrowserRecording,
+	recoverRecordings,
 	startRecording,
+	toneMicrophone,
 } from '@epicenter/recorder/browser';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -29,7 +32,8 @@ import {
 	type MicrophoneInputs,
 	type MicrophonePreference,
 } from './capture.js';
-import { createMicrophoneDevice } from './microphone.js';
+import type { Whispering } from './contract.js';
+import { createMicrophoneDevice, type Recorder } from './microphone.js';
 
 /** The level reading the meter needs from an audio graph. */
 type LevelContext = {
@@ -55,8 +59,8 @@ export type MicrophoneEnvironment = {
 		  })
 		| undefined;
 	readonly createLevelContext: (() => LevelContext) | undefined;
-	/** Records with the browser's recorder. */
-	readonly record: StartBrowserRecording;
+	/** Records with the browser's recorder, into this browser's files. */
+	readonly recorder: Recorder;
 };
 
 function webViewEnvironment(): MicrophoneEnvironment {
@@ -70,7 +74,7 @@ function webViewEnvironment(): MicrophoneEnvironment {
 			typeof AudioContext === 'undefined'
 				? undefined
 				: () => new AudioContext(),
-		record: startRecording,
+		recorder: { startRecording, recoverRecordings },
 	};
 }
 
@@ -262,46 +266,34 @@ function createInputs(environment: MicrophoneEnvironment): MicrophoneInputs {
 	};
 }
 
+/** The WebView's microphone, recording into `device`: this browser's files. */
 export function createWebViewMicrophone(
+	device: Client<Whispering>,
 	environment: MicrophoneEnvironment = webViewEnvironment(),
 ): CaptureDevice {
 	return createMicrophoneDevice({
+		device,
 		inputs: createInputs(environment),
-		record: environment.record,
+		recorder: environment.recorder,
 	});
 }
 
 /**
- * A 440 Hz tone as a microphone stream, for browsers under test that have no
- * fake capture device (WebKit under Playwright). It needs no permission.
+ * A generated tone in place of the microphone (`toneMicrophone`), recorded
+ * by the browser's own recorder into `device`, so its audio is what a
+ * microphone take would be (AAC or WebM, written as it records). Its
+ * recordings are marked `fixture`.
  */
-function toneStream(): MediaStream {
-	const context = new AudioContext();
-	const oscillator = context.createOscillator();
-	oscillator.frequency.value = 440;
-	const destination = context.createMediaStreamDestination();
-	oscillator.connect(destination);
-	oscillator.start();
-	const { stream } = destination;
-	// Stopping the recording's tracks also stops the tone.
-	for (const track of stream.getTracks())
-		track.addEventListener('ended', () => void context.close());
-	return stream;
-}
-
-/**
- * A generated tone in place of the microphone, recorded by the browser's own
- * recorder, so its audio is what a microphone take would be (AAC or WebM).
- * Its recordings are marked `fixture`.
- */
-export function createToneMicrophone(): CaptureDevice {
-	const { startRecording: record } = createBrowserRecorder({
-		...browserEnvironment(),
-		mediaDevices: { getUserMedia: async () => toneStream() },
-	});
+export function createToneMicrophone(
+	device: Client<Whispering>,
+): CaptureDevice {
 	return createMicrophoneDevice({
+		device,
 		inputs: undefined,
-		record,
+		recorder: createBrowserRecorder({
+			...browserEnvironment(),
+			mediaDevices: toneMicrophone(),
+		}),
 		source: 'fixture',
 		label: 'Fixture audio (generated tone)',
 	});

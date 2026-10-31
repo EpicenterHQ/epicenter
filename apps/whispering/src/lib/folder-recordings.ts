@@ -1,17 +1,16 @@
 /**
- * Recordings the desktop shell writes into the data folder from their
- * first sample (ADR-0543): the note is made when recording starts, so the
- * folder always names what it holds, and completed with the length when it
- * stops. A recording a quit or a crash cut off has a note without a length
- * beside audio the shell repairs (`FolderCaptureDevice.recover`); the next
- * launch completes its note from the audio's own header.
- *
- * A browser keeps a recording only when it stops, as its audio and then its
- * note, so nothing here applies to it.
+ * Recordings written into Whispering's files as they record (ADR-0543,
+ * decision 84): on the desktop the shell's WAV from the first sample, in a
+ * browser each piece appended as it arrives. The note is made when
+ * recording starts, so the files always name what they hold, and completed
+ * with the length when it stops. A recording a quit, a crash, or a closed
+ * tab cut off has a note without a length beside audio the capture device
+ * repairs (`CaptureDevice.recover`); the next start completes its note from
+ * the audio's own bytes.
  */
 import type { Client } from '@epicenter/definition/contract';
+import { audioDurationMs } from '@epicenter/recorder';
 import { Err, Ok, type Result } from 'wellcrafted/result';
-import { wavDurationMs } from './audio-format.js';
 import type { CaptureSource } from './capture.js';
 import type { Whispering } from './contract.js';
 
@@ -47,7 +46,7 @@ export async function completeRecording(
 		if (read.error !== null)
 			return Err(
 				read.error.name === 'NotFound'
-					? 'This recording’s note was deleted while it recorded. Its audio is still in the folder.'
+					? 'This recording’s note was deleted while it recorded. Its audio is still there.'
 					: read.error.message,
 			);
 		if (read.data.durationMs === durationMs) return Ok(undefined);
@@ -65,35 +64,52 @@ export async function completeRecording(
 	);
 }
 
+/** The extensions recordings are written under: WAV on the desktop, AAC in MP4 or Opus in WebM in a browser. */
+const RECORDED = ['wav', 'm4a', 'webm'] as const;
+
 /**
  * Complete every recording whose note has no length while its audio
- * (`<id>.<ext>`) is there: what a quit or a crash cut off. Run it after the
- * shell repaired the audio's headers, before anything records. Answers the
- * ids completed; a note with no audio is left as it is.
+ * (`<id>.<ext>`) is there: what a quit, a crash, or a closed tab cut off.
+ * `repair` (the capture device's `recover`) runs first, and only when such a
+ * recording exists: in a browser it reads every recording's audio, which no
+ * start should pay for when nothing was cut off. Run it before anything
+ * records. Answers the ids completed; a note with no audio, or whose audio
+ * does not read, is left as it is.
  */
 export async function finishCutOffRecordings(
 	device: Client<Whispering>,
-	ext: string,
+	repair: () => Promise<Result<unknown, { message: string }>>,
 ): Promise<Result<string[], string>> {
 	const listed = await device.recordings.list();
 	if (listed.error !== null) return Err(listed.error.message);
-	const finished: string[] = [];
+	const cutOff: { id: string; ext: string }[] = [];
 	for (const note of listed.data.items) {
 		if (note.durationMs !== undefined) continue;
-		const audio = await device.audio.get({ id: note.id, ext });
+		for (const ext of RECORDED)
+			if ((await device.audio.get({ id: note.id, ext })).error === null) {
+				cutOff.push({ id: note.id, ext });
+				break;
+			}
+	}
+	if (cutOff.length === 0) return Ok([]);
+	const repaired = await repair();
+	if (repaired.error !== null) return Err(repaired.error.message);
+	const finished: string[] = [];
+	for (const { id, ext } of cutOff) {
+		const audio = await device.audio.get({ id, ext });
 		if (audio.error !== null) continue;
-		const durationMs = wavDurationMs(audio.data.bytes);
+		const durationMs = audioDurationMs(audio.data.bytes, ext);
 		if (durationMs === undefined) continue;
-		const completed = await completeRecording(device, note.id, durationMs);
-		if (completed.error === null) finished.push(note.id);
+		const completed = await completeRecording(device, id, durationMs);
+		if (completed.error === null) finished.push(id);
 	}
 	return Ok(finished);
 }
 
 /**
  * Remove the note of a recording that did not start (the microphone was
- * refused or not there), so the folder names no recording it does not hold.
- * Audio the shell already wrote is never removed here.
+ * refused or not there), so the files name no recording they do not hold.
+ * Audio already written is never removed here.
  */
 export async function abandonRecording(
 	device: Client<Whispering>,

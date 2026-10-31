@@ -10,12 +10,16 @@
  *    (`m4a` or `webm`) and its note and nothing else; its title and
  *    transcript are edited, it is transcribed over a custom endpoint (a
  *    stub), one is deleted with its files, and all of it survives a reload.
- * 2. Offline, recording and editing still work, and survive a reload.
- * 3. Transcription over the Epicenter account needs a sign-in; signed in, it
+ * 2. A recording is written into this browser's files as it records: its
+ *    note is there from the start and its audio file grows while it runs. A
+ *    reload mid-recording keeps what was written, and the next start
+ *    completes the note's length from the audio (decision 84).
+ * 3. Offline, recording and editing still work, and survive a reload.
+ * 4. Transcription over the Epicenter account needs a sign-in; signed in, it
  *    sends the account's API token (to a stub) and keeps the transcript
  *    here. Signing in moved nothing: this browser's files are as they were,
  *    and the person has no `whispering` repository (`epicenter repos`).
- * 4. Signing out keeps every recording.
+ * 5. Signing out keeps every recording.
  */
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -102,6 +106,29 @@ async function pathsUnder(prefix: string) {
 	return Object.keys(await opfsFiles(page))
 		.filter((path) => path.startsWith(prefix))
 		.sort();
+}
+
+/** The audio file of recording `id` in this origin's OPFS, and its size; null before it is made. */
+async function audioFileOf(id: string) {
+	return page.evaluate(async (id) => {
+		try {
+			const root = await navigator.storage.getDirectory();
+			const recordings = (await root.getDirectoryHandle(
+				'recordings',
+			)) as FileSystemDirectoryHandle & {
+				entries(): AsyncIterable<[string, FileSystemHandle]>;
+			};
+			for await (const [name, handle] of recordings.entries())
+				if (name.startsWith(`${id}.`) && !name.endsWith('.md'))
+					return {
+						name,
+						size: (await (handle as FileSystemFileHandle).getFile()).size,
+					};
+		} catch {
+			// No recordings directory yet.
+		}
+		return null;
+	}, id);
 }
 
 /** Record about a second and a half from the home page; answers the new recording's id. */
@@ -229,7 +256,44 @@ test('1. on this browser, a recording is kept as its audio and note, edited, tra
 	);
 });
 
-test('2. offline, recording and editing still work, and survive a reload', async () => {
+test('2. a recording is written into this browser’s files as it records, and a reload mid-recording keeps it', async () => {
+	await page.goto(app);
+	const before = await recordingIds();
+	await page.getByTestId('start-recording').click();
+	await expect(page.getByTestId('stop-recording')).toBeVisible();
+	// Its note is made when it starts.
+	await expect
+		.poll(async () => (await recordingIds()).length)
+		.toBe(before.length + 1);
+	const id = (await recordingIds()).find((id) => !before.includes(id))!;
+	expect(await opfsText(page, `recordings/${id}.md`)).not.toMatch(
+		/^durationMs:/m,
+	);
+
+	// Its audio appears within a piece (about a second), then grows.
+	await expect
+		.poll(async () => (await audioFileOf(id))?.size ?? 0)
+		.toBeGreaterThan(0);
+	const first = (await audioFileOf(id))!;
+	expect(first.name).toMatch(/\.(m4a|webm)$/);
+	await expect
+		.poll(async () => (await audioFileOf(id))?.size ?? 0, { timeout: 10_000 })
+		.toBeGreaterThan(first.size);
+	const grown = (await audioFileOf(id))!.size;
+
+	// A reload while it records ends the page; what was written stays, and
+	// the next start completes the note from the audio.
+	await page.reload();
+	await expect(page.getByTestId('start-recording')).toBeVisible();
+	await expect
+		.poll(() => opfsText(page, `recordings/${id}.md`))
+		.toMatch(/^durationMs: [1-9]\d*$/m);
+	expect((await audioFileOf(id))!.size).toBeGreaterThanOrEqual(grown);
+	await pageLink('Recordings').click();
+	await expect(row(id)).toBeVisible();
+});
+
+test('3. offline, recording and editing still work, and survive a reload', async () => {
 	// Online, load both pages this step moves between (with the fixture
 	// microphone the URL asks for); offline, nothing more can load.
 	await page.goto(app);
@@ -259,7 +323,7 @@ test('2. offline, recording and editing still work, and survive a reload', async
 	await expect(row(kept)).toContainText('Standup notes');
 });
 
-test('3. signing in enables hosted transcription and moves nothing', async ({
+test('4. signing in enables hosted transcription and moves nothing', async ({
 	stack,
 	person,
 }) => {
@@ -364,7 +428,7 @@ test('3. signing in enables hosted transcription and moves nothing', async ({
 	).not.toContain('whispering');
 });
 
-test('4. signing out keeps every recording', async () => {
+test('5. signing out keeps every recording', async () => {
 	await settings();
 	await account().getByRole('button', { name: 'Sign out' }).click();
 	await expect(account()).toContainText('Optional: sign in');

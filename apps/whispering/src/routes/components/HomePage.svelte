@@ -16,7 +16,6 @@
 	import RecorderCard from './RecorderCard.svelte';
 	import RunStatus from './RunStatus.svelte';
 	import TransformationOutput from './TransformationOutput.svelte';
-	import UnsavedRecordings from './UnsavedRecordings.svelte';
 
 	const whispering = getWhispering();
 	const library = getLibrary();
@@ -73,7 +72,6 @@
 		</SectionHeader.Root>
 
 		<RecorderCard />
-		<UnsavedRecordings />
 	</div>
 
 	<div class="w-full flex-3">

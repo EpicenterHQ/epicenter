@@ -46,6 +46,23 @@ export type DeviceStore = {
 		expected: 'absent' | 'any' | Version,
 	): Promise<Result<'landed' | 'stale', Unavailable>>;
 	/**
+	 * Add `bytes` to the end of the file at `path`, for a file written while
+	 * it is made, such as a recording. With `create` the file is made with
+	 * these bytes (and its missing directories), never over one that is
+	 * there (`'stale'`); without, the bytes go after what is there, and a
+	 * file that went is `'stale'`. Only this origin's private files have it:
+	 * on the desktop the shell writes a recording itself.
+	 *
+	 * Listeners hear the file when it is made, and after that only an append
+	 * with `announce`: a file that grows every second would otherwise be
+	 * listed, read, and hashed again every second.
+	 */
+	append?(
+		path: string,
+		bytes: Uint8Array,
+		options: { create: boolean; announce: boolean },
+	): Promise<Result<'landed' | 'stale', Unavailable>>;
+	/**
 	 * Hear changes made outside this store: by another tab, the desktop
 	 * shell's watcher, or another program. It may also hear this store's own
 	 * writes, and may give null for "something may have changed". Started

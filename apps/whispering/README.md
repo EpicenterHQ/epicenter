@@ -85,12 +85,14 @@ and Settings (the two connections and the optional sign-in).
 
 ### Recording
 
-Press the microphone on Home to start and again to stop. Nothing is kept
-until Stop: then the audio, and a note titled with the time, are kept in
-this browser. A refresh or a closed tab during a recording loses it. A browser that keeps
-no files for the site (a private window), or one that refuses a write, keeps
-the finished recording in the page with **Save again**, **Download it**, and
-**Discard** until the page closes; the app says so under the header.
+Press the microphone on Home to start and again to stop. A note titled
+with the time is kept in this browser when it starts, and the audio is
+written beside it as it records, about a second at a time (AAC in `.m4a`,
+else Opus in `.webm`); Stop writes the length into the note. A refresh, a
+crash, or a closed tab keeps what was recorded up to the cut: the next start
+cuts a half-written file back to its last whole second and completes the
+note from the audio. A browser that keeps no files for the site (a private
+window) cannot record; the app says why before any microphone opens.
 
 ### Recordings
 
@@ -202,7 +204,10 @@ the `epicenter` CLI, and the app built against that API on
 `http://localhost:1420` (which must be free). With no account, it records
 (audio and note land in OPFS and nothing else does), edits a title and a
 transcript, transcribes over a stubbed custom endpoint, and deletes a
-recording, then reloads; offline, it records and edits; it shows the
+recording, then reloads; it watches a recording's audio file appear and
+grow in OPFS while it records, reloads mid-recording, and sees the next
+start complete the note's length from what was written; offline, it records
+and edits; it shows the
 Epicenter account route refused until sign-in, then, signed in, sending the
 account's API token (to a stub of the API's transcription route) and
 keeping the transcript here, with this browser's files otherwise unchanged
@@ -260,12 +265,15 @@ whose desktop leaf went missing.
 
 - **Recording** goes through the shell's microphone
   (`tauri-plugin-epicenter-recorder`), which writes `recordings/<id>.wav`
-  into the data folder from the first sample. The note is made at Start and
-  gets its length at Stop (`folder-recordings.ts`); a recording a quit or a
-  crash cut off is repaired on the next launch and its length written from
-  the audio. The page passes the data folder's root as the shell answered it
-  (`rootOf` from `@epicenter/folder/tauri`); the shell refuses any root the
-  window did not open.
+  into the data folder from the first sample. The call is the web build's,
+  `startRecording({ device, path })` from `@epicenter/recorder`, imported
+  from `/tauri` here and `/browser` there (decision 84). The note is made at
+  Start and gets its length at Stop (`folder-recordings.ts`); a recording a
+  quit or a crash cut off is repaired on the next launch and its length
+  written from the audio. The recorder names the data folder to the shell by
+  the root the shell answered when the page opened it (`rootOf` from
+  `@epicenter/folder/tauri`); the shell refuses any root the window did not
+  open.
 - **Transcription** goes to a custom endpoint, sent from Rust
   (`send_request`, `src-tauri/src/http.rs`, so no endpoint needs CORS), to
   Epicenter's hosted API through the account's relay (`account_fetch`, whose

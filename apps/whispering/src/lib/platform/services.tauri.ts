@@ -271,7 +271,7 @@ export const createServices: CreateServices = (client) => {
 			'Whispering’s desktop services need the data folder, opened by its path.',
 		);
 	return {
-		capture: createShellMicrophone(root),
+		capture: createShellMicrophone(client),
 		async transcribe(request) {
 			let route: Awaited<ReturnType<typeof routeOf>>;
 			try {

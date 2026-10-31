@@ -8,6 +8,7 @@
 	import type { Account } from '@epicenter/auth';
 	import { openRemote } from '@epicenter/folder/remote';
 	import Recorder from './Recorder.svelte';
+	import { recordInPage } from './lib/record.ts';
 	import { recorder } from './contract.ts';
 
 	const { account }: { account: Account } = $props();
@@ -28,4 +29,4 @@
 	Recorded straight into {shared ? `the repository ${shared}` : 'your Epicenter repository'};
 	nothing is kept in this browser.
 </p>
-<Recorder client={repo} where={shared ? `in ${shared}` : "in your repository"} />
+<Recorder client={repo} record={recordInPage} where={shared ? `in ${shared}` : "in your repository"} />

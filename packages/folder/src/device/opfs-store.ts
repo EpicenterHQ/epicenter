@@ -55,6 +55,14 @@ type Request =
 			bytes: Uint8Array | null;
 			expected: string;
 			from: string;
+	  }
+	| {
+			op: 'append';
+			path: string;
+			bytes: Uint8Array;
+			create: boolean;
+			announce: boolean;
+			from: string;
 	  };
 
 export function opfsStore(): DeviceStore {
@@ -167,6 +175,15 @@ export function opfsStore(): DeviceStore {
 			);
 			if (written.error !== null) return written;
 			return Ok(written.data as 'landed' | 'stale');
+		},
+		async append(path, bytes, { create, announce }) {
+			const owned = bytes.slice();
+			const appended = await call(
+				{ op: 'append', path, bytes: owned, create, announce, from: writer },
+				[owned.buffer],
+			);
+			if (appended.error !== null) return appended;
+			return Ok(appended.data as 'landed' | 'stale');
 		},
 		watch: changes.watch,
 		close() {

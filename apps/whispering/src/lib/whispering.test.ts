@@ -4,13 +4,15 @@
  * in for OPFS). Nothing here uploads or syncs (ADR-0700).
  *
  * Key behaviors:
- * - A recording is kept at Stop as two writes, its audio and then its note
+ * - A recording's note is made when it starts and its audio is written into
+ *   the files as it records; Stop completes the note with its length
+ * - A recording the files cannot take does not start, or leaves no note
+ * - A start completes the length of a recording a closed tab cut off
  * - A result is kept when its answer arrives, even if the pages have since
  *   closed
  * - Deleting a recording deletes its transcripts, their results, and its
  *   audio; it is refused while work for it runs
- * - An answer, or a recording, that cannot be kept stays in this window to
- *   save again
+ * - An answer that cannot be kept stays in this window to save again
  * - A note that does not read is listed for repair and replaced as text
  *
  * Run with `--conditions=browser` (`bun run test`): the lists are Svelte
@@ -56,7 +58,12 @@ async function record({
 	const before = library.entries.length;
 	await whispering.startRecording();
 	await whispering.stopRecording();
-	await eventually(() => library.entries.length === before + 1);
+	// The note is listed from the start, and its length once Stop completes it.
+	await eventually(
+		() =>
+			library.entries.length === before + 1 &&
+			library.entries[0]!.durationMs !== undefined,
+	);
 	return library.entries[0]!;
 }
 
@@ -72,7 +79,7 @@ const notesIn = async (root: string, collection: string) =>
 		(name) => name.endsWith('.md'),
 	);
 
-test('a recording is kept at Stop as two writes on this browser: its audio, then its note', async () => {
+test('a recording’s note is made when it starts, its audio written beside it, and its length at Stop', async () => {
 	const opened = await fixture();
 	const { test, library } = opened;
 	const writes: string[] = [];
@@ -90,7 +97,7 @@ test('a recording is kept at Stop as two writes on this browser: its audio, then
 
 	const recording = await record(opened);
 
-	expect(writes).toEqual(['audio', 'note']);
+	expect(writes).toEqual(['note', 'audio']);
 	expect(recording).toMatchObject({ capture: 'fixture' });
 	expect(recording.durationMs).toBe(1000);
 	await eventually(() => library.audioOf(recording.id).kind === 'here');
@@ -104,10 +111,30 @@ test('a recording is kept at Stop as two writes on this browser: its audio, then
 	expect(headerLine(library).label).toBe('On this browser');
 });
 
-test('a recording whose note could not be kept is finished over its kept audio when saved again', async () => {
+test('a recording whose note cannot be made does not start, and nothing is written', async () => {
 	const { test, whispering, library } = await fixture();
-	const create = test.device.recordings.create;
 	test.device.recordings.create = async () =>
+		Err({
+			name: 'Unavailable',
+			message: 'This browser gives the page no private file storage',
+			cause: null,
+		}) as never;
+
+	await whispering.startRecording();
+
+	expect(whispering.recorder.phase).toBe('idle');
+	expect(whispering.recorderError).toBe(
+		'The recording could not start: This browser gives the page no private file storage',
+	);
+	expect(library.entries).toHaveLength(0);
+	expect(
+		await readdir(join(test.root, 'device', 'recordings')).catch(() => []),
+	).toEqual([]);
+});
+
+test('a recording whose audio the files do not take leaves no note behind', async () => {
+	const { test, whispering, library } = await fixture();
+	test.device.audio.create = async () =>
 		Err({
 			name: 'Unavailable',
 			message: 'The disk is full',
@@ -115,20 +142,43 @@ test('a recording whose note could not be kept is finished over its kept audio w
 		}) as never;
 
 	await whispering.startRecording();
+	expect(whispering.recorder.phase).toBe('recording');
 	await whispering.stopRecording();
 
-	expect(whispering.unsavedRecordings).toHaveLength(1);
-	expect(whispering.unsavedRecordings[0]!.reason).toBe('The disk is full');
-	const { id } = whispering.unsavedRecordings[0]!;
-	expect(await readdir(join(test.root, 'device', 'recordings'))).toEqual([
-		`${id}.wav`,
-	]);
+	expect(whispering.recorderError).toBe(
+		'The recording could not be saved: The disk is full',
+	);
+	await eventually(() => library.entries.length === 0);
+	expect(await readdir(join(test.root, 'device', 'recordings'))).toEqual([]);
+});
 
-	test.device.recordings.create = create;
-	expect(await whispering.saveRecordingAgain(id)).toBeUndefined();
-	expect(whispering.unsavedRecordings).toHaveLength(0);
-	await eventually(() => library.entries.length === 1);
-	expect(library.entries[0]!.id).toBe(id);
+test('a start completes the length of a recording a closed tab cut off, from its audio', async () => {
+	const test = await openTestServices();
+	cleanups.push(test.remove);
+	const id = '2026-10-31T09-30-00-000Z-cutoffaa';
+	const audio = new Uint8Array(
+		await Bun.file(
+			new URL(
+				'../../../../packages/recorder/src/fixtures/chromium.m4a',
+				import.meta.url,
+			),
+		).arrayBuffer(),
+	);
+	await put(join(test.root, 'device'), `recordings/${id}.m4a`, audio);
+	await put(
+		join(test.root, 'device'),
+		`recordings/${id}.md`,
+		'---\ntitle: Cut off\nrecordedAt: 2026-10-31T09:30:00.000Z\ncapture: microphone\n---\n',
+	);
+	const opened = await openTestWhispering({
+		services: test.services,
+		client: test.device,
+	});
+	cleanups.push(opened.close);
+
+	await eventually(() => opened.library.entries[0]?.durationMs !== undefined);
+	expect(opened.library.entries[0]).toMatchObject({ id, durationMs: 960 });
+	expect(opened.whispering.recorderError).toBeUndefined();
 });
 
 test('a transcription sends the recording’s audio and keeps its transcript beside it', async () => {
@@ -319,31 +369,6 @@ test('an answer whose result cannot be kept stays in this window until saved aga
 	await eventually(() => library.resultsFor(recording.id).length === 1);
 	// Saved again without another request.
 	expect(test.transcribed).toHaveLength(1);
-});
-
-test('a recording this browser cannot keep stays in the page, and is kept when saved again', async () => {
-	const { test, whispering, library } = await fixture();
-	const create = test.device.audio.create;
-	test.device.audio.create = async () =>
-		Err({
-			name: 'Unavailable',
-			message: 'No private storage',
-			cause: null,
-		}) as never;
-
-	await whispering.startRecording();
-	await whispering.stopRecording();
-
-	expect(whispering.unsavedRecordings).toHaveLength(1);
-	expect(whispering.unsavedRecordings[0]!.reason).toBe('No private storage');
-	expect(library.entries).toHaveLength(0);
-
-	test.device.audio.create = create;
-	expect(
-		await whispering.saveRecordingAgain(whispering.unsavedRecordings[0]!.id),
-	).toBeUndefined();
-	expect(whispering.unsavedRecordings).toHaveLength(0);
-	await eventually(() => library.entries.length === 1);
 });
 
 test('a note that does not read is listed for repair, and replaced as text', async () => {

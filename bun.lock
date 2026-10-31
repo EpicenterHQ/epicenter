@@ -295,6 +295,7 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
+        "@epicenter/recorder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "wellcrafted": "catalog:",
       },
@@ -615,6 +616,8 @@
       "name": "@epicenter/recorder",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/definition": "workspace:*",
+        "@epicenter/folder": "workspace:*",
         "@ricky0123/vad-web": "catalog:",
         "@tauri-apps/api": "catalog:",
         "wellcrafted": "catalog:",

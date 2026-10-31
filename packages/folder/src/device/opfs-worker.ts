@@ -14,6 +14,10 @@
  *   path with `move(parentDirectory, name)`, the one form both engines take,
  *   so it never appears empty first, and a crash leaves no empty file at the
  *   path.
+ * - An append (a recording, as it records) makes its file the same way, then
+ *   adds each later piece at the end through a sync access handle, opened
+ *   and closed for that piece alone, so the file is never held between
+ *   pieces and a crash keeps every piece that was written.
  *
  * Every change that lands is posted on the `epicenter-device` broadcast
  * channel (`{ paths, from }`), so the stores of other tabs hear it; `from`
@@ -31,6 +35,15 @@ type Request =
 			path: string;
 			bytes: Uint8Array | null;
 			expected: string;
+			from: string;
+	  }
+	| {
+			id: number;
+			op: 'append';
+			path: string;
+			bytes: Uint8Array;
+			create: boolean;
+			announce: boolean;
 			from: string;
 	  };
 
@@ -50,6 +63,19 @@ type Directory = FileSystemDirectoryHandle & {
 };
 type MovableFile = FileSystemFileHandle & {
 	move(parent: FileSystemDirectoryHandle, name: string): Promise<void>;
+};
+/**
+ * The synchronous access a dedicated Worker has to a file, which TypeScript's
+ * DOM library leaves out. Some engines answered `flush` and `close` with
+ * promises, so both are awaited.
+ */
+type AccessibleFile = FileSystemFileHandle & {
+	createSyncAccessHandle(): Promise<{
+		getSize(): number;
+		write(bytes: Uint8Array, options: { at: number }): number;
+		flush(): void | Promise<void>;
+		close(): void | Promise<void>;
+	}>;
 };
 
 const STAGING = ['.epicenter', 'staging'];
@@ -193,18 +219,40 @@ async function list() {
 
 /** The file at `path`, or null when it is not there, deleted mid-read included. */
 async function read(path: string) {
-	const found = await fileAt(path);
-	if (found === null) return null;
-	let file: File;
-	let bytes: Uint8Array;
-	try {
-		file = await found.handle.getFile();
-		bytes = new Uint8Array(await file.arrayBuffer());
-	} catch (cause) {
-		if (await went(cause, found.parent, found.name)) return null;
-		throw cause;
+	for (let attempt = 1; ; attempt++) {
+		const found = await fileAt(path);
+		if (found === null) return null;
+		try {
+			const file = await found.handle.getFile();
+			const bytes = new Uint8Array(await file.arrayBuffer());
+			return { bytes, version: await sha256(bytes), stamp: stampOf(file) };
+		} catch (cause) {
+			// An append between taking the file and reading its bytes leaves a
+			// snapshot that no longer reads (Chromium says `NotReadableError`,
+			// WebKit `NotFoundError`) while the file is still there: read again.
+			if (attempt < 3 && (await changedMidRead(cause, found))) continue;
+			if (await went(cause, found.parent, found.name)) return null;
+			throw cause;
+		}
 	}
-	return { bytes, version: await sha256(bytes), stamp: stampOf(file) };
+}
+
+/** Whether a read failed only because the file changed under it: it is still there. */
+async function changedMidRead(
+	cause: unknown,
+	{ parent, name }: { parent: FileSystemDirectoryHandle; name: string },
+) {
+	if (
+		!(cause instanceof DOMException) ||
+		(cause.name !== 'NotReadableError' && cause.name !== 'NotFoundError')
+	)
+		return false;
+	try {
+		await parent.getFileHandle(name);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 async function write(path: string, bytes: Uint8Array | null, expected: string) {
@@ -231,19 +279,53 @@ async function write(path: string, bytes: Uint8Array | null, expected: string) {
 			}
 			if (current !== null) return 'stale';
 		}
-		const segments = segmentsOf(path);
-		const name = segments.pop()!;
-		const directory = await root();
-		const parent = (await directoryAt(directory, segments, true))!;
-		const staging = (await directoryAt(directory, STAGING, true))!;
-		const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID()}`;
-		const staged = await staging.getFileHandle(stagedName, { create: true });
+		await createWhole(path, bytes);
+		return 'landed';
+	});
+}
+
+/** Make the file at `path` with `bytes`, staged and moved so it never appears empty. */
+async function createWhole(path: string, bytes: Uint8Array) {
+	const segments = segmentsOf(path);
+	const name = segments.pop()!;
+	const directory = await root();
+	const parent = (await directoryAt(directory, segments, true))!;
+	const staging = (await directoryAt(directory, STAGING, true))!;
+	const stagedName = `${Date.now().toString(36)}-${crypto.randomUUID()}`;
+	const staged = await staging.getFileHandle(stagedName, { create: true });
+	try {
+		await writeWhole(staged, bytes);
+		await (staged as MovableFile).move(parent, name);
+	} catch (cause) {
+		await staging.removeEntry(stagedName).catch(() => {});
+		throw cause;
+	}
+}
+
+/**
+ * Add `bytes` at the end of the file at `path`, or with `create` make it
+ * with them. Under the same per-path lock as a write, so a write and an
+ * append to one path take turns.
+ */
+async function append(path: string, bytes: Uint8Array, create: boolean) {
+	segmentsOf(path);
+	return navigator.locks.request(`epicenter-device:${path}`, async () => {
+		const found = await fileAt(path);
+		if (create) {
+			if (found !== null) return 'stale';
+			await createWhole(path, bytes);
+			return 'landed';
+		}
+		if (found === null) return 'stale';
+		if (bytes.byteLength === 0) return 'landed';
+		const access = await (
+			found.handle as AccessibleFile
+		).createSyncAccessHandle();
 		try {
-			await writeWhole(staged, bytes);
-			await (staged as MovableFile).move(parent, name);
-		} catch (cause) {
-			await staging.removeEntry(stagedName).catch(() => {});
-			throw cause;
+			access.write(bytes, { at: access.getSize() });
+			await access.flush();
+		} finally {
+			await access.close();
 		}
 		return 'landed';
 	});
@@ -294,6 +376,12 @@ async function answer(request: Request): Promise<unknown> {
 				request.expected,
 			);
 			if (outcome === 'landed') announce(request.path, request.from);
+			return outcome;
+		}
+		case 'append': {
+			const outcome = await append(request.path, request.bytes, request.create);
+			if (outcome === 'landed' && (request.create || request.announce))
+				announce(request.path, request.from);
 			return outcome;
 		}
 		default:

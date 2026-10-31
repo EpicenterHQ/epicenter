@@ -135,10 +135,7 @@ test('a microphone is reached only through its build’s recorder entry', () => 
 	]);
 	expect(
 		importers((specifier) => specifier === '@epicenter/recorder/browser'),
-	).toEqual([
-		'lib/microphone.ts imports @epicenter/recorder/browser',
-		'lib/webview-microphone.ts imports @epicenter/recorder/browser',
-	]);
+	).toEqual(['lib/webview-microphone.ts imports @epicenter/recorder/browser']);
 	expect(callers('createWebViewMicrophone')).toEqual([
 		'lib/platform/browser.ts',
 	]);

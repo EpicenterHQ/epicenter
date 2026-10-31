@@ -1,9 +1,11 @@
 <!--
 	The recorder over one client, the variant's store for the page's life:
-	Record and Stop, then the recording's two writes through that client,
-	its audio first and then its note, and below them the client's
-	recordings (`Library`). The local variant passes this browser's files,
-	the online one the repository; this component never chooses.
+	Record and Stop, then what the store still needs (the note, and the
+	audio if it was held in the page), and below them the client's
+	recordings (`Library`). The variant passes its store and how it records
+	(`lib/record.ts`): the local one this browser's files, written as it
+	records; the online one the repository, written at Stop. This component
+	never chooses.
 -->
 <script lang="ts">
 	import type { Client } from '@epicenter/definition/contract';
@@ -11,15 +13,17 @@
 	import { fromClient } from '@epicenter/svelte/client';
 	import Library from './Library.svelte';
 	import type { Recorder } from './contract.ts';
-	import { openMicrophone } from './lib/microphone.ts';
-	import { startRecording } from './lib/record.ts';
+	import type { Record, Take } from './lib/record.ts';
 
 	const {
 		client,
+		record: begin,
 		where,
 	}: {
 		/** The store recordings are written to and listed from; fixed for the component's life. */
 		client: Client<Recorder>;
+		/** How this variant records into that store. */
+		record: Record;
 		/** Where that store is, for a recording that did not land there: "in this browser". */
 		where: string;
 	} = $props();
@@ -29,36 +33,41 @@
 	const files = fromClient(client);
 
 	let problem = $state<string | null>(null);
-	let recording = $state<ReturnType<typeof startRecording> | null>(null);
+	let recording = $state<{ id: string; at: Date; take: Take } | null>(null);
 	let busy = $state(false);
 
-	/** A finished recording: its note's fields, its audio, and whether the audio has landed. */
+	/**
+	 * A finished recording: its note's fields, and its audio, already in the
+	 * store (`bytes` null) or held in the page until the store takes it.
+	 */
 	type Finished = {
 		id: string;
 		title: string;
 		recordedAt: string;
 		durationMs: number;
 		ext: string;
-		bytes: Uint8Array;
+		bytes: Uint8Array | null;
 		audioLanded: boolean;
 	};
 	/**
-	 * Recordings the store did not take (a private window has no file
-	 * storage; a full disk or an unreachable server refuses). Their bytes
-	 * stay in this page, to save again or download, until one of those works
-	 * or the page closes.
+	 * Recordings the store did not take (a full disk or an unreachable server
+	 * refuses). What is still in the page stays here, to save again or
+	 * download, until one of those works or the page closes.
 	 */
 	let unsaved = $state.raw<
-		(Finished & { reason: string; download: string })[]
+		(Finished & { reason: string; download: string | null })[]
 	>([]);
 
 	async function record() {
 		problem = null;
 		busy = true;
 		try {
-			recording = startRecording(await openMicrophone());
-		} catch (cause) {
-			problem = `Could not start recording: ${cause instanceof Error ? cause.message : cause}`;
+			const at = new Date();
+			const id = timeId(at);
+			const started = await begin(id);
+			if (started.error !== null)
+				problem = `Could not start recording: ${started.error.message}`;
+			else recording = { id, at, take: started.data };
 		} finally {
 			busy = false;
 		}
@@ -69,7 +78,11 @@
 		const held = unsaved.find((item) => item.id === finished.id);
 		const download =
 			held?.download ??
-			URL.createObjectURL(new Blob([finished.bytes as Uint8Array<ArrayBuffer>]));
+			(finished.bytes === null
+				? null
+				: URL.createObjectURL(
+						new Blob([finished.bytes as Uint8Array<ArrayBuffer>]),
+					));
 		unsaved = [
 			...unsaved.filter((item) => item.id !== finished.id),
 			{ ...finished, reason, download },
@@ -77,15 +90,15 @@
 	}
 
 	/**
-	 * Write `finished` to the store: its audio, then its note. A step that
-	 * fails holds it in this page; saving again starts after the audio when
-	 * it landed. A path already taken is this recording's own earlier
-	 * attempt (its id is its moment), whose answer was lost, so it counts as
-	 * written.
+	 * Write what the store does not have of `finished`: its audio, unless it
+	 * was written as it recorded, then its note. A step that fails holds it
+	 * in this page; saving again starts after the audio when it landed. A
+	 * path already taken is this recording's own earlier attempt (its id is
+	 * its moment), whose answer was lost, so it counts as written.
 	 */
 	async function keep(finished: Finished) {
 		const { id, title, recordedAt, durationMs, ext, bytes } = finished;
-		if (!finished.audioLanded) {
+		if (!finished.audioLanded && bytes !== null) {
 			const audio = await files.audio.create({ id, ext, bytes });
 			if (audio.error !== null && audio.error.name !== 'Occupied')
 				return hold(finished, audio.error.message);
@@ -100,7 +113,7 @@
 		if (note.error !== null && note.error.name !== 'Occupied')
 			return hold(finished, note.error.message);
 		const held = unsaved.find((item) => item.id === id);
-		if (held) URL.revokeObjectURL(held.download);
+		if (held?.download) URL.revokeObjectURL(held.download);
 		unsaved = unsaved.filter((item) => item.id !== id);
 	}
 
@@ -115,21 +128,24 @@
 
 	async function stop() {
 		if (!recording) return;
+		const { id, at, take } = recording;
 		busy = true;
 		try {
-			const { bytes, ext, durationMs } = await recording.stop();
-			const recordedAt = new Date();
+			const stopped = await take.stop();
+			if (stopped.error !== null) {
+				problem = `Recording failed: ${stopped.error.message}`;
+				return;
+			}
+			const { ext, durationMs } = stopped.data;
 			await keep({
-				id: timeId(recordedAt),
-				title: `Recording ${recordedAt.toLocaleString()}`,
-				recordedAt: recordedAt.toISOString(),
+				id,
+				title: `Recording ${at.toLocaleString()}`,
+				recordedAt: at.toISOString(),
 				durationMs,
 				ext,
-				bytes,
-				audioLanded: false,
+				bytes: stopped.data.written ? null : stopped.data.bytes,
+				audioLanded: stopped.data.written,
 			});
-		} catch (cause) {
-			problem = `Recording failed: ${cause instanceof Error ? cause.message : cause}`;
 		} finally {
 			recording = null;
 			busy = false;
@@ -152,7 +168,9 @@
 	<p class="problem row" data-testid="unsaved">
 		<span>{held.title} is not saved {where}: {held.reason}</span>
 		<button onclick={() => saveAgain(held)} disabled={busy}>Save again</button>
-		<a href={held.download} download={`${held.id}.${held.ext}`}>Download it</a>
+		{#if held.download}
+			<a href={held.download} download={`${held.id}.${held.ext}`}>Download it</a>
+		{/if}
 	</p>
 {/each}
 <Library {client} {files} />

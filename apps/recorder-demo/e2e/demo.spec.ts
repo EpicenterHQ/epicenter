@@ -8,8 +8,9 @@
  * repository, signed in.
  *
  * 1. On this browser, with no sign-in offered and no request to the server,
- *    a recording lands in OPFS as its audio and its note; it plays, is
- *    renamed, and another is deleted; all of it survives a reload.
+ *    a recording lands in OPFS as its audio, which grows while it records
+ *    (decision 84), and its note; it plays, is renamed, and another is
+ *    deleted; all of it survives a reload.
  * 2. Offline, the local variant still records and renames.
  * 3. Online asks for a sign-in; signed in, it shows the repository, which
  *    holds none of this browser's recordings. A recording made and renamed
@@ -28,8 +29,8 @@
  *    they were, and the repository has none of them. Signing out leaves
  *    them too.
  * 9. WebKit only, in an ephemeral context (no OPFS, as in Safari's private
- *    windows): a recording the browser cannot keep stays in the page, to
- *    save again or download.
+ *    windows): the local variant, which writes a recording as it records,
+ *    refuses to record and says why, before any microphone opens.
  */
 import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -180,8 +181,25 @@ test('1. on this browser, a recording lands in OPFS as its audio and its note, i
 		await expect(page.getByRole('button', { name: /Sign in/ })).toHaveCount(0);
 		await expect(onBrowser().getByText('No recordings yet.')).toBeVisible();
 
-		kept = await record(onBrowser());
-		// Two writes: the audio, then its note.
+		// The audio is in this browser's files while it records, and grows.
+		await onBrowser().getByRole('button', { name: 'Record' }).click();
+		await expect(
+			onBrowser().getByRole('button', { name: 'Stop' }),
+		).toBeVisible();
+		const growing = async () =>
+			Object.entries(await opfsFiles(page)).find(([path]) =>
+				/^recordings\/[^/]+\.(m4a|webm)$/.test(path),
+			)?.[1];
+		await expect.poll(growing).toBeDefined();
+		const firstPiece = await growing();
+		await expect.poll(growing, { timeout: 10_000 }).not.toBe(firstPiece);
+		await onBrowser().getByRole('button', { name: 'Stop' }).click();
+		await expect(rows(onBrowser())).toHaveCount(1);
+		await expect(
+			onBrowser().getByRole('button', { name: 'Record' }),
+		).toBeEnabled();
+		kept = (await ids(onBrowser()))[0]!;
+		// Two files: the audio, and its note at Stop.
 		await expect.poll(recordingFiles).toHaveLength(2);
 		const files = await recordingFiles();
 		const audio = audioOf(files, kept);
@@ -466,7 +484,7 @@ test('8. signing in moved nothing: this browser keeps its recordings, the reposi
 	expect(await opfsFiles(page)).toEqual(localFiles);
 });
 
-test('9. where the browser keeps no files, a recording is not lost: it stays in memory to save again or download', async ({
+test('9. where the browser keeps no files, the local variant refuses to record and says why, before any microphone opens', async ({
 	stack,
 	browserName,
 	playwright,
@@ -479,22 +497,14 @@ test('9. where the browser keeps no files, a recording is not lost: it stays in 
 		const tab = await ephemeral.newPage();
 		await tab.goto(`${stack.app}/?fixture=tone`);
 		await tab.getByRole('button', { name: 'Record' }).click();
-		await expect(tab.getByRole('button', { name: 'Stop' })).toBeVisible();
-		await tab.waitForTimeout(1000);
-		await tab.getByRole('button', { name: 'Stop' }).click();
-
-		const unsaved = tab.getByTestId('unsaved');
-		await expect(unsaved).toContainText('is not saved in this browser');
-		const download = unsaved.getByRole('link', { name: 'Download it' });
-		const bytes = await tab.evaluate(
-			async (href) => (await (await fetch(href)).arrayBuffer()).byteLength,
-			(await download.getAttribute('href')) as string,
+		const refused = tab.getByText('Could not start recording:');
+		await expect(refused).toContainText(
+			'The recording could not be saved there',
 		);
-		expect(bytes).toBeGreaterThan(0);
-		// Saving again fails the same way here, and the recording stays.
-		await unsaved.getByRole('button', { name: 'Save again' }).click();
-		await expect(unsaved).toContainText('is not saved in this browser');
-		await expect(download).toBeVisible();
+		await expect(refused).toContainText('no private file storage');
+		await expect(tab.getByRole('button', { name: 'Stop' })).toHaveCount(0);
+		await expect(tab.getByRole('button', { name: 'Record' })).toBeEnabled();
+		await expect(tab.getByTestId('unsaved')).toHaveCount(0);
 	} finally {
 		await ephemeral.close();
 	}

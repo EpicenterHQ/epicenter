@@ -9,7 +9,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDevice } from '@epicenter/folder/node';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { toneWav } from './capture.js';
 import { whispering } from './contract.js';
@@ -90,8 +90,13 @@ test('a second Start with the same id is refused, never overwritten', async () =
 	);
 });
 
-test('the next launch completes a recording a crash cut off, from its audio', async () => {
+test('the next launch completes a recording a crash cut off, from its audio, repairing only then', async () => {
 	const { path, device } = await folder();
+	let repairs = 0;
+	const repair = async () => {
+		repairs++;
+		return Ok([]);
+	};
 	expectOk(await beginRecording(device, started('cut')));
 	await writeFile(join(path, 'recordings/cut.wav'), toneWav({ seconds: 2 }));
 	// One whose audio never started, and one finished normally.
@@ -100,7 +105,7 @@ test('the next launch completes a recording a crash cut off, from its audio', as
 	await writeFile(join(path, 'recordings/done.wav'), toneWav({ seconds: 1 }));
 	expectOk(await completeRecording(device, 'done', 1000));
 
-	expect(expectOk(await finishCutOffRecordings(device, 'wav'))).toEqual([
+	expect(expectOk(await finishCutOffRecordings(device, repair))).toEqual([
 		'cut',
 	]);
 	expect(expectOk(await device.recordings.get({ id: 'cut' })).durationMs).toBe(
@@ -109,8 +114,10 @@ test('the next launch completes a recording a crash cut off, from its audio', as
 	expect(
 		expectOk(await device.recordings.get({ id: 'silent' })).durationMs,
 	).toBeUndefined();
-	// A second launch has nothing left to do.
-	expect(expectOk(await finishCutOffRecordings(device, 'wav'))).toEqual([]);
+	expect(repairs).toBe(1);
+	// A second launch has nothing left to do, and repairs nothing.
+	expect(expectOk(await finishCutOffRecordings(device, repair))).toEqual([]);
+	expect(repairs).toBe(1);
 });
 
 test('a recording that did not start leaves no note, unless audio was written', async () => {

@@ -13,16 +13,19 @@
  * - Reads are lenient: a hand-written note reads, and its next write formats it
  * - A note that does not read is listed with its text, to show and repair it
  * - A collection's listeners hear its own writes at once and outside ones soon
+ * - An appended file is heard when it is made and when announced, not per piece
  */
 import { afterEach, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { defineContract, type Version } from '@epicenter/definition/contract';
-import { unwrap } from 'wellcrafted/result';
+import { Ok, unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { hashBytes } from '../hash.js';
 import { openDevice } from '../node.js';
+import { createDeviceClient, storeOf } from './client.js';
+import type { DeviceStore } from './store.js';
 
 const recorder = defineContract({
 	name: 'recorder',
@@ -383,5 +386,48 @@ test('a write by another program to the folder reaches listeners; a hidden path 
 	await put('recordings/b.md', '---\ntitle: B\n---\n');
 	for (let turn = 0; turn < 300 && heard === 0; turn++) await Bun.sleep(10);
 	expect(heard).toBeGreaterThan(0);
+	stop();
+});
+
+test("an appended file's listeners hear it made and announced, not every piece", async () => {
+	const files = new Map<string, Uint8Array>();
+	const store: DeviceStore = {
+		list: async () =>
+			Ok([...files.keys()].map((path) => ({ path, stamp: '' }))),
+		read: async () => Ok(null),
+		write: async () => Ok('landed'),
+		async append(path, added, { create }) {
+			const there = files.get(path);
+			if (create === (there !== undefined)) return Ok('stale');
+			files.set(path, new Uint8Array([...(there ?? []), ...added]));
+			return Ok('landed');
+		},
+		watch: () => () => {},
+	};
+	const device = createDeviceClient(recorder, store);
+	let heard = 0;
+	const stop = device.audio.subscribe(() => heard++);
+	const appended = storeOf(device);
+	const piece = (create: boolean, announce = false) =>
+		appended.append!('recordings/a.m4a', bytes(1), { create, announce });
+
+	expect(expectOk(await piece(true))).toBe('landed');
+	expect(heard).toBe(1);
+	expect(expectOk(await piece(true))).toBe('stale');
+	expectOk(await piece(false));
+	expectOk(await piece(false));
+	expect(heard).toBe(1);
+	expectOk(await piece(false, true));
+	expect(heard).toBe(2);
+	expect(files.get('recordings/a.m4a')).toEqual(bytes(1, 1, 1, 1));
+	expect(
+		expectOk(
+			await appended.append!('recordings/b.m4a', bytes(2), {
+				create: false,
+				announce: true,
+			}),
+		),
+	).toBe('stale');
+	expect(heard).toBe(2);
 	stop();
 });

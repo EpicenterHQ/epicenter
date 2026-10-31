@@ -5,70 +5,89 @@ detection.
 
 ## Recording
 
-Each build imports the entry for where it runs; nothing chooses at run time,
-so the type checker, tests, and every bundler resolve each specifier to the
-same file:
+A recording is a file in the app's store from its first moments, written as
+it records, so a quit, a crash, or a closed tab keeps the audio up to the cut
+([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md),
+decision 84). Every build calls the same two functions, from the entry its
+`#platform` seam imports; nothing chooses at run time, so the type checker,
+tests, and every bundler resolve each specifier to the same file:
 
 ```txt
-@epicenter/recorder           the shared vocabulary: types and RecorderError, no implementation
-  /tauri    → tauri-plugin-epicenter-recorder: the shell writes <path>.wav into its folder from the first sample
-  /browser  → MediaRecorder in memory; stop answers the audio; streams and VAD
+@epicenter/recorder           the shared vocabulary: types, RecorderError, audioDurationMs; no implementation
+  /tauri    → tauri-plugin-epicenter-recorder: the shell writes <path>.wav into the data folder from the first sample
+  /browser  → MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; streams and VAD
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
 
-In a browser, `stop` answers the audio itself, and the app keeps it where it
-keeps files (for a contract app, its device client and outbox):
-
 ```ts
-import { startRecording } from '@epicenter/recorder/browser';
+// From '@epicenter/recorder/tauri' in a desktop build, '@epicenter/recorder/browser' in a web one:
+// the module behind the app's #platform seam imports one, and the call is the same.
+import { recoverRecordings, startRecording } from '@epicenter/recorder/browser';
 
+await recoverRecordings({ device, under: 'recordings' }); // when the store opens, before anything records
 const { data: recording, error } = await startRecording({
+	device, // the client openDevice returned: the data folder, or this browser's files
+	path: 'recordings/2026-10-15-0930', // no extension: the format's is added
 	input: { deviceId, label }, // optional; undefined is the system default
 });
+recording.path; // 'recordings/2026-10-15-0930.wav' (desktop) or '.m4a' / '.webm' (browser)
 const unsubscribe = recording.onLevel((level) => meter.set(level));
+const { data: stopped } = await recording.stop(); // { path, durationMs }
+```
+
+`device` is the app's own store, so the audio lands beside the rest of its
+files: on the desktop the shell writes into the root it answered when the page
+opened the data folder (`rootOf(device)` from `@epicenter/folder/tauri`); in a
+browser the page appends through `deviceFiles(device)` from
+`@epicenter/folder/browser`, whose Worker writes each piece to the end of the
+file with a sync access handle.
+
+| | Desktop | Browser |
+| --- | --- | --- |
+| The file | `<path>.wav`, from the first sample | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
+| Format | WAV, 16 kHz mono PCM | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
+| While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
+| Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |
+| `recoverRecordings` | Rewrites the header of a WAV a quit cut short | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file) |
+| Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
+| Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
+| `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was written |
+
+`audioDurationMs(bytes, ext)` reads how long a `wav`, `m4a`, or `webm` the
+recorder wrote plays, from its own bytes, so an app can complete a note a cut
+left without a length. A store that stops taking pieces mid-recording ends it
+as `storageFailed`; stop keeps what landed.
+
+A page whose store is not in this browser (an online variant, which writes to
+the repository when a recording stops) holds the audio in the page instead,
+and `stop` answers it:
+
+```ts
+import { startPageRecording } from '@epicenter/recorder/browser';
+
+const { data: recording } = await startPageRecording({ input });
 const { data: audio } = await recording.stop();
 // { bytes, extension: 'm4a' | 'webm', mimeType, durationMs }
 ```
 
-A browser asks for AAC in MP4 first (`audio/mp4;codecs=mp4a.40.2`, saved as
-`.m4a`), then Opus in WebM (`.webm`), and names the file by the type it
-actually produced. `browserEnvironment()` is the browser's own microphone,
-encoder, audio graph and clock; `createBrowserRecorder(environment)` records
-over another, such as a generated tone in place of the microphone.
-
-On the desktop the shell records into the folder it bound to the recording
-window, or into a `root` the page opened through the folder plugin (a
-standalone app's data folder, by the path the shell answered;
-`rootOf(device)` from `@epicenter/folder/tauri`)
-([ADR-0543](../../docs/adr/0543-a-recording-streams-into-its-folder-from-the-moment-it-starts.md)):
-
-```ts
-import { recoverRecordings, startRecording } from '@epicenter/recorder/tauri';
-
-await recoverRecordings({ root, under: 'recordings' });
-const { data: recording } = await startRecording({ root, path: 'recordings/2026-10-15-0930' });
-const { data: stopped } = await recording.stop(); // { path, durationMs }
-```
+AAC in MP4 is asked for first (`audio/mp4;codecs=mp4a.40.2`, saved as `.m4a`),
+then Opus in WebM (`.webm`). `browserEnvironment()` is the browser's own
+microphone, encoder, audio graph, clock, files, and locks;
+`createBrowserRecorder(environment)` records over another, such as
+`toneMicrophone()`, a generated tone in place of the microphone for browsers
+under test that have none.
 
 `onEnded` reports the first unexpected ending, including one received before
 subscription. Stop still claims what was captured and retires the listeners.
 Nothing deletes a recording. In a browser, final encoder output is collected
 even if the browser already stopped after its microphone tracks ended.
 
-| | Desktop | Browser |
-| --- | --- | --- |
-| Where the audio goes | `<path>.wav`, in the folder from the first sample | Answered by `stop`, for the app to keep |
-| Format | WAV | AAC in MP4 (`m4a`), else Opus in WebM (`webm`) |
-| Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
-| `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was kept |
-| Quit, crash, closed window | Audio kept up to the cut | Lost |
-| `recoverRecordings` | Rewrites the header of any WAV a quit cut off | None |
-
 A chosen microphone that is not connected is refused as `InputUnavailable`
 on both; no other microphone is opened in its place. Every failure is a
 `RecorderError`, switched on by `name`. Nothing here says whether a
 recording is running: that is the handle `startRecording` returns, and it
-ends with the page.
+ends with the page. The handle's `microphone` is the name of the one
+recording.
 
 ## Inputs and levels on the desktop
 
@@ -81,6 +100,7 @@ import { listInputs, openMeter } from '@epicenter/recorder/tauri';
 
 const { data: inputs } = await listInputs(); // [{ id, name, isDefault }]
 const { data: meter } = await openMeter({ input: { deviceId: inputs[0].id, label: inputs[0].name } });
+meter.microphone; // its name
 meter.onLevel((rms) => bar.set(rms)); // at most twenty times a second
 await meter.close(); // the shell also closes it when the page reloads or its window closes
 ```
@@ -147,6 +167,10 @@ If you set a non-default `assetBaseUrl`, serve the files at that path instead.
 ## Tests
 
 ```sh
-bun test         # the browser recorder over fakes, the desktop recorder over a stand-in invoke, and VAD release
+bun test         # the browser recorder over fakes, the desktop recorder over a stand-in invoke, VAD release,
+                 # and reading and repairing real Chromium and WebKit recordings (src/fixtures/) cut anywhere
 bun run typecheck
 ```
+
+The OPFS appends themselves run in Whispering's and the recorder demo's
+Playwright suites, which watch a recording's file grow while it records.

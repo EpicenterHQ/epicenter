@@ -73,17 +73,6 @@ export type AudioBytes = {
 	readonly mimeType: string;
 };
 
-/** A finished recording, to keep. */
-export type NewRecording = {
-	readonly id: string;
-	readonly title: string;
-	readonly recordedAt: string;
-	readonly durationMs: number;
-	readonly capture: 'microphone' | 'fixture';
-	readonly ext: string;
-	readonly bytes: Uint8Array;
-};
-
 /** Each note collection, as the pages read it. */
 export type NoteLists = {
 	readonly [K in NoteName]: ReactiveNotes<Collections[K]>;

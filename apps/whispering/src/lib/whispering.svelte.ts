@@ -2,17 +2,17 @@
  * Whispering for one mounted page: the services, the connections, the
  * microphone, and the recorder. What the files show is the library's
  * (`library.svelte.ts`); both write through the same client, which the
- * variant root chose (`routes/components/Startup.svelte` in the web build).
+ * variant root chose (`#platform/root`'s `Startup`).
  *
- * In a browser a recording is kept when it stops, as two writes through
- * the client: its audio first, then its note, so a note never names audio
- * that is not there. One the client cannot keep (a private window, a full
- * disk) stays in this page, to save again or download, until the page
- * closes. On the desktop the shell writes the audio into the data folder
- * from the first sample, so the recording's note is made when it starts and
- * completed with its length when it stops (`folder-recordings.ts`); a launch
- * first completes what a quit or a crash cut off. Either way recording never
- * waits on the network, and nothing kept here ever moves (ADR-0700).
+ * A recording is written into the client's files as it records (decision
+ * 84): the desktop shell writes a WAV into the data folder from the first
+ * sample, a browser appends each piece to this browser's files as it
+ * arrives. So its note is made when it starts and completed with its length
+ * when it stops (`folder-recordings.ts`), and a start first completes what a
+ * quit, a crash, or a closed tab cut off. Where the client keeps no files (a
+ * private window), recording is refused before any microphone opens.
+ * Recording never waits on the network, and nothing kept here ever moves
+ * (ADR-0700).
  *
  * Closing waits for nothing here: `dispose` refuses new work and late
  * answers and returns. A recording under way ends with the page.
@@ -23,14 +23,13 @@ import { holdLeave } from '@epicenter/svelte/leave-guard';
 import { createContext } from 'svelte';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { createServices } from '#platform/services';
-import type { ActiveCapture, CaptureError, FolderCapture } from './capture.js';
+import type { Capture, CaptureError } from './capture.js';
 import type {
 	ConnectionChange,
 	ConnectionsInfo,
 	Operation,
 } from './connections.js';
 import type { Whispering as WhisperingContract } from './contract.js';
-import type { NewRecording } from './files.svelte.js';
 import {
 	abandonRecording,
 	beginRecording,
@@ -52,14 +51,6 @@ export type RecorderState =
 	| { readonly phase: 'starting' }
 	| { readonly phase: 'recording'; readonly startedAt: number }
 	| { readonly phase: 'stopping' };
-
-/** A finished recording the client could not keep, held in this page. */
-export type UnsavedRecording = NewRecording & {
-	/** Why it was not kept. */
-	readonly reason: string;
-	/** An object URL of its audio, to download it. */
-	readonly download: string;
-};
 
 const CLOSING = 'Whispering is closing, so nothing was changed.';
 
@@ -114,10 +105,8 @@ export function createWhispering({
 		}
 	}
 
-	/** A capture under way: one the page holds, or one the shell writes into the folder. */
-	type Take =
-		| { keeps: 'page'; capture: ActiveCapture }
-		| { keeps: 'folder'; id: string; capture: FolderCapture };
+	/** A capture under way, writing recording `id`'s audio. */
+	type Take = { id: string; capture: Capture };
 	type CaptureState =
 		| { phase: 'idle' }
 		| { phase: 'starting'; attempt: AbortController }
@@ -130,8 +119,6 @@ export function createWhispering({
 	 */
 	let finishing: Promise<void> | undefined;
 	let recorderError = $state<string | undefined>();
-	/** Finished recordings the client could not keep, newest last. */
-	let unsaved = $state.raw<UnsavedRecording[]>([]);
 
 	const input = createMicrophoneInput({
 		capture: services.capture,
@@ -142,24 +129,14 @@ export function createWhispering({
 	// --- recording ----------------------------------------------------------
 
 	/**
-	 * Open the microphone for a recording made at `at`. On the desktop its
-	 * note is made first, and removed again when the microphone does not
-	 * open.
+	 * Open the microphone for a recording made at `at`. Its note is made
+	 * first, and removed again when the microphone does not open.
 	 */
 	async function startTake(
 		at: Date,
 		signal: AbortSignal,
 	): Promise<Result<Take, { message: string; capture?: CaptureError }>> {
 		const capture = services.capture;
-		if (capture.keeps !== 'folder') {
-			const { data, error } = await capture.start({
-				input: input.choice,
-				signal,
-			});
-			return error === null
-				? Ok({ keeps: 'page', capture: data })
-				: Err({ message: error.message, capture: error });
-		}
 		const id = timeId(at);
 		const made = await holdLeave(
 			beginRecording(client, {
@@ -180,60 +157,14 @@ export function createWhispering({
 			await holdLeave(abandonRecording(client, id));
 			return Err({ message: error.message, capture: error });
 		}
-		return Ok({ keeps: 'folder', id, capture: data });
+		return Ok({ id, capture: data });
 	}
 
 	/**
-	 * Keep a finished recording: its audio, then its note, so the note never
-	 * names audio that is not there. Run again with the same recording after
-	 * a failure, it finishes what was kept: a file already at the
-	 * recording's path is this recording's own (its id is new), so
-	 * `Occupied` counts as kept.
-	 */
-	async function saveRecording(
-		recording: NewRecording,
-	): Promise<Result<void, string>> {
-		const { id, ext, bytes, ...note } = recording;
-		async function write(): Promise<Result<void, string>> {
-			const audio = await client.audio.create({ id, ext, bytes });
-			if (audio.error && audio.error.name !== 'Occupied')
-				return Err(audio.error.message);
-			const written = await client.recordings.create({ id, ...note });
-			if (written.error && written.error.name !== 'Occupied')
-				return Err(written.error.message);
-			return Ok(undefined);
-		}
-		return holdLeave(write());
-	}
-
-	/**
-	 * Keep `recording`; one that cannot be kept is held in this page with
-	 * why. Answers whether it was kept.
-	 */
-	async function keepRecording(recording: NewRecording): Promise<boolean> {
-		const saved = await saveRecording(recording);
-		const held = unsaved.find(({ id }) => id === recording.id);
-		if (saved.error === null) {
-			if (held) URL.revokeObjectURL(held.download);
-			unsaved = unsaved.filter(({ id }) => id !== recording.id);
-			return true;
-		}
-		const download =
-			held?.download ??
-			URL.createObjectURL(
-				new Blob([recording.bytes as Uint8Array<ArrayBuffer>]),
-			);
-		unsaved = [
-			...unsaved.filter(({ id }) => id !== recording.id),
-			{ ...recording, reason: saved.error, download },
-		];
-		return false;
-	}
-
-	/**
-	 * Stop: release the microphone and keep the recording. A Stop pressed
-	 * again joins the first until it has finished. Once closed, nothing is
-	 * kept here: leaving the page ends the capture.
+	 * Stop: release the microphone and complete the recording's note. A Stop
+	 * pressed again joins the first until it has finished. Once closed,
+	 * nothing more is done here: what was written stays, and the next start
+	 * completes it.
 	 */
 	function finishRecording(): Promise<void> {
 		const current = captureState;
@@ -250,67 +181,44 @@ export function createWhispering({
 	}
 
 	async function finish({
-		at,
 		take,
 	}: Extract<CaptureState, { phase: 'recording' }>) {
-		if (take.keeps === 'folder') {
-			const { data: stopped, error } = await take.capture
-				.stop()
-				.catch((cause) => ({
-					data: null,
-					error: { message: describe(cause) },
-				}));
-			captureState = { phase: 'idle' };
-			if (disposed) return;
-			// The audio stays in the folder either way; a length not written now
-			// is written from the audio on the next launch.
-			if (error !== null) {
-				recorderError = error.message;
-				return;
-			}
-			const completed = await holdLeave(
-				completeRecording(client, take.id, stopped.durationMs),
-			);
-			if (completed.error !== null && !disposed)
-				recorderError = completed.error;
-			return;
-		}
-		const { data: audio, error } = await take.capture
+		const { data: stopped, error } = await take.capture
 			.stop()
-			.catch((cause) => ({ data: null, error: { message: describe(cause) } }));
+			.catch((cause) => ({
+				data: null,
+				error: { message: describe(cause) },
+			}));
 		captureState = { phase: 'idle' };
 		if (disposed) return;
+		// What was written stays either way, and a length not written now is
+		// written from the audio on the next start. A recording that wrote no
+		// audio at all (the store refused it, or nothing was captured) takes
+		// its note with it.
 		if (error !== null) {
 			recorderError = error.message;
+			await holdLeave(abandonRecording(client, take.id));
 			return;
 		}
-		await keepRecording({
-			id: timeId(at),
-			title: defaultTitle(at),
-			recordedAt: at.toISOString(),
-			durationMs: audio.durationMs,
-			capture: services.capture.source,
-			ext: audio.ext,
-			bytes: audio.bytes,
-		});
+		const completed = await holdLeave(
+			completeRecording(client, take.id, stopped.durationMs),
+		);
+		if (completed.error !== null && !disposed) recorderError = completed.error;
 	}
 
 	/**
-	 * On the desktop: repair the audio a quit or a crash cut off, then write
-	 * each such recording's length into its note. Nothing records yet, so no
-	 * file here is still being written. What cannot be completed is said and
-	 * left for the next launch; it never stops Whispering from starting.
+	 * Repair the audio a quit, a crash, or a closed tab cut off, then write
+	 * each such recording's length into its note. Nothing records here yet,
+	 * and a recording another tab is still writing is left alone. What cannot
+	 * be completed is said and left for the next start; it never stops
+	 * Whispering from starting.
 	 */
 	async function completeCutOffRecordings() {
-		const capture = services.capture;
-		if (capture.keeps !== 'folder') return;
-		const repaired = await capture.recover();
 		const finished = await holdLeave(
-			finishCutOffRecordings(client, capture.ext),
+			finishCutOffRecordings(client, services.capture.recover),
 		);
-		const problem = repaired.error?.message ?? finished.error ?? undefined;
-		if (problem !== undefined && !disposed)
-			recorderError = `Recordings a quit or a crash cut off could not be completed: ${problem}`;
+		if (finished.error !== null && !disposed)
+			recorderError = `Recordings a quit or a crash cut off could not be completed: ${finished.error}`;
 	}
 
 	async function saveConnection(
@@ -343,7 +251,6 @@ export function createWhispering({
 			captureState.attempt.abort();
 			captureState = { phase: 'idle' };
 		}
-		for (const { download } of unsaved) URL.revokeObjectURL(download);
 	}
 
 	const settings = createSettingsDraft(
@@ -388,8 +295,8 @@ export function createWhispering({
 			return disposed;
 		},
 		/**
-		 * Read the connections and the saved microphone choice, and on the
-		 * desktop complete the recordings a quit or a crash cut off.
+		 * Read the connections and the saved microphone choice, and complete
+		 * the recordings a quit, a crash, or a closed tab cut off.
 		 */
 		start(): Promise<void> {
 			starting ??= (async () => {
@@ -429,28 +336,9 @@ export function createWhispering({
 		get recorderError() {
 			return recorderError;
 		},
-		/** Finished recordings the client could not keep, held in this page. */
-		get unsavedRecordings() {
-			return unsaved;
-		},
-		/** Try to keep an unsaved recording again. Answers why it was not, if it was not. */
-		async saveRecordingAgain(id: string): Promise<string | undefined> {
-			const held = unsaved.find((item) => item.id === id);
-			if (held === undefined || refused() !== undefined) return refused();
-			const { reason: _, download: __, ...recording } = held;
-			const kept = await keepRecording(recording);
-			return kept ? undefined : unsaved.find((item) => item.id === id)?.reason;
-		},
-		/** Let go of an unsaved recording: its audio is gone with it. */
-		discardRecording(id: string) {
-			const held = unsaved.find((item) => item.id === id);
-			if (held) URL.revokeObjectURL(held.download);
-			unsaved = unsaved.filter((item) => item.id !== id);
-		},
 		/**
-		 * Start a recording from the chosen microphone. In a browser nothing is
-		 * kept until it stops; on the desktop its note is made first and its
-		 * audio is in the folder from the first sample.
+		 * Start a recording from the chosen microphone: its note is made first,
+		 * and its audio is written into the files as it records.
 		 */
 		async startRecording() {
 			if (captureState.phase !== 'idle' || refused() !== undefined) return;
@@ -489,7 +377,7 @@ export function createWhispering({
 				void finishRecording();
 			});
 		},
-		/** Stop: the microphone is released and the recording kept. */
+		/** Stop: the microphone is released and the recording's note completed. */
 		stopRecording: finishRecording,
 
 		// ------------------------------------------------------------------

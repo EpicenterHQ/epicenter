@@ -1,4 +1,7 @@
-/** Browser capture, requests and device preferences: `#platform/services`. */
+/**
+ * Browser capture, requests and device preferences: `#platform/services`.
+ * Capture records into `client`, this browser's files, as it records.
+ */
 
 import {
 	AI_MODELS,
@@ -163,10 +166,10 @@ function wantsToneFixture(): boolean {
 }
 
 /** Whispering's services in a browser tab: `#platform/services`. */
-export const createServices: CreateServices = () => ({
+export const createServices: CreateServices = (client) => ({
 	capture: wantsToneFixture()
-		? createToneMicrophone()
-		: createWebViewMicrophone(),
+		? createToneMicrophone(client)
+		: createWebViewMicrophone(client),
 	transcribe: (request) => {
 		let selected: ReturnType<typeof route>;
 		return transcribeOverConnection(

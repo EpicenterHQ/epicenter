@@ -37,13 +37,12 @@ import { join } from 'node:path';
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import {
-	type ActiveCapture,
+	type Capture,
 	type CaptureDevice,
 	CaptureError,
 	type CaptureStart,
 	type MicrophoneMeter,
 	type MicrophonePreference,
-	toneWav,
 } from './capture.js';
 
 import type { MicrophonePreferences } from './microphone-preference.js';
@@ -147,7 +146,7 @@ function scriptedMicrophone(
 				return () => changeListeners.delete(listener);
 			},
 		},
-		async start(options = {}): Promise<Result<ActiveCapture, CaptureError>> {
+		async start(options): Promise<Result<Capture, CaptureError>> {
 			calls.start.push(options);
 			const { error: openError } = await opening(options.input, options.signal);
 			if (openError !== null) return Err(openError);
@@ -162,10 +161,11 @@ function scriptedMicrophone(
 				onEnded: () => () => {},
 				async stop() {
 					release();
-					return Ok({ bytes: toneWav(), ext: 'wav', durationMs: 1000 });
+					return Ok({ durationMs: 1000 });
 				},
 			});
 		},
+		recover: async () => Ok([]),
 	};
 	return {
 		device,
@@ -349,7 +349,8 @@ test('a chosen microphone that is not connected refuses the recording, records n
 	expect(microphone.open.captures).toBe(0);
 	expect(input.choice).toEqual(USB);
 	expect(device.store.saved).toEqual(USB);
-	expect(library.entries).toEqual([]);
+	// Its note, made first, went with the refusal.
+	await eventually(() => library.entries.length === 0);
 
 	await input.refresh();
 	expect(input.choiceListed).toBe(false);

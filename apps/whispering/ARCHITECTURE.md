@@ -84,23 +84,35 @@ it through the client.
 
 ## Recording
 
-The capture device comes from the services (`platform/browser.ts`): the
-WebView microphone (`webview-microphone.ts` over `@epicenter/recorder`'s
-browser recorder) or, under `?fixture=tone` in a dev build or one built with
-`VITE_WHISPERING_FIXTURES=1`, a generated tone recorded by the same recorder.
-The recorder asks for AAC in MP4 first and Opus in WebM second, and names the
-file by the type it produced (`m4a` or `webm`).
+The capture device comes from the services (`#platform/services`), and
+every one writes the recording into the client's files as it records
+(decision 84), through `@epicenter/recorder`'s one API,
+`startRecording({ device, path })` and `recoverRecordings({ device, under })`
+(`microphone.ts`, `createMicrophoneDevice`). In a browser
+(`platform/browser.ts`) it is the WebView microphone
+(`webview-microphone.ts`, over `@epicenter/recorder/browser`) or, under
+`?fixture=tone` in a dev build or one built with
+`VITE_WHISPERING_FIXTURES=1`, a generated tone recorded the same way; the
+recorder asks for AAC in MP4 first and Opus in WebM second, and appends each
+piece (about a second) to `recordings/<id>.m4a` or `.webm` in this browser's
+files as it arrives. On the desktop it is the shell's microphone
+(`platform/microphone.tauri.ts`, over `@epicenter/recorder/tauri`), which
+writes `recordings/<id>.wav` from the first sample.
 
-Start opens the chosen microphone; nothing is kept while it records. Stop
-releases it and answers the audio, and the recorder keeps it as two writes
-through the client: the audio (`client.audio.create`), then the note
-(`client.recordings.create`: `title` from the start time, `recordedAt`,
-`durationMs`, `capture`), so a note never names audio that is not there.
-Recording never waits on the network. One the browser refuses is held in
-the page (`unsavedRecordings`) with its reason and an object URL to
-download; `saveRecordingAgain` runs the same two writes, and a file already
-at the recording's path (`Occupied`) is its own earlier write, so the save
-finishes what an earlier attempt kept.
+Start makes the recording's note first (`client.recordings.create`: `title`
+from the start time, `recordedAt`, `capture`), then opens the chosen
+microphone; a microphone that does not open takes the note with it. Stop
+releases the microphone and writes `durationMs` into the note over the
+version it reads then (`folder-recordings.ts`). A recording that wrote no
+audio (the store refused it, or nothing was captured) leaves no note.
+Recording never waits on the network. Where the browser keeps no files (a
+private window) the note cannot be made, so recording is refused before
+any microphone opens. When a start finds a note with no length beside its
+audio (what a quit, a crash, or a closed tab cut off), it first repairs the
+audio (`capture.recover()`: a WAV header on the desktop; an `m4a` or `webm`
+cut back to its last whole piece in a browser, skipping one another tab is
+still writing) and then completes the note from it (`audioDurationMs`).
+Nothing is read for repair when nothing was cut off.
 
 The microphone choice, its test, and Enable microphones belong to
 `microphone-input.svelte.ts`: one owner of at most one open microphone,

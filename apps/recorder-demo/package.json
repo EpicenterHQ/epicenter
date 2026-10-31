@@ -19,6 +19,7 @@
 		"@epicenter/constants": "workspace:*",
 		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
+		"@epicenter/recorder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"wellcrafted": "catalog:"
 	},

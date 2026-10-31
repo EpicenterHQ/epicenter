@@ -135,18 +135,18 @@ mock.module('@epicenter/recorder/tauri', () => ({
 	openMeter: async () => {
 		throw new Error('not opened');
 	},
-	startRecording: async (options: { root: string; path: string }) => {
+	startRecording: async (options: { device: unknown; path: string }) => {
 		started.push(options);
 		return Ok({
 			path: `${options.path}.wav`,
 			startedAt: 0,
-			device: 'USB',
+			microphone: 'USB',
 			onLevel: () => () => {},
 			onEnded: () => () => {},
 			stop: async () => Ok({ path: `${options.path}.wav`, durationMs: 1500 }),
 		});
 	},
-	recoverRecordings: async (options: { root: string; under: string }) => {
+	recoverRecordings: async (options: { device: unknown; under: string }) => {
 		started.push(options);
 		return Ok([`${options.under}/a.wav`, `${options.under}/b.wav`]);
 	},
@@ -310,17 +310,15 @@ test('what the keychain holds and does not read is never taken for nothing', asy
 	expect(keychain.get('connections')).toBe('not json');
 });
 
-test('the shell’s microphone records recordings/<id> in the data folder and repairs by ids', async () => {
+test('the shell’s microphone records recordings/<id> into the data folder’s device and repairs by ids', async () => {
 	const { capture } = createServices(dataFolder);
-	if (capture.keeps !== 'folder')
-		throw new Error('the desktop records into its folder');
 	expect(expectOk(await capture.inputs!.list()).devices).toEqual([
 		{ deviceId: 'coreaudio:usb', label: 'USB' },
 	]);
 	const recording = expectOk(await capture.start({ id: '20261031T093000000' }));
 	expect(started).toEqual([
 		{
-			root: ROOT,
+			device: dataFolder,
 			path: 'recordings/20261031T093000000',
 			input: undefined,
 			signal: undefined,
@@ -328,7 +326,7 @@ test('the shell’s microphone records recordings/<id> in the data folder and re
 	]);
 	expect(expectOk(await recording.stop())).toEqual({ durationMs: 1500 });
 	expect(expectOk(await capture.recover())).toEqual(['a', 'b']);
-	expect(started.at(-1)).toEqual({ root: ROOT, under: 'recordings' });
+	expect(started.at(-1)).toEqual({ device: dataFolder, under: 'recordings' });
 });
 
 test('without the data folder’s root nothing is made, so nothing records into AppData', () => {

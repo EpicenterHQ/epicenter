@@ -4,9 +4,10 @@
  */
 
 import { expect, test } from 'bun:test';
+import { audioDurationMs } from '@epicenter/recorder';
 import { Ok } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { audioMimeTypeOf, wavDurationMs } from './audio-format.js';
+import { audioMimeTypeOf } from './audio-format.js';
 import { toneWav } from './capture.js';
 import type { StoredConnection } from './connections.js';
 import { transcribeOverConnection } from './transcription.js';
@@ -22,8 +23,8 @@ test('inherited object keys are not audio file extensions', () => {
 });
 
 test('a WAV reports its own length', () => {
-	expect(wavDurationMs(toneWav({ seconds: 3 }))).toBe(3000);
-	expect(wavDurationMs(new Uint8Array(64))).toBeUndefined();
+	expect(audioDurationMs(toneWav({ seconds: 3 }), 'wav')).toBe(3000);
+	expect(audioDurationMs(new Uint8Array(64), 'wav')).toBeUndefined();
 });
 
 const KEY = 'sk-transcription-key';

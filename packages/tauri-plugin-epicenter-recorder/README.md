@@ -16,7 +16,10 @@ A microphone is opened at the rate it already runs at, never another: on
 macOS a stream at another rate changes the device's rate for every app using
 it, and leaves it changed. The writer converts to 16 kHz.
 
-A page reaches it through `@epicenter/recorder/tauri`.
+A page reaches it through `@epicenter/recorder/tauri`, whose
+`startRecording({ device, path })` and `recoverRecordings({ device, under })`
+are the same calls a browser build makes through `/browser`, which appends
+each piece of a recording to this browser's files instead (decision 84).
 
 ## Layout
 

@@ -5,7 +5,7 @@
  */
 import { defineContract, type Version } from '@epicenter/definition/contract';
 import { unwrap } from 'wellcrafted/result';
-import { openDevice } from '../src/browser.js';
+import { deviceFiles, openDevice } from '../src/browser.js';
 
 const recorder = defineContract({
 	name: 'recorder',
@@ -60,6 +60,8 @@ async function opfsText(path: string) {
 
 /** How many times this page's listener heard the recordings change. */
 let heard = 0;
+/** How many times this page's listener heard the audio change. */
+let heardAudio = 0;
 
 const smoke = {
 	/** Start hearing the recordings change, from this tab or another. */
@@ -67,6 +69,70 @@ const smoke = {
 		device.recordings.subscribe(() => heard++);
 	},
 	heard: () => heard,
+	/** Start hearing the audio change, from this tab or another. */
+	listenAudio() {
+		device.audio.subscribe(() => heardAudio++);
+	},
+	heardAudio: () => heardAudio,
+	/**
+	 * Append `count` pieces of 64 KB to a new file, as a recording does,
+	 * reading it over and over meanwhile: every read must answer. Then a
+	 * second create is `stale`, an empty announcing append lands, and the
+	 * file reads back as every piece in order.
+	 */
+	async appendPieces(id: string, count: number) {
+		const files = deviceFiles(device);
+		const path = `recordings/${id}.webm`;
+		const pieces = Array.from({ length: count }, (_, index) =>
+			payload(64 * 1024, index + 1),
+		);
+		let done = false;
+		const appending = (async () => {
+			for (const [index, piece] of pieces.entries()) {
+				const appended = await files.append(path, piece, {
+					create: index === 0,
+					announce: false,
+				});
+				if (appended.error !== null) return appended.error.message;
+				if (appended.data !== 'landed')
+					return `piece ${index}: ${appended.data}`;
+			}
+			return null;
+		})().finally(() => {
+			done = true;
+		});
+		const readFailures: string[] = [];
+		let reads = 0;
+		while (!done) {
+			const read = await device.audio.get({ id, ext: 'webm' });
+			reads++;
+			if (read.error !== null && read.error.name !== 'NotFound')
+				readFailures.push(read.error.message);
+		}
+		const problem = await appending;
+		const again = await files.append(path, pieces[0]!, {
+			create: true,
+			announce: false,
+		});
+		const announced = await files.append(path, new Uint8Array(), {
+			create: false,
+			announce: true,
+		});
+		const read = await device.audio.get({ id, ext: 'webm' });
+		const whole = new Uint8Array(count * 64 * 1024);
+		for (const [index, piece] of pieces.entries())
+			whole.set(piece, index * 64 * 1024);
+		return {
+			problem,
+			reads,
+			readFailures,
+			again: again.data,
+			announced: announced.data,
+			whole:
+				read.error === null &&
+				(await sha256(read.data.bytes)) === (await sha256(whole)),
+		};
+	},
 	/** Create a note and 5 MB of audio, and read both back. */
 	async seed(id: string) {
 		const note = await device.recordings.create({

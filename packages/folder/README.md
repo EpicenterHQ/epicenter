@@ -18,7 +18,7 @@ landed storage.
 | Import | Purpose |
 | --- | --- |
 | `@epicenter/folder` | Open this browser origin's default folder or the directory bound to this Tauri window. Apps may alias this exact specifier to one platform entry at build time. |
-| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
+| `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; `deviceFiles(device)`, the same files by path, with `append` for a file written while it is made (a recording, which `@epicenter/recorder/browser` appends a piece at a time; listeners hear it made and finished, not every piece); and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
 | `@epicenter/folder/tauri` | `openDevice(contract, { path?, create? })` over a root the shell lets this window reach: the directory it bound to the window (no `path`, or a relative one inside it), or a folder by absolute path that Tauri's file-system scope allows; and `openFolder` over the bound directory. A standalone app opens its two roots with `openAppData(settingsContract)` (its AppData root, through the app's own settings contract, whose `settings.md` has `folder`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing; `defaultDataFolder()` answers that path). `rootOf(device)` answers the root a client opened by absolute path, as the shell answered it, for the window's other native commands (the recorder's and local transcription's `root`). `chooseFolder({ title, at? })` is the native picker, which allows the folder it answers; `rememberFolder(appData, folder \| undefined)` records or forgets the choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
@@ -156,6 +156,10 @@ replaces a file (`Occupied`). In the browser, one dedicated Worker owns the
 origin's private file system, with a Web Lock per path; a browser that gives
 the page no private storage still opens, and each call answers `Unavailable`
 with a `DeviceError.StorageRefused` cause, so an app keeps working in memory.
+An append (`deviceFiles(device).append`) makes its file whole like any new
+file, then adds each later piece at the end through a sync access handle
+opened and closed for that piece, so a crash keeps every piece written; a
+read that an append overtook reads again.
 Only a context with no Worker opens nothing (`StorageUnavailable`). In Bun
 the directory is made when missing (`Unreadable` when it cannot be). `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
