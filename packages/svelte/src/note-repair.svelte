@@ -2,7 +2,7 @@
 	A note that does not read, repaired as text: its text in a text area, what
 	is wrong with the text as typed (checked against the contract with
 	`checkContract`, so the person sees it before saving), and Save repair,
-	which hands the text to `replace` (`ReactiveNotes.replace`, or a one list's)
+	which hands the text to `replace` (`ReactiveNotes.replace`)
 	over the version the typing began from. `replace` refuses text that still
 	does not fit (`Invalid`), and a note changed elsewhere since (`Conflict`);
 	nothing is written then, and the typed text stays. After a `Conflict`,

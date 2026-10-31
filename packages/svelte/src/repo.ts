@@ -14,9 +14,9 @@
  * 	onDestroy(() => uploader[Symbol.dispose]());
  * </script>
  *
- * <!-- A page under it -->
+ * <!-- The synced view, a page under it -->
  * <script lang="ts">
- * 	const list = oneList(fromClient(device).todos, fromClient(getRepo<Todos>()).todos);
+ * 	const todos = fromClient(getRepo<Todos>()).todos;
  * </script>
  * ```
  */

@@ -27,10 +27,6 @@
  * Every write is held for the page's leave guard (`@epicenter/svelte/leave-guard`)
  * from the call until it answers.
  *
- * `oneList(fromClient(device).x, fromClient(repo).x)` (`one-list.ts`)
- * shows one note collection over this device and the person's repository
- * as one `ReactiveNotes`, for an app whose notes upload (decision 12).
- *
  * @example
  * ```svelte
  * <script lang="ts">
@@ -66,10 +62,6 @@ import type { InferError } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
 import { edit } from './edit.svelte.js';
 import { holdLeave } from './leave-guard.js';
-
-import { rememberSource } from './one-list.js';
-
-export { type NoteList, type OneList, oneList, type Side } from './one-list.js';
 
 type Unavailable = InferError<typeof ClientError.Unavailable>;
 
@@ -155,11 +147,10 @@ export function fromClient<TContract extends Contract>(
 	const known = adapters.get(client);
 	if (known !== undefined) return known as ReactiveClient<TContract>;
 	const adapted = Object.fromEntries(
-		Object.entries(client).map(([name, collection]) => {
-			const reactive = fromCollection(collection as Raw);
-			rememberSource(reactive, { client: client as Client<Contract>, name });
-			return [name, reactive];
-		}),
+		Object.entries(client).map(([name, collection]) => [
+			name,
+			fromCollection(collection as Raw),
+		]),
 	);
 	adapters.set(client, adapted);
 	// SAFETY: each collection's client is adapted by the kind it is (a note

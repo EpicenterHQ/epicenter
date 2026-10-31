@@ -3,7 +3,7 @@
  * out. A browser asks "Leave site?"; a desktop window waits for the writes,
  * then closes (closing again while it waits asks natively).
  *
- * Every write through `fromClient`, `oneList` and `fieldEdit` is held from
+ * Every write through `fromClient` and `fieldEdit` is held from
  * the moment it is asked for, so a keystroke counts before its save starts.
  * An app writing to a client directly (a capture of several files) hands
  * the write to `holdLeave` too. Each app root installs the guard once:

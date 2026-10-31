@@ -42,49 +42,34 @@ the draft began from, so another writer's change since is a `Conflict`
 instead of being overwritten; without `over`, `replace` writes over the
 version shown.
 
-### This device and the repository as one list
+### This device and the repository: two views
 
-An app whose notes are kept on the device and upload to the person's
-repository (decision 12) shows each note collection, signed in, through
-`oneList`, a `ReactiveNotes` over both sides, so views and `fieldEdit` never
-know which side they write. Signed out it shows the device's own collection.
-`fromClient` gives one client one adapter, so any component may compose:
+An app whose files are kept on the device and upload to the person's
+repository (decision 12) shows them as two separate views (decision 76),
+each over its own client. "On this device" is `fromClient(device).x`; it
+works signed out and offline. "Synced", under the signed-in boundary, is
+`fromClient(getRepo()).x`. Each view reads and writes its own side only:
 
 ```ts
-import { fromClient, type NoteList, oneList } from '@epicenter/svelte/client';
+import { fromClient } from '@epicenter/svelte/client';
 import { getRepo } from '@epicenter/svelte/repo';
 
-const todos: NoteList<Todos['collections']['todos']> = signedIn
-  ? oneList(fromClient(device).todos, fromClient(getRepo<Todos>()).todos)
-  : fromClient(device).todos;
-const shown = $derived(todos.items.toSorted(openFirst)); // the app's order
+const onDevice = fromClient(device).todos; // the "On this device" page
+const synced = fromClient(getRepo<Todos>()).todos; // the "Synced" page
+const shown = $derived(onDevice.items.toSorted(openFirst)); // the app's order
 ```
 
-The device side must be a collection of a client `openDevice` returned: its
-outbox is where a note created there waits to upload. `NoteList` is what a
-view takes either way: `where` and `repositoryError` are there only signed in.
-
-- A note on both sides is mid-upload, and shows the device copy.
-  `todos.where({ id })` says which side the copy shown is on (`'device'`
-  while it waits to upload). Rows are the notes as read, with nothing added,
-  so a row can be written back as front matter as it is.
-- Writes go to the copy shown. One that finds the device copy gone (the
-  upload let go of it meanwhile) follows the note to the repository over the
-  same base.
-- A note the device lets go of stays shown until the repository answers a
-  listing, so an editor open on it is never unmounted while it uploads.
-- `create` goes to the repository; when it cannot be reached, the note
-  stays on the device, recorded in the outbox to upload. (Signed out, a note
-  created on the device is not recorded; the uploader's first run at sign-in
-  adopts every device file no capture names.) With
-  `createOn: 'device'` every new note goes to the device and the outbox, so
-  creating never waits on the server (Capture's Add); the uploader moves it.
-- `error` is the device's; `repositoryError` says the repository could not
-  be listed, while new notes still save to the device.
+The signed-in boundary owns the uploader (`startUploading` from
+`@epicenter/folder/remote`), which moves every device file into the
+repository in the background (a file written directly once it has gone
+five seconds unchanged, a capture at once): the file leaves the device view and appears
+in the synced view, each view following its own client. Nothing holds a
+file on screen across the move; an editor open on it in the device view
+sees it gone. A merged view of both sides can come back later.
 
 ### Leaving while a save is out
 
-Every write through `fromClient`, `oneList` and `fieldEdit` is held for the
+Every write through `fromClient` and `fieldEdit` is held for the
 page's leave guard from the moment it is asked for (a `fieldEdit` keystroke
 counts before its save starts; `title.saving` says so for one editor). Each
 app root installs the guard once:

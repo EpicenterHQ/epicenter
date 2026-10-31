@@ -74,6 +74,13 @@ edited since land as two creates (a note gets at most one conflict block, a
 binary a conflict copy). Edits and deletes of repository files are online
 only.
 
+An app shows the two sides as separate views, each writing only to its own
+client: "On this device" over the device (signed out and offline too) and,
+signed in, "Synced" over the remote. Uploading also adopts a device file no
+capture names once it has gone five seconds unchanged (a capture goes at
+once), so it leaves the first view and appears in the second; a merged view
+of both can return later.
+
 A file other than a note that the reply shows at its own path stays in the
 browser as a read-only cache (`.epicenter/cache/<path>`, `cacheOf(device)`),
 so an app can play or transcribe recent recordings offline. It is outside the

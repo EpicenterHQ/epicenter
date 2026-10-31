@@ -27,13 +27,13 @@ files remain in place.
 ## Svelte app root
 
 An app on the file contract (decision 7 of the file-contract design; Todos is
-the reference) has two sides. The device is a module singleton, always
-there; the person's repository is in context, set by the signed-in boundary,
-one per account:
+the reference) has two sides, shown as two separate views (decision 76). The
+device is a module singleton, always there; the person's repository is in
+context, set by the signed-in boundary, one per account:
 
 ```ts
 // apps/todos/src/lib/device.ts
-export const device = isDesktop ? openFolderDevice(todos) : openBrowserDevice(todos);
+export const device = isTauri() ? openFolderDevice(todos) : openBrowserDevice(todos);
 ```
 
 ```svelte
@@ -49,25 +49,31 @@ export const device = isDesktop ? openFolderDevice(todos) : openBrowserDevice(to
 ```
 
 ```svelte
-<!-- apps/todos/src/routes/+page.svelte -->
+<!-- apps/todos/src/routes/(app)/+layout.svelte: the boundary wraps both views (not the sign-in callback), so uploads run on each -->
 {#if auth === null || auth.state.status === 'signed-out'}
-  <TodosApp signedIn={false} />
+  {@render children()}
 {:else}
   {#key auth.state.account}
-    <SignedIn account={auth.state.account}><TodosApp signedIn /></SignedIn>
+    <SignedIn account={auth.state.account}>{@render children()}</SignedIn>
   {/key}
 {/if}
 ```
 
-The app component composes its list directly: signed out,
-`fromClient(device).todos`; signed in,
-`oneList(fromClient(device).todos, fromClient(getRepo<Todos>()).todos)`,
-which routes each write to the copy shown and keeps a note shown while it
-moves. Views sort with the app's own order. Views read and write through
-`fromClient` state:
-tracked `items`, `invalid` (notes that do not read, with their text), and
-writes that pass the version shown; `fieldEdit` binds one field to an
-immediate editor. See
+```svelte
+<!-- apps/todos/src/routes/(app)/+page.svelte: "On this device" -->
+<TodosApp view="device" todos={fromClient(device).todos} />
+
+<!-- apps/todos/src/routes/(app)/synced/+page.svelte: "Synced", behind a sign-in gate -->
+<TodosApp view="synced" todos={fromClient(getRepo<Todos>()).todos} />
+```
+
+Each view reads and writes its own client only. The uploader moves every
+device file into the repository in the background: it leaves "On this
+device" and appears in "Synced", and nothing holds it on screen across the
+move. A merged view can return later. Views sort with the app's own order,
+and read and write through `fromClient` state: tracked `items`, `invalid`
+(notes that do not read, with their text), and writes that pass the version
+shown; `fieldEdit` binds one field to an immediate editor. See
 [Todos](todos/README.md) and the [Svelte package](../packages/svelte/README.md).
 
 Apps not yet on the contract still open their folder with `<OpenFolder>` and
