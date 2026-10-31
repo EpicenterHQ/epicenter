@@ -69,3 +69,17 @@ refuses a second shell or a second scope.**
 - **Keep `RootLock`, and give a second scope on one root the first scope's
   handle.** It fixes the lockout in one shell and keeps refusing a second
   shell, which `SaveLock` already makes safe; the refusal protects nothing.
+
+## Amendment, 2026-10-31: the save lock is in `.epicenter`, and sync is a writer under it
+
+Commit `1e66c2134b` moved the save lock to `<root>/.epicenter/save-lock` and
+the staging directory to `<root>/.epicenter/scratch`; no file named
+`.<name>.epicenter-*` is made beside the folder. `.epicenter` is made `0700`,
+refused when it is a link or not a directory, never listed, and never
+reported by a watcher, in Bun and in the shell alike; [ADR-0562's amendment](0562-the-cli-and-the-shell-take-turns-writing-a-folder-under-one-save-lock.md#amendment-2026-10-31-the-save-lock-lives-in-the-folders-epicenter-and-sync-takes-it)
+names the code. `epicenter sync` is one of the writers that take turns under
+it: it holds the save lock of each registered folder in the repository
+across its merge, the checkouts that settle it, and the merge commit
+(`mergeRemote` in `packages/cli/src/sync/sync.ts`), never across the network,
+so an app's save waits for a merge at most `SAVE_LOCK_WAIT` and is checked
+against what the merge wrote.

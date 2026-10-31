@@ -65,3 +65,29 @@ files and `casBranch`, and ADR-0551's merges settle the rest.
   open, so the CLI could never write a folder the app has open.
 - **No lock between processes, as ADR-0541 had for Bun.** A save from the CLI
   could land between the shell's check and its rename and be overwritten.
+
+## Amendment, 2026-10-31: the save lock lives in the folder's `.epicenter`, and sync takes it
+
+Commit `1e66c2134b` moved the save lock from `.<name>.epicenter-save-lock`
+beside the folder to `<root>/.epicenter/save-lock`, and the directory a save
+stages its bytes in to `<root>/.epicenter/scratch`, so saving makes nothing
+outside the folder. Both hosts make `.epicenter` and `scratch` `0700` when
+missing, refuse either, and the lock file, when it is a symbolic link or not
+the expected kind (`holdingFolderLock` and `takeFileLock` in
+`packages/folder/src/native/directory.ts`, `privateDirectory` in
+`directory-node.ts`; `prepare_state_directory` in the folder plugin's
+`storage.rs`, `verify` in `lock.rs`), and neither lists `.epicenter`
+(`isOwnDirectory` in `directory-store.ts`, `storage.rs`) or reports it from
+a watcher (`native/watch.ts`, the plugin's `watch.rs`). The lock is still an
+exclusive SQLite transaction, which `rusqlite` and `bun:sqlite` take alike.
+`epicenter sync` now takes it too (decision 80): `mergeRemote` in
+`packages/cli/src/sync/sync.ts` holds the save lock of every registered
+folder in the repository across `git merge origin/main`, the checkouts that
+settle it, and the merge commit, after fetching the LFS bytes the merge
+checks out, so it never holds the lock across `git fetch`, an LFS transfer,
+or `git push`. A save that read a file before the merge then finds it changed
+rather than overwriting it, and a sync that cannot take a lock within the
+save wait ends `retry` with nothing merged. `T6d` in
+`packages/cli/src/sync/sync.e2e.test.ts` shows the merge waiting for a held
+save lock. `epicenter init` writes `.gitattributes`, `.gitignore`, and the
+bytes of `git lfs pull` without it.
