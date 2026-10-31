@@ -23,8 +23,6 @@ import { checkStore, formatStore } from './device/folder-tools.js';
 import { nodeStore } from './device/node-store.js';
 import { OpenDeviceError } from './errors.js';
 
-export { OpenDeviceError } from './errors.js';
-
 /**
  * The typed client of `contract` over the directory at `path`, made now
  * with its missing parents if it does not exist: `Unreadable` when it

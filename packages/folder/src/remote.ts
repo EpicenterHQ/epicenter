@@ -29,7 +29,7 @@ import type { Client, Contract } from '@epicenter/definition/contract';
 import { createRemoteClient } from './remote/client.js';
 import type { RemoteAccount } from './remote/wire.js';
 
-export { type RemoteAccount, RemoteError } from './remote/wire.js';
+export type { RemoteAccount } from './remote/wire.js';
 
 /**
  * The typed client of `contract` over a repository `account` (an
