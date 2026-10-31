@@ -42,10 +42,8 @@ bun run --cwd apps/todos demo          # the whole stack, to try it by hand
 ```
 
 The build is static: any host that answers unknown paths with `index.html`
-(for `/auth/callback`) serves it, at an origin the API registers. It also
-writes a service worker so a loaded app reopens offline; the page registers
-it in a browser only, never in the desktop window, which loads the same
-build from `build/`.
+(for `/auth/callback`) serves it, at an origin the API registers. The
+desktop window loads the same build from `build/`.
 
 `demo` boots a disposable Postgres, the local API with temporary Git and LFS
 stores, the built app on `http://localhost:5186`, a demo person, and a

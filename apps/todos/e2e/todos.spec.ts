@@ -49,9 +49,6 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
 		viewport: { width: 1280, height: 800 },
-		// No step opens the app offline from a reload, so no service worker:
-		// one would answer the page's requests out of sight of the test.
-		serviceWorkers: 'block',
 	});
 	page = context.pages()[0] ?? (await context.newPage());
 });

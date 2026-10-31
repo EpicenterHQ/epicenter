@@ -19,8 +19,6 @@ const config = {
 			fallback: 'index.html',
 			...(out && { pages: out, assets: out }),
 		}),
-		// `+layout.svelte` registers it, in a browser only.
-		serviceWorker: { register: false },
 	},
 	preprocess: vitePreprocess(),
 };

@@ -8,7 +8,5 @@ export default defineConfig(
 		// at `http://localhost:5186`.
 		server: { host: 'localhost' },
 		preview: { port: APPS.TODOS.port, strictPort: true, host: 'localhost' },
-		// The device's OPFS Worker is a module Worker.
-		worker: { format: 'es' },
 	}),
 );
