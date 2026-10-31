@@ -57,8 +57,8 @@ A new word's note is named by the SHA-256 of its exact UTF-8 text. An add first 
 ## The desktop app
 
 ```sh
-bun run --cwd apps/vocab dev:desktop     # needs a Rust toolchain
-bun run --cwd apps/vocab build:desktop   # a local, unsigned macOS app bundle
+bun dev:vocab:desktop     # from the repository root; needs a Rust toolchain
+bun build:vocab:desktop   # a local, unsigned macOS app bundle
 ```
 
 Its Tauri shell (`src-tauri/`, on the shared [`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md) crate) starts the window on Vocab's AppData root. There is no first-run question: the page opens `~/Epicenter/Vocab` (`~/Epicenter/Vocab Dev` under `tauri.dev.conf.json`), made when missing, or the folder `settings.md` names (`openAppData(vocabSettings)`, Vocab's settings contract for that root, then `openDataFolder(vocab, { appData })`). Tauri decides which folders the window may open: the shell allows the default at startup, the native picker allows a folder the learner picks, and persisted-scope keeps it. A folder that cannot open shows the shared recovery screen. The header says "On this computer", or "Synced by Epicenter" once Epicenter syncs the folder, offers **Sync with Epicenter** until it does, and holds the folder's path and **Choose data folder…** in the status details.

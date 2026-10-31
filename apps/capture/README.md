@@ -132,8 +132,8 @@ a new root that sets its own store, and a header that says what it is.
 ## The desktop app
 
 ```sh
-bun run --cwd apps/capture dev:desktop     # needs a Rust toolchain
-bun run --cwd apps/capture build:desktop   # a local, unsigned macOS app bundle
+bun dev:capture:desktop     # from the repository root; needs a Rust toolchain
+bun build:capture:desktop   # a local, unsigned macOS app bundle
 ```
 
 Its Tauri shell (`src-tauri/`, on the shared
