@@ -14,6 +14,7 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
+		"./client": "./src/client.ts",
 		"./folder": "./src/folder.ts",
 		"./open-folder": "./src/open-folder.svelte",
 		"./unsaved-edit": "./src/unsaved-edit.svelte",
@@ -24,6 +25,7 @@
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",

@@ -1,9 +1,39 @@
 # @epicenter/svelte
 
-This package makes a Folder mirror reactive in Svelte 5. The Folder reports
-what storage last returned or accepted. Each text editor owns a `edit` for
-what the person typed until that value's save answers. `<OpenFolder>` owns
-opening, refresh on return, and close.
+This package makes an app's files reactive in Svelte 5: a contract's client
+through `fromClient` (`@epicenter/svelte/client`), and the legacy Folder
+mirror through `svelteFolder`. Each text editor owns an `edit` for what the
+person typed until that value's save answers. `<OpenFolder>` owns opening a
+Folder, refresh on return, and close.
+
+## A contract's client
+
+`fromClient(client)` takes any `Client<T>` (`openDevice` or `openRemote`) and
+gives each collection tracked `items`, `invalid` (notes), `loading`, `error`
+and `get(args)`, plus its writes, which pass the version shown. A collection
+lists and subscribes only while an effect reads it, and follows every change
+the client hears. A write puts what landed into what shows before it
+resolves. A note `update` follows `updateNote`: carried over another
+writer's change to other fields, a `Conflict` when they changed the same
+one, after which the adapter shows theirs and a second save applies over it.
+`fieldEdit(notes, args, field)` is one field as an immediate editor, one save
+at a time, made over what the person saw when the typing began.
+
+```svelte
+<script lang="ts">
+  import { openDevice } from '@epicenter/folder/browser';
+  import { fieldEdit, fromClient } from '@epicenter/svelte/client';
+
+  const files = fromClient(openDevice(todosContract));
+  const todo = $derived(files.todos.get({ id }));
+  const title = fieldEdit(files.todos, { id }, 'title');
+</script>
+
+{#each files.todos.items as todo (todo.id)}<TodoRow {todo} />{/each}
+{#each files.todos.invalid as file (file.path)}<pre>{file.text}</pre>{/each}
+<Input bind:value={title.value} />
+<Checkbox checked={todo?.done} onCheckedChange={(done) => files.todos.update({ id }, { done })} />
+```
 
 ## Open a folder in an app
 

@@ -667,6 +667,7 @@
       "version": "0.3.0",
       "dependencies": {
         "@epicenter/agent": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/ui": "workspace:*",
         "@lucide/svelte": "catalog:",
