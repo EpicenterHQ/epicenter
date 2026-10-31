@@ -1,10 +1,9 @@
 /**
  * One transcription request to an OpenAI-compatible endpoint.
  *
- * Plain `fetch` and nothing else. A browser tab sends it itself; inside
- * Epicenter the `fetch` goes through the `epicenter` command, which adds the
- * key from the keychain, so the key stays out of the page and the endpoint
- * needs no CORS headers.
+ * Plain `fetch` and nothing else, sent from the browser tab: a custom
+ * endpoint must allow requests from the app's origin (CORS), while the
+ * account route sends to Epicenter's API.
  *
  * The base URL and key are the transcription connection's (see
  * `connections.ts`). A redirect is refused, not followed, so the key is never

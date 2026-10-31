@@ -3,10 +3,9 @@
  *
  * A transformation sends its prompt as the system message and the transcript
  * as the user message to `POST <base>/chat/completions`, and reads
- * `choices[0].message.content`. Plain `fetch` and nothing else. A browser tab
- * sends it itself; inside Epicenter the `fetch` goes through the `epicenter`
- * command, which adds the key from the keychain, so the key stays out of the
- * page and the endpoint needs no CORS headers.
+ * `choices[0].message.content`. Plain `fetch` and nothing else, sent from the
+ * browser tab: a custom endpoint must allow requests from the app's origin
+ * (CORS), while the account route sends to Epicenter's API.
  *
  * The base URL and key are the text connection's (see `connections.ts`), read
  * once per request. A redirect is refused, not followed, so the key is never
