@@ -6,9 +6,8 @@
  * Starts the Capture dev server on a free loopback port and drives two pages
  * of one browser profile, which share its local folder in IndexedDB: the
  * second page is the other tab that edits a file behind the first. A third,
- * fresh profile holds a folder an earlier build kept in OPFS, and still opens
- * the current IndexedDB folder. No account, no server besides Vite, and no data outside the
- * disposable profiles.
+ * fresh profile checks full-disk recovery. No account, no server besides
+ * Vite, and no data outside the disposable profiles.
  *
  * It needs to bind a local port and launch Chromium (`bun x playwright
  * install chromium` once). It does not cover the desktop build: see
@@ -378,28 +377,16 @@ try {
 			fullPage: true,
 		});
 
-	// 12. An earlier OPFS folder does not block the current timeline.
-	const earlier = await (await browser.newContext()).newPage();
-	earlier.on('pageerror', (error) => errors.push(`earlier: ${error.message}`));
-	await earlier.goto(app);
-	await earlier.getByRole('heading', { name: 'Timeline' }).waitFor();
-	await earlier.evaluate(async () => {
-		const root = await navigator.storage.getDirectory();
-		await root.getDirectoryHandle('so.epicenter.capture', { create: true });
-	});
-	await earlier.reload();
-	await earlier.getByRole('heading', { name: 'Timeline' }).waitFor();
-	await earlier.getByText('No captures yet').waitFor();
-	assert(
-		await earlier.evaluate(async () => {
-			const root = await navigator.storage.getDirectory();
-			return Boolean(await root.getDirectoryHandle('so.epicenter.capture'));
-		}),
-	);
+	// 12. A fresh profile opens an empty timeline.
+	const fresh = await (await browser.newContext()).newPage();
+	fresh.on('pageerror', (error) => errors.push(`fresh: ${error.message}`));
+	await fresh.goto(app);
+	await fresh.getByRole('heading', { name: 'Timeline' }).waitFor();
+	await fresh.getByText('No captures yet').waitFor();
 
 	// 13. A full-disk Add writes nothing and keeps the text; Add again adds it once.
 	const fillDisk = async () =>
-		earlier.evaluate(() => {
+		fresh.evaluate(() => {
 			// SAFETY: this test installs a temporary method on this page's window.
 			const target = window as typeof window & {
 				restoreCaptureWrites?: () => void;
@@ -413,123 +400,88 @@ try {
 			};
 		});
 	const restoreDisk = async () =>
-		earlier.evaluate(() => {
+		fresh.evaluate(() => {
 			// SAFETY: fillDisk installed this optional method on this page's window.
 			(
 				window as typeof window & { restoreCaptureWrites?: () => void }
 			).restoreCaptureWrites?.();
 		});
-	await earlier
+	await fresh
 		.getByLabel('New capture')
 		.fill('Writing retained through failures');
 	await fillDisk();
-	const notices = await earlier.locator('[data-sonner-toast]').count();
-	await earlier.getByRole('button', { name: 'Add capture' }).click();
-	await failedCommand(earlier, notices, 'Could not add capture');
+	const notices = await fresh.locator('[data-sonner-toast]').count();
+	await fresh.getByRole('button', { name: 'Add capture' }).click();
+	await failedCommand(fresh, notices, 'Could not add capture');
 	assert.equal(
-		await earlier.getByLabel('New capture').inputValue(),
+		await fresh.getByLabel('New capture').inputValue(),
 		'Writing retained through failures',
 	);
 	await restoreDisk();
-	await earlier.getByText('No captures yet').waitFor();
-	await earlier.getByRole('button', { name: 'Add capture' }).click();
-	await earlier.getByLabel('Add a thought').waitFor();
-	assert.equal((await source(earlier)).match(/^## Thoughts$/gm)?.length, 1);
-	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
+	await fresh.getByText('No captures yet').waitFor();
+	await fresh.getByRole('button', { name: 'Add capture' }).click();
+	await fresh.getByLabel('Add a thought').waitFor();
+	assert.equal((await source(fresh)).match(/^## Thoughts$/gm)?.length, 1);
+	await fresh.getByRole('button', { name: 'Back to timeline' }).click();
 	assert.equal(
-		await earlier.getByLabel('Timeline captures').getByRole('button').count(),
+		await fresh.getByLabel('Timeline captures').getByRole('button').count(),
 		1,
 	);
 
-	// 14. A saved draft from an earlier version uses the same whole-file editor.
-	// Seed its on-disk shape through ordinary file editing, without a test API.
-	await openFromTimeline(earlier, 'Writing retained through failures');
-	await earlier
+	// 14. A capture edited as text keeps its editor through a typo and a
+	// refused save, and a confirmed delete survives a reload.
+	await openFromTimeline(fresh, 'Writing retained through failures');
+	await fresh
 		.getByRole('button', { name: 'Edit as text', exact: true })
 		.click();
-	const previous = await fileText(earlier).inputValue();
-	const draftHead =
-		previous.slice(0, previous.indexOf('\n---\n') + 1) +
-		'draft: true\nunknownKey: kept\n---\n';
-	const raw = '\n  Saved draft writing  \nsecond line\n';
-	const legacyDraft = draftHead + raw;
-	await fileText(earlier).fill(legacyDraft);
-	await saved(earlier);
-	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
-	await earlier.reload();
-	await earlier.getByLabel('Draft captures').getByRole('button').click();
-	assert.equal(await fileText(earlier).inputValue(), legacyDraft);
-	assert.equal(
-		await earlier
-			.getByRole('button', { name: 'Open as capture', exact: true })
-			.count(),
-		0,
-	);
+	const original = await fileText(fresh).inputValue();
+	const opening = original.slice(0, original.indexOf('\n---\n') + 1);
+	const withKey = original.replace(opening, `${opening}unknownKey: kept\n`);
+	await fileText(fresh).fill(withKey);
+	await saved(fresh);
 
 	// A frontmatter typo never replaces the text box with a different view.
-	await fileText(earlier).fill(
-		legacyDraft.replace('draft: true', 'draft: tru'),
-	);
-	await earlier.getByRole('status', { name: 'Needs repair' }).waitFor();
-	assert.equal(await fileText(earlier).count(), 1);
-	await fileText(earlier).fill(legacyDraft);
-	await saved(earlier);
+	await fileText(fresh).fill(withKey.replace('capturedAt:', 'capturedAt'));
+	await fresh.getByRole('status', { name: 'Needs repair' }).waitFor();
+	assert.equal(await fileText(fresh).count(), 1);
+	await fileText(fresh).fill(withKey);
+	await saved(fresh);
 
-	// A refused draft save keeps the typed text with inline recovery.
+	// A refused save keeps the typed text with inline recovery.
 	await fillDisk();
-	const revisedDraft = legacyDraft.replace(
-		'second line',
-		'second line, edited',
+	const revised = withKey.replace(
+		'Writing retained through failures',
+		'Writing retained through failures, edited',
 	);
-	await fileText(earlier).fill(revisedDraft);
-	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
-	await earlier.getByText(/^Not saved:/).waitFor();
+	await fileText(fresh).fill(revised);
+	assert.equal(await fileText(fresh).inputValue(), revised);
+	await fresh.getByText(/^Not saved:/).waitFor();
 	await restoreDisk();
-	await earlier.getByRole('button', { name: 'Save again' }).click();
-	await earlier.getByText(/^Not saved:/).waitFor({ state: 'hidden' });
-	await saved(earlier);
-	await fillDisk();
-	await earlier
-		.getByRole('button', { name: 'Add capture', exact: true })
-		.click();
-	await earlier
-		.getByLabel('Not applied')
-		.getByText(/Disk is full/i)
-		.waitFor();
-	assert.equal(await fileText(earlier).inputValue(), revisedDraft);
-	await restoreDisk();
-	await earlier
-		.getByRole('button', { name: 'Add capture', exact: true })
-		.click();
-	await earlier.getByLabel('Add a thought').waitFor();
-	const finishedDraft = await source(earlier);
-	assert.equal(finishedDraft.match(/^## Thoughts$/gm)?.length, 1);
-	assert(!finishedDraft.includes('draft:'));
-	assert(finishedDraft.includes('unknownKey: kept'));
-	assert(finishedDraft.includes('second line, edited'));
+	await fresh.getByRole('button', { name: 'Save again' }).click();
+	await fresh.getByText(/^Not saved:/).waitFor({ state: 'hidden' });
+	await saved(fresh);
+	await fresh.reload();
+	await openFromTimeline(fresh, 'Writing retained through failures, edited');
+	assert(
+		(await source(fresh)).includes('unknownKey: kept'),
+		'an unknown front matter key survives',
+	);
 
-	// Confirmed discard removes an existing draft, including after reload.
-	await earlier
+	// Confirmed delete removes the capture, including after reload.
+	await fresh.getByRole('button', { name: 'Back to timeline' }).click();
+	await openFromTimeline(fresh, 'Writing retained through failures, edited');
+	await fresh
 		.getByRole('button', { name: 'Edit as text', exact: true })
 		.click();
-	await fileText(earlier).fill(legacyDraft);
-	await saved(earlier);
-	await earlier.getByRole('button', { name: 'Back to timeline' }).click();
-	await earlier.reload();
-	await earlier.getByLabel('Draft captures').getByRole('button').click();
-	await earlier
-		.getByRole('button', { name: 'Discard draft…', exact: true })
-		.click();
-	await earlier
-		.getByRole('button', { name: 'Discard draft', exact: true })
-		.click();
-	await earlier.getByText('No captures yet').waitFor();
-	await earlier.reload();
-	await earlier.getByText('No captures yet').waitFor();
+	await fresh.getByRole('button', { name: 'Delete…', exact: true }).click();
+	await fresh.getByRole('button', { name: 'Delete', exact: true }).click();
+	await fresh.getByText('No captures yet').waitFor();
+	await fresh.reload();
+	await fresh.getByText('No captures yet').waitFor();
 
 	assert.deepEqual(errors, []);
 	console.log(
-		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, download saving pending text, no Save version, full-disk Add recovery with a command toast, saved drafts reopened as full files, repaired without replacing the editor, failed draft writes retaining typed text with Save again, Finish retried once after an inline refusal, and discarded across reload, an ambiguous capture opened as text, deletion, and an earlier OPFS folder that does not block opening.',
+		'Capture browser check passed: no sign-in, exact saved Markdown, text not added yet neither prompting nor surviving a reload, multiline thoughts added, edited as text from their own lines, reordered, and deleted, Edit as text, reload persistence, clean cross-tab refresh followed by a save from the observed source, download saving pending text, no Save version, full-disk Add recovery with a command toast, a capture edited as text repaired without replacing the editor, a failed write retaining typed text with Save again, an ambiguous capture opened as text, and deletion across reload.',
 	);
 } catch (cause) {
 	console.error(cause);

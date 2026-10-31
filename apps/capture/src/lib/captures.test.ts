@@ -146,12 +146,15 @@ test('delete removes the mirror row and typing later cannot recreate it with upd
 	expect(h.text(PATH)).toBeUndefined();
 });
 
-test('finishDraft refuses an invalid saved row', async () => {
-	const h = await open({
-		[PATH]: '---\ncapturedAt: nope\ndraft: true\n---\nWriting',
-	});
-	const refusal = expectErr(await h.captures.finishDraft('one'));
-	expect(refusal.name).toBe('Refused');
-	expect(refusal.message).toContain('Repair this file');
-	expect(h.text(PATH)).toContain('draft: true');
+test('a failed delete keeps the capture and a retry deletes it', async () => {
+	const h = await open({ [PATH]: HAND });
+	const deletion = h.captures.deletionFor('one');
+	const restore = h.failSaves(PATH);
+	expect(expectErr(await h.captures.delete(deletion)).name).toBe(
+		'StorageFailed',
+	);
+	expect(h.text(PATH)).toBe(HAND);
+	restore();
+	expectOk(await h.captures.delete(deletion));
+	expect(h.text(PATH)).toBeUndefined();
 });

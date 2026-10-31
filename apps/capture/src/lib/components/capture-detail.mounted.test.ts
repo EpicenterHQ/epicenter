@@ -18,8 +18,10 @@ const { openCaptures } = await import('../local-folder.test-support.js');
 const { locateThought } = await import('../capture-actions.svelte.ts');
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 setWide(true);
-const until = (check: () => boolean, options: { timeout?: number } = { timeout: 2500 }) =>
-	waitUntil(check, options);
+const until = (
+	check: () => boolean,
+	options: { timeout?: number } = { timeout: 2500 },
+) => waitUntil(check, options);
 const AT = '2026-10-04T20:49:23.041Z';
 const PATH = 'captures/one.md';
 const FILE = `---\ncapturedAt: ${AT}\n---\n\nText\n\n## Thoughts\n\n- first\n`;
@@ -174,23 +176,23 @@ test('a thought typed but not added stays visible to copy when the body becomes 
 	expect(button(h.target, 'Copy text')).toBeDefined();
 });
 
-test('Edit as text follows queued typing after a capture becomes a draft', async () => {
+test('Edit as text follows queued typing after a capture stops reading as one', async () => {
 	const h = await setup({ [PATH]: FILE }, 'capture');
 	type(field('capture-text'), 'Held text');
-	h.writeElsewhere(
-		PATH,
-		FILE.replace('---\n\nText', 'draft: true\n---\n\nText'),
-	);
+	h.writeElsewhere(PATH, FILE.replace(`capturedAt: ${AT}`, 'capturedAt: nope'));
 	await until(() => {
 		flushSync();
-		return h.target.textContent?.includes('This file is a draft') === true;
+		return (
+			h.target.textContent?.includes('This file does not read as a capture') ===
+			true
+		);
 	});
 	button(h.target, 'Edit as text').click();
 	await until(() => {
 		flushSync();
 		return textFile()?.value.includes('Held text') === true;
 	});
-	expect(textFile()?.value).toContain('draft: true');
+	expect(textFile()?.value).toContain('capturedAt: nope');
 	expect(h.text(PATH)).toContain('Held text');
 });
 
@@ -480,67 +482,4 @@ test('Delete thought removes the selected thought after confirmation', async () 
 	button(document, 'Delete thought').click();
 	await land(h);
 	expect(h.text(PATH)).not.toContain('- first');
-});
-
-test('a text editor is read-only while Add finishes a saved draft', async () => {
-	const h = await setup(
-		{ [PATH]: `---\ncapturedAt: ${AT}\ndraft: true\n---\nWriting` },
-		'text',
-	);
-	let release = () => {};
-	h.host.control.putGate = new Promise<void>((resolve) => {
-		release = resolve;
-	});
-	const add = [...document.querySelectorAll('button')].find(
-		(button) => button.textContent?.trim() === 'Add capture',
-	);
-	add?.click();
-	flushSync();
-	const file = document.querySelector<HTMLTextAreaElement>(
-		'textarea[aria-label^="Contents of"]',
-	);
-	expect(file?.readOnly).toBe(true);
-	release();
-	await until(() => {
-		flushSync();
-		return h.captures.opened?.mode === 'capture';
-	});
-});
-
-test('Add stays on a failed draft until its text is retried', async () => {
-	const original = `---\ncapturedAt: ${AT}\ndraft: true\n---\nWriting`;
-	const h = await setup({ [PATH]: original }, 'text');
-	const restore = h.failSaves(PATH);
-	type(textFile(), original.replace('Writing', 'Typed'));
-	button(h.target, 'Add capture').click();
-	await until(() => {
-		flushSync();
-		return h.target.textContent?.includes('the disk is full') === true;
-	});
-	expect(h.text(PATH)).toBe(original);
-	expect(h.captures.opened?.mode).toBe('text');
-	restore();
-	button(h.target, 'Save again').click();
-	await until(() => h.text(PATH)?.includes('Typed') === true);
-	button(h.target, 'Add capture').click();
-	await until(() => {
-		flushSync();
-		return h.captures.opened?.mode === 'capture';
-	});
-	expect(h.text(PATH)).not.toContain('draft: true');
-});
-
-test('a draft with row issues stays in repair and refuses Finish', async () => {
-	const invalid = '---\ncapturedAt: nope\ndraft: true\n---\nWriting';
-	const h = await setup({ [PATH]: invalid }, 'text');
-	expect(h.target.textContent).toContain('Needs repair');
-	expect(
-		[...h.target.querySelectorAll('button')].some(
-			(item) => item.textContent?.trim() === 'Add capture',
-		),
-	).toBe(false);
-	const result = await h.captures.finishDraft('one');
-	expect(result.error?.name).toBe('Refused');
-	expect(h.captures.opened?.mode).toBe('text');
-	expect(h.text(PATH)).toBe(invalid);
 });

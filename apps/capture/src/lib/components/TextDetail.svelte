@@ -31,12 +31,9 @@
 	});
 	const text = fileEdit(folder, path);
 	const parsed = $derived(readRow(text.value, captureTables.captures));
-	const isDraft = $derived(parsed.issues === null && parsed.fields.draft === true);
-	const body = $derived(parsed.issues === null ? parsed.body : undefined);
 	const reading = $derived(parsed.issues === null ? readCaptureBody(parsed) : undefined);
 	const needsRepair = $derived(parsed.issues !== null || reading?.error !== null);
 	const selection = untrack(() => captures.opened?.focus);
-	let finishing = $state(false);
 	let refusal = $state<string | undefined>();
 	let textField = $state<HTMLTextAreaElement | null>(null);
 
@@ -62,20 +59,6 @@
 		if (!active) return;
 		captures.open(stem, 'capture');
 	}
-	async function finish() {
-		if (finishing || !isDraft || !body?.trim()) return;
-		finishing = true;
-		// Finishing composes the landed draft body into a capture.
-		if ((await text.landed()).error !== null) {
-			if (active) finishing = false;
-			return;
-		}
-		if (!active) return;
-		const result = await captures.finishDraft(stem);
-		if (!active) return;
-		finishing = false;
-		if (result.error !== null) refusal = result.error.message;
-	}
 	async function copy(value: string, what: string) {
 		if (await copyText(value)) toast.success(`${what} copied`);
 		else toast.error('Could not copy. Select the text and copy it.');
@@ -87,21 +70,12 @@
 		<Button variant="outline" size="sm" onclick={() => captures.leave()}>Back to timeline</Button>
 		<h1 class="mr-auto min-w-0 truncate font-mono text-sm">{path}</h1>
 		{#if source !== undefined}
-			{#if isDraft}
-				<Button size="sm" disabled={finishing || !body?.trim()} onclick={() => void finish()}>
-					{finishing ? 'Adding…' : 'Add capture'}
-				</Button>
-			{:else}
-				<Button size="sm" variant="outline" disabled={needsRepair} onclick={() => void openCapture()}>Open as capture</Button>
-			{/if}
+			<Button size="sm" variant="outline" disabled={needsRepair} onclick={() => void openCapture()}>Open as capture</Button>
 			<Button size="sm" variant="ghost" onclick={() => void copy(text.value, 'File text')}>Copy file text</Button>
-			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem)}>{isDraft ? 'Discard draft…' : 'Delete…'}</Button>
+			<Button size="sm" variant="ghost" onclick={() => void confirmDelete(captures, stem)}>Delete…</Button>
 		{/if}
 	</div>
 
-	{#if isDraft}
-		<p class="text-sm text-muted-foreground">This saved draft is its full Markdown file. Add capture finishes its writing and adds the Thoughts section. Ctrl or ⌘ + Enter adds it.</p>
-	{/if}
 	{#if refusal}
 		<Alert.Root variant="destructive" aria-label="Not applied">
 			<Alert.Title>That change was not made</Alert.Title>
@@ -127,15 +101,9 @@
 			aria-label="Contents of {path}"
 			class="min-h-96 font-mono text-xs"
 			spellcheck={false}
-			readonly={finishing}
 			aria-invalid={refusal !== undefined}
 			bind:value={() => text.value, input}
 			bind:ref={textField}
-			onkeydown={(event) => {
-				if (!isDraft || !(event.metaKey || event.ctrlKey) || event.key !== 'Enter') return;
-				event.preventDefault();
-				void finish();
-			}}
 			{@attach selectThought}
 		/>
 	{:else if row === undefined}

@@ -32,11 +32,3 @@ test('keys Capture does not declare still fit', () => {
 		fits({ capturedAt: '2026-10-01T02:30:00Z', source: 'phone', tags: ['a'] }),
 	).toBe(true);
 });
-
-test('draft is an optional boolean and existing captures still fit', () => {
-	const capturedAt = '2026-10-01T02:30:00Z';
-	expect(fits({ capturedAt })).toBe(true);
-	expect(fits({ capturedAt, draft: true })).toBe(true);
-	expect(fits({ capturedAt, draft: false })).toBe(true);
-	expect(fits({ capturedAt, draft: 'yes' })).toBe(false);
-});

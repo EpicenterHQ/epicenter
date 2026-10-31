@@ -37,7 +37,7 @@
 		active = false;
 	});
 	const row = $derived(folder.tables.captures.row(stem));
-	const stored = $derived(row?.issues === null && row.fields.draft !== true ? row : undefined);
+	const stored = $derived(row?.issues === null ? row : undefined);
 	const body = edit(
 		() => stored?.body ?? '',
 		(next) => folder.tables.captures.update(stem, { body: next }),
@@ -140,13 +140,7 @@
 {#if reading === undefined}
 	<div class="flex flex-col gap-4">
 		<Button variant="outline" size="sm" class="self-start" onclick={() => captures.leave()}>Back to timeline</Button>
-		{#if row?.fields && row.issues === null && row.fields.draft === true}
-			<Alert.Root>
-				<Alert.Title>This file is a draft</Alert.Title>
-				<Alert.Description>Edit its Markdown as text to continue writing or finish it.</Alert.Description>
-				<div class="mt-2"><Button size="sm" onclick={openText}>Edit as text</Button></div>
-			</Alert.Root>
-		{:else if row?.issues && !row.issues.some((issue) => issue.kind === 'unreadable' || issue.kind === 'not-text')}
+		{#if row?.issues && !row.issues.some((issue) => issue.kind === 'unreadable' || issue.kind === 'not-text')}
 			<Empty.Root role="alert">
 				<Empty.Header>
 					<Empty.Title>This file does not read as a capture</Empty.Title>

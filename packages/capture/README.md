@@ -28,14 +28,7 @@ A UTC time and a time with an offset are both valid, so order captures by
 the parsed instant, never by the string. The schema only interprets:
 unknown frontmatter keys are kept, and a save is never refused by it.
 
-The optional boolean `draft` field marks `draft: true` files, unfinished
-compositions an earlier version of Capture saved before Add. Their body is raw
-writing, not a capture text-and-thoughts layout. Capture lists these
-separately and applies `composeBody` only when one is finished, removing
-`draft` and updating `capturedAt` in the same file write; it writes no new
-drafts. Files without `draft` are completed captures. `captureBody` itself
-only interprets bodies; the application checks the row's lifecycle before
-decoding one.
+`captureBody` only interprets bodies.
 
 ## Reading a capture
 

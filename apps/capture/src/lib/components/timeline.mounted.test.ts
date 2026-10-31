@@ -1,7 +1,7 @@
 /**
  * Mounted Timeline Tests
  *
- * Checks New Capture's unsaved form, mirror timeline, draft opening, and
+ * Checks New Capture's unsaved form, mirror timeline, and
  * repair actions through the real mounted view.
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
@@ -79,22 +79,12 @@ test('failed Add keeps its form text and leaves the timeline empty', async () =>
 	expect(document.body.textContent).toContain('Could not add capture');
 });
 
-test('saved draft opens as text and repair opens its file', async () => {
+test('a file that does not read as a capture is listed for repair, not as a capture', async () => {
 	const h = await setup({
-		'captures/draft.md': `---\ncapturedAt: ${AT}\ndraft: true\n---\nWriting`,
 		'captures/broken.md': '---\ncapturedAt: nope\n---\nBody\n',
 	});
-	expect(h.target.textContent).toContain('Drafts');
 	expect(h.target.textContent).toContain('1 file does not read as a capture');
-	const draft = h.target.querySelector<HTMLButtonElement>(
-		'[aria-label="Draft captures"] button',
-	);
-	draft?.click();
-	await until(() => {
-		flushSync();
-		return h.captures.opened?.stem === 'draft';
-	});
-	expect(h.captures.opened?.mode).toBe('text');
+	expect(h.captures.timeline.rows).toEqual([]);
 });
 
 test('another writer updates the timeline without a query refetch', async () => {

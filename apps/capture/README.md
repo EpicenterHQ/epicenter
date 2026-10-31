@@ -6,19 +6,14 @@ Capture opens one folder with `openFolder({ tables: captureTables })` from `@epi
 
 Run the browser app with `bun dev:capture` from the repository root.
 
-## Captures from an earlier version
-
-Earlier browser builds kept captures in OPFS, first at the root of `so.epicenter.capture` and before that in `Epicenter/local/so.epicenter.capture` or `Epicenter Dev/local/so.epicenter.capture`. The current IndexedDB folder opens independently. It does not inspect, change, or remove those OPFS files, so a profile with only earlier captures starts with an empty timeline.
-
 ## What you can do
 
 - **New capture** holds its text in the form until **Add capture** (or Ctrl or ⌘ + Enter). Add creates one finished file and opens it at Add a thought. Blank text is refused. A failed write leaves the text in the form and shows a toast with the reason.
 - Open a capture to edit its text and add, reorder, copy, or delete thoughts. Add a thought is an explicit submission. Its input is cleared when you leave the capture. A thought's Actions menu can open its lines in Edit as text.
-- **Drafts** lists `draft: true` files saved by an earlier version. A draft opens in the full-file Markdown editor. **Add capture** finishes that same file from its saved body, removes `draft`, sets the time of Add, and composes its Thoughts section. **Discard draft…** asks before deleting it. Capture writes no new drafts.
 - **Edit as text** opens the file with frontmatter. It accepts unfinished Markdown. Needs repair responds to what is typed, and **Open as capture** becomes available when that text reads as a capture. Opening that structured view explicitly saves the text first.
 - **More** holds Copy capture text, Download file, and Delete capture. Download explicitly saves the shown body before exporting the saved file text. Deletion asks first; deleted captures have no history to restore from.
 
-One capture is open at a time. The timeline lists finished captures, saved drafts, and files needing repair. A completed file with invalid frontmatter or an ambiguous Thoughts layout opens as text. Binary or temporarily unreadable files are listed separately; a read error offers Try again.
+One capture is open at a time. The timeline lists captures and files needing repair. A completed file with invalid frontmatter or an ambiguous Thoughts layout opens as text. Binary or temporarily unreadable files are listed separately; a read error offers Try again.
 
 ## Editing
 
@@ -30,11 +25,9 @@ Structured capture edits replace the body through `tables.captures.update`. The 
 
 Thoughts are identified by their position in the shown list. A move or delete refuses a list that changed beneath it. A thought's Edit as text explicitly saves the shown body, then finds that thought's lines in the saved source so its selection matches the new editor. Another tab's saved changes reach the mirror; when this editor has no pending typing, it follows those saved values.
 
-## Quick Add and saved drafts
+## Quick Add
 
-New capture and Add a thought are explicit submissions. Their text boxes belong to their components and write nothing before Add. Leaving the view or reloading clears unsubmitted text. [ADR-0658](../../docs/adr/0658-capture-compositions-are-durable-markdown-records.md) records why Capture writes no new draft files.
-
-A saved draft is an ordinary file with `draft: true`. Its body is raw writing, including spaces, line endings, and any headings the writer included. Add lands the text editor's edit and refuses a failed write. It then reads the saved row and refuses a missing, invalid, or blank draft. It composes the body once and updates the same file. If that update fails, the file remains a draft; retrying Add starts from its saved body and does not append another Thoughts section. The text box is read-only while finishing.
+New capture and Add a thought are explicit submissions. Their text boxes belong to their components and write nothing before Add. Leaving the view or reloading clears unsubmitted text. [ADR-0658](../../docs/adr/0658-capture-compositions-are-durable-markdown-records.md) records why Capture writes no draft files.
 
 ## How it is wired
 
@@ -56,11 +49,11 @@ The Vite configuration resolves the `@epicenter/folder` opener to the browser or
 | Path | Role |
 | --- | --- |
 | `src/routes/+page.svelte` | Opens the folder and passes it to CaptureApp. |
-| `src/lib/captures.svelte.ts` | Timeline, Add, draft finish, deletion, and navigation. |
+| `src/lib/captures.svelte.ts` | Timeline, Add, deletion, and navigation. |
 | `src/lib/capture-actions.svelte.ts` | Thought and text commands over one body edit; saved-source thought location. |
 | `src/lib/components/CaptureDetail.svelte` | Structured capture editor with a body edit. |
-| `src/lib/components/TextDetail.svelte` | Full-file editor and saved-draft finish. |
-| `src/lib/components/Timeline.svelte` | Saved captures, drafts, repair entries, and New Capture. |
+| `src/lib/components/TextDetail.svelte` | Full-file editor. |
+| `src/lib/components/Timeline.svelte` | Saved captures, repair entries, and New Capture. |
 
 The package exports the file model and body codec; it opens no folder.
 

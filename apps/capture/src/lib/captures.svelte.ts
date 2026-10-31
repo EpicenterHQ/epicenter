@@ -38,7 +38,6 @@ export type Deletion = {
 	readonly stem: string;
 	readonly path: string;
 	readonly title: string;
-	readonly draft: boolean;
 };
 export const CaptureError = defineErrors({
 	Refused: ({ message }: { message: string }) => ({ message }),
@@ -84,22 +83,11 @@ function byPath(left: { path: string }, right: { path: string }) {
 export function readCaptureBody(
 	row: Pick<Extract<CaptureRow, { issues: null }>, 'fields' | 'body'>,
 ) {
-	const thoughts: string[] = [];
-	if (row.fields.draft === true)
-		return Ok({
-			draft: true,
-			text: row.body,
-			thoughts,
-			hasOtherContent: false,
-		});
-	const reading = captureBody.decode(row.body);
-	if (reading.error !== null) return reading;
-	return Ok({ ...reading.data, draft: false });
+	return captureBody.decode(row.body);
 }
 
 export function timelineOf(listed: readonly CaptureRow[]) {
 	const rows: TimelineRow[] = [];
-	const drafts: TimelineRow[] = [];
 	const repairs: Repair[] = [];
 	const unreadable: { path: string; message: string; retry: boolean }[] = [];
 	for (const row of listed) {
@@ -125,7 +113,7 @@ export function timelineOf(listed: readonly CaptureRow[]) {
 			repairs.push({ stem, path, problem: error.message });
 			continue;
 		}
-		(body.draft ? drafts : rows).push({
+		rows.push({
 			stem,
 			path,
 			capturedAt: instantOf(row.fields.capturedAt),
@@ -135,7 +123,6 @@ export function timelineOf(listed: readonly CaptureRow[]) {
 	}
 	return {
 		rows: rows.sort(newestFirst),
-		drafts: drafts.sort(newestFirst),
 		repairs: repairs.sort(byPath),
 		unreadable: unreadable.sort(byPath),
 	};
@@ -152,7 +139,6 @@ export function createCaptures(folder: CaptureFolder) {
 			if (
 				row === undefined ||
 				row.issues !== null ||
-				row.fields.draft === true ||
 				readCaptureBody(row).error !== null
 			) {
 				mode = 'text';
@@ -192,31 +178,6 @@ export function createCaptures(folder: CaptureFolder) {
 			go(requested, stem, 'capture', 'new-thought');
 			return Ok({ stem });
 		},
-		async finishDraft(stem: string): Promise<Result<void, Failure>> {
-			const requested = ++navigation;
-			const row = folder.tables.captures.row(stem);
-			if (row === undefined)
-				return CaptureError.Refused({
-					message: 'This draft is no longer here.',
-				});
-			if (row.issues !== null)
-				return CaptureError.Refused({
-					message: 'Repair this file as text before adding it.',
-				});
-			if (row.fields.draft !== true) {
-				go(requested, stem, 'capture', 'new-thought');
-				return Ok(undefined);
-			}
-			if (row.body.trim() === '')
-				return CaptureError.Refused({ message: 'Write something first.' });
-			const saved = await folder.tables.captures.update(stem, {
-				fields: { draft: undefined, capturedAt: new Date().toISOString() },
-				body: composeBody(row.body).body,
-			});
-			if (saved.error !== null) return saved;
-			go(requested, stem, 'capture', 'new-thought');
-			return Ok(undefined);
-		},
 		deletionFor(stem: string): Deletion {
 			const row = folder.tables.captures.row(stem);
 			const reading =
@@ -225,7 +186,6 @@ export function createCaptures(folder: CaptureFolder) {
 				stem,
 				path: capturePath(stem),
 				title: reading?.text.trim().slice(0, 60) ?? '',
-				draft: reading?.draft ?? false,
 			};
 		},
 		async delete(deletion: Deletion): Promise<Result<void, WriteError>> {

@@ -11,7 +11,6 @@
 
 	const folder = getFolder();
 	const timeline = $derived(captures.timeline.rows);
-	const drafts = $derived(captures.timeline.drafts);
 	const repairs = $derived(captures.timeline.repairs);
 	const unreadable = $derived(captures.timeline.unreadable);
 	const when = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -22,22 +21,6 @@
 <div class="mb-6">
 	<NewCapture {captures} />
 </div>
-
-{#if drafts.length}
-	<section class="mb-6" aria-label="Draft captures">
-		<h2 class="mb-2 font-medium">Drafts</h2>
-		<Item.Group class="gap-1">
-			{#each drafts as row (row.path)}
-				<Item.Button size="sm" class="w-full text-left hover:bg-muted" onclick={() => captures.open(row.stem, 'text')}>
-					<Item.Content>
-						<Item.Title class="line-clamp-2 whitespace-pre-line break-words">{row.preview || 'Empty draft'}</Item.Title>
-						<Item.Description>Continue writing</Item.Description>
-					</Item.Content>
-				</Item.Button>
-			{/each}
-		</Item.Group>
-	</section>
-{/if}
 
 {#if timeline.length}
 	<Item.Group aria-label="Timeline captures" class="gap-1">
@@ -57,7 +40,7 @@
 			</Item.Button>
 		{/each}
 	</Item.Group>
-{:else if drafts.length === 0}
+{:else}
 	<Empty.Root>
 		<Empty.Header>
 			<Empty.Title>No captures yet</Empty.Title>
