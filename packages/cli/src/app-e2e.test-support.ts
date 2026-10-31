@@ -210,15 +210,26 @@ export function emptyOpfs(page: Page) {
  */
 export function recordUploaderStarts(context: BrowserContext) {
 	return context.addInitScript(() => {
-		const request = navigator.locks.request.bind(navigator.locks);
-		navigator.locks.request = ((name: string, ...rest: unknown[]) => {
+		// The prototype, not `navigator.locks`: WebKit may not have made the
+		// instance yet when a page reached by a redirect runs this.
+		const proto = LockManager.prototype;
+		const request = proto.request;
+		proto.request = function (
+			this: LockManager,
+			name: string,
+			...rest: unknown[]
+		) {
 			if (name === 'epicenter-upload') {
 				const seen = JSON.parse(sessionStorage.getItem('uploaders') ?? '[]');
 				seen.push(location.pathname);
 				sessionStorage.setItem('uploaders', JSON.stringify(seen));
 			}
-			return (request as (...args: unknown[]) => unknown)(name, ...rest);
-		}) as typeof navigator.locks.request;
+			return (request as (...args: unknown[]) => unknown).call(
+				this,
+				name,
+				...rest,
+			);
+		} as typeof proto.request;
 	});
 }
 
