@@ -10,9 +10,10 @@ as `static/contract.json` (`bun run contract` rewrites it after a change), the
 file `epicenter check <url>/contract.json <dir>` checks a folder against. Any
 program that writes the layout is a valid writer.
 
-Capture is a web app only; it has no desktop app of its own. A folder of
-captures on a computer is a clone of the person's repository, kept with
-`epicenter clone` and `epicenter sync`.
+Capture also runs as its own desktop app (below), over a folder it keeps its
+captures in. A folder of captures on a computer, the desktop app's or a clone
+of the person's repository (`epicenter clone`), is synced by Epicenter
+(`epicenter sync`), never by Capture.
 
 ## What it does
 
@@ -100,6 +101,50 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 `capture` repository. It needs `initdb`, `pg_ctl`, `git` and `git-lfs` on
 `PATH`, and port 5179 free. Ctrl-C deletes everything.
 
+## The desktop app
+
+```sh
+bun dev:capture:desktop     # from the repository root; needs a Rust toolchain
+bun build:capture:desktop   # a local, unsigned macOS app bundle
+```
+
+Its Tauri shell (`src-tauri/`, on the shared
+[`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
+crate) owns Capture's folder (decision 81). On first run it asks "Where should
+Capture keep its files?": the Epicenter folder `~/Epicenter/Capture`
+(recommended; `~/Epicenter Dev/Capture` for `dev:desktop`'s `.dev`
+identifier), the app's data folder, or "Choose folder…". It creates the
+folder, or reuses one already there with its files, and remembers the choice
+as `folder` in `settings.md` in its own configuration directory (`appConfig`,
+decision 82: machine-local, never synced, never in the folder). The window is
+bound to that folder before the page loads.
+
+The page is the same UI as the web, built as the desktop variant
+(`bun run build:native`, into `build-desktop/`): the "On this device" view
+over the folder (`openDevice` from `@epicenter/folder/tauri`), with no
+"Synced" view, no sign-in (Capture makes no inference calls), and no service
+worker. Its header says whether Epicenter syncs the folder, offers **Sync
+with Epicenter** until it does (`syncWithEpicenter({ path, contract })`,
+with the folder's path from the shell and `APPS.CAPTURE.url`'s
+`contract.json`, which opens
+`epicenter://init?path=<the folder>&contract=https://capture.epicenter.so/contract.json`),
+and holds **Choose folder…** in the status details. Closing the window or
+quitting waits for saves (the leave guard), and so does Choose folder….
+
+The variant is chosen at build time, never at run time: the `#platform/*`
+seams in `package.json` "imports" resolve to their `.tauri.ts` leaves under
+the `tauri` condition, which `vite.config.ts` turns on when
+`EPICENTER_DESKTOP=1`. `tsconfig.tauri.json` typechecks that build, and
+`src/lib/platform.test.ts` bundles both and names a seam whose desktop leaf
+went missing.
+
+| Seam | Browser leaf | Desktop leaf |
+| --- | --- | --- |
+| `#platform/device` | `device.ts`: OPFS | `device.tauri.ts`: the window's folder |
+| `#platform/folder` | `folder.ts`: none | `folder.tauri.ts`: sync state, Sync with Epicenter, Choose folder… |
+| `#platform/auth` | `auth.ts`: sign-in with Epicenter | `auth.tauri.ts`: none |
+| `#platform/offline` | `offline.ts`: the service worker | `offline.tauri.ts`: nothing |
+
 ## How it is wired
 
 ```text
@@ -140,7 +185,8 @@ them newest first.
 | --- | --- |
 | `bun test packages/capture` | The contract and the body codec. |
 | `bun run --cwd apps/capture typecheck` | App, scripts, and end-to-end types. |
-| `bun run --cwd apps/capture test` | The contract's fit, the store over real device clients, and the mounted views. |
+| `bun run --cwd apps/capture test` | The contract's fit, the store over real device clients, the mounted views, and both builds' seams. |
+| `cargo test -p capture -p epicenter-standalone` | The desktop shell: its capability, the first-run folder choice, moving the folder, guarded Quit. |
 | `bun x playwright test -c apps/capture/playwright.config.ts` | End to end in Chromium and WebKit (below). |
 
 The end-to-end suite (`e2e/capture.spec.ts`, on the shared stack in

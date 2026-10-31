@@ -9,7 +9,7 @@
 	import { openRemote, startUploading } from '@epicenter/folder/remote';
 	import { setRepo } from '@epicenter/svelte/repo';
 	import { onDestroy, type Snippet } from 'svelte';
-	import { device } from '$lib/device.js';
+	import { device } from '#platform/device';
 
 	// One account for this component's life: the parent's `{#key}` makes a
 	// new one for a new account, and sign-out or replacement retires this

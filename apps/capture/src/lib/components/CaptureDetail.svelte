@@ -1,5 +1,6 @@
 <!-- One capture as its text and thoughts. One body edit holds both until each save answers. -->
 <script lang="ts">
+	import { folder } from '#platform/folder';
 	import { captureBody } from '@epicenter/capture';
 	import { describeIssues } from '@epicenter/definition/contract';
 	import { fieldEdit } from '@epicenter/svelte/client';
@@ -168,7 +169,9 @@
 				<Empty.Header>
 					<Empty.Title>This capture is no longer here</Empty.Title>
 					<Empty.Description>
-						{#if captures.view === 'device'}
+						{#if folder !== null}
+							It was deleted, here or by another program using Capture's folder.
+						{:else if captures.view === 'device'}
 							It was deleted, here or in another tab, or it uploaded to your repository and is under Synced.
 						{:else}
 							It was deleted, here, in another tab, or on another device.

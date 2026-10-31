@@ -3,6 +3,9 @@
  * opened once for the page and always there (decision 10): the "On this
  * device" view's client. Signed in, the uploader moves each capture here to
  * the person's `capture` repository (decisions 12 and 76).
+ *
+ * The browser leaf of `#platform/device`; the desktop window's is
+ * `device.tauri.ts`.
  */
 
 import { capture } from '@epicenter/capture';

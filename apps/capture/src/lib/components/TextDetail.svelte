@@ -7,6 +7,7 @@
 	person types. A saved capture whose Thoughts read opens as a capture.
 -->
 <script lang="ts">
+	import { folder } from '#platform/folder';
 	import { capture, capturePath } from '@epicenter/capture';
 	import { type ClientError, describeIssues, readNoteText, type Version } from '@epicenter/definition/contract';
 	import * as Alert from '@epicenter/ui/alert';
@@ -166,7 +167,9 @@
 			<Empty.Header>
 				<Empty.Title>This capture is no longer here</Empty.Title>
 				<Empty.Description>
-					{#if captures.view === 'device'}
+					{#if folder !== null}
+						It was deleted, here or by another program using Capture's folder.
+					{:else if captures.view === 'device'}
 						It was deleted, here or in another tab, or it uploaded to your repository and is under Synced.
 					{:else}
 						It was deleted, here, in another tab, or on another device.

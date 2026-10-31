@@ -3,14 +3,17 @@
 	app always starts with one account for the page's whole life.
 -->
 <script lang="ts">
-	import { resolve } from '$app/paths';
+	import { webAuth } from '#platform/auth';
 	import { Loading } from '@epicenter/ui/loading';
-	import { webAuth } from '$lib/auth.js';
+	import { resolve } from '$app/paths';
 
 	let errorMessage = $state<string | null>(null);
 
 	$effect(() => {
-		void webAuth()
+		// The desktop window never signs in, so it never lands here.
+		const auth = webAuth();
+		if (auth === null) return;
+		void auth
 			.completeSignIn()
 			.then(({ data, error }) => {
 				if (error !== null) errorMessage = error.message;

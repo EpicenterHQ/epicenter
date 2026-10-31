@@ -7,6 +7,9 @@
  * The server is `VITE_EPICENTER_SERVER` when the build sets it (a local or
  * self-hosted API), otherwise Epicenter's. The client is made on first use:
  * making it reads `localStorage` and schedules renewals.
+ *
+ * The browser leaf of `#platform/auth`; the desktop window, which never
+ * signs in, has `auth.tauri.ts`.
  */
 import {
 	createBrowserOAuth,
@@ -32,10 +35,13 @@ function createAuth() {
 	return fromAuth(client);
 }
 
-let auth: ReturnType<typeof createAuth> | undefined;
+/** Capture's sign-in with Epicenter. */
+export type CaptureAuth = ReturnType<typeof createAuth>;
 
-/** This page's sign-in, made on first use. */
-export function webAuth() {
+let auth: CaptureAuth | undefined;
+
+/** This page's sign-in, made on first use; null in a build that never signs in (`auth.tauri.ts`). */
+export function webAuth(): CaptureAuth | null {
 	auth ??= createAuth();
 	return auth;
 }

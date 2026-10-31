@@ -4,14 +4,35 @@
 	"version": "0.0.1",
 	"private": true,
 	"type": "module",
+	"imports": {
+		"#platform/auth": {
+			"tauri": "./src/lib/auth.tauri.ts",
+			"default": "./src/lib/auth.ts"
+		},
+		"#platform/device": {
+			"tauri": "./src/lib/device.tauri.ts",
+			"default": "./src/lib/device.ts"
+		},
+		"#platform/folder": {
+			"tauri": "./src/lib/folder.tauri.ts",
+			"default": "./src/lib/folder.ts"
+		},
+		"#platform/offline": {
+			"tauri": "./src/lib/offline.tauri.ts",
+			"default": "./src/lib/offline.ts"
+		}
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 CAPTURE_BUILD_DIR=build-desktop NODE_ENV=production vite build",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:native && tauri build --bundles app",
 		"preview": "vite preview",
 		"demo": "bun e2e/stack.ts --demo",
 		"contract": "bun scripts/write-contract.ts",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json",
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json",
 		"test": "bun test --isolate --path-ignore-patterns='**/*.mounted.test.ts' --conditions=browser --conditions=svelte src && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/lib/components",
 		"test:e2e": "playwright test -c playwright.config.ts"
@@ -24,6 +45,7 @@
 		"@epicenter/folder": "workspace:*",
 		"@epicenter/svelte": "workspace:*",
 		"@epicenter/ui": "workspace:*",
+		"@tauri-apps/api": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {
@@ -31,6 +53,7 @@
 		"@sveltejs/adapter-static": "catalog:",
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
+		"@tauri-apps/cli": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"jsdom": "26.1.0",

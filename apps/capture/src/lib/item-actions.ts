@@ -6,6 +6,7 @@
 
 import { confirmationDialog } from '@epicenter/ui/confirmation-dialog';
 import { toast } from '@epicenter/ui/sonner';
+import { folder } from '#platform/folder';
 import type { Captures } from './captures.svelte.js';
 
 /** Ask before deleting the capture `id`; the delete acts on the capture as shown when it runs. */
@@ -17,7 +18,9 @@ export function confirmDelete(captures: Captures, id: string) {
 		description:
 			captures.view === 'synced'
 				? `${named}and its thoughts are deleted from your repository. Its Git history keeps them.`
-				: `${named}and its thoughts are deleted from this browser. A deleted capture cannot be brought back.`,
+				: folder !== null
+					? `${named}and its thoughts are deleted from Capture's folder. If Epicenter syncs it, its Git history keeps them.`
+					: `${named}and its thoughts are deleted from this browser. A deleted capture cannot be brought back.`,
 		confirm: {
 			text: 'Delete',
 			variant: 'destructive',

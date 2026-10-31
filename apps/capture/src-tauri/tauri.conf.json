@@ -1,0 +1,20 @@
+{
+	"$schema": "https://schema.tauri.app/config/2",
+	"productName": "Capture",
+	"version": "0.0.1",
+	"identifier": "so.epicenter.capture",
+	"build": {
+		"frontendDist": "../build-desktop"
+	},
+	"app": {
+		"windows": [],
+		"security": {
+			"capabilities": ["capture"],
+			"csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
+		}
+	},
+	"bundle": {
+		"active": true,
+		"icon": ["icons/icon.png"]
+	}
+}

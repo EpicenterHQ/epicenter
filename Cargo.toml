@@ -7,6 +7,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "apps/capture/src-tauri",
     "packages/tauri-epicenter-standalone",
     "packages/tauri-plugin-epicenter-folder",
     "packages/tauri-plugin-epicenter-folder/core",

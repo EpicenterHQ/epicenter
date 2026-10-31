@@ -9,6 +9,7 @@
 	import * as Empty from '@epicenter/ui/empty';
 	import * as Item from '@epicenter/ui/item';
 	import { Loading } from '@epicenter/ui/loading';
+	import { folder } from '#platform/folder';
 	import type { Captures } from '$lib/captures.svelte.js';
 	import NewCapture from './NewCapture.svelte';
 
@@ -91,6 +92,8 @@
 <footer class="mt-10 border-t pt-4 text-xs text-muted-foreground">
 	{#if captures.view === 'synced'}
 		<p>These captures are kept in your Epicenter repository, each as a Markdown file in <code>captures</code>.</p>
+	{:else if folder !== null}
+		<p>These captures are kept in Capture's folder on this computer, each as a Markdown file in <code>captures</code>.</p>
 	{:else}
 		<p>These captures are kept in this browser, each as a Markdown file in <code>captures</code>. Signed in, they upload to your Epicenter repository on their own and are then under Synced.</p>
 	{/if}
