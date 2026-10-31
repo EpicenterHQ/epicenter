@@ -70,9 +70,7 @@ export const APPS = {
  *
  * A row carries an id only for an app that names itself from it. Todos,
  * Capture, and Honeycrisp carry none here: each browser build's
- * id is its OAuth client in `apps/api/worker/oauth-registrations.ts`, and the
- * Epicenter desktop app names the same id for each app it bundles
- * (`BundledApp` in `apps/epicenter/src-tauri/src/bundled_apps.rs`).
+ * id is its OAuth client in `apps/api/worker/oauth-registrations.ts`.
  */
 export type AppKey = keyof typeof APPS;
 

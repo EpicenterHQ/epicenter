@@ -7,8 +7,8 @@
  *
  * Run it in the app's folder, which the app's config, like SvelteKit, takes as
  * its root. `bundledModules` in `src/module-graph.ts` spawns it, one process
- * per build, because the app's config reads `EPICENTER_HOST` when it is
- * imported.
+ * per build, because a desktop app's config reads `EPICENTER_DESKTOP` when it
+ * is imported.
  */
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
@@ -19,15 +19,15 @@ const [appArg, entry, platform] = process.argv.slice(2);
 if (
 	appArg === undefined ||
 	entry === undefined ||
-	(platform !== 'browser' && platform !== 'epicenter-host')
+	(platform !== 'browser' && platform !== 'desktop')
 )
 	throw new Error(
-		'Usage: bun module-graph.ts <appDir> <entry> <browser|epicenter-host>',
+		'Usage: bun module-graph.ts <appDir> <entry> <browser|desktop>',
 	);
 const appDir = resolve(appArg);
 
-if (platform === 'epicenter-host') process.env.EPICENTER_HOST = '1';
-else delete process.env.EPICENTER_HOST;
+if (platform === 'desktop') process.env.EPICENTER_DESKTOP = '1';
+else delete process.env.EPICENTER_DESKTOP;
 
 const { default: config }: { default: UserConfig } = await import(
 	pathToFileURL(join(appDir, 'vite.config.ts')).href

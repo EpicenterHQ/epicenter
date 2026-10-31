@@ -9,15 +9,9 @@
  * so the selection is proved here.
  *
  * Key behaviors:
- * - The host build reaches the desktop services, the folder mirror's Tauri
- *   entry, the shell's recorder, and the generated bindings, and no browser
- *   services, OPFS Git, isomorphic-git, or code that opens a microphone in the
- *   WebView (`getUserMedia`, `enumerateDevices`, `MediaRecorder`,
- *   `AudioContext`)
- * - The portable build reaches browser services and the Folder's runtime
- *   choice, which includes a dormant Tauri engine for hosted windows.
- * - The host build bypasses that runtime choice; neither build reaches Bun
- *   or Node modules.
+ * - The browser build reaches the browser services, the WebView microphone,
+ *   and the Folder's runtime choice, and no Bun or Node module or the shell's
+ *   recorder.
  */
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
@@ -40,39 +34,10 @@ const folderModule = (name: string) => (path: string) =>
 const reaches = (modules: string[], suffix: string) =>
 	modules.some((path) => path.endsWith(suffix));
 
-const PAGE_FORBIDDEN = /packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
+const PAGE_FORBIDDEN =
+	/packages\/folder\/src\/(bun|directory-node)\.ts$|^node:|^bun:/;
 
 describe('#platform/services', () => {
-	test(
-		'the host build resolves the desktop services over the folder mirror’s Tauri entry',
-		async () => {
-			const modules = await bundledModules(
-				appDir,
-				SEAM_ENTRY,
-				'epicenter-host',
-			);
-
-			expect(reaches(modules, 'lib/platform/desktop/services.ts')).toBe(true);
-			expect(reaches(modules, 'lib/platform/desktop/auth.ts')).toBe(true);
-			expect(reaches(modules, 'lib/tauri/bindings.gen.ts')).toBe(true);
-			expect(modules.some(folderModule('tauri.ts'))).toBe(true);
-			expect(modules.some(folderModule('folder.ts'))).toBe(true);
-			expect(modules.some(recorderModule('tauri.ts'))).toBe(true);
-			expect(reaches(modules, 'lib/platform/desktop/microphone.ts')).toBe(true);
-			expect(
-				modules.filter(
-					(path) =>
-						PAGE_FORBIDDEN.test(path) ||
-						folderModule('index.ts')(path) ||
-						/lib\/platform\/browser\.ts$|lib\/webview-microphone\.ts$|packages\/folder\/src\/next\/browser\.ts$|packages\/folder\/src\/(browser|browser-adapter)\.ts$|packages\/folder\/src\/git\/(opfs-git|browser-backend)\.ts$|packages\/recorder\/src\/(browser|microphone|vad-recorder)\.ts$|@ricky0123|isomorphic-git/.test(
-							path,
-						),
-				),
-			).toEqual([]);
-		},
-		BUNDLE_TIMEOUT,
-	);
-
 	test(
 		'the browser build resolves the browser services over the folder mirror’s IndexedDB entry',
 		async () => {
@@ -90,9 +55,7 @@ describe('#platform/services', () => {
 				modules.filter(
 					(path) =>
 						PAGE_FORBIDDEN.test(path) ||
-						/lib\/platform\/desktop\/|lib\/tauri\/bindings\.gen\.ts$|packages\/recorder\/src\/tauri\.ts$/.test(
-							path,
-						),
+						/packages\/recorder\/src\/tauri\.ts$/.test(path),
 				),
 			).toEqual([]);
 		},

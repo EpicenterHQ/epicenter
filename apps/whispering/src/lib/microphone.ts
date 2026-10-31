@@ -2,14 +2,10 @@
  * The real microphone as a capture device: recording from one into the
  * folder, over the inputs the platform lists, allows, and tests.
  *
- * Each platform adapter supplies both halves and nothing here chooses between them:
- *
- * - In Epicenter (`platform/desktop/microphone.ts`) Rust owns the
- *   microphone. The shell lists the inputs, reads a level, asks the system
- *   for access, and records the WAV into the folder as it captures; the page
- *   opens no microphone of its own (ADR-0571).
- * - In a browser (`webview-microphone.ts`) the page lists, allows, and tests
- *   in the WebView and records with `MediaRecorder`, writing the file on stop.
+ * The platform adapter supplies both halves and nothing here chooses between
+ * them. In a browser (`webview-microphone.ts`) the page lists, allows, and
+ * tests in the WebView and records with `MediaRecorder`, writing the file on
+ * stop.
  *
  * A chosen microphone is asked for by the exact ID its platform listed it
  * under. When that one cannot be opened, the answer is a refusal: no other

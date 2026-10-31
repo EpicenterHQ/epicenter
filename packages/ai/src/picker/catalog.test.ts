@@ -7,19 +7,14 @@ import { expect, test } from 'bun:test';
 import { expectOk } from 'wellcrafted/testing';
 import { createAiConnections } from '../ai-connections.js';
 import { openConnectionCatalog } from '../connection-catalog.js';
-import { type AiTransport, createInference } from '../inference.js';
-import { createRuntimeTranscriber } from '../runtime-transcriber.js';
+import { createInference } from '../inference.js';
 import { createInferenceSelections } from '../selections.js';
 import type { InferenceSources } from '../target.js';
 import { createInferenceCatalog } from './catalog.svelte.js';
 
 Reflect.set(globalThis, '$state', { raw: <T>(value: T) => value });
 
-async function setup(
-	values = new Map<string, string>(),
-	principalId = 'A',
-	runtime: AiTransport | null = null,
-) {
+async function setup(values = new Map<string, string>(), principalId = 'A') {
 	const records = createAiConnections({
 		storageKey: 'test',
 		storage: {
@@ -43,19 +38,8 @@ async function setup(
 			>['identity']['principalId'],
 		},
 	};
-	const runtimeHandle = runtime
-		? createRuntimeTranscriber(async () => {
-				const result = await runtime.fetch(`${runtime.baseURL}/models`);
-				const data = await result.json();
-				return data.data.map((model: { id: string }) => ({
-					...model,
-					active: false,
-					installed: true,
-				}));
-			})
-		: null;
 	const connections = await openConnectionCatalog(records);
-	const ai = { account, runtime: runtimeHandle, connections };
+	const ai = { account, connections };
 	const catalog = createInferenceCatalog({
 		ai,
 		hostedModels: [{ id: 'shared-model', label: 'Hosted', credits: 1 }],
@@ -76,11 +60,7 @@ async function setup(
 		hosted,
 		values,
 		close: () => {
-			return Promise.all([
-				account.close(),
-				runtimeHandle?.close(),
-				connections.close(),
-			]);
+			return Promise.all([account.close(), connections.close()]);
 		},
 	};
 }
@@ -212,8 +192,7 @@ test('custom requests carry only the custom key instead of using the hosted tran
 			model: 'manual-model',
 		});
 		const transport = catalog.resolve(selections.get('conversation'));
-		if (!transport || transport.source === 'runtime')
-			throw new Error('Expected selected custom connection');
+		if (!transport) throw new Error('Expected selected custom connection');
 		await transport.client.models.list();
 		expect(received.authorization).toBe('Bearer custom-key');
 	} finally {
@@ -277,8 +256,7 @@ test('same URL entries retain independent ids and credentials', async () => {
 				model: 'manual',
 			});
 			const target = fixture.catalog.resolve(fixture.selections.get('chat'));
-			if (!target || target.source === 'runtime')
-				throw new Error('Expected network target');
+			if (!target) throw new Error('Expected network target');
 			await target.client.models.list();
 		}
 		expect(received).toEqual(['Bearer first', 'Bearer second']);
@@ -286,34 +264,6 @@ test('same URL entries retain independent ids and credentials', async () => {
 		await fixture.close();
 		server.stop(true);
 	}
-});
-
-test('native inventory suggests models without selecting or redirecting them', async () => {
-	let requests = 0;
-	const runtime = {
-		baseURL: 'https://native-engine.example/v1',
-		fetch: async () => {
-			requests++;
-			return Response.json({ data: [{ id: 'installed-model' }] });
-		},
-	};
-	const fixture = await setup(undefined, 'A', runtime);
-	expect(requests).toBe(0);
-	await fixture.catalog.refreshRuntime();
-	expect(fixture.catalog.runtimeModels).toEqual(['installed-model']);
-	expect(fixture.catalog.resolve(fixture.selections.get('audio'))).toBeNull();
-	fixture.selections.set('audio', {
-		connectionId: fixture.catalog.runtimeId!,
-		model: 'manual-model',
-	});
-	expect(fixture.catalog.resolve(fixture.selections.get('audio'))?.source).toBe(
-		'runtime',
-	);
-	expect(fixture.catalog.runtimeId).toBe('runtime:native-transcription');
-	await fixture.close();
-	const absent = await setup(fixture.values);
-	expect(absent.catalog.resolve(absent.selections.get('audio'))).toBeNull();
-	await absent.close();
 });
 
 /** Editing a connection can discover models without retrieving its saved key. */
@@ -380,7 +330,6 @@ test('pending optional inference leaves a usable catalog that reports its acquis
 	expect(catalog.resolve(null)).toBeNull();
 	pending.resolve({
 		account: null,
-		runtime: null,
 		connections: null,
 		errors: ['Saved connections could not open.'],
 	});

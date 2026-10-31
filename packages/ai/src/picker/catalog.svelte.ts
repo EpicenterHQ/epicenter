@@ -7,7 +7,6 @@ import {
 	accountInferenceId,
 	type InferenceTarget,
 	resolveInferenceTarget,
-	runtimeInferenceId,
 } from '../target.js';
 
 export type HostedModel = { id: string; label: string; credits: number };
@@ -33,7 +32,7 @@ export function createInferenceCatalog({
 	let current = $state.raw(
 		observe(
 			sources instanceof Promise
-				? { account: null, runtime: null, connections: null }
+				? { account: null, connections: null }
 				: sources,
 		),
 	);
@@ -48,7 +47,6 @@ export function createInferenceCatalog({
 					(cause) => {
 						current = observe({
 							account: null,
-							runtime: null,
 							connections: null,
 							errors: [String(cause)],
 						});
@@ -56,8 +54,6 @@ export function createInferenceCatalog({
 					},
 				)
 			: Promise.resolve();
-	let runtimeModels = $state.raw<string[]>([]);
-	let runtimeError = $state.raw<string | null>(null);
 	return {
 		ready,
 		get ai() {
@@ -76,24 +72,6 @@ export function createInferenceCatalog({
 			return current.ai.account
 				? new URL(current.ai.account.client.baseURL).host
 				: '';
-		},
-		get runtimeId() {
-			return runtimeInferenceId(current.ai);
-		},
-		get runtimeError() {
-			return runtimeError;
-		},
-		get runtimeModels() {
-			return runtimeModels;
-		},
-		async refreshRuntime() {
-			const ai = current.ai;
-			if (!ai.runtime) return;
-			const result = await ai.runtime.listModels({ signal });
-			if (signal?.aborted) return result;
-			runtimeError = result.error?.message ?? null;
-			if (!result.error) runtimeModels = result.data.map((model) => model.id);
-			return result;
 		},
 		hostedModels,
 		get custom() {

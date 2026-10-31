@@ -1,12 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
-import {
-	defaultClientConditions,
-	mergeConfig,
-	searchForWorkspaceRoot,
-	type UserConfig,
-} from 'vite';
-import { isHostAppBuild } from './host-app.js';
+import { mergeConfig, searchForWorkspaceRoot, type UserConfig } from 'vite';
+import { isDesktopAppBuild } from './desktop-app.js';
 
 /**
  * Base Vite config for SvelteKit workspace apps whose package contract and
@@ -36,11 +31,8 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 		plugins: [sveltekit(), tailwindcss()] as UserConfig['plugins'],
 		// No `resolve.dedupe` here. It named `yjs` for a long time, which no
 		// workspace member depends on since the store moved to `@y/y`, so it was
-		// inert. Retargeting it at `@y/y` is worse than inert: `dedupe` resolves
-		// from the app root, and an app that reaches the CRDT only through
-		// `@epicenter/app/store` does not declare it, so Rollup fails the production
-		// build with an unresolved import. One install is what actually keeps
-		// CRDT identity, and the lockfile is where that is enforced.
+		// inert. One install is what keeps a package's identity, and the lockfile
+		// is where that is enforced.
 		server: {
 			port: app.port,
 			strictPort: true,
@@ -50,45 +42,32 @@ export function workspaceAppViteConfig(app: { port: number }): UserConfig {
 }
 
 /**
- * Base Vite config for a folder app Epicenter bundles: `workspaceAppViteConfig`
- * plus the choice between its host build (`EPICENTER_HOST=1`, see
- * `isHostAppBuild`) and its browser build. An app adds its own settings
- * with `mergeConfig`.
+ * Base Vite config for a folder app that ships its own Tauri shell:
+ * `workspaceAppViteConfig` plus the choice between its desktop build
+ * (`EPICENTER_DESKTOP=1`, see `isDesktopAppBuild`) and its browser build. An
+ * app adds its own settings with `mergeConfig`.
  *
- * - The host build turns on the `epicenter-host` condition, which selects
- *   the host leaf of each `#platform/*` seam in the app's package.json
- *   "imports". The `...defaultClientConditions` spread is load-bearing:
- *   custom conditions REPLACE Vite's defaults.
- * - Shared code imports a folder contract from `@epicenter/folder`. The host
- *   build selects its Tauri entry. The portable build keeps the runtime choice
- *   so the same bytes can run in a browser or a hosted Epicenter window.
- * - `import.meta.env.EPICENTER_HOST` is `'1'` in the host build, which
- *   each app's `src/routes/+layout.ts` reads to prerender every page.
- *
- * The answer is read when this is called, so a process that sets
- * `EPICENTER_HOST` before importing the app's `vite.config.ts` gets the build
- * it asked for (`scripts/module-graph.ts` does).
+ * - Shared code imports a folder contract from `@epicenter/folder`. The
+ *   desktop build selects its Tauri entry; the browser build keeps the
+ *   runtime choice.
+ * - `import.meta.env.EPICENTER_DESKTOP` is `'1'` in the desktop build, which
+ *   the app's `src/routes/+layout.ts` reads to prerender every page.
  */
-export function hostAppViteConfig(app: { port: number }): UserConfig {
-	const host = isHostAppBuild();
+export function desktopAppViteConfig(app: { port: number }): UserConfig {
+	const desktop = isDesktopAppBuild();
 	return mergeConfig(workspaceAppViteConfig(app), {
 		resolve: {
-			...(host && {
-				conditions: ['epicenter-host', ...defaultClientConditions],
-			}),
-			alias: [
-				...(host
-					? [
-							{
-								find: /^@epicenter\/folder$/,
-								replacement: '@epicenter/folder/tauri',
-							},
-						]
-					: []),
-			],
+			alias: desktop
+				? [
+						{
+							find: /^@epicenter\/folder$/,
+							replacement: '@epicenter/folder/tauri',
+						},
+					]
+				: [],
 		},
 		define: {
-			'import.meta.env.EPICENTER_HOST': JSON.stringify(host ? '1' : ''),
+			'import.meta.env.EPICENTER_DESKTOP': JSON.stringify(desktop ? '1' : ''),
 		},
 	} satisfies UserConfig);
 }

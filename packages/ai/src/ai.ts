@@ -1,7 +1,5 @@
 import type { Account } from '@epicenter/auth';
-import { isTauri } from '@tauri-apps/api/core';
 import { createInference, validateInferenceDestination } from './inference.js';
-import { createRuntimeTranscriber } from './runtime-transcriber.js';
 
 export { type CodexConnection, createCodexAi } from './codex-ai.js';
 export { createEndpointAi } from './endpoint-ai.js';
@@ -46,7 +44,4 @@ export async function openEpicenterInference({
 		}),
 		identity,
 	});
-}
-export async function openRuntimeTranscriber() {
-	return isTauri() ? createRuntimeTranscriber() : null;
 }

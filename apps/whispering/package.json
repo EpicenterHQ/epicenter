@@ -2,31 +2,24 @@
 	"name": "@epicenter/whispering",
 	"private": true,
 	"version": "7.11.1",
-	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in Epicenter or a browser tab",
+	"description": "Voice notes: recordings, transcripts, and settings are files in a Git-versioned folder, in a browser tab",
 	"type": "module",
 	"imports": {
-		"#platform/auth": {
-			"epicenter-host": "./src/lib/platform/desktop/auth.ts",
-			"default": "./src/lib/platform/auth.ts"
-		},
-		"#platform/services": {
-			"epicenter-host": "./src/lib/platform/desktop/services.ts",
-			"default": "./src/lib/platform/browser.ts"
-		}
+		"#platform/auth": "./src/lib/platform/auth.ts",
+		"#platform/services": "./src/lib/platform/browser.ts"
 	},
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
 		"test": "bun test --isolate --path-ignore-patterns='src/routes/**' --path-ignore-patterns='**/*.postgres.test.ts' && bun run test:mounted",
 		"test:mounted": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun test --isolate --conditions=browser --conditions=svelte src/routes",
-		"test:postgres": "bun test --isolate ./src/lib/platform/desktop/connections.postgres.test.ts ./src/lib/platform/web-sign-in.postgres.test.ts",
+		"test:postgres": "bun test --isolate ./src/lib/platform/web-sign-in.postgres.test.ts",
 		"build": "NODE_ENV=production vite build",
-		"build:host": "EPICENTER_HOST=1 bun run build",
 		"check": "bun run typecheck",
 		"contract": "bun scripts/write-contract.ts",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.epicenter-host.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
 	},
 	"license": "AGPL-3.0-or-later",
 	"devDependencies": {
@@ -37,8 +30,6 @@
 		"@sveltejs/kit": "catalog:",
 		"@sveltejs/vite-plugin-svelte": "catalog:",
 		"@tailwindcss/vite": "catalog:",
-		"@tauri-apps/api": "catalog:",
-		"@tauri-apps/plugin-opener": "catalog:",
 		"@types/bun": "catalog:",
 		"@types/jsdom": "21.1.7",
 		"fake-indexeddb": "^6.2.6",

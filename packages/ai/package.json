@@ -21,7 +21,6 @@
 		"@epicenter/ui": "workspace:*",
 		"@lucide/svelte": "catalog:",
 		"@tanstack/svelte-query": "catalog:",
-		"@tauri-apps/api": "catalog:",
 		"nanoid": "catalog:",
 		"openai": "^7.12.1",
 		"typebox": "catalog:",

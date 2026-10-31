@@ -6,7 +6,7 @@
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",
-		"./host-app": "./src/host-app.js",
+		"./desktop-app": "./src/desktop-app.js",
 		"./offline": "./src/offline.js",
 		"./module-graph": "./src/module-graph.ts"
 	},

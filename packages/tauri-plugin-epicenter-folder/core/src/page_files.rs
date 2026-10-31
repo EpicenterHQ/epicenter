@@ -23,7 +23,10 @@ use std::path::{Path, PathBuf};
 use crate::paths;
 
 fn refused(path: &Path, why: &str) -> String {
-    format!("'{}' is not one the shell may change: {why}", path.display())
+    format!(
+        "'{}' is not one the shell may change: {why}",
+        path.display()
+    )
 }
 
 /// Whether `name` is a name at all, and one that means only itself on every
@@ -32,7 +35,9 @@ fn names_only_itself(name: &str) -> bool {
     !name.is_empty()
         && name != "."
         && name != ".."
-        && !name.chars().any(|c| c.is_control() || matches!(c, '\\' | '/'))
+        && !name
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '\\' | '/'))
         && paths::names_only_itself(name)
 }
 
@@ -69,8 +74,12 @@ fn classify(root: &Path, path: &Path) -> Result<PathBuf, String> {
     let base = root
         .to_str()
         .ok_or_else(|| refused(path, "the folder's path is not text"))?;
-    let parts = relative_parts(base, raw)
-        .ok_or_else(|| refused(path, "it is outside the folder, or names `.`, `..`, or an empty name"))?;
+    let parts = relative_parts(base, raw).ok_or_else(|| {
+        refused(
+            path,
+            "it is outside the folder, or names `.`, `..`, or an empty name",
+        )
+    })?;
     if !is_data(&parts) {
         return Err(refused(
             path,
@@ -228,10 +237,26 @@ mod tests {
         assert!(classify(&root, &sibling).is_err());
         assert!(classify(&slashed, &sibling).is_err());
         // Drive and filesystem roots, as their names are written.
-        let parts = |names: &[&str]| Some(names.iter().map(|name| name.to_string()).collect::<Vec<_>>());
-        assert_eq!(relative_parts("C:\\", "C:\\todos\\a.md"), parts(&["todos", "a.md"]));
-        assert_eq!(relative_parts("/", "/todos/a.md"), parts(&["todos", "a.md"]));
-        assert_eq!(relative_parts("\\\\server\\share\\", "\\\\server\\share\\todos\\a.md"), parts(&["todos", "a.md"]));
+        let parts = |names: &[&str]| {
+            Some(
+                names
+                    .iter()
+                    .map(|name| name.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        };
+        assert_eq!(
+            relative_parts("C:\\", "C:\\todos\\a.md"),
+            parts(&["todos", "a.md"])
+        );
+        assert_eq!(
+            relative_parts("/", "/todos/a.md"),
+            parts(&["todos", "a.md"])
+        );
+        assert_eq!(
+            relative_parts("\\\\server\\share\\", "\\\\server\\share\\todos\\a.md"),
+            parts(&["todos", "a.md"])
+        );
         assert_eq!(relative_parts("/x/root", "/x/root2/a.md"), None);
         assert_eq!(relative_parts("/x/root", "/x/root/a//b"), None);
     }
