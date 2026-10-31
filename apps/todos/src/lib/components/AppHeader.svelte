@@ -1,10 +1,8 @@
 <!--
-	The header: the app's name, where the todos are, and the account.
-	Signed out, they are this browser's; signed in, they are the person's
-	`todos` repository, and the ones made here signed out or offline count as
-	"not uploaded yet" until they upload. The desktop window's folder is
-	Epicenter's to sync, so it signs in to nothing and offers Open in
-	Epicenter (`open-in-epicenter.ts`).
+	The header: the app's name, the two views (decision 76), "On this device"
+	and, in a browser, "Synced", what the open one shows, and the account. The
+	desktop window's folder is Epicenter's to sync, so it signs in to nothing
+	and offers Open in Epicenter (`open-in-epicenter.ts`) instead of "Synced".
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -12,9 +10,9 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
+	import { resolve } from '$app/paths';
 	import { webAuth } from '$lib/auth.js';
-	import { isDesktop } from '$lib/device.js';
-	import { getTodos } from '$lib/todos.js';
+	import { getTodos, type View } from '$lib/todos.js';
 	import {
 		currentShell,
 		type HandoffStatus,
@@ -23,39 +21,33 @@
 
 	const todos = getTodos();
 	const auth = webAuth();
-	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
+	let { view, pendingNewTodo }: { view: View; pendingNewTodo: boolean } = $props();
 
 	const signedIn = $derived(auth !== null && auth.state.status !== 'signed-out');
-	/** Signed in, the todos made here that have not reached the repository yet. */
-	const waiting = $derived(
-		todos.items.filter(({ id }) => todos.where?.({ id }) === 'device').length,
-	);
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
-		if (todos.error !== null)
-			return {
-				label: 'Not readable here',
-				detail: todos.error.message,
-				tone: 'error',
-			};
-		if (!signedIn) return { label: 'On this device', tone: 'neutral' };
+		if (view === 'device') {
+			if (todos.error !== null)
+				return {
+					label: 'Not readable here',
+					detail: todos.error.message,
+					tone: 'error',
+				};
+			return { label: 'On this device', tone: 'neutral' };
+		}
 		if (auth?.state.status === 'reauth-required')
 			return {
-				label: 'Uploads paused',
+				label: 'Sign in again',
 				detail: 'Sign in again to upload and to edit your repository.',
 				tone: 'warning',
 			};
-		// New todos still save, to this device, and upload once it is back.
-		if (todos.repositoryError)
+		if (todos.error !== null)
 			return {
-				label: 'Offline: new todos wait to upload',
-				short: 'Offline',
-				detail: todos.repositoryError.message,
+				label: 'Offline',
+				detail: todos.error.message,
 				tone: 'warning',
 			};
-		if (waiting > 0)
-			return { label: `${waiting} not uploaded yet`, tone: 'busy' };
-		return { label: 'In your repository', tone: 'good' };
+		return { label: 'Synced', tone: 'good' };
 	});
 
 	async function signIn() {
@@ -88,18 +80,40 @@
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
 	<!-- On narrow screens the list itself says what this is; the width goes to status. -->
 	<h1 class="text-sm font-semibold max-sm:sr-only">Todos</h1>
+	{#if auth !== null}
+		<nav class="flex items-center gap-1" aria-label="Views">
+			<Button
+				size="sm"
+				variant={view === 'device' ? 'secondary' : 'ghost'}
+				href={resolve('/')}
+				aria-current={view === 'device' ? 'page' : undefined}
+			>
+				On this device
+			</Button>
+			<Button
+				size="sm"
+				variant={view === 'synced' ? 'secondary' : 'ghost'}
+				href={resolve('/synced')}
+				aria-current={view === 'synced' ? 'page' : undefined}
+			>
+				Synced
+			</Button>
+		</nav>
+	{/if}
 	<StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
 		<StatusRow name="Where">
 			<span class="font-medium" data-testid="status-where">
-				{isDesktop ? 'This computer' : signedIn ? 'Your repository' : 'This browser'}
+				{auth === null ? 'This computer' : view === 'device' ? 'This browser' : 'Your repository'}
 			</span>
 			<span class="mt-0.5 block text-xs text-muted-foreground">
-				{#if isDesktop}
+				{#if auth === null}
 					Todos' folder on this computer. Add it in Epicenter to sync it.
+				{:else if view === 'synced'}
+					Your Epicenter repository, todos.
 				{:else if signedIn}
-					Your Epicenter repository, todos. Todos made here while signed out or offline upload on their own.
+					Kept in this browser until they upload to your repository on their own; then they are under Synced.
 				{:else}
-					Kept in this browser. Sign in to keep them in your Epicenter repository; these upload then.
+					Kept in this browser. Sign in and they upload to your Epicenter repository, under Synced.
 				{/if}
 			</span>
 		</StatusRow>

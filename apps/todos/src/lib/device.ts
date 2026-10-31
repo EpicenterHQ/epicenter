@@ -17,11 +17,8 @@ import { openDevice as openFolderDevice } from '@epicenter/folder/tauri';
 import { isTauri } from '@tauri-apps/api/core';
 import { todos } from './contract.js';
 
-/** Whether this page is Todos' desktop window, whose folder Epicenter syncs. */
-export const isDesktop = isTauri();
-
 /** This page's device client: the desktop window's folder, or this browser's files. */
-export const device = isDesktop
+export const device = isTauri()
 	? openFolderDevice(todos)
 	: openBrowserDevice(todos);
 

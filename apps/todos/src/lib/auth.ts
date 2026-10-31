@@ -19,7 +19,7 @@ import {
 import { fromAuth } from '@epicenter/auth/svelte';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
-import { isDesktop } from './device.js';
+import { isTauri } from '@tauri-apps/api/core';
 
 function createAuth() {
 	const server = SELF_HOST_ORIGIN
@@ -40,7 +40,7 @@ let auth: ReturnType<typeof createAuth> | undefined;
 
 /** This page's sign-in, made on first use; null in the desktop window, which never signs in. */
 export function webAuth() {
-	if (isDesktop) return null;
+	if (isTauri()) return null;
 	auth ??= createAuth();
 	return auth;
 }

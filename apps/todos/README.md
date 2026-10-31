@@ -9,21 +9,22 @@ program that writes the layout is a valid writer.
 
 ## The web app
 
-Todos opens without an account. Signed out, todos live in this browser's
-private files (OPFS), at the same paths a folder holds. Signing in with
-Epicenter opens the person's own repository, `<handle>/todos`, beside them as
-one list:
+Todos opens without an account and has two views (decision 76), each over
+its own files:
 
-- A todo made signed out or offline stays in the browser and uploads on its
-  own once someone is signed in and online; the browser then lets go of its
-  copy. Until then, signed in, it is marked "not uploaded yet".
-- A todo added while signed in and online goes straight to the repository.
-- Edits, completes and deletes go to the copy shown: the browser's while it
-  holds one, else the repository's, which is online only. One made as a todo
-  uploads follows it to the repository, and a todo deleted while it uploads
-  is deleted there too. An open todo stays open while it uploads.
-- Signed in with the server unreachable, the header says "Offline: new todos
-  wait to upload", and new todos do.
+- **On this device** (`/`): the todos in this browser's private files
+  (OPFS), at the same paths a folder holds. It works signed out and
+  offline.
+- **Synced** (`/synced`, signed in): the person's own repository,
+  `<handle>/todos`, through Epicenter. Signed out it asks for a sign-in.
+
+Each view creates, edits, completes, deletes and repairs its own todos.
+Signed in, the uploader moves every todo on this device into the
+repository in the background: it leaves "On this device" and appears in
+"Synced", whichever view made it and whenever it was made. Nothing keeps it
+on screen across the move. The two views are not merged; one merged list
+may come back later.
+
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload.
 - A note at a todo's path that does not read as a todo is listed under
@@ -104,17 +105,19 @@ name, and never commits or contacts a server.
   or the desktop window's folder.
 - `src/lib/todos.ts`: a todo's file, label and order (open first, then
   done, each oldest first), and the list's context.
-- `src/lib/components/SignedIn.svelte`: the signed-in boundary: the
-  repository (`setRepo`) and the uploader, per account.
-- `src/lib/components/TodosApp.svelte`: composes the list: the device's
-  todos signed out, `oneList` over them and the repository's signed in.
-- `src/lib/components/`: the views, which read and write only through the
-  list in context.
+- `src/routes/+layout.svelte`: signed in, wraps every page in the
+  signed-in boundary, `src/lib/components/SignedIn.svelte`: the repository
+  (`setRepo`) and the uploader, per account.
+- `src/routes/+page.svelte`: "On this device", `fromClient(device).todos`.
+- `src/routes/synced/`: "Synced", `fromClient(getRepo<Todos>()).todos`,
+  behind a layout that asks for a sign-in when there is none.
+- `src/lib/components/TodosApp.svelte`: one view over the todos it is
+  given; the components under it read and write only through them.
 
 ## Tests
 
 ```sh
-bun run --cwd apps/todos test        # contract, the one list, the native CLI
+bun run --cwd apps/todos test        # contract, the native CLI
 bun run --cwd apps/todos typecheck
 bun x playwright test -c apps/todos/playwright.config.ts                    # both engines
 bun x playwright test -c apps/todos/playwright.config.ts --project=webkit   # one
@@ -126,13 +129,12 @@ need a build first.
 
 The Playwright suite (`e2e/todos.spec.ts`) starts the same environment as
 `demo`, built into a scratch directory (never `build/`), and walks one person
-through seven steps per engine: create, edit, complete and delete todos
-signed out; sign in, and they upload and leave the browser, while a new one
-goes straight to the repository; with the server unreachable a new todo
-waits on the device under a warning, and once it is back the todo uploads
-while its open editor keeps its caret; `epicenter clone`
-holds them as written and `epicenter check` passes; a desktop title edit
-shows on the web with no reload, and notes edited on the web reach the
-desktop; a note the desktop wrote that does not read as a todo shows on the
-web with its text and is repaired there; and signing out leaves the browser
-empty.
+through six steps per engine: create, edit, complete and delete todos on
+this device signed out, while "Synced" asks for a sign-in; sign in, and
+they upload, leaving "On this device" and the browser's files and appearing
+in "Synced", as does one added on this device signed in, while one added in
+"Synced" goes to the repository; `epicenter clone` holds them as written
+and `epicenter check` passes; a desktop title edit shows in "Synced" with
+no reload, and notes edited there reach the desktop; a note the desktop
+wrote that does not read as a todo shows in "Synced" with its text and is
+repaired there; and signing out leaves the browser empty.

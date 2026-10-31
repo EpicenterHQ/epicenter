@@ -1,7 +1,7 @@
 <!--
 	The signed-in boundary: the person's `todos` repository for everything
-	under it (`getRepo`), and the uploader that moves the todos made here
-	signed out or offline into it (decision 12).
+	under it (`getRepo`, read by the "Synced" page), and the uploader that
+	moves every todo on this device into it (decisions 12 and 76).
 -->
 <script lang="ts">
 	import type { Account } from '@epicenter/auth';
@@ -18,7 +18,8 @@
 
 	// svelte-ignore state_referenced_locally
 	const repo = setRepo(openRemote(todos, { account }));
-	// The uploader's writes reach both sides' listeners, so the list follows it.
+	// Each view follows its own client: an uploaded todo leaves this device's
+	// and appears in the repository's.
 	const uploader = startUploading(device, repo);
 	onDestroy(() => uploader[Symbol.dispose]());
 </script>

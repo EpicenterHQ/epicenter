@@ -2,20 +2,23 @@
  * Todos end to end, per engine, as one person in one persistent browser
  * profile with a desktop sandbox beside it (see `stack.ts`):
  *
- * 1. Signed out, todos are created, edited, completed and deleted in the
- *    browser (OPFS), as Markdown notes at `todos/<id>.md`.
- * 2. Signed in, they upload on their own and the browser lets go of its
- *    copies; a todo added signed in goes straight to the repository.
- * 3. With the server unreachable, a new todo waits on the device under a
- *    warning; once it is back, the todo uploads, and its open editor stays
- *    mounted and keeps its caret.
- * 4. `epicenter clone` holds them as written, and `epicenter check` passes
+ * Todos has two views (decision 76): "On this device" (`/`), this
+ * browser's files, and "Synced" (`/synced`), the person's repository.
+ *
+ * 1. Signed out, todos are created, edited, completed and deleted on this
+ *    device (OPFS), as Markdown notes at `todos/<id>.md`; "Synced" asks for
+ *    a sign-in.
+ * 2. Signed in, they upload on their own: each leaves "On this device" and
+ *    the browser's files, and appears in "Synced". One added on this device
+ *    while signed in follows; one added in "Synced" goes to the repository.
+ * 3. `epicenter clone` holds them as written, and `epicenter check` passes
  *    against the published contract.
- * 5. A title edited on the desktop and synced shows on the web, with no
- *    reload; notes edited on the web reach the desktop's next sync.
- * 6. A note the desktop wrote that does not read as a todo shows on the
- *    web with its text, and saving fixed text there repairs it.
- * 7. Signing out leaves this browser with no todos.
+ * 4. A title edited on the desktop and synced shows in "Synced", with no
+ *    reload; notes edited there reach the desktop's next sync.
+ * 5. A note the desktop wrote that does not read as a todo shows in
+ *    "Synced" with its text, and saving fixed text there repairs it.
+ * 6. Signing out leaves this browser with no todos, and "Synced" asks for a
+ *    sign-in again.
  */
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -62,6 +65,8 @@ test.afterAll(async () => {
 });
 
 const list = () => page.getByRole('list', { name: 'Todos' });
+const views = () => page.getByRole('navigation', { name: 'Views' });
+const status = () => page.getByTestId('status-summary');
 const row = (id: string) => page.locator(`li[data-id="${id}"]`);
 const detail = () => page.getByRole('region', { name: 'Todo', exact: true });
 
@@ -98,6 +103,13 @@ test('1. signed out, todos are created, edited, completed and deleted in the bro
 	await emptyOpfs(page);
 	await page.goto(`${stack.app}/`);
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
+	await expect(
+		views().getByRole('link', { name: 'On this device' }),
+	).toHaveAttribute('aria-current', 'page');
+	await expect(status()).toHaveAttribute(
+		'aria-label',
+		/^Status: On this device\./,
+	);
 	await expect(page.getByText('No todos yet')).toBeVisible();
 
 	milk = await add('Buy milk');
@@ -147,9 +159,17 @@ test('1. signed out, todos are created, edited, completed and deleted in the bro
 		/Buy bread/,
 		/Buy oat milk/,
 	]);
+
+	// "Synced" is the repository's, which needs a sign-in.
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(
+		page.getByText('Sign in to see the todos in your Epicenter repository.'),
+	).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
+	await expect(list().locator('li[data-id]')).toHaveCount(2);
 });
 
-test('2. signed in, the todos upload and leave the browser, and a new one goes straight to the repository', async ({
+test('2. signed in, the todos upload: each leaves this device and appears in Synced', async ({
 	stack,
 	person,
 }) => {
@@ -158,67 +178,40 @@ test('2. signed in, the todos upload and leave the browser, and a new one goes s
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 
-	await expect(row(milk)).toHaveAttribute('data-where', 'repository');
-	await expect(row(bread)).toHaveAttribute('data-where', 'repository');
-	await expect(page.getByText('not uploaded yet')).toHaveCount(0);
-	// The browser let go of every todo and of the outbox: the repository has them.
+	// The uploader moves them: this device's view and files empty.
+	await expect(row(milk)).toHaveCount(0);
+	await expect(row(bread)).toHaveCount(0);
+	await expect(page.getByText('No todos yet')).toBeVisible();
 	await expect.poll(() => opfsFiles(page)).toEqual({});
 
-	const eggs = await add('Buy eggs');
-	await expect(row(eggs)).toHaveAttribute('data-where', 'repository');
+	// One added on this device while signed in follows on its own.
+	await page.getByLabel('New todo title').fill('Buy flour');
+	await page.getByRole('button', { name: 'Add', exact: true }).click();
+	await expect(page.getByLabel('New todo title')).toHaveValue('');
+	await expect(list().locator('li[data-id]')).toHaveCount(0);
+	await expect.poll(() => opfsFiles(page)).toEqual({});
+
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(views().getByRole('link', { name: 'Synced' })).toHaveAttribute(
+		'aria-current',
+		'page',
+	);
+	await expect(status()).toHaveAttribute('aria-label', /^Status: Synced\./);
+	await expect(list().locator('li[data-id]')).toHaveText([
+		/Buy bread/,
+		/Buy flour/,
+		/Buy oat milk/,
+	]);
+	await expect(
+		row(milk).getByRole('checkbox', { name: 'Reopen Buy oat milk' }),
+	).toBeVisible();
+
+	// One added in "Synced" goes to the repository, never this device.
+	await add('Buy eggs');
 	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('3. offline, a new todo waits on the device, and its open editor keeps its caret while it uploads', async ({
-	stack,
-}) => {
-	// The server cannot be reached, which is all Todos knows of being offline.
-	// (Not `setOffline`: WebKit's emulation of it fails OPFS reads too.)
-	const unreachable = `${stack.origin}/**`;
-	await context.route(unreachable, (route) => route.abort());
-	const flour = await add('Buy flour');
-	await expect(row(flour)).toHaveAttribute('data-where', 'device');
-	await expect(row(flour)).toContainText('not uploaded yet');
-	await expect
-		.poll(() => opfsText(page, `todos/${flour}.md`))
-		.toBe('---\ntitle: Buy flour\ndone: false\n---\n');
-	// The remote hears the server go (a poll of main): a warning, not an error.
-	await expect(page.getByTestId('status-summary')).toHaveAttribute(
-		'aria-label',
-		/^Status: Offline: new todos wait to upload\./,
-	);
-
-	// The caret sits mid-title, in an editor open on the todo still on the device.
-	const title = detail().getByLabel('Title', { exact: true });
-	await title.click();
-	await title.evaluate((input: HTMLInputElement) =>
-		input.setSelectionRange(3, 3),
-	);
-	const editor = await title.elementHandle();
-
-	// Back: the browser says so, and the uploader runs.
-	await context.unroute(unreachable);
-	await page.evaluate(() => window.dispatchEvent(new Event('online')));
-	await expect(row(flour)).toHaveAttribute('data-where', 'repository');
-	await expect.poll(() => opfsFiles(page)).toEqual({});
-	// The same input, never unmounted, still focused, the caret where it was.
-	expect(
-		await editor.evaluate((input: HTMLInputElement) => [
-			input.isConnected,
-			document.activeElement === input,
-			input.selectionStart,
-		]),
-	).toEqual([true, true, 3]);
-	await page.keyboard.type('ing');
-	await expect(title).toHaveValue('Buying flour');
-	await expect(row(flour)).toContainText('Buying flour');
-	await expect(page.getByTestId('status-summary')).toHaveAttribute(
-		'aria-label',
-		/^Status: In your repository\./,
-	);
-});
-
-test('4. a desktop clone holds the todos as written, and the folder fits the contract', async ({
+test('3. a desktop clone holds the todos as written, and the folder fits the contract', async ({
 	stack,
 	person,
 }) => {
@@ -249,7 +242,7 @@ test('4. a desktop clone holds the todos as written, and the folder fits the con
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('5. a title edited on the desktop shows on the web with no reload, and notes edited on the web reach the desktop', async ({
+test('4. a title edited on the desktop shows in Synced with no reload, and notes edited there reach the desktop', async ({
 	stack,
 	person,
 }) => {
@@ -279,7 +272,7 @@ test('5. a title edited on the desktop shows on the web with no reload, and note
 		.toBe('---\ntitle: Buy rye bread\ndone: false\n---\nFrom the bakery.\n');
 });
 
-test('6. a note that does not read as a todo shows with its text, and is repaired on the web', async ({
+test('5. a note that does not read as a todo shows in Synced with its text, and is repaired there', async ({
 	stack,
 	person,
 }) => {
@@ -305,7 +298,7 @@ test('6. a note that does not read as a todo shows with its text, and is repaire
 		'Call mom',
 	);
 	await expect(repair).toHaveCount(0);
-	await expect(row('call')).toHaveAttribute('data-where', 'repository');
+	await expect(row('call')).toContainText('Call mom');
 
 	await sync(stack, person, clone);
 	expect(await readFile(join(clone, 'todos/call.md'), 'utf8')).toBe(
@@ -313,8 +306,12 @@ test('6. a note that does not read as a todo shows with its text, and is repaire
 	);
 });
 
-test('7. signed out, the browser holds no todos', async () => {
+test('6. signed out, the browser holds no todos, and Synced asks for a sign-in', async () => {
 	await page.getByRole('button', { name: 'Sign out' }).click();
+	await expect(
+		page.getByText('Sign in to see the todos in your Epicenter repository.'),
+	).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 	await expect(page.getByText('No todos yet')).toBeVisible();
 	expect(await opfsFiles(page)).toEqual({});

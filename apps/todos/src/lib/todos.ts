@@ -1,11 +1,11 @@
 /**
  * What Todos knows of a todo: its file, its label and its order. The list
- * the views read (`getTodos`) is the device's todos signed out and, signed
- * in, `oneList` over them and the repository's (decision 12); `TodosApp`
- * makes it.
+ * the views read (`getTodos`) is one client's todos: this device's on the
+ * "On this device" page, the repository's on the "Synced" page (decision
+ * 76); `TodosApp` sets it.
  */
 import type { NoteOf } from '@epicenter/definition/contract';
-import type { NoteList } from '@epicenter/svelte/client';
+import type { ReactiveNotes } from '@epicenter/svelte/client';
 import { createContext } from 'svelte';
 import { type Todos, todos } from './contract.js';
 
@@ -26,5 +26,8 @@ export const labelOf = (todo: Pick<Todo, 'id' | 'title'>) =>
 export const openFirst = (a: Todo, b: Todo) =>
 	Number(a.done) - Number(b.done) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/** The list every Todos view reads and edits: the device's own signed out, the one list signed in. */
-export const [getTodos, setTodos] = createContext<NoteList<TodoNotes>>();
+/** Which of Todos' two views a page is: this device's files, or the repository's. */
+export type View = 'device' | 'synced';
+
+/** The list every component of a view reads and edits: that view's client's todos. */
+export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();

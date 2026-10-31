@@ -1,17 +1,13 @@
 <!--
-	One todo in the list. Its checkbox and title show the todo as listed; a
-	todo still on this device, signed in, is marked until it uploads.
+	One todo in the list. Its checkbox and title show the todo as listed.
 -->
 <script lang="ts">
-	import { Badge } from '@epicenter/ui/badge';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { toast } from '@epicenter/ui/sonner';
-	import { webAuth } from '$lib/auth.js';
 	import { getTodos, labelOf, type Todo } from '$lib/todos.js';
 
 	const todos = getTodos();
-	const auth = webAuth();
 
 	let {
 		todo,
@@ -30,8 +26,6 @@
 			toast.error('Could not update todo', { description: error.message });
 	}
 	const label = $derived(labelOf(todo));
-	// Signed out, every todo is on this device.
-	const where = $derived(todos.where?.({ id: todo.id }) ?? 'device');
 </script>
 
 <li
@@ -39,7 +33,6 @@
 		? 'bg-accent text-accent-foreground'
 		: ''}"
 	data-id={todo.id}
-	data-where={where}
 >
 	<div class="flex items-center gap-2">
 		<Checkbox
@@ -55,8 +48,5 @@
 		>
 			<span class="line-clamp-2 break-anywhere {todo.done ? 'text-muted-foreground line-through' : ''}">{label}</span>
 		</Button>
-		{#if where === 'device' && auth !== null && auth.state.status !== 'signed-out'}
-			<Badge variant="outline" class="shrink-0">not uploaded yet</Badge>
-		{/if}
 	</div>
 </li>
