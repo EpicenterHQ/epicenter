@@ -70,7 +70,7 @@
 			{:else}
 				<Alert.Title>This browser is not keeping files for Whispering</Alert.Title>
 				<Alert.Description>
-					{library.error.message}. A private window keeps none. A recording stays in this page, to save again or download, until it closes.
+					{library.error.message}. Recording is off, since there is nowhere to keep it. A private window never keeps files: open Whispering in a regular window to record.
 				</Alert.Description>
 			{/if}
 		</Alert.Root>

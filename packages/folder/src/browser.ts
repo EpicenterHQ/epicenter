@@ -36,8 +36,8 @@ export { DeviceError } from './device/opfs-store.js';
  * Worker starts at the first call. A browser that gives the page no private
  * storage (WebKit's ephemeral contexts, Safari's private windows) still
  * opens: each call is then `Unavailable`, its cause a
- * `DeviceError.StorageRefused`, so an app keeps working in memory (a local
- * app keeps a recording in the page to save again or download). A contract
+ * `DeviceError.StorageRefused`, so an app can still render and explain why
+ * nothing is kept (Whispering refuses to record there). A contract
  * that is not well formed throws.
  *
  * @example
