@@ -1,44 +1,57 @@
 import { expect, test } from 'bun:test';
-import { expectOk } from 'wellcrafted/testing';
-import { focusWord, readEntry, readRows, vocabTables } from './data.js';
-import { createMemory } from './folder.test-support.js';
+import type { Version } from '@epicenter/definition/contract';
+import { focusWord, readEntry, readMessage } from './data.js';
 
-test('the three tables share one folder', async () => {
-	expect(Object.keys(vocabTables)).toEqual(['entries', 'chats', 'messages']);
-	const { folder, core } = await createMemory();
-	expect(folder.files).toEqual([]);
-	expectOk(
-		await folder.tables.entries.create('lucid', {
-			fields: {
-				text: 'lucid',
-				note: 'clear',
-				stage: 'new',
-				createdAt: new Date().toISOString(),
-			},
+const version = 'v' as Version;
+
+test('a word reads its note from the body', () => {
+	expect(
+		readEntry({
+			id: 'a',
+			text: 'lucid',
+			stage: 'new',
+			createdAt: '2026-01-01T00:00:00.000Z',
+			body: 'clear',
+			version,
 		}),
-	);
-	expect(folder.tables.entries.row('lucid')?.issues).toBeNull();
-	await core.close();
+	).toEqual({
+		id: 'a',
+		text: 'lucid',
+		note: 'clear',
+		stage: 'new',
+		createdAt: '2026-01-01T00:00:00.000Z',
+	});
 });
 
-test('focus matches both the saved id and text', async () => {
-	const { folder, core } = await createMemory();
-	expectOk(
-		await folder.tables.entries.create('lucid-id', {
-			fields: {
-				text: 'lurid',
-				note: '',
-				stage: 'usable',
-				createdAt: new Date().toISOString(),
-			},
-		}),
-	);
-	const { rows } = readRows('entries', folder.tables.entries.rows, readEntry);
+test('a message reads as the agent’s own copy', () => {
+	const parts = [{ type: 'text' as const, text: 'Hi' }];
+	const read = readMessage({
+		chat: 'c',
+		id: 'm',
+		role: 'user',
+		createdAt: 1,
+		parts,
+		body: '',
+		version,
+	});
+	expect(read).toEqual({ id: 'm', role: 'user', createdAt: 1, parts });
+	expect(read.parts).not.toBe(parts);
+});
+
+test('focus matches both the saved id and text', () => {
+	const words = [
+		{
+			id: 'lucid-id',
+			text: 'lurid',
+			note: '',
+			stage: 'usable' as const,
+			createdAt: '2026-01-01T00:00:00.000Z',
+		},
+	];
 	expect(
-		focusWord(rows, { entryId: 'lucid-id', text: 'lucid' }),
+		focusWord(words, { entryId: 'lucid-id', text: 'lucid' }),
 	).toBeUndefined();
-	expect(focusWord(rows, { entryId: 'lucid-id', text: 'lurid' })?.id).toBe(
+	expect(focusWord(words, { entryId: 'lucid-id', text: 'lurid' })?.id).toBe(
 		'lucid-id',
 	);
-	await core.close();
 });

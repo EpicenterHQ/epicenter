@@ -89,7 +89,7 @@ fixed default. Both contexts keep the same `openFolder({ tables })` page API.
 | [Honeycrisp](honeycrisp/README.md) | browser, hosted | `so.epicenter.honeycrisp` | `folders`, `notes` |
 | [Whispering](whispering/README.md) | browser, hosted | `so.epicenter.whispering` | `recordings`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`; AI connections in records |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | contract `messages`: `drafts`, `attempts` |
-| [Vocab](vocab/README.md) | browser only | none | `entries`, `chats`, `messages` |
+| [Vocab](vocab/README.md) | browser only | none: the origin's OPFS, and signed in the `vocab` repository | contract `vocab`: `entries`, `chats`, `messages` |
 
 Local Books keeps its QuickBooks replica in SQLite under
 `<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,

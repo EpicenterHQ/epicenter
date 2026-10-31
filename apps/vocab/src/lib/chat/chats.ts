@@ -1,18 +1,21 @@
+import type { OneList } from '@epicenter/svelte/client';
 import {
 	defineErrors,
 	extractErrorMessage,
 	type InferErrors,
 } from 'wellcrafted/error';
 import { Ok, type Result } from 'wellcrafted/result';
+import type { Vocab } from '../contract.js';
 import {
 	type Chat,
+	type ChatNote,
 	type FocusItem,
-	type RowOf,
 	readChat,
-	readRows,
+	reasonOf,
 	type UnreadableFile,
-	type VocabFolder,
 } from '../data.js';
+
+export type ChatList = OneList<Vocab['collections']['chats']>;
 
 export const ChatHistoryError = defineErrors({
 	NotSaved: ({ cause }: { cause: unknown }) => ({
@@ -48,16 +51,21 @@ export function summaryOf(chat: Chat): ChatSummary {
 }
 export const byRecency = (a: ChatSummary, b: ChatSummary) =>
 	b.updatedAt - a.updatedAt || a.id.localeCompare(b.id);
-export function listingOf(rows: readonly RowOf<'chats'>[]): ChatListing {
-	const read = readRows('chats', rows, readChat);
+export function listingOf(
+	items: readonly ChatNote[],
+	invalid: ChatList['invalid'],
+): ChatListing {
 	return {
-		chats: read.rows.map(summaryOf).sort(byRecency),
-		unreadable: read.unreadable,
+		chats: items.map(readChat).map(summaryOf).sort(byRecency),
+		unreadable: invalid.map(({ path, issues }) => ({
+			path,
+			reason: reasonOf(issues),
+		})),
 	};
 }
 
 export async function startChat(
-	chats: VocabFolder['tables']['chats'],
+	chats: ChatList,
 	focus: readonly FocusItem[],
 ): Promise<Result<Chat, ChatHistoryError>> {
 	if (
@@ -71,19 +79,16 @@ export async function startChat(
 		createdAt: new Date().toISOString(),
 		focus: focus.map(({ entryId, text }) => ({ entryId, text })),
 	};
-	const { error } = await chats.create(chat.id, {
-		fields: { createdAt: chat.createdAt, focus: chat.focus },
-	});
+	const { error } = await chats.create({ ...chat, body: '' });
 	return error ? ChatHistoryError.NotSaved({ cause: error }) : Ok(chat);
 }
 
-export function createChats(folder: VocabFolder) {
+export function createChats(list: ChatList) {
 	return {
 		get listing() {
-			return listingOf(folder.tables.chats.rows);
+			return listingOf(list.items, list.invalid);
 		},
-		start: (focus: readonly FocusItem[]) =>
-			startChat(folder.tables.chats, focus),
+		start: (focus: readonly FocusItem[]) => startChat(list, focus),
 	};
 }
 

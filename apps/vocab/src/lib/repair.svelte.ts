@@ -1,8 +1,5 @@
-import { readRow } from '@epicenter/folder';
-import { type VocabFolder, vocabTables } from './data.js';
-
-/** Which word file is open as text. The editor owns its draft. */
-export function createRepair(folder: VocabFolder) {
+/** Which word note is open to repair as text. `NoteRepair` owns the text being fixed. */
+export function createRepair() {
 	let open = $state<string | undefined>();
 	return {
 		get open() {
@@ -11,14 +8,8 @@ export function createRepair(folder: VocabFolder) {
 		start(id: string) {
 			open = id;
 		},
-		close(text: string): boolean {
-			const id = open;
-			if (id === undefined) return false;
-			if (readRow(text, vocabTables.entries).issues !== null) return false;
-			const row = folder.tables.entries.row(id);
-			if (row === undefined || row.issues !== null) return false;
+		close() {
 			open = undefined;
-			return true;
 		},
 	};
 }

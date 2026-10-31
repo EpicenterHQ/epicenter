@@ -13,7 +13,7 @@
 	import type { Account } from '@epicenter/auth';
 	import { auth } from '$lib/auth.svelte.js';
 	import { createVocabChat } from '$lib/chat/session.svelte.js';
-	import type { VocabFolder } from '$lib/data.js';
+	import type { MessageList } from '$lib/chat/messages.svelte.js';
 	import type { Entries } from '$lib/entries.svelte.js';
 	import type { InferenceCatalog } from '@epicenter/ai/picker';
 	import type { InferenceSelections } from '@epicenter/ai/selections';
@@ -25,7 +25,7 @@
 	let {
 		chatId,
 		account,
-		folder,
+		messages,
 		catalog,
 		selections,
 		entries,
@@ -37,7 +37,8 @@
 		chatId: string;
 		/** The account captured when the parent opened this tutor. */
 		account: Account | undefined;
-		folder: VocabFolder;
+		/** Every chat's finished messages. */
+		messages: MessageList;
 		catalog: InferenceCatalog;
 		selections: InferenceSelections;
 		entries: Entries;
@@ -50,7 +51,7 @@
 	// The parent keys this component by chat ID. Its loop and draft end when
 	// another chat is selected; dictation ends sooner when Chat hides.
 	/* svelte-ignore state_referenced_locally */
-	const chat = createVocabChat({ folder, chatId, focus, catalog, selections });
+	const chat = createVocabChat({ messages, chatId, focus, catalog, selections });
 
 	// The element holding the messages; phrase capture listens inside it.
 	let list = $state<HTMLElement | null>(null);
@@ -74,7 +75,7 @@
 		<!-- Render Markdown only after the answer settles. -->
 		<div class="vocab-reply whitespace-pre-wrap">{agentMessageText(msg)}</div>
 	{:else}
-		<!-- A tutor answer is a phrase source only once the folder holds its file:
+		<!-- A tutor answer is a phrase source only once its note is saved:
 		     an unsaved one stays readable and copyable without the marker. -->
 		{@const saved = !unsavedIds.has(msg.id)}
 		<div data-phrase-source={saved ? msg.id : undefined}>

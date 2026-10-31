@@ -1,93 +1,91 @@
+/**
+ * One chat's finished messages as the tutor loop's store, over the one list
+ * of `messages/{chat}/{id}.md` notes: each message is one note, its id the
+ * message's own, so writing one twice never makes two.
+ */
 import {
 	type AgentMessage,
 	type AgentMessageStore,
 	AgentMessageStoreError,
 } from '@epicenter/agent';
+import { sameValue } from '@epicenter/definition/note';
+import type { OneList } from '@epicenter/svelte/client';
 import { untrack } from 'svelte';
 import { Ok } from 'wellcrafted/result';
+import type { Vocab } from '../contract.js';
 import {
+	type MessageNote,
 	readMessage,
-	readRows,
-	rowPath,
+	reasonOf,
 	type UnreadableFile,
-	type VocabFolder,
 } from '../data.js';
 import { ChatHistoryError } from './chats.js';
 
-function sameJson(a: unknown, b: unknown): boolean {
-	if (a === b) return true;
-	if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false;
-	if (Array.isArray(a) !== Array.isArray(b)) return false;
-	const keys = (value: object) =>
-		Object.keys(value).filter((key) => Reflect.get(value, key) !== undefined);
-	const [left, right] = [keys(a), keys(b)];
-	return (
-		left.length === right.length &&
-		left.every((key) => sameJson(Reflect.get(a, key), Reflect.get(b, key)))
-	);
-}
+export type MessageList = OneList<Vocab['collections']['messages']>;
 
-export const messageId = (chatId: string, id: string) => `${chatId}.${id}`;
+const messagePath = (chat: string, id: string) => `messages/${chat}/${id}.md`;
 
-/** One chat's finished messages, read synchronously from the folder mirror. */
+/** Whether `note` holds `message`, whole. */
+const holds = (note: MessageNote | undefined, message: AgentMessage) =>
+	note !== undefined &&
+	note.role === message.role &&
+	note.createdAt === message.createdAt &&
+	sameValue(note.parts, message.parts);
+
 export function createChatMessageStore(
-	folder: VocabFolder,
+	list: MessageList,
 	chatId: string,
 ): AgentMessageStore & {
+	/** This chat's message notes that do not read: not shown, not sent to the tutor. */
 	readonly unreadable: UnreadableFile[];
 } {
-	const mine = () =>
-		folder.tables.messages.rows.filter((row) =>
-			row.id.startsWith(`${chatId}.`),
-		);
-	const listing = () => readRows('messages', mine(), readMessage);
 	return {
 		get unreadable() {
-			return listing().unreadable;
+			return list.invalid
+				.filter((note) => note.chat === chatId)
+				.map(({ path, issues }) => ({ path, reason: reasonOf(issues) }));
 		},
 		*entries() {
-			const deduped = new Map<string, { id: string; message: AgentMessage }>();
-			for (const row of listing().rows) {
-				if (row.chat !== chatId) continue;
-				const previous = deduped.get(row.message.id);
-				if (!previous || row.id < previous.id) deduped.set(row.message.id, row);
-			}
-			for (const [key, { message: val }] of deduped) yield { key, val };
+			for (const note of list.items)
+				if (note.chat === chatId)
+					yield { key: note.id, val: readMessage(note) };
 		},
 		observe(handler) {
-			let previous = folder.tables.messages.rows;
+			let first = true;
 			return $effect.root(() => {
 				$effect(() => {
-					const rows = folder.tables.messages.rows;
-					if (rows === previous) return;
-					previous = rows;
+					// Read the list's notes: any change to them is one to hear, after the first read.
+					list.items;
+					if (first) {
+						first = false;
+						return;
+					}
 					untrack(handler);
 				});
 			});
 		},
 		async set(key, value) {
-			const id = messageId(chatId, key);
 			// SAFETY: JSON serialization removes unsupported values from the typed agent message.
 			const message = JSON.parse(JSON.stringify(value)) as AgentMessage;
-			const same = (row: ReturnType<typeof folder.tables.messages.row>) =>
-				row?.issues === null &&
-				row.fields.chat === chatId &&
-				sameJson(row.fields.message, message);
+			const args = { chat: chatId, id: key };
 			const taken = () => {
 				const { error } = ChatHistoryError.Taken({
-					path: rowPath('messages', id),
+					path: messagePath(chatId, key),
 				});
 				return AgentMessageStoreError.WriteFailed({ cause: error });
 			};
-			const existing = folder.tables.messages.row(id);
-			if (existing) return same(existing) ? Ok(undefined) : taken();
-			const { error } = await folder.tables.messages.create(id, {
-				fields: { chat: chatId, message },
+			const existing = list.get(args);
+			if (existing) return holds(existing, message) ? Ok(undefined) : taken();
+			const { role, createdAt, parts } = message;
+			const { error } = await list.create({
+				...args,
+				role,
+				createdAt,
+				parts,
+				body: '',
 			});
-			if (error?.name === 'Exists') {
-				const now = folder.tables.messages.row(id);
-				return now && same(now) ? Ok(undefined) : taken();
-			}
+			if (error?.name === 'Occupied')
+				return holds(list.get(args), message) ? Ok(undefined) : taken();
 			return error
 				? AgentMessageStoreError.WriteFailed({ cause: error })
 				: Ok(undefined);

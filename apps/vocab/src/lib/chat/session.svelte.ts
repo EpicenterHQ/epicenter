@@ -7,25 +7,20 @@ import {
 } from '@epicenter/client';
 import { bindAgentConversation } from '@epicenter/svelte';
 import { createSubscriber } from 'svelte/reactivity';
-import {
-	tutorPrompt,
-	VOCAB_MODEL,
-	VOCAB_SYSTEM_PROMPT,
-	type VocabFolder,
-} from '../data.js';
-import { createChatMessageStore } from './messages.svelte.js';
+import { tutorPrompt, VOCAB_MODEL, VOCAB_SYSTEM_PROMPT } from '../data.js';
+import { createChatMessageStore, type MessageList } from './messages.svelte.js';
 import { withTutorOpening } from './opening.js';
 
 /** One active tutor conversation for the lifetime of its keyed view. */
 export function createVocabChat({
-	folder,
+	messages,
 	chatId,
 	focus,
 	catalog,
 	selections,
 }: {
-	/** The folder whose `messages/` holds every chat's finished messages. */
-	folder: VocabFolder;
+	/** Every chat's finished messages; this chat's are its own. */
+	messages: MessageList;
 	chatId: string;
 	focus: readonly { text: string }[];
 	catalog: InferenceCatalog;
@@ -43,7 +38,7 @@ export function createVocabChat({
 	// A tutor request being prepared: reserved when asked, before any await, so
 	// a second click finds it. Stop and disposal abort it before the tutor starts.
 	let asking = $state<AbortController | null>(null);
-	const store = createChatMessageStore(folder, chatId);
+	const store = createChatMessageStore(messages, chatId);
 
 	/**
 	 * A message's file receipt arrived. Clear the submitted text, unless the
@@ -129,7 +124,7 @@ export function createVocabChat({
 				? loop.error
 				: null;
 		},
-		/** Whole messages the folder has not confirmed as files. */
+		/** Whole messages not yet confirmed as notes. */
 		get unsaved() {
 			return loop.unsaved;
 		},

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { edit } from '@epicenter/svelte/folder';
+	import { fieldEdit } from '@epicenter/svelte/client';
 	import UnsavedEdit from '@epicenter/svelte/unsaved-edit';
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
@@ -18,15 +18,18 @@
 		onToggle: () => void;
 	} = $props();
 
-	const note = edit(() => entry.note, (text) => entries.setNote(entry.id, text));
+	// The parent keys each card by the word's id.
+	// svelte-ignore state_referenced_locally
+	const note = fieldEdit(entries.list, { id: entry.id }, 'body');
 </script>
 
-<article class={cn('rounded-lg border p-4', chosen && 'border-primary bg-accent/30')}>
+<article class={cn('rounded-lg border p-4', chosen && 'border-primary bg-accent/30')} data-id={entry.id}>
 	<div class="flex items-start justify-between gap-2">
 		<Label class="min-h-11 min-w-0 flex-1 items-start text-base leading-relaxed select-text"><Checkbox class="mt-1 shrink-0" aria-label="Choose {entry.text} for chat" checked={chosen} disabled={!canChoose} onCheckedChange={onToggle} /><span class="min-w-0 flex-1 wrap-anywhere">{entry.text}</span></Label>
+		{#if entry.waiting}<span class="shrink-0 self-center text-xs text-muted-foreground" data-testid="waiting">not uploaded yet</span>{/if}
 		<Button size="sm" variant="ghost-destructive" class="shrink-0" onclick={() => confirmDelete(entries, entry)}>Delete</Button>
 	</div>
-	<Textarea class="min-h-20 max-h-48 overflow-y-auto" aria-label="Your note for {entry.text}" placeholder="Your note" bind:value={note.value} />
+	<Textarea class="min-h-20 max-h-48 overflow-y-auto" aria-label="Your note for {entry.text}" placeholder="Your note" bind:value={() => note.value ?? '', (value) => (note.value = value)} />
 	<UnsavedEdit edit={note} />
 	<div class="mt-2 flex flex-wrap items-center gap-1" aria-label="Your stage for {entry.text}">
 		{#each STAGES as option}<Button size="sm" variant={entry.stage === option ? 'default' : 'outline'} aria-pressed={entry.stage === option} onclick={() => void changeStage(entries, entry.id, option)}>{STAGE_LABELS[option]}</Button>{/each}

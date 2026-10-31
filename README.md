@@ -105,7 +105,7 @@ Sync sends your files to the server in `remote.origin.url`, which can read them 
 | [API](apps/api) | Hosted infrastructure | Personal cloud Worker. Owns sign-in, hosted Git, the AI gateways, hosted-only billing, and the dashboard. Self-host it on Bun with Postgres (`apps/api/server.ts`). |
 | [Whispering](apps/whispering) | Runs, development milestone | Voice recorder in a browser tab. Recordings, transcripts, and settings are files in a folder. |
 | [Todos](apps/todos) | Runs, development milestone | Todos as Markdown notes on the file contract: kept in the browser without sign-in, uploaded to your repository once signed in. |
-| [Vocab](apps/vocab) | Runs, development | Words and chats in a folder, with AI over `@epicenter/ai`. |
+| [Vocab](apps/vocab) | Runs, development | Words and chats as notes of its contract, in the browser and, signed in, the learner's repository, with AI over `@epicenter/ai`. |
 | [Epicenter](apps/epicenter) | Runs, development | The folder manager: registers, syncs, and shares folders, with a generic native file view. Apps run as separate programs. |
 | Other app folders | Research and prototypes | Useful history and experiments, not the current product lineup. |
 

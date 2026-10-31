@@ -367,7 +367,6 @@
         "mode-watcher": "^1.1.0",
         "openai": "^7.12.1",
         "runed": "catalog:",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -379,6 +378,7 @@
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
         "jsdom": "26.1.0",
+        "playwright": "^1.61.1",
         "svelte": "catalog:",
         "svelte-check": "catalog:",
         "tailwindcss": "catalog:",

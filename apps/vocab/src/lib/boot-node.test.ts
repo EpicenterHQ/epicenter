@@ -1,8 +1,8 @@
 /**
  * Vocab acquisition boundary tests.
- * The working page opens the folder with no sign-in in front of it; callback
- * pages and ancestor layouts open nothing; and no shipped source opens an
- * account-based or device store from `@epicenter/app`.
+ * The working page opens this browser's files with no sign-in in front of
+ * them; callback pages and ancestor layouts open nothing; and no shipped
+ * source opens an account-based or device store from `@epicenter/app`.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -49,10 +49,10 @@ describe('the callback opens nothing', () => {
 		expect(ancestorLayouts(callback).length).toBeGreaterThan(0);
 	});
 
-	test('callback and ancestor layouts never open the folder or mount the app', async () => {
+	test('callback and ancestor layouts never open the device or mount the app', async () => {
 		for (const file of [callback, ...ancestorLayouts(callback)]) {
 			const text = await Bun.file(file).text();
-			expect(text).not.toMatch(/OpenFolder|openFolder\s*\(/);
+			expect(text).not.toMatch(/openDevice\s*\(|openRemote\s*\(/);
 			expect(text).not.toMatch(/@epicenter\/folder/);
 			expect(text).not.toContain('VocabApp.svelte');
 		}
@@ -60,20 +60,21 @@ describe('the callback opens nothing', () => {
 });
 
 describe('the working page needs no account', () => {
-	test('the page opens the local folder and mounts the app with no sign-in gate', async () => {
+	test('the page opens this browser’s files and mounts the app signed out, with no sign-in gate', async () => {
 		const page = await Bun.file(join(routes, '+page.svelte')).text();
-		expect(page).toContain('<OpenFolder ');
-		expect(page).toMatch(/openFolder\(\{\s*tables:\s*vocabTables\s*\}\)/);
-		expect(page).toMatch(/<VocabApp\b/);
-		expect(page).not.toMatch(/AppBoot|SignInScreen|\$lib\/auth/);
+		expect(page).toMatch(/openDevice\(vocab\)/);
+		expect(page).toMatch(
+			/\{#if auth\.state\.status === 'signed-out'\}\s*<VocabApp\b/,
+		);
+		expect(page).not.toMatch(/AppBoot|SignInScreen|openRemote/);
 	});
 
-	test('the tables declare no account', async () => {
-		const declaration = await Bun.file(join(source, 'lib/data.ts')).text();
-		expect(declaration).not.toMatch(/accountKey|@epicenter\/auth/);
+	test('the contract declares no account', async () => {
+		const contract = await Bun.file(join(source, 'lib/contract.ts')).text();
+		expect(contract).not.toMatch(/accountKey|@epicenter\/auth/);
 	});
 
-	test('no shipped source opens a store: the folder is the only saved data', async () => {
+	test('no shipped source opens a store: the contract’s notes are the only saved data', async () => {
 		const files = await shippedSources();
 		const openers = files
 			.filter(({ text }) =>

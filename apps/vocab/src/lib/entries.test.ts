@@ -1,144 +1,121 @@
-import { expect, test } from 'bun:test';
-import { readRow } from '@epicenter/folder';
-import { until } from '@epicenter/folder/testing';
-import { expectOk } from 'wellcrafted/testing';
+/**
+ * The learner's words over the one list of `entries/{id}.md` notes.
+ *
+ * Key behaviors:
+ * - Adding trims and normalizes, names the note by the text's SHA-256, and
+ *   answers `present` for a word already saved; two adds make one word
+ * - A different file at the word's path is `Taken`
+ * - A stage change keeps keys and body it does not name; the note is the body
+ * - A note that does not read is listed to repair, and `replace` repairs it
+ */
 import '../../../../packages/svelte/src/svelte-modules.test-support.js';
+import { expect, test } from 'bun:test';
+import { expectOk } from 'wellcrafted/testing';
 
+const { openVocabFolder, until } = await import('./vocab.test-support.js');
 const { createEntries } = await import('./entries.svelte.js');
 
-import { rowPath, vocabTables } from './data.js';
-import { createMemory } from './folder.test-support.js';
-
-const raw = (text: string, note = '', stage = 'new') =>
-	`---\ntext: ${text}\nnote: ${note}\nstage: ${stage}\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\nBody`;
+const note = (text: string, stage = 'new', body = '') =>
+	`---\ntext: ${text}\nstage: ${stage}\ncreatedAt: 2026-01-01T00:00:00.000Z\n---\n${body}`;
 
 test('add trims, replaces lone surrogates, and lists the saved word before answering', async () => {
-	const { folder, core } = await createMemory();
-	const entries = createEntries(folder);
+	await using folder = await openVocabFolder();
+	const entries = createEntries(folder.lists.entries);
 	expect(expectOk(await entries.add('  lucid  '))).toBe('added');
 	expect(entries.words.map((entry) => entry.text)).toEqual(['lucid']);
+	const id = entries.words[0]?.id ?? '';
+	expect(id).toBe(new Bun.CryptoHasher('sha256').update('lucid').digest('hex'));
+	expect(await folder.text(`entries/${id}.md`)).toMatch(
+		/^---\ntext: lucid\nstage: new\ncreatedAt: "\S+"\n---\n$/,
+	);
 	expect(expectOk(await entries.add('lucid'))).toBe('present');
 	expect(expectOk(await entries.add('  \ud800  '))).toBe('added');
-	expect(entries.words.some((entry) => entry.text === '\ufffd')).toBe(true);
+	expect(entries.words.some((entry) => entry.text === '�')).toBe(true);
 	expect((await entries.add('  ')).error?.name).toBe('Empty');
-	await core.close();
 });
 
 test('concurrent adds create one word', async () => {
-	const { folder, core } = await createMemory();
-	const entries = createEntries(folder);
+	await using folder = await openVocabFolder();
+	const entries = createEntries(folder.lists.entries);
 	const results = await Promise.all([
 		entries.add('lucid'),
 		entries.add('lucid'),
 	]);
-	expect(results.map((result) => result.error?.name)).toEqual([
-		undefined,
-		undefined,
-	]);
+	expect(results.map((result) => result.error)).toEqual([null, null]);
 	expect(results.map((result) => result.data).sort()).toEqual([
 		'added',
 		'present',
 	]);
 	expect(entries.words).toHaveLength(1);
-	await core.close();
+	expect(await folder.files('entries')).toHaveLength(1);
 });
 
 test('a different file at the hashed path is Taken', async () => {
-	const { folder, core } = await createMemory();
-	const entries = createEntries(folder);
+	await using folder = await openVocabFolder();
+	const entries = createEntries(folder.lists.entries);
 	expectOk(await entries.add('lucid'));
-	const id = entries.words[0]!.id;
-	expectOk(
-		await folder.tables.entries.update(id, { fields: { text: 'other' } }),
-	);
+	const id = entries.words[0]?.id ?? '';
+	expectOk(await folder.lists.entries.update({ id }, { text: 'other' }));
 	expect((await entries.add('lucid')).error?.name).toBe('Taken');
-	await core.close();
 });
 
-test('note and stage updates set only named fields over the current file', async () => {
-	const { folder, core, host } = await createMemory();
-	const entries = createEntries(folder);
-	expectOk(await entries.add('lucid'));
-	const id = entries.words[0]!.id;
-	const path = rowPath('entries', id);
-	host.outside(
-		path,
-		raw('lucid', 'outside').replace(
-			'note: outside',
-			'note: outside\nextra: kept',
+test('a stage change keeps what it does not name, and the note is the body', async () => {
+	const id = 'lucid';
+	await using folder = await openVocabFolder({
+		[`entries/${id}.md`]: note('lucid', 'new', 'My note').replace(
+			'stage: new',
+			'stage: new\nextra: kept',
+		),
+	});
+	const entries = createEntries(folder.lists.entries);
+	await until(() => entries.words.length === 1);
+	expect(entries.words[0]?.note).toBe('My note');
+	expectOk(await entries.setStage(id, 'usable'));
+	expect(await folder.text(`entries/${id}.md`)).toBe(
+		'---\ntext: lucid\nstage: usable\ncreatedAt: "2026-01-01T00:00:00.000Z"\nextra: kept\n---\nMy note',
+	);
+	expectOk(await folder.lists.entries.update({ id }, { body: 'New note' }));
+	expect(entries.words[0]?.note).toBe('New note');
+	expectOk(await entries.delete(id));
+	expect(entries.words).toEqual([]);
+	expect(await folder.files('entries')).toEqual([]);
+});
+
+test('a note that does not read is listed to repair, and replace repairs it', async () => {
+	await using folder = await openVocabFolder({
+		'entries/broken.md': '---\ntext: [lucid\n---\nclear',
+	});
+	const entries = createEntries(folder.lists.entries);
+	await until(() => entries.repairs.length === 1);
+	expect(entries.repairs[0]).toMatchObject({
+		id: 'broken',
+		path: 'entries/broken.md',
+		text: '---\ntext: [lucid\n---\nclear',
+	});
+	expect(entries.repairs[0]?.reason.length).toBeGreaterThan(0);
+	entries.repair.start('broken');
+	expect(
+		(
+			await folder.lists.entries.replace(
+				{ id: 'broken' },
+				'---\ntext: lucid\n---\n',
+			)
+		).error?.name,
+	).toBe('Invalid');
+	expectOk(
+		await folder.lists.entries.replace(
+			{ id: 'broken' },
+			note('lucid', 'new', 'clear'),
 		),
 	);
-	await folder.refresh();
-	expectOk(await entries.setStage(id, 'usable'));
-	expect(host.text(path)).toContain('extra: kept');
-	expect(host.text(path)).toContain('Body');
-	expectOk(await entries.setNote(id, 'new note'));
-	const read = readRow(host.text(path)!, vocabTables.entries);
-	expect(read.issues).toBeNull();
-	expect(read.fields?.note).toBe('new note');
-	expect(read.fields?.stage).toBe('usable');
-	await core.close();
+	expect(entries.repairs).toEqual([]);
+	expect(entries.words[0]).toMatchObject({ id: 'broken', note: 'clear' });
 });
 
-test('repair as text writes a valid row before returning to the word card', async () => {
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': 'broken frontmatter',
-	});
-	const entries = createEntries(folder);
-	expect(entries.repairs[0]?.id).toBe('broken');
-	entries.repair.start('broken');
-	const repaired = raw('lucid', 'clear');
-	expectOk(await folder.write('entries/broken.md', repaired));
-	expect(entries.repair.close(repaired)).toBe(true);
-	expect(entries.repair.open).toBeUndefined();
-	expect(entries.words[0]?.note).toBe('clear');
-	expect(host.text('entries/broken.md')).toBe(repaired);
-	expectOk(await entries.delete('broken'));
-	expect(folder.tables.entries.row('broken')).toBeUndefined();
-	await core.close();
-});
-
-test('repair stays open until its valid text has landed', async () => {
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': 'broken frontmatter',
-	});
-	const entries = createEntries(folder);
-	entries.repair.start('broken');
-	const gate = Promise.withResolvers<void>();
-	host.control.putGate = gate.promise;
-	const repaired = raw('lucid', 'clear');
-	const saving = folder.write('entries/broken.md', repaired);
-	await Bun.sleep(0);
-	expect(entries.repair.open).toBe('broken');
-	gate.resolve();
-	expectOk(await saving);
-	expect(entries.repair.close(repaired)).toBe(true);
-	expect(entries.repair.open).toBeUndefined();
-	await core.close();
-});
-
-test('an outside invalid edit keeps repair open after a valid draft', async () => {
-	const { folder, core, host } = await createMemory({
-		'entries/broken.md': 'broken frontmatter',
-	});
-	const entries = createEntries(folder);
-	entries.repair.start('broken');
-	const repaired = raw('lucid', 'clear');
-	expectOk(await folder.write('entries/broken.md', repaired));
-	host.outside('entries/broken.md', 'invalid again', { hint: true });
-	await folder.refresh();
-	await until(() => {
-		const row = folder.tables.entries.row('broken');
-		return row !== undefined && row.issues !== null;
-	}, { timeout: 4000 });
-	expect(entries.repair.close(repaired)).toBe(false);
-	expect(entries.repair.open).toBe('broken');
-	await core.close();
-});
-
-test('a write after close answers Closed', async () => {
-	const { folder, core } = await createMemory();
-	const entries = createEntries(folder);
-	await core.close();
-	expect((await entries.setNote('missing', 'x')).error?.name).toBe('Closed');
+test('signed in, a word still on this device is not uploaded yet', async () => {
+	await using folder = await openVocabFolder();
+	const entries = createEntries(folder.lists.entries, { uploads: true });
+	expectOk(await entries.add('lucid'));
+	expect(entries.words[0]?.waiting).toBe(true);
+	expect(createEntries(folder.lists.entries).words[0]?.waiting).toBe(false);
 });

@@ -38,7 +38,7 @@
 		review = reviewImport(raw, new Set(words.map((entry) => entry.text)));
 		selected = [...review.eligible];
 	}
-	/** Save each addition, and clear the field or the review only for what the folder took. */
+	/** Save each addition, and clear the field or the review only for what was saved. */
 	async function add(texts: string[]): Promise<string[]> {
 		adding = true;
 		const failed: string[] = [];
@@ -81,7 +81,7 @@
 	<div class="mx-auto flex min-h-0 w-full max-w-5xl flex-1 flex-col gap-6 overflow-y-auto px-4 py-6 md:px-8">
 		<div>
 			<h2 class="text-2xl font-semibold">Words</h2>
-			<p class="text-sm text-muted-foreground">Save expressions, write your own notes, and choose up to three for a tutor-led chat. Everything is saved in this browser; no sign-in is needed.</p>
+			<p class="text-sm text-muted-foreground">Save expressions, write your own notes, and choose up to three for a tutor-led chat. Everything is saved in this browser, with no sign-in; signed in, it is kept in your Epicenter repository.</p>
 		</div>
 		<div class="flex flex-wrap items-end gap-2">
 			<form class="flex min-w-0 basis-full gap-2 sm:flex-1 sm:basis-auto" onsubmit={(event) => { event.preventDefault(); void addSingle(); }}>
@@ -123,9 +123,8 @@
 					{#each repairs as repair (repair.path)}
 						<li class="flex flex-wrap items-center gap-2 break-words">
 							<span class="min-w-0 flex-1"><code>{repair.path}</code>: {repair.reason}</span>
-							{#if repair.id !== undefined && entries.repair.open !== repair.id}
-								{@const id = repair.id}
-								<Button size="xs" variant="outline" onclick={() => entries.repair.start(id)}>Repair as text</Button>
+							{#if repair.text !== null && entries.repair.open !== repair.id}
+								<Button size="xs" variant="outline" onclick={() => entries.repair.start(repair.id)}>Repair as text</Button>
 							{/if}
 						</li>
 					{/each}

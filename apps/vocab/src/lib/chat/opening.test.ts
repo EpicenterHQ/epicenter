@@ -1,26 +1,25 @@
 /**
  * Tutor opening tests.
- * Real conversations over Vocab's real browser folder add a transient opening
- * prompt without saving a learner turn, do not repeat on remount, and discard
- * a stopped partial opening before retry.
+ * Real conversations over Vocab's notes on a real device folder add a
+ * transient opening prompt without saving a learner turn, do not repeat on
+ * remount, and discard a stopped partial opening before retry.
  */
+import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
 import { expect, test } from 'bun:test';
 import { type AgentEngineRequest, createConversation } from '@epicenter/agent';
-import { expectOk } from 'wellcrafted/testing';
-import type { VocabFolder } from '../data.js';
-import { createBrowser, settle, tableFiles } from '../folder.test-support.js';
-import '../../../../../packages/svelte/src/svelte-modules.test-support.js';
+import { withTutorOpening } from './opening.js';
 
+const { openVocabFolder, settle } = await import('../vocab.test-support.js');
 const { createChatMessageStore } = await import('./messages.svelte.js');
 
-import { withTutorOpening } from './opening.js';
+type Folder = Awaited<ReturnType<typeof openVocabFolder>>;
 
 /** A conversation over the chat's saved transcript, as a mounted view has it. */
 async function open(
-	folder: VocabFolder,
+	folder: Folder,
 	engine: Parameters<typeof withTutorOpening>[0],
 ) {
-	const store = createChatMessageStore(folder, 'chat-a');
+	const store = createChatMessageStore(folder.lists.messages, 'chat-a');
 	return createConversation({
 		store,
 		engine: withTutorOpening(engine),
@@ -29,8 +28,7 @@ async function open(
 }
 
 test('empty tutor opening supplies model content without storing a learner message or restarting on remount', async () => {
-	await using browser = createBrowser();
-	const folder = await browser.open();
+	await using folder = await openVocabFolder();
 	const requests: AgentEngineRequest[] = [];
 	const engine: Parameters<typeof withTutorOpening>[0] = async function* (
 		request,
@@ -48,7 +46,7 @@ test('empty tutor opening supplies model content without storing a learner messa
 	expect(chat.snapshot().messages.map((message) => message.role)).toEqual([
 		'assistant',
 	]);
-	expect(await tableFiles(folder, 'messages')).toHaveLength(1);
+	expect(await folder.files('messages')).toHaveLength(1);
 	chat[Symbol.dispose]();
 	const reopened = await open(folder, engine);
 	await settle(reopened);
@@ -60,8 +58,7 @@ test('empty tutor opening supplies model content without storing a learner messa
 });
 
 test('stopped opening saves no partial answer and retries from empty history', async () => {
-	await using browser = createBrowser();
-	const folder = await browser.open();
+	await using folder = await openVocabFolder();
 	let release!: () => void;
 	const blocked = new Promise<void>((resolve) => {
 		release = resolve;
@@ -86,7 +83,7 @@ test('stopped opening saves no partial answer and retries from empty history', a
 	first.stop();
 	release();
 	await settle(first);
-	expect(await tableFiles(folder, 'messages')).toEqual([]);
+	expect(await folder.files('messages')).toEqual([]);
 	first[Symbol.dispose]();
 	const reopened = await open(folder, engine);
 	reopened.retry();
