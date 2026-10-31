@@ -27,7 +27,9 @@ export type EpicenterSyncError = InferErrors<typeof EpicenterSyncError>;
 
 /**
  * Ask the operating system to open Epicenter with a request to sync the
- * folder at `path` (absolute) under the contract published at `contract`.
+ * folder at `path` under the contract published at `contract`. `path` is a
+ * root this window reaches (`appFolders().folder`); the shell refuses any
+ * other.
  * Ok means the system took the request; whether Epicenter sets the folder up
  * is the person's choice there, so never say the folder is syncing yet.
  *
@@ -83,7 +85,7 @@ function describe(cause: unknown): string {
 	if (!isRefusal(cause)) return String(cause);
 	switch (cause.name) {
 		case 'Folder':
-			return `${cause.path} is not a folder.`;
+			return `${cause.path} is not a folder this window can use.`;
 		case 'Contract':
 			return `${cause.url} is not a contract URL.`;
 		case 'NotOpened':

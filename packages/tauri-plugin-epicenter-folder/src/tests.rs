@@ -559,10 +559,8 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
 
     assert_eq!(read_file(&main, "mine.md").unwrap(), b"main's");
     assert_eq!(read_file(&other, "mine.md").unwrap(), b"other's");
-    // Arguments a page adds name nothing: the root is the calling window's.
-    let other_path = other_root.to_str().unwrap();
-    let extra =
-        json!({ "path": "mine.md", "root": other_path, "scope": "other", "window": "other" });
+    // Other arguments a page adds name nothing: the root is the calling window's.
+    let extra = json!({ "path": "mine.md", "scope": "other", "window": "other" });
     let InvokeResponseBody::Raw(bytes) = response(
         &main,
         "read_folder_file",
@@ -577,8 +575,29 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
         .unwrap()
         .starts_with("v1:"));
     assert_eq!(&bytes[separator + 1..], b"main's");
-    let mut headers = put_headers("mine.md", false, Some(&sha256(b"main's")));
+    // Naming another window's root is refused, for reads and for changes.
+    let other_path = other_root.to_str().unwrap();
+    let refusal = invoke(
+        &main,
+        "read_folder_file",
+        json!({ "path": "mine.md", "root": other_path }),
+    )
+    .unwrap_err();
+    assert_eq!(refusal["name"], "Io");
+    assert!(refusal["message"]
+        .as_str()
+        .unwrap()
+        .starts_with("NotGranted"));
+    let mut headers = put_headers("mine.md", false, Some(&sha256(b"other's")));
     headers.insert("root", encoded(other_path));
+    assert!(request(
+        &main,
+        "put_folder_file",
+        InvokeBody::Raw(b"changed".to_vec()),
+        headers,
+    )
+    .is_err());
+    let mut headers = put_headers("mine.md", false, Some(&sha256(b"main's")));
     headers.insert("scope", encoded("other"));
     request(
         &main,
@@ -594,6 +613,109 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
     assert_eq!(
         std::fs::read(other_root.join("mine.md")).unwrap(),
         b"other's"
+    );
+}
+
+/// A window granted a second root reaches it by its exact path, and the
+/// primary by its path or by naming none; any other path is refused, even
+/// one inside a granted root or reached through `..`. A granted root opens
+/// without being watched.
+#[test]
+fn a_granted_root_is_reached_by_its_exact_path_and_nothing_else_is() {
+    let fixture = fixture("granted");
+    let config = fixture.root.with_file_name("config");
+    std::fs::create_dir(&config).unwrap();
+    std::fs::write(config.join("settings.md"), b"settings").unwrap();
+    std::fs::write(fixture.root.join("note.md"), b"note").unwrap();
+    fixture
+        .app
+        .folders()
+        .bind_granting(
+            "main",
+            Directory::create(&fixture.root).unwrap(),
+            vec![Directory::create(&config).unwrap()],
+        )
+        .unwrap();
+    let main = window(&fixture.app, "main");
+    open(&main).unwrap();
+    let config_path = config.to_str().unwrap();
+    let root_path = fixture.root.to_str().unwrap();
+
+    let read = |path: &str, root: Option<&str>| {
+        invoke(&main, "list_folder", json!({ "root": root }))
+            .map(|listing| listing["files"].clone())
+            .map(|files| (path.to_string(), files))
+    };
+    assert_eq!(
+        read("", Some(config_path)).unwrap().1[0]["path"],
+        "settings.md"
+    );
+    assert_eq!(read("", Some(root_path)).unwrap().1[0]["path"], "note.md");
+    assert_eq!(read("", None).unwrap().1[0]["path"], "note.md");
+    let mut headers = put_headers("theme.md", false, None);
+    headers.insert("root", encoded(config_path));
+    request(
+        &main,
+        "put_folder_file",
+        InvokeBody::Raw(b"dark".to_vec()),
+        headers,
+    )
+    .unwrap();
+    assert_eq!(std::fs::read(config.join("theme.md")).unwrap(), b"dark");
+
+    let inside = config.join("nested");
+    std::fs::create_dir(&inside).unwrap();
+    let parent = fixture.root.parent().unwrap();
+    for refused in [
+        inside.to_str().unwrap().to_string(),
+        format!("{root_path}/../config"),
+        parent.to_str().unwrap().to_string(),
+        "/".to_string(),
+    ] {
+        let refusal = read("", Some(&refused)).unwrap_err();
+        assert!(
+            refusal["message"]
+                .as_str()
+                .unwrap()
+                .starts_with("NotGranted"),
+            "{refused}: {refusal}"
+        );
+    }
+
+    // Opening answers the window's own root: the one watched.
+    use tauri::ipc::{Channel, InvokeResponseBody};
+    let webview: tauri::Webview<MockRuntime> = main.as_ref().clone();
+    assert_eq!(
+        tauri::async_runtime::block_on(crate::commands::open_folder(
+            webview,
+            Channel::new(|_: InvokeResponseBody| Ok(())),
+        ))
+        .unwrap(),
+        root_path
+    );
+    // Asking Epicenter about a folder works only for a root the window reaches.
+    assert_eq!(
+        invoke(
+            &main,
+            "synced_with_epicenter",
+            json!({ "path": config_path })
+        )
+        .unwrap(),
+        json!(false)
+    );
+    let elsewhere = parent.to_str().unwrap();
+    assert_eq!(
+        invoke(&main, "synced_with_epicenter", json!({ "path": elsewhere })).unwrap_err(),
+        json!({ "name": "Folder", "path": elsewhere })
+    );
+    assert_eq!(
+        invoke(
+            &main,
+            "sync_with_epicenter",
+            json!({ "path": elsewhere, "contract": "https://x.epicenter.so/contract.json" })
+        )
+        .unwrap_err(),
+        json!({ "name": "Folder", "path": elsewhere })
     );
 }
 

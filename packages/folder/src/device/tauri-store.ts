@@ -1,8 +1,8 @@
 /**
  * A device store in a Tauri window: the directory the desktop shell bound
- * to the window, through the folder plugin's storage commands. The page
- * never names a directory (the plugin takes its root from the window), so
- * the store's root is that directory, or a folder `inside` it. The shell
+ * to the window, or another root it granted the window (`root`, by its exact
+ * path), through the folder plugin's storage commands; or a folder `inside`
+ * either. The shell refuses any root it did not grant. The shell
  * stages each write and renames it over its path, checking the version it
  * expects under the directory's save lock, the lock Bun takes too. Changes
  * come from the shell's watcher of that directory (`watch`).
@@ -25,9 +25,11 @@ import type { DeviceStore } from './store.js';
  * refuses, a call is `Unavailable`.
  */
 export function tauriStore({
+	root,
 	inside,
 	watch,
 }: {
+	root?: string;
 	inside?: string;
 	watch: ChangeSource;
 }): DeviceStore {
@@ -37,7 +39,7 @@ export function tauriStore({
 			throw new Error(`openDevice: '${inside}' cannot be opened: ${problem}`);
 	}
 	const prefix = inside === undefined ? '' : `${inside}/`;
-	const files = hostStorage(tauriHostFiles());
+	const files = hostStorage(tauriHostFiles(root));
 	const changes = createChanges((emit) =>
 		watch((paths) => {
 			if (paths === null) return emit(null);

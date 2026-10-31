@@ -1,7 +1,8 @@
 /**
  * A desktop page's folder storage: each method one command of the folder
  * plugin (ADR-0581), which the shell answers over the directory it bound to
- * the calling window. No call names a root or a folder.
+ * the calling window, or over another root it granted the window, named by
+ * its exact path (`root`). The shell refuses any root it did not grant.
  *
  * The shell checks every path as the Bun directory storage does
  * (`directory-store.ts`): literal names, no link followed, `.git` never
@@ -106,12 +107,20 @@ async function answered<T>(
 	}
 }
 
-/** The folder plugin's storage commands for this window's folder. */
-export function tauriHostFiles(): HostFiles {
+/**
+ * The folder plugin's storage commands for this window's folder, or for the
+ * root at the absolute path `root` that the shell granted the window.
+ */
+export function tauriHostFiles(root?: string): HostFiles {
+	const named = root ?? null;
 	return {
-		list: () => answered(() => commands.listFolder(), '', 'list'),
+		list: () => answered(() => commands.listFolder(named), '', 'list'),
 		children: (directory) =>
-			answered(() => commands.readFolderChildren(directory), directory, 'list'),
+			answered(
+				() => commands.readFolderChildren(directory, named),
+				directory,
+				'list',
+			),
 		async read(path) {
 			let bytes: Uint8Array;
 			let stamp: string;
@@ -122,9 +131,7 @@ export function tauriHostFiles(): HostFiles {
 				const response = new Uint8Array(
 					await invoke<ArrayBuffer>(
 						'plugin:epicenter-folder|read_folder_file',
-						{
-							path,
-						},
+						{ path, root: named },
 					),
 				);
 				const separator = response.indexOf(0);
@@ -138,11 +145,12 @@ export function tauriHostFiles(): HostFiles {
 			return Ok({ bytes, stamp, sha256: await hashBytes(bytes) });
 		},
 		async change(path, bytes, expected) {
-			const headers = {
+			const headers: Record<string, string> = {
 				path: encodeURIComponent(path),
 				remove: String(bytes === null),
 				expected: typeof expected === 'string' ? expected : expected.sha256,
 			};
+			if (root !== undefined) headers.root = encodeURIComponent(root);
 			try {
 				// The bytes go as the raw request body rather than as a JSON
 				// array of numbers, which the generated bindings cannot type, so
@@ -165,14 +173,14 @@ export function tauriHostFiles(): HostFiles {
 		},
 		mkdir: (path) =>
 			answered(
-				() => commands.makeFolderDirectory(path),
+				() => commands.makeFolderDirectory(path, named),
 				path,
 				'create directory',
 				true,
 			).then((made) => (made.error === null ? Ok(undefined) : made)),
 		rmdir: (path) =>
 			answered(
-				() => commands.removeFolderDirectory(path),
+				() => commands.removeFolderDirectory(path, named),
 				path,
 				'remove directory',
 				true,

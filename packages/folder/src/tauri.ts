@@ -21,7 +21,13 @@ import { openRefusal } from './native/open-refusal.js';
 import { storageHost } from './storage.js';
 import { tauriHostFiles } from './tauri-files.js';
 
-export { type AppConfig, appConfig } from './app-config.js';
+export {
+	type AppConfig,
+	type AppFolders,
+	appConfig,
+	appFolders,
+	rememberFolder,
+} from './app-config.js';
 export * from './contract.js';
 export {
 	EpicenterSyncError,
@@ -30,40 +36,70 @@ export {
 } from './epicenter-sync.js';
 
 /**
- * The typed client of `contract` over the directory the desktop shell bound
- * to this window: for a bundled or standalone app, its local data folder.
- * A page names no directory; `path`, when given, is a relative folder
- * inside the bound one (a data folder may sit at any depth). Outside Tauri,
- * or when the shell refuses, each call is `Unavailable`, never a throw; a
- * contract that is not well formed, or a `path` that leaves the bound
- * directory, throws here, at once.
+ * The typed client of `contract` over a directory the desktop shell gave this
+ * window. With no `path`, or a relative one, it is the window's own folder,
+ * or a folder inside it (a data folder may sit at any depth). An absolute
+ * `path` names a root by its exact path: the window's own folder, or another
+ * root the shell granted the window, such as the app's configuration
+ * directory (decision 82). The shell refuses any other root, so a page
+ * reaches only what its app's Rust allowed. Only the window's own folder is
+ * watched; a granted root hears no changes made elsewhere.
+ *
+ * Outside Tauri, or when the shell refuses, each call is `Unavailable`,
+ * never a throw; a contract that is not well formed, or a relative `path`
+ * that leaves the folder, throws here, at once.
  *
  * ```ts
- * const device = openDevice(recorder);
- * const note = await device.recordings.create({ id: timeId(), title: 'Standup' });
+ * const config = openDevice(appConfig, { path: configDirectory });
+ * const device = openDevice(capture, { path: folder });
  * ```
  */
 export function openDevice<TContract extends Contract>(
 	contract: TContract,
 	{ path }: { path?: string } = {},
 ): Client<TContract> {
+	const root = path !== undefined && isAbsolute(path) ? path : undefined;
 	return createDeviceClient(
 		contract,
-		tauriStore({ inside: path, watch: watchBoundFolder }),
+		tauriStore({
+			root,
+			inside: root === undefined ? path : undefined,
+			watch: (listener) => watchBoundFolder(listener, root),
+		}),
 	);
 }
 
+/** An absolute path on macOS, Linux, or Windows (a drive or a UNC path). */
+const isAbsolute = (path: string) =>
+	path.startsWith('/') ||
+	/^[A-Za-z]:[\\/]/.test(path) ||
+	path.startsWith('\\\\');
+
 /**
- * Hear the shell's watcher of the bound directory: the same registration
- * every `openFolder` handle shares, held while anything listens. Outside
- * Tauri, or when the shell refuses, nothing is heard.
+ * Hear the shell's watcher of the window's own folder: the same registration
+ * every handle shares, held while anything listens. A device opened at an
+ * absolute `root` hears it only once the shell answered that `root` is the
+ * watched folder; a granted root is not watched. Outside Tauri, or when the
+ * shell refuses, nothing is heard.
  */
-function watchBoundFolder(listener: (paths: readonly string[] | null) => void) {
+function watchBoundFolder(
+	listener: (paths: readonly string[] | null) => void,
+	root?: string,
+) {
 	if (!isTauri()) return () => {};
-	const observer = ({ paths }: FolderChanged) => listener(paths);
+	let hears = root === undefined;
+	const observer = ({ paths }: FolderChanged) => {
+		if (hears) listener(paths);
+	};
 	observers.add(observer);
 	openHandles++;
-	openBoundFolder().catch(() => {});
+	openBoundFolder().then(
+		(opened) => {
+			if (root !== undefined && opened.error === null && opened.data === root)
+				hears = true;
+		},
+		() => {},
+	);
 	return () => {
 		observers.delete(observer);
 		openHandles--;
