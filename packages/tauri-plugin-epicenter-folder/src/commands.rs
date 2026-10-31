@@ -253,7 +253,7 @@ pub async fn list_folder<R: Runtime>(
 /// Read a file in the window's folder (`storage::read`). The ASCII stamp,
 /// a zero byte, then the file bytes return in one raw `ArrayBuffer`, rather than as a JSON array
 /// of numbers. tauri-specta cannot type a raw response, so the generated
-/// bindings leave this command out and `tauri-files.ts` invokes it by name;
+/// bindings leave this command out and `device/tauri-store.ts` invokes it by name;
 /// `init` dispatches it beside the typed commands.
 #[tauri::command]
 pub async fn read_folder_file<R: Runtime>(
@@ -291,7 +291,7 @@ pub async fn read_folder_file<R: Runtime>(
 ///
 /// The check runs right before the change, with no lock between them
 /// (`storage::put`). tauri-specta cannot type a raw request, so the generated
-/// bindings leave this command out and `tauri-files.ts` invokes it by name;
+/// bindings leave this command out and `device/tauri-store.ts` invokes it by name;
 /// `init` dispatches it beside the typed commands.
 #[tauri::command]
 pub async fn put_folder_file<R: Runtime>(

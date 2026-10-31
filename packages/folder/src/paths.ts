@@ -1,11 +1,10 @@
 /**
- * Literal folder-relative paths and row addresses.
+ * Literal folder-relative paths.
  *
  * Paths are never normalized, case folded, or aliased. A path that would need
  * rewriting to be usable is refused so that raw access and Git history address
  * exactly the bytes a person or agent sees.
  */
-import type { TSchema as Schema } from 'typebox';
 
 /** Path segments that are never portable source. `.git` holds private Git state. */
 const PRIVATE_SEGMENTS = new Set(['.git']);
@@ -114,64 +113,4 @@ export function pathProblem(path: string): string | undefined {
 			return `the name '${segment}' can name another file on some disks`;
 	}
 	return undefined;
-}
-
-export const ROW_EXTENSION = '.md';
-
-/**
- * The row file a literal stem names. The stem is used as written: nothing is
- * trimmed, folded, or stripped, and the empty stem names `<table>/.md`.
- */
-export function rowPath(table: string, stem: string): string {
-	return `${table}/${stem}${ROW_EXTENSION}`;
-}
-
-/**
- * Why a stem does not address a row of the table, or `undefined` when it
- * does. A stem is one literal filename segment, so the only rules are the
- * folder's own path rules (`pathProblem`): a row file's name must mean only
- * itself on every disk a folder can live on, so a stem like `a: b` or `con`
- * is refused while `.hidden` is ordinary, and so is a stem ending in a space,
- * since its file name still ends in `.md`.
- */
-export function rowAddressProblem(
-	table: string,
-	stem: string,
-): string | undefined {
-	if (typeof stem !== 'string') return 'the stem is not a string';
-	if (stem.includes('/')) return 'the stem contains a path separator';
-	return pathProblem(rowPath(table, stem));
-}
-
-/**
- * Case- and Unicode-folded spelling Sync compares names by, to refuse a tree
- * whose paths some filesystem could not hold apart and a file that stands
- * under another spelling (ADR-0474, ADR-0576). Never used for lookup, and
- * never applied to a local save: a create or rename is refused by what its
- * own filesystem does.
- *
- * Lowercased, uppercased, and lowercased again, so names APFS holds as one
- * meet: `ς` and `σ`, `ß` and `ss`, `ﬀ` and `ff`, `ſ` and `s`, `µ` and `μ`.
- * It also joins `ı` and `i`, which APFS keeps apart; that only refuses a
- * Sync, never merges two files.
- */
-export function collisionKey(path: string): string {
-	return path
-		.normalize('NFC')
-		.toLowerCase()
-		.toUpperCase()
-		.toLowerCase()
-		.normalize('NFC');
-}
-
-/**
- * Why `tables` cannot be opened: the first name that is not one top-level
- * directory this folder can address on every disk, or `undefined`.
- */
-export function invalidTable(
-	tables: Record<string, Schema>,
-): string | undefined {
-	return Object.keys(tables).find(
-		(name) => name.includes('/') || pathProblem(name) !== undefined,
-	);
 }

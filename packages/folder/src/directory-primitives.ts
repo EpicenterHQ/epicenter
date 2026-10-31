@@ -2,7 +2,7 @@
  * The file system calls the directory storage is built on
  * (`directory-store.ts`), which Bun supplies over `node:fs`
  * (`directory-node.ts`). A desktop page has none: the shell answers each
- * storage method itself (`tauri-files.ts`). Paths are absolute and use `/`.
+ * storage method itself (`device/tauri-store.ts`). Paths are absolute and use `/`.
  */
 
 import type { Expectation } from './boundary.js';

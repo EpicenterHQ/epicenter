@@ -162,7 +162,7 @@ committer, over the system `git` this package's `runGit` runs.
 | `src/index.ts`, `browser.ts`, `tauri.ts`, `bun.ts`, `node.ts`, `remote.ts` | Public entries. |
 | `src/device/` | `openDevice`: the contract client, its Bun, OPFS and Tauri stores, and `check`/`format`. |
 | `src/remote/` | `openRemote` and its wire to the server. |
-| `src/native/`, `tauri-files.ts`, `directory-store.ts` | Directory storage, watches, and bindings. |
+| `src/native/`, `directory-store.ts`, `boundary.ts` | Directory storage, watches, and bindings. |
 | `src/git/native-host.ts` | The system `git` runner the CLI's sync verbs use. |
 | `evidence/`, `smoke/` | Recorded experiments, the closure check, and browser smoke runs. |
 

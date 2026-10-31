@@ -35,7 +35,6 @@ import {
 	type Expectation,
 	type FileRead,
 	type FolderStorage,
-	hostStorage,
 	isStaleScratch,
 	PRIVATE_DIRECTORY,
 	type PutOutcome,
@@ -45,6 +44,7 @@ import {
 import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { FileError, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
+import { pathProblem, readablePath, writableExistingPath } from './paths.js';
 
 /** Whether a name at the root is Git's or this storage's own, which no listing shows. */
 const isOwnDirectory = (name: string) =>
@@ -238,7 +238,7 @@ export function createDirectoryStorage({
 		return Ok({ kind: 'landed', stamp });
 	}
 
-	return hostStorage({
+	return {
 		async list() {
 			const entries: { path: string; stamp: string }[] = [];
 			async function visit(directory: string, prefix: string) {
@@ -259,11 +259,44 @@ export function createDirectoryStorage({
 			} catch (cause) {
 				return FileError.Io({ path: '', operation: 'list', cause });
 			}
-			return Ok(entries);
+			return Ok(entries.sort((a, b) => (a.path < b.path ? -1 : 1)));
 		},
-		read: readOne,
-		change,
-	});
+		async read(path) {
+			return readablePath(path)
+				? readOne(path)
+				: FileError.InvalidPath({
+						path,
+						reason: 'the path cannot be read safely',
+					});
+		},
+		async put(path, bytes, expected) {
+			const problem = pathProblem(path);
+			const refused =
+				problem === undefined
+					? undefined
+					: FileError.InvalidPath({ path, reason: problem });
+			// An existing nonportable name may be replaced or removed, never made.
+			if (
+				refused &&
+				(!writableExistingPath(path) ||
+					(bytes !== null && expected === 'absent'))
+			)
+				return refused;
+			const checked =
+				refused && bytes !== null && expected === 'any' ? 'present' : expected;
+			const owned = bytes === null ? null : new Uint8Array(bytes);
+			let result: Result<PutOutcome, FileError>;
+			try {
+				result = await change(path, owned, checked);
+			} catch (cause) {
+				result = FileError.Io({ path, operation: 'write', cause });
+			}
+			// The nonportable file went before this write landed, which cannot make it.
+			if (refused && checked !== expected && result.data?.kind === 'stale')
+				return refused;
+			return result;
+		},
+	};
 }
 
 /**

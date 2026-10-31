@@ -1,10 +1,9 @@
 /**
- * The directory storage contract, which each directory host implements
- * natively (ADR-0576): a directory over `node:fs` in Bun
- * (`directory-store.ts`), and a desktop page's directory through the shell,
- * one command per method (`tauri-files.ts`, ADR-0581). The native `Folder`
- * (`folder.ts` through `storage.ts`), the device clients of `/node` and
- * `/tauri`, and the CLI's readers read and change files through it.
+ * The directory storage contract (ADR-0576), which the Bun directory host
+ * implements over `node:fs` (`directory-store.ts`) and the device store of
+ * `/node` reads and changes files through. The desktop shell implements the
+ * same contract natively (`storage.rs` in `tauri-plugin-epicenter-folder`);
+ * a Tauri window's device store calls its commands (`device/tauri-store.ts`).
  *
  * `put` is the one change: one file's bytes, or its removal, landing only
  * while the path holds what the caller expects (`Expectation`), which may be
@@ -13,28 +12,18 @@
  * new file never appears empty first. The host checks the expectation right
  * before the change, with no lock between the two: a save another program
  * lands in that instant can be replaced, and Git history is the backstop
- * (ADR-0568). Reads, a folder's list, and its captures are built on these.
- *
- * Saves are not ordered by when their methods were called: the last to land
- * on a path wins. A change that must not overwrite bytes its caller did not
- * review expects their hash; one that must not replace a file expects
- * `'absent'`.
+ * (ADR-0568).
  *
  * A name that only some disks can hold (`pathProblem`) is never created.
  * An existing one may be replaced or removed, and a write expecting `'any'`
  * there lands only while the file is still there, checked where it lands;
  * otherwise it is `InvalidPath`. A `HEAD` segment is never written.
  *
- * What every host shares is here once (`hostStorage`): the
- * path rule, owning the bytes a put was handed, telling other pages what
- * landed, the order of a listing, and where and under what
- * names a new file is staged, which the desktop shell's own staging matches
- * (`storage.rs` in `tauri-plugin-epicenter-folder`). A host supplies only
- * its own operations (`HostFiles`).
+ * Where and under what names a new file is staged is here once, and the
+ * desktop shell's own staging matches it.
  */
-import { Err, Ok, type Result } from 'wellcrafted/result';
-import { FileError } from './errors.js';
-import { pathProblem, readablePath, writableExistingPath } from './paths.js';
+import type { Result } from 'wellcrafted/result';
+import type { FileError } from './errors.js';
 
 /**
  * What a change expects at its path when it lands: nothing there, a file, a
@@ -87,26 +76,6 @@ export type FolderStorage = {
 	): Promise<Result<PutOutcome, FileError>>;
 };
 
-/**
- * A host's own operations on its storage. The storage built over them
- * (`hostStorage`) calls writes with a path `pathProblem` accepts, or with an
- * existing nonportable name that `writableExistingPath` admits and an
- * expectation that a file is there (never `'absent'` or, for bytes, `'any'`),
- * and reads with a structurally safe path. Calls carry bytes no caller
- * still holds. `change` is `put`'s
- * change; a listing may come in any order. A host still checks its own path
- * rule: the desktop shell does not trust the page's.
- */
-export type HostFiles = Pick<FolderStorage, 'list' | 'read'> & {
-	change: FolderStorage['put'];
-};
-
-/** Whether a put changed its file, or may have: it landed, or its reply was lost. */
-export const mayHaveChanged = (
-	result: Result<PutOutcome, FileError>,
-): boolean =>
-	result.data?.kind === 'landed' || result.error?.name === 'Unconfirmed';
-
 /** The folder's private Git directory, which no portable path names and no listing shows. */
 export const PRIVATE_DIRECTORY = '.git';
 
@@ -155,64 +124,4 @@ export function isStaleScratch(name: string, now = Date.now()): boolean {
 	if (time === undefined) return false;
 	const created = Number.parseInt(time, 36);
 	return Number.isSafeInteger(created) && now - created > STALE_SCRATCH_MS;
-}
-
-const refusal = (path: string) => {
-	const problem = pathProblem(path);
-	return problem === undefined
-		? undefined
-		: FileError.InvalidPath({ path, reason: problem });
-};
-
-const byPath = (a: { path: string }, b: { path: string }) =>
-	a.path < b.path ? -1 : 1;
-
-/**
- * The storage over a host's `files`. `relay`, where the host tells other
- * pages what changed, hears each path a change reached, or may have, as
- * soon as it does.
- */
-export function hostStorage(
-	files: HostFiles,
-	relay: (paths: readonly string[]) => void = () => {},
-): FolderStorage {
-	return {
-		async list() {
-			const { data: listed, error } = await files.list();
-			if (error !== null) return Err(error);
-			return Ok([...listed].sort(byPath));
-		},
-		async read(path) {
-			return readablePath(path)
-				? files.read(path)
-				: FileError.InvalidPath({
-						path,
-						reason: 'the path cannot be read safely',
-					});
-		},
-		async put(path, bytes, expected) {
-			const refused = refusal(path);
-			// An existing nonportable name may be replaced or removed, never made.
-			if (
-				refused &&
-				(!writableExistingPath(path) ||
-					(bytes !== null && expected === 'absent'))
-			)
-				return refused;
-			const checked =
-				refused && bytes !== null && expected === 'any' ? 'present' : expected;
-			const owned = bytes === null ? null : new Uint8Array(bytes);
-			let result: Result<PutOutcome, FileError>;
-			try {
-				result = await files.change(path, owned, checked);
-			} catch (cause) {
-				result = FileError.Io({ path, operation: 'write', cause });
-			}
-			// The nonportable file went before this write landed, which cannot make it.
-			if (refused && checked !== expected && result.data?.kind === 'stale')
-				return refused;
-			if (mayHaveChanged(result)) relay([path]);
-			return result;
-		},
-	};
 }

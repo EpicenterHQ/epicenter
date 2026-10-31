@@ -574,7 +574,6 @@
         "@epicenter/constants": "workspace:*",
         "@epicenter/definition": "workspace:*",
         "@tauri-apps/api": "catalog:",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

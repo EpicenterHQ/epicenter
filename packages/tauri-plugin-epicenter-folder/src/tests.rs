@@ -477,7 +477,7 @@ fn open_root(
     .map_err(|error| serde_json::to_value(error).unwrap())
 }
 
-/// `read_folder_file` as `tauri-files.ts` asks for it: the bytes, which
+/// `read_folder_file` as `device/tauri-store.ts` asks for it: the bytes, which
 /// arrive raw, or the refusal.
 fn read_file(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>, Value> {
     match response(
@@ -500,7 +500,7 @@ fn read_file(window: &WebviewWindow<MockRuntime>, path: &str) -> Result<Vec<u8>,
     }
 }
 
-/// `put_folder_file` as `tauri-files.ts` sends it: the bytes as the raw
+/// `put_folder_file` as `device/tauri-store.ts` sends it: the bytes as the raw
 /// body, the rest in percent-encoded headers. `None` removes the file.
 fn put(
     window: &WebviewWindow<MockRuntime>,

@@ -31,7 +31,7 @@ ships or an installed app bundles at a version built for that shell.
 **A desktop page's storage is the folder plugin answering each method of
 `FolderStorage` (`packages/folder/src/boundary.ts`) with one command.** The
 page builds it as `hostStorage(tauriHostFiles(scope))`
-(`packages/folder/src/tauri-files.ts`); the shell's side is
+(`4016fb5ff7:packages/folder/src/tauri-files.ts`); the shell's side is
 `packages/tauri-plugin-epicenter-folder/core/src/storage.rs`:
 
 | `FolderStorage` | Command | IPC calls |

@@ -279,7 +279,7 @@ right before the rename, and is `InvalidPath` otherwise. `HEAD` is never written
 A JSON array of bytes, Tauri's `postMessage`
 fallback, is accepted too. The generated bindings cannot type a raw request,
 so the command is left out of them; the plugin dispatches it beside the
-typed commands, under the same permission, and `tauri-files.ts` invokes it
+typed commands, under the same permission, and `device/tauri-store.ts` invokes it
 by name. `read_folder_file` returns a raw `ArrayBuffer` to the page. Its stamp
 is ASCII before the first zero byte; the remaining bytes are the file. The
 stamp is formed from size, modification time in nanoseconds, and device and
