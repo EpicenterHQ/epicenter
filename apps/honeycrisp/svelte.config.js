@@ -22,6 +22,9 @@ const config = {
 		}),
 	},
 	preprocess: vitePreprocess(),
+	// The desktop window's `Startup` awaits its roots at the top level, under
+	// the layout's `<svelte:boundary>` (decision 94).
+	compilerOptions: { experimental: { async: true } },
 };
 
 export default config;

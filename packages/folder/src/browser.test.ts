@@ -3,6 +3,7 @@ import 'fake-indexeddb/auto';
 import { beforeEach, expect, test } from 'bun:test';
 import { defineContract } from '@epicenter/definition/contract';
 import { Type } from 'typebox';
+import { unwrap } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { closeDevice, openDevice, openFolder } from './browser.js';
 
@@ -78,11 +79,13 @@ test('the browser folder refuses inside the desktop app', async () => {
 });
 
 test('a disposed device stops its Worker, and every later call is Unavailable', async () => {
-	const device = openDevice(
-		defineContract({
-			name: 'recorder',
-			collections: { audio: { path: 'recordings/{id}.{ext}' } },
-		}),
+	const device = unwrap(
+		await openDevice(
+			defineContract({
+				name: 'recorder',
+				collections: { audio: { path: 'recordings/{id}.{ext}' } },
+			}),
+		),
 	);
 	// Starts the Worker; Bun has no private file system, so it answers either way.
 	await device.audio.list();

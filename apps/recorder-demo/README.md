@@ -83,9 +83,10 @@ account's own.
 
 ## Code
 
-- `src/main.ts`: picks the page's root by path and loads only it.
-- `src/LocalApp.svelte`: the local variant's root, which opens this
-  browser's files (`openDevice`) for the page.
+- `src/main.ts`: picks the page's root by path and loads only it; for the
+  local variant it first awaits this browser's files (`openDevice`).
+- `src/LocalApp.svelte`: the local variant's root, over the device
+  `main.ts` opened for the page.
 - `src/OnlineApp.svelte`: the online variant's root: sign-in, and, signed
   in, `src/SignedIn.svelte` per account, which opens the repository
   (`openRemote`), sets it (`setRepo`) and hands it to the recorder.

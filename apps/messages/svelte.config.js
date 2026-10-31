@@ -18,6 +18,9 @@ const config = {
 		}),
 	},
 	preprocess: vitePreprocess(),
+	// `Startup` awaits this browser's files at the top level, under the
+	// layout's `<svelte:boundary>` (decision 94).
+	compilerOptions: { experimental: { async: true } },
 };
 
 export default config;

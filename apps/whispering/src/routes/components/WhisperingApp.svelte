@@ -9,7 +9,6 @@
 	import type { Client } from '@epicenter/definition/contract';
 	import * as Alert from '@epicenter/ui/alert';
 	import * as Empty from '@epicenter/ui/empty';
-	import { Loading } from '@epicenter/ui/loading';
 	import * as Sidebar from '@epicenter/ui/sidebar';
 	import { extractErrorMessage } from 'wellcrafted/error';
 	import { onDestroy, type Snippet } from 'svelte';
@@ -38,7 +37,6 @@
 	// svelte-ignore state_referenced_locally
 	const library = createLibrary({ whispering, files: filesOf(client) });
 	setLibrary(library);
-	const starting = whispering.start();
 	// Leaving waits for nothing; a recording under way ends with the page.
 	onDestroy(() => {
 		library.dispose();
@@ -47,6 +45,12 @@
 
 	/** Below this width the sidebar becomes a bottom bar. */
 	const wide = new MediaQuery('(min-width: 768px)');
+
+	// Part of startup: the layout's boundary shows its spinner until it ends.
+	const failed = await whispering.start().then(
+		() => null,
+		(error: unknown) => error,
+	);
 </script>
 
 {#snippet header()}
@@ -61,31 +65,27 @@
 	{/if}
 {/snippet}
 
-{#await starting}
-	<Loading class="h-dvh" label="Opening your recordings…" />
-{:then}
-	{#if wide.current}
-		<Sidebar.Provider bind:open={() => whispering.sidebarOpen, (open) => (whispering.sidebarOpen = open)} class="h-dvh min-h-0 overflow-hidden">
-			<VerticalNav />
-			<Sidebar.Inset class="min-h-0 overflow-hidden">
-				{@render header()}
-				<div class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="page">{@render children()}</div>
-			</Sidebar.Inset>
-		</Sidebar.Provider>
-	{:else}
-		<div class="flex h-dvh flex-col overflow-hidden">
-			{@render header()}
-			<main class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="page">
-				{@render children()}
-			</main>
-			<BottomNav />
-		</div>
-	{/if}
-{:catch error}
+{#if failed !== null}
 	<Empty.Root class="h-dvh">
 		<Empty.Header>
 			<Empty.Title>Whispering could not start</Empty.Title>
-			<Empty.Description role="alert">{extractErrorMessage(error)}</Empty.Description>
+			<Empty.Description role="alert">{extractErrorMessage(failed)}</Empty.Description>
 		</Empty.Header>
 	</Empty.Root>
-{/await}
+{:else if wide.current}
+	<Sidebar.Provider bind:open={() => whispering.sidebarOpen, (open) => (whispering.sidebarOpen = open)} class="h-dvh min-h-0 overflow-hidden">
+		<VerticalNav />
+		<Sidebar.Inset class="min-h-0 overflow-hidden">
+			{@render header()}
+			<div class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="page">{@render children()}</div>
+		</Sidebar.Inset>
+	</Sidebar.Provider>
+{:else}
+	<div class="flex h-dvh flex-col overflow-hidden">
+		{@render header()}
+		<main class="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="page">
+			{@render children()}
+		</main>
+		<BottomNav />
+	</div>
+{/if}

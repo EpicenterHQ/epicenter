@@ -1,8 +1,9 @@
 /**
  * Whispering's files over one contract client: the note lists, and each
  * recording's audio beside them. The web build hands in this browser's
- * device (`$lib/device.ts`); which client it is is the variant root's
- * choice, never this module's, so another variant passes its own.
+ * device (opened by `routes/components/Startup.svelte`); which client it
+ * is is the variant root's choice, never this module's, so another variant
+ * passes its own.
  *
  * Reads are Svelte state: each list lists and listens only while something
  * reactive reads it. Writes answer a `Result`; the caller presents failures.

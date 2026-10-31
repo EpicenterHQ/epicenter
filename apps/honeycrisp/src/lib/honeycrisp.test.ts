@@ -20,6 +20,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDevice } from '@epicenter/folder/node';
+import { unwrap } from 'wellcrafted/result';
 import { honeycrisp } from './contract.js';
 
 const { fromClient } = await import('@epicenter/svelte/client');
@@ -46,7 +47,7 @@ async function deviceWith(files: Record<string, string>) {
 		await mkdir(join(root, path, '..'), { recursive: true });
 		await writeFile(join(root, path), text);
 	}
-	return { root, client: openDevice(honeycrisp, { path: root }) };
+	return { root, client: unwrap(await openDevice(honeycrisp, { path: root })) };
 }
 
 /** A note in house style: `extra` holds the keys the contract orders before `createdAt`. */

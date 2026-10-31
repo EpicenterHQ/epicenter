@@ -10,16 +10,18 @@ its window
 
 The page opens the folder itself, with `@epicenter/folder`'s engine
 ([ADR-0531](../../docs/adr/0531-the-page-runs-the-folder-engine-and-the-shell-grants-the-directory.md)).
-It names no root, scope, or window: every command answers in the directory
-bound to the calling WebView's label
-([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)).
+It names no scope or window: every command answers in the directory bound to
+the calling WebView's label
+([ADR-0647](../../docs/adr/0647-a-native-window-edits-one-directory-bound-before-it-exists.md)),
+or in another root the page opened by its exact path, which Tauri's runtime
+file-system scope must allow (see Other roots).
 
 ## Layout
 
 | Path | What it is |
 | --- | --- |
 | `core/` | `epicenter-folder-core`: the canonical directory value (`directory.rs`), the cross-process save lock, the shared path rule, the page's storage (`storage.rs`), and the fixed app defaults (`library.rs`). No Tauri; its tests need only `git` and `bun`. |
-| `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), and storage commands. |
+| `src/` | The Tauri plugin: window bindings (`folders.rs`), shared window construction (`windows.rs`), which roots a page may open (`scope.rs`), and storage commands. |
 | `../folder/src/native/bindings.gen.ts` | TypeScript commands and types, generated from the plugin into `@epicenter/folder`, whose desktop opener is their only user. `read_folder_file` and `put_folder_file` are not in them (see Storage). Do not edit. |
 | `fixtures/path-rules.json` | The paths the shared path rule refuses and allows. `core/src/paths.rs` and `paths.ts` in `@epicenter/folder` both read it. |
 | `fixtures/records-default.json` | Where the records default is admitted and refused. `core/src/library.rs` and `records-default.test.ts` in the CLI both run it. |
@@ -144,19 +146,47 @@ other Epicenter processes, and Bun writers use the same lock
 
 A shell must also give the window the plugin's commands in a capability:
 `{ "windows": ["todos:*"], "permissions": ["epicenter-folder:default"] }`.
-That is all the window needs; no fs plugin is installed. The capability only
-lets a window call the plugin. Which directory it reaches is its binding.
+That is all a window over its own directory needs; it grants no `fs`
+command. The capability only lets a window call the plugin. Which directory
+it reaches is its binding, plus any other root Tauri's scope allows it to
+open (Other roots).
 
 ## Opening
 
 The page's `@epicenter/folder` adapter calls `open_folder` with a private
-change channel and no path or root argument. A window with no binding
-is refused `NotBound`, a bound directory that is gone `Missing`, and one that
-cannot be inspected `Unavailable`; nothing is made again here, since making a
-default belongs to the shell's launch. After shutdown the answer is
-`ShuttingDown`. The first successful open starts one recursive watcher for this
-window's binding; subsequent opens replace its channel while reusing the
-watcher. Watch setup failure is `Unavailable`.
+change channel and, for the window's own directory, no root (or that
+directory's path). A window with no binding is refused `NotBound`, a bound
+directory that is gone `Missing`, and one that cannot be inspected
+`Unavailable`; the window's own directory is never made again here, since
+making it belongs to the shell's launch. After shutdown the answer is
+`ShuttingDown`. The first successful open of a root starts one recursive
+watcher for it; subsequent opens replace its channel while reusing the
+watcher. Watch setup failure is `Unavailable`. `open_folder` answers the
+root's canonical path, by which the page names it from then on.
+
+### Other roots
+
+A page may open another root by its absolute path (`open_folder({ root,
+create })`), the way a standalone app opens its data folder beside its
+AppData root. The plugin keeps no grant list of its own: Tauri decides.
+
+1. `Refused { root, reason }` for a place no app keeps its files in
+   (`scope::Refusals`): the top of a disk, the home folder, anything inside a
+   `.git` folder, anything inside or around Epicenter's own records or
+   settings, and anything holding the app's own data directory.
+2. `NotGranted { root }` unless Tauri's runtime file-system scope allows
+   the path (`tauri-plugin-fs`'s `FsExt::fs_scope`, which a deny wins
+   over): a shell allows its app's default folder there at startup, the
+   dialog plugin's `open` allows the folder a person picks, and
+   `tauri-plugin-persisted-scope` keeps those across launches. No capability
+   names a folder, and an app without `tauri-plugin-fs` reaches only its
+   windows' own directories.
+3. `Missing` when it is not there, unless `create`, which makes it and its
+   missing parents.
+
+An opened root stays reachable by its path, and watched, until the window
+closes; switching between roots a page opened costs nothing. A storage
+command naming a root the page has not opened is `NotGranted`.
 
 The page registers one private close channel with `subscribe_close`; it
 releases that registration with `unsubscribe_close`. On window close, Rust
@@ -320,7 +350,7 @@ history command. Git's checks live in the CLI's runner,
 
 ## Changes outside the page
 
-Each opened window binding owns one `notify::RecommendedWatcher` over its root,
+Each root a window opened owns one `notify::RecommendedWatcher` over it,
 recursively, without following symbolic links. It sends typed `FolderChanged`
 hints to the calling WebView's private channel. Its `paths` are root-relative hints, including
 directory hints that cover descendants; `null` means any path may differ.

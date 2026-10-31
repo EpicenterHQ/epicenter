@@ -15,7 +15,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openDevice } from '@epicenter/folder/node';
-import { Err, Ok } from 'wellcrafted/result';
+import { Err, Ok, unwrap } from 'wellcrafted/result';
 import { createFixtureDevice, toneWav } from './capture.js';
 import {
 	applyConnectionChange,
@@ -125,7 +125,9 @@ export async function openTestServices({
 	connections,
 }: TestServicesOptions = {}) {
 	const root = await mkdtemp(join(tmpdir(), 'whispering-'));
-	const device = openDevice(whispering, { path: join(root, 'device') });
+	const device = unwrap(
+		await openDevice(whispering, { path: join(root, 'device') }),
+	);
 	const stored = testConnections({ connections });
 
 	const transformed: TransformRequest[] = [];

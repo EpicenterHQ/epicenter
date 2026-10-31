@@ -9,15 +9,15 @@
  * - A later choice changes only `folder`, keeping other machine settings
  * - Choosing the folder already recorded writes nothing
  * - The default folder is no `folder` at all: choosing it removes the key
- * - `appFolders()` is what the shell set before the page ran, or null
  */
 
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { unwrap } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
-import { appConfig, appFolders, rememberFolder } from './app-config.js';
+import { appConfig, rememberFolder } from './app-config.js';
 import { openDevice } from './node.js';
 
 let directory: string;
@@ -28,13 +28,12 @@ beforeEach(async () => {
 
 afterEach(async () => {
 	await rm(directory, { recursive: true, force: true });
-	delete (globalThis as { window?: unknown }).window;
 });
 
 const settings = () => readFile(join(directory, 'settings.md'), 'utf8');
 
 test('the first folder chosen creates settings.md as the shell reads it', async () => {
-	const config = openDevice(appConfig, { path: directory });
+	const config = unwrap(await openDevice(appConfig, { path: directory }));
 	expectOk(await rememberFolder(config, '/Users/me/Epicenter/Capture'));
 	expect(await settings()).toBe(
 		'---\nfolder: "/Users/me/Epicenter/Capture"\n---\n',
@@ -46,7 +45,7 @@ test('a later choice changes only folder; the same one writes nothing', async ()
 		join(directory, 'settings.md'),
 		'---\nfolder: "/old"\ntheme: dark\n---\n',
 	);
-	const config = openDevice(appConfig, { path: directory });
+	const config = unwrap(await openDevice(appConfig, { path: directory }));
 	expectOk(await rememberFolder(config, '/new'));
 	const after = await settings();
 	expect(after).toContain('folder: "/new"');
@@ -60,13 +59,16 @@ test('the default folder removes folder and keeps the rest', async () => {
 		join(directory, 'settings.md'),
 		'---\nfolder: "/old"\ntheme: dark\n---\n',
 	);
-	const config = openDevice(appConfig, { path: directory });
+	const config = unwrap(await openDevice(appConfig, { path: directory }));
 	expectOk(await rememberFolder(config, undefined));
 	expect(await settings()).toBe('---\ntheme: dark\n---\n');
 	const fresh = await mkdtemp(join(tmpdir(), 'app-config-fresh-'));
 	try {
 		expectOk(
-			await rememberFolder(openDevice(appConfig, { path: fresh }), undefined),
+			await rememberFolder(
+				unwrap(await openDevice(appConfig, { path: fresh })),
+				undefined,
+			),
 		);
 		expect(
 			await readFile(join(fresh, 'settings.md'), 'utf8').catch(() => null),
@@ -74,16 +76,4 @@ test('the default folder removes folder and keeps the rest', async () => {
 	} finally {
 		await rm(fresh, { recursive: true, force: true });
 	}
-});
-
-test('appFolders is what the shell set before the page ran', () => {
-	expect(appFolders()).toBeNull();
-	const folders = {
-		config: '/c',
-		default: '/d',
-	};
-	(globalThis as { window?: unknown }).window = {
-		__EPICENTER_APP_FOLDERS__: folders,
-	};
-	expect(appFolders()).toEqual(folders);
 });

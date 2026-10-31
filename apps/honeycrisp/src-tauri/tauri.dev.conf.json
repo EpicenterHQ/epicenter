@@ -1,5 +1,10 @@
 {
 	"$schema": "https://schema.tauri.app/config/2",
 	"productName": "Honeycrisp Dev",
-	"identifier": "so.epicenter.honeycrisp.dev"
+	"identifier": "so.epicenter.honeycrisp.dev",
+	"app": {
+		"security": {
+			"capabilities": ["honeycrisp"]
+		}
+	}
 }

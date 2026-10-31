@@ -1,7 +1,7 @@
 [package]
 name = "epicenter-standalone"
 version = "0.0.1"
-description = "One folder the app owns, in one guarded window, for Epicenter's standalone desktop apps"
+description = "Two roots, one guarded window, and Tauri's folder grants, for Epicenter's standalone desktop apps"
 authors = ["Epicenter"]
 repository = "https://github.com/EpicenterHQ/epicenter"
 edition = "2021"
@@ -14,6 +14,11 @@ serde_json = "1"
 tauri = "2.12"
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../tauri-plugin-epicenter-folder" }
+# Tauri's own grants (decision 90): the runtime file-system scope the dialog
+# extends with a picked folder (no fs command is granted to a page), kept
+# across launches.
+tauri-plugin-fs = "2.7"
+tauri-plugin-persisted-scope = "2.4"
 
 [dev-dependencies]
 tauri = { version = "2.12", features = ["test"] }

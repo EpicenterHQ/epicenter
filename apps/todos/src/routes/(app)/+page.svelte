@@ -8,6 +8,7 @@
 	import { fromClient } from '@epicenter/svelte/client';
 	import { getRepo } from '@epicenter/svelte/repo';
 	import { isTauri } from '@tauri-apps/api/core';
+	import { Loading } from '@epicenter/ui/loading';
 	import TodosApp from '$lib/components/TodosApp.svelte';
 	import type { Todos } from '$lib/contract.js';
 
@@ -17,7 +18,12 @@
 {#if online !== null}
 	<TodosApp variant="online" todos={online} />
 {:else}
-	{#await import('$lib/components/Desktop.svelte') then { default: Desktop }}
-		<Desktop />
-	{/await}
+	<svelte:boundary>
+		{#snippet pending()}
+			<Loading class="h-dvh" />
+		{/snippet}
+		{#await import('$lib/components/Desktop.svelte') then { default: Desktop }}
+			<Desktop />
+		{/await}
+	</svelte:boundary>
 {/if}

@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { type Client, ClientError } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
 import { flushSync } from 'svelte';
+import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { type Backend, createDemoBackend } from './backend.js';
 import { type Messages, messages } from './contract.js';
@@ -41,7 +42,7 @@ async function setup(
 ) {
 	const root = await mkdtemp(join(tmpdir(), 'messages-drafts-'));
 	cleanup.push(() => rm(root, { recursive: true, force: true }));
-	const client = openDevice(messages, { path: root });
+	const client = unwrap(await openDevice(messages, { path: root }));
 	const device: Device = { client, files: fromClient(wrap(client)) };
 	const backend = createDemoBackend();
 	const id = await draftId(backend, 'demo-maya');

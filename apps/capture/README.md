@@ -96,11 +96,13 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 
 ```text
 routes/+layout.svelte          every page: the chrome and the leave guard
-routes/(app)/+layout.svelte    the root that decides the store: Root from #platform/root
+routes/(app)/+layout.svelte    the root that decides the store: <svelte:boundary> (spinner)
+                               around Startup from #platform/root
   OnlineRoot.svelte            web: signed out, a sign-in; signed in,
     Online.svelte              {#key account}: setRepo(openRemote(capture, { account }))
-  DesktopRoot.svelte           desktop: DataFolder, setRepo(the data folder's client)
-routes/(app)/+page.svelte      CaptureApp over fromClient(getRepo<Capture>()).captures
+  Startup.svelte               desktop: await openAppData(), openDataFolder(); Recovery
+    DesktopRoot.svelte         setAppData/setDevice(fromClient(...)), setFolderSync
+routes/(app)/+page.svelte      CaptureApp over store().captures (#platform/root)
   CaptureApp.svelte            header (Chrome from #platform/root), then
     Timeline | CaptureDetail | TextDetail
 routes/auth/callback           finishes sign-in, outside (app), then returns to /
@@ -114,11 +116,11 @@ a new root that sets its own store, and a header that says what it is.
 | Path | Role |
 | --- | --- |
 | `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome and the leave guard. |
-| `src/routes/(app)/+layout.svelte` | The variant's root (`#platform/root`). |
+| `src/routes/(app)/+layout.svelte` | The variant's `Startup` (`#platform/root`), under a `<svelte:boundary>` whose `pending` is the UI kit's spinner. |
 | `src/lib/components/OnlineRoot.svelte`, `OnlineChrome.svelte` | The web app: asks for a sign-in or opens the repository per account; the header's status and account. |
 | `src/lib/components/Online.svelte` | The repository (`setRepo`), per account. |
-| `src/lib/components/DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: the data folder (`DataFolder`, `setRepo`) or the recovery screen; the header's sync status, Sync with Epicenter, and Choose data folder…. |
-| `src/lib/folder.tauri.ts` | The desktop window's roots (`desktopFolder`). |
+| `src/lib/components/Startup.svelte`, `DesktopRoot.svelte`, `DesktopChrome.svelte` | The desktop app: its two roots opened in order, or the recovery screen (`@epicenter/svelte/recovery`); the roots set for every page (`setAppData`, `setDevice`); the header's sync status, Sync with Epicenter, and Choose data folder…. |
+| `src/lib/folder.tauri.ts` | The desktop window's typed contexts (`getAppData`, `getDevice`) and where the contract is published. |
 | `src/routes/(app)/+page.svelte` | Capture over the store's captures. |
 | `src/lib/components/CaptureApp.svelte` | The header and the page it shows, over the captures it is given. |
 | `src/lib/captures.svelte.ts` | The timeline, Add, deletion, and navigation. |
@@ -138,18 +140,23 @@ Its Tauri shell (`src-tauri/`, on the shared
 [`epicenter-standalone`](../../packages/tauri-epicenter-standalone/README.md)
 crate) starts the window on Capture's AppData root, whose `settings.md`
 (`appConfig`, machine-local, never synced) names a data folder only when the
-person chose one (decisions 88 and 89). There is no first-run question: the
-page opens `~/Epicenter/Capture` (`~/Epicenter Dev/Capture` for
-`dev:desktop`), made when missing, or the chosen folder, through the shell's
-`open_data_folder`. A chosen folder that is missing or refused shows a
-recovery screen (Retry, Choose folder…, Use the default folder), never
-another folder silently. "Choose data folder…" in the status details picks
-another folder, opens it with its files where they are, and remembers it.
-The captures stay when the app is removed.
+person chose one. There is no first-run question: the page opens
+`~/Epicenter/Capture` (`~/Epicenter/Capture Dev` under `tauri.dev.conf.json`,
+whose `productName` is `Capture Dev`), made when missing, or the chosen
+folder (`openAppData`, then `openDataFolder`). Tauri decides which folders
+the window may open: the shell allows the default at startup, the native
+picker allows a folder the person picks, and persisted-scope keeps that
+across launches. A `folder` written into `settings.md` by hand opens as not
+allowed until the person picks it. A folder that is missing, not allowed, or
+refused shows a recovery screen (Allow access, Retry, Choose folder…, Use the
+default folder, as the case needs), never another folder silently. "Choose
+data folder…" in the status details picks another folder, opens it with its
+files where they are, and remembers it. The captures stay when the app is
+removed.
 
 The page is the same UI as the web, built as the desktop variant
 (`bun run build:native`, into `build-desktop/`), over the folder
-(`openDevice(capture, { path: folder })`) with no sign-in: Capture makes no
+(`openDataFolder(capture, { appData })`) with no sign-in: Capture makes no
 inference calls, and Epicenter syncs the folder. Its header says whether
 Epicenter syncs the folder, offers **Sync with Epicenter** until it does
 (`syncWithEpicenter({ path, contract })`, the contract at `APPS.CAPTURE.url`'s
@@ -165,7 +172,7 @@ missing.
 
 | Seam | Web leaf | Desktop leaf |
 | --- | --- | --- |
-| `#platform/root` | `root.ts`: the repository behind sign-in, and the account | `root.tauri.ts`: the data folder or the recovery screen, and its sync |
+| `#platform/root` | `root.ts`: `Startup` (the repository behind sign-in), `store()`, and the account | `root.tauri.ts`: `Startup` (the two roots or the recovery screen), `store()`, and its sync |
 | `#platform/variant` | `variant.ts`: `'online'` | `variant.tauri.ts`: `'desktop'`, for the few sentences that name the store |
 
 ## Checks

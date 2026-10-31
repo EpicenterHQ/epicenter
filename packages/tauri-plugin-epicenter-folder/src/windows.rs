@@ -39,28 +39,6 @@ pub trait FolderExt<R: Runtime>: Manager<R> {
             + Send
             + 'static,
     {
-        self.open_folder_window_granting(application, directory, Vec::new(), url, configure)
-    }
-
-    /// `open_folder_window`, also granting `grants`: roots the page may name
-    /// by their exact paths beside the window's own directory, such as the
-    /// app's configuration directory. They are fixed with the binding and
-    /// never watched. The window's identity is still its own directory.
-    fn open_folder_window_granting<F>(
-        &self,
-        application: &str,
-        directory: Directory,
-        grants: Vec<Directory>,
-        url: WebviewUrl,
-        configure: F,
-    ) -> Result<WebviewWindow<R>, OpenWindowError>
-    where
-        F: for<'a> FnOnce(
-                WebviewWindowBuilder<'a, R, AppHandle<R>>,
-            ) -> tauri::Result<WebviewWindowBuilder<'a, R, AppHandle<R>>>
-            + Send
-            + 'static,
-    {
         let label = folder_window_label(application, directory.root());
         let app = self.app_handle().clone();
         let on_main = app.clone();
@@ -81,16 +59,13 @@ pub trait FolderExt<R: Runtime>: Manager<R> {
                     reveal(&window)?;
                     return Ok(window);
                 }
-                let window = on_main.folders().bind_while_building_granting(
-                    &label,
-                    directory,
-                    grants,
-                    || {
+                let window = on_main
+                    .folders()
+                    .bind_while_building(&label, directory, || {
                         let builder = WebviewWindowBuilder::new(&on_main, &label, url);
                         let builder = configure(builder)?;
                         Ok::<_, OpenWindowError>(builder.visible(false).build()?)
-                    },
-                )?;
+                    })?;
                 // A presentation failure must retain a live window's binding.
                 // A later open can try revealing it again.
                 reveal(&window)?;

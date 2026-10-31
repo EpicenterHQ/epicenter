@@ -15,11 +15,19 @@ import { afterEach, expect, mock, test } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 let answer: () => unknown = () => null;
 const asked: { command: string; body: unknown }[] = [];
 
+// `@epicenter/folder/tauri` imports these for a standalone app's roots; nothing here calls them.
+mock.module('@tauri-apps/api/app', () => ({ getName: async () => 'Notes' }));
+mock.module('@tauri-apps/api/path', () => ({
+	appDataDir: async () => '/app-data',
+	homeDir: async () => '/home',
+	join: async (...parts: string[]) => parts.join('/'),
+}));
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {},
 	isTauri: () => true,
@@ -92,7 +100,7 @@ test('the settings note the shell writes reads as appConfig', async () => {
 			join(directory, 'settings.md'),
 			'---\nfolder: "/Users/me/Epicenter/Capture"\ntheme: dark\n---\n',
 		);
-		const config = openDevice(appConfig, { path: directory });
+		const config = unwrap(await openDevice(appConfig, { path: directory }));
 		const settings = expectOk(await config.settings.get({}));
 		// Other machine settings are kept beside `folder`.
 		expect(settings).toMatchObject({

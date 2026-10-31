@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { type Capture, capture } from '@epicenter/capture';
 import { type Client, ClientError } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
+import { unwrap } from 'wellcrafted/result';
 
 const { fromClient } = await import('@epicenter/svelte/client');
 const { follow } = await import(
@@ -65,7 +66,7 @@ export async function until(
  */
 export async function openCaptures(files: Files = {}) {
 	const root = await directory(files);
-	const device = openDevice(capture, { path: root });
+	const device = unwrap(await openDevice(capture, { path: root }));
 
 	let failing: string | null = null;
 	let gate: Promise<void> | null = null;

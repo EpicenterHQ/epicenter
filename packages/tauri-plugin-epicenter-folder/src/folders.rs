@@ -1,16 +1,14 @@
 //! Live window-to-directory bindings. Each command keeps its admitted directory.
 //!
-//! A binding has one primary directory, the one its watch observes, and may
-//! carry more roots the shell granted when it built the window (an app's own
-//! configuration directory beside the folder it keeps its files in). A page
-//! names a root by its exact path; it reaches no other. The shell may
-//! replace both once the window exists (`rebind`): a standalone app's window
-//! starts on its own data directory and is given the data folder its page
-//! chose.
+//! A binding has one primary directory, fixed for the window's life: its
+//! identity, and the root a page reaches by naming none. A page may also
+//! open other roots by their exact paths (`open_folder`), each one Tauri's
+//! file-system scope allows (`scope`); every root a page opened has its own
+//! watch and is reached by its exact path until the window closes.
 
 use std::collections::HashMap;
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -36,15 +34,25 @@ struct State {
 
 struct Binding {
     directory: Directory,
-    /// Further roots the page may name by path; never watched.
-    grants: Vec<Directory>,
+    /// Every root a page opened, by its canonical path: the primary when it
+    /// was opened, and each other root `open_folder` admitted.
+    opened: HashMap<PathBuf, OpenedRoot>,
     identity: Arc<()>,
     retiring: bool,
-    watch: Option<FolderWatch>,
-    report: Arc<Mutex<Option<Box<dyn Fn(FolderChanged) + Send>>>>,
     observation: u64,
     close: Option<CloseSubscription>,
 }
+
+/// A root a page opened: its directory, its one watch, and the page's
+/// recipient, replaceable across reloads.
+struct OpenedRoot {
+    directory: Directory,
+    /// Held for the root's life: dropping it stops the watch.
+    _watch: FolderWatch,
+    report: Report,
+}
+
+type Report = Arc<Mutex<Option<Box<dyn Fn(FolderChanged) + Send>>>>;
 
 struct CloseSubscription {
     token: u32,
@@ -82,20 +90,9 @@ impl Folders {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    /// Bind once for the window's lifetime, before its WebView exists.
-    #[cfg(test)]
+    /// Bind `directory` as the window's primary root, once for the window's
+    /// lifetime, before its WebView exists.
     pub(crate) fn bind(&self, label: &str, directory: Directory) -> Result<(), BindError> {
-        self.bind_granting(label, directory, Vec::new())
-    }
-
-    /// Bind `directory` as the window's primary root and `grants` as roots its
-    /// page may also name by path, once for the window's lifetime.
-    pub(crate) fn bind_granting(
-        &self,
-        label: &str,
-        directory: Directory,
-        grants: Vec<Directory>,
-    ) -> Result<(), BindError> {
         let mut state = self.state();
         if state.stopped {
             return Err(BindError::ShuttingDown);
@@ -109,11 +106,9 @@ impl Folders {
             label.to_string(),
             Binding {
                 directory,
-                grants,
+                opened: HashMap::new(),
                 identity: Arc::new(()),
                 retiring: false,
-                watch: None,
-                report: Arc::new(Mutex::new(None)),
                 observation: 0,
                 close: None,
             },
@@ -128,54 +123,13 @@ impl Folders {
         directory: Directory,
         build: impl FnOnce() -> Result<T, E>,
     ) -> Result<T, E> {
-        self.bind_while_building_granting(label, directory, Vec::new(), build)
-    }
-
-    /// `bind_while_building` with roots the page may also name by path.
-    pub fn bind_while_building_granting<T, E: From<BindError>>(
-        &self,
-        label: &str,
-        directory: Directory,
-        grants: Vec<Directory>,
-        build: impl FnOnce() -> Result<T, E>,
-    ) -> Result<T, E> {
-        self.bind_granting(label, directory, grants)?;
+        self.bind(label, directory)?;
         build().inspect_err(|_| self.unbind(label))
-    }
-
-    /// Make `directory` the window's primary root, the one its watch
-    /// observes, with `grants` beside it, replacing both. The old watch stops;
-    /// the page's next `open_folder` watches the new primary, and an
-    /// observation reserved before this is refused.
-    pub fn rebind(
-        &self,
-        label: &str,
-        directory: Directory,
-        grants: Vec<Directory>,
-    ) -> Result<(), WindowError> {
-        let watch = {
-            let mut state = self.state();
-            if state.stopped {
-                return Err(WindowError::ShuttingDown);
-            }
-            let binding = state
-                .bindings
-                .get_mut(label)
-                .filter(|binding| !binding.retiring)
-                .ok_or(WindowError::NotBound)?;
-            binding.directory = directory;
-            binding.grants = grants;
-            binding.observation = binding.observation.wrapping_add(1);
-            binding.watch.take()
-        };
-        // Stop the old watch outside the global lock, as `unbind` does.
-        drop(watch);
-        Ok(())
     }
 
     /// Remove a destroyed or failed window's binding.
     pub(crate) fn unbind(&self, label: &str) {
-        let watch = {
+        let opened = {
             let mut state = self.state();
             let Some(binding) = state.bindings.get_mut(label) else {
                 return;
@@ -184,11 +138,11 @@ impl Folders {
                 return;
             }
             binding.retiring = true;
-            binding.watch.take()
+            std::mem::take(&mut binding.opened)
         };
         // Keep the retiring label reserved until no old callback can emit to
         // it. Other windows remain available while this callback fence waits.
-        drop(watch);
+        drop(opened);
         self.state().bindings.remove(label);
     }
 
@@ -208,8 +162,9 @@ impl Folders {
     }
 
     /// The root a page named, cloned for one admitted operation: the primary
-    /// directory for `None` or its exact path, or a granted root by its exact
-    /// path. Any other path is `NotGranted`, whatever it contains.
+    /// directory for `None` or its exact path, or a root the page opened by
+    /// its exact canonical path. Any other path is `NotGranted`, whatever it
+    /// contains: a page opens a root before it reads or writes there.
     pub fn bound_root(&self, label: &str, root: Option<&str>) -> Result<Directory, WindowError> {
         let state = self.state();
         if state.stopped {
@@ -223,16 +178,20 @@ impl Folders {
         let Some(root) = root else {
             return Ok(binding.directory.clone());
         };
-        std::iter::once(&binding.directory)
-            .chain(&binding.grants)
-            .find(|directory| directory.root() == Path::new(root))
-            .cloned()
+        if binding.directory.root() == Path::new(root) {
+            return Ok(binding.directory.clone());
+        }
+        binding
+            .opened
+            .get(Path::new(root))
+            .map(|opened| opened.directory.clone())
             .ok_or_else(|| WindowError::NotGranted {
                 root: root.to_string(),
             })
     }
 
-    /// Reserve this page's observation before filesystem setup can block.
+    /// Reserve this page's observation before filesystem setup can block:
+    /// the window's primary directory and the observation's number.
     pub(crate) fn reserve_observation(&self, label: &str) -> Result<(Directory, u64), WindowError> {
         let mut state = self.state();
         if state.stopped {
@@ -294,12 +253,18 @@ impl Folders {
                 return;
             };
             binding.observation = binding.observation.wrapping_add(1);
-            let report = binding
-                .report
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .take();
-            (binding.close.take(), report)
+            let reports: Vec<_> = binding
+                .opened
+                .values()
+                .filter_map(|opened| {
+                    opened
+                        .report
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .take()
+                })
+                .collect();
+            (binding.close.take(), reports)
         };
         drop(old);
     }
@@ -405,8 +370,9 @@ impl Folders {
         })
     }
 
-    /// Start at most one watch for the still-bound directory. A new open
-    /// replaces its recipient, since the window binding outlives a page reload.
+    /// Start at most one watch for `directory`, a root the page opened, and
+    /// record it as opened. A new open of the same root replaces its
+    /// recipient, since the window binding outlives a page reload.
     pub(crate) fn watch(
         &self,
         label: &str,
@@ -415,35 +381,37 @@ impl Folders {
         report: impl Fn(FolderChanged) + Send + 'static,
     ) -> Result<(), WindowError> {
         let mut next_report: Option<Box<dyn Fn(FolderChanged) + Send>> = Some(Box::new(report));
-        let (identity, recipient) = {
+        let root = directory.root().to_path_buf();
+        let replace = |recipient: &Report, next: &mut Option<Box<dyn Fn(FolderChanged) + Send>>| {
+            recipient
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .replace(next.take().expect("the new recipient"))
+        };
+        let identity = {
             let state = self.state();
             if state.stopped {
                 return Err(WindowError::ShuttingDown);
             }
             let binding = state.bindings.get(label).ok_or(WindowError::NotBound)?;
-            if binding.retiring
-                || binding.directory != *directory
-                || binding.observation != observation
-            {
+            if binding.retiring || binding.observation != observation {
                 return Err(WindowError::NotBound);
             }
-            if binding.watch.is_some() {
-                let previous = binding
-                    .report
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner())
-                    .replace(next_report.take().expect("the new recipient"));
+            if let Some(opened) = binding.opened.get(&root) {
+                let previous = replace(&opened.report, &mut next_report);
                 drop(state);
                 drop(previous);
                 return Ok(());
             }
-            (binding.identity.clone(), binding.report.clone())
+            binding.identity.clone()
         };
         // Native recursive setup can walk a large tree. It must never hold the
         // global bindings lock, and remains inactive until installed below.
+        let recipient: Report = Arc::new(Mutex::new(None));
+        let delivered = recipient.clone();
         let mut candidate = Some(
             FolderWatch::start(directory.root(), move |change| {
-                if let Some(report) = recipient
+                if let Some(report) = delivered
                     .lock()
                     .unwrap_or_else(|poisoned| poisoned.into_inner())
                     .as_ref()
@@ -466,17 +434,22 @@ impl Folders {
                             && binding.observation == observation
                             && Arc::ptr_eq(&binding.identity, &identity) =>
                     {
-                        let previous = binding
-                            .report
-                            .lock()
-                            .unwrap_or_else(|poisoned| poisoned.into_inner())
-                            .replace(next_report.take().expect("the new recipient"));
-                        if binding.watch.is_none() {
+                        if let Some(opened) = binding.opened.get(&root) {
+                            Ok(replace(&opened.report, &mut next_report))
+                        } else {
+                            replace(&recipient, &mut next_report);
                             let watch = candidate.take().expect("the uninstalled watch");
                             watch.activate();
-                            binding.watch = Some(watch);
+                            binding.opened.insert(
+                                root,
+                                OpenedRoot {
+                                    directory: directory.clone(),
+                                    _watch: watch,
+                                    report: recipient,
+                                },
+                            );
+                            Ok(None)
                         }
-                        Ok(previous)
                     }
                     _ => Err(WindowError::NotBound),
                 }
@@ -484,13 +457,7 @@ impl Folders {
         };
         // Discard duplicate starts only after releasing the global lock.
         drop(candidate);
-        match result {
-            Ok(previous) => {
-                drop(previous);
-                Ok(())
-            }
-            Err(error) => Err(error),
-        }
+        result.map(drop)
     }
 
     /// Refuse new bindings and commands without waiting for admitted work (ADR-0542).
@@ -501,7 +468,7 @@ impl Folders {
             state
                 .bindings
                 .values_mut()
-                .filter_map(|binding| binding.watch.take())
+                .map(|binding| std::mem::take(&mut binding.opened))
                 .collect::<Vec<_>>()
         };
         drop(watches);
@@ -540,8 +507,11 @@ pub enum WindowError {
     Missing,
     /// The bound directory could not be reached.
     Unavailable { message: String },
-    /// The page named a root the shell did not grant this window.
+    /// The page named a root Tauri's file-system scope does not allow, or
+    /// one it has not opened.
     NotGranted { root: String },
+    /// The root is never a folder: why, in one line (`scope::Refusals`).
+    Refused { root: String, reason: String },
     /// The shell is shutting its folders down.
     ShuttingDown,
 }
@@ -554,6 +524,7 @@ impl fmt::Display for WindowError {
             Self::Unavailable { message } => formatter.write_str(message),
             Self::ShuttingDown => formatter.write_str("The folders are shutting down."),
             Self::NotGranted { root } => write!(formatter, "This window may not open {root}."),
+            Self::Refused { reason, .. } => formatter.write_str(reason),
         }
     }
 }

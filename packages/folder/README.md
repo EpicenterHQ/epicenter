@@ -21,7 +21,7 @@ landed storage.
 | `@epicenter/folder/browser` | `openDevice(contract)` over the origin's private file system, and `closeDevice`; and `openFolder`, the fixed IndexedDB folder in a web page, which refuses inside Tauri. |
 | `@epicenter/folder/node` | `openDevice(contract, { path })` over a directory (Bun), and `checkFiles` and `formatNotes` for `epicenter check` and `epicenter format`. |
 | `@epicenter/folder/remote` | `openRemote(contract, { account })` over the signed-in person's repository. |
-| `@epicenter/folder/tauri` | `openDevice(contract, { path? })` over the directory the shell bound to this window (the folder the app keeps its files in), and `openFolder` over the same directory. Both refuse outside Tauri. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). An absolute `path` names a root the shell granted the window (decision 82: the app's configuration directory beside its folder); any other root is refused, and only the window's own folder is watched. `appConfig` (also from `/node`) is a desktop app's machine-local `settings.md`, at the top of its AppData root, whose `folder` names a data folder the person chose (absent for the default `~/Epicenter/<App>`), and `defineAppConfig({ … })` adds the app's own machine settings beside it; `appFolders()` reads what the shell told the window, and `rememberFolder(config, folder | undefined)` records or forgets the choice. `desktopFolder({ contract, config? })` is all of that for one window: its settings client, the default path, and `open()`, `openDefault()` and `choose()`, which ask the standalone shell for the data folder (`open_data_folder`, `choose_data_folder`) and answer it (its path, sync state, and Sync with Epicenter) or a typed refusal (decisions 88 and 89). |
+| `@epicenter/folder/tauri` | `openDevice(contract, { path?, create? })` over a root the shell lets this window reach: the directory it bound to the window (no `path`, or a relative one inside it), or a folder by absolute path that Tauri's file-system scope allows; and `openFolder` over the bound directory. A standalone app opens its two roots with `openAppData()` (its AppData `settings.md`, `appConfig`) and `openDataFolder(contract, { appData })` (the `folder` that names, or `~/Epicenter/<productName>`, which alone is made when missing; `defaultDataFolder()` answers that path). `chooseFolder({ title, at? })` is the native picker, which allows the folder it answers; `rememberFolder(appData, folder \| undefined)` records or forgets the choice. `syncWithEpicenter({ path, contract })` asks the shell to open `epicenter://init?path=<path>&contract=<contract>` (decisions 81 and 82), and `syncedWithEpicenter({ path })` says whether `epicenter init` set that folder up (its `.git/config` names it as `epicenter.root`). |
 | `@epicenter/folder/bun` | Open an existing directory with `{ directory, tables }`; also exports the CLI's declaration tools, `holdingFileLock`, and the system `git` runner. |
 | `@epicenter/folder/testing` | Construct a folder over `memoryHost` and control its storage in tests. |
 | `@epicenter/folder/file-browser` | Pure path, tree, text classification, and newline helpers. |
@@ -127,16 +127,21 @@ A UI edit and its retry or discard controls belong to
 
 ## Contract openers
 
-`openDevice(contract, …)` returns the typed client an app's contract derives
+`openDevice(contract, …)` opens the typed client an app's contract derives
 (`Client<T>` from `@epicenter/definition/contract`) over a device's files, at
-the contract's paths:
+the contract's paths. It is async on every platform and answers a `Result`:
+the client, or an `OpenDeviceError` saying why nothing opened (`Missing`,
+`NotGranted`, `Refused`, `Unreadable`, `StorageUnavailable`). An app opens it
+once, at its startup, and hands the client down:
 
 ```ts
 import { openDevice } from '@epicenter/folder/browser'; // OPFS
 // import { openDevice } from '@epicenter/folder/node';           // a directory: openDevice(c, { path })
-// import { openDevice } from '@epicenter/folder/tauri';          // the window's bound directory
+// import { openDevice } from '@epicenter/folder/tauri';          // a root the window may reach
 
-const device = openDevice(recorder);
+const opened = await openDevice(recorder);
+if (opened.error !== null) return opened;
+const device = opened.data;
 const id = timeId();
 // The audio first: a note never names bytes that are not there yet.
 const audio = await device.audio.create({ id, ext: 'm4a', bytes });
@@ -149,13 +154,16 @@ update and delete carries the version (sha256) its writer read, and lands
 only while the file still holds it (`Conflict` otherwise); `create` never
 replaces a file (`Occupied`). In the browser, one dedicated Worker owns the
 origin's private file system, with a Web Lock per path; a browser that gives
-the page no private storage answers `Unavailable` with a
-`DeviceError.StorageRefused` cause. `/node` also exports `checkFiles`
+the page no private storage still opens, and each call answers `Unavailable`
+with a `DeviceError.StorageRefused` cause, so an app keeps working in memory.
+Only a context with no Worker opens nothing (`StorageUnavailable`). In Bun
+the directory is made when missing (`Unreadable` when it cannot be). `/node` also exports `checkFiles`
 and `formatNotes`, which `epicenter check` and `epicenter format` run. In a
-Tauri window the client works over the directory the shell bound to the
-window, through the folder plugin's commands, and the shell holds the save
-lock. A page names no directory, so `path` there is a relative folder
-inside the bound one. See
+Tauri window the client works over a root the shell opened for it, through
+the folder plugin's commands, and the shell holds the save lock and watches
+each root a page opened. A root other than the bound directory opens only
+when Tauri's runtime file-system scope allows it (the shell's default, or a
+folder the picker allowed); see the folder plugin's README. See
 `src/device/`; `bun run --cwd packages/folder smoke:device` drives the
 browser opener in Playwright Chromium and WebKit.
 

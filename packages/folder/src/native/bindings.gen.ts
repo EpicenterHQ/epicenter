@@ -5,16 +5,19 @@ import { invoke as __TAURI_INVOKE, Channel } from "@tauri-apps/api/core";
 /** Commands */
 export const commands = {
 	/**
-	 *  Open this window's folder: the directory the shell bound to it before
-	 *  the window existed. Refused for a window with none, and for a bound
-	 *  directory that is gone, which is never made again for the window. Every open
-	 *  removes the staged files a stopped save left an hour or more ago
+	 *  Open a root for the calling window and watch it, answering its canonical
+	 *  path, by which the page names it from then on. With no `root`, or the
+	 *  window's own directory's path, it is that directory, which the shell
+	 *  bound before the window existed: refused when gone, never made again.
+	 *  Any other absolute `root` must be a folder an app may keep its files in
+	 *  (`Refused` otherwise) that Tauri's file-system scope allows (`NotGranted`
+	 *  otherwise); it is made, with missing parents, only for `create`, and is
+	 *  `Missing` when it is not there. Each open root has one watch, whose
+	 *  changes go to the latest channel the page opened it with, and removes
+	 *  the staged files a stopped save left an hour or more ago
 	 *  (`storage::sweep_scratch`).
-	 *  Open the calling WebView's folder with a private observation channel.
-	 *  Answers the folder's root, so a page that also reaches granted roots
-	 *  knows which one the observations are about: only this one is watched.
 	 */
-	openFolder: (onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { onChange })),
+	openFolder: (root: string | null, create: boolean, onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { root, create, onChange })),
 	/**  Let this bound window answer its own native close requests. */
 	subscribeClose: (onClose: Channel<null>) => typedError<number, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|subscribe_close", { onClose })),
 	unsubscribeClose: (token: number) => __TAURI_INVOKE<void>("plugin:epicenter-folder|unsubscribe_close", { token }),
@@ -139,8 +142,13 @@ export type WindowError =
 { name: "Missing" } |
 /**  The bound directory could not be reached. */
 { name: "Unavailable"; message: string } |
-/**  The page named a root the shell did not grant this window. */
+/**
+ *  The page named a root Tauri's file-system scope does not allow, or
+ *  one it has not opened.
+ */
 { name: "NotGranted"; root: string } |
+/**  The root is never a folder: why, in one line (`scope::Refusals`). */
+{ name: "Refused"; root: string; reason: string } |
 /**  The shell is shutting its folders down. */
 { name: "ShuttingDown" };
 

@@ -176,7 +176,7 @@ test('observe hears a message another program saves', async () => {
 	flushSync();
 	expect(changes).toBe(0);
 	expectOk(
-		await folder.other().messages.create({
+		await (await folder.other()).messages.create({
 			chat: 'chat-a',
 			id: 'one',
 			role: 'user',

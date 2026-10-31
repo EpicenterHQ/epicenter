@@ -1,19 +1,21 @@
 <!--
 	The local variant (`/`): the recordings in this browser's private files
-	(OPFS, `openDevice`), for good (ADR-0700). It needs no account and offers
+	(OPFS, `openDevice`, which `main.ts` opens before mounting this), for
+	good (ADR-0700). It needs no account and offers
 	no sign-in, works offline, and never uploads: the recorder demo has no
 	hosted capability, so nothing here signs in.
 -->
 <script lang="ts">
-	import { closeDevice, openDevice } from '@epicenter/folder/browser';
+	import type { Client } from '@epicenter/definition/contract';
+	import { closeDevice } from '@epicenter/folder/browser';
 	import { guardLeave } from '@epicenter/svelte/leave-guard';
 	import { onDestroy, onMount } from 'svelte';
 	import Header from './Header.svelte';
 	import Recorder from './Recorder.svelte';
-	import { recorder } from './contract.ts';
+	import type { Recorder as RecorderContract } from './contract.ts';
 
-	// This page's one store: the Worker that owns the files starts here.
-	const device = openDevice(recorder);
+	// This page's one store: its Worker starts at the first call.
+	let { device }: { device: Client<RecorderContract> } = $props();
 	onDestroy(() => closeDevice(device));
 
 	// Leaving while a save is out asks first.

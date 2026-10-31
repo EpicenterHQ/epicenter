@@ -22,6 +22,7 @@ import { type Client, ClientError } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
 import { fromClient } from '@epicenter/svelte/client';
 import { flushSync } from 'svelte';
+import { unwrap } from 'wellcrafted/result';
 import { type Vocab, vocab } from './contract.js';
 
 const { follow } = await import(
@@ -77,7 +78,7 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 		await writeFile(join(root, path), text);
 	}
 	const control: WriteControl = {};
-	const client = openDevice(vocab, { path: root });
+	const client = unwrap(await openDevice(vocab, { path: root }));
 	// As the page reads them: the client's own collections.
 	const lists = fromClient(controlled(client, control));
 	const followed = follow(() => [
@@ -95,7 +96,7 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 		lists,
 		control,
 		/** Another program's client of the same folder. */
-		other: () => openDevice(vocab, { path: root }),
+		other: async () => unwrap(await openDevice(vocab, { path: root })),
 		/** Write a file as another program would. */
 		async write(path: string, text: string) {
 			await mkdirFor(join(root, path));

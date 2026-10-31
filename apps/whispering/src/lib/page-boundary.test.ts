@@ -71,10 +71,12 @@ test('the page imports no Node, Bun, or Tauri module', () => {
 	).toEqual([]);
 });
 
-test('the device is opened once, in its module, and chosen only by the local variant’s root; nothing opens a repository', () => {
-	expect(callers('openDevice')).toEqual(['lib/device.ts']);
-	expect(importers((specifier) => /\/device(\.js)?$/.test(specifier))).toEqual([
-		'routes/(local)/+layout.svelte imports $lib/device.js',
+test('the device is opened once, by the local variant’s startup; nothing opens a repository', () => {
+	expect(callers('openDevice')).toEqual(['routes/components/Startup.svelte']);
+	expect(
+		importers((specifier) => specifier === '@epicenter/folder/browser'),
+	).toEqual([
+		'routes/components/Startup.svelte imports @epicenter/folder/browser',
 	]);
 	for (const name of ['openRemote', 'setRepo', 'getRepo'])
 		expect(callers(name)).toEqual([]);
@@ -217,7 +219,11 @@ test('the local variant has every page, and every page reads its library from co
 	}
 	expect(
 		files.find((file) => file.path === 'routes/(local)/+layout.svelte')?.text,
-	).toContain('<WhisperingApp client={device}>');
+	).toContain('<Startup>');
+	expect(
+		files.find((file) => file.path === 'routes/components/Startup.svelte')
+			?.text,
+	).toContain('<WhisperingApp client={device.data}>');
 	expect(
 		files.find((file) => file.path === 'routes/auth/callback/+page.svelte')
 			?.text,

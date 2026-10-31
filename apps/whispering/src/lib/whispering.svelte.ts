@@ -2,7 +2,7 @@
  * Whispering for one mounted page: the services, the connections, the
  * microphone, and the recorder. What the files show is the library's
  * (`library.svelte.ts`); both write through the same client, which the
- * variant root chose (`$lib/device.ts` in the web build).
+ * variant root chose (`routes/components/Startup.svelte` in the web build).
  *
  * A recording is kept when it stops, as two writes through the client: its
  * audio first, then its note, so a note never names audio that is not

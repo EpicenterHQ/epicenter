@@ -1,8 +1,8 @@
 /**
- * A device store in a Tauri window: the directory the desktop shell bound
- * to the window, or another root it granted the window (`root`, by its exact
- * path), through the folder plugin's storage commands; or a folder `inside`
- * either. The shell refuses any root it did not grant. The shell
+ * A device store in a Tauri window: a root the window opened (`root`, by the
+ * exact path the shell answered), through the folder plugin's storage
+ * commands; or a folder `inside` it. The shell refuses a root the window did
+ * not open. The shell
  * stages each write and renames it over its path, checking the version it
  * expects under the directory's save lock, the lock Bun takes too. Changes
  * come from the shell's watcher of that directory (`watch`).
@@ -18,9 +18,9 @@ import { tauriHostFiles } from '../tauri-files.js';
 import type { DeviceStore } from './store.js';
 
 /**
- * The store of the bound directory, or of the folder at the relative path
- * `inside` it, hearing changes from `watch` (the shell's watcher, whose
- * paths are relative to the bound directory). A path that is not plainly
+ * The store of the root, or of the folder at the relative path `inside` it,
+ * hearing changes from `watch` (the shell's watcher, whose paths are
+ * relative to the root). A path that is not plainly
  * relative throws here, at once; outside Tauri, and whenever the shell
  * refuses, a call is `Unavailable`.
  */

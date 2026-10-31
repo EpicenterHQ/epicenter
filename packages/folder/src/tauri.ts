@@ -1,43 +1,47 @@
 /**
- * `@epicenter/folder/tauri`: open the directory the desktop shell bound
- * to this window, as a contract's typed client (`openDevice`) or as a
- * folder of tables (`openFolder`). The shell answers each storage command,
- * and its watcher sends the paths that changed.
+ * `@epicenter/folder/tauri`: open a directory the desktop shell lets this
+ * window reach, as a contract's typed client (`openDevice`) or as a folder
+ * of tables (`openFolder`). The shell answers each storage command, and its
+ * watcher sends the paths that changed. A standalone app opens its two roots
+ * with `openAppData` and `openDataFolder`.
  */
 import type { Client, Contract } from '@epicenter/definition/contract';
 import { Channel, isTauri } from '@tauri-apps/api/core';
+import { Err, Ok, type Result } from 'wellcrafted/result';
 import { hostStorage } from './boundary.js';
+import type { ChangeListener, ChangeSource } from './changes.js';
 import { createDeviceClient } from './device/client.js';
 import { tauriStore } from './device/tauri-store.js';
-import { OpenFolderError } from './errors.js';
+import { OpenDeviceError, OpenFolderError } from './errors.js';
 import {
 	createFolder,
 	type Opened,
 	type OpenOptions,
 	type Tables,
 } from './folder.js';
-import { commands, type FolderChanged } from './native/bindings.gen.js';
+import {
+	commands,
+	type FolderChanged,
+	type WindowError,
+} from './native/bindings.gen.js';
 import { openRefusal } from './native/open-refusal.js';
 import { storageHost } from './storage.js';
 import { tauriHostFiles } from './tauri-files.js';
 
 export {
 	type AppConfig,
-	type AppFolders,
 	appConfig,
-	appFolders,
 	defineAppConfig,
 	rememberFolder,
 } from './app-config.js';
 export * from './contract.js';
 export {
-	type DataFolder,
-	type DataFolderAnswer,
-	type DataFolderRefusal,
-	type DesktopFolder,
-	desktopFolder,
+	chooseFolder,
+	defaultDataFolder,
 	type FolderRequest,
 	type FolderSync,
+	openAppData,
+	openDataFolder,
 } from './desktop-folder.js';
 export {
 	EpicenterSyncError,
@@ -46,36 +50,46 @@ export {
 } from './epicenter-sync.js';
 
 /**
- * The typed client of `contract` over a directory the desktop shell gave this
- * window. With no `path`, or a relative one, it is the window's own folder,
- * or a folder inside it (a data folder may sit at any depth). An absolute
- * `path` names a root by its exact path: the window's own folder, or another
- * root the shell granted the window, such as the app's configuration
- * directory (decision 82). The shell refuses any other root, so a page
- * reaches only what its app's Rust allowed. Only the window's own folder is
- * watched; a granted root hears no changes made elsewhere.
+ * The typed client of `contract` over a directory the desktop shell lets
+ * this window reach, once the shell opened it and started watching it. With
+ * no `path`, or a relative one, it is the window's own folder, or a folder
+ * inside it (a data folder may sit at any depth). An absolute `path` names
+ * a root by its path: the window's own folder, or any folder Tauri's
+ * file-system scope allows, which the app's capability does for its default
+ * data folder and the folder picker (`chooseFolder`) does for the folder a
+ * person picks. `create` makes a missing root (only a default should be
+ * made); otherwise a missing one is `Missing`.
  *
- * Outside Tauri, or when the shell refuses, each call is `Unavailable`,
- * never a throw; a contract that is not well formed, or a relative `path`
- * that leaves the folder, throws here, at once.
+ * An `Err` says why nothing opened (`OpenDeviceError`); a contract that is
+ * not well formed, or a relative `path` that leaves the folder, throws.
  *
  * ```ts
- * const config = openDevice(appConfig, { path: configDirectory });
- * const device = openDevice(capture, { path: folder });
+ * const device = await openDevice(notes, { path: '/Users/me/Notes' });
+ * if (device.error !== null) return device;
  * ```
  */
-export function openDevice<TContract extends Contract>(
+export async function openDevice<TContract extends Contract>(
 	contract: TContract,
-	{ path }: { path?: string } = {},
-): Client<TContract> {
+	{ path, create = false }: { path?: string; create?: boolean } = {},
+): Promise<Result<Client<TContract>, OpenDeviceError>> {
 	const root = path !== undefined && isAbsolute(path) ? path : undefined;
-	return createDeviceClient(
-		contract,
-		tauriStore({
-			root,
-			inside: root === undefined ? path : undefined,
-			watch: (listener) => watchBoundFolder(listener, root),
-		}),
+	if (!isTauri())
+		return OpenDeviceError.StorageUnavailable({
+			cause: 'openDevice from /tauri runs only in a Tauri window',
+		});
+	const opened = await openRoot(root ?? null, create);
+	if (opened.error !== null)
+		return deviceRefusal(opened.error.cause, root ?? "this window's folder");
+	const { root: openedRoot, watch } = opened.data;
+	return Ok(
+		createDeviceClient(
+			contract,
+			tauriStore({
+				root: openedRoot,
+				inside: root === undefined ? path : undefined,
+				watch,
+			}),
+		),
 	);
 }
 
@@ -85,124 +99,99 @@ const isAbsolute = (path: string) =>
 	/^[A-Za-z]:[\\/]/.test(path) ||
 	path.startsWith('\\\\');
 
+/** Why the shell opened no root, as `openDevice` says it. */
+function deviceRefusal(refusal: unknown, folder: string) {
+	// Tauri also rejects with strings for missing commands or permissions;
+	// only an object with a name is the shell's own refusal.
+	if (typeof refusal !== 'object' || refusal === null || !('name' in refusal))
+		return OpenDeviceError.StorageUnavailable({ cause: refusal });
+	const error = refusal as WindowError;
+	switch (error.name) {
+		case 'Missing':
+			return OpenDeviceError.Missing({ folder });
+		case 'NotGranted':
+			return OpenDeviceError.NotGranted({ folder });
+		case 'Refused':
+			return OpenDeviceError.Refused({ folder, reason: error.reason });
+		case 'Unavailable':
+			return OpenDeviceError.Unreadable({ folder, cause: error.message });
+		case 'NotBound':
+		case 'ShuttingDown':
+			return OpenDeviceError.StorageUnavailable({ cause: error.name });
+		default:
+			return OpenDeviceError.StorageUnavailable({
+				cause: error satisfies never,
+			});
+	}
+}
+
+/** A root the shell opened: its canonical path, and its watcher's changes. */
+type OpenedRoot = { root: string; watch: ChangeSource };
+
+/** Why the shell opened no root: its `WindowError`, or what Tauri rejected with. */
+type NotOpened = { cause: unknown };
+
 /**
- * Hear the shell's watcher of the window's own folder: the same registration
- * every handle shares, held while anything listens. A device opened at an
- * absolute `root` hears it only once the shell answered that `root` is the
- * watched folder; a granted root is not watched. Outside Tauri, or when the
- * shell refuses, nothing is heard.
+ * Who hears each root's watcher, by the root's canonical path. The shell
+ * sends a root's changes to the last channel opened for it, so every
+ * channel opened for a root tells the same listeners, and every handle over
+ * the root hears them whichever opened last.
  */
-function watchBoundFolder(
-	listener: (paths: readonly string[] | null) => void,
-	root?: string,
-) {
-	if (!isTauri()) return () => {};
-	let hears = root === undefined;
-	const observer = ({ paths }: FolderChanged) => {
-		if (hears) listener(paths);
-	};
-	observers.add(observer);
-	openHandles++;
-	openBoundFolder().then(
-		(opened) => {
-			if (root !== undefined && opened.error === null && opened.data === root)
-				hears = true;
-		},
-		() => {},
-	);
-	return () => {
-		observers.delete(observer);
-		openHandles--;
-		releaseRegistrationIfIdle();
-	};
-}
+const listeners = new Map<string, Set<ChangeListener>>();
 
-const observers = new Set<(change: FolderChanged) => void>();
-let opening: ReturnType<typeof commands.openFolder> | undefined;
-let openHandles = 0;
-let pendingOpens = 0;
-
-function releaseRegistrationIfIdle() {
-	if (openHandles === 0 && pendingOpens === 0) opening = undefined;
-}
-
-function openBoundFolder() {
-	if (opening) return opening;
+/**
+ * Ask the shell to open `root` (the window's own folder for `null`) and watch
+ * it: each call asks again, so a folder that came back opens, and one that
+ * went is refused.
+ */
+async function openRoot(
+	root: string | null,
+	create: boolean,
+): Promise<Result<OpenedRoot, NotOpened>> {
+	let heard: Set<ChangeListener> | undefined;
 	const channel = new Channel<FolderChanged>();
-	channel.onmessage = (change) => {
-		for (const observer of observers) observer(change);
+	channel.onmessage = ({ paths }) => {
+		for (const listener of heard ?? []) listener(paths);
 	};
-	opening = commands.openFolder(channel).then(
-		(opened) => {
-			if (opened.error !== null) opening = undefined;
-			return opened;
+	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
+	try {
+		opened = await commands.openFolder(root, create, channel);
+	} catch (cause) {
+		return Err({ cause });
+	}
+	if (opened.error !== null) return Err({ cause: opened.error });
+	const answered = opened.data;
+	const known = listeners.get(answered) ?? new Set<ChangeListener>();
+	listeners.set(answered, known);
+	heard = known;
+	return Ok({
+		root: answered,
+		watch(listener) {
+			known.add(listener);
+			return () => known.delete(listener);
 		},
-		(cause) => {
-			opening = undefined;
-			throw cause;
-		},
-	);
-	return opening;
+	});
 }
 
+/**
+ * The window's own folder as a folder of tables, watched by the shell. Outside
+ * Tauri it is `NotTauri`; a shell refusal is the matching `OpenFolderError`.
+ */
 export async function openFolder<const T extends Tables>(
 	options: OpenOptions<T>,
 ): Opened<T> {
 	if (!isTauri()) return OpenFolderError.NotTauri();
-	let opened: Awaited<ReturnType<typeof commands.openFolder>>;
-	const listeners = new Set<(paths: readonly string[] | null) => void>();
-	const observer = ({ paths }: FolderChanged) => {
-		for (const listener of listeners) listener(paths);
-	};
-	observers.add(observer);
-	let retained = false;
-	const stop = () => {
-		observers.delete(observer);
-		if (retained) {
-			retained = false;
-			openHandles--;
-			releaseRegistrationIfIdle();
-		}
-	};
-	pendingOpens++;
-	try {
-		opened = await openBoundFolder();
-	} catch (cause) {
-		pendingOpens--;
-		stop();
-		releaseRegistrationIfIdle();
-		return OpenFolderError.Unavailable({ cause });
-	}
-	pendingOpens--;
+	const opened = await openRoot(null, false);
 	if (opened.error !== null) {
-		stop();
-		releaseRegistrationIfIdle();
-		const { error } = opened;
+		const { cause: error } = opened.error;
 		// Tauri also rejects with strings for missing commands or permissions;
 		// only an object with a name is the shell's own refusal.
 		if (typeof error !== 'object' || error === null || !('name' in error))
 			return OpenFolderError.Unavailable({ cause: error });
-		return openRefusal(error);
+		return openRefusal(error as WindowError);
 	}
-	try {
-		retained = true;
-		openHandles++;
-		const result = await createFolder(
-			storageHost(hostStorage(tauriHostFiles()), {
-				watch(listener) {
-					listeners.add(listener);
-					return () => {
-						listeners.delete(listener);
-						stop();
-					};
-				},
-			}),
-			options,
-		);
-		if (result.error !== null) stop();
-		return result;
-	} catch (cause) {
-		stop();
-		throw cause;
-	}
+	return createFolder(
+		storageHost(hostStorage(tauriHostFiles()), { watch: opened.data.watch }),
+		options,
+	);
 }

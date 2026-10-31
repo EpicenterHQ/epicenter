@@ -22,6 +22,7 @@ import { join } from 'node:path';
 import { undo } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { openDevice } from '@epicenter/folder/node';
+import { unwrap } from 'wellcrafted/result';
 import { honeycrisp } from '../contract.js';
 import { changesTo } from './binding.js';
 import { conflictsIn, resolveConflict } from './conflicts.js';
@@ -79,7 +80,7 @@ async function boundNote(text: string) {
 	const root = await mkdtemp(join(tmpdir(), 'epicenter-honeycrisp-'));
 	cleanups.push(() => rm(root, { recursive: true, force: true }));
 	const file = join(root, 'notes/a.md');
-	const device = openDevice(honeycrisp, { path: root });
+	const device = unwrap(await openDevice(honeycrisp, { path: root }));
 	const written = await device.notes.create({
 		id: 'a',
 		createdAt: '2026-10-31T12:00:00.000Z',

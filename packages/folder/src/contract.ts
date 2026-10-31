@@ -1,5 +1,5 @@
 /** The folder copy's public types, and its pure row reader. Open through a platform entry. */
-export type { OpenFolderError } from './errors.js';
+export { OpenDeviceError, type OpenFolderError } from './errors.js';
 export type {
 	Data,
 	Folder,

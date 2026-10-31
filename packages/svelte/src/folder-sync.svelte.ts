@@ -1,40 +1,66 @@
 /**
- * A standalone desktop app's data folder in its page (decisions 81, 88 and
- * 89): whether Epicenter syncs it, asked again whenever the window comes
- * back (Epicenter may set it up meanwhile), "Sync with Epicenter", and
- * "Choose data folder…", which waits for saves, opens the folder picked with
- * its files where they are, remembers it, and reloads the page over it.
+ * A standalone desktop app's data folder in its page (decisions 81, 88 to
+ * 94): its path, whether Epicenter syncs it, asked again whenever the window
+ * comes back (Epicenter may set it up meanwhile), "Sync with Epicenter", and
+ * "Choose data folder…", which waits for saves, lets the person pick a folder
+ * in the native picker (which allows it), remembers it in the AppData
+ * `settings.md`, and reloads the page over it, its files where they are.
  *
- * `data-folder.svelte` makes it once the folder is open and sets it for the
- * components under it; the header reads it with `getFolderSync()`.
+ * The app's desktop root makes it once the roots are open and sets it for
+ * the components under it; the header reads it with `getFolderSync()`.
  *
  * ```svelte
+ * setFolderSync(folderSync({ appData, contract: CONTRACT_URL }));
  * const sync = getFolderSync();
  * <FolderSyncActions {sync} />
  * <Button onclick={sync.chooseDataFolder}>Choose data folder…</Button>
  * ```
  */
-import type {
-	DataFolder,
-	DesktopFolder,
-	FolderRequest,
-	FolderSync,
+import type { Client } from '@epicenter/definition/contract';
+import {
+	type AppConfig,
+	chooseFolder,
+	defaultDataFolder,
+	type FolderRequest,
+	type FolderSync,
+	rememberFolder,
+	syncedWithEpicenter,
+	syncWithEpicenter,
 } from '@epicenter/folder/tauri';
-import { getContext, hasContext, setContext } from 'svelte';
+import { createContext } from 'svelte';
 import { on } from 'svelte/events';
 import { whenSaved } from './leave-guard.js';
 
-/** Call while a component initializes; it listens for the window's focus for that component's life. */
-export function folderSync(
-	desktop: Pick<DesktopFolder, 'choose'>,
-	folder: DataFolder,
-) {
+/**
+ * Call while a component initializes; it listens for the window's focus for
+ * that component's life. `contract` is the URL the app's contract is
+ * published at (an app constant: deployment, not data).
+ */
+export function folderSync({
+	appData,
+	contract,
+}: {
+	appData: Client<AppConfig>;
+	contract: string;
+}) {
+	let path = $state<string>();
 	let state = $state<FolderSync>('unknown');
 	let request = $state<{ tone: 'requested' | 'failed'; message: string }>();
 	let asking = $state(false);
 
+	/** The data folder the window opened: the one `settings.md` names, or the default. */
+	async function opened(): Promise<string | undefined> {
+		const settings = await appData.settings.get({});
+		if (settings.data?.folder !== undefined) return settings.data.folder;
+		const fallback = await defaultDataFolder();
+		return fallback.error === null ? fallback.data : undefined;
+	}
+
 	async function check() {
-		state = await folder.synced();
+		path ??= await opened();
+		if (path === undefined) return;
+		const { data, error } = await syncedWithEpicenter({ path });
+		state = error !== null ? 'unknown' : data ? 'synced' : 'not-synced';
 	}
 
 	async function ask(action: () => Promise<FolderRequest>, requested?: string) {
@@ -53,9 +79,9 @@ export function folderSync(
 	});
 
 	return {
-		/** The data folder's path. */
+		/** The data folder's path, once read. */
 		get path() {
-			return folder.path;
+			return path;
 		},
 		/** Whether Epicenter syncs the folder, as of the window's last focus. */
 		get state() {
@@ -70,18 +96,35 @@ export function folderSync(
 			return asking;
 		},
 		syncWithEpicenter() {
-			void ask(
-				() => folder.syncWithEpicenter(),
-				'Asked your computer to open Epicenter. If it is installed, choose where to sync there.',
-			);
+			void ask(async () => {
+				const at = path ?? (await opened());
+				if (at === undefined)
+					return { ok: false, message: 'The data folder is not known yet.' };
+				const { error } = await syncWithEpicenter({ path: at, contract });
+				return error === null
+					? { ok: true }
+					: { ok: false, message: error.message };
+			}, 'Asked your computer to open Epicenter. If it is installed, choose where to sync there.');
 		},
 		/** "Choose data folder…": this window's saves land first; the page reloads over the folder picked. */
 		chooseDataFolder() {
 			void ask(async () => {
 				await whenSaved();
-				const answer = await desktop.choose();
-				if (answer === null) return { ok: true };
-				if (!answer.ok) return { ok: false, message: answer.refusal.message };
+				const picked = await chooseFolder({
+					title: 'Choose the data folder',
+					at: path,
+				});
+				if (picked.error !== null)
+					return { ok: false, message: picked.error.message };
+				if (picked.data === null) return { ok: true };
+				const fallback = await defaultDataFolder();
+				const folder =
+					fallback.error === null && picked.data === fallback.data
+						? undefined
+						: picked.data;
+				const remembered = await rememberFolder(appData, folder);
+				if (remembered.error !== null)
+					return { ok: false, message: remembered.error.message };
 				window.location.reload();
 				return { ok: true };
 			});
@@ -91,18 +134,14 @@ export function folderSync(
 
 export type FolderSyncState = ReturnType<typeof folderSync>;
 
-const FOLDER_SYNC = Symbol('epicenter.folder-sync');
+const [getContext, setContext] = createContext<FolderSyncState>();
 
 /** Give the components under this one the open data folder's sync. */
 export function setFolderSync(sync: FolderSyncState): FolderSyncState {
-	return setContext(FOLDER_SYNC, sync);
+	return setContext(sync);
 }
 
-/** The open data folder's sync, which `data-folder.svelte` set above. Throws outside it. */
+/** The open data folder's sync, which the app's desktop root set. Throws outside it. */
 export function getFolderSync(): FolderSyncState {
-	if (!hasContext(FOLDER_SYNC))
-		throw new Error(
-			'getFolderSync() was called outside the open data folder (data-folder.svelte)',
-		);
-	return getContext<FolderSyncState>(FOLDER_SYNC);
+	return getContext();
 }

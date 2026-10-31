@@ -170,6 +170,44 @@ export const OpenFolderError = defineErrors({
 export type OpenFolderError = InferErrors<typeof OpenFolderError>;
 
 /**
+ * Why `openDevice` opened no client, on every platform. A desktop data
+ * folder can be missing, not granted, refused or unreadable; storage itself
+ * can be unavailable anywhere (outside Tauri, a browser that gives the page
+ * no private storage, a shell that did not answer). Each message says what
+ * happened in words a person can act on; the app decides what it offers.
+ */
+export const OpenDeviceError = defineErrors({
+	/** The folder is not there: moved, deleted, or on a drive not connected. Never made again on its own. */
+	Missing: ({ folder }: { folder: string }) => ({
+		message: `${folder} is not there. It may have been moved or deleted, or be on a drive that is not connected.`,
+		folder,
+	}),
+	/** Tauri's file-system scope does not allow the folder: it was named without the folder picker. */
+	NotGranted: ({ folder }: { folder: string }) => ({
+		message: `This app has not been allowed to open ${folder}. Choose it in the folder picker to allow it.`,
+		folder,
+	}),
+	/** A place no app keeps its files in (the home folder, a .git folder, Epicenter's own records), why in one line. */
+	Refused: ({ folder, reason }: { folder: string; reason: string }) => ({
+		message: reason,
+		folder,
+		reason,
+	}),
+	/** The folder is there but could not be opened or made. */
+	Unreadable: ({ folder, cause }: { folder: string; cause: unknown }) => ({
+		message: `${folder} could not be opened: ${describe(cause)}`,
+		folder,
+		cause,
+	}),
+	/** This platform's storage could not be reached at all. */
+	StorageUnavailable: ({ cause }: { cause: unknown }) => ({
+		message: `This app's storage is not available: ${describe(cause)}`,
+		cause,
+	}),
+});
+export type OpenDeviceError = InferErrors<typeof OpenDeviceError>;
+
+/**
  * Internal: a write whose outcome is unknown, such as a stream that failed
  * to close, or a file it created whose absence could not be shown after it
  * failed. Git work that meets one reports `unconfirmed`, never `failed`, and

@@ -15,8 +15,8 @@ import { Ok, type Result } from 'wellcrafted/result';
 import { openRepository } from './browser/repository.js';
 import { snapshotContent } from './browser/storage.js';
 import { createDeviceClient, storeOf } from './device/client.js';
-import { opfsStore } from './device/opfs-store.js';
-import { OpenFolderError } from './errors.js';
+import { DeviceError, opfsStore } from './device/opfs-store.js';
+import { OpenDeviceError, OpenFolderError } from './errors.js';
 import {
 	createFolder,
 	type Opened,
@@ -30,27 +30,34 @@ export * from './contract.js';
 export { DeviceError } from './device/opfs-store.js';
 
 /**
- * The typed client of `contract` over this origin's private file system.
- * Synchronous, so an app can put it in context at its root: the Worker that
- * owns the files starts at the first call. A browser that gives the page no
- * private storage makes each call `Unavailable` (its cause a
- * `DeviceError.StorageRefused`), never a throw; a contract that is not well
- * formed throws here, at once.
+ * The typed client of `contract` over this origin's private file system, or
+ * `StorageUnavailable` in a context with no Worker to own the files. The
+ * Worker starts at the first call. A browser that gives the page no private
+ * storage (WebKit's ephemeral contexts, Safari's private windows) still
+ * opens: each call is then `Unavailable`, its cause a
+ * `DeviceError.StorageRefused`, so an app keeps working in memory (a local
+ * app keeps a recording in the page to save again or download). A contract
+ * that is not well formed throws.
  *
  * @example
  * ```ts
- * const device = openDevice(recorder);
- * const id = timeId();
- * const note = await device.recordings.create({ id, title: 'Standup' });
+ * const device = await openDevice(recorder);
+ * if (device.error !== null) return device;
+ * const note = await device.data.recordings.create({ id: timeId(), title: 'Standup' });
  * ```
  *
  * `closeDevice(device)` stops its Worker (on hot reload, or at the end of a
  * test).
  */
-export function openDevice<TContract extends Contract>(
+export async function openDevice<TContract extends Contract>(
 	contract: TContract,
-): Client<TContract> {
-	return createDeviceClient(contract, opfsStore());
+): Promise<Result<Client<TContract>, OpenDeviceError>> {
+	if (typeof Worker === 'undefined')
+		return OpenDeviceError.StorageUnavailable({
+			cause: DeviceError.WorkerFailed({ cause: 'this context has no Worker' })
+				.error,
+		});
+	return Ok(createDeviceClient(contract, opfsStore()));
 }
 
 /**

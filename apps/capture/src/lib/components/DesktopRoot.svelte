@@ -1,16 +1,30 @@
 <!--
-	The desktop window's root, which decides the store: the folder Capture
-	keeps its files in, `~/Epicenter/Capture` unless the person chose another,
-	set for every page under it. When it cannot be opened, it says why and
-	offers Retry, Choose folder…, and Use the default folder.
+	The desktop window's root over its two open roots: it sets them, each
+	wrapped once, for every page under it (`setAppData`, `setDevice`), and
+	the data folder's sync for the header (`setFolderSync`).
 -->
 <script lang="ts">
-	import { capture } from '@epicenter/capture';
-	import DataFolder from '@epicenter/svelte/data-folder';
+	import type { Capture } from '@epicenter/capture';
+	import type { Client } from '@epicenter/definition/contract';
+	import type { AppConfig } from '@epicenter/folder/tauri';
+	import { fromClient } from '@epicenter/svelte/client';
+	import { folderSync, setFolderSync } from '@epicenter/svelte/folder-sync';
 	import type { Snippet } from 'svelte';
-	import { desktop } from '../folder.tauri.js';
+	import { CONTRACT_URL, setAppData, setDevice } from '../folder.tauri.js';
 
-	let { children }: { children: Snippet } = $props();
+	let {
+		appData,
+		device,
+		children,
+	}: { appData: Client<AppConfig>; device: Client<Capture>; children: Snippet } = $props();
+
+	// Fixed for the component's life: Startup makes a new one for new roots.
+	// svelte-ignore state_referenced_locally
+	setAppData(fromClient(appData));
+	// svelte-ignore state_referenced_locally
+	setDevice(fromClient(device));
+	// svelte-ignore state_referenced_locally
+	setFolderSync(folderSync({ appData, contract: CONTRACT_URL }));
 </script>
 
-<DataFolder app="Capture" contract={capture} {desktop} kept="Each capture is a Markdown file in this folder.">{@render children()}</DataFolder>
+{@render children()}

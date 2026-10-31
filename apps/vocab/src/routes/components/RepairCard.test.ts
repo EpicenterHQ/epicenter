@@ -98,7 +98,7 @@ test('a note deleted elsewhere while open says so, and the card closes', async (
 	await using context = await setup({ 'entries/broken.md': 'broken' });
 	context.entries.repair.start('broken');
 	flushSync();
-	const other = context.folder.other();
+	const other = await context.folder.other();
 	const listed = await other.entries.list();
 	const broken = listed.data?.invalid[0];
 	if (broken?.id !== 'broken') throw new Error('the broken note is not listed');

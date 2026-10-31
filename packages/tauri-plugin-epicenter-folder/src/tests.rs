@@ -8,9 +8,13 @@
 //!
 //! Key behaviors:
 //! - The generated TypeScript bindings match the registered commands.
-//! - Each window reaches the directory bound to its label and no other; a
-//!   page's arguments cannot name another root, and a window with no binding
-//!   is refused before anything is read or created.
+//! - Each window reaches the directory bound to its label and no other
+//!   unless it opened it; a window with no binding is refused before
+//!   anything is read or created.
+//! - A page opens another root only when Tauri's runtime file-system scope
+//!   allows it, as the dialog's `open` allows a picked folder. A refused
+//!   folder never opens, a missing one is made only when asked, and an
+//!   opened root is reached by its path.
 //! - A live label is never bound again; once unbound, as a destroyed window
 //!   is, its page is refused and the label may be bound to another folder.
 //!   A window whose construction failed leaves no binding behind.
@@ -47,6 +51,8 @@ use tauri::utils::platform::Target;
 use tauri::webview::InvokeRequest;
 use tauri::{App, WebviewWindow, WebviewWindowBuilder};
 
+use tauri_plugin_fs::FsExt;
+
 use crate::{init, BindError, Directory, FolderExt, COMMANDS};
 
 #[test]
@@ -67,7 +73,8 @@ fn observations_use_only_the_callers_channel() {
         }
         Ok(())
     });
-    tauri::async_runtime::block_on(crate::commands::open_folder(webview, channel)).unwrap();
+    tauri::async_runtime::block_on(crate::commands::open_folder(webview, None, false, channel))
+        .unwrap();
     std::fs::write(fixture.root.join("change.md"), b"changed").unwrap();
     let until = std::time::Instant::now() + Duration::from_secs(5);
     loop {
@@ -94,7 +101,13 @@ fn observations_use_only_the_callers_channel() {
         Ok(())
     });
     let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
-    tauri::async_runtime::block_on(crate::commands::open_folder(webview, next_channel)).unwrap();
+    tauri::async_runtime::block_on(crate::commands::open_folder(
+        webview,
+        None,
+        false,
+        next_channel,
+    ))
+    .unwrap();
     std::fs::write(fixture.root.join("after-reload.md"), b"changed").unwrap();
     let until = std::time::Instant::now() + Duration::from_secs(5);
     loop {
@@ -141,9 +154,17 @@ fn external_writes_and_atomic_replacements_reach_only_the_bound_webview() {
     let (other_send, other_receive) = mpsc::channel();
     let view: tauri::Webview<MockRuntime> = main.as_ref().clone();
     let other_view: tauri::Webview<MockRuntime> = other.as_ref().clone();
-    tauri::async_runtime::block_on(crate::commands::open_folder(view, channel(send))).unwrap();
+    tauri::async_runtime::block_on(crate::commands::open_folder(
+        view,
+        None,
+        false,
+        channel(send),
+    ))
+    .unwrap();
     tauri::async_runtime::block_on(crate::commands::open_folder(
         other_view,
+        None,
+        false,
         channel(other_send),
     ))
     .unwrap();
@@ -365,6 +386,7 @@ fn fixture_in(label: &str, context: tauri::Context<MockRuntime>) -> Fixture {
     let root = directory.0.join("notes");
     std::fs::create_dir(&root).unwrap();
     let app = mock_builder()
+        .plugin(tauri_plugin_fs::init())
         .plugin(init())
         .build(context)
         .expect("mock app");
@@ -429,9 +451,29 @@ fn open(window: &WebviewWindow<MockRuntime>) -> Result<Value, Value> {
     let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
     tauri::async_runtime::block_on(crate::commands::open_folder(
         webview,
+        None,
+        false,
         Channel::new(|_: InvokeResponseBody| Ok(())),
     ))
     .map(|_| Value::Null)
+    .map_err(|error| serde_json::to_value(error).unwrap())
+}
+
+/// `open_folder` at `root` as a page asks for it: the root's canonical path,
+/// or the refusal.
+fn open_root(
+    window: &WebviewWindow<MockRuntime>,
+    root: &Path,
+    create: bool,
+) -> Result<String, Value> {
+    use tauri::ipc::{Channel, InvokeResponseBody};
+    let webview: tauri::Webview<MockRuntime> = window.as_ref().clone();
+    tauri::async_runtime::block_on(crate::commands::open_folder(
+        webview,
+        Some(root.to_string_lossy().into_owned()),
+        create,
+        Channel::new(|_: InvokeResponseBody| Ok(())),
+    ))
     .map_err(|error| serde_json::to_value(error).unwrap())
 }
 
@@ -616,83 +658,42 @@ fn each_window_reaches_its_own_bound_folder_and_no_other() {
     );
 }
 
-/// A rebound window reaches its new primary and grants, and no longer its
-/// old primary; `open_folder` answers and watches the new primary.
+/// A root the runtime file-system scope allows, as the dialog's `open`
+/// allows a folder a person picked, opens with its files where they are and
+/// is reached by its path beside the window's own directory. Before it is
+/// opened, or without the scope, it is `NotGranted`; one the scope allows
+/// inside it is not reached through it.
 #[test]
-fn a_rebound_window_reaches_its_new_roots_and_not_its_old_one() {
-    let fixture = fixture("rebound");
+fn a_root_the_scope_allows_opens_and_is_reached_by_its_path() {
+    let fixture = fixture("allowed-root");
     let data = fixture.root.with_file_name("data");
     std::fs::create_dir(&data).unwrap();
     std::fs::write(data.join("note.md"), b"note").unwrap();
     std::fs::write(fixture.root.join("settings.md"), b"settings").unwrap();
-    let home = Directory::create(&fixture.root).unwrap();
-    fixture
-        .app
-        .folders()
-        .bind_granting("main", home.clone(), Vec::new())
-        .unwrap();
-    let main = window(&fixture.app, "main");
+    let main = fixture.bound_window("main", &fixture.root);
     open(&main).unwrap();
-    fixture
-        .app
-        .folders()
-        .rebind("main", Directory::create(&data).unwrap(), vec![home])
-        .unwrap();
-    open(&main).unwrap();
+    let data_path = data.to_str().unwrap();
     let list = |root: Option<&str>| {
         invoke(&main, "list_folder", json!({ "root": root }))
             .map(|listing| listing["files"][0]["path"].clone())
     };
-    assert_eq!(list(None).unwrap(), "note.md");
+    assert_eq!(
+        open_root(&main, &data, false).unwrap_err(),
+        json!({ "name": "NotGranted", "root": data_path })
+    );
+    assert!(text(&list(Some(data_path)).unwrap_err()).contains("NotGranted"));
+
+    fixture.app.fs_scope().allow_directory(&data, true).unwrap();
+    assert!(text(&list(Some(data_path)).unwrap_err()).contains("NotGranted"));
+    assert_eq!(open_root(&main, &data, false).unwrap(), data_path);
+    assert_eq!(list(Some(data_path)).unwrap(), "note.md");
+    assert_eq!(list(None).unwrap(), "settings.md");
     assert_eq!(
         list(Some(fixture.root.to_str().unwrap())).unwrap(),
         "settings.md"
     );
-    assert!(fixture
-        .app
-        .folders()
-        .rebind("missing", Directory::create(&data).unwrap(), Vec::new())
-        .is_err());
-}
-
-/// A window granted a second root reaches it by its exact path, and the
-/// primary by its path or by naming none; any other path is refused, even
-/// one inside a granted root or reached through `..`. A granted root opens
-/// without being watched.
-#[test]
-fn a_granted_root_is_reached_by_its_exact_path_and_nothing_else_is() {
-    let fixture = fixture("granted");
-    let config = fixture.root.with_file_name("config");
-    std::fs::create_dir(&config).unwrap();
-    std::fs::write(config.join("settings.md"), b"settings").unwrap();
-    std::fs::write(fixture.root.join("note.md"), b"note").unwrap();
-    fixture
-        .app
-        .folders()
-        .bind_granting(
-            "main",
-            Directory::create(&fixture.root).unwrap(),
-            vec![Directory::create(&config).unwrap()],
-        )
-        .unwrap();
-    let main = window(&fixture.app, "main");
-    open(&main).unwrap();
-    let config_path = config.to_str().unwrap();
-    let root_path = fixture.root.to_str().unwrap();
-
-    let read = |path: &str, root: Option<&str>| {
-        invoke(&main, "list_folder", json!({ "root": root }))
-            .map(|listing| listing["files"].clone())
-            .map(|files| (path.to_string(), files))
-    };
-    assert_eq!(
-        read("", Some(config_path)).unwrap().1[0]["path"],
-        "settings.md"
-    );
-    assert_eq!(read("", Some(root_path)).unwrap().1[0]["path"], "note.md");
-    assert_eq!(read("", None).unwrap().1[0]["path"], "note.md");
     let mut headers = put_headers("theme.md", false, None);
-    headers.insert("root", encoded(config_path));
+    headers.insert("root", encoded(data_path));
     request(
         &main,
         "put_folder_file",
@@ -700,61 +701,66 @@ fn a_granted_root_is_reached_by_its_exact_path_and_nothing_else_is() {
         headers,
     )
     .unwrap();
-    assert_eq!(std::fs::read(config.join("theme.md")).unwrap(), b"dark");
-
-    let inside = config.join("nested");
-    std::fs::create_dir(&inside).unwrap();
-    let parent = fixture.root.parent().unwrap();
+    assert_eq!(std::fs::read(data.join("theme.md")).unwrap(), b"dark");
     for refused in [
-        inside.to_str().unwrap().to_string(),
-        format!("{root_path}/../config"),
-        parent.to_str().unwrap().to_string(),
+        data.join("nested").to_str().unwrap().to_string(),
+        format!("{}/../data", fixture.root.to_str().unwrap()),
         "/".to_string(),
     ] {
-        let refusal = read("", Some(&refused)).unwrap_err();
         assert!(
-            refusal["message"]
-                .as_str()
-                .unwrap()
-                .starts_with("NotGranted"),
-            "{refused}: {refusal}"
+            text(&list(Some(&refused)).unwrap_err()).contains("NotGranted"),
+            "{refused}"
         );
     }
-
-    // Opening answers the window's own root: the one watched.
-    use tauri::ipc::{Channel, InvokeResponseBody};
-    let webview: tauri::Webview<MockRuntime> = main.as_ref().clone();
-    assert_eq!(
-        tauri::async_runtime::block_on(crate::commands::open_folder(
-            webview,
-            Channel::new(|_: InvokeResponseBody| Ok(())),
-        ))
-        .unwrap(),
-        root_path
-    );
     // Asking Epicenter about a folder works only for a root the window reaches.
     assert_eq!(
-        invoke(
-            &main,
-            "synced_with_epicenter",
-            json!({ "path": config_path })
-        )
-        .unwrap(),
+        invoke(&main, "synced_with_epicenter", json!({ "path": data_path })).unwrap(),
         json!(false)
     );
-    let elsewhere = parent.to_str().unwrap();
+    let elsewhere = fixture.root.parent().unwrap().to_str().unwrap();
     assert_eq!(
         invoke(&main, "synced_with_epicenter", json!({ "path": elsewhere })).unwrap_err(),
         json!({ "name": "Folder", "path": elsewhere })
     );
+}
+
+/// An allowed root that is not there is `Missing` and is made only when the
+/// page asks (the default data folder); a refused one never opens, whatever
+/// the scope allows; and an allowed root that is gone is not made again.
+#[test]
+fn a_missing_root_is_made_only_when_asked_and_a_refused_one_never_opens() {
+    let fixture = fixture("missing-root");
+    let main = fixture.bound_window("main", &fixture.root);
+    let fresh = fixture.root.with_file_name("Epicenter").join("Notes");
+    fixture
+        .app
+        .fs_scope()
+        .allow_directory(&fresh, true)
+        .unwrap();
     assert_eq!(
-        invoke(
-            &main,
-            "sync_with_epicenter",
-            json!({ "path": elsewhere, "contract": "https://x.epicenter.so/contract.json" })
-        )
-        .unwrap_err(),
-        json!({ "name": "Folder", "path": elsewhere })
+        open_root(&main, &fresh, false).unwrap_err(),
+        json!({ "name": "Missing" })
+    );
+    assert!(!fresh.exists());
+    assert_eq!(
+        open_root(&main, &fresh, true).unwrap(),
+        fresh.to_str().unwrap()
+    );
+    assert!(fresh.is_dir());
+
+    let repository = fixture.root.with_file_name("repository");
+    std::fs::create_dir_all(repository.join(".git")).unwrap();
+    let git = repository.join(".git");
+    fixture.app.fs_scope().allow_directory(&git, true).unwrap();
+    let refused = open_root(&main, &git, false).unwrap_err();
+    assert_eq!(refused["name"], "Refused");
+    assert!(
+        text(&refused["reason"]).contains("own .git folder"),
+        "{refused}"
+    );
+    assert!(
+        text(&open_root(&main, Path::new("relative"), true).unwrap_err()["reason"])
+            .contains("not a full path")
     );
 }
 

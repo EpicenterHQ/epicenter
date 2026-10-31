@@ -1,9 +1,11 @@
 "$schema" = "schemas/schema.json"
 
-# Granting this to a window lets it call the plugin. It does not choose a
-# folder: a window reaches only the directory the shell bound to its label.
+# Granting this to a window lets it call the plugin. It allows no folder: a
+# window reaches the directory the shell bound to its label, and any other
+# root only when Tauri's runtime file-system scope allows it (a default the
+# shell allowed, or a folder the dialog granted).
 [default]
-description = "Open the folder the shell bound to this window, read and change its files through the shell, and ask Epicenter to sync it."
+description = "Open the folder the shell bound to this window, and other folders Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them."
 permissions = [
   "allow-open-folder",
   "allow-subscribe-close",

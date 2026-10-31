@@ -8,7 +8,8 @@
  * - `/auth/callback`: finishes a sign-in the online variant started, then
  *   loads the page it started from.
  * - Any other path (`/`): the local variant, this browser's files
- *   (`LocalApp.svelte`). It never constructs the OAuth client.
+ *   (`LocalApp.svelte`), opened here before it mounts. It never constructs
+ *   the OAuth client.
  */
 import { mount } from 'svelte';
 import './app.css';
@@ -31,6 +32,15 @@ if (location.pathname === '/auth/callback') {
 	const { default: OnlineApp } = await import('./OnlineApp.svelte');
 	mount(OnlineApp, { target });
 } else {
-	const { default: LocalApp } = await import('./LocalApp.svelte');
-	mount(LocalApp, { target });
+	const [{ default: LocalApp }, { openDevice }, { recorder }] =
+		await Promise.all([
+			import('./LocalApp.svelte'),
+			import('@epicenter/folder/browser'),
+			import('./contract.ts'),
+		]);
+	// This page's one store; a browser that keeps no files still opens it.
+	const device = await openDevice(recorder);
+	if (device.error !== null)
+		target.textContent = `The recorder could not open this browser's files: ${device.error.message}`;
+	else mount(LocalApp, { target, props: { device: device.data } });
 }

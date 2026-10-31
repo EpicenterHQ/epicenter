@@ -21,6 +21,9 @@ const config = {
 		}),
 	},
 	preprocess: vitePreprocess(),
+	// The desktop root awaits its folder at the top level, under the page's
+	// `<svelte:boundary>`.
+	compilerOptions: { experimental: { async: true } },
 };
 
 export default config;

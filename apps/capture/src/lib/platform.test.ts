@@ -46,6 +46,7 @@ const desktopLeaves = [
 	'root.tauri.ts',
 	'variant.tauri.ts',
 	'folder.tauri.ts',
+	'components/Startup.svelte',
 	'components/DesktopRoot.svelte',
 ];
 

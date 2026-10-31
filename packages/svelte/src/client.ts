@@ -30,7 +30,8 @@
  * @example
  * ```svelte
  * <script lang="ts">
- * 	const files = fromClient(openDevice(todosContract));
+ * 	let { device }: { device: Client<Todos> } = $props();
+ * 	const files = fromClient(device);
  * 	const todo = $derived(files.todos.get({ id }));
  * 	const title = fieldEdit(files.todos, { id }, 'title');
  * </script>

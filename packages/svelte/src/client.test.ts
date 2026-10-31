@@ -33,6 +33,7 @@ import {
 	type NoteClient,
 } from '@epicenter/definition/contract';
 import { openDevice } from '@epicenter/folder/node';
+import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
 const { fromClient, fieldEdit } = await import('./client.js');
@@ -68,7 +69,7 @@ async function folder() {
 	return {
 		root,
 		/** A client of the folder, as another tab or program would hold. */
-		open: () => openDevice(todos, { path: root }),
+		open: async () => unwrap(await openDevice(todos, { path: root })),
 		text: (path: string) => readFile(join(root, path), 'utf8'),
 	};
 }
@@ -138,7 +139,7 @@ function setup<T>(make: () => T) {
 
 test('a collection lists and subscribes only while an effect reads it, and follows changes', async () => {
 	const { open } = await folder();
-	const device = open();
+	const device = await open();
 	const { client, counts } = counted(device);
 	const files = fromClient(client);
 
@@ -162,7 +163,7 @@ test('a collection lists and subscribes only while an effect reads it, and follo
 
 test('a listing that fails is tried again while someone reads, with no change to prompt it', async () => {
 	const { open } = await folder();
-	const device = open();
+	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
 	let failing = 1;
 	let lists = 0;
@@ -207,7 +208,7 @@ test('a listing that fails is tried again while someone reads, with no change to
 
 test('a write through the adapter shows at once, before any listing', async () => {
 	const { open } = await folder();
-	const { client, hold } = counted(open());
+	const { client, hold } = counted(await open());
 	const files = fromClient(client);
 	const shown = follow(() => files.todos.get({ id: 'a' })?.title);
 	await until(() => !files.todos.loading);
@@ -229,7 +230,7 @@ test('a write through the adapter shows at once, before any listing', async () =
 
 test('a listing a change interrupted never replaces a newer one', async () => {
 	const { open } = await folder();
-	const device = open();
+	const device = await open();
 	const { client, hold } = counted(device);
 	const files = fromClient(client);
 	const shown = follow(() => files.todos.get({ id: 'a' })?.title);
@@ -252,15 +253,15 @@ test('a listing a change interrupted never replaces a newer one', async () => {
 
 test('one client has one adapter; another client of the same files has its own', async () => {
 	const { open } = await folder();
-	const client = open();
+	const client = await open();
 	expect(fromClient(client)).toBe(fromClient(client));
-	expect(fromClient(client).todos).not.toBe(fromClient(open()).todos);
+	expect(fromClient(client).todos).not.toBe(fromClient(await open()).todos);
 });
 
 test('update carries an edit over another writer’s other field; after a clash it shows theirs and saves over it', async () => {
 	const { open, text } = await folder();
-	const files = fromClient(open());
-	const other = open();
+	const files = fromClient(await open());
+	const other = await open();
 	const shown = follow(() => files.todos.get({ id: 'a' }));
 	await until(() => !files.todos.loading);
 	const created = expectOk(
@@ -313,7 +314,7 @@ test('update carries an edit over another writer’s other field; after a clash 
 
 test('an invalid note shows with its text, and replace repairs it at once', async () => {
 	const { open, root } = await folder();
-	const files = fromClient(open());
+	const files = fromClient(await open());
 	const broken = '---\ntitle: [unclosed\n---\nKept.\n';
 	await Bun.write(join(root, 'todos/a.md'), broken);
 	const invalid = follow(() =>
@@ -336,7 +337,7 @@ test('an invalid note shows with its text, and replace repairs it at once', asyn
 
 test('replace over the version a draft began from refuses another writer’s change since, then shows theirs', async () => {
 	const { open, root, text } = await folder();
-	const files = fromClient(open());
+	const files = fromClient(await open());
 	await Bun.write(
 		join(root, 'todos/a.md'),
 		'---\ntitle: Milk\ndone: false\n---\n',
@@ -368,7 +369,7 @@ test('replace over the version a draft began from refuses another writer’s cha
 
 test('fieldEdit sends one save at a time, the newest value waiting, so fast typing never clashes with itself', async () => {
 	const { open, text } = await folder();
-	const device = open();
+	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: '', done: false }));
 	let updates = 0;
 	const files = fromClient({
@@ -404,7 +405,7 @@ test('fieldEdit sends one save at a time, the newest value waiting, so fast typi
 
 test('a write through the adapter, or a keystroke in fieldEdit, is saving at once until it answers', async () => {
 	const { open, text } = await folder();
-	const device = open();
+	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: '', done: false }));
 	const files = fromClient(device);
 	const shown = follow(() => files.todos.get({ id: 'a' }));
@@ -435,8 +436,8 @@ test('a write through the adapter, or a keystroke in fieldEdit, is saving at onc
 
 test('fieldEdit carries typing over another writer’s other field, and surfaces their change to the same field', async () => {
 	const { open, text } = await folder();
-	const device = open();
-	const other = open();
+	const device = await open();
+	const other = await open();
 	const created = expectOk(
 		await device.todos.create({
 			id: 'a',
@@ -513,7 +514,7 @@ test('fieldEdit carries typing over another writer’s other field, and surfaces
 
 test('fieldEdit with create makes the note on the first save, then updates it; one made elsewhere first is saved over', async () => {
 	const { open, text } = await folder();
-	const device = open();
+	const device = await open();
 	let creates = 0;
 	const files = fromClient({
 		...device,
@@ -549,7 +550,9 @@ test('fieldEdit with create makes the note on the first save, then updates it; o
 	await host.unmount();
 
 	// Another program made `b` before this page heard of it: the save lands over theirs.
-	expectOk(await open().todos.create({ id: 'b', title: 'Theirs', done: true }));
+	expectOk(
+		await (await open()).todos.create({ id: 'b', title: 'Theirs', done: true }),
+	);
 	const late = setup(() =>
 		fieldEdit(files.todos, { id: 'b' }, 'body', {
 			create: () => ({ title: 'Draft', done: false }),
@@ -566,7 +569,7 @@ test('fieldEdit with create makes the note on the first save, then updates it; o
 
 test('a file collection lists its entries without bytes, and writes over what it shows', async () => {
 	const { open } = await folder();
-	const files = fromClient(open());
+	const files = fromClient(await open());
 	const shown = follow(() => files.attachments.items);
 	await until(() => !files.attachments.loading);
 	const created = expectOk(
@@ -595,7 +598,7 @@ test('a file collection lists its entries without bytes, and writes over what it
 
 test('a write over a note the adapter has not listed reads it first', async () => {
 	const { open, text, root } = await folder();
-	const device = open();
+	const device = await open();
 	expectOk(await device.todos.create({ id: 'a', title: 'Milk', done: false }));
 	const files = fromClient(device);
 	expectOk(await files.todos.update({ id: 'a' }, { done: true }));

@@ -16,5 +16,10 @@
 	"bundle": {
 		"active": true,
 		"icon": ["icons/icon.png"]
+	},
+	"plugins": {
+		"fs": {
+			"scopeDroppedPaths": false
+		}
 	}
 }

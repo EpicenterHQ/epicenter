@@ -6,6 +6,7 @@
  */
 import { timeId } from '@epicenter/definition/ids';
 import { openDevice } from '@epicenter/folder/node';
+import { unwrap } from 'wellcrafted/result';
 import { todos } from '../src/lib/contract.ts';
 
 const [directory, command, ...args] = process.argv.slice(2);
@@ -17,7 +18,7 @@ if (directory === undefined || command === undefined) {
 }
 
 const print = (value: unknown) => console.log(JSON.stringify(value, null, 2));
-const device = openDevice(todos, { path: directory });
+const device = unwrap(await openDevice(todos, { path: directory }));
 
 async function main(): Promise<number> {
 	switch (command) {

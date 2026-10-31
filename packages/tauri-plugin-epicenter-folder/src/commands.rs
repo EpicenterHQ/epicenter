@@ -3,21 +3,24 @@
 //!
 //! A page names folder-relative paths and, optionally, which of its window's
 //! roots they are in: `root`, the exact path of the window's own directory
-//! or of a root the shell granted it (`Folders::bound_root`); no `root` is the
-//! window's own directory. Every command derives its roots from the calling
-//! WebView's label, which Tauri injects, so a page reaches no other path. Each command clones the
+//! or of a root it opened (`open_folder`, which Tauri's runtime file-system
+//! scope must allow: `scope`); no `root` is the window's own directory. Every
+//! command derives its roots from the calling WebView's label, which Tauri
+//! injects, so a page reaches no other path. Each command clones the
 //! window's `Directory` when it is admitted and works in that root until it
 //! ends, so a window closed and replaced under the same label meanwhile
 //! cannot redirect it. Every command that touches the disk runs on the
 //! blocking pool, never on the thread that drives the windows. The folder's
 //! Git is not here: the `epicenter` CLI runs it (ADR-0559).
 
+use epicenter_folder_core::library::resolved;
 use epicenter_folder_core::root::{prepare_directory, PrepareError};
 use epicenter_folder_core::storage::{self, Children, FileListing, PutOutcome, StorageError};
 use tauri::ipc::Channel;
 use tauri::{Manager, Runtime, Webview, WebviewWindow};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
+use crate::scope::admit;
 use crate::{folders::CloseAnswer, Directory, FolderChanged, Folders, WindowError};
 
 /// Run blocking work off the window thread.
@@ -39,28 +42,40 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
     }
 }
 
-/// Open this window's folder: the directory the shell bound to it before
-/// the window existed. Refused for a window with none, and for a bound
-/// directory that is gone, which is never made again for the window. Every open
-/// removes the staged files a stopped save left an hour or more ago
+/// Open a root for the calling window and watch it, answering its canonical
+/// path, by which the page names it from then on. With no `root`, or the
+/// window's own directory's path, it is that directory, which the shell
+/// bound before the window existed: refused when gone, never made again.
+/// Any other absolute `root` must be a folder an app may keep its files in
+/// (`Refused` otherwise) that Tauri's file-system scope allows (`NotGranted`
+/// otherwise); it is made, with missing parents, only for `create`, and is
+/// `Missing` when it is not there. Each open root has one watch, whose
+/// changes go to the latest channel the page opened it with, and removes
+/// the staged files a stopped save left an hour or more ago
 /// (`storage::sweep_scratch`).
-/// Open the calling WebView's folder with a private observation channel.
-/// Answers the folder's root, so a page that also reaches granted roots
-/// knows which one the observations are about: only this one is watched.
 #[tauri::command]
 #[specta::specta]
 pub async fn open_folder<R: Runtime>(
     webview: Webview<R>,
+    root: Option<String>,
+    create: bool,
     on_change: Channel<FolderChanged>,
 ) -> Result<String, WindowError> {
     let label = webview.label().to_string();
-    let (directory, observation) = webview
+    let (primary, observation) = webview
         .app_handle()
         .state::<Folders>()
         .reserve_observation(&label)?;
     let app = webview.app_handle().clone();
     blocking(
         move || {
+            let directory = match root.as_deref() {
+                // The window's own directory, by any path that resolves to it.
+                Some(root) if resolved(std::path::Path::new(root)) != primary.root() => {
+                    admit(&webview, root, create)?
+                }
+                _ => primary,
+            };
             let root = directory.root();
             prepare_directory(root, false).map_err(|error| match error {
                 PrepareError::Missing => WindowError::Missing,

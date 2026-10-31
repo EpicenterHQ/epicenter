@@ -47,8 +47,9 @@ version shown.
 An app's web build has up to two variants, each over one store for the
 page's life, and nothing moves between them
 ([ADR-0700](../../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
-The local variant reads `fromClient(device).x`, this browser's files; it
-works signed out and offline, and signing in only adds hosted capabilities.
+The local variant reads `fromClient(device).x`, this browser's files, which
+its startup opened (`await openDevice(contract)`) and handed down; it works
+signed out and offline, and signing in only adds hosted capabilities.
 The online variant, under a signed-in layout that calls `setRepo`, reads
 `fromClient(getRepo()).x`, the person's repository through the server:
 
@@ -66,25 +67,42 @@ A page uses one or the other, never both.
 ### A desktop app's folder
 
 A standalone desktop app (`epicenter-standalone`) keeps the person's files
-in its data folder, `~/Epicenter/<App>` unless the person chose another
-(decisions 88 and 89). Its root is `DataFolder`, which opens the folder as
-the window starts and sets the app's client over it (`setRepo`), or shows
-the recovery screen (Retry, Choose folder…, Use the default folder); its
-header reads `getFolderSync()`, which rechecks on focus whether Epicenter
-syncs the folder:
+in its data folder, `~/Epicenter/<productName>` unless the person chose
+another (decisions 88 to 97). Its startup opens the AppData root and then
+the data folder before any page renders (one top-level `await`, under the
+layout's `<svelte:boundary>`, whose `pending` is the UI kit's spinner), and
+renders the app's desktop root over both, or `Recovery` when one does not
+open. `Recovery` switches on the `OpenDeviceError`: Allow access (the native
+picker at that folder; picking it allows it), Choose folder…, Use the
+default folder and Retry, as each case needs, each writing or clearing
+`folder` in the AppData `settings.md` and then retrying; "Retrying…" shows
+while the roots open again (`$effect.pending()`). Without `appData` (the app
+could not open its own settings) it offers only Retry. The header reads
+`getFolderSync()`, which rechecks on focus whether Epicenter syncs the
+folder:
 
 ```svelte
+<!-- Startup.svelte, under <svelte:boundary> -->
 <script lang="ts">
-  import DataFolder from '@epicenter/svelte/data-folder';
-  import { getFolderSync } from '@epicenter/svelte/folder-sync';
-  import FolderSyncActions from '@epicenter/svelte/folder-sync-actions';
-
-  const desktop = desktopFolder({ contract: CONTRACT_URL }); // @epicenter/folder/tauri
-  const sync = getFolderSync(); // in the header, under DataFolder
+  let attempt = $state(0);
+  const retry = () => attempt++;
+  const again = <T,>(_attempt: number, open: () => Promise<T>) => open();
+  const appData = $derived(await again(attempt, openAppData));
+  const device = $derived(appData.error === null ? await openDataFolder(capture, { appData: appData.data }) : null);
 </script>
 
-<DataFolder app="Capture" contract={capture} {desktop}>…</DataFolder>
-<FolderSyncActions {sync} /> <!-- Sync with Epicenter until it does -->
+{#if appData.error !== null}
+  <Recovery app="Capture" error={appData.error} {retry} />
+{:else if device?.error}
+  <Recovery app="Capture" error={device.error} appData={appData.data} {retry} />
+{:else if device !== null}
+  <DesktopRoot appData={appData.data} device={device.data}>…</DesktopRoot>
+{/if}
+
+<!-- DesktopRoot.svelte: setAppData(fromClient(appData)), setDevice(fromClient(device)),
+     setFolderSync(folderSync({ appData, contract: CONTRACT_URL })) -->
+<!-- The header -->
+<FolderSyncActions sync={getFolderSync()} /> <!-- Sync with Epicenter until it does -->
 <Button onclick={() => sync.chooseDataFolder()}>Choose data folder…</Button>
 ```
 

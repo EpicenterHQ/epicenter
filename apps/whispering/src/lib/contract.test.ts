@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { compileContract } from '@epicenter/definition/contract';
 import { timeId } from '@epicenter/definition/ids';
 import { checkFiles, openDevice } from '@epicenter/folder/node';
+import { unwrap } from 'wellcrafted/result';
 import { expectOk } from 'wellcrafted/testing';
 import { whispering } from './contract.js';
 
@@ -32,7 +33,7 @@ test('the contract compiles', () => {
 test('the files Whispering writes fit its contract with no issues', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'whispering-contract-'));
 	cleanups.push(() => rm(root, { recursive: true, force: true }));
-	const device = openDevice(whispering, { path: root });
+	const device = unwrap(await openDevice(whispering, { path: root }));
 	const at = new Date('2026-10-31T09:30:00.000Z');
 	const id = timeId(at);
 	// A recording, as Stop keeps it: its audio, then its note.

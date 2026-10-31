@@ -17,8 +17,10 @@ tauri = { version = "2.12", features = [] }
 # tauri-build finds plugin permissions only through direct dependencies.
 tauri-plugin-dialog = "2.7"
 tauri-plugin-epicenter-folder = { path = "../../../packages/tauri-plugin-epicenter-folder" }
+# `generate_context!` writes the configuration's `plugins` block (the fs
+# scope's `scopeDroppedPaths`) as `serde_json` values in the app's own crate.
+serde_json = "1"
 
 [dev-dependencies]
 # The mock runtime drives the real commands in tests.
 tauri = { version = "2.12", features = ["test"] }
-serde_json = "1"

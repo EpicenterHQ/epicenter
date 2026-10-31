@@ -1,14 +1,20 @@
 /**
- * Honeycrisp's desktop window's roots (decisions 88 and 89): its AppData root,
- * whose `settings.md` may name a data folder, and the requests that open the
- * data folder, `~/Epicenter/Honeycrisp` by default. `DesktopRoot` opens it as
- * the window starts. Only the desktop leaves import this.
+ * Honeycrisp's desktop window's two roots as its components read them
+ * (decisions 88 to 94): the AppData root's settings (`getAppData`) and the
+ * data folder's client (`getDevice`), each wrapped once for Svelte where
+ * `DesktopRoot` sets them, and where Honeycrisp publishes its contract. Only
+ * the desktop leaves import this.
  */
 import { APPS } from '@epicenter/constants/apps';
-import { desktopFolder } from '@epicenter/folder/tauri';
+import type { AppConfig } from '@epicenter/folder/tauri';
+import type { ReactiveClient } from '@epicenter/svelte/client';
+import { createContext } from 'svelte';
+import type { Honeycrisp } from './contract.js';
 
-/** The window's roots, or null outside Honeycrisp's desktop shell. */
-export const desktop = desktopFolder({
-	// Where Honeycrisp's web app publishes its contract (`static/contract.json`).
-	contract: `${APPS.HONEYCRISP.url}/contract.json`,
-});
+/** Where Honeycrisp's web app publishes its contract (`static/contract.json`). */
+export const CONTRACT_URL = `${APPS.HONEYCRISP.url}/contract.json`;
+
+export const [getAppData, setAppData] =
+	createContext<ReactiveClient<AppConfig>>();
+export const [getDevice, setDevice] =
+	createContext<ReactiveClient<Honeycrisp>>();

@@ -1,6 +1,6 @@
 ## Default Permission
 
-Open the folder the shell bound to this window, read and change its files through the shell, and ask Epicenter to sync it.
+Open the folder the shell bound to this window, and other folders Tauri's file-system scope allows, read and change their files through the shell, and ask Epicenter to sync them.
 
 #### This default permission set includes the following:
 

@@ -25,9 +25,9 @@
 		"./status-line": "./src/status-line.ts",
 		"./status-popover": "./src/status-popover.svelte",
 		"./status-row": "./src/status-row.svelte",
-		"./data-folder": "./src/data-folder.svelte",
 		"./folder-sync": "./src/folder-sync.svelte.ts",
-		"./folder-sync-actions": "./src/folder-sync-actions.svelte"
+		"./folder-sync-actions": "./src/folder-sync-actions.svelte",
+		"./recovery": "./src/recovery.svelte"
 	},
 	"dependencies": {
 		"@epicenter/agent": "workspace:*",

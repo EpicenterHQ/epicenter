@@ -4,7 +4,8 @@
  * (`@epicenter/folder/tauri`) and everything above it.
  *
  * The shell bound the window one directory before the window existed, and
- * the page opens it (`open_folder`), naming none. The page's storage is the
+ * the page opens it (`open_folder`), naming none or its path; other roots
+ * open only when allowed, as Tauri's file-system scope allows them. The page's storage is the
  * folder plugin's commands, one per storage method
  * (ADR-0581). Here the Bun directory storage over `node:fs`
  * (`directory-store.ts`), whose outcomes the plugin's `storage.rs` matches,
@@ -101,15 +102,21 @@ export async function grantedDirectory(prefix = 'granted-'): Promise<string> {
 
 /**
  * The shell, with the directory at `root` bound to the window and the
- * directories at `grants` granted beside it: a page names one by its exact
- * path (`root` in a command's arguments), and any other root is refused as
- * the plugin refuses it. Granted roots are plain storage, outside the
- * test's change controls, and never watched.
+ * directories at `grants` allowed beside it, as Tauri's file-system scope
+ * allows a default or a picked folder: the page opens one by its path
+ * (`open_folder`), which answers `Missing` for one that is not there unless
+ * asked to make it, then names it in a command's `root`. Any other root is
+ * refused as the plugin refuses it. Allowed roots are plain storage, outside
+ * the test's change controls; `opened` lists every open, with its channel.
  */
 export function createGrantedShell(
 	root: string,
 	{ grants = [] }: { grants?: readonly string[] } = {},
 ) {
+	/** Each `open_folder`: the root asked for (null for the window's own) and its channel. */
+	const opened: { root: string | null; onChange: unknown }[] = [];
+	/** Allowed roots the page has opened. */
+	const admitted = new Set<string>();
 	const calls: ShellCall[] = [];
 	/** Every data change that landed, in order. */
 	const changes: DataChange[] = [];
@@ -207,7 +214,7 @@ export function createGrantedShell(
 		const named = args.root;
 		if (named === undefined || named === null || named === root) return storage;
 		const found = granted.get(named as string);
-		if (found !== undefined) return found;
+		if (found !== undefined && admitted.has(named as string)) return found;
 		throw {
 			name: 'Io',
 			path: (args.path as string | undefined) ?? '',
@@ -228,11 +235,24 @@ export function createGrantedShell(
 	}
 
 	const commands: Record<string, (args: Record<string, unknown>) => unknown> = {
-		async open_folder() {
-			const opened = control.open();
-			await sweep();
-			// The shell answers the root it watches.
-			return opened === null ? root : opened;
+		async open_folder(args) {
+			const named = (args.root as string | null | undefined) ?? null;
+			opened.push({ root: named, onChange: args.onChange });
+			const answer = control.open();
+			if (named === null || named === root) {
+				await sweep();
+				// The shell answers the root it watches.
+				return answer === null ? root : answer;
+			}
+			if (!granted.has(named)) throw { name: 'NotGranted', root: named };
+			const exists = await nodeFs
+				.stat(named)
+				.then((stats) => stats.isDirectory())
+				.catch(() => false);
+			if (!exists && args.create !== true) throw { name: 'Missing' };
+			await nodeFs.mkdir(named, { recursive: true });
+			admitted.add(named);
+			return named;
 		},
 		list_folder: (args) => answered(storageFor(args).list()),
 		read_folder_children: (args) =>
@@ -307,6 +327,7 @@ export function createGrantedShell(
 
 	return {
 		root,
+		opened,
 		/** Where saves are staged: `.<name>.epicenter-scratch` beside the root. */
 		scratch,
 		calls,

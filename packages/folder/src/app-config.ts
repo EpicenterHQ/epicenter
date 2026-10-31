@@ -1,5 +1,5 @@
 /**
- * A desktop app's own configuration (decisions 88 and 89): `settings.md` at
+ * A desktop app's own configuration (decisions 88 to 94): `settings.md` at
  * the top of the app's AppData root, machine-local and never synced. `folder`
  * is the data folder the person chose with "Choose data folder…", absent for
  * the default `~/Epicenter/<App>`; other machine settings go beside it as
@@ -52,33 +52,10 @@ export const appConfig = defineAppConfig();
 export type AppConfig = typeof appConfig;
 
 /**
- * What the standalone shell told this window (`epicenter-standalone`) before
- * any of the page's code ran: `config`, the app's AppData root, the one root
- * the window starts with; and `default`, the data folder opened when
- * `settings.md` names none (`~/Epicenter/<App>`).
- */
-export type AppFolders = {
-	readonly config: string;
-	readonly default: string;
-};
-
-declare global {
-	interface Window {
-		__EPICENTER_APP_FOLDERS__?: AppFolders;
-	}
-}
-
-/** This window's roots, or `null` outside a standalone app's window. */
-export function appFolders(): AppFolders | null {
-	if (typeof window === 'undefined') return null;
-	return window.__EPICENTER_APP_FOLDERS__ ?? null;
-}
-
-/**
  * Record `folder` as the app's data folder in its `settings.md`, keeping
  * every other setting, or forget it for `undefined` (the default folder):
- * the page calls this once the shell opened a folder the person chose, so
- * the next launch opens it again.
+ * "Choose folder…", "Allow access" and "Use the default folder" write it,
+ * then open the roots again.
  */
 export async function rememberFolder(
 	config: Pick<Client<AppConfig>, 'settings'>,

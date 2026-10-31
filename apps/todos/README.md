@@ -64,7 +64,8 @@ page loads: `~/Epicenter/so.epicenter.todos` (`~/Epicenter Dev/...` for the
 development identifier `so.epicenter.todos.dev`, or under
 `EPICENTER_FOLDER_DIR`), created when missing. The page is the same build as
 the web app; in the window it opens that folder as the contract's client
-(`openDevice` from `@epicenter/folder/tauri`, in `src/lib/device.ts`)
+(`await openDevice(todos)` from `@epicenter/folder/tauri`, in
+`src/lib/components/Desktop.svelte`, under the page's `<svelte:boundary>`)
 and never names a path. This is the desktop variant: it signs in to nothing,
 and only Epicenter syncs the folder once it is added (`epicenter sync`). The window also offers
 **Open in Epicenter**, which asks the operating system to open
@@ -89,9 +90,9 @@ name, and never commits or contacts a server.
 ## Layout
 
 - `src/lib/contract.ts`: the contract.
-- `src/lib/device.ts`: the desktop variant's store, a module singleton: the
-  desktop window's folder. Only `src/lib/components/Desktop.svelte`, loaded
-  only in the window, imports it.
+- `src/lib/components/Desktop.svelte`: the desktop variant's root, loaded
+  only in the window: it opens the window's folder before it renders, or
+  says why it could not.
 - `src/lib/todos.ts`: a todo's file, label and order (open first, then
   done, each oldest first), and the list's context.
 - `src/routes/(app)/+layout.svelte`: the root that decides the store. In a

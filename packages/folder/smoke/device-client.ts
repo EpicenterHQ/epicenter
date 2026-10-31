@@ -4,6 +4,7 @@
  * `globalThis.deviceSmoke`. Each step returns plain data the runner checks.
  */
 import { defineContract, type Version } from '@epicenter/definition/contract';
+import { unwrap } from 'wellcrafted/result';
 import { openDevice } from '../src/browser.js';
 
 const recorder = defineContract({
@@ -21,7 +22,7 @@ const recorder = defineContract({
 	},
 });
 
-const device = openDevice(recorder);
+const device = unwrap(await openDevice(recorder));
 
 /** Deterministic bytes, so both engines and both pages agree on a hash. */
 function payload(size: number, seed: number) {

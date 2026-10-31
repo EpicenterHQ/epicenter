@@ -20,6 +20,9 @@ const config = {
 		// web deploy sends the policy as a header from `static/_headers`.
 	},
 	preprocess: vitePreprocess(),
+	// `Startup` awaits this browser's files at the top level, under the
+	// local layout's `<svelte:boundary>` (decision 94).
+	compilerOptions: { experimental: { async: true } },
 };
 
 export default config;

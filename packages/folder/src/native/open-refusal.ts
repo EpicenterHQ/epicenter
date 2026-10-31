@@ -17,6 +17,8 @@ export function openRefusal(refusal: WindowError) {
 			return OpenFolderError.Unavailable({
 				cause: `This window may not open ${refusal.root}.`,
 			});
+		case 'Refused':
+			return OpenFolderError.Unavailable({ cause: refusal.reason });
 		default:
 			return OpenFolderError.Unavailable({ cause: refusal });
 	}

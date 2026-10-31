@@ -28,8 +28,7 @@ export type EpicenterSyncError = InferErrors<typeof EpicenterSyncError>;
 /**
  * Ask the operating system to open Epicenter with a request to sync the
  * folder at `path` under the contract published at `contract`. `path` is a
- * root this window reaches (`appFolders().folder`); the shell refuses any
- * other.
+ * root this window opened (its data folder); the shell refuses any other.
  * Ok means the system took the request; whether Epicenter sets the folder up
  * is the person's choice there, so never say the folder is syncing yet.
  *

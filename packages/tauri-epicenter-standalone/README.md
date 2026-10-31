@@ -1,52 +1,60 @@
 # Standalone desktop apps
 
 A standalone Epicenter app is its own small Tauri program over a folder it
-owns (decisions 79 to 82). This crate is the Rust every such app shares, so
-each app's `src-tauri/src/main.rs` stays a few dozen lines. Its TypeScript
-counterparts are in `@epicenter/folder/tauri`: `desktopFolder({ contract })`,
-the window's roots and the requests that open its data folder, built on
-`appFolders`, `appConfig` (or the app's own `defineAppConfig({ … })`),
-`rememberFolder`, `syncWithEpicenter` and `syncedWithEpicenter`. The page's
-UI for them is in `@epicenter/svelte`: `data-folder` (opens the data folder
-as the window starts, or the recovery screen) and `folder-sync` with
+owns (decisions 79 to 82, 88 to 97). This crate is the Rust every such app
+shares, so each app's `src-tauri/src/main.rs` stays a few dozen lines. Its
+TypeScript counterparts are in `@epicenter/folder/tauri`: `openAppData()` and
+`openDataFolder(contract, { appData })`, which open the window's two roots,
+`chooseFolder` (the native picker), `rememberFolder`, `syncWithEpicenter` and
+`syncedWithEpicenter`. The page's UI for them is in `@epicenter/svelte`:
+`recovery` (the screen when a root does not open) and `folder-sync` with
 `folder-sync-actions` (sync state, Sync with Epicenter, Choose data
 folder…).
 
-## Two roots per window (decisions 88 and 89)
+## Two roots per window
 
 - **The AppData root** is fixed: the operating system's application data
   directory for the app, never synced and never chosen. Its settings notes
   sit at its top (`settings.md`, `shortcuts.md`). `settings.md` holds
   `folder` only when the person chose a data folder.
-- **The data root** is the person's files: `~/Epicenter/<App>` by default
-  (`~/Epicenter Dev/<App>` for a `.dev` build, or under
-  `EPICENTER_FOLDER_DIR`), or the folder `settings.md` names. Only it is
-  synced, by Epicenter, once asked.
+- **The data root** is the person's files: `~/Epicenter/<productName>` by
+  default, or the folder `settings.md` names. `productName` is the merged
+  Tauri configuration's: `Capture` for the shipped app, `Capture Dev` under
+  `tauri.dev.conf.json`, which also gives development its own identifier and
+  so its own AppData root. Only the data root is synced, by Epicenter, once
+  asked.
 
-Rust never reads or writes a settings note. Startup makes the AppData root
-and opens the window bound to it alone, telling the page its path and the
-default folder (`window.__EPICENTER_APP_FOLDERS__`, `appFolders()`). The
-page reads `folder` through its client and calls
-`commands::open_data_folder(folder | null)`: Rust admits it
-(`Places::data_root`: the default is created when missing; a chosen folder
-is opened as it is, never created or moved), makes it the window's watched
-root with the AppData root granted beside it (`Folders::rebind`), and
-answers its path, or a typed refusal (`refused`, `missing`,
-`unavailable`). There is no first-run question and no silent fallback: a
-refusal shows the recovery screen (Retry, Choose folder…, Use the default
-folder). "Choose data folder…" is `commands::choose_data_folder` (the native
-picker) followed by the same command; the page writes `folder`.
+Rust never reads or writes a settings note and names no path to the page.
+Startup allows the app's own default folder in Tauri's runtime file-system
+scope (`default_folder`, from `package_info().name`, what the page's
+`getName()` answers), makes the AppData root, and opens the window bound to
+it. The page finds both roots with Tauri's path API and opens them through
+the folder plugin, which opens a folder only when that scope allows it:
+
+| Folder | Allowed by |
+| --- | --- |
+| The default `~/Epicenter/<productName>` | Startup, each launch (`fs_scope().allow_directory(default, true)`) |
+| A folder the person picked | The dialog plugin's `open`, which allows the picked folder recursively; `tauri-plugin-persisted-scope` keeps it across launches in the AppData root's `.persisted-scope` |
+| A `folder` written by hand or by an agent | Nothing: it opens as `NotGranted` until the person picks it ("Allow access") |
+
+No capability names a folder. A grant stays after the person switches
+folders, so switching back is free. Folders dropped onto the window are not
+allowed (`plugins.fs.scopeDroppedPaths: false`). Even an allowed folder is
+refused when no app should keep its files there (the folder plugin's
+`scope::Refusals`): the top of a disk, the home folder itself, anything
+inside or around Epicenter's own records or settings, anything around the
+app's own settings, anything inside a repository's `.git` folder, and a
+relative path.
+
+The page's startup awaits the two roots in order, under its layout's
+`<svelte:boundary>`; a root that does not open shows the recovery screen,
+whose actions write or clear `folder` and open the roots again:
 
 ```ts
-const desktop = desktopFolder({ contract: CONTRACT_URL }); // null outside the window
-const answer = await desktop.open();
-if (answer.ok) setRepo(openDevice(contract, { path: answer.folder.path }));
+const appData = await openAppData();
+if (appData.error !== null) return appData; // "could not open its own settings": Retry
+const device = await openDataFolder(capture, { appData: appData.data }); // the default is made when missing
 ```
-
-These are refused, each with one line saying why (`Places::refusal`): the top
-of a disk, the home folder itself, anything inside or around Epicenter's own
-records or settings, anything around the app's own settings, anything inside
-a repository's `.git` folder, and a relative path.
 
 ## Window and Quit
 
@@ -63,20 +71,19 @@ const CAPTURE: StandaloneApp = StandaloneApp {
     size: (760.0, 720.0),
 };
 
-epicenter_standalone::builder(CAPTURE)
-    .invoke_handler(tauri::generate_handler![
-        epicenter_standalone::commands::open_data_folder,
-        epicenter_standalone::commands::choose_data_folder,
-    ])
-    .run(tauri::generate_context!())
+epicenter_standalone::builder(CAPTURE).run(tauri::generate_context!())
 ```
 
-The app's capability grants `epicenter-folder:default` and
-`allow-open-data-folder` and `allow-choose-data-folder`, which its `build.rs`
-declares with `tauri_build::AppManifest::new().commands(COMMANDS)`. The folder and
-dialog plugins must also be direct dependencies, so `tauri-build` finds their
-permissions. The crate is a member of the root Cargo workspace
-(`cargo test -p epicenter-standalone`).
+The builder registers `tauri-plugin-fs` (for its scope; no `fs:` command is
+granted), `tauri-plugin-persisted-scope` after it, the folder plugin and the
+dialog plugin. The app's capability grants `epicenter-folder:default`,
+`dialog:allow-open`, `core:app:allow-name`, `core:path:allow-resolve-directory`
+and `core:path:allow-join`, and each configuration lists it in
+`app.security.capabilities`, so nothing in `capabilities/` is enabled
+implicitly (Tauri replaces, not appends, the list a `--config` file gives).
+The folder and dialog plugins must also be direct dependencies of the app, so
+`tauri-build` finds their permissions. The crate is a member of the root
+Cargo workspace (`cargo test -p epicenter-standalone`).
 
 ## Making a web app's desktop variant
 
@@ -96,11 +103,15 @@ example.
    ```
 
    A leaf is TypeScript, exporting components where the variants render
-   differently (`export const Root: Platform['Root'] = DesktopRoot;`), so
-   neither build carries the other's root. The desktop root is
-   `<DataFolder app contract desktop>` from `@epicenter/svelte/data-folder`,
-   which opens the data folder and sets its client for the app (the same
-   client type as the web's), or shows the recovery screen. Components import
+   differently (`export const Startup: Platform['Startup'] = OnlineRoot;`)
+   and how the pages read the store (`store()`), so neither build carries
+   the other's root. The desktop leaf's `Startup`
+   awaits `openAppData()` and `openDataFolder(...)` and renders the app's
+   desktop root over them (which sets `setAppData(fromClient(appData))` and
+   `setDevice(fromClient(device))`), or `@epicenter/svelte/recovery`; the
+   app's layout wraps `Startup` in `<svelte:boundary>` with the UI kit's
+   spinner as its `pending`, and `svelte.config.js` turns on
+   `compilerOptions.experimental.async`. Components import
    `#platform/root`, never a leaf, and leaves import with relative paths
    (no `$lib`), so the bundle test can resolve them. A shared
    `src/lib/platform.ts` holds the types both leaves annotate against.

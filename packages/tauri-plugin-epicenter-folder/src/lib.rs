@@ -49,6 +49,7 @@ mod commands;
 pub mod defaults;
 pub mod epicenter;
 mod folders;
+pub mod scope;
 mod watch;
 mod windows;
 

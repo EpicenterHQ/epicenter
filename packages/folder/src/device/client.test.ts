@@ -19,6 +19,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { defineContract, type Version } from '@epicenter/definition/contract';
+import { unwrap } from 'wellcrafted/result';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 import { hashBytes } from '../hash.js';
 import { openDevice } from '../node.js';
@@ -49,7 +50,7 @@ async function setup() {
 	const parent = await mkdtemp(join(tmpdir(), 'epicenter-device-'));
 	folders.push(parent);
 	const root = join(parent, 'data');
-	const device = openDevice(recorder, { path: root });
+	const device = unwrap(await openDevice(recorder, { path: root }));
 	return {
 		root,
 		device,
@@ -277,14 +278,14 @@ test('a file collection never names a note, and a note collection never lists a 
 	expect(refused.name).toBe('Invalid');
 });
 
-test('a folder that cannot be made is Unavailable on every call, not a throw', async () => {
+test('a folder that cannot be made opens as Unreadable, not a throw', async () => {
 	const { root, put } = await setup();
 	await put('file', 'not a directory');
-	const device = openDevice(recorder, { path: join(root, 'file', 'below') });
-	expect(expectErr(await device.recordings.list()).name).toBe('Unavailable');
-	expect(
-		expectErr(await device.recordings.create({ id: 'a', title: 'x' })).name,
-	).toBe('Unavailable');
+	const below = join(root, 'file', 'below');
+	const opened = await openDevice(recorder, { path: below });
+	expect(opened.error).toMatchObject({ name: 'Unreadable', folder: below });
+	const file = await openDevice(recorder, { path: join(root, 'file') });
+	expect(file.error?.name).toBe('Unreadable');
 });
 
 test('a note that does not read is listed with its placeholders, text and version, and replace repairs it', async () => {

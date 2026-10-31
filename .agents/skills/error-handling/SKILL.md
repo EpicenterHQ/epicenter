@@ -79,7 +79,12 @@ behavior, such as keeping an unsaved draft after a save conflict.
 
 - If a value can be `Result<T, E>`, inspect or deliberately forward its error branch.
 - After destructuring, `error` is the raw `E`. Return `Err(error)`, not `error`.
-- If you retained the whole Result, return it unchanged: `if (result.error !== null) return result`.
+- Forward an `Err` by returning the narrowed Result itself, never by rebuilding it from its error. Keep the Result whole when you only forward its failure:
+
+  ```ts
+  const device = await openDevice(contract);
+  if (device.error !== null) return device; // not Err(device.error)
+  ```
 - `error !== null` is the reliable discriminator. Never construct `Err(null)` or `Err(undefined)`.
 - Data-only destructuring is correct when the catch branch always returns `Ok<T>` and the inferred type collapses to `Ok<T>`.
 - Error-only destructuring is correct when success data is irrelevant. The rule is to handle every possible `Err`, not to destructure fields you do not use.

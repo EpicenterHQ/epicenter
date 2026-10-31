@@ -1,7 +1,8 @@
 //! How an app's folder reaches Epicenter (decisions 81 and 82): the page asks
 //! the shell to open `epicenter://init?path=<folder>&contract=<url>`, naming
 //! the folder it keeps its files in, which must be a root its window reaches
-//! (`Folders::bound_root`), and the URL its contract is published at.
+//! (`Folders::bound_root`: its own directory or a root it opened), and the
+//! URL its contract is published at.
 //! Epicenter, if installed, asks the person where to sync it and runs
 //! `epicenter init`. The page can also ask whether Epicenter already syncs a
 //! folder it reaches, which reads the folder's Git configuration and changes

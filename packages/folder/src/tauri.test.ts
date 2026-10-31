@@ -1,14 +1,23 @@
 import { afterEach, expect, mock, test } from 'bun:test';
 import { expectErr, expectOk } from 'wellcrafted/testing';
 
-let open: () => unknown = () => null;
-let changeChannel: { onmessage?: (value: { paths: string[] | null }) => void } | undefined;
+let open: () => unknown = () => '/notes';
+let changeChannel:
+	| { onmessage?: (value: { paths: string[] | null }) => void }
+	| undefined;
 let putExpectation: string | undefined;
 let putStamp: string | null = 'v1:1:2:3:4';
 let openCalls = 0;
 let listedStamp = 'v1:3:1:3:4';
 let listedText = 'old';
 
+// `@epicenter/folder/tauri` imports these for a standalone app's roots; nothing here calls them.
+mock.module('@tauri-apps/api/app', () => ({ getName: async () => 'Notes' }));
+mock.module('@tauri-apps/api/path', () => ({
+	appDataDir: async () => '/app-data',
+	homeDir: async () => '/home',
+	join: async (...parts: string[]) => parts.join('/'),
+}));
 mock.module('@tauri-apps/api/core', () => ({
 	Channel: class {
 		onmessage?: (value: { paths: string[] | null }) => void;
@@ -27,12 +36,18 @@ mock.module('@tauri-apps/api/core', () => ({
 		}
 		if (command === 'plugin:epicenter-folder|list_folder')
 			return {
-				files: [{ path: 'note.txt', size: listedText.length, stamp: listedStamp }],
+				files: [
+					{ path: 'note.txt', size: listedText.length, stamp: listedStamp },
+				],
 				directories: [],
 			};
 		if (command === 'plugin:epicenter-folder|read_folder_file') {
 			const stamp = new TextEncoder().encode(listedStamp);
-			return Uint8Array.from([...stamp, 0, ...new TextEncoder().encode(listedText)]).buffer;
+			return Uint8Array.from([
+				...stamp,
+				0,
+				...new TextEncoder().encode(listedText),
+			]).buffer;
 		}
 		if (command === 'plugin:epicenter-folder|put_folder_file') {
 			putExpectation = options?.headers?.expected;
@@ -47,7 +62,7 @@ const { tauriHostFiles } = await import('./tauri-files.js');
 
 afterEach(() => {
 	changeChannel = undefined;
-	open = () => null;
+	open = () => '/notes';
 	putExpectation = undefined;
 	putStamp = 'v1:1:2:3:4';
 	openCalls = 0;
@@ -61,7 +76,11 @@ test('Tauri list, read and put retain the shell stamps', async () => {
 	const read = expectOk(await files.read('note.txt'));
 	expect(new TextDecoder().decode(read.bytes)).toBe('old');
 	expect(read.stamp).toBe('v1:3:1:3:4');
-	expect(expectOk(await files.change('note.txt', new TextEncoder().encode('new'), 'any'))).toEqual({
+	expect(
+		expectOk(
+			await files.change('note.txt', new TextEncoder().encode('new'), 'any'),
+		),
+	).toEqual({
 		kind: 'landed',
 		stamp: 'v1:1:2:3:4',
 	});
@@ -83,22 +102,26 @@ test('a Tauri put sends absent and content expectations to the shell', async () 
 test('opens with a private folder change channel', async () => {
 	open = () => {
 		expect(changeChannel?.onmessage).toBeFunction();
-		return null;
+		return '/notes';
 	};
 	const folder = expectOk(await openFolder({ tables: {} }));
 	await folder.close();
 });
 
 for (const mode of ['concurrent', 'sequential'] as const) {
+	// Each open asks the shell again; the shell sends to the channel opened
+	// last, which tells every Folder over the root.
 	test(`${mode} opens share changes until each Folder closes`, async () => {
-		open = () => null;
 		const [first, second] =
 			mode === 'concurrent'
-				? await Promise.all([openFolder({ tables: {} }), openFolder({ tables: {} })])
+				? await Promise.all([
+						openFolder({ tables: {} }),
+						openFolder({ tables: {} }),
+					])
 				: [await openFolder({ tables: {} }), await openFolder({ tables: {} })];
 		const firstFolder = expectOk(first);
 		const secondFolder = expectOk(second);
-		expect(openCalls).toBe(1);
+		expect(openCalls).toBe(2);
 		expect(firstFolder.file('note.txt')?.data).toBe('old');
 		expect(secondFolder.file('note.txt')?.data).toBe('old');
 
