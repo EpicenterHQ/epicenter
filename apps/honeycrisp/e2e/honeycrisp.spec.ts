@@ -31,8 +31,10 @@ import {
 	epicenter,
 	opfsFiles,
 	opfsText,
+	recordUploaderStarts,
 	stackTest,
 	sync,
+	uploaderStarts,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 const test = stackTest('HONEYCRISP_E2E_STATE');
@@ -219,9 +221,16 @@ test('2. signed in, the notes upload: each leaves this device and appears in Syn
 	person,
 }) => {
 	// A signed-in session on the API; the real authorization redirect does the rest.
+	await recordUploaderStarts(context);
 	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
 	await page.getByRole('button', { name: 'Sign in' }).click();
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
+	// The callback page only finishes sign-in: no repository, no uploader.
+	const uploaders = await uploaderStarts(page);
+	expect(uploaders.length).toBeGreaterThan(0);
+	expect(uploaders.filter((path) => path.includes('/auth/callback'))).toEqual(
+		[],
+	);
 
 	// The uploader moves them: this device's view and files empty.
 	await expect(row(groceries)).toHaveCount(0);

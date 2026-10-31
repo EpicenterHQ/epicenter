@@ -127,9 +127,10 @@ the `epicenter clone`, `check` and `sync` commands for the person's
 | `src/lib/device.ts` | The device, a module singleton: this browser's files. |
 | `src/lib/honeycrisp.svelte.ts` | The orders (notes newest first, folders by name), what the list and detail show, and the actions over both collections, over one view's client. |
 | `src/lib/editor/` | The CodeMirror note editor: the binding that writes local edits and follows changes from elsewhere, live preview, conflict cards. It knows nothing of the app's UI or storage. |
-| `src/routes/+layout.svelte` | Every page: the leave guard and, signed in, the signed-in boundary (`src/lib/components/SignedIn.svelte`: the repository, `setRepo`, and the uploader, per account). |
-| `src/routes/+page.svelte` | "On this device": `HoneycrispApp` over `fromClient(device)`. |
-| `src/routes/synced/` | "Synced": `HoneycrispApp` over `fromClient(getRepo())`, behind a layout that asks for a sign-in. |
+| `src/routes/+layout.svelte` | Every page, the sign-in callback included: the chrome only. |
+| `src/routes/(app)/+layout.svelte` | Both views: the leave guard and, signed in, the signed-in boundary (`src/lib/components/SignedIn.svelte`: the repository, `setRepo`, and the uploader, per account). |
+| `src/routes/(app)/+page.svelte` | "On this device": `HoneycrispApp` over `fromClient(device)`. |
+| `src/routes/(app)/synced/` | "Synced": `HoneycrispApp` over `fromClient(getRepo())`, behind a layout that asks for a sign-in. |
 | `src/lib/components/` | The views, which read and write only through the state in context. |
 
 ## Tests
