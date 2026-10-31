@@ -62,9 +62,9 @@ awaits `openDevice(contract)` over the origin's private file system; an
 online web variant opens the repository with `openRemote`.
 
 The legacy `openFolder({ tables })` remains for Epicenter's own windows and
-Bun, which passes an explicit `directory`. Epicenter's records and standalone
-Todos keep the library's fixed reverse-DNS defaults, `so.epicenter` and
-`so.epicenter.todos` under `~/Epicenter` (`~/Epicenter Dev` in development)
+Bun, which passes an explicit `directory`. Epicenter's records keep the
+library's fixed reverse-DNS default, `so.epicenter` under `~/Epicenter`
+(`~/Epicenter Dev` in development)
 ([ADR-0672](adr/0672-native-app-defaults-are-fixed-reverse-dns-children-of-one-library.md)).
 
 The folders Epicenter syncs are the global Git configuration's multi-valued

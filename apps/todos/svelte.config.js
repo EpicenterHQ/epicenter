@@ -3,10 +3,11 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 
 /**
  * Where a build writes the static app, when not `build/`: the end-to-end
- * stack builds against a test server into a scratch directory, so `build/`,
- * which the desktop shell loads (`frontendDist`), only ever holds a real
- * build. (`.svelte-kit/`, which `vite preview` serves, stays here: its
- * server bundle resolves packages from this folder.)
+ * stack builds against a test server into a scratch directory, so `build/`
+ * only ever holds a real build. The desktop window's build
+ * (`bun run build:native`) writes `build-desktop/`. (`.svelte-kit/`, which
+ * `vite preview` serves, stays here: its server bundle resolves packages
+ * from this folder.)
  */
 const out = process.env.TODOS_BUILD_DIR;
 
@@ -21,8 +22,8 @@ const config = {
 		}),
 	},
 	preprocess: vitePreprocess(),
-	// The desktop root awaits its folder at the top level, under the page's
-	// `<svelte:boundary>`.
+	// The desktop window's `Startup` awaits its roots at the top level, under
+	// the layout's `<svelte:boundary>` (decision 94).
 	compilerOptions: { experimental: { async: true } },
 };
 

@@ -14,7 +14,7 @@
 
 	let props = $props();
 
-	// Leaving while a save is out asks first; a desktop window waits for it.
+	// Leaving while a save is out asks first.
 	onMount(guardLeave);
 </script>
 

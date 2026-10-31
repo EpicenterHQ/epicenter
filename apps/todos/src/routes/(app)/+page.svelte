@@ -1,28 +1,13 @@
 <!--
-	Todos over its one store: in a browser, the person's repository the
-	layout set (the online variant: every edit is a commit there, nothing is
-	kept in the browser); in the desktop window, the window's folder
-	(`Desktop`, loaded only there).
+	Todos over its one store, which the variant's root opened: the person's
+	`todos` repository on the web, where every edit is a commit and nothing
+	is kept in the browser, or the desktop window's folder.
 -->
 <script lang="ts">
-	import { getRepo } from '@epicenter/svelte/repo';
-	import { isTauri } from '@tauri-apps/api/core';
-	import { Loading } from '@epicenter/ui/loading';
+	import { store } from '#platform/root';
 	import TodosApp from '$lib/components/TodosApp.svelte';
-	import type { Todos } from '$lib/contract.js';
 
-	const online = isTauri() ? null : getRepo<Todos>().todos;
+	const { todos } = store();
 </script>
 
-{#if online !== null}
-	<TodosApp variant="online" todos={online} />
-{:else}
-	<svelte:boundary>
-		{#snippet pending()}
-			<Loading class="h-dvh" />
-		{/snippet}
-		{#await import('$lib/components/Desktop.svelte') then { default: Desktop }}
-			<Desktop />
-		{/await}
-	</svelte:boundary>
-{/if}
+<TodosApp {todos} />

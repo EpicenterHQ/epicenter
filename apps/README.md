@@ -31,10 +31,9 @@ grants capabilities, never storage.
 
 Each desktop variant is a Tauri program of its own
 ([ADR-0701](../docs/adr/0701-apps-run-as-separate-programs.md)). Capture,
-Honeycrisp, Vocab and Whispering share the
+Honeycrisp, Todos, Vocab and Whispering share the
 [`epicenter-standalone`](../packages/tauri-epicenter-standalone/README.md)
-crate, which also describes how a web app gains a desktop variant; Todos
-keeps its own older shell.
+crate, which also describes how a web app gains a desktop variant.
 
 ## Svelte app root
 
@@ -130,7 +129,7 @@ folder once the person presses Sync with Epicenter.
 | App | Surfaces | Desktop folder | Contract |
 | --- | --- | --- | --- |
 | Epicenter | Folders, editor, Settings | `~/Epicenter/so.epicenter` (its records) | none: `openFolder` tables, `connections` |
-| [Todos](todos/README.md) | online web; desktop (its own shell) | `~/Epicenter/so.epicenter.todos` | `todos`: `todos` |
+| [Todos](todos/README.md) | online web; desktop | `~/Epicenter/Todos` | `todos`: `todos` |
 | [Capture](capture/README.md) | online web; desktop | `~/Epicenter/Capture` | `capture`: `captures` |
 | [Honeycrisp](honeycrisp/README.md) | online web; desktop | `~/Epicenter/Honeycrisp` | `honeycrisp`: `notes`, `folders` |
 | [Vocab](vocab/README.md) | online web; desktop | `~/Epicenter/Vocab` | `vocab`: `entries`, `chats`, `messages` |
@@ -139,9 +138,9 @@ folder once the person presses Sync with Epicenter.
 | [Recorder demo](recorder-demo/README.md) | local web; online web | none | `recorder-demo`: `recordings`, `audio` |
 
 A local web app keeps its files in the origin's OPFS; an online web app
-keeps none in the browser. The Epicenter app and standalone Todos still use
-the folder plugin's library root, `~/Epicenter` (`~/Epicenter Dev` in
-development, or `EPICENTER_FOLDER_DIR`).
+keeps none in the browser. The Epicenter app keeps its records in the folder
+plugin's library root, `~/Epicenter` (`~/Epicenter Dev` in development, or
+`EPICENTER_FOLDER_DIR`).
 
 Local Books keeps its QuickBooks replica in SQLite under
 `<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,

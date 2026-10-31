@@ -1,15 +1,22 @@
 {
 	"name": "@epicenter/todos",
-	"description": "Todos as Markdown notes: kept in the browser, uploaded to the signed-in person's repository",
+	"description": "Todos as Markdown notes: online in the signed-in person's Epicenter repository, or on the desktop in a folder Todos keeps its todos in",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
+	"imports": {
+		"#platform/root": {
+			"tauri": "./src/lib/root.tauri.ts",
+			"default": "./src/lib/root.ts"
+		}
+	},
 	"scripts": {
 		"dev": "vite dev",
 		"dev:ui": "vite dev",
-		"dev:desktop": "bun run build && tauri dev --config src-tauri/tauri.dev.conf.json",
-		"build:desktop": "bun run build && tauri build --bundles app",
 		"build": "NODE_ENV=production vite build",
+		"build:native": "EPICENTER_DESKTOP=1 TODOS_BUILD_DIR=build-desktop NODE_ENV=production vite build",
+		"dev:desktop": "bun run build:native && tauri dev --config src-tauri/tauri.dev.conf.json",
+		"build:desktop": "bun run build:native && tauri build --bundles app",
 		"preview": "vite preview",
 		"demo": "bun e2e/stack.ts --demo",
 		"contract": "bun scripts/write-contract.ts",
@@ -17,7 +24,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"test": "bun test --isolate --conditions=browser --conditions=svelte src scripts",
 		"test:e2e": "playwright test -c playwright.config.ts",
-		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.scripts.json"
+		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && svelte-check --tsconfig ./tsconfig.tauri.json && tsc -p tsconfig.scripts.json"
 	},
 	"devDependencies": {
 		"@epicenter/ui": "workspace:*",

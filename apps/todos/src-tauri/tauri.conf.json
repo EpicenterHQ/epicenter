@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"identifier": "so.epicenter.todos",
 	"build": {
-		"frontendDist": "../build"
+		"frontendDist": "../build-desktop"
 	},
 	"app": {
 		"windows": [],
@@ -16,5 +16,10 @@
 	"bundle": {
 		"active": true,
 		"icon": ["icons/icon.png"]
+	},
+	"plugins": {
+		"fs": {
+			"scopeDroppedPaths": false
+		}
 	}
 }

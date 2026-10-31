@@ -10,7 +10,7 @@
 	import { fromClient } from '@epicenter/svelte/client';
 	import { setRepo } from '@epicenter/svelte/repo';
 	import type { Snippet } from 'svelte';
-	import { todos } from '$lib/contract.js';
+	import { todos } from '../contract.js';
 
 	const { account, children }: { account: Account; children: Snippet } = $props();
 

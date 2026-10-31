@@ -104,8 +104,7 @@ rest of the import graph stays ordinary.
 - Choosing the store anywhere but a variant's root, or moving files between
   stores.
 - Detecting the platform at run time (`isTauri()`) to pick a store or a
-  capability in an app that has seams. Standalone Todos predates seams and
-  still picks with `isTauri()` in one build; do not copy it.
+  capability in an app that has seams.
 - Branching on `#platform/variant` for behavior.
 - Importing a leaf directly from shared code, or importing a desktop-only
   symbol through the seam: off the desktop it resolves to the browser leaf.

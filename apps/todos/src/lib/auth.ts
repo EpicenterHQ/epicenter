@@ -7,9 +7,9 @@
  * The server is `VITE_EPICENTER_SERVER` when the build sets it (a local or
  * self-hosted API), otherwise Epicenter's.
  *
- * The client is made on first use, and only in a browser: making it reads
- * `localStorage` and schedules renewals, and the desktop window, whose
- * folder Epicenter syncs, never signs in.
+ * The client is made on first use: making it reads `localStorage` and
+ * schedules renewals. The web app's root and the sign-in callback use it;
+ * the desktop window, whose folder Epicenter syncs, never signs in.
  */
 import {
 	createBrowserOAuth,
@@ -19,7 +19,6 @@ import {
 import { fromAuth } from '@epicenter/auth/svelte';
 import { resolveOAuthAudiences } from '@epicenter/constants/apps';
 import { APP_URLS, SELF_HOST_ORIGIN } from '@epicenter/constants/vite';
-import { isTauri } from '@tauri-apps/api/core';
 
 function createAuth() {
 	const server = SELF_HOST_ORIGIN
@@ -38,9 +37,8 @@ function createAuth() {
 
 let auth: ReturnType<typeof createAuth> | undefined;
 
-/** This page's sign-in, made on first use; null in the desktop window, which never signs in. */
+/** This page's sign-in, made on first use. */
 export function webAuth() {
-	if (isTauri()) return null;
 	auth ??= createAuth();
 	return auth;
 }

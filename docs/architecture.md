@@ -79,13 +79,12 @@ the folder plugin's scoped file commands before the window loads. A listed
 directory that disappeared is refused and never created. Epicenter's own
 records are always `~/Epicenter/so.epicenter`.
 
-Standalone Todos opens its fixed reverse-DNS default,
-`~/Epicenter/so.epicenter.todos`, from the shared library table, creating it
-when missing and reusing it otherwise; nothing saves or selects that location
-(ADR-0672). Its shell computes and binds that location at launch, so the page
-still calls `openFolder({ tables })`. Its rows land directly under `todos/`
-there. The path choice belongs to the launch context, not to a path supplied
-by the WebView.
+Each standalone app (Capture, Honeycrisp, Todos, Vocab, Whispering) is its
+own Tauri program on the shared `epicenter-standalone` crate: its window
+starts on its AppData root and opens its data folder,
+`~/Epicenter/<productName>` (for Todos, `~/Epicenter/Todos`) unless the
+person chose another, which Tauri's file-system scope must allow
+([ADR-0701](adr/0701-apps-run-as-separate-programs.md)).
 
 Each window owns one Folder mirror and the edits of its mounted editors.
 The shell owns directory permission and atomic file publication. Settings and connection credentials are separate from the

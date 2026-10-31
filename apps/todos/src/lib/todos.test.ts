@@ -1,5 +1,5 @@
 /**
- * Todos' order: both variants sort the list they read, this browser's or
+ * Todos' order: both variants sort the list they read, the desktop folder's or
  * the repository's, with `openFirst`.
  *
  * Key behaviors:

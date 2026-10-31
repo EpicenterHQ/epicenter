@@ -26,11 +26,5 @@ export const labelOf = (todo: Pick<Todo, 'id' | 'title'>) =>
 export const openFirst = (a: Todo, b: Todo) =>
 	Number(a.done) - Number(b.done) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
-/**
- * Which variant a page is: `desktop`, the window's folder, which Epicenter
- * syncs, or `online`, the person's repository in a browser.
- */
-export type Variant = 'desktop' | 'online';
-
 /** The list every component of a page reads and edits: its store's todos. */
 export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();

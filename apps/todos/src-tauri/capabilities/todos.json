@@ -1,8 +1,14 @@
 {
 	"$schema": "../gen/schemas/desktop-schema.json",
 	"identifier": "todos",
-	"description": "The one standalone Todos window opens the Epicenter-root default, bound by Rust before its WebView exists. The static page opens the window's folder as Todos' contract client (openDevice from @epicenter/folder/tauri) and passes no path. General folder selection belongs to Epicenter's launcher; standalone Todos has no picker or extra-folder windows. The page lists and reads its folder through the folder plugin's private observation and close channels. On close it waits for queued writes, then destroys the window. It may ask Rust to request that Epicenter sync its bound folder (epicenter://init).",
+	"description": "The one Todos window. Rust opens it on Todos' AppData root, whose settings.md the page reads (openAppData from @epicenter/folder/tauri, which finds it with Tauri's path API); the page then opens its data folder by path (openDataFolder): the folder settings.md names, or ~/Epicenter/<productName> (the app's name, core:app:allow-name), which Rust allows in Tauri's runtime file-system scope at startup. Any other folder opens only once the native picker (dialog:allow-open) allowed it; persisted-scope keeps that across launches. No capability names a folder. On close it waits for queued writes, then destroys the window. Through the folder plugin it may ask Epicenter to sync the data folder (epicenter://init) and whether Epicenter already does.",
 	"local": true,
 	"windows": ["todos:*"],
-	"permissions": ["epicenter-folder:default", "allow-open-in-epicenter"]
+	"permissions": [
+		"epicenter-folder:default",
+		"dialog:allow-open",
+		"core:app:allow-name",
+		"core:path:allow-resolve-directory",
+		"core:path:allow-join"
+	]
 }

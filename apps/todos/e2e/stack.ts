@@ -18,8 +18,8 @@ await runAppStack({
 	name: 'todos',
 	app: localUrl(APPS.TODOS),
 	// The static app goes to the scratch directory (`TODOS_BUILD_DIR`, read
-	// by `svelte.config.js`), never `build/`, which the desktop shell loads;
-	// `vite preview` serves `.svelte-kit/output`.
+	// by `svelte.config.js`), never `build/`; `vite preview` serves
+	// `.svelte-kit/output`.
 	build: (scratch) => ({
 		command: [process.execPath, 'x', 'vite', 'build', '--logLevel', 'warn'],
 		cwd: appDir,

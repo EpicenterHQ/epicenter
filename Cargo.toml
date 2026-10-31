@@ -9,6 +9,7 @@ resolver = "2"
 members = [
     "apps/capture/src-tauri",
     "apps/honeycrisp/src-tauri",
+    "apps/todos/src-tauri",
     "apps/vocab/src-tauri",
     "apps/whispering/src-tauri",
     "packages/epicenter-transcription-build",
@@ -19,13 +20,12 @@ members = [
     "packages/tauri-plugin-epicenter-recorder",
     "packages/tauri-plugin-epicenter-transcription",
 ]
-# Shells with their own lockfile and profile, not yet moved here, and
-# independent tools.
+# Epicenter's own shell, with its own lockfile and profile, not yet moved
+# here, and independent tools.
 exclude = [
     "apps/epicenter/src-tauri",
     "apps/epicenter/bench/backend-latency",
     "apps/epicenter/scripts/release-check",
-    "apps/todos/src-tauri",
 ]
 
 # Every standalone app aborts on an unexpected panic in release. Errors
@@ -35,7 +35,7 @@ panic = "abort"
 strip = true
 
 # tauri-specta's pinned revision needs this Specta revision; the same pins as
-# apps/epicenter/src-tauri/Cargo.toml and apps/todos/src-tauri/Cargo.toml.
+# apps/epicenter/src-tauri/Cargo.toml.
 [patch.crates-io]
 specta = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
 specta-macros = { git = "https://github.com/specta-rs/specta", rev = "3c535739ea7bd8737ecdbff6c3aef9b7330da706" }
