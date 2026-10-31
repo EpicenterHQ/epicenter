@@ -11,7 +11,21 @@ import {
 	type R2LfsBucket,
 } from '@epicenter/server';
 
-/** The bindings LFS reads; none of them is in the hosted cloud's configuration yet. */
+/**
+ * The secrets the receiver's LFS path requires beside the bucket binding:
+ * the R2 S3 key pair that presigns transfers. They are optional Worker
+ * secrets (not in `wrangler.jsonc`'s `secrets.required`), so a deploy
+ * without them succeeds with LFS, and so hosted Git, off.
+ */
+export const LFS_SECRETS = [
+	'R2_ACCESS_KEY_ID',
+	'R2_SECRET_ACCESS_KEY',
+] as const;
+
+/**
+ * The bindings LFS reads. `wrangler.jsonc` binds `LFS_BUCKET` and sets
+ * `LFS_BUCKET_NAME`; `LFS_SECRETS` arrive as secrets after deployment.
+ */
 export type LfsBindings = {
 	LFS_BUCKET?: R2LfsBucket;
 	LFS_BUCKET_NAME?: string;

@@ -10,6 +10,7 @@ import {
 	createArtifactsGitHost,
 	resolveArtifactsGitHost,
 } from './git-repositories.js';
+import { LFS_SECRETS } from './lfs-store.js';
 
 const realFetch = globalThis.fetch;
 afterEach(() => {
@@ -194,6 +195,43 @@ test('the namespace var names the same namespace as the Artifacts binding', asyn
 	);
 	expect(binding?.namespace).toBe(config.vars.ARTIFACTS_NAMESPACE!);
 	expect(config.secrets.required).toContain('ARTIFACTS_ACCOUNT_ID');
+});
+
+test('R2 LFS is bound in the config, and hosted Git stays off until its two secrets arrive', async () => {
+	const config = Bun.JSONC.parse(
+		await Bun.file(new URL('../wrangler.jsonc', import.meta.url)).text(),
+	) as {
+		vars: Record<string, string>;
+		r2_buckets: { binding: string; bucket_name: string }[];
+		secrets: { required: string[] };
+	};
+	const bucket = config.r2_buckets.find(
+		({ binding }) => binding === 'LFS_BUCKET',
+	);
+	expect(bucket?.bucket_name).toBe('epicenter-lfs');
+	expect(config.vars.LFS_BUCKET_NAME).toBe(bucket?.bucket_name);
+	// Optional, so a deploy without them succeeds with LFS off.
+	for (const secret of LFS_SECRETS)
+		expect(config.secrets.required).not.toContain(secret);
+	// What the config binds, with neither secret: hosted Git is off.
+	const bound = {
+		ARTIFACTS: {} as ArtifactsNamespace,
+		ARTIFACTS_ACCOUNT_ID: 'account123',
+		ARTIFACTS_NAMESPACE: config.vars.ARTIFACTS_NAMESPACE,
+		LFS_BUCKET: {} as never,
+		LFS_BUCKET_NAME: config.vars.LFS_BUCKET_NAME,
+	};
+	expect(resolveArtifactsGitHost(bound)).toBeNull();
+	expect(
+		resolveArtifactsGitHost({ ...bound, R2_ACCESS_KEY_ID: 'key' }),
+	).toBeNull();
+	expect(
+		resolveArtifactsGitHost({
+			...bound,
+			R2_ACCESS_KEY_ID: 'key',
+			R2_SECRET_ACCESS_KEY: 'secret',
+		}),
+	).not.toBeNull();
 });
 
 describe('the receiver', () => {

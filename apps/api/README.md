@@ -289,7 +289,8 @@ hour early, `read` for a fetch and `write` for the receiver's own writes. The
 client's token never reaches Artifacts. Git LFS objects live in R2 when the
 Worker binds a bucket (`LFS_BUCKET`, `LFS_BUCKET_NAME`, and the
 `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` pair that presigns transfers;
-`worker/lfs-store.ts`); until then hosted Git answers 503. Clone and fetch are
+`worker/lfs-store.ts`); until the key pair reaches the deployed version,
+hosted Git answers 503 (see Deploying R2 LFS). Clone and fetch are
 forwarded untouched, in whichever protocol the client asks for; every
 push goes through the receiver and every web write through the translator,
 over `worker/artifacts-objects.ts`. The Worker's receiver takes a push body of
@@ -321,6 +322,33 @@ variable, and required account secret from its local config. Hosted Git answers
 used a separate Worker and namespace, and have not been repeated for the
 per-id store; run them before the first deploy of ADR-0546. The local launcher
 does not enable that integration path.
+
+### Deploying R2 LFS
+
+The bucket `epicenter-lfs` (with its CORS policy) exists, and
+`wrangler.jsonc` binds it as `LFS_BUCKET` with `LFS_BUCKET_NAME`. The
+receiver's LFS path also needs the presigning key pair, `R2_ACCESS_KEY_ID`
+and `R2_SECRET_ACCESS_KEY` (`LFS_SECRETS` in `worker/lfs-store.ts`), kept in
+Infisical project Epicenter, environment `prod`, path `/api`. They are
+optional Worker secrets: a version deployed without them runs with LFS, and
+so hosted Git, answering 503. Saved but undeployed `api` versions from
+before may still carry revoked R2 credentials, which is why Infisical's
+automatic sync can fail (error 10215: the latest version is undeployed).
+The order:
+
+1. Merge to `main`; CI deploys the new version, with the binding.
+2. Put the two secrets on that deployed version: let Infisical's Cloudflare
+   sync run, or, without printing any value,
+   `infisical run --projectId <Epicenter> --env prod --path /api -- sh -c 'printf %s "$R2_ACCESS_KEY_ID" | wrangler secret put R2_ACCESS_KEY_ID && printf %s "$R2_SECRET_ACCESS_KEY" | wrangler secret put R2_SECRET_ACCESS_KEY'`
+   from `apps/api`. A secret put makes a new deployed version from the current one.
+3. Never roll back to, or redeploy, a saved version that carries the
+   revoked credentials.
+4. Only when deployment is authorized: push a file through Git LFS to a
+   production repository and fetch it back, and confirm both transfers
+   used presigned R2 URLs.
+
+The R2 API token is `epicenter-lfs-presign-v2`; renaming it to
+`epicenter-lfs-presign` in the Cloudflare dashboard is an owner action.
 
 ### Database commands
 

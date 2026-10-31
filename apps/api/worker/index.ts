@@ -163,9 +163,10 @@ const accountSession = every(cloudContext, requireSessionCookie());
 // and the listing from a Git-audience token, so they take no guard here.
 // Unmetered. The local dev launcher removes the Artifacts binding and required account secret, so the
 // store resolves to null and hosted Git answers 503. Hosted Git also answers
-// 503 until an R2 LFS store (`LFS_BUCKET`, `LFS_BUCKET_NAME`,
-// `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`) is bound, which this
-// configuration does not do yet; then every push and web write goes through
+// 503 until the R2 LFS store is complete: `wrangler.jsonc` binds
+// `LFS_BUCKET` and `LFS_BUCKET_NAME`, and the `R2_ACCESS_KEY_ID` and
+// `R2_SECRET_ACCESS_KEY` secrets reach the deployed version (README.md,
+// "Deploying R2 LFS"); then every push and web write goes through
 // `@epicenter/server`'s receiver.
 mountGitHost(app, {
 	setup: cloudContext,

@@ -55,9 +55,27 @@
 	// binding creates repositories and mints their tokens, while the Git data
 	// plane forwards to `https://<account>.artifacts.cloudflare.net/git/<namespace>/...`
 	// directly. worker/git-repositories.test.ts asserts the two agree.
+	//
+	// LFS_BUCKET_NAME repeats the R2 binding's bucket below: the binding reads and
+	// writes objects, while presigned transfer URLs name the bucket on R2's S3
+	// endpoint. worker/git-repositories.test.ts asserts the two agree.
 	"vars": {
-		"ARTIFACTS_NAMESPACE": "epicenter-production"
+		"ARTIFACTS_NAMESPACE": "epicenter-production",
+		"LFS_BUCKET_NAME": "epicenter-lfs"
 	},
+	// --- R2: Git LFS objects (decisions 17, 73, 85 and 98) ---
+	// Bound here, never in the dashboard: a dashboard binding is overwritten on
+	// the next deploy. The receiver's LFS path also needs the R2_ACCESS_KEY_ID
+	// and R2_SECRET_ACCESS_KEY pair that presigns transfers; they are optional
+	// secrets (not in `secrets.required`), and until both reach the deployed
+	// version hosted Git answers 503 (worker/lfs-store.ts). See README.md,
+	// "Deploying R2 LFS", for the order.
+	"r2_buckets": [
+		{
+			"binding": "LFS_BUCKET",
+			"bucket_name": "epicenter-lfs"
+		}
+	],
 	// --- Artifacts: hosted Git repositories (ADR-0546) ---
 	// One namespace per environment, one repository per repository id (the
 	// `repository` table's immutable id, never a URL segment). The binding has no local
