@@ -4,7 +4,7 @@
 	import { onMount } from 'svelte';
 	import { type AuthGrant, commands } from './bindings.gen';
 	import { failureText } from './connections/connections';
-	import { isDesktopHost } from './runtime.ts';
+	import { isTauri } from '@tauri-apps/api/core';
 	import * as Empty from '@epicenter/ui/empty';
 	import AiConnections from './connections/AiConnections.svelte';
 	import LocalModelAdministration from './LocalModelAdministration.svelte';
@@ -42,7 +42,7 @@
 	}
 
 	onMount(() => {
-		if (!isDesktopHost()) return;
+		if (!isTauri()) return;
 		void readStatus().finally(() => (busy = null));
 	});
 
@@ -80,7 +80,7 @@
 	);
 </script>
 
-{#if isDesktopHost()}
+{#if isTauri()}
 	<div class="grid gap-3 border-b p-3">
 		<h2 class="font-medium">Account</h2>
 		{#if busy === 'reading'}
