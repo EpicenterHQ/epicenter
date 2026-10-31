@@ -72,7 +72,7 @@ test('says why the shell refused', async () => {
 	};
 	expect(
 		expectErr(await syncedWithEpicenter({ path: 'relative' })).message,
-	).toBe('relative is not a folder.');
+	).toBe('relative is not a folder this window can use.');
 });
 
 test('reads whether Epicenter syncs the folder', async () => {

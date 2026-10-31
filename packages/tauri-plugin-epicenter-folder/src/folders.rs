@@ -1,7 +1,14 @@
 //! Live window-to-directory bindings. Each command keeps its admitted directory.
+//!
+//! A binding has one primary directory, the one its watch observes, and may
+//! carry more roots the shell granted when it built the window (an app's own
+//! configuration directory beside the folder it keeps its files in). A page
+//! names a root by its exact path; it reaches no other. Both are fixed for
+//! the window's lifetime.
 
 use std::collections::HashMap;
 use std::fmt;
+use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -27,6 +34,8 @@ struct State {
 
 struct Binding {
     directory: Directory,
+    /// Further roots the page may name by path; never watched.
+    grants: Vec<Directory>,
     identity: Arc<()>,
     retiring: bool,
     watch: Option<FolderWatch>,
@@ -72,7 +81,19 @@ impl Folders {
     }
 
     /// Bind once for the window's lifetime, before its WebView exists.
+    #[cfg(test)]
     pub(crate) fn bind(&self, label: &str, directory: Directory) -> Result<(), BindError> {
+        self.bind_granting(label, directory, Vec::new())
+    }
+
+    /// Bind `directory` as the window's primary root and `grants` as roots its
+    /// page may also name by path, once for the window's lifetime.
+    pub(crate) fn bind_granting(
+        &self,
+        label: &str,
+        directory: Directory,
+        grants: Vec<Directory>,
+    ) -> Result<(), BindError> {
         let mut state = self.state();
         if state.stopped {
             return Err(BindError::ShuttingDown);
@@ -86,6 +107,7 @@ impl Folders {
             label.to_string(),
             Binding {
                 directory,
+                grants,
                 identity: Arc::new(()),
                 retiring: false,
                 watch: None,
@@ -104,7 +126,18 @@ impl Folders {
         directory: Directory,
         build: impl FnOnce() -> Result<T, E>,
     ) -> Result<T, E> {
-        self.bind(label, directory)?;
+        self.bind_while_building_granting(label, directory, Vec::new(), build)
+    }
+
+    /// `bind_while_building` with roots the page may also name by path.
+    pub fn bind_while_building_granting<T, E: From<BindError>>(
+        &self,
+        label: &str,
+        directory: Directory,
+        grants: Vec<Directory>,
+        build: impl FnOnce() -> Result<T, E>,
+    ) -> Result<T, E> {
+        self.bind_granting(label, directory, grants)?;
         build().inspect_err(|_| self.unbind(label))
     }
 
@@ -140,6 +173,31 @@ impl Folders {
             .filter(|binding| !binding.retiring)
             .map(|binding| binding.directory.clone())
             .ok_or(WindowError::NotBound)
+    }
+
+    /// The root a page named, cloned for one admitted operation: the primary
+    /// directory for `None` or its exact path, or a granted root by its exact
+    /// path. Any other path is `NotGranted`, whatever it contains.
+    pub fn bound_root(&self, label: &str, root: Option<&str>) -> Result<Directory, WindowError> {
+        let state = self.state();
+        if state.stopped {
+            return Err(WindowError::ShuttingDown);
+        }
+        let binding = state
+            .bindings
+            .get(label)
+            .filter(|binding| !binding.retiring)
+            .ok_or(WindowError::NotBound)?;
+        let Some(root) = root else {
+            return Ok(binding.directory.clone());
+        };
+        std::iter::once(&binding.directory)
+            .chain(&binding.grants)
+            .find(|directory| directory.root() == Path::new(root))
+            .cloned()
+            .ok_or_else(|| WindowError::NotGranted {
+                root: root.to_string(),
+            })
     }
 
     /// Reserve this page's observation before filesystem setup can block.
@@ -450,6 +508,8 @@ pub enum WindowError {
     Missing,
     /// The bound directory could not be reached.
     Unavailable { message: String },
+    /// The page named a root the shell did not grant this window.
+    NotGranted { root: String },
     /// The shell is shutting its folders down.
     ShuttingDown,
 }
@@ -461,6 +521,7 @@ impl fmt::Display for WindowError {
             Self::Missing => formatter.write_str("This window's folder is not there anymore."),
             Self::Unavailable { message } => formatter.write_str(message),
             Self::ShuttingDown => formatter.write_str("The folders are shutting down."),
+            Self::NotGranted { root } => write!(formatter, "This window may not open {root}."),
         }
     }
 }

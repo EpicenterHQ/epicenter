@@ -99,8 +99,17 @@ export async function grantedDirectory(prefix = 'granted-'): Promise<string> {
 	return nodeFs.realpath(await nodeFs.mkdtemp(join(tmpdir(), prefix)));
 }
 
-/** The shell, with the directory at `root` bound to the window. */
-export function createGrantedShell(root: string) {
+/**
+ * The shell, with the directory at `root` bound to the window and the
+ * directories at `grants` granted beside it: a page names one by its exact
+ * path (`root` in a command's arguments), and any other root is refused as
+ * the plugin refuses it. Granted roots are plain storage, outside the
+ * test's change controls, and never watched.
+ */
+export function createGrantedShell(
+	root: string,
+	{ grants = [] }: { grants?: readonly string[] } = {},
+) {
 	const calls: ShellCall[] = [];
 	/** Every data change that landed, in order. */
 	const changes: DataChange[] = [];
@@ -183,6 +192,29 @@ export function createGrantedShell(root: string) {
 	// gets nothing but the files saved, and no `.git`.
 	const scratch = scratchDirectory(root);
 	const storage = createDirectoryStorage({ root, primitives: files, scratch });
+	const granted = new Map(
+		grants.map((grant) => [
+			grant,
+			createDirectoryStorage({
+				root: grant,
+				primitives: nodeDirectoryPrimitives,
+				scratch: scratchDirectory(grant),
+			}),
+		]),
+	);
+	/** The storage of the root a call named, or the plugin's refusal. */
+	function storageFor(args: Record<string, unknown>) {
+		const named = args.root;
+		if (named === undefined || named === null || named === root) return storage;
+		const found = granted.get(named as string);
+		if (found !== undefined) return found;
+		throw {
+			name: 'Io',
+			path: (args.path as string | undefined) ?? '',
+			operation: 'open',
+			message: `NotGranted { root: ${JSON.stringify(named)} }`,
+		} satisfies StorageError;
+	}
 
 	/** Remove the staged files a stopped save left an hour or more ago. */
 	async function sweep() {
@@ -199,11 +231,12 @@ export function createGrantedShell(root: string) {
 		async open_folder() {
 			const opened = control.open();
 			await sweep();
-			return opened;
+			// The shell answers the root it watches.
+			return opened === null ? root : opened;
 		},
-		list_folder: () => answered(storage.list()),
+		list_folder: (args) => answered(storageFor(args).list()),
 		read_folder_children: (args) =>
-			answered(storage.children(args.directory as string)),
+			answered(storageFor(args).children(args.directory as string)),
 		async read_folder_file(args) {
 			const path = args.path as string;
 			if (control.failReads.has(path))
@@ -213,7 +246,7 @@ export function createGrantedShell(root: string) {
 					operation: 'read',
 					message: 'the disk could not be read (os error 5)',
 				} satisfies StorageError;
-			const { bytes, stamp } = await answered(storage.read(path));
+			const { bytes, stamp } = await answered(storageFor(args).read(path));
 			// The raw response arrives as one `ArrayBuffer`: the stamp, a zero
 			// byte, then the file bytes, as the plugin sends it.
 			const header = new TextEncoder().encode(stamp);
@@ -243,7 +276,7 @@ export function createGrantedShell(root: string) {
 					message: 'put_folder_file needs the expected header',
 				} satisfies StorageError;
 			const outcome = await answered(
-				storage.put(
+				storageFor(args).put(
 					path,
 					args.remove === 'true' ? null : bytes,
 					expected === 'any' || expected === 'absent' || expected === 'present'
@@ -259,11 +292,11 @@ export function createGrantedShell(root: string) {
 			return outcome;
 		},
 		async make_folder_directory(args) {
-			await answered(storage.mkdir(args.path as string));
+			await answered(storageFor(args).mkdir(args.path as string));
 			return null;
 		},
 		async remove_folder_directory(args) {
-			await answered(storage.rmdir(args.path as string));
+			await answered(storageFor(args).rmdir(args.path as string));
 			if (control.loseDirectoryReplies > 0) {
 				control.loseDirectoryReplies -= 1;
 				throw new Error('the reply never reached the window');

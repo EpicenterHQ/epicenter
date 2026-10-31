@@ -1,9 +1,11 @@
 //! The IPC surface: opening the calling window's folder, and one command per
 //! method of the page's folder storage (`storage`, ADR-0581).
 //!
-//! A page names folder-relative paths, nothing else. Every command derives
-//! its directory from the calling WebView's label, which Tauri injects; the
-//! page never supplies a root, scope, or label. Each command clones the
+//! A page names folder-relative paths and, optionally, which of its window's
+//! roots they are in: `root`, the exact path of the window's own directory
+//! or of a root the shell granted it (`Folders::bound_root`); no `root` is the
+//! window's own directory. Every command derives its roots from the calling
+//! WebView's label, which Tauri injects, so a page reaches no other path. Each command clones the
 //! window's `Directory` when it is admitted and works in that root until it
 //! ends, so a window closed and replaced under the same label meanwhile
 //! cannot redirect it. Every command that touches the disk runs on the
@@ -43,12 +45,14 @@ fn failed(path: &str, operation: &str, message: String) -> StorageError {
 /// removes the staged files a stopped save left an hour or more ago
 /// (`storage::sweep_scratch`).
 /// Open the calling WebView's folder with a private observation channel.
+/// Answers the folder's root, so a page that also reaches granted roots
+/// knows which one the observations are about: only this one is watched.
 #[tauri::command]
 #[specta::specta]
 pub async fn open_folder<R: Runtime>(
     webview: Webview<R>,
     on_change: Channel<FolderChanged>,
-) -> Result<(), WindowError> {
+) -> Result<String, WindowError> {
     let label = webview.label().to_string();
     let (directory, observation) = webview
         .app_handle()
@@ -69,7 +73,7 @@ pub async fn open_folder<R: Runtime>(
                         log::warn!("The folder observation could not be delivered: {error}");
                     }
                 })?;
-            Ok(())
+            Ok(root.to_string_lossy().into_owned())
         },
         |message| Err(WindowError::Unavailable { message }),
     )
@@ -179,16 +183,18 @@ fn destroy_if_current<R: Runtime>(window: WebviewWindow<R>, token: u32) -> Resul
     receive.recv().map_err(|error| error.to_string())?
 }
 
-/// The directory bound to the calling window, cloned for this command.
+/// The root the page named among the calling window's, cloned for this
+/// command (`Folders::bound_root`).
 fn bound<R: Runtime>(
     webview: &Webview<R>,
+    root: Option<&str>,
     path: &str,
     operation: &str,
 ) -> Result<Directory, StorageError> {
     webview
         .app_handle()
         .state::<Folders>()
-        .bound(webview.label())
+        .bound_root(webview.label(), root)
         .map_err(|refusal| failed(path, operation, format!("{refusal:?}")))
 }
 
@@ -196,8 +202,11 @@ fn bound<R: Runtime>(
 /// (`storage::list`).
 #[tauri::command]
 #[specta::specta]
-pub async fn list_folder<R: Runtime>(webview: Webview<R>) -> Result<FileListing, StorageError> {
-    let directory = bound(&webview, "", "list")?;
+pub async fn list_folder<R: Runtime>(
+    webview: Webview<R>,
+    root: Option<String>,
+) -> Result<FileListing, StorageError> {
+    let directory = bound(&webview, root.as_deref(), "", "list")?;
     blocking(
         move || storage::list(directory.root()),
         |message| Err(failed("", "list", message)),
@@ -212,8 +221,9 @@ pub async fn list_folder<R: Runtime>(webview: Webview<R>) -> Result<FileListing,
 pub async fn read_folder_children<R: Runtime>(
     webview: Webview<R>,
     directory: String,
+    root: Option<String>,
 ) -> Result<Children, StorageError> {
-    let folder = bound(&webview, &directory, "list")?;
+    let folder = bound(&webview, root.as_deref(), &directory, "list")?;
     let at = directory.clone();
     blocking(
         move || storage::children(folder.root(), &directory),
@@ -231,8 +241,9 @@ pub async fn read_folder_children<R: Runtime>(
 pub async fn read_folder_file<R: Runtime>(
     webview: Webview<R>,
     path: String,
+    root: Option<String>,
 ) -> Result<tauri::ipc::Response, StorageError> {
-    let directory = bound(&webview, &path, "read")?;
+    let directory = bound(&webview, root.as_deref(), &path, "read")?;
     let at = path.clone();
     blocking(
         move || storage::read(directory.root(), &path),
@@ -253,8 +264,8 @@ pub async fn read_folder_file<R: Runtime>(
 ///
 /// The bytes are the request's raw body, so file content crosses IPC as it
 /// is rather than as a JSON array of numbers. Percent-encoded headers carry
-/// the rest: `path`, `remove` (`true` to remove the file, when the body is
-/// ignored), and `expected`, what the page expects there (`any`, `absent`,
+/// the rest: `path`, `root` (optional, as for every command), `remove`
+/// (`true` to remove the file, when the body is ignored), and `expected`, what the page expects there (`any`, `absent`,
 /// `present`, or the SHA-256 of the file: `storage::Expectation`). A JSON
 /// array of bytes is accepted as well: Tauri
 /// sends one when its custom-protocol IPC failed and it fell back to
@@ -304,7 +315,8 @@ pub async fn put_folder_file<R: Runtime>(
         }
     };
     let operation = if remove { "remove" } else { "write" };
-    let directory = bound(&webview, &path, operation)?;
+    let root = header("root").map_err(refused)?;
+    let directory = bound(&webview, root.as_deref(), &path, operation)?;
     let at = path.clone();
     blocking(
         move || {
@@ -324,8 +336,9 @@ pub async fn put_folder_file<R: Runtime>(
 pub async fn make_folder_directory<R: Runtime>(
     webview: Webview<R>,
     path: String,
+    root: Option<String>,
 ) -> Result<(), StorageError> {
-    let directory = bound(&webview, &path, "create directory")?;
+    let directory = bound(&webview, root.as_deref(), &path, "create directory")?;
     let at = path.clone();
     blocking(
         move || storage::mkdir(directory.root(), &path),
@@ -341,8 +354,9 @@ pub async fn make_folder_directory<R: Runtime>(
 pub async fn remove_folder_directory<R: Runtime>(
     webview: Webview<R>,
     path: String,
+    root: Option<String>,
 ) -> Result<(), StorageError> {
-    let directory = bound(&webview, &path, "remove directory")?;
+    let directory = bound(&webview, root.as_deref(), &path, "remove directory")?;
     let at = path.clone();
     blocking(
         move || storage::rmdir(directory.root(), &path, || directory.publishing()),

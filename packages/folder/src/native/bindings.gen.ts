@@ -11,8 +11,10 @@ export const commands = {
 	 *  removes the staged files a stopped save left an hour or more ago
 	 *  (`storage::sweep_scratch`).
 	 *  Open the calling WebView's folder with a private observation channel.
+	 *  Answers the folder's root, so a page that also reaches granted roots
+	 *  knows which one the observations are about: only this one is watched.
 	 */
-	openFolder: (onChange: Channel<FolderChanged>) => typedError<null, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { onChange })),
+	openFolder: (onChange: Channel<FolderChanged>) => typedError<string, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|open_folder", { onChange })),
 	/**  Let this bound window answer its own native close requests. */
 	subscribeClose: (onClose: Channel<null>) => typedError<number, WindowError>(__TAURI_INVOKE("plugin:epicenter-folder|subscribe_close", { onClose })),
 	unsubscribeClose: (token: number) => __TAURI_INVOKE<void>("plugin:epicenter-folder|unsubscribe_close", { token }),
@@ -22,22 +24,22 @@ export const commands = {
 	 *  Every entry below the window's root, `.git` aside, none of them followed
 	 *  (`storage::list`).
 	 */
-	listFolder: () => typedError<FileListing, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder")),
+	listFolder: (root: string | null) => typedError<FileListing, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|list_folder", { root })),
 	/**
 	 *  The immediate children of a directory in the window's folder, the root
 	 *  for `""` (`storage::children`).
 	 */
-	readFolderChildren: (directory: string) => typedError<Children, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_children", { directory })),
+	readFolderChildren: (directory: string, root: string | null) => typedError<Children, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|read_folder_children", { directory, root })),
 	/**
 	 *  Make a directory and its missing ancestors in the window's folder
 	 *  (`storage::mkdir`).
 	 */
-	makeFolderDirectory: (path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { path })),
+	makeFolderDirectory: (path: string, root: string | null) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|make_folder_directory", { path, root })),
 	/**
 	 *  Remove an empty directory in the window's folder (`storage::rmdir`),
 	 *  under the same save lock as a put.
 	 */
-	removeFolderDirectory: (path: string) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { path })),
+	removeFolderDirectory: (path: string, root: string | null) => typedError<null, StorageError>(__TAURI_INVOKE("plugin:epicenter-folder|remove_folder_directory", { path, root })),
 	/**
 	 *  Ask the operating system to open Epicenter with a request to sync the
 	 *  folder at `path` under `contract`, the URL its contract is published at.
@@ -122,7 +124,7 @@ export type StorageError =
 
 /**  Why the request to Epicenter was not made: what the page is told. */
 export type SyncRequestError =
-/**  `path` is not an absolute path to an existing directory. */
+/**  `path` is not a root the calling window reaches, or it is gone. */
 { name: "Folder"; path: string } |
 /**  The contract URL is not `https:`, or `http:` on this machine. */
 { name: "Contract"; url: string } |
@@ -137,6 +139,8 @@ export type WindowError =
 { name: "Missing" } |
 /**  The bound directory could not be reached. */
 { name: "Unavailable"; message: string } |
+/**  The page named a root the shell did not grant this window. */
+{ name: "NotGranted"; root: string } |
 /**  The shell is shutting its folders down. */
 { name: "ShuttingDown" };
 

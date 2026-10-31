@@ -1,10 +1,11 @@
 //! How an app's folder reaches Epicenter (decisions 81 and 82): the page asks
 //! the shell to open `epicenter://init?path=<folder>&contract=<url>`, naming
-//! the folder it keeps its files in and the URL its contract is published
-//! at, and Epicenter, if installed, asks the person where to sync it and runs
-//! `epicenter init`. Nothing is set up without that answer, so the page may
-//! name any existing folder. It can also ask whether Epicenter already syncs
-//! a folder, which reads the folder's Git configuration and changes nothing.
+//! the folder it keeps its files in, which must be a root its window reaches
+//! (`Folders::bound_root`), and the URL its contract is published at.
+//! Epicenter, if installed, asks the person where to sync it and runs
+//! `epicenter init`. The page can also ask whether Epicenter already syncs a
+//! folder it reaches, which reads the folder's Git configuration and changes
+//! nothing.
 
 use std::fmt;
 use std::fs;
@@ -12,12 +13,15 @@ use std::path::Path;
 
 use serde::Serialize;
 use specta::Type;
+use tauri::{Manager, Runtime, Webview};
+
+use crate::Folders;
 
 /// Why the request to Epicenter was not made: what the page is told.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Type)]
 #[serde(tag = "name")]
 pub enum SyncRequestError {
-    /// `path` is not an absolute path to an existing directory.
+    /// `path` is not a root the calling window reaches, or it is gone.
     Folder { path: String },
     /// The contract URL is not `https:`, or `http:` on this machine.
     Contract { url: String },
@@ -28,7 +32,9 @@ pub enum SyncRequestError {
 impl fmt::Display for SyncRequestError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Folder { path } => write!(formatter, "{path} is not a folder."),
+            Self::Folder { path } => {
+                write!(formatter, "{path} is not a folder this window can use.")
+            }
             Self::Contract { url } => write!(formatter, "{url} is not a contract URL."),
             Self::NotOpened { message } => {
                 write!(formatter, "The system did not open Epicenter: {message}")
@@ -43,8 +49,13 @@ impl fmt::Display for SyncRequestError {
 /// folder up is the person's choice there.
 #[tauri::command]
 #[specta::specta]
-pub async fn sync_with_epicenter(path: String, contract: String) -> Result<(), SyncRequestError> {
-    let link = init_link(Path::new(&path), &contract)?;
+pub async fn sync_with_epicenter<R: Runtime>(
+    webview: Webview<R>,
+    path: String,
+    contract: String,
+) -> Result<(), SyncRequestError> {
+    let folder = reached(&webview, &path)?;
+    let link = init_link(folder.root(), &contract)?;
     tauri_plugin_opener::open_url(link, None::<&str>).map_err(|error| SyncRequestError::NotOpened {
         message: error.to_string(),
     })
@@ -53,13 +64,30 @@ pub async fn sync_with_epicenter(path: String, contract: String) -> Result<(), S
 /// Whether Epicenter syncs the folder at `path` (`synced`).
 #[tauri::command]
 #[specta::specta]
-pub async fn synced_with_epicenter(path: String) -> Result<bool, SyncRequestError> {
-    let folder = existing_folder(&path)?;
+pub async fn synced_with_epicenter<R: Runtime>(
+    webview: Webview<R>,
+    path: String,
+) -> Result<bool, SyncRequestError> {
+    let folder = reached(&webview, &path)?;
     Ok(
-        tauri::async_runtime::spawn_blocking(move || synced(Path::new(&folder)))
+        tauri::async_runtime::spawn_blocking(move || synced(folder.root()))
             .await
             .unwrap_or(false),
     )
+}
+
+/// The root at `path` among the calling window's, or `Folder`.
+fn reached<R: Runtime>(
+    webview: &Webview<R>,
+    path: &str,
+) -> Result<crate::Directory, SyncRequestError> {
+    webview
+        .app_handle()
+        .state::<Folders>()
+        .bound_root(webview.label(), Some(path))
+        .map_err(|_| SyncRequestError::Folder {
+            path: path.to_owned(),
+        })
 }
 
 /// `path` when it is absolute and names an existing directory.

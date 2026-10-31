@@ -13,6 +13,10 @@ export function openRefusal(refusal: WindowError) {
 			return OpenFolderError.Unavailable({ cause: refusal.message });
 		case 'ShuttingDown':
 			return OpenFolderError.ShuttingDown();
+		case 'NotGranted':
+			return OpenFolderError.Unavailable({
+				cause: `This window may not open ${refusal.root}.`,
+			});
 		default:
 			return OpenFolderError.Unavailable({ cause: refusal });
 	}

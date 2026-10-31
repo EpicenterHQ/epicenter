@@ -7,7 +7,8 @@
  *
  * Key behaviors:
  * - The default is the bound directory itself; the page names no directory
- * - `path` names a folder inside it, and the client sees only that folder
+ * - A relative `path` names a folder inside it, and the client sees only that folder
+ * - An absolute `path` names a root the shell granted; any other is refused
  * - Versions are sha256, so a stale `over` is a `Conflict` and lands nothing
  * - A refusal from the shell, or a page outside Tauri, is `Unavailable`
  * - The shell's watcher reaches a collection's listeners, inside `path` only
@@ -131,9 +132,52 @@ test('path names a folder inside the bound directory, and the client sees only i
 	).toEqual(['a']);
 });
 
-test('a path that leaves the bound directory throws at once', () => {
-	for (const path of ['../elsewhere', '/Users/me/Notes', 'a//b', 'a/./b'])
+test('a relative path that leaves the bound directory throws at once', () => {
+	for (const path of ['../elsewhere', 'a//b', 'a/./b'])
 		expect(() => openDevice(notes, { path })).toThrow();
+});
+
+test('an absolute path names a root the shell granted, and only those are reached', async () => {
+	const config = await grantedDirectory('tauri-device-config-');
+	try {
+		shell = createGrantedShell(shell.root, { grants: [config] });
+		const settings = defineContract({
+			name: 'app-config',
+			collections: {
+				settings: {
+					path: 'settings.md',
+					fields: { folder: { type: 'string' } },
+				},
+			},
+		});
+		expectOk(
+			await openDevice(settings, { path: config }).settings.create({
+				folder: shell.root,
+			}),
+		);
+		expect(await readFile(join(config, 'settings.md'), 'utf8')).toBe(
+			`---\nfolder: ${JSON.stringify(shell.root)}\n---\n`,
+		);
+		// The window's own folder, named by its path, is the bound directory.
+		expectOk(
+			await openDevice(notes, { path: shell.root }).notes.create({
+				id: 'a',
+				title: 'One',
+			}),
+		);
+		expect(await shell.text('notes/a.md')).toContain('title: One');
+		const refused = expectErr(
+			await openDevice(notes, { path: '/Users/me/Notes' }).notes.list(),
+		);
+		expect(refused.name).toBe('Unavailable');
+		expect(
+			shell.calls
+				.filter((call) => call.cmd !== 'open_folder')
+				.map((call) => call.args.root ?? null),
+		).toEqual(expect.arrayContaining([config, shell.root, '/Users/me/Notes']));
+	} finally {
+		await rm(config, { recursive: true, force: true });
+	}
 });
 
 test('a refusal from the shell is Unavailable, and the next call tries again', async () => {
@@ -176,4 +220,30 @@ test("the shell's watcher reaches a collection's listeners, and a folder inside 
 	stopInside();
 	watcher.onmessage({ paths: ['notes/a.md'] });
 	expect([heard, heardInside]).toEqual([2, 2]);
+});
+
+test("a device opened at the window's own folder by path hears its watcher, and one at a granted root does not", async () => {
+	const config = await grantedDirectory('tauri-device-config-');
+	try {
+		shell = createGrantedShell(shell.root, { grants: [config] });
+		const folder = openDevice(notes, { path: shell.root });
+		const granted = openDevice(notes, { path: config });
+		let heard = 0;
+		let heardGranted = 0;
+		const stop = folder.notes.subscribe(() => heard++);
+		const stopGranted = granted.notes.subscribe(() => heardGranted++);
+		// The device hears once the shell answered which root it watches.
+		await Bun.sleep(50);
+		const watcher = watchers.at(-1);
+		if (watcher?.onmessage === undefined)
+			throw new Error('no watcher was opened');
+		watcher.onmessage({ paths: ['notes/a.md'] });
+		expect([heard, heardGranted]).toEqual([1, 0]);
+		watcher.onmessage({ paths: null });
+		expect([heard, heardGranted]).toEqual([2, 0]);
+		stop();
+		stopGranted();
+	} finally {
+		await rm(config, { recursive: true, force: true });
+	}
 });
