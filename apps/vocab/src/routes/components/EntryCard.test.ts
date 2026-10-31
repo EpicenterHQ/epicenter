@@ -1,7 +1,7 @@
 /**
  * EntryCard over a word note on a real device folder: the note is the
  * note's body, edited as typed (`fieldEdit`), and the stage and delete
- * write through the one list.
+ * write through the same notes.
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { expect, spyOn, test } from 'bun:test';

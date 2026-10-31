@@ -4,8 +4,9 @@
 	import CircleUser from '@lucide/svelte/icons/circle-user';
 	import { auth } from '$lib/auth.svelte.js';
 
-	// Sign-in is optional here. An account keeps the words and chats in the
-	// learner's repository, and adds Epicenter's hosted models.
+	// Sign-in is optional here. An account uploads this browser's words and
+	// chats to the learner's repository ("Synced"), and adds Epicenter's
+	// hosted models.
 	let open = $state(false);
 	let pending = $state(false);
 	let problem = $state('');
@@ -41,7 +42,7 @@
 			pending = false;
 			return;
 		}
-		// The page follows: it shows this browser's files alone, signed out.
+		// The page follows: "On this device" stays, and "Synced" asks for a sign-in.
 		pending = false;
 	}
 </script>
@@ -58,13 +59,13 @@
 		{#if auth.state.status === 'signed-out'}
 			<p class="text-sm font-medium">Sign in is optional</p>
 			<p class="text-xs leading-relaxed text-muted-foreground">
-				Your words and chats are saved in this browser. Signing in moves them to your Epicenter repository, where your other devices and Epicenter's desktop app reach them, and adds Epicenter's hosted tutor models.
+				Your words and chats are saved in this browser. Signing in uploads them to your Epicenter repository, shown under Synced, where your other devices and Epicenter's desktop app reach them, and adds Epicenter's hosted tutor models.
 			</p>
 			<Button class="w-full" disabled={pending} onclick={signIn}>{pending ? 'Signing in…' : 'Sign in'}</Button>
 		{:else}
 			<p class="text-sm font-medium">{email || 'Signed in'}</p>
 			<p class="text-xs leading-relaxed text-muted-foreground">
-				Your words and chats are in your repository; one made while offline waits in this browser and uploads when it can. This account also provides hosted tutor models.
+				Words and chats saved on this device upload to your repository on their own, then show under Synced. This account also provides hosted tutor models.
 			</p>
 			<div class="flex flex-col gap-1">
 				{#if auth.accountManagementUrl}

@@ -1,8 +1,8 @@
 /**
  * Vocab acquisition boundary tests.
- * The working page opens this browser's files with no sign-in in front of
- * them; callback pages and ancestor layouts open nothing; and no shipped
- * source opens an account-based or device store from `@epicenter/app`.
+ * The "On this device" page opens this browser's files with no sign-in in
+ * front of them; callback pages and ancestor layouts open nothing; and no
+ * shipped source opens an account-based or device store from `@epicenter/app`.
  */
 import { describe, expect, test } from 'bun:test';
 import { existsSync } from 'node:fs';
@@ -54,20 +54,25 @@ describe('the callback opens nothing', () => {
 			const text = await Bun.file(file).text();
 			expect(text).not.toMatch(/openDevice\s*\(|openRemote\s*\(/);
 			expect(text).not.toMatch(/@epicenter\/folder/);
-			expect(text).not.toContain('VocabApp.svelte');
+			expect(text).not.toMatch(/VocabApp\.svelte|SignedIn\.svelte/);
 		}
 	});
 });
 
 describe('the working page needs no account', () => {
-	test('the page mounts the app over this browser’s files signed out, with no sign-in gate', async () => {
+	test('"On this device" mounts the app over this browser’s files, with no sign-in gate', async () => {
 		const device = await Bun.file(join(source, 'lib/device.ts')).text();
 		expect(device).toMatch(/openDevice\(vocab\)/);
-		const page = await Bun.file(join(routes, '+page.svelte')).text();
+		const page = await Bun.file(join(routes, '(app)/+page.svelte')).text();
 		expect(page).toMatch(
-			/\{#if auth\.state\.status === 'signed-out'\}\s*<VocabApp\b/,
+			/<VocabApp view="device" vocab=\{fromClient\(device\)\}/,
 		);
-		expect(page).not.toMatch(/AppBoot|SignInScreen|openRemote/);
+		expect(page).not.toMatch(/AppBoot|SignInScreen|openRemote|auth/);
+		// Signed out, the views' layout renders its pages as they are.
+		const layout = await Bun.file(join(routes, '(app)/+layout.svelte')).text();
+		expect(layout).toMatch(
+			/\{#if auth\.state\.status === 'signed-out'\}\s*\{@render children\(\)\}/,
+		);
 	});
 
 	test('the contract declares no account', async () => {

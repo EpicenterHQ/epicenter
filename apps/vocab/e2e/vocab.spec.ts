@@ -2,18 +2,24 @@
  * Vocab end to end, per engine, as one person in one persistent browser
  * profile with a desktop sandbox beside it (see `stack.ts`):
  *
- * 1. Signed out, words are added, noted, staged and deleted in the browser
+ * Vocab has two views (decision 76): "On this device" (`/`), this browser's
+ * files, and "Synced" (`/synced`), the learner's repository.
+ *
+ * 1. Signed out, words are added, noted, staged and deleted on this device
  *    (OPFS), as Markdown notes at `entries/<sha256 of the text>.md`, the
- *    learner's note in the body.
- * 2. Signed in, they upload and the browser lets go of its copies; a new
- *    word and a new chat go straight to the repository.
+ *    learner's note in the body; "Synced" asks for a sign-in.
+ * 2. Signed in, they upload on their own: each leaves "On this device" and
+ *    the browser's files, and appears in "Synced". One added on this device
+ *    while signed in follows; a word and a chat started in "Synced" go to the
+ *    repository.
  * 3. `epicenter clone` holds them as written (the chat's focus a nested
  *    list), and `epicenter check` passes against the published contract.
- * 4. A stage changed on the desktop shows on the web with no reload; a note
- *    edited on the web reaches the desktop.
- * 5. A word note the desktop wrote that does not read is listed on the web
+ * 4. A stage changed on the desktop shows in "Synced" with no reload; a note
+ *    edited there reaches the desktop.
+ * 5. A word note the desktop wrote that does not read is listed in "Synced"
  *    with its text, and saving fixed text there repairs it.
- * 6. Signing out leaves this browser with no words.
+ * 6. Signing out leaves this browser with no words, and "Synced" asks for a
+ *    sign-in again.
  */
 import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
@@ -25,8 +31,10 @@ import {
 	epicenter,
 	opfsFiles,
 	opfsText,
+	recordUploaderStarts,
 	stackTest,
 	sync,
+	uploaderStarts,
 } from '../../../packages/cli/src/app-e2e.test-support.ts';
 
 const test = stackTest('VOCAB_E2E_STATE');
@@ -61,6 +69,11 @@ const idOf = (text: string) => createHash('sha256').update(text).digest('hex');
 const card = (text: string) => page.locator(`article[data-id="${idOf(text)}"]`);
 const noteOf = (text: string) => page.getByLabel(`Your note for ${text}`);
 const where = () => page.getByTestId('where');
+const views = () => page.getByRole('navigation', { name: 'Views' });
+const signInToSee = () =>
+	page.getByText(
+		'Sign in to see the words and chats in your Epicenter repository.',
+	);
 const wordNote = (text: string, stage: string, createdAt: string, note = '') =>
 	`---\ntext: ${text}\nstage: ${stage}\ncreatedAt: "${createdAt}"\n---\n${note}`;
 
@@ -79,13 +92,16 @@ async function account(action: 'Sign in' | 'Sign out') {
 	await page.getByRole('button', { name: action }).click();
 }
 
-test('1. signed out, words are added, noted, staged and deleted in the browser', async ({
+test('1. signed out, words are added, noted, staged and deleted on this device', async ({
 	stack,
 }) => {
 	// WebKit keeps OPFS outside the profile directory: start from an empty origin.
 	await page.goto(`${stack.app}/`);
 	await emptyOpfs(page);
 	await page.goto(`${stack.app}/`);
+	await expect(
+		views().getByRole('link', { name: 'On this device' }),
+	).toHaveAttribute('aria-current', 'page');
 	await expect(where()).toHaveText('On this device');
 
 	await add('lucid');
@@ -123,25 +139,60 @@ test('1. signed out, words are added, noted, staged and deleted in the browser',
 	await expect(card('lucid')).toBeVisible();
 	await expect(noteOf('lucid')).toHaveValue('clear and easy to follow');
 	await expect(card('candid')).toBeVisible();
+
+	// "Synced" is the repository's, which needs a sign-in.
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(signInToSee()).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
+	await expect(card('lucid')).toBeVisible();
+	await expect(card('candid')).toBeVisible();
 });
 
-test('2. signed in, the words upload and leave the browser, and a new word and chat go straight to the repository', async ({
+test('2. signed in, the words upload: each leaves this device and appears in Synced', async ({
 	stack,
 	person,
 }) => {
 	// A signed-in session on the API; the real authorization redirect does the rest.
+	await recordUploaderStarts(context);
 	await context.addCookies([{ ...person.cookie, url: stack.origin }]);
 	await account('Sign in');
-	await expect(where()).toHaveText('In your repository');
-	await expect(card('lucid')).toBeVisible();
-	await expect(page.getByTestId('waiting')).toHaveCount(0);
-	// The browser let go of every word and of the outbox: the repository has them.
+	await expect(where()).toHaveText('On this device');
+
+	// The uploader moves them: this device's view and files empty.
+	await expect(card('lucid')).toHaveCount(0);
+	await expect(card('candid')).toHaveCount(0);
+	await expect(page.getByText('Your words will appear here')).toBeVisible();
+	await expect.poll(() => opfsFiles(page)).toEqual({});
+	// The callback page only finished sign-in: no repository, no uploader.
+	const uploaders = await uploaderStarts(page);
+	expect(uploaders.length).toBeGreaterThan(0);
+	expect(uploaders.filter((path) => path.includes('/auth/callback'))).toEqual(
+		[],
+	);
+
+	// One added on this device while signed in follows on its own.
+	await page.getByLabel('New expression').fill('nuance');
+	await page.getByRole('button', { name: 'Add', exact: true }).click();
+	await expect(page.getByLabel('New expression')).toHaveValue('');
+	await expect(page.locator('article[data-id]')).toHaveCount(0);
 	await expect.poll(() => opfsFiles(page)).toEqual({});
 
-	await add('nuance');
-	await expect(card('nuance').getByTestId('waiting')).toHaveCount(0);
-	expect(await opfsFiles(page)).toEqual({});
+	await views().getByRole('link', { name: 'Synced' }).click();
+	await expect(views().getByRole('link', { name: 'Synced' })).toHaveAttribute(
+		'aria-current',
+		'page',
+	);
+	await expect(where()).toHaveText('Synced');
+	await expect(card('lucid')).toBeVisible();
+	await expect(noteOf('lucid')).toHaveValue('clear and easy to follow');
+	await expect(
+		card('lucid').getByRole('button', { name: 'Understand' }),
+	).toHaveAttribute('aria-pressed', 'true');
+	await expect(card('candid')).toBeVisible();
+	await expect(card('nuance')).toBeVisible();
 
+	// A word and a chat started in "Synced" go to the repository, never this device.
+	await add('eager');
 	await card('lucid')
 		.getByRole('checkbox', { name: 'Choose lucid for chat' })
 		.click();
@@ -156,7 +207,7 @@ test('2. signed in, the words upload and leave the browser, and a new word and c
 	).toBeVisible();
 	expect(await opfsFiles(page)).toEqual({});
 	await page
-		.getByRole('navigation', { name: 'Views' })
+		.getByRole('navigation', { name: 'Sections' })
 		.getByRole('button', { name: 'Words' })
 		.click();
 });
@@ -197,7 +248,7 @@ test('3. a desktop clone holds the words and the chat as written, and the folder
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('4. a stage changed on the desktop shows on the web with no reload, and a note edited on the web reaches the desktop', async ({
+test('4. a stage changed on the desktop shows in Synced with no reload, and a note edited there reaches the desktop', async ({
 	stack,
 	person,
 }) => {
@@ -224,7 +275,7 @@ test('4. a stage changed on the desktop shows on the web with no reload, and a n
 		);
 });
 
-test('5. a word note that does not read is listed with its text, and repaired on the web', async ({
+test('5. a word note that does not read is listed in Synced with its text, and repaired there', async ({
 	stack,
 	person,
 }) => {
@@ -262,8 +313,10 @@ test('5. a word note that does not read is listed with its text, and repaired on
 	expect(await readFile(join(clone, 'entries/broken.md'), 'utf8')).toBe(fixed);
 });
 
-test('6. signed out, the browser holds no words', async () => {
+test('6. signed out, the browser holds no words, and Synced asks for a sign-in', async () => {
 	await account('Sign out');
+	await expect(signInToSee()).toBeVisible();
+	await page.getByRole('link', { name: 'On this device' }).click();
 	await expect(where()).toHaveText('On this device');
 	await expect(page.getByText('Your words will appear here')).toBeVisible();
 	expect(await opfsFiles(page)).toEqual({});

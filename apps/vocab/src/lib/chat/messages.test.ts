@@ -1,5 +1,5 @@
 /**
- * A chat's messages and the chat list, over Vocab's one lists of
+ * A chat's messages and the chat list, over one client's
  * `messages/{chat}/{id}.md` and `chats/{id}.md` notes.
  *
  * Key behaviors:

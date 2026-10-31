@@ -61,8 +61,6 @@ export type Entry = {
 	note: string;
 	stage: Stage;
 	createdAt: string;
-	/** Signed in, and its copy is still on this device: not uploaded yet. */
-	waiting?: boolean;
 };
 
 export type FocusItem = { entryId: string; text: string };

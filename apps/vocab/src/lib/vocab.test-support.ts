@@ -1,8 +1,9 @@
 /**
  * Vocab over a real device folder, for tests: a node device in a temporary
  * directory (`openDevice` from `@epicenter/folder/node`, the same contract
- * client and paths as the browser's), the app's one lists over it, kept
- * listing as an open page keeps them, and a way to hold or refuse writes.
+ * client and paths as the browser's), its collections as a view reads them
+ * (`fromClient`), kept listing as an open page keeps them, and a way to hold
+ * or refuse writes.
  *
  * Import after `svelte-modules.test-support.js`, which compiles the runes.
  */
@@ -76,9 +77,8 @@ export async function openVocabFolder(initial: Record<string, string> = {}) {
 	}
 	const control: WriteControl = {};
 	const client = openDevice(vocab, { path: root });
-	const files = fromClient(controlled(client, control));
-	// Signed out, as the page composes it: the device's own collections.
-	const lists = files;
+	// As the "On this device" view reads them: the device's own collections.
+	const lists = fromClient(controlled(client, control));
 	const followed = follow(() => [
 		lists.entries.items,
 		lists.entries.invalid,

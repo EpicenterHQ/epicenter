@@ -1,6 +1,6 @@
 /**
- * One chat's finished messages as the tutor loop's store, over the one list
- * of `messages/{chat}/{id}.md` notes: each message is one note, its id the
+ * One chat's finished messages as the tutor loop's store, over one client's
+ * `messages/{chat}/{id}.md` notes: each message is one note, its id the
  * message's own, so writing one twice never makes two.
  */
 import {
@@ -9,7 +9,7 @@ import {
 	AgentMessageStoreError,
 } from '@epicenter/agent';
 import { sameValue } from '@epicenter/definition/note';
-import type { NoteList } from '@epicenter/svelte/client';
+import type { ReactiveNotes } from '@epicenter/svelte/client';
 import { untrack } from 'svelte';
 import { Ok } from 'wellcrafted/result';
 import type { Vocab } from '../contract.js';
@@ -21,7 +21,7 @@ import {
 } from '../data.js';
 import { ChatHistoryError } from './chats.js';
 
-export type MessageList = NoteList<Vocab['collections']['messages']>;
+export type MessageList = ReactiveNotes<Vocab['collections']['messages']>;
 
 const messagePath = (chat: string, id: string) => `messages/${chat}/${id}.md`;
 

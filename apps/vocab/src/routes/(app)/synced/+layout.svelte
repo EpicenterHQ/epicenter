@@ -1,0 +1,31 @@
+<!--
+	The "Synced" pages need the learner's repository: signed in, they render
+	under the signed-in boundary the group layout adds; signed out, they ask
+	for a sign-in instead.
+-->
+<script lang="ts">
+	import { Button } from '@epicenter/ui/button';
+	import * as Empty from '@epicenter/ui/empty';
+	import { toast } from '@epicenter/ui/sonner';
+	import { resolve } from '$app/paths';
+	import { auth } from '$lib/auth.svelte.js';
+
+	let { children } = $props();
+
+	async function signIn() {
+		// A successful start leaves this page for the sign-in page.
+		const { error } = await auth.startSignIn();
+		if (error !== null) toast.error('Could not sign in', { description: error.message });
+	}
+</script>
+
+{#if auth.state.status !== 'signed-out'}
+	{@render children()}
+{:else}
+	<Empty.Root class="h-dvh">
+		<Empty.Title>Synced</Empty.Title>
+		<Empty.Description>Sign in to see the words and chats in your Epicenter repository.</Empty.Description>
+		<Button size="sm" onclick={() => void signIn()}>Sign in</Button>
+		<Button variant="outline" size="sm" href={resolve('/')}>On this device</Button>
+	</Empty.Root>
+{/if}

@@ -2,7 +2,14 @@
 
 Vocab helps a learner collect English expressions and practice using them in tutor-led conversations. Each saved expression has exact text, a learner-owned note, and a self-reported stage: New, Recognize, Understand, or Use. Only the learner changes the stage.
 
-Vocab opens to Words with no sign-in. Words, notes, stages, chats, and finished messages are Markdown notes of Vocab's contract, kept in this browser. Signing in keeps them in the learner's Epicenter repository instead (`<account>/vocab`), where other devices, Epicenter's desktop app, `git`, and agents reach them; it also adds Epicenter's hosted tutor models and dictation. The learner can also connect an OpenAI-compatible endpoint for this device.
+Vocab opens to Words with no sign-in. Words, notes, stages, chats, and finished messages are Markdown notes of Vocab's contract. Vocab has two views (decision 76), each over its own files:
+
+- **On this device** (`/`): the notes in this browser's files. It works signed out and offline.
+- **Synced** (`/synced`, signed in): the learner's Epicenter repository (`<account>/vocab`), where other devices, Epicenter's desktop app, `git`, and agents reach them. Signed out it asks for a sign-in.
+
+Each view adds, edits, deletes, repairs, and chats over its own notes; a chat's focus words and messages are always the same view's. Signed in, the uploader moves every note on this device into the repository in the background: a word or chat leaves "On this device" and appears in "Synced", whichever view made it. Nothing keeps it on screen across the move. The two views are not merged; one merged view may come back later.
+
+Signing in also adds Epicenter's hosted tutor models and dictation, in either view. The learner can also connect an OpenAI-compatible endpoint for this device.
 
 ## Learner flow
 
@@ -14,7 +21,7 @@ Choose one to three saved expressions to start a chat. Vocab saves the chat's fo
 
 Each word card edits its note (the note's body) and stage directly. The note saves as it is typed (`fieldEdit`), one save at a time, the newest value waiting; it is written over the word as the learner saw it, so another device's change to the stage is kept, and another device's change to the same note surfaces instead of being overwritten. A stage press saves at once. The visible note follows what was typed until its save answers, then follows the note again. A failed note save keeps the typed note visible with Save again, Discard, and Copy controls. A failed stage change shows an error toast.
 
-Deleting a word asks first, then deletes its note. A failed deletion shows an error toast. The header says where the words are: On this device signed out; signed in, In your repository, Uploading while words made here wait to upload (each marked "not uploaded yet"), or Offline when the server cannot be reached.
+Deleting a word asks first, then deletes its note. A failed deletion shows an error toast. The header links the two views and says which is open: On this device, or Synced (Offline when the server cannot be reached, Sign in again when the sign-in needs renewing).
 
 ### Repair as text
 
@@ -30,7 +37,18 @@ chats/<id>.md                            createdAt, and focus: one to three { en
 messages/<chat id>/<message id>.md       role, createdAt (ms), and parts (text, tool calls, tool results)
 ```
 
-Signed out, they are this browser's files for Vocab's origin (OPFS, `openDevice` from `@epicenter/folder/browser`), opened once for the page in `src/lib/device.ts` with no account. Signed in (under `src/routes/components/SignedIn.svelte`, which sets the repository in context), each collection is one list (`oneList` from `@epicenter/svelte/client`) over this browser's files and the learner's repository (`openRemote` from `@epicenter/folder/remote`): what was made here signed out or offline uploads on its own (`startUploading`), and the browser lets go of its copy once the repository has it; a new word or chat goes straight to the repository, or waits here when the server cannot be reached. Editing and deleting what is in the repository needs the server. Signing out leaves the browser with only what has not uploaded.
+"On this device" reads this browser's files for Vocab's origin (OPFS, `openDevice` from `@epicenter/folder/browser`), opened once for the page in `src/lib/device.ts` with no account. "Synced" reads the learner's repository (`openRemote` from `@epicenter/folder/remote`), which the signed-in boundary sets in context. Each view composes its words, chats, and messages from its one client (`fromClient`, in `src/lib/vocab.svelte.ts`). The uploader (`startUploading`), owned by the signed-in boundary and ended with the account, adopts each file on this device once it has been quiet for a few seconds, and the browser lets go of its copy once the repository has it. Editing and deleting in "Synced" needs the server. Signing out leaves the browser with only what has not uploaded.
+
+```text
+src/routes/+layout.svelte                    chrome only; the sign-in callback opens nothing
+src/routes/auth/callback/+page.svelte        completes a sign-in
+src/routes/(app)/+layout.svelte              the leave guard, and signed in, the signed-in boundary around both views
+src/routes/(app)/+page.svelte                "On this device": VocabApp over fromClient(device)
+src/routes/(app)/synced/+layout.svelte       signed out, asks for a sign-in
+src/routes/(app)/synced/+page.svelte         "Synced": VocabApp over fromClient(getRepo())
+src/routes/components/SignedIn.svelte        the repository (setRepo) and the uploader, one per account
+src/routes/components/VocabApp.svelte        one view: the header, Words, and Chat over one client
+```
 
 The tutor model chosen and the endpoints connected are this device's settings (browser storage), not the learner's data, so they are not in the contract. One sign-in asks for both audiences, the API (tutor, dictation, profile) and Git (the repository).
 
@@ -46,4 +64,4 @@ bun run --cwd apps/vocab test
 bun x playwright test -c apps/vocab/playwright.config.ts
 ```
 
-The unit tests run Vocab's stores and real Svelte cards (in jsdom) over a real device folder in a temporary directory (`src/lib/vocab.test-support.ts`). The Playwright suite runs Vocab against the local API with temporary Git and LFS stores, in Chromium and WebKit: words made signed out, their upload on sign-in, a desktop clone that passes `epicenter check`, edits each way between the desktop and the web, and a repair. `bun run --cwd apps/vocab demo` starts the same environment by hand. jsdom tests prove rendered content and delivered events, not layout or IME behavior.
+The unit tests run Vocab's stores and real Svelte cards (in jsdom) over a real device folder in a temporary directory (`src/lib/vocab.test-support.ts`). The Playwright suite runs Vocab against the local API with temporary Git and LFS stores, in Chromium and WebKit: words made signed out on "On this device" while "Synced" asks for a sign-in; on sign-in, their upload (and that of one added on this device signed in) out of "On this device" and the browser's files into "Synced", where a word and a chat are added; a desktop clone that passes `epicenter check`; edits each way between the desktop and "Synced"; a repair there; and sign-out. `bun run --cwd apps/vocab demo` starts the same environment by hand. jsdom tests prove rendered content and delivered events, not layout or IME behavior.

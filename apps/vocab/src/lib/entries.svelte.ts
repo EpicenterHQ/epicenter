@@ -1,9 +1,9 @@
 /**
- * The learner's words, over the one list of `entries/{id}.md` notes: the
+ * The learner's words, over one client's `entries/{id}.md` notes: the
  * words that read, newest first; the notes that do not, to repair as text;
  * and adding, editing, and deleting a word.
  */
-import type { NoteList } from '@epicenter/svelte/client';
+import type { ReactiveNotes } from '@epicenter/svelte/client';
 import {
 	defineErrors,
 	extractErrorMessage,
@@ -33,7 +33,7 @@ export const EntryError = defineErrors({
 });
 export type EntryError = InferErrors<typeof EntryError>;
 
-export type EntryList = NoteList<Vocab['collections']['entries']>;
+export type EntryList = ReactiveNotes<Vocab['collections']['entries']>;
 
 /** A word note that does not read, as the repair list shows it. */
 export type EntryRepair = {
@@ -56,32 +56,22 @@ async function wordId(text: string): Promise<string> {
 		.join('');
 }
 
-/** The words that read, newest first, each `waiting` (not uploaded yet) as `waiting` says. */
-export function wordsOf(
-	notes: readonly EntryNote[],
-	waiting: (id: string) => boolean = () => false,
-): Entry[] {
+/** The words that read, newest first. */
+export function wordsOf(notes: readonly EntryNote[]): Entry[] {
 	return notes
-		.map((note) => ({ ...readEntry(note), waiting: waiting(note.id) }))
+		.map(readEntry)
 		.sort(
 			(a, b) =>
 				b.createdAt.localeCompare(a.createdAt) || a.id.localeCompare(b.id),
 		);
 }
 
-export function createEntries(
-	list: EntryList,
-	{ uploads }: { uploads: boolean } = { uploads: false },
-) {
+export function createEntries(list: EntryList) {
 	return {
-		/** The one list itself, for editors (`fieldEdit`) and repair (`NoteRepair`). */
+		/** The notes themselves, for editors (`fieldEdit`) and repair (`NoteRepair`). */
 		list,
 		get words() {
-			// Signed in, a word whose copy is still on this device has not uploaded yet.
-			return wordsOf(
-				list.items,
-				(id) => uploads && list.where?.({ id }) === 'device',
-			);
+			return wordsOf(list.items);
 		},
 		get repairs(): EntryRepair[] {
 			return list.invalid
