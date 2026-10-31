@@ -1,9 +1,9 @@
 {
-	// Bun entrypoints: the browser smoke script.
+	// Bun entrypoints: publishing the contract, and the end-to-end stack and suite.
 	"extends": "../../tsconfig.dom.json",
 	"compilerOptions": {
 		"types": ["bun"],
 		"noEmit": true
 	},
-	"include": ["scripts/**/*.ts"]
+	"include": ["scripts/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"]
 }

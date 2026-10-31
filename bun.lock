@@ -88,13 +88,13 @@
       "name": "@epicenter/capture-app",
       "version": "0.0.1",
       "dependencies": {
+        "@epicenter/auth": "workspace:*",
         "@epicenter/capture": "workspace:*",
         "@epicenter/constants": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "@epicenter/folder": "workspace:*",
         "@epicenter/svelte": "workspace:*",
         "@epicenter/ui": "workspace:*",
-        "@tauri-apps/api": "catalog:",
-        "runed": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {
@@ -104,7 +104,6 @@
         "@sveltejs/vite-plugin-svelte": "catalog:",
         "@types/bun": "catalog:",
         "@types/jsdom": "21.1.7",
-        "fake-indexeddb": "^6.2.6",
         "jsdom": "26.1.0",
         "playwright": "^1.61.1",
         "svelte": "catalog:",
@@ -504,9 +503,8 @@
       "name": "@epicenter/capture",
       "version": "0.0.1",
       "dependencies": {
-        "@epicenter/folder": "workspace:*",
+        "@epicenter/definition": "workspace:*",
         "markdown-it": "^14.0.0",
-        "typebox": "catalog:",
         "wellcrafted": "catalog:",
       },
       "devDependencies": {

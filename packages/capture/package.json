@@ -4,8 +4,7 @@
 	"private": true,
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts",
-		"./definition": "./src/definition.ts"
+		".": "./src/index.ts"
 	},
 	"license": "AGPL-3.0-or-later",
 	"scripts": {
@@ -13,9 +12,8 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@epicenter/folder": "workspace:*",
+		"@epicenter/definition": "workspace:*",
 		"markdown-it": "^14.0.0",
-		"typebox": "catalog:",
 		"wellcrafted": "catalog:"
 	},
 	"devDependencies": {

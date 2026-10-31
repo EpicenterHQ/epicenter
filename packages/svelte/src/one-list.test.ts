@@ -7,7 +7,8 @@
  *   placeholders unless the app gives an order
  * - Signed out, a new note stays on the device, recorded in the outbox
  * - Signed in, a new note goes to the repository; offline, it stays on the
- *   device to upload later
+ *   device to upload later; created on the device (`createOn`), it always
+ *   stays there to upload
  * - Edits, deletes and repairs go to the copy shown, and one that meets the
  *   device copy gone follows the note to the repository
  * - A note the device lets go of stays shown until the repository lists
@@ -82,13 +83,20 @@ async function until(check: () => boolean) {
 function listOver(
 	device: Client<Todos>,
 	repository: Client<Todos> | null,
-	order?: Parameters<typeof oneList<Todos, 'todos'>>[2]['order'],
+	{
+		order,
+		createOn,
+	}: Pick<
+		Parameters<typeof oneList<Todos, 'todos'>>[2],
+		'order' | 'createOn'
+	> = {},
 ) {
 	return oneList(todos, 'todos', {
 		device: fromClient(device).todos,
 		repository: repository && fromClient(repository).todos,
 		outbox: outboxOf(device),
 		order,
+		createOn,
 	});
 }
 
@@ -133,11 +141,10 @@ test('a note on both sides shows the device copy, in the order the app gives', a
 	byKey.stop();
 
 	const openFirst = await shown(
-		listOver(
-			device.client,
-			repository.client,
-			(a, b) => Number(a.done) - Number(b.done) || a.id.localeCompare(b.id),
-		),
+		listOver(device.client, repository.client, {
+			order: (a, b) =>
+				Number(a.done) - Number(b.done) || a.id.localeCompare(b.id),
+		}),
 	);
 	expect(openFirst.latest()?.items).toEqual([
 		'device:b:B, edited before upload',
@@ -175,6 +182,25 @@ test('signed in, a new note goes to the repository', async () => {
 	expect(await repository.text('todos/milk.md')).toBe(note('Milk'));
 	expect(await device.text('todos/milk.md')).toBeNull();
 	expect(expectOk(await outboxOf(device.client).list()).items).toEqual([]);
+	view.stop();
+});
+
+test('created on the device, a new note stays there signed in, recorded in the outbox to upload', async () => {
+	const device = await side();
+	const repository = await side();
+	const list = listOver(device.client, repository.client, {
+		createOn: 'device',
+	});
+	const view = await shown(list);
+
+	expectOk(await list.create({ id: 'milk', title: 'Milk', done: false }));
+	await until(() => view.latest()?.items.includes('device:milk:Milk') ?? false);
+	expect(await device.text('todos/milk.md')).toBe(note('Milk'));
+	expect(await repository.text('todos/milk.md')).toBeNull();
+	const captures = expectOk(await outboxOf(device.client).list()).items;
+	expect(captures.map(({ paths }) => Object.keys(paths))).toEqual([
+		['todos/milk.md'],
+	]);
 	view.stop();
 });
 

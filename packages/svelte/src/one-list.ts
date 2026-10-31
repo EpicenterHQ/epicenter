@@ -19,7 +19,9 @@
  *   server is unreachable shows until it is reachable again.)
  * - A new note goes to the repository when there is one; when the server
  *   cannot be reached, or signed out, it stays on the device, recorded in
- *   the device's outbox to upload.
+ *   the device's outbox to upload. An app whose notes must never wait on
+ *   the server (a capture) passes `createOn: 'device'`: every new note is
+ *   written to the device and the outbox, and the uploader moves it.
  *
  * @example
  * ```ts
@@ -124,7 +126,9 @@ const goneFromDevice = (written: Written) =>
  * or a desktop folder) and `repository` (null signed out, and wherever
  * Epicenter syncs the folder instead). `outbox` is the device's when its new
  * notes upload, else null. `order` sorts the notes that read; by default
- * they sort by placeholders.
+ * they sort by placeholders. `createOn` is where a new note is written
+ * first: the repository when there is one (the default), or always the
+ * device, recorded in `outbox`, so creating never waits on the server.
  */
 export function oneList<
 	TContract extends Contract,
@@ -137,6 +141,7 @@ export function oneList<
 		repository,
 		outbox = null,
 		order,
+		createOn = 'repository',
 	}: {
 		device: ReactiveNotes<TContract['collections'][TName]>;
 		repository: ReactiveNotes<TContract['collections'][TName]> | null;
@@ -145,6 +150,7 @@ export function oneList<
 			a: ListedNote<TContract['collections'][TName]>,
 			b: ListedNote<TContract['collections'][TName]>,
 		) => number;
+		createOn?: Side;
 	},
 ): OneList<TContract['collections'][TName]> {
 	type Notes = ReactiveNotes<Collection>;
@@ -280,7 +286,7 @@ export function oneList<
 		},
 		get,
 		async create(value: Record<string, unknown>) {
-			if (sides.repository !== null) {
+			if (sides.repository !== null && createOn === 'repository') {
 				const created = await sides.repository.create(value as never);
 				if (created.error?.name !== 'Unavailable') return created;
 			}
@@ -318,8 +324,14 @@ export function oneList<
 				),
 			);
 		},
-		replace(args: Record<string, unknown>, text: string) {
-			return write(args, (notes) => notes.replace(args as never, text));
+		replace(
+			args: Record<string, unknown>,
+			text: string,
+			options: { over?: Version } = {},
+		) {
+			return write(args, (notes) =>
+				notes.replace(args as never, text, options),
+			);
 		},
 		async delete(args: Record<string, unknown>) {
 			const key = keyOf(args);

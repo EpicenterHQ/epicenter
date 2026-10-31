@@ -1,19 +1,28 @@
 /**
  * Mounted Timeline Tests
  *
- * Checks New Capture's unsaved form, mirror timeline, and
- * repair actions through the real mounted view.
+ * The real timeline over real device clients: New capture, the files it
+ * lists, another writer's change, and the not-uploaded mark.
+ *
+ * Key behaviors:
+ * - New capture writes nothing until Add, then opens Add a thought
+ * - A failed Add keeps its form text
+ * - A file that does not read is listed to repair, not as a capture
+ * - Another writer's change shows without a reload
+ * - An Add whose text makes the Thoughts ambiguous opens as text
+ * - Signed in, a capture still in this browser says it is not uploaded yet
  */
 import '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 import { afterEach, expect, test } from 'bun:test';
-import { until } from '@epicenter/folder/testing';
 import {
 	setWide,
 	type,
 } from '../../../../../packages/svelte/src/svelte-dom.test-support.js';
 
 const { flushSync, mount, unmount } = await import('svelte');
-const { openCaptures } = await import('../local-folder.test-support.js');
+const { openCaptures, until } = await import(
+	'../capture-device.test-support.js'
+);
 const { default: ViewHost } = await import('./fixtures/ViewHost.svelte');
 setWide(true);
 const AT = '2026-10-04T20:49:23Z';
@@ -31,14 +40,11 @@ function submit(form: Element | null | undefined) {
 	if (!(form instanceof HTMLFormElement)) throw new Error('Expected a form');
 	form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
 }
-async function setup(files: Record<string, string> = {}) {
-	const h = await openCaptures(files);
+async function setup(...args: Parameters<typeof openCaptures>) {
+	const h = await openCaptures(...args);
 	const target = document.createElement('main');
 	document.body.replaceChildren(target);
-	const view = mount(ViewHost, {
-		target,
-		props: { captures: h.captures, folder: h.folder },
-	});
+	const view = mount(ViewHost, { target, props: { captures: h.captures } });
 	cleanup.push(async () => {
 		await unmount(view);
 		await h.close();
@@ -51,64 +57,80 @@ test('New capture writes nothing until Add and then opens Add a thought', async 
 	const h = await setup();
 	type(field('new-capture'), 'Fresh writing');
 	flushSync();
-	expect(h.host.log.puts).toEqual([]);
+	expect(h.list.items).toEqual([]);
 	submit(field('new-capture')?.form);
-	await until(() => {
-		flushSync();
-		return field('new-thought') !== null;
-	});
+	await until(() => field('new-thought') !== null);
 	expect(h.captures.timeline.rows[0]?.preview).toContain('Fresh writing');
-	expect(h.host.log.puts.length).toBe(1);
+	const id = h.captures.opened?.id;
+	expect(await h.text(`captures/${id}.md`)).toContain('Fresh writing');
 });
 
 test('failed Add keeps its form text and leaves the timeline empty', async () => {
 	const h = await setup();
-	h.host.control.beforePut = (path) =>
-		h.host.control.failPut.set(
-			path,
-			// SAFETY: this test installs a failure on every attempted create.
-			h.host.control.failPut.get(PATH)!,
-		);
-	h.failSaves(PATH);
+	h.failWrites();
 	type(field('new-capture'), 'Keep this');
 	submit(field('new-capture')?.form);
-	await h.quiet();
-	flushSync();
+	await until(
+		() => document.body.textContent?.includes('Could not add capture') === true,
+	);
 	expect(field('new-capture')?.value).toBe('Keep this');
 	expect(h.captures.timeline.rows).toEqual([]);
-	expect(document.body.textContent).toContain('Could not add capture');
 });
 
 test('a file that does not read as a capture is listed for repair, not as a capture', async () => {
 	const h = await setup({
 		'captures/broken.md': '---\ncapturedAt: nope\n---\nBody\n',
 	});
-	expect(h.target.textContent).toContain('1 file does not read as a capture');
+	await until(
+		() =>
+			h.target.textContent?.includes('1 file does not read as a capture') ===
+			true,
+	);
+	expect(h.target.textContent).toContain('captures/broken.md');
 	expect(h.captures.timeline.rows).toEqual([]);
 });
 
-test('another writer updates the timeline without a query refetch', async () => {
+test('another writer’s change shows without a reload', async () => {
 	const h = await setup();
-	h.writeElsewhere(PATH, `---\ncapturedAt: ${AT}\n---\nOutside\n`);
-	await until(() => {
-		flushSync();
-		return h.target.textContent?.includes('Outside') === true;
-	});
-	expect(h.captures.timeline.rows[0]?.stem).toBe('one');
+	await h.writeElsewhere(PATH, `---\ncapturedAt: ${AT}\n---\nOutside\n`);
+	await until(() => h.target.textContent?.includes('Outside') === true);
+	expect(h.captures.timeline.rows[0]?.id).toBe('one');
 });
 
 test('an ambiguous Add opens the saved file as text', async () => {
 	const h = await setup();
 	type(field('new-capture'), '## Thoughts\n\n## Thoughts');
 	submit(field('new-capture')?.form);
-	await until(() => {
-		flushSync();
-		return h.captures.opened !== undefined;
-	});
+	await until(() => h.captures.opened !== undefined);
 	expect(h.captures.opened?.mode).toBe('text');
-	expect(
-		document.querySelector<HTMLTextAreaElement>(
-			'textarea[aria-label^="Contents of"]',
-		)?.value,
-	).toContain('## Thoughts');
+	await until(
+		() =>
+			document
+				.querySelector<HTMLTextAreaElement>(
+					'textarea[aria-label^="Contents of"]',
+				)
+				?.value.includes('## Thoughts') === true,
+	);
+	expect(h.target.textContent).toContain('Needs repair');
+});
+
+test('signed in, a capture still in this browser says it is not uploaded yet', async () => {
+	const h = await setup(
+		{ 'captures/here.md': `---\ncapturedAt: ${AT}\n---\nHere\n` },
+		{
+			repository: {
+				[PATH]: `---\ncapturedAt: 2026-10-03T00:00:00Z\n---\nThere\n`,
+			},
+		},
+	);
+	await until(() => h.target.querySelectorAll('[data-id]').length === 2);
+	const marked = [...h.target.querySelectorAll('[data-id]')].map((row) => [
+		row.getAttribute('data-id'),
+		row.getAttribute('data-where'),
+		row.textContent?.includes('Not uploaded yet'),
+	]);
+	expect(marked).toEqual([
+		['here', 'device', true],
+		['one', 'repository', false],
+	]);
 });

@@ -1,7 +1,8 @@
 /**
  * `@epicenter/definition/contract`: an app's file layout as plain data, the
- * typed client it derives, the path functions every opener shares, and the
- * check `epicenter check` runs.
+ * typed client it derives, the path functions every opener shares, the
+ * check `epicenter check` runs, and a note as text (`noteText`,
+ * `readNoteText`) for apps that edit one whole.
  */
 export { checkContract, type FileIssue } from './check.js';
 export {
@@ -30,6 +31,7 @@ export {
 	compileContract,
 	defineContract,
 } from './contract.js';
+export { noteText, readNoteText } from './note-text.js';
 export {
 	EPICENTER_BLOCK_BEGIN,
 	EPICENTER_BLOCK_END,

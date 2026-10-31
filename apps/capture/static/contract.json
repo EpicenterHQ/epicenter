@@ -1,0 +1,16 @@
+{
+	"name": "capture",
+	"description": "Capture: a Markdown note per capture, when it was captured in front matter, its text and then its thoughts under \"## Thoughts\" in the body.",
+	"collections": {
+		"captures": {
+			"path": "captures/{id}.md",
+			"fields": {
+				"capturedAt": {
+					"type": "string",
+					"format": "date-time"
+				}
+			},
+			"required": ["capturedAt"]
+		}
+	}
+}
