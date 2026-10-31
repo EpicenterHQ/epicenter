@@ -94,7 +94,11 @@ test('the list is connections.md at the top of the root, and the key is in the k
 			apiKey: 'sk-1',
 		},
 	]);
-	expect(await readdir(root)).toEqual(['connections.md']);
+	// The note, beside the engine's own `.epicenter` (its save lock).
+	expect((await readdir(root)).sort()).toEqual([
+		'.epicenter',
+		'connections.md',
+	]);
 	const text = await note(root);
 	expect(text).toContain(ENDPOINT);
 	expect(text).toContain(id);

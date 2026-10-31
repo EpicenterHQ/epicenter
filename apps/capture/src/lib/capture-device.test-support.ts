@@ -102,13 +102,14 @@ export async function openCaptures(files: Files = {}) {
 		/** The text at `path` in the client's folder, or null. */
 		text: (path: string) =>
 			readFile(join(root, path), 'utf8').catch(() => null),
-		/** Every file in the client's folder, by path. */
+		/** Every file in the client's folder, by path, but the engine's own `.epicenter` (its save lock). */
 		files: async () =>
 			(await readdir(root, { recursive: true, withFileTypes: true }))
 				.filter((entry) => entry.isFile())
 				.map((entry) =>
 					join(entry.parentPath, entry.name).slice(root.length + 1),
 				)
+				.filter((path) => !path.startsWith('.epicenter/'))
 				.sort(),
 		/** Write `path` in the client's folder as another tab or program would. */
 		writeElsewhere: (path: string, text: string) => put(root, path, text),
