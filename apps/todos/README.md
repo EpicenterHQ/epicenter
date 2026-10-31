@@ -19,7 +19,11 @@ one list:
   copy. Until then, signed in, it is marked "not uploaded yet".
 - A todo added while signed in and online goes straight to the repository.
 - Edits, completes and deletes go to the copy shown: the browser's while it
-  holds one, else the repository's, which is online only.
+  holds one, else the repository's, which is online only. One made as a todo
+  uploads follows it to the repository, and a todo deleted while it uploads
+  is deleted there too. An open todo stays open while it uploads.
+- Signed in with the server unreachable, the header says "Offline: new todos
+  wait to upload", and new todos do.
 - Changes made elsewhere (another tab, or a desktop's `epicenter sync`) show
   without a reload.
 - A note at a todo's path that does not read as a todo is listed under
@@ -31,7 +35,8 @@ title and notes save as you type; a save that fails stays in its editor with
 Save again, Discard and Copy.
 
 The app signs in as `so.epicenter.todos` for the server's Git audience only
-(`src/lib/auth.ts`). The server is `VITE_EPICENTER_SERVER` at build time, else
+(`src/lib/auth.ts`, made on first use, and never in the desktop window). The
+server is `VITE_EPICENTER_SERVER` at build time, else
 Epicenter's. The hosted API does not serve web writes yet, so signing in
 works against a local or self-hosted API.
 
@@ -47,7 +52,9 @@ bun run --cwd apps/todos demo          # the whole stack, to try it by hand
 
 The build is static: any host that answers unknown paths with `index.html`
 (for `/auth/callback`) serves it, at an origin the API registers. It also
-writes a service worker so a loaded app reopens offline.
+writes a service worker so a loaded app reopens offline; the page registers
+it in a browser only, never in the desktop window, which loads the same
+build from `build/`.
 
 `demo` boots a disposable Postgres, the local API with temporary Git and LFS
 stores, the built app on `http://localhost:5186`, a demo person, and a
@@ -90,9 +97,9 @@ name, and never commits or contacts a server.
 ## Layout
 
 - `src/lib/contract.ts`: the contract.
-- `src/lib/todos.ts`: the one list (`createTodoList`) over the device and,
-  signed in, the repository, as the note collection `fromClient` gives one
-  side, so `fieldEdit` binds to it unchanged.
+- `src/lib/todos.ts`: the one list (`createTodoList`): `oneList` from
+  `@epicenter/svelte/client` over the device and, signed in, the repository,
+  with Todos' order (open first, then done, each oldest first).
 - `src/routes/+page.svelte`: opens the device at the root;
   `src/lib/components/SignedIn.svelte` adds the repository and the uploader
   per account.
@@ -109,9 +116,12 @@ bun x playwright test -c apps/todos/playwright.config.ts --project=webkit   # on
 ```
 
 The Playwright suite (`e2e/todos.spec.ts`) starts the same environment as
-`demo` and walks one person through six steps per engine: create, edit,
-complete and delete todos signed out; sign in, and they upload and leave the
-browser, while a new one goes straight to the repository; `epicenter clone`
+`demo`, built into a scratch directory (never `build/`), and walks one person
+through seven steps per engine: create, edit, complete and delete todos
+signed out; sign in, and they upload and leave the browser, while a new one
+goes straight to the repository; with the server unreachable a new todo
+waits on the device under a warning, and once it is back the todo uploads
+while its open editor keeps its caret; `epicenter clone`
 holds them as written and `epicenter check` passes; a desktop title edit
 shows on the web with no reload, and notes edited on the web reach the
 desktop; a note the desktop wrote that does not read as a todo shows on the

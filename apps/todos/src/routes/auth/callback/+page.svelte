@@ -5,11 +5,13 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
 	import { Loading } from '@epicenter/ui/loading';
-	import { auth } from '$lib/auth.js';
+	import { webAuth } from '$lib/auth.js';
 
 	let errorMessage = $state<string | null>(null);
 
 	$effect(() => {
+		const auth = webAuth();
+		if (auth === null) return;
 		void auth.completeSignIn().then(({ data, error }) => {
 			if (error !== null) errorMessage = error.message;
 			else window.location.replace(data.returnTo ?? resolve('/'));

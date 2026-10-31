@@ -9,11 +9,12 @@
 	import { onDestroy } from 'svelte';
 	import SignedIn from '$lib/components/SignedIn.svelte';
 	import TodosApp from '$lib/components/TodosApp.svelte';
-	import { auth } from '$lib/auth.js';
+	import { webAuth } from '$lib/auth.js';
 	import { setDevice } from '$lib/context.js';
 	import { isDesktop, openTodosDevice } from '$lib/device.js';
 	import { createTodoList } from '$lib/todos.js';
 
+	const auth = webAuth();
 	const client = openTodosDevice();
 	const device = setDevice({ client, files: fromClient(client) });
 	onDestroy(() => closeDevice(client));
@@ -26,7 +27,7 @@
 	});
 </script>
 
-{#if isDesktop || auth.state.status === 'signed-out'}
+{#if auth === null || auth.state.status === 'signed-out'}
 	<TodosApp {todos} />
 {:else}
 	{#key auth.state.account}

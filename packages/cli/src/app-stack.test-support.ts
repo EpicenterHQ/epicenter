@@ -76,8 +76,11 @@ export type Person = {
 	env: Record<string, string>;
 };
 
-/** A command an app runs from its directory, with VITE_EPICENTER_SERVER set to the API. */
-type Command = { command: string[]; cwd: string };
+/**
+ * A command an app runs from its directory, with VITE_EPICENTER_SERVER set
+ * to the API, and `env` besides.
+ */
+type Command = { command: string[]; cwd: string; env?: Record<string, string> };
 
 /**
  * Run the stack for one app until a signal stops it.
@@ -300,10 +303,17 @@ export async function runAppStack({
 			VITE_EPICENTER_SERVER: origin,
 		};
 		const built = build(scratch);
-		await run(built.command, { cwd: built.cwd, env: viteEnv });
+		await run(built.command, {
+			cwd: built.cwd,
+			env: { ...viteEnv, ...built.env },
+		});
 		const served = serve(scratch);
 		const serveLog = join(scratch, 'serve.log');
-		start(served.command, { cwd: served.cwd, env: viteEnv, log: serveLog });
+		start(served.command, {
+			cwd: served.cwd,
+			env: { ...viteEnv, ...served.env },
+			log: serveLog,
+		});
 		await waitFor(`${app}${ready}`, serveLog);
 
 		const stack: Stack = {

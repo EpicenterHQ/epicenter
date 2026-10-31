@@ -36,14 +36,15 @@ person's repository under the signed-in subtree, one per account:
   const client = openTodosDevice(); // OPFS in a browser, the bound folder in its desktop window
   const device = setDevice({ client, files: fromClient(client) });
   onDestroy(() => closeDevice(client));
-  const todos = createTodoList({
+  const todos = createTodoList({ // `oneList` from `@epicenter/svelte/client`, with Todos' order
     device: device.files.todos,
     repository: null,
     outbox: isDesktop ? null : outboxOf(client), // only the browser uploads
   });
+  const auth = webAuth(); // made on first use; null in the desktop window
 </script>
 
-{#if isDesktop || auth.state.status === 'signed-out'}
+{#if auth === null || auth.state.status === 'signed-out'}
   <TodosApp {todos} />
 {:else}
   {#key auth.state.account}<SignedIn account={auth.state.account} />{/key}
@@ -52,9 +53,11 @@ person's repository under the signed-in subtree, one per account:
 
 `SignedIn` opens `openRemote(contract, { account })`, starts the uploader
 (`startUploading`), and renders the same views over a list that holds both
-sides. Views read and write through `fromClient` state: tracked `items`,
-`invalid` (notes that do not read, with their text), and writes that pass the
-version shown; `fieldEdit` binds one field to an immediate editor. See
+sides (`oneList`, which routes each write to the copy shown and keeps a note
+shown while it moves). Views read and write through `fromClient` state:
+tracked `items`, `invalid` (notes that do not read, with their text), and
+writes that pass the version shown; `fieldEdit` binds one field to an
+immediate editor. See
 [Todos](todos/README.md) and the [Svelte package](../packages/svelte/README.md).
 
 Apps not yet on the contract still open their folder with `<OpenFolder>` and

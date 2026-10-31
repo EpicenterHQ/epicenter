@@ -13,7 +13,7 @@
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
 	import { onMount } from 'svelte';
-	import { auth } from '$lib/auth.js';
+	import { webAuth } from '$lib/auth.js';
 	import { getTodos } from '$lib/context.js';
 	import { isDesktop } from '$lib/device.js';
 	import {
@@ -24,9 +24,10 @@
 	} from '$lib/open-in-epicenter.js';
 
 	const todos = getTodos();
+	const auth = webAuth();
 	let { pendingNewTodo }: { pendingNewTodo: boolean } = $props();
 
-	const signedIn = $derived(!isDesktop && auth.state.status !== 'signed-out');
+	const signedIn = $derived(auth !== null && auth.state.status !== 'signed-out');
 	/** Signed in, the todos made here that have not reached the repository yet. */
 	const waiting = $derived(
 		todos.items.filter(({ where }) => where === 'device').length,
@@ -35,15 +36,23 @@
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
 		if (todos.error !== null)
 			return {
-				label: 'Not reachable',
+				label: 'Not readable here',
 				detail: todos.error.message,
 				tone: 'error',
 			};
 		if (!signedIn) return { label: 'On this device', tone: 'neutral' };
-		if (auth.state.status === 'reauth-required')
+		if (auth?.state.status === 'reauth-required')
 			return {
 				label: 'Uploads paused',
 				detail: 'Sign in again to upload and to edit your repository.',
+				tone: 'warning',
+			};
+		// New todos still save, to this device, and upload once it is back.
+		if (todos.repositoryError !== null)
+			return {
+				label: 'Offline: new todos wait to upload',
+				short: 'Offline',
+				detail: todos.repositoryError.message,
 				tone: 'warning',
 			};
 		if (waiting > 0)
@@ -52,12 +61,14 @@
 	});
 
 	async function signIn() {
+		if (auth === null) return;
 		const { error } = await auth.startSignIn();
 		if (error !== null)
 			toast.error('Could not sign in', { description: error.message });
 	}
 
 	async function signOut() {
+		if (auth === null) return;
 		const { error } = await auth.signOut();
 		if (error !== null)
 			toast.error('Could not sign out', { description: error.message });
@@ -118,7 +129,7 @@
 				Open in Epicenter
 			</Button>
 		{/if}
-		{#if !isDesktop}
+		{#if auth !== null}
 			{#if auth.state.status === 'signed-out'}
 				<Button size="sm" onclick={() => void signIn()}>Sign in</Button>
 			{:else}

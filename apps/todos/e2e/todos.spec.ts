@@ -6,13 +6,16 @@
  *    browser (OPFS), as Markdown notes at `todos/<id>.md`.
  * 2. Signed in, they upload on their own and the browser lets go of its
  *    copies; a todo added signed in goes straight to the repository.
- * 3. `epicenter clone` holds them as written, and `epicenter check` passes
+ * 3. With the server unreachable, a new todo waits on the device under a
+ *    warning; once it is back, the todo uploads, and its open editor stays
+ *    mounted and keeps its caret.
+ * 4. `epicenter clone` holds them as written, and `epicenter check` passes
  *    against the published contract.
- * 4. A title edited on the desktop and synced shows on the web, with no
+ * 5. A title edited on the desktop and synced shows on the web, with no
  *    reload; notes edited on the web reach the desktop's next sync.
- * 5. A note the desktop wrote that does not read as a todo shows on the
+ * 6. A note the desktop wrote that does not read as a todo shows on the
  *    web with its text, and saving fixed text there repairs it.
- * 6. Signing out leaves this browser with no todos.
+ * 7. Signing out leaves this browser with no todos.
  */
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -46,6 +49,9 @@ test.beforeAll(async ({ playwright, browserName, launchOptions }) => {
 	context = await playwright[browserName].launchPersistentContext(profile, {
 		...launchOptions,
 		viewport: { width: 1280, height: 800 },
+		// Routing (step 3) does not see the requests of a page a service
+		// worker controls; no step opens the app offline.
+		serviceWorkers: 'block',
 	});
 	page = context.pages()[0] ?? (await context.newPage());
 });
@@ -163,7 +169,56 @@ test('2. signed in, the todos upload and leave the browser, and a new one goes s
 	expect(await opfsFiles(page)).toEqual({});
 });
 
-test('3. a desktop clone holds the todos as written, and the folder fits the contract', async ({
+test('3. offline, a new todo waits on the device, and its open editor keeps its caret while it uploads', async ({
+	stack,
+}) => {
+	// The server cannot be reached, which is all Todos knows of being offline.
+	// (Not `setOffline`: WebKit's emulation of it fails OPFS reads too.)
+	const unreachable = `${stack.origin}/**`;
+	await context.route(unreachable, (route) => route.abort());
+	const flour = await add('Buy flour');
+	await expect(row(flour)).toHaveAttribute('data-where', 'device');
+	await expect(row(flour)).toContainText('not uploaded yet');
+	await expect
+		.poll(() => opfsText(page, `todos/${flour}.md`))
+		.toBe('---\ntitle: Buy flour\ndone: false\n---\n');
+	// The remote hears the server go (a poll of main): a warning, not an error.
+	await expect(page.getByTestId('status-summary')).toHaveAttribute(
+		'aria-label',
+		/^Status: Offline: new todos wait to upload\./,
+	);
+
+	// The caret sits mid-title, in an editor open on the todo still on the device.
+	const title = detail().getByLabel('Title', { exact: true });
+	await title.click();
+	await title.evaluate((input: HTMLInputElement) =>
+		input.setSelectionRange(3, 3),
+	);
+	const editor = await title.elementHandle();
+
+	// Back: the browser says so, and the uploader runs.
+	await context.unroute(unreachable);
+	await page.evaluate(() => window.dispatchEvent(new Event('online')));
+	await expect(row(flour)).toHaveAttribute('data-where', 'repository');
+	await expect.poll(() => opfsFiles(page)).toEqual({});
+	// The same input, never unmounted, still focused, the caret where it was.
+	expect(
+		await editor.evaluate((input: HTMLInputElement) => [
+			input.isConnected,
+			document.activeElement === input,
+			input.selectionStart,
+		]),
+	).toEqual([true, true, 3]);
+	await page.keyboard.type('ing');
+	await expect(title).toHaveValue('Buying flour');
+	await expect(row(flour)).toContainText('Buying flour');
+	await expect(page.getByTestId('status-summary')).toHaveAttribute(
+		'aria-label',
+		/^Status: In your repository\./,
+	);
+});
+
+test('4. a desktop clone holds the todos as written, and the folder fits the contract', async ({
 	stack,
 	person,
 }) => {
@@ -194,7 +249,7 @@ test('3. a desktop clone holds the todos as written, and the folder fits the con
 	expect(checked.code, `${checked.stdout}\n${checked.stderr}`).toBe(0);
 });
 
-test('4. a title edited on the desktop shows on the web with no reload, and notes edited on the web reach the desktop', async ({
+test('5. a title edited on the desktop shows on the web with no reload, and notes edited on the web reach the desktop', async ({
 	stack,
 	person,
 }) => {
@@ -224,7 +279,7 @@ test('4. a title edited on the desktop shows on the web with no reload, and note
 		.toBe('---\ntitle: Buy rye bread\ndone: false\n---\nFrom the bakery.\n');
 });
 
-test('5. a note that does not read as a todo shows with its text, and is repaired on the web', async ({
+test('6. a note that does not read as a todo shows with its text, and is repaired on the web', async ({
 	stack,
 	person,
 }) => {
@@ -258,7 +313,7 @@ test('5. a note that does not read as a todo shows with its text, and is repaire
 	);
 });
 
-test('6. signed out, the browser holds no todos', async () => {
+test('7. signed out, the browser holds no todos', async () => {
 	await page.getByRole('button', { name: 'Sign out' }).click();
 	await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
 	await expect(page.getByText('No todos yet')).toBeVisible();

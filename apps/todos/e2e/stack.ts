@@ -8,7 +8,7 @@
  *   bun apps/todos/e2e/stack.ts /tmp/state.json
  *   bun apps/todos/e2e/stack.ts --demo   # `bun run demo`
  */
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { APPS, localUrl } from '@epicenter/constants/apps';
 import { runAppStack } from '../../../packages/cli/src/app-stack.test-support.ts';
 
@@ -17,10 +17,13 @@ const appDir = resolve(import.meta.dir, '..');
 await runAppStack({
 	name: 'todos',
 	app: localUrl(APPS.TODOS),
-	// SvelteKit writes the static app to `build/`, which `vite preview` serves.
-	build: () => ({
+	// The static app goes to the scratch directory (`TODOS_BUILD_DIR`, read
+	// by `svelte.config.js`), never `build/`, which the desktop shell loads;
+	// `vite preview` serves `.svelte-kit/output`.
+	build: (scratch) => ({
 		command: [process.execPath, 'x', 'vite', 'build', '--logLevel', 'warn'],
 		cwd: appDir,
+		env: { TODOS_BUILD_DIR: join(scratch, 'build') },
 	}),
 	serve: () => ({
 		command: [process.execPath, 'x', 'vite', 'preview'],

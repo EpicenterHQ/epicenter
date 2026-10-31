@@ -7,12 +7,12 @@
 	import { Button } from '@epicenter/ui/button';
 	import { Checkbox } from '@epicenter/ui/checkbox';
 	import { toast } from '@epicenter/ui/sonner';
-	import { auth } from '$lib/auth.js';
+	import { webAuth } from '$lib/auth.js';
 	import { getTodos } from '$lib/context.js';
-	import { isDesktop } from '$lib/device.js';
 	import { labelOf, type TodoRow } from '$lib/todos.js';
 
 	const todos = getTodos();
+	const auth = webAuth();
 
 	let {
 		todo,
@@ -54,7 +54,7 @@
 		>
 			<span class="line-clamp-2 break-anywhere {todo.done ? 'text-muted-foreground line-through' : ''}">{label}</span>
 		</Button>
-		{#if todo.where === 'device' && !isDesktop && auth.state.status !== 'signed-out'}
+		{#if todo.where === 'device' && auth !== null && auth.state.status !== 'signed-out'}
 			<Badge variant="outline" class="shrink-0">not uploaded yet</Badge>
 		{/if}
 	</div>
