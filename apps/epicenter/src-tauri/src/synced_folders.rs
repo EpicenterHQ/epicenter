@@ -781,7 +781,8 @@ pub async fn forget_synced_folder(webview: Webview, path: String) -> Result<(), 
     Ok(())
 }
 
-/// The directory at `path` when it is a real folder that holds none of
+/// The directory at `path` when it is a real folder that may be one
+/// (`admission::check_sync_directory`): not hidden, and holding none of
 /// Epicenter's own files.
 fn admit(paths: &DesktopPaths, path: &str) -> Result<Directory, String> {
     match fs::symlink_metadata(path) {
@@ -793,11 +794,7 @@ fn admit(paths: &DesktopPaths, path: &str) -> Result<Directory, String> {
         Ok(_) => {}
     }
     let directory = Directory::existing(Path::new(path)).map_err(|error| error.to_string())?;
-    if admission::check_sync_directory(&paths.data_dir, &paths.folder_dir, directory.root())
-        .is_err()
-    {
-        return Err("This folder holds Epicenter's own files.".to_string());
-    }
+    admission::check_sync_directory(&paths.data_dir, &paths.folder_dir, directory.root())?;
     Ok(directory)
 }
 
@@ -1078,7 +1075,8 @@ mod tests {
 
     #[test]
     fn epicenters_own_folders_are_never_set_up_for_sync() {
-        let temp = tempfile::tempdir().unwrap();
+        // Not `tempdir()`, whose hidden name would refuse every folder in it.
+        let temp = tempfile::Builder::new().prefix("synced").tempdir().unwrap();
         let root = dunce::canonicalize(temp.path()).unwrap();
         let paths = DesktopPaths {
             data_dir: root.join("data"),
@@ -1087,11 +1085,11 @@ mod tests {
         let notes = paths.folder_dir.join("notes");
         fs::create_dir_all(&notes).unwrap();
         fs::create_dir_all(&paths.data_dir).unwrap();
-        // Any folder's own `.epicenter`.
-        let scratch = root.join("elsewhere/.epicenter/scratch");
-        fs::create_dir_all(&scratch).unwrap();
+        // Any folder's unfinished writes, like anything hidden.
+        let saves = root.join("elsewhere/.epicenter/saves");
+        fs::create_dir_all(&saves).unwrap();
         for refused in [
-            scratch,
+            saves,
             paths.folder_dir.clone(),
             paths.data_dir.clone(),
             root.clone(),

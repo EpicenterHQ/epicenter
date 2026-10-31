@@ -58,7 +58,11 @@ export type ListedFile = {
 
 /** A folder's files, as each host stores them. */
 export type FolderStorage = {
-	/** Every file below the folder, `.git` and `.epicenter` aside. */
+	/**
+	 * Every file below the folder, `.git` at its root aside. Other hidden
+	 * files are listed, unfinished writes in `.epicenter` included; whoever
+	 * reads the listing skips them (`isHiddenPath`).
+	 */
 	list(): Promise<Result<readonly ListedFile[], FileError>>;
 	read(path: string): Promise<Result<FileRead, FileError>>;
 	/**
@@ -81,8 +85,9 @@ export const PRIVATE_DIRECTORY = '.git';
 
 /**
  * Epicenter's own state at the top of a folder: the scratch directory saves
- * stage in, and unfinished files such as a recording in progress. No listing shows it and no watcher
- * reports it; `epicenter init`'s `.gitignore` keeps it out of history.
+ * stage in, and unfinished files such as a recording in progress. A hidden
+ * path, so no watcher reports it; `epicenter init`'s `.gitignore` keeps it
+ * out of history.
  */
 export const STATE_DIRECTORY = '.epicenter';
 

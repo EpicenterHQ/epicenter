@@ -5,8 +5,8 @@
  * and renames it over its path.
  *
  * Key behaviors:
- * - Staged puts live in the directory's `.epicenter`, which no listing
- *   shows; nothing is made beside the directory
+ * - Staged puts live in the directory's hidden `.epicenter`; nothing is
+ *   made beside the directory
  * - Two processes putting one file each land whole, and the last one wins
  * - A link at `.epicenter` is never followed
  */
@@ -74,7 +74,7 @@ test('two processes putting one file each land whole, the last one winning', asy
 	}
 }, 60_000);
 
-test('a put keeps its staging inside the folder, unlisted, and makes nothing beside it', async () => {
+test('a put keeps its staging inside the folder and makes nothing beside it', async () => {
 	const parent = await scratch('native-state-');
 	const root = join(parent, 'notes');
 	try {

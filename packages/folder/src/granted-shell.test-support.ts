@@ -17,7 +17,7 @@
  * then opens the folder the way its app does.
  *
  * A data file is published as the shell publishes one: its bytes are staged
- * in the root's `.epicenter/scratch`, which no listing shows, and
+ * in the root's `.epicenter/scratch` and
  * renamed over the path once the path is checked, or the path is checked and
  * removed. A test decides when such a
  * change is made, before the check (`beforeChange`), whether it fails

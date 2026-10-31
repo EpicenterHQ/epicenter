@@ -26,9 +26,9 @@
  * a path whose stored name differs reads as absent, and a write refuses to
  * land on the other file.
  *
- * `.git` at the root is private Git state, which only `git` changes, and
- * `.epicenter` at the root is Epicenter's own (staged saves and unfinished
- * files); no listing shows either.
+ * `.git` at the root is private Git state, which only `git` changes, and no
+ * listing shows it. Every other hidden file is listed, unfinished writes in
+ * `.epicenter` included; whoever reads a listing skips them (`isHiddenPath`).
  */
 import { Err, Ok, type Result } from 'wellcrafted/result';
 import {
@@ -38,17 +38,12 @@ import {
 	isStaleScratch,
 	PRIVATE_DIRECTORY,
 	type PutOutcome,
-	STATE_DIRECTORY,
 	scratchName,
 } from './boundary.js';
 import type { DirectoryPrimitives, EntryKind } from './directory-primitives.js';
 import { FileError, UnexpectedTarget } from './errors.js';
 import { hashBytes } from './hash.js';
 import { pathProblem, readablePath, writableExistingPath } from './paths.js';
-
-/** Whether a name at the root is Git's or this storage's own, which no listing shows. */
-const isOwnDirectory = (name: string) =>
-	name === PRIVATE_DIRECTORY || name === STATE_DIRECTORY;
 
 /** The directory holding the absolute `path`, which uses `/` (`scratchDirectory`). */
 const parentOf = (path: string) => path.slice(0, path.lastIndexOf('/'));
@@ -239,7 +234,7 @@ export function createDirectoryStorage({
 			const entries: { path: string; stamp: string }[] = [];
 			async function visit(directory: string, prefix: string) {
 				for (const entry of await files.readDir(directory)) {
-					if (prefix === '' && isOwnDirectory(entry.name)) continue;
+					if (prefix === '' && entry.name === PRIVATE_DIRECTORY) continue;
 					const path = prefix + entry.name;
 					const at = `${directory}/${entry.name}`;
 					if (entry.kind === 'directory') {

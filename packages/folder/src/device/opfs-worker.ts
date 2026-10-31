@@ -186,9 +186,10 @@ async function went(
 }
 
 /**
- * Every file, with its stamp. Writes run beside a listing, so an entry can
- * go between being named and being read (another tab deletes it while this
- * one lists): it is skipped, as a listing a moment later would
+ * Every file, with its stamp, hidden ones included (a staged write too):
+ * whoever reads a listing skips them. Writes run beside a listing, so an
+ * entry can go between being named and being read (another tab deletes it
+ * while this one lists): it is skipped, as a listing a moment later would
  * skip it, rather than failing the whole listing.
  */
 async function list() {
@@ -216,7 +217,7 @@ async function list() {
 		}
 	}
 	await walk(await root(), '');
-	return files.filter(({ path }) => !path.startsWith(`${STAGING.join('/')}/`));
+	return files;
 }
 
 /** The file at `path`, or null when it is not there, deleted mid-read included. */

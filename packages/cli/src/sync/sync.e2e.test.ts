@@ -23,7 +23,8 @@
  *   are serialized and a rejected push is retried, so every run succeeds
  * - T7: a rewritten remote main stops sync before it merges
  * - T8: a binary both sides replaced lands as a conflict copy (decision 44)
- * - clone, status, forget, sync of every registered folder, and --watch
+ * - clone, status, forget, sync of every registered folder, and --watch,
+ *   which a change under a hidden path never wakes
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { createHash, randomBytes } from 'node:crypto';
@@ -882,6 +883,51 @@ describe('epicenter sync over stock git', () => {
 			expect(lines.every((line) => JSON.parse(line).sync.folder === A)).toBe(
 				true,
 			);
+		},
+		LONG,
+	);
+
+	test(
+		'sync --watch wakes for a saved file, never for a change under a hidden path',
+		async () => {
+			// An interval longer than the test, so only a change starts a round.
+			const watching = Bun.spawn(
+				[EPICENTER, 'sync', A, '--watch', '--interval', '600', '--json'],
+				{ cwd: BOX, env: ENV, stdout: 'pipe', stderr: 'pipe' },
+			);
+			const reader = watching.stdout.getReader();
+			let rounds = 0;
+			const counting = (async () => {
+				for (;;) {
+					const { done, value } = await reader.read();
+					if (done) return;
+					rounds += new TextDecoder().decode(value).split('\n').length - 1;
+				}
+			})();
+			const until = async (done: () => boolean, failure: string) => {
+				const deadline = Date.now() + 20_000;
+				while (!done()) {
+					if (Date.now() > deadline) throw new Error(failure);
+					await Bun.sleep(100);
+				}
+			};
+			try {
+				await until(() => rounds > 0, 'watch never ran its first round');
+				// A recording in progress rewrites its header about once a second.
+				for (let second = 0; second < 3; second++) {
+					write(A, '.epicenter/recordings/notes/a.wav', `header ${second}`);
+					write(A, '.epicenter/saves/staged', `save ${second}`);
+					write(A, 'notes/.DS_Store', `clutter ${second}`);
+					await Bun.sleep(1000);
+				}
+				expect(rounds).toBe(1);
+				write(A, 'notes/woken.md', '---\ntitle: Woken\n---\n');
+				await until(() => rounds > 1, 'a saved file woke no round');
+			} finally {
+				watching.kill('SIGTERM');
+				await watching.exited;
+				await counting;
+			}
 		},
 		LONG,
 	);

@@ -3,6 +3,9 @@
 //! The same rules as `pathProblem` in `packages/folder/src/paths.ts`; both are
 //! held to `fixtures/path-rules.json`. Paths are never normalized, case folded,
 //! or aliased: a path that would need rewriting to be usable is refused.
+//!
+//! `is_hidden_path` is the one rule for what is not a folder's data, as
+//! `isHiddenPath` in `@epicenter/definition` is for the engine.
 
 /// A Windows 8.3 short name such as `GIT~1` or `NOTES~12.MD`, which can name
 /// another entry, `.git` itself among them: a stem of one to six characters
@@ -134,6 +137,15 @@ pub fn path_problem(path: &str) -> Option<&'static str> {
     None
 }
 
+/// Whether `path` has a hidden segment (one starting with `.`), and so is
+/// not the folder's data: `isHiddenPath` in `@epicenter/definition`. Git's
+/// state, a person's `.DS_Store`, and every unfinished write in `.epicenter`
+/// (`state`) are hidden, so no watcher reports a change to one and no
+/// directory inside one is ever a folder.
+pub fn is_hidden_path(path: &str) -> bool {
+    path.split('/').any(|segment| segment.starts_with('.'))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -142,6 +154,8 @@ mod tests {
     struct Rules {
         refused: Vec<String>,
         allowed: Vec<String>,
+        hidden: Vec<String>,
+        visible: Vec<String>,
     }
 
     /// The vectors `paths.test.ts` reads too, so both languages agree.
@@ -154,6 +168,12 @@ mod tests {
         }
         for path in &rules.allowed {
             assert_eq!(path_problem(path), None, "{path:?}");
+        }
+        for path in &rules.hidden {
+            assert!(is_hidden_path(path), "{path:?} visible");
+        }
+        for path in &rules.visible {
+            assert!(!is_hidden_path(path), "{path:?} hidden");
         }
     }
 

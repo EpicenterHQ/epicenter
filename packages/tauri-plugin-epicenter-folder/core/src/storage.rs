@@ -15,8 +15,9 @@
 //! - `.git` at the root is Git's, never listed and never named.
 //! - `.epicenter` at the root is Epicenter's own state (`STATE_DIRECTORY`):
 //!   the scratch directory saves stage in, and unfinished files such as a
-//!   recording in progress. No listing shows it, no watcher reports it, and
-//!   `epicenter init`'s `.gitignore` keeps it out of history.
+//!   recording in progress. It is a hidden path, so it is not the folder's
+//!   data: a listing shows it and its reader skips it, no watcher reports
+//!   it, and `epicenter init`'s `.gitignore` keeps it out of history.
 //!
 //! `put` is the one change of a file. Its bytes are staged in a new file in
 //! `.epicenter/scratch` inside the root, where the Bun host stages too, and
@@ -60,7 +61,7 @@ const PRIVATE_DIRECTORY: &str = ".git";
 
 /// Epicenter's own state at the top of a folder: the scratch directory
 /// (`scratch_directory`) and unfinished files, such as a recording in
-/// progress. No listing shows it and no watcher reports it.
+/// progress. A hidden path, so no watcher reports it.
 pub const STATE_DIRECTORY: &str = ".epicenter";
 
 /// Where `put` stages a file's bytes: `.epicenter/scratch` inside the
@@ -553,8 +554,10 @@ fn spelled_by_listing(root: &Path, names: &[&str]) -> io::Result<bool> {
     Ok(true)
 }
 
-/// Every file below `root`, `.git` and `.epicenter` at the root aside,
-/// without following a link. A name that is not text is left out.
+/// Every file below `root`, `.git` at the root aside, without following a
+/// link. Hidden files are listed, unfinished writes in `.epicenter`
+/// included; whoever reads the listing skips them (`isHiddenPath`). A name
+/// that is not text is left out.
 pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
     fn visit(directory: &Path, prefix: &str, listing: &mut Vec<ListedFile>) -> io::Result<()> {
         let entries = match fs::read_dir(directory) {
@@ -568,7 +571,7 @@ pub fn list(root: &Path) -> Result<Vec<ListedFile>, StorageError> {
             let Ok(name) = entry.file_name().into_string() else {
                 continue;
             };
-            if prefix.is_empty() && (name == PRIVATE_DIRECTORY || name == STATE_DIRECTORY) {
+            if prefix.is_empty() && name == PRIVATE_DIRECTORY {
                 continue;
             }
             let path = format!("{prefix}{name}");

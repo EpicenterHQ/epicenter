@@ -1,6 +1,6 @@
 /**
  * What the native Bun folder keeps in its directory's own `.epicenter`
- * (`STATE_DIRECTORY`), which no listing shows and no watcher reports: the
+ * (`STATE_DIRECTORY`), a hidden path no watcher reports: the
  * scratch directory where a new file's bytes are staged. It needs no Git, so
  * a directory without `.git`, or with a `.git` file or link, opens and saves
  * alike, and saving creates nothing beside it and nothing in it but the

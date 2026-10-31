@@ -1,5 +1,5 @@
 {
-	"description": "Folder-relative paths the folder engine (packages/folder/src/paths.ts pathProblem) and the desktop shell (core/src/paths.rs path_problem) both refuse or both allow. Both test suites read this file.",
+	"description": "Folder-relative paths the folder engine (packages/folder/src/paths.ts pathProblem) and the desktop shell (core/src/paths.rs path_problem) both refuse or both allow, and paths both call hidden (isHiddenPath in @epicenter/definition, is_hidden_path in paths.rs) or not. Both test suites read this file.",
 	"refused": [
 		"",
 		"/a",
@@ -88,5 +88,23 @@
 		"CON\u00a0.txt",
 		"index.sqlite3",
 		".DS_Store"
+	],
+	"hidden": [
+		".epicenter",
+		".epicenter/saves/lz0-0123456789abcdef0123456789abcdef-1",
+		".epicenter/recordings/recordings/a.wav",
+		".git/index",
+		".DS_Store",
+		"notes/.DS_Store",
+		"notes/.obsidian/workspace.json",
+		"notes/.epicenter"
+	],
+	"visible": [
+		"a",
+		"notes/a.md",
+		"notes/a.b.md",
+		"notes/a.",
+		"epicenter/saves/a",
+		"recordings/a.wav"
 	]
 }

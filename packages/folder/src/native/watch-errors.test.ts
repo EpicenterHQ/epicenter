@@ -1,6 +1,7 @@
 /**
  * Native watch uncertainty invalidates all held/read sources without reading
- * files. Null Linux filenames and watcher errors must not silently lose scope.
+ * files. Null Linux filenames and watcher errors must not silently lose scope,
+ * and a hidden path (`isHiddenPath`) never reports a change.
  */
 import { expect, mock, test } from 'bun:test';
 import * as fs from 'node:fs';
@@ -55,16 +56,19 @@ test('absent filenames and errors reconcile all, while closed callbacks are igno
 	expect(closed).toBe(1);
 });
 
-test("Epicenter's own state at the top of the folder never reports a change", () => {
+test('a hidden path never reports a change', () => {
 	const hints: unknown[] = [];
 	const stop = watchDirectory(root)((paths) => hints.push(paths));
-	// Staged saves and unfinished files live in `.epicenter`, so a save
-	// does not echo as a change.
+	// Unfinished writes live in `.epicenter`, so a save does not echo as a
+	// change, and a recording's header rewrite wakes nothing.
 	event('rename', '.epicenter');
-	event('change', join('.epicenter', 'recording', 'recordings', 'a.wav'));
-	event('rename', join('.epicenter', 'scratch', 'staged'));
-	// Below the top, `.epicenter` is an ordinary hidden name.
+	event('change', join('.epicenter', 'recordings', 'recordings', 'a.wav'));
+	event('rename', join('.epicenter', 'saves', 'staged'));
+	// Anything hidden, at any depth, is not the folder's data either.
 	event('change', join('notes', '.epicenter'));
-	expect(hints).toEqual([['notes/.epicenter']]);
+	event('change', join('notes', '.obsidian', 'workspace.json'));
+	event('change', '.DS_Store');
+	event('change', join('notes', 'a.md'));
+	expect(hints).toEqual([['notes/a.md']]);
 	stop();
 });

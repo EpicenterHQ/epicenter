@@ -141,14 +141,17 @@ fn invalid(path: &str) -> impl Fn(&StorageError) -> bool + '_ {
     move |error| matches!(error, StorageError::InvalidPath { path: at, .. } if at == path)
 }
 
+/// Hidden files are listed, unfinished writes included: whoever reads a
+/// listing skips them. Only Git's own directory is left out.
 #[test]
-fn a_listing_leaves_out_git_and_epicenter_at_the_root_and_follows_no_link() {
+fn a_listing_leaves_out_git_at_the_root_lists_hidden_files_and_follows_no_link() {
     let (_temp, root) = folder(
         "storage-list",
         &[
             ("todos/a.md", b"first\n"),
             (".git/HEAD", b"ref: refs/heads/main\n"),
-            (".epicenter/scratch/staged", b"x"),
+            (".epicenter/saves/staged", b"x"),
+            ("todos/.DS_Store", b"x"),
             ("kv.json", b"{}"),
         ],
     );
@@ -157,9 +160,14 @@ fn a_listing_leaves_out_git_and_epicenter_at_the_root_and_follows_no_link() {
     std::os::unix::fs::symlink(root.join("todos"), root.join("linked")).unwrap();
     let mut listing = list(&root).unwrap();
     listing.sort_by(|a, b| a.path.cmp(&b.path));
-    let mut files = vec!["kv.json", "todos/a.md"];
+    let mut files = vec![
+        ".epicenter/saves/staged",
+        "kv.json",
+        "todos/.DS_Store",
+        "todos/a.md",
+    ];
     #[cfg(unix)]
-    files.insert(1, "linked");
+    files.insert(2, "linked");
     assert_eq!(
         listing
             .iter()
@@ -419,8 +427,8 @@ fn names(directory: &Path) -> Vec<String> {
 
 /// A folder needs no Git to save: a put stages inside the root, in
 /// `.epicenter/scratch`, the directory the Bun host stages in. Nothing is
-/// made beside the root, and the root holds only what was saved and
-/// `.epicenter`, which no listing shows.
+/// made beside the root, and the root holds only what was saved and the
+/// hidden `.epicenter`.
 #[test]
 fn a_folder_with_no_git_saves_and_stages_inside_the_root() {
     let (temp, root) = folder("storage-no-git", &[("readme.txt", b"plain\n")]);

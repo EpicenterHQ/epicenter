@@ -7,15 +7,12 @@ import {
 	checkContract,
 	compileContract,
 	type FileIssue,
+	isHiddenPath,
 } from '@epicenter/definition/contract';
 import { formatNote } from '@epicenter/definition/note';
 import { Ok } from 'wellcrafted/result';
 import { decodeNote } from '../note-codec.js';
 import type { DeviceStore } from './store.js';
-
-/** Whether a path is hidden, and so not the contract's (`checkContract` skips it). */
-const isHidden = (path: string) =>
-	path.split('/').some((segment) => segment.startsWith('.'));
 
 /**
  * Every file of `store` checked against `contract`: one issue per problem,
@@ -30,7 +27,7 @@ export async function checkStore(contract: unknown, store: DeviceStore) {
 	const unreadable: FileIssue[] = [];
 	const paths = listed
 		.map(({ path }) => path)
-		.filter((path) => !isHidden(path))
+		.filter((path) => !isHiddenPath(path))
 		.sort();
 	for (const path of paths) {
 		if (!path.endsWith('.md')) {
