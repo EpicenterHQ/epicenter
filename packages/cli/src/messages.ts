@@ -136,20 +136,16 @@ export function createBeeperConnection(
 	};
 }
 
-export async function messagesCommand() {
-	let input: unknown;
-	try {
-		input = JSON.parse(await Bun.stdin.text());
-	} catch {
-		input = null;
-	}
-	if (!Check(beeperRequest, input)) {
-		writeJson({
-			kind: 'error',
-			message: 'Invalid Beeper operation.',
-		} satisfies BeeperAnswer);
-		return 2;
-	}
+/**
+ * Answer Beeper operations the way `epicenter messages --json` does: an
+ * operation that is not one `beeperRequest` admits is refused, and any other
+ * runs on this installation's connection, whose token is in the device
+ * keychain. Messages' local program (`apps/messages/scripts/serve.ts`)
+ * answers its page with this, so the page never holds the token.
+ */
+export function openBeeper(): {
+	answer(input: unknown): Promise<BeeperAnswer>;
+} {
 	// Development and explicit app-data locations never adopt another installation's token.
 	const scope = new Bun.CryptoHasher('sha256')
 		.update(process.env.EPICENTER_DATA_DIR ?? 'terminal')
@@ -157,6 +153,23 @@ export async function messagesCommand() {
 	const connection = createBeeperConnection(
 		keychain(`so.epicenter.messages.${scope}`),
 	);
-	writeJson(await connection.request(input));
-	return 0;
+	return {
+		async answer(input) {
+			if (!Check(beeperRequest, input))
+				return { kind: 'error', message: 'Invalid Beeper operation.' };
+			return connection.request(input);
+		},
+	};
+}
+
+export async function messagesCommand() {
+	let input: unknown;
+	try {
+		input = JSON.parse(await Bun.stdin.text());
+	} catch {
+		input = null;
+	}
+	const answer = await openBeeper().answer(input);
+	writeJson(answer);
+	return Check(beeperRequest, input) ? 0 : 2;
 }
