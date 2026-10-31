@@ -1,8 +1,8 @@
 /**
  * What Todos knows of a todo: its file, its label and its order. The list
- * the components read (`getTodos`) is one store's todos: this browser's (or
- * the desktop folder's) in the local variant, the repository's in the online
- * variant; `TodosApp` sets it.
+ * the components read (`getTodos`) is one store's todos: the desktop
+ * window's folder, or the person's repository in a browser; `TodosApp` sets
+ * it.
  */
 import type { NoteOf } from '@epicenter/definition/contract';
 import type { ReactiveNotes } from '@epicenter/svelte/client';
@@ -27,10 +27,10 @@ export const openFirst = (a: Todo, b: Todo) =>
 	Number(a.done) - Number(b.done) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 /**
- * Which variant a page is: `local`, this browser's files (or, on the
- * desktop, the window's folder), or `online`, the person's repository.
+ * Which variant a page is: `desktop`, the window's folder, which Epicenter
+ * syncs, or `online`, the person's repository in a browser.
  */
-export type Variant = 'local' | 'online';
+export type Variant = 'desktop' | 'online';
 
 /** The list every component of a page reads and edits: its store's todos. */
 export const [getTodos, setTodos] = createContext<ReactiveNotes<TodoNotes>>();

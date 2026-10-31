@@ -1,6 +1,6 @@
 <!--
 	Todos itself, in either variant: the header, the list, and the open todo,
-	over one store's todos, this browser's or the repository's. Which
+	over the todos it is given, the desktop folder's or the repository's. Which
 	todo is open is the URL's `?todo=<id>`, so it survives a reload and the
 	breakpoint.
 -->
@@ -21,7 +21,7 @@
 		variant,
 		todos,
 	}: {
-		/** Which variant this page is: this browser's todos, or the repository's. */
+		/** Which variant this page is: the desktop folder's todos, or the repository's. */
 		variant: Variant;
 		/** Its store's todos, which every component under it reads and edits. */
 		todos: ReactiveNotes<TodoNotes>;

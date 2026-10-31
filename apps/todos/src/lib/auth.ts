@@ -2,7 +2,7 @@
  * Sign-in with Epicenter for Todos' online variant: a browser OAuth client
  * whose one token is for the server's Git audience, where the person's
  * `todos` repository lives. Todos makes no inference calls, so it asks for
- * no API token, and its local variant never signs in.
+ * no API token.
  *
  * The server is `VITE_EPICENTER_SERVER` when the build sets it (a local or
  * self-hosted API), otherwise Epicenter's.

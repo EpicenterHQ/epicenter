@@ -1,10 +1,7 @@
 <!--
-	The header: the app's name, the two ways to use Todos in a browser, "On
-	this browser" (`/`) and "Online" (`/online`), what the open one is, and,
-	online, the account. They are two separate lists in two stores; nothing
-	moves from one to the other, so each link loads a new page. The desktop
-	window's folder is Epicenter's to sync, so it signs in to nothing and
-	offers Open in Epicenter (`open-in-epicenter.ts`) instead.
+	The header: the app's name, where its todos are, and, online, the
+	account. The desktop window's folder is Epicenter's to sync, so it signs
+	in to nothing and offers Open in Epicenter (`open-in-epicenter.ts`).
 -->
 <script lang="ts">
 	import StatusPopover from '@epicenter/svelte/status-popover';
@@ -12,8 +9,6 @@
 	import type { StatusLine } from '@epicenter/svelte/status-line';
 	import { Button } from '@epicenter/ui/button';
 	import { toast } from '@epicenter/ui/sonner';
-	import { isTauri } from '@tauri-apps/api/core';
-	import { resolve } from '$app/paths';
 	import { webAuth } from '$lib/auth.js';
 	import { getTodos, type Variant } from '$lib/todos.js';
 	import {
@@ -24,24 +19,19 @@
 
 	const todos = getTodos();
 	let { variant, pendingNewTodo }: { variant: Variant; pendingNewTodo: boolean } = $props();
-	const desktop = isTauri();
-	// Todos has no hosted capabilities: only the online variant signs in.
-	// svelte-ignore state_referenced_locally
-	const auth = variant === 'online' ? webAuth() : null;
+	// Null in the desktop window, which never signs in.
+	const auth = webAuth();
 
 	const status = $derived.by((): StatusLine => {
 		if (pendingNewTodo) return { label: 'Todo not added', tone: 'warning' };
-		if (variant === 'local') {
+		if (variant === 'desktop') {
 			if (todos.error !== null)
 				return {
 					label: 'Not readable here',
 					detail: todos.error.message,
 					tone: 'error',
 				};
-			return {
-				label: desktop ? 'On this computer' : 'On this browser',
-				tone: 'neutral',
-			};
+			return { label: 'On this computer', tone: 'neutral' };
 		}
 		if (auth?.state.status === 'reauth-required')
 			return {
@@ -88,40 +78,16 @@
 <header class="flex h-12 shrink-0 items-center gap-1.5 border-b px-2 sm:gap-2 sm:px-3">
 	<!-- On narrow screens the list itself says what this is; the width goes to status. -->
 	<h1 class="text-sm font-semibold max-sm:sr-only">Todos</h1>
-	{#if !desktop}
-		<nav class="flex items-center gap-1" aria-label="Ways to use Todos">
-			<Button
-				size="sm"
-				variant={variant === 'local' ? 'secondary' : 'ghost'}
-				href={resolve('/')}
-				data-sveltekit-reload
-				aria-current={variant === 'local' ? 'page' : undefined}
-			>
-				On this browser
-			</Button>
-			<Button
-				size="sm"
-				variant={variant === 'online' ? 'secondary' : 'ghost'}
-				href={resolve('/online')}
-				data-sveltekit-reload
-				aria-current={variant === 'online' ? 'page' : undefined}
-			>
-				Online
-			</Button>
-		</nav>
-	{/if}
 	<StatusPopover summary={status} details={[{ name: 'Status', testid: 'status-files', line: status }]}>
 		<StatusRow name="Where">
 			<span class="font-medium" data-testid="status-where">
-				{desktop ? 'This computer' : variant === 'local' ? 'This browser' : 'Your repository'}
+				{variant === 'desktop' ? 'This computer' : 'Your repository'}
 			</span>
 			<span class="mt-0.5 block text-xs text-muted-foreground">
-				{#if desktop}
+				{#if variant === 'desktop'}
 					Todos' folder on this computer. Add it in Epicenter to sync it.
-				{:else if variant === 'online'}
-					Your Epicenter repository, todos. Online only: nothing is kept in this browser.
 				{:else}
-					Kept in this browser only, with no account. They never leave it; Online is a separate list.
+					Your Epicenter repository, todos. Online only: nothing is kept in this browser.
 				{/if}
 			</span>
 		</StatusRow>
