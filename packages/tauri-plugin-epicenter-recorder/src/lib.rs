@@ -25,8 +25,7 @@
 //! never at a data path, so sync never commits one. Nothing deletes a
 //! recording once capture has begun. When the page that started a recording
 //! reloads, or its window is destroyed, the recording is finalized and moved
-//! for it. Epicenter reads `is_recording` for its application Quit warning;
-//! a recording alone adds no window Close warning. `recover` repairs the
+//! for it. A recording adds no Close or Quit warning. `recover` repairs the
 //! header of any WAV a quit or crash left in `.epicenter/recording` and moves
 //! it to its path, which a page calls when it opens its folder.
 //!
@@ -157,13 +156,6 @@ impl<R: Runtime> Builder<R> {
 
 pub fn init<R: Runtime>() -> TauriPlugin<R> {
     Builder::new().build()
-}
-
-/// Whether a recording is capturing now, for Epicenter's application Quit
-/// warning. An open meter or an ended recording adds no recording warning.
-pub fn is_recording<R: Runtime>(app: &AppHandle<R>) -> bool {
-    app.try_state::<Recorders<R>>()
-        .is_some_and(|recorders| recorders.lock().is_recording())
 }
 
 /// The typed command contract. The TypeScript bindings in

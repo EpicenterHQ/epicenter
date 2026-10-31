@@ -9,9 +9,8 @@ the recording window opened, written from the first sample
 `start` creates the WAV in the folder's `.epicenter/recording` and appends
 16 kHz mono PCM16 as the microphone captures, and `stop` finalizes its header
 and moves it to `<path>.wav`. Nothing deletes it. A quit, a
-crash, or a closed window keeps the audio up to the cut. Epicenter reads
-`is_recording` for its application Quit warning. A recording alone adds no
-window Close warning.
+crash, or a closed window keeps the audio up to the cut. A recording adds no
+Close or Quit warning.
 
 A microphone is opened at the rate it already runs at, never another: on
 macOS a stream at another rate changes the device's rate for every app using
