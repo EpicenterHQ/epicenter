@@ -4,7 +4,7 @@
 - **Date:** 2026-10-31
 - **Supersedes:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (one merge where the change wins and no conflict marker is written), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (a Git clone per web origin), [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) (browser sync), and [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) (the hosts' incoming-update engine).
 - **Amends:** the 24 records in [Records this changes](#records-this-changes), each at the scope named there.
-- **Unbuilt:** per-repository grants and the consent page choosing a repository (`openRemote` reaches `<account>/<contract name>` until then); `@epicenter/secrets`; the notify Durable Object that broadcasts "main moved" per repository; Whispering's migration to a contract; `epicenter init --contract`; an R2 bucket bound to the production `api` Worker.
+- **Unbuilt:** per-repository grants and the consent page choosing a repository (`openRemote` reaches `<account>/<contract name>` until then); `@epicenter/secrets`; the notify Durable Object that broadcasts "main moved" per repository; Whispering's desktop app on the contract; `epicenter init --contract`; an R2 bucket bound to the production `api` Worker.
 
 ## Context
 
@@ -52,8 +52,25 @@ On the desktop, `epicenter sync` is the only committer, and it commits with
 real `git add` so Git LFS's filters run. On the web, the server commits each
 write. A folder `epicenter init` has not registered has no history.
 
-**The web never syncs.** A web app keeps its own files in the browser, or
-reads and writes the repository through the server while online:
+**An app has up to three variants, each with one store for its life, and
+nothing moves between stores.** An app builds only the variants it needs:
+
+- **Desktop:** the folder, through `openDevice` from `/tauri`. Only Epicenter
+  (`epicenter sync`) syncs it.
+- **Local web:** this browser's files, through `openDevice` from `/browser`,
+  for good. It never syncs and never uploads, and nothing moves it into a
+  repository. Signing in with Epicenter is optional and grants capabilities
+  only (hosted transcription and AI), never storage.
+- **Online web:** the repository, through `openRemote` under a signed-in
+  layout that sets it. It works online only and keeps nothing in the browser;
+  each create and edit is a commit.
+
+A page opens one store and keeps it; a link to another variant loads a new
+page. Sign-in grants capabilities, never storage. Today Whispering and
+Messages are local web only (Messages because Beeper Desktop listens only on
+the person's computer), Todos is online web and desktop, Capture, Honeycrisp
+and Vocab are online web only, and the recorder demo shows both web variants.
+UI components take the client they show, so adding a variant is a new root.
 
 | Opener | Entry | Where | A version is |
 | --- | --- | --- | --- |
@@ -62,37 +79,18 @@ reads and writes the repository through the server while online:
 | `openDevice(contract, { path? })` | `@epicenter/folder/tauri` | the directory the shell bound to the window (`path`: a folder inside it), under the save lock | sha256 of the bytes |
 | `openRemote(contract, { account })` | `@epicenter/folder/remote` | `<git audience>/~/<contract name>.git`, every request through `account.fetch` | the Git blob id on `main` |
 
-A file made in the browser stays in OPFS with a capture sidecar
-(`.epicenter/outbox/<id>.json`). `startUploading(device, remote)` uploads it
-once signed in and online: the LFS object, then one write. The device lets go
-of a file only at the version it sent, after the server's reply shows that
-version landed; an edit made while the write was in flight is queued as an
-update over what landed. The server keeps nothing about a write once it
-answers, so a lost reply means sending the same write again, judged like any
-write: bytes already at the path land as nothing (no commit), and bytes
-edited since land as two creates (a note gets at most one conflict block, a
-binary a conflict copy). Edits and deletes of repository files are online
-only.
-
-An app shows the two sides as separate views, each writing only to its own
-client: "On this device" over the device (signed out and offline too) and,
-signed in, "Synced" over the remote. Uploading also adopts a device file no
-capture names once it has gone five seconds unchanged (a capture goes at
-once), so it leaves the first view and appears in the second; a merged view
-of both can return later.
-
-A file other than a note that the reply shows at its own path stays in the
-browser as a read-only cache (`.epicenter/cache/<path>`, `cacheOf(device)`),
-so an app can play or transcribe recent recordings offline. It is outside the
-contract, so nothing in it is ever sent. A read given the remote's version
-answers only with those bytes. The browser may evict it; past 32 files the
-first by file name go; it is cleared when the account that uploaded it is
-retired, or by the app. A note is never cached: it is the repository's to
-change.
+This supersedes, in the file-contract design, decision 11 (the web keeps
+files in the browser or works online, as one app), decision 12 (files made
+offline or signed out upload once signed in), decisions 66 and 67 (a cache of
+uploaded audio, and uploads going to whoever signs in next) and the uploading
+in decision 76 (two views of one app, with the device's files moving into the
+repository). The uploader, the outbox and its sidecars, the cache, the quiet
+period and capture adoption are deleted. Moving files between stores can
+return later as an explicit action a person takes, not a background rule.
 
 **One browser sign-in covers both audiences.** `account.fetch` carries the Git
-token to `openRemote` and the API token to everything else, so a web app that
-syncs a folder and calls the API (Whispering) names both `resources` in
+token to `openRemote` and the API token to everything else, so an online web
+app that also calls the API (Vocab) names both `resources` in
 `createBrowserOAuth`. The client sends one redirect for both, with
 `offline_access`, exchanges the code for the API, and refreshes once for Git,
 then drops the refresh token: none is kept at rest. `Account.fetch` picks the
@@ -167,8 +165,8 @@ an agent. A folder links to a repository with plain
 **Desktop Git features may assume an agent; the web assumes nothing.** A
 person who reached Git has an agent that fixes its own conflicts, locks, and
 rejected pushes, so `sync` stops with exit 2 and leaves Git's state for it. The
-web offers only what needs no repair: create while offline, edit and delete
-while online, with `Conflict` answered in the app.
+web offers only what needs no repair: the online variant creates, edits and
+deletes while online, with `Conflict` answered in the app.
 
 **Deleted:** `epicenter generate` and `generate-declaration.ts`;
 `epicenter history`, `save-version`, and `sync --to`; the native history engine
@@ -182,8 +180,7 @@ shape: `epicenter query` and `schema import|export` over a root
 `epicenter.json`; the hosted Git host without `objects` that answered as
 before the receiver; the browser engine's sync checkpoints
 (`remoteBase`, `pendingCommit`, `acknowledge`); the old content-only `merge`
-and its `diff` dependency; replayed receipts and missing `bases` in outbox
-sidecars; grants and tokens without a `generation`; Capture's `draft`
+and its `diff` dependency; grants and tokens without a `generation`; Capture's `draft`
 files; and `bookmarks.json` cleanup.
 
 ## Consequences
@@ -198,11 +195,10 @@ files; and `bookmarks.json` cleanup.
 - A front matter value that loses a race is visible only in history.
 - A version means sha256 on a device and a Git blob id on a remote. The
   server's reply carries blob ids; a binary's is the blob of the LFS pointer
-  naming its sha256, which is how the device knows its cached bytes are the
-  repository's.
-- A reply lost and the file then changed, on the device or on `main`, before
-  the resend gives one conflict block (or a conflict copy) instead of a clean
-  update. Nothing is lost.
+  naming its sha256.
+- A local web variant's files exist only in that browser, which may evict
+  them; nothing backs them up. A person who wants a repository uses the
+  online or desktop variant.
 - A repository grant exposes every data folder in that repository.
 - The production `api` Worker answers hosted Git with 503 until an R2 bucket
   is bound (`apps/api/README.md`); then every push goes through the receiver.
@@ -246,11 +242,11 @@ files; and `bookmarks.json` cleanup.
 | [ADR-0592](0592-a-folders-gitignore-decides-what-stays-on-one-machine.md) | browser synchronization and "purging committed bytes requires a new repository": the owner may rewrite `main`. |
 | [ADR-0611](0611-epicenter-is-only-the-data-layer-its-apps-reach-over-git.md) | web origins exchanging commits, the browser's Git transport, and `check` with `epicenter.json`: the web never syncs, and `check` takes a contract. |
 | [ADR-0613](0613-a-table-is-a-top-level-directory-described-by-its-table-json.md) | CLI `check` requiring root `epicenter.json`: `check` takes a contract. |
-| [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | the browser's unsent-edit map and publication bookkeeping: a browser holds only its own files, capture sidecars, and a cache of the files it uploaded. |
+| [ADR-0619](0619-every-byte-epicenter-keeps-is-a-git-object-a-working-file-an-access-list-row-or-a-cache.md) | the browser's unsent-edit map and publication bookkeeping: a browser holds only a local variant's own files. |
 | [ADR-0620](0620-history-in-a-repository-only-grows.md) | "forced or not": the owner may replace `main`, kept at `refs/epicenter/replaced/<time>`; everyone else only moves it forward. |
 | [ADR-0621](0621-epicenters-library-writes-only-text-to-a-repository-in-v1.md) | "binary files come later": every non-note file is Git LFS with bytes in R2. |
-| [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | the browser's sync states and recovery: a web app reports only files not uploaded yet. |
+| [ADR-0624](0624-a-repository-reports-synced-pending-disconnected-or-stuck.md) | the browser's sync states and recovery: a web app reports none; the online variant is online or offline. |
 | [ADR-0626](0626-an-app-reaches-a-repository-only-through-open.md) | "browser hosted sync obtains consent": the web reaches a repository through `openRemote`. |
 | [ADR-0627](0627-every-change-to-the-data-model-is-checked-against-nine-principles.md) | principles 1, 2, 5, 6, 7 and 9: the contract, the web never syncs, the merge rules above, and LFS. |
 | [ADR-0632](0632-a-lens-belongs-to-its-reader.md) | "CLI check and query require the root epicenter.json": `check` takes a contract. |
-| [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) | browser synchronization: the web uploads new files and never syncs. |
+| [ADR-0633](0633-apps-open-local-data-before-connecting-services.md) | browser synchronization: the web never syncs; a local variant's files stay in the browser. |

@@ -44,8 +44,11 @@ Browser local data lives under its web origin: in the origin's private file
 system for a contract's `openDevice`, or in IndexedDB for the legacy
 `openFolder`. It is not an ordinary folder that another app origin or desktop
 editor can open. Disk data can be shared by cooperating clients at the same
-path. The web never syncs: a web app reads and writes a repository through the
-server while online, and uploads the files it made on the device ([ADR-0700](adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+path. The web never syncs. An app has up to three variants, each with one
+store for its life: desktop (the folder, synced only by `epicenter sync`),
+local web (this browser's files, for good), and online web (the repository
+through the server, online only). Nothing moves between stores, and signing
+in grants capabilities, never storage ([ADR-0700](adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
 
 `openFolder({ tables })` opens the browser origin's local default or the
 existing directory bound to a native window. Bun receives an explicit
@@ -235,7 +238,7 @@ additional current APIs.
 | Source | Names and current behavior |
 | --- | --- |
 | `@epicenter/folder` | Public `openFolder`, `Folder`, and `Row.id` across root, `/browser`, `/tauri`, and `/bun`. Apps supply TypeBox row schemas and neither read nor publish a declaration when opening. Older `defineFolder`, `Definition`, and `stem` remain in the Bun CLI tools. |
-| `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser` and `openDevice(contract, { path })` from `/node`, `openRemote(contract, { account })` and `startUploading` from `/remote`, over a contract from `@epicenter/definition/contract`. |
+| `@epicenter/folder` contract openers | `openDevice(contract)` from `/browser`, `openDevice(contract, { path })` from `/node`, `openDevice(contract, { path? })` from `/tauri`, and `openRemote(contract, { account })` from `/remote`, over a contract from `@epicenter/definition/contract`. |
 | `@epicenter/folder` browser engine (`src/browser/`) | Internal `openRepository`, `LocalRepository`, caller-supplied `schemas`, and `Row.id`. It has no package entry point; only `openFolder({ tables })` reaches it. |
 | `@epicenter/folder/declaration` | Canonical portable schema, `SavedView`, and `readSavedViews`. The pure `changeSavedView` transform composes into the same declaration file editor used for raw text. |
 | CLI | Implemented commands include `auth`, `check`, `format`, `init`, `sync`, `clone`, `forget`, `status`, `repos`, `share`, and `unshare`. External-schema flags and CLI `open` remain deferred. |

@@ -26,55 +26,62 @@ files remain in place.
 
 ## Svelte app root
 
-An app on the file contract (decision 7 of the file-contract design; Todos is
-the reference) has two sides, shown as two separate views (decision 76). The
-device is a module singleton, always there; the person's repository is in
-context, set by the signed-in boundary, one per account:
+An app on the file contract has up to three variants, each with one store
+for its life, and builds only the ones it needs: desktop (the Tauri
+window's folder), local web (this browser's files), and online web (the
+person's repository, behind sign-in). Nothing moves between stores; signing
+in grants capabilities, never storage
+([ADR-0700](../docs/adr/0700-apps-share-data-through-a-file-contract-recorded-in-git.md)).
+
+| App | Variants |
+| --- | --- |
+| Todos | online web, desktop |
+| Capture, Honeycrisp, Vocab | online web |
+| Whispering, Messages | local web |
+| Recorder demo | local web (`/`) and online web (`/online`) |
+
+Only a variant's root decides the store. A local or desktop root uses the
+device, a module singleton; an online root is the signed-in layout, which
+sets the repository in context per account:
 
 ```ts
-// apps/todos/src/lib/device.ts
-export const device = isTauri() ? openFolderDevice(todos) : openBrowserDevice(todos);
+// apps/todos/src/lib/device.ts: the desktop variant's store
+export const device = openDevice(todos); // `@epicenter/folder/tauri`
 ```
 
 ```svelte
-<!-- apps/todos/src/lib/components/SignedIn.svelte: the signed-in boundary -->
+<!-- apps/todos/src/routes/(app)/+layout.svelte: the signed-in layout (not the sign-in callback) -->
+{#if auth.state.status !== 'signed-out'}
+  {#key auth.state.account}
+    <Online account={auth.state.account}>{@render children()}</Online>
+  {/key}
+{:else}
+  <!-- ask for a sign-in -->
+{/if}
+```
+
+```svelte
+<!-- apps/todos/src/lib/components/Online.svelte -->
 <script lang="ts">
   const { account, children } = $props();
-  const repo = setRepo(openRemote(todos, { account })); // `@epicenter/svelte/repo`
-  const uploader = startUploading(device, repo);
-  onDestroy(() => uploader[Symbol.dispose]());
+  setRepo(openRemote(todos, { account })); // `@epicenter/svelte/repo`
 </script>
 
 {@render children()}
 ```
 
 ```svelte
-<!-- apps/todos/src/routes/(app)/+layout.svelte: the boundary wraps both views (not the sign-in callback), so uploads run on each -->
-{#if auth === null || auth.state.status === 'signed-out'}
-  {@render children()}
-{:else}
-  {#key auth.state.account}
-    <SignedIn account={auth.state.account}>{@render children()}</SignedIn>
-  {/key}
-{/if}
+<!-- apps/todos/src/routes/(app)/+page.svelte -->
+<TodosApp variant="online" todos={fromClient(getRepo<Todos>()).todos} />
 ```
 
-```svelte
-<!-- apps/todos/src/routes/(app)/+page.svelte: "On this device" -->
-<TodosApp view="device" todos={fromClient(device).todos} />
-
-<!-- apps/todos/src/routes/(app)/synced/+page.svelte: "Synced", behind a sign-in gate -->
-<TodosApp view="synced" todos={fromClient(getRepo<Todos>()).todos} />
-```
-
-Each view reads and writes its own client only. The uploader moves every
-device file into the repository in the background: it leaves "On this
-device" and appears in "Synced", and nothing holds it on screen across the
-move. A merged view can return later. Views sort with the app's own order,
-and read and write through `fromClient` state: tracked `items`, `invalid`
-(notes that do not read, with their text), and writes that pass the version
-shown; `fieldEdit` binds one field to an immediate editor. See
-[Todos](todos/README.md) and the [Svelte package](../packages/svelte/README.md).
+UI components take the client, or its `fromClient` collection, as a prop,
+so a new variant is a new root over the same components. They sort with the
+app's own order, and read and write through `fromClient` state: tracked
+`items`, `invalid` (notes that do not read, with their text), and writes
+that pass the version shown; `fieldEdit` binds one field to an immediate
+editor. See [Todos](todos/README.md) and the
+[Svelte package](../packages/svelte/README.md).
 
 Apps not yet on the contract still open their folder with `<OpenFolder>` and
 `svelteFolder` from `@epicenter/svelte`.
@@ -100,12 +107,12 @@ fixed default. Both contexts keep the same `openFolder({ tables })` page API.
 | App | Surfaces | Native default | Tables |
 | --- | --- | --- | --- |
 | Epicenter | Settings (host) | `so.epicenter` (records) | `connections`; the folder editor declares none |
-| [Todos](todos/README.md) | browser, hosted, standalone native | `so.epicenter.todos` | `todos` |
-| [Capture](capture/README.md) | browser; on the file contract (`capture`) | none; signs in as `so.epicenter.capture` | `captures` |
-| [Honeycrisp](honeycrisp/README.md) | browser, hosted | `so.epicenter.honeycrisp` | `folders`, `notes` |
-| [Whispering](whispering/README.md) | browser, hosted | `so.epicenter.whispering` | `recordings`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs`; AI connections in records |
+| [Todos](todos/README.md) | online web; desktop (standalone native) | `so.epicenter.todos` | contract `todos`: `todos` |
+| [Capture](capture/README.md) | online web | none: the `capture` repository | contract `capture`: `captures` |
+| [Honeycrisp](honeycrisp/README.md) | online web | none: the `honeycrisp` repository | contract `honeycrisp`: `notes`, `folders` |
+| [Whispering](whispering/README.md) | local web | none: the origin's OPFS | contract `whispering`: `recordings`, `audio`, `transcriptions`, `transformations`, `transformation_runs`, `text_runs` |
 | [Messages](messages/README.md) | local program (`bun run --cwd apps/messages start`) | none: the origin's OPFS | contract `messages`: `drafts`, `attempts` |
-| [Vocab](vocab/README.md) | browser only | none: the origin's OPFS, and signed in the `vocab` repository | contract `vocab`: `entries`, `chats`, `messages` |
+| [Vocab](vocab/README.md) | online web | none: the `vocab` repository | contract `vocab`: `entries`, `chats`, `messages` |
 
 Local Books keeps its QuickBooks replica in SQLite under
 `<AppData>/apps/so.epicenter.local-books`, outside the library. `api`,
