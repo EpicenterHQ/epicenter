@@ -96,7 +96,8 @@ Every device opener is async and returns a `Result` whose error is an
 **A recording is written into the variant's store as it records.**
 `startRecording({ device, path })` and `recoverRecordings({ device, under })`
 are the same calls from `@epicenter/recorder/tauri`, where the shell writes
-`<path>.wav` into the data folder from the first sample, and from
+a WAV from the first sample and encodes it to Opus in WebM at `<path>.webm`
+in the data folder when it stops (ADR-0543's last amendment), and from
 `@epicenter/recorder/browser`, which appends each MediaRecorder piece (about
 a second) to `<path>.m4a` or `.webm` in this browser's files. The app's
 `#platform` seam imports one. A quit, a crash, or a closed tab keeps the

@@ -1,16 +1,16 @@
 /**
  * Recordings written into Whispering's files as they record (ADR-0543,
  * decision 84): on the desktop the shell's WAV from the first sample, kept in
- * the folder's `.epicenter/recording` until it stops and then moved to
- * `recordings/<id>.wav`; in a browser each piece appended to its file as it
+ * the folder's `.epicenter/recording` until it stops and then encoded to
+ * `recordings/<id>.webm`; in a browser each piece appended to its file as it
  * arrives. The note is made when recording starts, so the files always name
  * what they hold, and completed with the length when it stops. A recording
  * a quit, a crash, or a closed tab cut off has a note without a length; the
- * capture device repairs its audio and, on the desktop, moves it to its path
- * (`CaptureDevice.recover`); the next start completes its note from the
- * audio's own bytes. A Stop that fails keeps the note unless nothing was
- * written, so audio the desktop could not move into place is named when the
- * next start moves it.
+ * capture device repairs its audio and, on the desktop, encodes it and
+ * places it at its path (`CaptureDevice.recover`); the next start completes
+ * its note from the audio's own bytes. A Stop that fails keeps the note
+ * unless nothing was written, so audio the desktop could not place, or
+ * placed as a WAV its encoder refused, is named by the next start.
  */
 import type { Client } from '@epicenter/definition/contract';
 import { audioDurationMs } from '@epicenter/recorder';
@@ -68,7 +68,7 @@ export async function completeRecording(
 	);
 }
 
-/** The extensions recordings are written under: WAV on the desktop, AAC in MP4 or Opus in WebM in a browser. */
+/** The extensions recordings are written under: Opus in WebM on the desktop (WAV when it could not encode one), AAC in MP4 or Opus in WebM in a browser. */
 const RECORDED = ['wav', 'm4a', 'webm'] as const;
 
 /** When a recording whose id `timeId` made was started, or now for any other id. */
@@ -86,9 +86,10 @@ function recordedAtOf(id: string): string {
  * Complete every recording whose note has no length once its audio
  * (`<id>.<ext>`) is there: what a quit, a crash, or a closed tab cut off.
  * The capture device's `recover` runs first, and only when some note has
- * no length: on the desktop it is what moves a cut-off recording from
- * `.epicenter/recording` to its path (or beside it, `<id>-recovered`, when
- * the path is taken), so its audio is not there before it runs; in a
+ * no length: on the desktop it is what encodes a cut-off recording from
+ * `.epicenter/recording` and places it at its path (or beside it,
+ * `<id>-recovered`, when the path is taken), so its audio is not there
+ * before it runs; in a
  * browser it reads every recording's audio, which no start should pay for
  * when nothing was cut off. Run it before anything records.
  *

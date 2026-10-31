@@ -84,3 +84,32 @@ quit or a crash left there and moves it the same way. So `epicenter sync`
 never commits a half-written WAV, and readers never see a growing file at a
 data path. The browser recorder is unchanged: it appends to its file at its
 path in this browser's private storage, which nothing syncs.
+
+## Amendment, 2026-11-01: a stopped desktop recording is Opus in WebM
+
+While it records, a desktop recording is still the WAV in
+`.epicenter/recording/<path>.wav`, so a quit or a crash keeps every sample
+behind a header `recoverRecordings` repairs. At `stop` the shell encodes it
+to Opus in WebM, mono, 24 kbps variable rate, tuned for voice, in 20 ms
+packets: about 10.5 MB an hour of speech against the WAV's 115 MB. It
+encodes after the microphone is released and the recorder is free, off the
+main thread, reading the WAV 20 ms at a time, so an hour costs the memory a
+second does. The encode is written into a scratch file of the folder's,
+placed at `<path>.webm` without replacing anything there, and only then is
+the WAV removed. A crash part-way leaves the WAV, which `recoverRecordings`
+encodes again, and a scratch file the folder sweeps once stale. A WAV the
+encoder refuses is placed itself, at `<path>.wav`, and `stop` says so: no
+audio is lost to an encoder.
+
+The container is the shell's own small WebM writer, which states what Safari
+and Chromium need to play and decode the exact samples: the pre-skip as
+CodecDelay, SeekPreRoll, the last packet's padding as DiscardPadding, the
+Duration, and Cues. Ogg was rejected because WebKit misreports an Ogg Opus
+file's duration and seeks (an hour read as 3,682 s); WebM costs Finder and
+Quick Look preview on macOS. Nothing in the file varies between two encodes
+of one WAV, so recovery tells a recording it already placed by its bytes.
+libopus is built from the source `audiopus_sys` bundles, never a system or
+Homebrew copy (`OPUS_NO_PKG` in `.cargo/config.toml`). The transcription
+decoder trims the pre-skip and the end padding, and decodes Opus straight
+to 16 kHz, so it reads back exactly the samples recorded. The browser
+recorder is unchanged.

@@ -2,18 +2,19 @@
  * Recording in the desktop app, through `tauri-plugin-epicenter-recorder`
  * (ADR-0543, decision 84).
  *
- * The shell's recorder writes the WAV from the first sample into the
+ * The shell's recorder writes a WAV from the first sample into the
  * `device`'s folder's own `.epicenter/recording`, which no listing shows and
  * sync never commits, its header updated about once a second. The folder is
  * named to the shell by the root it answered when the page opened the device
  * (`rootOf` from `@epicenter/folder/tauri`), or, for the window's own folder,
- * by none. `stop` finalizes its header and moves it to `<path>.wav`, never
- * over a file there: the recording appears at its path whole. When the page
- * reloads or its window closes, the shell finalizes and moves the recording
- * itself: the file is kept. A process that ends before then leaves it in
- * `.epicenter/recording` with a header that undercounts the last second;
- * `recoverRecordings` rewrites it from the file's length and moves it to its
- * path.
+ * by none. `stop` finalizes it, encodes it to Opus in WebM, and places that
+ * at `<path>.webm`, never over a file there: the recording appears at its
+ * path whole. (A WAV the encoder refuses is placed at `<path>.wav` instead,
+ * and `stop` fails saying so.) When the page reloads or its window closes,
+ * the shell finalizes and places the recording itself: the audio is kept. A
+ * process that ends before then leaves the WAV in `.epicenter/recording`
+ * with a header that undercounts the last second; `recoverRecordings`
+ * rewrites it from the file's length, encodes it, and places it at its path.
  *
  * Levels and an ending nobody asked for arrive on a channel this page alone
  * hears.
@@ -106,7 +107,7 @@ function createRecordingSignals() {
 	};
 }
 
-/** Record into `device`'s folder from the first sample, landing at `<path>.wav` when it stops. */
+/** Record into `device`'s folder from the first sample, landing at `<path>.webm` when it stops. */
 export const startRecording: StartRecording = async ({
 	device,
 	path,
@@ -158,9 +159,9 @@ export const startRecording: StartRecording = async ({
 
 /**
  * Repair every WAV a quit or a crash left in the folder's
- * `.epicenter/recording` under `under`, and move each to its path (or beside
- * it, `<name>-recovered.wav`, when the path is taken). Answers the paths
- * placed.
+ * `.epicenter/recording` under `under`, encode each, and place it at its
+ * path (or beside it, `<name>-recovered.webm`, when the path is taken).
+ * Answers the paths placed.
  */
 export const recoverRecordings: RecoverRecordings = async ({
 	device,

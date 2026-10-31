@@ -3,15 +3,19 @@
  * (`audioDurationMs`), and where one a quit or a closed tab cut off ends
  * cleanly (`repairAudio`).
  *
- * - WAV (the desktop's): the header names the length.
+ * - Opus in WebM, written whole (the desktop's): Info's Duration names the
+ *   length that plays.
+ * - WAV (the desktop's, when its encoder refused one): the header names the
+ *   length.
  * - AAC in fragmented MP4 (`m4a`, a browser's first choice): `ftyp` and
  *   `moov`, then one `moof` and `mdat` per piece the browser handed over. A
  *   file cut off ends inside a box, or with a `moof` whose `mdat` never
  *   came; it is whole up to the last `mdat` that is. Its length is what
  *   plays: the encoder priming an edit list skips is not counted.
- * - Opus in WebM (`webm`): a segment and clusters of unknown size, so blocks
- *   can be added forever. A file cut off ends inside an element; it is whole
- *   up to the last element that is.
+ * - Opus in WebM (`webm`, a browser's second choice): a segment and clusters
+ *   of unknown size, so blocks can be added forever, and no Duration. A file
+ *   cut off ends inside an element; it is whole up to the last element that
+ *   is. Its length is read from its last blocks' times.
  *
  * Both browser formats are written in pieces of about a second, and every
  * piece but the last cut is whole, so a repair loses at most that piece.
@@ -259,6 +263,7 @@ const EBML = 0x1a45dfa3;
 const SEGMENT = 0x18538067;
 const INFO = 0x1549a966;
 const TIMECODE_SCALE = 0x2ad7b1;
+const DURATION = 0x4489;
 const CLUSTER = 0x1f43b675;
 const TIMECODE = 0xe7;
 const SIMPLE_BLOCK = 0xa3;
@@ -327,6 +332,8 @@ type WebmWalk = {
 	readonly open: Element[];
 	/** Ticks per millisecond's worth of nanoseconds. */
 	readonly timecodeScale: number;
+	/** Info's Duration, in ticks, when the file states one. */
+	readonly duration: number | undefined;
 	/** The last two blocks' times, in ticks. */
 	readonly times: number[];
 };
@@ -339,6 +346,7 @@ function walkWebm(bytes: Uint8Array): WebmWalk | undefined {
 	if (segment?.id !== SEGMENT) return undefined;
 	let whole = segment.body;
 	let timecodeScale = 1_000_000;
+	let duration: number | undefined;
 	const times: number[] = [];
 	const open: Element[] = [];
 	let cluster: { element: Element; timecode: number } | undefined;
@@ -382,6 +390,9 @@ function walkWebm(bytes: Uint8Array): WebmWalk | undefined {
 			const scale = findChild(bytes, element, TIMECODE_SCALE);
 			if (scale !== undefined)
 				timecodeScale = uint(bytes, scale.body, scale.end!) || timecodeScale;
+			const stated = findChild(bytes, element, DURATION);
+			if (stated !== undefined)
+				duration = float(bytes, stated.body, stated.end!);
 		}
 		whole = element.end;
 		offset = element.end;
@@ -390,8 +401,16 @@ function walkWebm(bytes: Uint8Array): WebmWalk | undefined {
 	const lastCluster = cluster?.element;
 	if (lastCluster?.end !== undefined && lastCluster.end > whole)
 		open.push(lastCluster);
-	return { whole, open, timecodeScale, times };
+	return { whole, open, timecodeScale, duration, times };
 }
+
+/** An EBML float: four or eight bytes, big-endian; undefined for any other length. */
+const float = (bytes: Uint8Array, start: number, end: number) => {
+	const view = viewOf(bytes);
+	if (end - start === 8) return view.getFloat64(start);
+	if (end - start === 4) return view.getFloat32(start);
+	return undefined;
+};
 
 const uint = (bytes: Uint8Array, start: number, end: number) => {
 	let value = 0;
@@ -435,6 +454,14 @@ function repairWebm(bytes: Uint8Array): Uint8Array | undefined {
 function webmDurationMs(bytes: Uint8Array): number | undefined {
 	const walked = walkWebm(bytes);
 	if (walked === undefined) return undefined;
+	// Stated by a writer that knew the end, trims included: the desktop's.
+	if (
+		walked.duration !== undefined &&
+		Number.isFinite(walked.duration) &&
+		walked.duration > 0 &&
+		walked.whole === bytes.length
+	)
+		return Math.round((walked.duration * walked.timecodeScale) / 1_000_000);
 	const [before, last] =
 		walked.times.length === 2
 			? walked.times

@@ -5,7 +5,7 @@
  * - A recording is a note at `recordings/{id}.md` (its title, when it was
  *   recorded, how long it is, and what it was captured from; notes in the
  *   body) beside its audio at `recordings/{id}.{ext}`: `m4a` or `webm` from a
- *   browser, `wav` from the desktop.
+ *   browser, `webm` from the desktop (`wav` when it could not encode one).
  * - A transcription is a note naming its recording, the transcript as body.
  * - A transformation is a reusable title and instructions (the body), with an
  *   optional model of its own (`null` uses the text connection's).

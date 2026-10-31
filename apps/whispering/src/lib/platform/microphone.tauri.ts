@@ -2,8 +2,8 @@
  * The microphone in Whispering's desktop app: the shell's
  * (`tauri-plugin-epicenter-recorder`, ADR-0571), never the WebView's. The
  * shell lists the inputs by name without asking for access, reads one's
- * level without recording, and records `recordings/<id>.wav` into the data
- * folder from the first sample (ADR-0543), through `@epicenter/recorder/tauri`,
+ * level without recording, and records into the data folder from the first
+ * sample, as `recordings/<id>.webm` once it stops (ADR-0543), through `@epicenter/recorder/tauri`,
  * the same recording API a browser build imports from `/browser`. A quit, a
  * crash, or a closed window keeps the audio up to the cut, and `recover`
  * repairs its header on the next launch.

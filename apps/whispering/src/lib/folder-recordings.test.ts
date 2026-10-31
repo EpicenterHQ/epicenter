@@ -102,7 +102,9 @@ test('the next launch completes a recording a crash cut off, from its audio, rep
 	const { path, device } = await folder();
 	const staged = join(path, '.epicenter/recording/recordings');
 	let repairs = 0;
-	// What the desktop's recover does: the cut-off WAV moves to its path.
+	// What the desktop's recover does: the cut-off recording lands at its
+	// path. The desktop encodes it to `.webm`; a WAV, as it places one its
+	// encoder refused, stands in, since the length is read the same way.
 	const repair = async () => {
 		repairs++;
 		await rename(

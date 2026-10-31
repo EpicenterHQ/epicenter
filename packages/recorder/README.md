@@ -14,7 +14,7 @@ tests, and every bundler resolve each specifier to the same file:
 
 ```txt
 @epicenter/recorder           the shared vocabulary: types, RecorderError, audioDurationMs; no implementation
-  /tauri    → tauri-plugin-epicenter-recorder: the shell writes the WAV under .epicenter/recording from the first sample, then moves it to <path>.wav
+  /tauri    → tauri-plugin-epicenter-recorder: the shell writes a WAV under .epicenter/recording from the first sample, then encodes it to <path>.webm
   /browser  → MediaRecorder: each piece appended to <path>.m4a (or .webm) in this browser's files; streams and VAD
   /vad-assets → the VAD runtime files, for a build's static copy
 ```
@@ -30,7 +30,7 @@ const { data: recording, error } = await startRecording({
 	path: 'recordings/2026-10-15-0930', // no extension: the format's is added
 	input: { deviceId, label }, // optional; undefined is the system default
 });
-recording.path; // 'recordings/2026-10-15-0930.wav' (desktop) or '.m4a' / '.webm' (browser)
+recording.path; // 'recordings/2026-10-15-0930.webm' (desktop, and a browser without MP4) or '.m4a' (browser)
 const unsubscribe = recording.onLevel((level) => meter.set(level));
 const { data: stopped } = await recording.stop(); // { path, durationMs }
 ```
@@ -44,20 +44,21 @@ file with a sync access handle.
 
 | | Desktop | Browser |
 | --- | --- | --- |
-| The file | `<path>.wav`, written from the first sample in the folder's `.epicenter/recording` (unlisted, never synced) and moved to its path at `stop` | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
-| Format | WAV, 16 kHz mono PCM | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
+| The file | `<path>.webm`: a WAV written from the first sample in the folder's `.epicenter/recording` (unlisted, never synced), encoded and placed at its path at `stop`; `<path>.wav` when the encoder refuses it, and `stop` fails saying so | `<path>.m4a`, else `<path>.webm`, from the first piece (about a second) |
+| Format | Opus in WebM, mono, 24 kbps, from 16 kHz PCM (about 10.5 MB an hour of speech; the WAV is 115 MB) | AAC in fragmented MP4, else Opus in WebM, named by the type produced |
 | While it records | The header is rewritten about once a second | Each piece is appended as it arrives; the store's listeners hear the file made and finished, not every piece |
 | Quit, crash, closed window or tab | Audio kept up to the cut | Every piece already written is kept |
-| `recoverRecordings` | Rewrites the header of a WAV a quit cut short and moves it from `.epicenter/recording` to its path, never over a file there (beside it, as `<name>-recovered.wav`, when the path is taken) | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file) |
+| `recoverRecordings` | Rewrites the header of a WAV a quit cut short, then encodes and places it as `stop` does, never over a file there (beside it, as `<name>-recovered.webm`, when the path is taken) | Cuts an `m4a` or `webm` back to its last whole piece, skipping one a tab is still writing (it holds a Web Lock named for its file) |
 | `silentRecordings` | None: the desktop keeps a recording outside its path until it stops | Of the paths asked about, those with no audio file whose Web Lock no tab holds: what a tab closed before its first piece left |
 | Refused before the microphone opens | The folder or path may not be written, or a file is there | This browser keeps no files here (a private window), or a file is there |
 | Chosen microphone | Asked for by the ID `listInputs` answers (`input.deviceId`) | Asked for by the WebView's ID (`input.deviceId`) |
 | Voice processing | None: cpal reads the device as it hears | Off: echo cancellation, noise suppression, and gain control are asked off, since Safari's take about 2 s to start and MediaRecorder drops that time |
 | `signal` aborted after the microphone opened | Stopped: the WAV is finalized and kept | Released; nothing was written |
-| `durationMs` at `stop` | The samples written over the rate | Read from the file written; the time between start and stop only when its bytes do not read. An engine drops the first moments of a recording (Safari about 0.3 s), so the clock says more than the audio holds |
+| `durationMs` at `stop` | The samples written over the rate, which the file's Duration states too | Read from the file written; the time between start and stop only when its bytes do not read. An engine drops the first moments of a recording (Safari about 0.3 s), so the clock says more than the audio holds |
 
 `audioDurationMs(bytes, ext)` reads how long a `wav`, `m4a`, or `webm` the
-recorder wrote plays, from its own bytes, so an app can complete a note a cut
+recorder wrote plays, from its own bytes (a desktop `webm`'s stated Duration,
+exact to the sample), so an app can complete a note a cut
 left without a length. A store that stops taking pieces mid-recording ends it
 as `storageFailed`; stop keeps what landed.
 

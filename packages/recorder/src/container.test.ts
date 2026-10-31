@@ -2,10 +2,12 @@
  * Reading and repairing the audio files the recorder writes, over real
  * recordings: a second of a 440 Hz tone that Chromium and WebKit each
  * recorded with `MediaRecorder` in pieces of a quarter second
- * (`fixtures/`), as AAC in MP4 and as Opus in WebM.
+ * (`fixtures/`), as AAC in MP4 and as Opus in WebM, and one the desktop's
+ * recorder encoded (`desktop.webm`).
  *
  * Key behaviors:
- * - A whole recording reads its length, and needs no repair
+ * - A whole recording reads its length, and needs no repair; the desktop's
+ *   reads the Duration it states
  * - A recording cut anywhere is repaired to a prefix that is whole: a second
  *   repair cuts nothing, and its length never exceeds the whole one's
  * - A cut on a piece's boundary loses nothing in MP4, whose pieces are whole
@@ -95,6 +97,15 @@ test('a WebM cut inside a known-size cluster says its size is unknown, so nothin
 	expect(repaired[17 + 4]).toBe(0xff);
 	expect(repairAudio(repaired, 'webm')).toBeUndefined();
 	expect(audioDurationMs(repaired, 'webm')).toBe(0);
+});
+
+test('a desktop recording reads the length its Duration states, to the sample', async () => {
+	// 16,007 samples at 16 kHz, encoded by the desktop's recorder: 1000.4375 ms
+	// play. Its last block starts at 1,000 ms; reading the length from the
+	// blocks would answer 1,020.
+	const bytes = await fixture('desktop.webm');
+	expect(audioDurationMs(bytes, 'webm')).toBe(1000);
+	expect(repairAudio(bytes, 'webm')).toBeUndefined();
 });
 
 test('a WAV reads its length from its header; it is never repaired here', () => {

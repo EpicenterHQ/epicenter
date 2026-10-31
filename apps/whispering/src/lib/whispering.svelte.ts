@@ -196,7 +196,8 @@ export function createWhispering({
 		// audio at all (the store refused it, or nothing was captured) takes
 		// its note with it. Any other failure keeps the note: on the desktop
 		// the audio may be waiting in `.epicenter/recording`, which the next
-		// start moves to its path.
+		// start encodes and places at its path, or be placed as a WAV the
+		// encoder refused, whose length the next start reads.
 		if (error !== null) {
 			recorderError = error.message;
 			if (

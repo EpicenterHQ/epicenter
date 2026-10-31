@@ -97,8 +97,9 @@ recorder asks for AAC in MP4 first and Opus in WebM second, and appends each
 piece (about a second) to `recordings/<id>.m4a` or `.webm` in this browser's
 files as it arrives. On the desktop it is the shell's microphone
 (`platform/microphone.tauri.ts`, over `@epicenter/recorder/tauri`), which
-writes the WAV from the first sample in the folder's `.epicenter/recording`
-and moves it to `recordings/<id>.wav` when it stops. Until its Stop has
+writes a WAV from the first sample in the folder's `.epicenter/recording`
+and, when it stops, encodes it to Opus in WebM at `recordings/<id>.webm`
+(`recordings/<id>.wav` when the encoder refuses it). Until its Stop has
 finished, a recording's audio reads as `recording` (`files.svelte.ts`): its
 row says "Recording…", and it is not played, transcribed, or deleted.
 
@@ -115,11 +116,12 @@ Recording never waits on the network. Where the browser keeps no files (a
 private window) the note cannot be made, so recording is refused before
 any microphone opens. When a start finds a note with no length beside its
 audio (what a quit, a crash, or a closed tab cut off), it first repairs the
-audio (`capture.recover()`: a WAV header on the desktop; an `m4a` or `webm`
+audio (`capture.recover()`: a WAV header on the desktop, then the encode
+Stop would have done; an `m4a` or `webm`
 cut back to its last whole piece in a browser, skipping one another tab is
 still writing) and then completes the note from it (`audioDurationMs`).
 Nothing is read for repair when nothing was cut off. On the desktop a
-leftover whose path is taken is placed beside it as `<id>-recovered.wav`,
+leftover whose path is taken is placed beside it as `<id>-recovered.webm`,
 and audio the repair placed that no note names is given a note
 ("Recovered recording"). In a browser a note whose recording holds no audio
 and that no tab is recording (a tab closed before its first piece) is

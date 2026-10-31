@@ -14,7 +14,7 @@ against. Any program that writes the layout is a valid writer.
 | Path | What it is |
 | --- | --- |
 | `recordings/<id>.md` | A recording: `title`, `recordedAt`, `durationMs`, `capture` (`microphone` or `fixture`) in front matter, your notes in the body. |
-| `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `wav` from a desktop. |
+| `recordings/<id>.<ext>` | Its audio: `m4a` (AAC) or `webm` (Opus) from a browser, `webm` (Opus) from a desktop, or `wav` when a desktop could not encode one. |
 | `transcriptions/<id>.md` | A transcript: the `recordingId` it was made from, `createdAt`, `model`, `endpoint`; the transcript is the body. |
 | `transformations/<id>.md` | A transformation: a `title` and an optional `model` (`null` uses the text connection's); its instructions are the body. |
 | `transformation_runs/<id>.md` | A transformation applied to a transcript: what it came from, when, the model and endpoint, and the exact `prompt` and `input` sent; the answer is the body. |
@@ -284,8 +284,9 @@ build-time seams:
 whose desktop leaf went missing.
 
 - **Recording** goes through the shell's microphone
-  (`tauri-plugin-epicenter-recorder`), which writes `recordings/<id>.wav`
-  into the data folder from the first sample. The call is the web build's,
+  (`tauri-plugin-epicenter-recorder`), which writes a recording into the
+  data folder from the first sample and encodes it to
+  `recordings/<id>.webm` when it stops. The call is the web build's,
   `startRecording({ device, path })` from `@epicenter/recorder`, imported
   from `/tauri` here and `/browser` there (decision 84). The note is made at
   Start and gets its length at Stop (`folder-recordings.ts`); a recording a
