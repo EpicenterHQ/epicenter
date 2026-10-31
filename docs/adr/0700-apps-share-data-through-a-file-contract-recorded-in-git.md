@@ -4,7 +4,7 @@
 - **Date:** 2026-10-31
 - **Supersedes:** [ADR-0622](0622-a-losing-edit-stays-a-parent-of-the-merge-commit.md) (one merge where the change wins and no conflict marker is written), [ADR-0623](0623-every-browser-app-keeps-its-own-git-clone-of-a-repository.md) (a Git clone per web origin), [ADR-0628](0628-browser-sync-uses-transactions-and-git-updates-instead-of-cross-tab-ownership.md) (browser sync), and [ADR-0545](0545-an-interrupted-incoming-update-is-ordinary-changed-files-and-the-next-sync-finishes-it.md) (the hosts' incoming-update engine).
 - **Amends:** the 23 records in [Records this changes](#records-this-changes), each at the scope named there.
-- **Unbuilt:** per-repository grants and the consent page choosing a repository (`openRemote` reaches `<account>/<contract name>` until then); `@epicenter/secrets`; the notify Durable Object that broadcasts "main moved" per repository; the `epicenter://init?path=…` deep link; Whispering's migration to a contract; `epicenter init --contract`; an R2 bucket bound to the production `api` Worker.
+- **Unbuilt:** per-repository grants and the consent page choosing a repository (`openRemote` reaches `<account>/<contract name>` until then); `@epicenter/secrets`; the notify Durable Object that broadcasts "main moved" per repository; Whispering's migration to a contract; `epicenter init --contract`; an R2 bucket bound to the production `api` Worker.
 
 ## Context
 
